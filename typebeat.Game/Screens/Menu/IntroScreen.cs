@@ -264,7 +264,7 @@ namespace typebeat.Game.Screens.Menu
 
             initialBeatmap?.PrepareTrackForPreview(false, -2600);
 
-            drawableTrack.VolumeTo(0);
+            drawableTrack.VolumeTo(0f);
             drawableTrack.Restart();
             drawableTrack.VolumeTo(1, 2600, Easing.InCubic);
         }
@@ -292,7 +292,7 @@ namespace typebeat.Game.Screens.Menu
 
             // Ramp in over the available lead time but settle at full volume comfortably
             // before the drop, so the drop itself is never mid-fade.
-            double rampTime = Math.Clamp(dropTime - startDelay - 250, 0, 2600);
+            double rampTime = Math.Clamp(dropTime - startDelay - 250, 0, 2200);
             double seek = seekTime;
 
             Scheduler.AddDelayed(() =>
@@ -300,7 +300,7 @@ namespace typebeat.Game.Screens.Menu
                 var drawableTrack = musicController.CurrentTrack;
 
                 Track.RestartPoint = seek;
-                drawableTrack.VolumeTo(0);
+                drawableTrack.VolumeTo(0.3f);
                 drawableTrack.Restart();
                 drawableTrack.VolumeTo(1, rampTime, Easing.InCubic);
             }, startDelay);

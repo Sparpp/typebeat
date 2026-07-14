@@ -16,6 +16,7 @@ using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Notifications;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Screens.Edit;
 using typebeat.Game.Screens.Edit.Setup;
 using typebeat.Game.Screens.ImportLyrics;
 
@@ -39,6 +40,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         [Resolved(CanBeNull = true)]
         private INotificationOverlay? notifications { get; set; }
 
+        [Resolved]
+        private EditorClock editorClock { get; set; } = null!;
+
+        private FormNumberBox beatdropBox = null!;
         private FormNumberBox offsetBox = null!;
         private FormFileSelector lyricsSelector = null!;
 
@@ -47,6 +52,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             Children = new Drawable[]
             {
+                beatdropBox = new FormNumberBox(allowDecimals: true)
+                {
+                    Caption = "Intro beatdrop (ms)",
+                    HintText = "Optional. Flags this map to soundtrack the game intro: playback is timed so this moment lands exactly on the main menu reveal. Leave empty to unset.",
+                    PlaceholderText = "unset",
+                },
+                new FormButton
+                {
+                    Caption = "Stamp the beatdrop at the editor's current playhead position",
+                    ButtonText = "Set @ playhead",
+                    Action = () => Beatmap.IntroBeatdrop.Value = Math.Round(editorClock.CurrentTime),
+                },
                 offsetBox = new FormNumberBox(allowDecimals: true)
                 {
                     Caption = "Shift all timings (ms)",
@@ -71,6 +88,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     Action = runImport,
                 },
             };
+
+            beatdropBox.OnCommit += (_, _) => commitBeatdrop();
+        }
+
+        protected override void LoadComplete()
+        {
+            base.LoadComplete();
+
+            Beatmap.IntroBeatdrop.BindValueChanged(
+                drop => beatdropBox.Current.Value = drop.NewValue is double d ? d.ToString("0", CultureInfo.InvariantCulture) : string.Empty, true);
+        }
+
+        private void commitBeatdrop()
+        {
+            string text = beatdropBox.Current.Value?.Trim() ?? string.Empty;
+
+            if (text.Length == 0)
+            {
+                Beatmap.IntroBeatdrop.Value = null;
+                return;
+            }
+
+            if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed) && parsed >= 0)
+                Beatmap.IntroBeatdrop.Value = Math.Round(parsed);
+            else
+            {
+                // Invalid input: restore the current value's display.
+                var current = Beatmap.IntroBeatdrop.Value;
+                beatdropBox.Current.Value = current is double d ? d.ToString("0", CultureInfo.InvariantCulture) : string.Empty;
+            }
         }
 
         private void applyShift()

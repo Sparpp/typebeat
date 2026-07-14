@@ -9,8 +9,6 @@ using osu.Framework.Graphics.Shapes;
 using osu.Framework.Input.Bindings;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Configuration;
-using typebeat.Game.Graphics;
-using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.Configuration;
 using typebeat.Game.Rulesets.Difficulty;
 using typebeat.Game.Rulesets.Mods;
@@ -100,26 +98,20 @@ namespace typebeat.Game.Rulesets.TypeBeat
             new KeyBinding(InputKey.X, TypeBeatAction.Button2),
         };
 
-        public override Drawable CreateIcon() => new Icon("T!");
+        public override Drawable CreateIcon() => new Icon();
 
+        /// <summary>
+        /// Rendered in the toolbar ruleset button and the intro's ruleset flow. Deliberately
+        /// glyphless — the label rendered poorly at toolbar size.
+        /// </summary>
         public partial class Icon : CompositeDrawable
         {
-            public Icon(string label)
+            public Icon()
             {
-                InternalChildren = new Drawable[]
+                InternalChild = new Circle
                 {
-                    new Circle
-                    {
-                        Size = new Vector2(20),
-                        Colour = Color4.White,
-                    },
-                    new OsuSpriteText
-                    {
-                        Anchor = Anchor.Centre,
-                        Origin = Anchor.Centre,
-                        Text = label,
-                        Font = OsuFont.Default.With(size: 18)
-                    }
+                    Size = new Vector2(20),
+                    Colour = Color4.White,
                 };
             }
         }

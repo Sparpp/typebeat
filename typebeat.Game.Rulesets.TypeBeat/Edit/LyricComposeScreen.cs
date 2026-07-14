@@ -53,37 +53,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         protected override Drawable CreateMainContent() => new GridContainer
         {
             RelativeSizeAxes = Axes.Both,
-            RowDimensions = new[]
+            ColumnDimensions = new[]
             {
-                new Dimension(GridSizeMode.AutoSize),
+                new Dimension(GridSizeMode.Relative, 0.42f),
                 new Dimension(GridSizeMode.Absolute, 6),
                 new Dimension(),
             },
             Content = new[]
             {
-                new[] { (Drawable)new BeatdropToolbar() },
-                new[] { Empty() },
                 new[]
                 {
-                    (Drawable)new GridContainer
-                    {
-                        RelativeSizeAxes = Axes.Both,
-                        ColumnDimensions = new[]
-                        {
-                            new Dimension(GridSizeMode.Relative, 0.42f),
-                            new Dimension(GridSizeMode.Absolute, 6),
-                            new Dimension(),
-                        },
-                        Content = new[]
-                        {
-                            new[]
-                            {
-                                (Drawable)(lineList = new LineListPanel()),
-                                Empty(),
-                                new ActiveLineDetailPanel(),
-                            },
-                        },
-                    },
+                    (Drawable)(lineList = new LineListPanel()),
+                    Empty(),
+                    new ActiveLineDetailPanel(),
                 },
             },
         };
