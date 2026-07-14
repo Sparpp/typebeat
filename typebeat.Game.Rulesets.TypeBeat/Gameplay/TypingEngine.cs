@@ -16,6 +16,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 {
     public sealed class TypingEngine
     {
+        /// <summary>
+        /// How long before a line's first typeable cell's target the line becomes typeable
+        /// (<see cref="TypingLine.ActivationTime"/>). Also the length of the on-screen approach
+        /// cue, so the depleting bar exactly spans "you may type now" to "the word lands".
+        /// </summary>
+        public const double CUE_LEAD_MS = 1500;
+
         private const int combo_cap = 50;
 
         public LyricBeatmap Beatmap { get; }
@@ -26,6 +33,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>-1 before the first line and after finish.</summary>
         public int ActiveLineIndex => activeLineIndex;
+
+        /// <summary>
+        /// The first line that has not sealed yet; -1 once every line has sealed. While no line is
+        /// active (pre-roll, or the dead zone between a seal and the next line's cue) this is the
+        /// UPCOMING line — the one the stage should focus, dimmed, after the boundary scroll.
+        /// </summary>
+        public int NextUnsealedLineIndex => nextSealIndex < lines.Count ? nextSealIndex : -1;
 
         /// <summary>Display-cell index in the active line; == Cells.Count when complete.</summary>
         public int CaretIndex => caretIndex;
@@ -208,7 +222,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             // (3) Activate strictly by time: the first unsealed line, while it is judgeable
-            //     (StartTime <= time < EndTime + grace). Typing never unlocks the next line.
+            //     (ActivationTime <= time < EndTime + grace). ActivationTime is the constant cue
+            //     before the first word (CUE_LEAD_MS), not the boundary — crossing a boundary
+            //     scrolls the stack (the seal above), but typing opens relative to the vocals.
+            //     Typing never unlocks the next line.
             if (nextSealIndex >= lines.Count)
             {
                 if (!isFinished)
@@ -223,7 +240,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             {
                 var candidate = lines[nextSealIndex];
 
-                if (time >= candidate.StartTime && time < candidate.EndTime + candidate.SealGraceMs)
+                if (time >= candidate.ActivationTime && time < candidate.EndTime + candidate.SealGraceMs)
                 {
                     activeLineIndex = nextSealIndex;
                     caretIndex = 0;

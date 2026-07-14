@@ -53,9 +53,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         protected override Drawable CreateMainContent() => new GridContainer
         {
             RelativeSizeAxes = Axes.Both,
-            ColumnDimensions = new[]
+            RowDimensions = new[]
             {
-                new Dimension(GridSizeMode.Relative, 0.42f),
+                new Dimension(GridSizeMode.Absolute, 128),
                 new Dimension(GridSizeMode.Absolute, 6),
                 new Dimension(),
             },
@@ -63,9 +63,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 new[]
                 {
-                    (Drawable)(lineList = new LineListPanel()),
-                    Empty(),
-                    new ActiveLineDetailPanel(),
+                    // Right padding matches the empty 90px column the timeline row reserves, so
+                    // the strip shares the waveform timeline's x-axis (scroll/zoom mirrored).
+                    (Drawable)new Container
+                    {
+                        RelativeSizeAxes = Axes.Both,
+                        Padding = new MarginPadding { Right = 90 },
+                        Child = new LyricTimeline(),
+                    },
+                },
+                new[] { Empty() },
+                new[]
+                {
+                    (Drawable)new GridContainer
+                    {
+                        RelativeSizeAxes = Axes.Both,
+                        ColumnDimensions = new[]
+                        {
+                            new Dimension(GridSizeMode.Relative, 0.42f),
+                            new Dimension(GridSizeMode.Absolute, 6),
+                            new Dimension(),
+                        },
+                        Content = new[]
+                        {
+                            new[]
+                            {
+                                (Drawable)(lineList = new LineListPanel()),
+                                Empty(),
+                                new ActiveLineDetailPanel(),
+                            },
+                        },
+                    },
                 },
             },
         };

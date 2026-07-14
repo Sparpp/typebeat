@@ -74,6 +74,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public double SingEndTime { get; }
 
         /// <summary>
+        /// When this line becomes typeable: a constant cue lead before its first typeable cell's
+        /// target (<see cref="TypingEngine.CUE_LEAD_MS"/>), never earlier than <see cref="StartTime"/>
+        /// (the shared boundary — the previous line cannot seal before it). Independent of the
+        /// boundary otherwise: a line whose vocals start late in its window activates late, and
+        /// the gap in between is a dead zone where no line is active.
+        /// </summary>
+        public double ActivationTime { get; }
+
+        /// <summary>
         /// Extra typeable time past <see cref="EndTime"/> before the engine may force-seal an
         /// incomplete line. Positive when source vocals overrun the boundary (overlapping lines)
         /// or when the last cell's target sits on the boundary itself.
@@ -108,6 +117,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             TypeableCount = typeable;
+
+            double? firstTypeableTarget = null;
+
+            foreach (var c in cells)
+            {
+                if (c.IsTypeable)
+                {
+                    firstTypeableTarget = c.TargetTime;
+                    break;
+                }
+            }
+
+            ActivationTime = firstTypeableTarget is double first
+                ? Math.Max(StartTime, first - TypingEngine.CUE_LEAD_MS)
+                : StartTime;
 
             // Pre-build the sung-position polyline, clamping times monotonic.
             sungPoints = new List<(double, double)>(typeable + 2) { (StartTime, 0) };

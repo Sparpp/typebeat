@@ -28,9 +28,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private const float line_gap = 96f;
 
         // The "get ready" cue: a bar under the next line's first char that depletes over the
-        // final lead-in before its first word is sung. Sized/positioned by direct per-frame
-        // sets (no transforms — must behave under frozen/scrubbed gameplay clocks).
-        private const double approach_lead_ms = 1500;
+        // final lead-in before its first word is sung. Its length IS the typeability cue —
+        // the line activates exactly when the bar appears (TypingEngine.CUE_LEAD_MS), so one
+        // signal carries one meaning. Sized/positioned by direct per-frame sets (no transforms
+        // — must behave under frozen/scrubbed gameplay clocks).
+        private const double approach_lead_ms = TypingEngine.CUE_LEAD_MS;
         private const float approach_bar_max_width = 140;
         private const float approach_bar_height = 4;
 
@@ -45,7 +47,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private int wrongKeyPopupDirection = 1;
 
-        // int.MinValue = nothing laid out; -1 = pre-roll; int.MaxValue = finished.
+        // int.MinValue = nothing laid out; int.MaxValue = finished; >= 0 = active line k;
+        // -(k + 2) = focused on UPCOMING line k (pre-roll or the dead zone after a seal but
+        // before the next line's cue) — distinct from the active encoding so the moment line k
+        // activates, the layout re-runs to undim it.
         private int laidOutFocus = int.MinValue;
         private bool pendingSnap;
         private bool caretsVisible;
@@ -214,11 +219,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
             else if (!engine.IsFinished)
             {
-                // Pre-roll / gap before the first line: show line 0 dimmed as the upcoming line.
-                if (laidOutFocus != -1)
+                // Pre-roll, or the dead zone between a boundary seal and the next line's cue:
+                // focus the upcoming line, dimmed. The stack scroll happens HERE — the moment a
+                // line seals (the boundary, or grace-end for overrunning vocals) — not when the
+                // next line activates.
+                int upcoming = Math.Max(0, engine.NextUnsealedLineIndex);
+                int encoded = -(upcoming + 2);
+
+                if (laidOutFocus != encoded)
                 {
-                    relayoutPreRoll();
-                    laidOutFocus = -1;
+                    relayoutUpcoming(upcoming);
+                    laidOutFocus = encoded;
                 }
 
                 setCaretsVisible(false);
@@ -246,9 +257,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         private void updateApproachCue()
         {
-            int upcoming = engine.ActiveLineIndex == -1 ? 0 : engine.ActiveLineIndex + 1;
+            int upcoming = engine.ActiveLineIndex == -1 ? engine.NextUnsealedLineIndex : engine.ActiveLineIndex + 1;
 
-            if (!engine.IsFinished && upcoming < displays.Length)
+            if (!engine.IsFinished && upcoming >= 0 && upcoming < displays.Length)
             {
                 var line = engine.Lines[upcoming];
                 int firstCell = firstTypeableIndex(line);
@@ -335,22 +346,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             refreshVisible(active);
         }
 
-        private void relayoutPreRoll()
+        private void relayoutUpcoming(int upcoming)
         {
-            // Same first-layout rule as relayout(): the gameplay clock may be frozen or
-            // not yet running, so the initial pre-roll state must not depend on transforms.
-            double dur = laidOutFocus == int.MinValue ? 0 : TypeBeatStyle.SCREEN_FADE_DURATION;
+            // Positions match relayout(upcoming) — the just-sealed line slides up, the upcoming
+            // line takes the centre — but the centre line stays dimmed until it activates.
+            // Same first-layout rule as relayout(): the gameplay clock may be frozen or not yet
+            // running, so the initial state must not depend on transforms.
+            double dur = laidOutFocus == int.MinValue ? 0 : TypeBeatStyle.LINE_SCROLL_DURATION;
 
             for (int k = 0; k < displays.Length; k++)
             {
                 var d = displays[k];
 
-                switch (k)
+                switch (k - upcoming)
                 {
                     case 0:
                         d.SetLineDim(0.4f);
                         fade(d, 1f, dur);
                         move(d, 0f, dur);
+                        break;
+
+                    case -1:
+                        d.SetLineDim(0.7f);
+                        fade(d, 1f, dur);
+                        move(d, -line_gap, dur);
                         break;
 
                     case 1:
@@ -359,13 +378,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         move(d, line_gap, dur);
                         break;
 
+                    case -2:
+                        fade(d, 0f, dur);
+                        move(d, -2 * line_gap, dur);
+                        break;
+
+                    case 2:
+                        fade(d, 0f, dur);
+                        move(d, 2 * line_gap, dur);
+                        break;
+
                     default:
                         fade(d, 0f, 0);
                         break;
                 }
-
-                refreshDisplayCells(k);
             }
+
+            refreshVisible(upcoming);
         }
 
         private void refreshVisible(int active)

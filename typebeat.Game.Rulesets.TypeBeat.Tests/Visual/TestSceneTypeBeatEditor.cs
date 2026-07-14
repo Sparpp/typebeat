@@ -86,8 +86,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("line list has a row per line", () => textBoxCount() == 2);
             AddUntilStep("overview has a bar per line", () =>
                 Editor.ChildrenOfType<LineOverviewPart>().SingleOrDefault()?.Children.Count == 2);
-            AddUntilStep("word strip shows the active line's words", () =>
-                Editor.ChildrenOfType<WordStrip>().Single().ChildrenOfType<typebeat.Game.Graphics.Sprites.OsuSpriteText>().Any(t => t.Text.ToString() == "hello world"));
+            AddUntilStep("lyric timeline surfaces the words", () =>
+                Editor.ChildrenOfType<LyricTimeline>().Single().ChildrenOfType<typebeat.Game.Graphics.Sprites.OsuSpriteText>().Any(t => t.Text.ToString() == "hello world"));
 
             AddStep("delete first line via ops", () =>
                 TypeBeatEditorOperations.DeleteLine(EditorBeatmap, EditorBeatmap.HitObjects.OfType<TypeBeatHitObject>().First()));
@@ -127,27 +127,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             AddUntilStep("compose screen shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
 
-            // Select line 1 while paused. The word strip should pin to it even when the playhead
+            // Select line 1 while paused. The active line should pin to it even when the playhead
             // is parked over a different line — a selection is a manual override while paused.
+            // (The continuous timeline shows every line, so "which line is active" is the state
+            // under test, not which words are visible.)
             AddStep("select first line", () =>
                 composeScreen().EditState.SelectedLine.Value = EditorBeatmap.HitObjects.OfType<TypeBeatHitObject>().First());
             AddStep("park playhead over line 2", () => EditorClock.Seek(3500));
-            AddUntilStep("strip still pinned to line 1", () => wordStripShows("hello world"));
+            AddUntilStep("still pinned to line 1", () => activeLineIs("hello world"));
 
             // Start playback: it must override the selection and follow the playhead onto line 2.
             AddStep("start playback", () => EditorClock.Start());
-            AddUntilStep("strip follows to line 2", () => wordStripShows("second line"));
+            AddUntilStep("follows to line 2", () => activeLineIs("second line"));
 
             // The stale selection is dropped, so pausing keeps the line we heard (no snap back).
             AddStep("stop playback", () => EditorClock.Stop());
             AddUntilStep("selection cleared by follow", () => composeScreen().EditState.SelectedLine.Value == null);
-            AddAssert("stays on line 2 after pause", () => wordStripShows("second line"));
+            AddAssert("stays on line 2 after pause", () => activeLineIs("second line"));
 
             LyricComposeScreen composeScreen() => Editor.ChildrenOfType<LyricComposeScreen>().Single();
 
-            bool wordStripShows(string text) =>
-                Editor.ChildrenOfType<WordStrip>().Single()
-                      .ChildrenOfType<typebeat.Game.Graphics.Sprites.OsuSpriteText>().Any(t => t.Text.ToString() == text);
+            bool activeLineIs(string text) => composeScreen().EditState.ActiveLine.Value?.Line.RawText == text;
         }
 
         [Test]

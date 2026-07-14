@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Extensions.Color4Extensions;
@@ -11,7 +12,6 @@ using osu.Framework.Graphics.Cursor;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Input.Events;
-using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Cursor;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
@@ -23,20 +23,20 @@ using osuTK;
 namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
-    /// The fine-timing surface for the ACTIVE line: word blocks over a window spanning the line
-    /// (±15% context), which the mouse wheel zooms and a background drag pans. Word edges resize
-    /// like a window's edges (cursor turns into a horizontal-resize arrow over the grab zone);
-    /// the block body moves the word. A line-start boundary handle, a sung-end flag, and a
-    /// gameplay-style playhead sweep complete the picture.
+    /// The fine-timing surface as a continuous timeline: every line's word blocks laid out along
+    /// song time, with the visible window mirrored from the waveform timeline above (scroll and
+    /// zoom stay in sync; the strip sits directly beneath it sharing the same x-axis). Adjacent
+    /// lines share ONE boundary — the handle at a line's start is also the previous line's end
+    /// (<see cref="TypeBeatEditorOperations.SetLineStart"/> moves both sides together).
     ///
-    /// Poll-synced: blocks are rebuilt only when the active line's identity or token layout
-    /// changes and are repositioned in place otherwise, so a block survives its own drag while
-    /// the model updates per frame beneath it.
+    /// Word edges resize window-style (horizontal-resize cursor over the grab zone); the block
+    /// body moves the word; per-line sung-end flags and alternating line bands complete the
+    /// picture. Poll-synced: children are rebuilt only when the line set / text layout changes
+    /// and are repositioned in place otherwise, so a block survives its own drag while the
+    /// model updates per frame beneath it.
     /// </summary>
-    public partial class WordStrip : CompositeDrawable, IProvideCursor
+    public partial class LyricTimeline : CompositeDrawable, IProvideCursor
     {
-        private const double max_zoom = 12;
-
         [Resolved]
         private EditorBeatmap editorBeatmap { get; set; } = null!;
 
@@ -46,34 +46,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         [Resolved]
         private EditorClock editorClock { get; set; } = null!;
 
+        [Resolved]
+        private EditorScreenWithTimeline screen { get; set; } = null!;
+
+        private readonly Container bandLayer;
         private readonly Container blockLayer;
-        private readonly Box windowBackground;
+        private readonly Container handleLayer;
         private readonly Box playhead;
-        private readonly BoundaryHandle startHandle;
-        private readonly SingEndFlag singEndFlag;
         private readonly ResizeCursorContainer resizeCursor;
 
-        private TypeBeatHitObject? displayedObject;
-        private string? displayedTokenSignature;
-        private double windowStart, windowLength;
+        private double windowStart, windowLength = 1;
 
-        // While a boundary handle is dragged the view is held stable (the handle moves, the
-        // strip does not) — otherwise moving line.StartTime/EndTime rescales the whole window
-        // every frame, zooming the view and shoving the word blocks around.
-        private bool windowFrozen;
-        private double frozenWindowStart, frozenWindowLength;
-
-        // User view controls (reset when the active line changes): 1 = fit line, higher = zoom in.
-        private double userZoom = 1;
-        private double? panCentre;
-
-        // Base (zoom == 1) window derived from the active line; captured each frame for the
-        // cursor-anchored zoom + pan maths.
-        private double baseStart, baseLength, resolvedCentre;
+        // Rebuild signature: line identities + text + unit counts (positions are re-polled).
+        private readonly List<(TypeBeatHitObject hitObject, string rawText, int unitCount)> displayed = new List<(TypeBeatHitObject, string, int)>();
 
         private bool edgeHovered;
 
-        public WordStrip()
+        public LyricTimeline()
         {
             RelativeSizeAxes = Axes.Both;
 
@@ -81,19 +70,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 new Container
                 {
-                    // Masked so word blocks/handles outside the (possibly zoomed) window are clipped.
+                    // Masked so blocks/handles outside the visible window are clipped.
                     RelativeSizeAxes = Axes.Both,
                     Masking = true,
                     Children = new Drawable[]
                     {
-                        windowBackground = new Box
+                        new Box
                         {
                             RelativeSizeAxes = Axes.Both,
-                            Colour = TypeBeatStyle.PanelBackground,
+                            Colour = TypeBeatStyle.Background,
+                            Alpha = 0.6f,
                         },
+                        bandLayer = new Container { RelativeSizeAxes = Axes.Both },
                         blockLayer = new Container { RelativeSizeAxes = Axes.Both },
-                        startHandle = new BoundaryHandle(this),
-                        singEndFlag = new SingEndFlag(this),
+                        handleLayer = new Container { RelativeSizeAxes = Axes.Both },
                         playhead = new Box
                         {
                             RelativeSizeAxes = Axes.Y,
@@ -115,81 +105,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Reported by word blocks: whether the mouse is currently over a resize edge.</summary>
         public void SetEdgeHovered(bool value) => edgeHovered = value;
 
-        private TypeBeatHitObject? active => state.ActiveLine.Value;
-
         protected override void Update()
         {
             base.Update();
 
-            var line = active;
+            var timeline = screen.TimelineArea?.Timeline;
 
-            if (line == null || !editorBeatmap.HitObjects.Contains(line))
-            {
-                blockLayer.Clear();
-                displayedObject = null;
-                displayedTokenSignature = null;
-                startHandle.Alpha = singEndFlag.Alpha = playhead.Alpha = 0;
-                windowBackground.Alpha = 0.3f;
-                edgeHovered = false;
+            if (timeline == null || !timeline.IsLoaded)
                 return;
-            }
 
-            windowBackground.Alpha = 1;
+            // Mirror the waveform timeline's visible window (its Current is the content-space
+            // left edge; VisibleRange the on-screen duration).
+            windowStart = timeline.TimeAtPosition(timeline.Current);
+            windowLength = Math.Max(1, timeline.VisibleRange);
 
-            string signature = line.Line.RawText;
+            var ordered = TypeBeatEditorOperations.OrderedLines(editorBeatmap);
 
-            if (displayedObject != line || displayedTokenSignature != signature)
-            {
-                bool lineChanged = displayedObject != line;
-                displayedObject = line;
-                displayedTokenSignature = signature;
+            if (signatureChanged(ordered))
+                rebuild(ordered);
 
-                // Fit-to-line resets the view; a mere text edit on the same line keeps the zoom.
-                if (lineChanged)
-                {
-                    userZoom = 1;
-                    panCentre = null;
-                }
+            foreach (var band in bandLayer.OfType<LineBand>())
+                band.UpdateLayout(this);
 
-                rebuildBlocks(line);
-            }
-
-            if (windowFrozen)
-            {
-                // Boundary drag in progress: hold the window exactly as it was grabbed so the
-                // handle glides and the blocks stay put (matches the sung-end flag's feel).
-                windowStart = frozenWindowStart;
-                windowLength = frozenWindowLength;
-                baseStart = windowStart;
-                baseLength = windowLength;
-                resolvedCentre = windowStart + windowLength / 2;
-            }
-            else
-            {
-                // Base window: the line span padded 15% each side (min 400ms padding for tiny lines).
-                double lineSpan = line.Line.EndTime - line.Line.StartTime;
-                double pad = Math.Max(400, lineSpan * 0.15);
-                baseStart = line.Line.StartTime - pad;
-                baseLength = lineSpan + pad * 2;
-
-                // Apply zoom + pan, clamped so the view can't stray past the padded line window.
-                windowLength = baseLength / userZoom;
-                double lineCentre = line.Line.StartTime + lineSpan / 2;
-                double centre = panCentre ?? lineCentre;
-                double lo = baseStart + windowLength / 2;
-                double hi = baseStart + baseLength - windowLength / 2;
-                resolvedCentre = lo <= hi ? Math.Clamp(centre, lo, hi) : (baseStart + baseLength / 2);
-                windowStart = resolvedCentre - windowLength / 2;
-            }
-
-            // Reposition everything in place from the current (possibly mid-drag) model.
             foreach (var block in blockLayer.OfType<WordBlock>())
                 block.UpdateLayout(this);
 
-            startHandle.Alpha = 1;
-            startHandle.X = PositionOf(line.Line.StartTime);
-            singEndFlag.Alpha = 1;
-            singEndFlag.X = PositionOf(line.Line.SingEndTime);
+            foreach (var handle in handleLayer.OfType<BoundaryHandle>())
+                handle.UpdateLayout(this);
+
+            foreach (var flag in handleLayer.OfType<SingEndFlag>())
+                flag.UpdateLayout(this);
 
             double now = editorClock.CurrentTime;
             bool playheadVisible = now >= windowStart && now <= windowStart + windowLength;
@@ -198,50 +143,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 playhead.X = PositionOf(now);
         }
 
-        protected override bool OnScroll(ScrollEvent e)
+        private bool signatureChanged(IReadOnlyList<TypeBeatHitObject> ordered)
         {
-            if (active == null || DrawWidth <= 0)
-                return false;
+            if (ordered.Count != displayed.Count)
+                return true;
 
-            float cursorX = ToLocalSpace(e.ScreenSpaceMousePosition).X;
-            double cursorTime = TimeAt(cursorX);
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                var (hitObject, rawText, unitCount) = displayed[i];
 
-            userZoom = Math.Clamp(userZoom * Math.Pow(1.2, e.ScrollDelta.Y), 1, max_zoom);
+                if (ordered[i] != hitObject || ordered[i].Line.RawText != rawText || ordered[i].Line.Units.Count != unitCount)
+                    return true;
+            }
 
-            // Keep the time under the cursor fixed: solve windowStart + f*newLength == cursorTime.
-            double newLength = baseLength / userZoom;
-            float f = cursorX / DrawWidth;
-            panCentre = cursorTime + newLength * (0.5 - f);
-            return true;
+            return false;
         }
 
-        private double panGrabCentre;
-
-        protected override bool OnDragStart(DragStartEvent e)
+        private void rebuild(IReadOnlyList<TypeBeatHitObject> ordered)
         {
-            // Only pan when zoomed in (otherwise the whole line is already visible).
-            if (userZoom <= 1)
-                return false;
-
-            panGrabCentre = resolvedCentre;
-            return true;
-        }
-
-        protected override void OnDrag(DragEvent e)
-        {
-            if (DrawWidth <= 0)
-                return;
-
-            double deltaX = ToLocalSpace(e.ScreenSpaceMousePosition).X - ToLocalSpace(e.ScreenSpaceMouseDownPosition).X;
-            panCentre = panGrabCentre - deltaX / DrawWidth * windowLength;
-        }
-
-        private void rebuildBlocks(TypeBeatHitObject line)
-        {
+            displayed.Clear();
+            bandLayer.Clear();
             blockLayer.Clear();
+            handleLayer.Clear();
 
-            for (int i = 0; i < line.Line.Units.Count; i++)
-                blockLayer.Add(new WordBlock(this, line, i));
+            for (int i = 0; i < ordered.Count; i++)
+            {
+                var hitObject = ordered[i];
+                displayed.Add((hitObject, hitObject.Line.RawText, hitObject.Line.Units.Count));
+
+                bandLayer.Add(new LineBand(this, hitObject, i));
+
+                for (int j = 0; j < hitObject.Line.Units.Count; j++)
+                    blockLayer.Add(new WordBlock(this, hitObject, j));
+
+                // ONE boundary per line start: dragging it moves this line's start and the
+                // previous line's end together (SetLineStart maintains both sides).
+                handleLayer.Add(new BoundaryHandle(this, hitObject));
+                handleLayer.Add(new SingEndFlag(this, hitObject));
+            }
         }
 
         /// <summary>Window-relative time → local X pixels.</summary>
@@ -250,34 +189,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Local X pixels → time.</summary>
         public double TimeAt(float x) => windowStart + x / DrawWidth * windowLength;
 
-        /// <summary>
-        /// Holds the current view window steady for the duration of a boundary-handle drag, so the
-        /// handle moves against a stationary strip instead of the whole view rescaling under it.
-        /// </summary>
-        public void FreezeWindow()
+        protected override bool OnDoubleClick(DoubleClickEvent e)
         {
-            frozenWindowStart = windowStart;
-            frozenWindowLength = windowLength;
-            windowFrozen = true;
-        }
+            // Double click on empty space (outside every line band — before the first line or
+            // after the last) authors a new line there; bands/blocks consume their own clicks.
+            double time = TimeAt(ToLocalSpace(e.ScreenSpaceMousePosition).X);
+            var added = TypeBeatEditorOperations.AddLine(editorBeatmap, time);
 
-        public void ThawWindow() => windowFrozen = false;
+            if (added != null)
+            {
+                state.SelectedLine.Value = added;
+                editorClock.SeekSmoothlyTo(added.Line.StartTime);
+            }
 
-        /// <summary>
-        /// While frozen, pans the held window just enough to keep <paramref name="time"/> in view —
-        /// so a boundary dragged toward the edge scrolls the strip rather than sliding out of sight.
-        /// </summary>
-        public void KeepVisible(double time)
-        {
-            if (!windowFrozen || frozenWindowLength <= 0)
-                return;
-
-            double margin = frozenWindowLength * 0.12;
-
-            if (time < frozenWindowStart + margin)
-                frozenWindowStart = time - margin;
-            else if (time > frozenWindowStart + frozenWindowLength - margin)
-                frozenWindowStart = time - frozenWindowLength + margin;
+            return true;
         }
 
         /// <summary>A CursorContainer whose cursor is a horizontal-resize arrow (window-edge feel).</summary>
@@ -292,6 +217,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             };
         }
 
+        /// <summary>
+        /// The background band spanning one line's window — shows line extents (alternating
+        /// tint), highlights the active line, and clicking it selects the line.
+        /// </summary>
+        private partial class LineBand : CompositeDrawable
+        {
+            private readonly LyricTimeline strip;
+            private readonly TypeBeatHitObject hitObject;
+            private readonly int lineIndex;
+            private readonly Box body;
+
+            [Resolved]
+            private LyricEditState state { get; set; } = null!;
+
+            public LineBand(LyricTimeline strip, TypeBeatHitObject hitObject, int lineIndex)
+            {
+                this.strip = strip;
+                this.hitObject = hitObject;
+                this.lineIndex = lineIndex;
+
+                RelativeSizeAxes = Axes.Y;
+                InternalChild = body = new Box { RelativeSizeAxes = Axes.Both };
+            }
+
+            public void UpdateLayout(LyricTimeline parent)
+            {
+                X = parent.PositionOf(hitObject.Line.StartTime);
+                Width = Math.Max(0, parent.PositionOf(hitObject.Line.EndTime) - X);
+
+                bool active = state.ActiveLine.Value == hitObject;
+
+                body.Colour = TypeBeatStyle.PanelBackground.Lighten(active ? 0.6f : lineIndex % 2 == 0 ? 0.15f : 0f);
+                body.Alpha = active ? 0.9f : 0.7f;
+            }
+
+            protected override bool OnClick(ClickEvent e)
+            {
+                state.SelectedLine.Value = hitObject;
+                return true;
+            }
+        }
+
         private partial class WordBlock : CompositeDrawable
         {
             // Edge grab zone: fixed pixels, but never more than 40% of a thin block (so a narrow
@@ -300,7 +267,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             private enum Grab { Move, ResizeStart, ResizeEnd }
 
-            private readonly WordStrip strip;
+            private readonly LyricTimeline strip;
             private readonly TypeBeatHitObject hitObject;
             private readonly int index;
 
@@ -326,7 +293,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private double[] groupOrigStart = Array.Empty<double>();
             private double[] groupOrigEnd = Array.Empty<double>();
 
-            public WordBlock(WordStrip strip, TypeBeatHitObject hitObject, int index)
+            public WordBlock(LyricTimeline strip, TypeBeatHitObject hitObject, int index)
             {
                 this.strip = strip;
                 this.hitObject = hitObject;
@@ -355,7 +322,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             private TimedUnit unit => hitObject.Line.Units[index];
 
-            public void UpdateLayout(WordStrip parent)
+            public void UpdateLayout(LyricTimeline parent)
             {
                 if (index >= hitObject.Line.Units.Count)
                     return;
@@ -366,12 +333,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 label.MaxWidth = Math.Max(1, Width - 6);
                 label.Alpha = Width < 16 ? 0 : 1;
 
-                bool selected = state.SelectedUnitIndices.Contains(index) && state.ActiveLine.Value == hitObject;
+                bool activeLine = state.ActiveLine.Value == hitObject;
+                bool selected = activeLine && state.SelectedUnitIndices.Contains(index);
                 bool explicitTiming = unit.Source == TimingSource.Explicit;
 
                 body.Colour = selected
                     ? TypeBeatStyle.Caret
                     : explicitTiming ? TypeBeatStyle.SungAccent.Darken(0.4f) : TypeBeatStyle.UntypedChar.Darken(0.2f);
+
+                // Other lines' blocks stay visible but recede so the active line reads at a glance.
+                Alpha = activeLine ? 1f : 0.55f;
 
                 // Gameplay-style sweep: fill mirrors the sung position.
                 double now = editorClock.CurrentTime;
@@ -405,6 +376,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnClick(ClickEvent e)
             {
+                // A block on another line first pulls selection to that line (unit selection is
+                // scoped to the active line and is cleared by the line change).
+                if (state.ActiveLine.Value != hitObject)
+                {
+                    state.SelectedLine.Value = hitObject;
+                    return true;
+                }
+
                 // Ctrl+click toggles a block in/out; Shift+click selects the run from the anchor;
                 // a plain click selects just this block. (Shift needs no Ctrl, so multi-select still
                 // works even if Ctrl is bound to something else.)
@@ -445,11 +424,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 grabEnd = unit.EndTime;
                 grabTime = strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMouseDownPosition).X);
 
+                // Dragging a block on another line pulls the active line over first, so the edit
+                // lands with the same state a click would have produced.
+                if (state.ActiveLine.Value != hitObject)
+                    state.SelectedLine.Value = hitObject;
+
                 var sel = state.SelectedUnitIndices;
 
                 // Dragging a block that is part of a multi-selection drags the whole group; grabbing
                 // any other block collapses the selection to just it (standard editor feel).
-                groupDrag = sel.Count > 1 && sel.Contains(index);
+                groupDrag = state.ActiveLine.Value == hitObject && sel.Count > 1 && sel.Contains(index);
 
                 if (groupDrag)
                 {
@@ -513,10 +497,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             }
         }
 
-        /// <summary>The line-start grabber: dragging it moves this line's start AND the previous line's end.</summary>
+        /// <summary>
+        /// The SHARED boundary at a line's start: dragging it moves this line's start AND the
+        /// previous line's end together (one boundary between adjacent lines).
+        /// </summary>
         private partial class BoundaryHandle : CompositeDrawable
         {
-            private readonly WordStrip strip;
+            private readonly LyricTimeline strip;
+            private readonly TypeBeatHitObject hitObject;
             private readonly Box line;
 
             [Resolved]
@@ -525,9 +513,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             [Resolved]
             private LyricEditState state { get; set; } = null!;
 
-            public BoundaryHandle(WordStrip strip)
+            public BoundaryHandle(LyricTimeline strip, TypeBeatHitObject hitObject)
             {
                 this.strip = strip;
+                this.hitObject = hitObject;
 
                 Anchor = Anchor.CentreLeft;
                 Origin = Anchor.Centre;
@@ -546,6 +535,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 };
             }
 
+            public void UpdateLayout(LyricTimeline parent) => X = parent.PositionOf(hitObject.Line.StartTime);
+
             public override bool HandlePositionalInput => true;
 
             protected override bool OnHover(HoverEvent e)
@@ -560,36 +551,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnDragStart(DragStartEvent e)
             {
-                if (state.ActiveLine.Value == null)
-                    return false;
-
                 state.BeginInteraction();
-                strip.FreezeWindow();
                 editorBeatmap.BeginChange();
                 return true;
             }
 
             protected override void OnDrag(DragEvent e)
             {
-                if (state.ActiveLine.Value is TypeBeatHitObject line)
-                {
-                    TypeBeatEditorOperations.SetLineStart(editorBeatmap, line, strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X));
-                    strip.KeepVisible(line.Line.StartTime);
-                }
+                TypeBeatEditorOperations.SetLineStart(editorBeatmap, hitObject, strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X));
             }
 
             protected override void OnDragEnd(DragEndEvent e)
             {
                 editorBeatmap.EndChange();
-                strip.ThawWindow();
                 state.EndInteraction();
             }
         }
 
-        /// <summary>The sung-end flag (persisted end_ms): where the vocal stops.</summary>
+        /// <summary>The sung-end flag (persisted end_ms): where a line's vocal stops.</summary>
         private partial class SingEndFlag : CompositeDrawable
         {
-            private readonly WordStrip strip;
+            private readonly LyricTimeline strip;
+            private readonly TypeBeatHitObject hitObject;
 
             [Resolved]
             private EditorBeatmap editorBeatmap { get; set; } = null!;
@@ -597,9 +580,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             [Resolved]
             private LyricEditState state { get; set; } = null!;
 
-            public SingEndFlag(WordStrip strip)
+            public SingEndFlag(LyricTimeline strip, TypeBeatHitObject hitObject)
             {
                 this.strip = strip;
+                this.hitObject = hitObject;
 
                 Anchor = Anchor.TopLeft;
                 Origin = Anchor.TopCentre;
@@ -627,34 +611,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 };
             }
 
+            public void UpdateLayout(LyricTimeline parent) => X = parent.PositionOf(hitObject.Line.SingEndTime);
+
             public override bool HandlePositionalInput => true;
 
             protected override bool OnMouseDown(MouseDownEvent e) => true;
 
             protected override bool OnDragStart(DragStartEvent e)
             {
-                if (state.ActiveLine.Value == null)
-                    return false;
-
                 state.BeginInteraction();
-                strip.FreezeWindow();
                 editorBeatmap.BeginChange();
                 return true;
             }
 
             protected override void OnDrag(DragEvent e)
             {
-                if (state.ActiveLine.Value is TypeBeatHitObject line)
-                {
-                    TypeBeatEditorOperations.SetSingEnd(editorBeatmap, line, strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X));
-                    strip.KeepVisible(line.Line.SingEndTime);
-                }
+                TypeBeatEditorOperations.SetSingEnd(editorBeatmap, hitObject, strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X));
             }
 
             protected override void OnDragEnd(DragEndEvent e)
             {
                 editorBeatmap.EndChange();
-                strip.ThawWindow();
                 state.EndInteraction();
             }
         }

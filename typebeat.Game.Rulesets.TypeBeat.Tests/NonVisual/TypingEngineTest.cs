@@ -966,5 +966,68 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(engine.IsLineComplete);
             Assert.AreEqual(CellState.AutoSkipped, engine.Lines[0].Cells[4].State);
         }
+
+        [Test]
+        public void LateVocalsActivateAtCueNotBoundary()
+        {
+            // Window opens at 1000 but the first word starts at 8000: the line becomes typeable
+            // at firstWord - CUE_LEAD_MS = 8000 - 1500 = 6500, not at the boundary.
+            var l = line("ab", 1000, 10000, 9000, unit("ab", 8000, 9000));
+            var engine = new TypingEngine(map(TimingGranularity.Word, l));
+
+            Assert.AreEqual(6500, engine.Lines[0].ActivationTime);
+
+            engine.Update(1000);
+            Assert.AreEqual(-1, engine.ActiveLineIndex, "boundary alone must not activate");
+
+            engine.Update(6499);
+            Assert.AreEqual(-1, engine.ActiveLineIndex);
+            Assert.IsFalse(engine.ProcessKey('a', 6499), "typing before the cue is inert");
+
+            engine.Update(6500);
+            Assert.AreEqual(0, engine.ActiveLineIndex, "cue reached: line typeable");
+            Assert.IsTrue(engine.ProcessKey('a', 6500));
+        }
+
+        [Test]
+        public void DeadZoneBetweenSealAndCueHasNoActiveLine()
+        {
+            // Line 0 seals at its boundary (4000); line 1's first word is at 10000, so its cue is
+            // 8500. In between, no line is active (input inert) but line 1 is already the
+            // upcoming line — the stage scrolls at the seal, dimmed until the cue.
+            var l0 = abcdLine();
+            var l1 = line("ef", 4000, 12000, 11000, unit("ef", 10000, 11000));
+            var engine = new TypingEngine(map(TimingGranularity.Word, l0, l1));
+
+            engine.Update(3999);
+            Assert.AreEqual(0, engine.NextUnsealedLineIndex);
+
+            engine.Update(4000);
+            Assert.AreEqual(1, engine.NextUnsealedLineIndex, "line 0 sealed at its boundary");
+            Assert.AreEqual(-1, engine.ActiveLineIndex, "dead zone: nothing active yet");
+            Assert.IsFalse(engine.ProcessKey('e', 4000), "dead-zone typing is inert");
+
+            engine.Update(8499);
+            Assert.AreEqual(-1, engine.ActiveLineIndex);
+
+            engine.Update(8500);
+            Assert.AreEqual(1, engine.ActiveLineIndex, "line 1 activates at its cue");
+        }
+
+        [Test]
+        public void ImmediateVocalsActivateAtBoundaryAsBefore()
+        {
+            // When a line's first word starts on its boundary, the cue clamps to the boundary
+            // (a line can never activate before the previous one can seal) — the pre-cue
+            // behavior is unchanged for back-to-back lines.
+            var l0 = abcdLine();
+            var l1 = line("ef", 4000, 6000, 5500, unit("ef", 4000, 5000));
+            var engine = new TypingEngine(map(TimingGranularity.Word, l0, l1));
+
+            Assert.AreEqual(4000, engine.Lines[1].ActivationTime);
+
+            engine.Update(4000);
+            Assert.AreEqual(1, engine.ActiveLineIndex, "seal and next activation share the boundary frame");
+        }
     }
 }
