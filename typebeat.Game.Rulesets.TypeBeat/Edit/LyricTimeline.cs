@@ -24,10 +24,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
     /// The fine-timing surface as a continuous timeline: every line's word blocks laid out along
-    /// song time, with the visible window mirrored from the waveform timeline above (scroll and
-    /// zoom stay in sync; the strip sits directly beneath it sharing the same x-axis). Adjacent
-    /// lines share ONE boundary — the handle at a line's start is also the previous line's end
-    /// (<see cref="TypeBeatEditorOperations.SetLineStart"/> moves both sides together).
+    /// song time, with the visible window mirrored from the waveform timeline (scroll and zoom
+    /// stay in sync — one window, two viewports). The mouse wheel over this strip zooms that
+    /// shared window, anchored at the time under the cursor; over the waveform timeline the
+    /// wheel scrolls as usual. Adjacent lines share ONE boundary — the handle at a line's start
+    /// is also the previous line's end (<see cref="TypeBeatEditorOperations.SetLineStart"/>
+    /// moves both sides together).
     ///
     /// Word edges resize window-style (horizontal-resize cursor over the grab zone); the block
     /// body moves the word; per-line sung-end flags and alternating line bands complete the
@@ -188,6 +190,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>Local X pixels → time.</summary>
         public double TimeAt(float x) => windowStart + x / DrawWidth * windowLength;
+
+        protected override bool OnScroll(ScrollEvent e)
+        {
+            var timeline = screen.TimelineArea?.Timeline;
+
+            if (timeline == null || !timeline.IsLoaded)
+                return false;
+
+            // Wheel over the strip zooms the SHARED window, anchored at the time under the
+            // cursor — the waveform timeline pans/zooms with it, since it owns the window.
+            // (Raw ScrollDelta matches AdjustZoomRelatively's alt+wheel sensitivity.)
+            double cursorTime = TimeAt(ToLocalSpace(e.ScreenSpaceMousePosition).X);
+            timeline.AdjustZoomRelatively(e.ScrollDelta.Y, timeline.PositionAtTime(cursorTime));
+            return true;
+        }
 
         protected override bool OnDoubleClick(DoubleClickEvent e)
         {

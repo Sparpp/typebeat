@@ -18,9 +18,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
     /// Everything about the ACTIVE line: header readouts (index, start / sung end / window end,
-    /// granularity, estimated badge) and the structural action bar (replay, add at playhead,
-    /// split before word, merge, delete). Fine timing lives on the <see cref="LyricTimeline"/>
-    /// strip under the waveform timeline.
+    /// granularity, estimated badge), the <see cref="LyricTimeline"/> fine-timing surface
+    /// (window-synced to the waveform timeline; wheel = zoom), and the structural action bar
+    /// (replay, add at playhead, split before word, merge, delete).
     /// </summary>
     public partial class ActiveLineDetailPanel : CompositeDrawable
     {
@@ -60,8 +60,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     {
                         new Dimension(GridSizeMode.Absolute, 26),
                         new Dimension(GridSizeMode.Absolute, 22),
-                        new Dimension(GridSizeMode.Absolute, 44),
                         new Dimension(),
+                        new Dimension(GridSizeMode.Absolute, 44),
                     },
                     Content = new[]
                     {
@@ -79,6 +79,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             {
                                 Font = TypeBeatStyle.Mono(13),
                                 Colour = TypeBeatStyle.UntypedChar,
+                            },
+                        },
+                        new Drawable[]
+                        {
+                            new Container
+                            {
+                                RelativeSizeAxes = Axes.Both,
+                                Padding = new MarginPadding { Vertical = 6 },
+                                Child = new LyricTimeline(),
                             },
                         },
                         new Drawable[]
