@@ -210,6 +210,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             return true;
         }
 
+        private double dragGrabCentreTime;
+        private bool dragWasPlaying;
+
+        protected override bool OnDragStart(DragStartEvent e)
+        {
+            var timeline = screen.TimelineArea?.Timeline;
+
+            if (timeline == null || !timeline.IsLoaded)
+                return false;
+
+            // Grab-and-pan the SHARED window: the strip drives the waveform timeline's scroll,
+            // which seeks the clock — the same contract as dragging the waveform itself, so
+            // playback pauses for the drag and resumes on release. Blocks/handles consume their
+            // own drags before this fires.
+            dragGrabCentreTime = windowStart + windowLength / 2;
+            dragWasPlaying = editorClock.IsRunning;
+
+            if (dragWasPlaying)
+                editorClock.Stop();
+
+            return true;
+        }
+
+        protected override void OnDrag(DragEvent e)
+        {
+            var timeline = screen.TimelineArea?.Timeline;
+
+            if (timeline == null || !timeline.IsLoaded || DrawWidth <= 0)
+                return;
+
+            float deltaX = ToLocalSpace(e.ScreenSpaceMousePosition).X - ToLocalSpace(e.ScreenSpaceMouseDownPosition).X;
+            double targetCentre = dragGrabCentreTime - deltaX / DrawWidth * windowLength;
+
+            // The timeline's Current maps to the CENTRE time of the view (half-viewport content
+            // margins), so scrolling to the target centre's position pans both views together.
+            timeline.ScrollTo(timeline.PositionAtTime(targetCentre), false);
+        }
+
+        protected override void OnDragEnd(DragEndEvent e)
+        {
+            if (dragWasPlaying)
+                editorClock.Start();
+        }
+
         protected override bool OnDoubleClick(DoubleClickEvent e)
         {
             // Double click on empty space (outside every line band — before the first line or
