@@ -3,7 +3,7 @@
 
 using osu.Framework.Localisation;
 using typebeat.Game.Overlays.Profile.Sections.Recent;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Overlays.Profile.Sections
 {

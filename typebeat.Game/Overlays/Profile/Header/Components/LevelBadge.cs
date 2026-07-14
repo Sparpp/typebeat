@@ -12,7 +12,7 @@ using osu.Framework.Graphics.Textures;
 using osu.Framework.Localisation;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Scoring;
 using typebeat.Game.Users;
 

@@ -9,7 +9,7 @@ using osu.Framework.Graphics.Sprites;
 using typebeat.Game.Online.API.Requests.Responses;
 using typebeat.Game.Configuration;
 using typebeat.Game.Online;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Beatmaps.Drawables.Cards.Buttons
 {

@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class FirstRunSetupOverlayStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.FirstRunSetupOverlay";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.FirstRunSetupOverlay";
 
         /// <summary>
         /// "Get started"

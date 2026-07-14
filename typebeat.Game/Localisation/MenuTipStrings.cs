@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class MenuTipStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.MenuTip";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.MenuTip";
 
         /// <summary>
         /// "Press {0} anywhere in the game to toggle the toolbar!"

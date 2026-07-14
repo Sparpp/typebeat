@@ -9,7 +9,7 @@ using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
 using osu.Framework.Extensions.LocalisationExtensions;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using osu.Framework.Localisation;
 using typebeat.Game.Online.Chat;
 

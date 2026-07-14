@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class SupporterDisplayStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.SupporterDisplay";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.SupporterDisplay";
 
         /// <summary>
         /// "Eternal thanks to you for supporting type!beat"

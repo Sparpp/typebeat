@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class PopupDialogStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.PopupDialog";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.PopupDialog";
 
         /// <summary>
         /// "Are you sure you want to update this beatmap?"

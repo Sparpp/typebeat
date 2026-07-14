@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class DialogStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.Dialog";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.Dialog";
 
         /// <summary>
         /// "Caution"

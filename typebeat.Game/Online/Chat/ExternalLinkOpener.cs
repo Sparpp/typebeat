@@ -14,7 +14,7 @@ using typebeat.Game.Online.API;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Dialog;
 using typebeat.Game.Overlays.Notifications;
-using WebCommonStrings = osu.Game.Resources.Localisation.Web.CommonStrings;
+using WebCommonStrings = typebeat.Game.Resources.Localisation.Web.CommonStrings;
 
 namespace typebeat.Game.Online.Chat
 {

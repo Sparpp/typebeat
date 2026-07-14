@@ -53,7 +53,7 @@ using typebeat.Game.Screens.Edit.GameplayTest;
 using typebeat.Game.Screens.Edit.Setup;
 using typebeat.Game.Users;
 using osuTK.Input;
-using WebCommonStrings = osu.Game.Resources.Localisation.Web.CommonStrings;
+using WebCommonStrings = typebeat.Game.Resources.Localisation.Web.CommonStrings;
 
 namespace typebeat.Game.Screens.Edit
 {

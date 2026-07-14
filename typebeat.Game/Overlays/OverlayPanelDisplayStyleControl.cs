@@ -16,7 +16,7 @@ using osu.Framework.Audio.Sample;
 using osuTK.Graphics;
 using osu.Framework.Graphics.Cursor;
 using osu.Framework.Localisation;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using osu.Framework.Extensions;
 
 namespace typebeat.Game.Overlays

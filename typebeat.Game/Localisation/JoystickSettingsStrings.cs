@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class JoystickSettingsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.JoystickSettings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.JoystickSettings";
 
         /// <summary>
         /// "Joystick / Gamepad"

@@ -11,7 +11,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using osu.Framework.Localisation;
 using typebeat.Game.Online.API.Requests.Responses;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Scoring;
 using typebeat.Game.Utils;
 

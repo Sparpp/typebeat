@@ -14,7 +14,7 @@ using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests;
 using typebeat.Game.Online.API.Requests.Responses;
 using typebeat.Game.Overlays.Notifications;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using osuTK;
 using APIUser = typebeat.Game.Online.API.Requests.Responses.APIUser;
 

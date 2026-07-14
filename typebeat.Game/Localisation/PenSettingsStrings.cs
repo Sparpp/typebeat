@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class PenSettingsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.PenSettings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.PenSettings";
 
         /// <summary>
         /// "Tablet (External)"

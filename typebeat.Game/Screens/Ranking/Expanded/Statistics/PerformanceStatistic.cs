@@ -13,7 +13,7 @@ using osu.Framework.Graphics.Cursor;
 using osu.Framework.Localisation;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.UserInterface;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Scoring;
 using typebeat.Game.Localisation;
 using typebeat.Game.Rulesets.Mods;

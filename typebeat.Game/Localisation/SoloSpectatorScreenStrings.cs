@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class SoloSpectatorScreenStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.SoloSpectatorScreen";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.SoloSpectatorScreen";
 
         /// <summary>
         /// "Spectator Mode"

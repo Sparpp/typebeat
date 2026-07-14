@@ -286,7 +286,7 @@ namespace typebeat.Game.Overlays.Mods
             Ruleset = { BindTarget = Ruleset },
         };
 
-        private static readonly LocalisableString input_search_placeholder = osu.Game.Resources.Localisation.Web.CommonStrings.InputSearch;
+        private static readonly LocalisableString input_search_placeholder = typebeat.Game.Resources.Localisation.Web.CommonStrings.InputSearch;
         private static readonly LocalisableString tab_to_search_placeholder = ModSelectOverlayStrings.TabToSearch;
 
         protected override void Update()

@@ -13,7 +13,7 @@ using osu.Framework.Graphics.Shapes;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Online.API.Requests.Responses;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using osuTK;
 using osuTK.Graphics;
 

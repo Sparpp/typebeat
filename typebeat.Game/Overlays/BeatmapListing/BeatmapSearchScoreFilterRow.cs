@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Extensions;
 using osu.Framework.Localisation;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Scoring;
 
 namespace typebeat.Game.Overlays.BeatmapListing

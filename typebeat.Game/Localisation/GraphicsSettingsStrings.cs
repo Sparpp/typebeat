@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class GraphicsSettingsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.GraphicsSettings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.GraphicsSettings";
 
         /// <summary>
         /// "Graphics"

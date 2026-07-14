@@ -12,7 +12,7 @@ using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Online;
 using typebeat.Game.Online.API.Requests.Responses;
 using typebeat.Game.Overlays.Profile.Header.Components;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Rulesets;
 using osuTK;
 

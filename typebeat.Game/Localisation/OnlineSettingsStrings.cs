@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class OnlineSettingsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.OnlineSettings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.OnlineSettings";
 
         /// <summary>
         /// "Online"

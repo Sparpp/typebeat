@@ -5,7 +5,7 @@ using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using typebeat.Game.Graphics;
 using typebeat.Game.Localisation;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Users;
 

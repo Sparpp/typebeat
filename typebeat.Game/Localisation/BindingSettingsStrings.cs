@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class BindingSettingsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.BindingSettings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.BindingSettings";
 
         /// <summary>
         /// "Shortcuts and gameplay bindings"

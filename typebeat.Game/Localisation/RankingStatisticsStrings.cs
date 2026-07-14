@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class RankingStatisticsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.RankingStatisticsStrings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.RankingStatisticsStrings";
 
         /// <summary>
         /// "Average Hit Error"

@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class ResultsScreenStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.ResultsScreen";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.ResultsScreen";
 
         /// <summary>
         /// "Performance points are not granted for this score because the beatmap is not ranked."

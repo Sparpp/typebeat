@@ -14,7 +14,7 @@ using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Online;
 using typebeat.Game.Online.API.Requests.Responses;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using CommonStrings = typebeat.Game.Localisation.CommonStrings;
 
 namespace typebeat.Game.Beatmaps.Drawables

@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation.SkinComponents
 {
     public static class SkinnableComponentStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.SkinComponents.SkinnableComponentStrings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.SkinComponents.SkinnableComponentStrings";
 
         /// <summary>
         /// "Sprite name"

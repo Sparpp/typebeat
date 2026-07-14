@@ -11,7 +11,7 @@ using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests;
 using typebeat.Game.Overlays.Dashboard.Friends;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Overlays.Dashboard.UserSearch
 {

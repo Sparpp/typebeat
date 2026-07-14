@@ -16,7 +16,7 @@ using typebeat.Game.Beatmaps;
 using typebeat.Game.Extensions;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using osuTK;
 
 namespace typebeat.Game.Overlays.BeatmapSet

@@ -33,7 +33,7 @@ using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Notifications;
 using typebeat.Game.Overlays.Volume;
 using typebeat.Game.Performance;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Screens.Footer;
 using typebeat.Game.Screens.Menu;
 using typebeat.Game.Screens.Play.HUD;

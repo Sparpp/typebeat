@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class RoomStatusPillStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.RoomStatusPill";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.RoomStatusPill";
 
         /// <summary>
         /// "Ended"

@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class UserInterfaceStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.UserInterface";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.UserInterface";
 
         /// <summary>
         /// "User Interface"

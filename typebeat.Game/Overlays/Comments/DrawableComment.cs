@@ -26,7 +26,7 @@ using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests;
 using typebeat.Game.Overlays.Comments.Buttons;
 using typebeat.Game.Overlays.Dialog;
-using WebCommonStrings = osu.Game.Resources.Localisation.Web.CommonStrings;
+using WebCommonStrings = typebeat.Game.Resources.Localisation.Web.CommonStrings;
 
 namespace typebeat.Game.Overlays.Comments
 {

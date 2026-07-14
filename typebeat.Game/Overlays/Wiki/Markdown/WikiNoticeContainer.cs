@@ -11,7 +11,7 @@ using osu.Framework.Graphics.Containers.Markdown;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Localisation;
 using typebeat.Game.Graphics;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using osuTK;
 
 namespace typebeat.Game.Overlays.Wiki.Markdown

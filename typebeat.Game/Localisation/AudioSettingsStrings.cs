@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class AudioSettingsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.AudioSettings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.AudioSettings";
 
         /// <summary>
         /// "Audio"

@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation.HUD
 {
     public static class BarHitErrorMeterStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.HUD.BarHitErrorMeter";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.HUD.BarHitErrorMeter";
 
         /// <summary>
         /// "Judgement line thickness"

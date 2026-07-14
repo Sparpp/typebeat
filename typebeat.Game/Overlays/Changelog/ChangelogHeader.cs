@@ -15,7 +15,7 @@ using osu.Framework.Localisation;
 using typebeat.Game.Graphics;
 using typebeat.Game.Localisation;
 using typebeat.Game.Online.API.Requests.Responses;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Overlays.Changelog
 {

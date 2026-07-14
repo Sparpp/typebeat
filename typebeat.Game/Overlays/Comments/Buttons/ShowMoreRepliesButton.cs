@@ -11,7 +11,7 @@ using typebeat.Game.Graphics.Sprites;
 using System.Collections.Generic;
 using osuTK;
 using osu.Framework.Allocation;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Overlays.Comments.Buttons
 {

@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class BeatmapSubmissionStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.BeatmapSubmission";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.BeatmapSubmission";
 
         /// <summary>
         /// "Beatmap submission"

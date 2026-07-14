@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class ModSelectOverlayStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.ModSelectOverlay";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.ModSelectOverlay";
 
         /// <summary>
         /// "Mod Select"

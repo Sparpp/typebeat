@@ -16,11 +16,11 @@ using typebeat.Game.Graphics;
 using typebeat.Game.Localisation;
 using typebeat.Game.Online.API;
 using typebeat.Game.Overlays.Dialog;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Utils;
 using osuTK.Graphics;
-using WebCommonStrings = osu.Game.Resources.Localisation.Web.CommonStrings;
+using WebCommonStrings = typebeat.Game.Resources.Localisation.Web.CommonStrings;
 
 namespace typebeat.Game.Overlays.BeatmapListing
 {

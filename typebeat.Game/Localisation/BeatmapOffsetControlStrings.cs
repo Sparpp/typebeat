@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class BeatmapOffsetControlStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.BeatmapOffsetControl";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.BeatmapOffsetControl";
 
         /// <summary>
         /// "Audio offset (this beatmap)"

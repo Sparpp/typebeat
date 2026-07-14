@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class OnlinePlayStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.OnlinePlay";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.OnlinePlay";
 
         /// <summary>
         /// "Playlist durations longer than 2 weeks require an active type!beatsupporter tag."

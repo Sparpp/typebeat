@@ -8,7 +8,7 @@ using osu.Framework.Graphics.Sprites;
 using osu.Framework.Localisation;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Screens.Play.HUD;
 using osuTK;
 

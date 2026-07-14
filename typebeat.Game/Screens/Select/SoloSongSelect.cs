@@ -21,7 +21,7 @@ using typebeat.Game.Screens.Edit;
 using typebeat.Game.Screens.Play;
 using typebeat.Game.Users;
 using typebeat.Game.Utils;
-using WebCommonStrings = osu.Game.Resources.Localisation.Web.CommonStrings;
+using WebCommonStrings = typebeat.Game.Resources.Localisation.Web.CommonStrings;
 
 namespace typebeat.Game.Screens.Select
 {

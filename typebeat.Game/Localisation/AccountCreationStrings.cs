@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class AccountCreationStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.AccountCreation";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.AccountCreation";
 
         /// <summary>
         /// "New player registration"

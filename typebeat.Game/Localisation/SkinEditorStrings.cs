@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class SkinEditorStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.SkinEditor";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.SkinEditor";
 
         /// <summary>
         /// "Skin editor"

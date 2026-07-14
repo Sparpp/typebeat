@@ -18,7 +18,7 @@ using typebeat.Game.Extensions;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Localisation;
 using typebeat.Game.Localisation.SkinComponents;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Utils;

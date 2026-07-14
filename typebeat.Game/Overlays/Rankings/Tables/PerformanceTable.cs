@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using osu.Framework.Extensions.LocalisationExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Users;
 
 namespace typebeat.Game.Overlays.Rankings.Tables

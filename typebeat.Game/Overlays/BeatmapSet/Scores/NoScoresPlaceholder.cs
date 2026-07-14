@@ -5,7 +5,7 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Sprites;
 using typebeat.Game.Graphics.Sprites;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Screens.Play.Leaderboards;
 
 namespace typebeat.Game.Overlays.BeatmapSet.Scores

@@ -26,7 +26,7 @@ using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Overlays.Mods;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.Difficulty;
 using typebeat.Game.Rulesets.Mods;

@@ -132,7 +132,7 @@ namespace typebeat.Game.Overlays.Mods
                                 Anchor = Anchor.TopRight,
                                 Origin = Anchor.TopRight,
                                 Width = content_width,
-                                Text = osu.Game.Resources.Localisation.Web.CommonStrings.ButtonsSave,
+                                Text = typebeat.Game.Resources.Localisation.Web.CommonStrings.ButtonsSave,
                                 DarkerColour = colours.Orange1,
                                 LighterColour = colours.Orange0,
                                 TextColour = colourProvider.Background6,

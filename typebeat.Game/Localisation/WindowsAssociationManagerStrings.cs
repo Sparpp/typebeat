@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class WindowsAssociationManagerStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.WindowsAssociationManager";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.WindowsAssociationManager";
 
         /// <summary>
         /// "type!beat Beatmap"

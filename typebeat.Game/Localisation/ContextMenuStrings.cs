@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class ContextMenuStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.ContextMenu";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.ContextMenu";
 
         /// <summary>
         /// "View profile"

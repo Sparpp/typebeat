@@ -12,7 +12,7 @@ using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.UserInterface;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests.Responses;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Users;
 
 namespace typebeat.Game.Overlays.Profile.Header.Components

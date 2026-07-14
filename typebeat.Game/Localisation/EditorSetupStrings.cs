@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class EditorSetupStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.EditorSetup";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.EditorSetup";
 
         /// <summary>
         /// "Beatmap Setup"

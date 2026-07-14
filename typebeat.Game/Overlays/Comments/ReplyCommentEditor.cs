@@ -9,7 +9,7 @@ using osu.Framework.Localisation;
 using osu.Framework.Logging;
 using typebeat.Game.Online.API.Requests;
 using typebeat.Game.Online.API.Requests.Responses;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Overlays.Comments
 {

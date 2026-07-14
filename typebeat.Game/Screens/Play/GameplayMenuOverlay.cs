@@ -26,7 +26,7 @@ using typebeat.Game.Input.Bindings;
 using osuTK;
 using osuTK.Graphics;
 using typebeat.Game.Localisation;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Skinning;
 using typebeat.Game.Utils;
 

@@ -10,7 +10,7 @@ using osu.Framework.Graphics.Shapes;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Overlays;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using osuTK;
 
 namespace typebeat.Game.Screens.Select

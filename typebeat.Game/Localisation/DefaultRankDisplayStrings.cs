@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class DefaultRankDisplayStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.DefaultRankDisplay";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.DefaultRankDisplay";
 
         /// <summary>
         /// "Play samples on rank change"

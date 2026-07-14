@@ -5,7 +5,7 @@
 
 using osu.Framework.Graphics;
 using typebeat.Game.Graphics.UserInterface;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Overlays.Comments.Buttons
 {

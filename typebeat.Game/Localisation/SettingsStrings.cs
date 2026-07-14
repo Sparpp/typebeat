@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class SettingsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.Settings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.Settings";
 
         /// <summary>
         /// "settings"

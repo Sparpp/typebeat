@@ -9,7 +9,7 @@ using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Input.Events;
 using osu.Framework.Graphics;
 using osu.Framework.Localisation;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Screens.Play.Leaderboards;
 
 namespace typebeat.Game.Overlays.BeatmapSet

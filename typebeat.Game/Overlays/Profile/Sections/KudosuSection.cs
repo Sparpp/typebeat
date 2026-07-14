@@ -4,7 +4,7 @@
 using osu.Framework.Graphics;
 using typebeat.Game.Overlays.Profile.Sections.Kudosu;
 using osu.Framework.Localisation;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Overlays.Profile.Sections
 {

@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class DailyChallengeStatsDisplayStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.DailyChallengeStatsDisplay";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.DailyChallengeStatsDisplay";
 
         /// <summary>
         /// "{0}d"

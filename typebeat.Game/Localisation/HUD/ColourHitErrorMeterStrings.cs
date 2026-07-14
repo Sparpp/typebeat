@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation.HUD
 {
     public static class ColourHitErrorMeterStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.HUD.ColourHitError";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.HUD.ColourHitError";
 
         /// <summary>
         /// "Judgement count"

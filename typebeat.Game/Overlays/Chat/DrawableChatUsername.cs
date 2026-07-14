@@ -25,7 +25,7 @@ using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests.Responses;
 using typebeat.Game.Online.Chat;
 using typebeat.Game.Online.Multiplayer;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Screens;
 using typebeat.Game.Screens.Play;
 using typebeat.Game.Users;

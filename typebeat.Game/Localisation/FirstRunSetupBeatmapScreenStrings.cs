@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class FirstRunSetupBeatmapScreenStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.FirstRunSetupBeatmapScreen";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.FirstRunSetupBeatmapScreen";
 
         /// <summary>
         /// "Obtaining Beatmaps"

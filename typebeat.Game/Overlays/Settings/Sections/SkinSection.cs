@@ -26,7 +26,7 @@ using typebeat.Game.Overlays.Dialog;
 using typebeat.Game.Skinning;
 using osuTK;
 using Realms;
-using WebCommonStrings = osu.Game.Resources.Localisation.Web.CommonStrings;
+using WebCommonStrings = typebeat.Game.Resources.Localisation.Web.CommonStrings;
 
 namespace typebeat.Game.Overlays.Settings.Sections
 {

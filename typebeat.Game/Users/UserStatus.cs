@@ -6,7 +6,7 @@ using System.ComponentModel;
 using osu.Framework.Localisation;
 using osuTK.Graphics;
 using typebeat.Game.Graphics;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Users
 {

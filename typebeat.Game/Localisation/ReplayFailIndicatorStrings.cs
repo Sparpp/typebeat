@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class ReplayFailIndicatorStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.ReplayFailIndicator";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.ReplayFailIndicator";
 
         /// <summary>
         /// "Replay failed"

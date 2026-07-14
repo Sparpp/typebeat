@@ -7,7 +7,7 @@ using osu.Framework.Bindables;
 using typebeat.Game.Online.API.Requests.Responses;
 using typebeat.Game.Online.API;
 using System.Collections.Generic;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Overlays.Profile.Sections.Kudosu
 {

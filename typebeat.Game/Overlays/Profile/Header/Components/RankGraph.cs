@@ -10,7 +10,7 @@ using osu.Framework.Extensions.LocalisationExtensions;
 using osu.Framework.Graphics;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Users;
 
 namespace typebeat.Game.Overlays.Profile.Header.Components

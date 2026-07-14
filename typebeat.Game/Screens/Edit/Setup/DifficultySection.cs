@@ -8,7 +8,7 @@ using osu.Framework.Graphics;
 using osu.Framework.Localisation;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.UserInterfaceV2;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Localisation;
 
 namespace typebeat.Game.Screens.Edit.Setup

@@ -10,7 +10,7 @@ using osu.Framework.Graphics.Sprites;
 using osu.Framework.Localisation;
 using typebeat.Game.Configuration;
 using typebeat.Game.Localisation.SkinComponents;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Rulesets.Scoring;
 using osuTK;
 using osuTK.Graphics;

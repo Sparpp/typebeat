@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class LayoutSettingsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.LayoutSettings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.LayoutSettings";
 
         /// <summary>
         /// "Checking for fullscreen capabilities..."

@@ -25,7 +25,7 @@ using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Overlays;
 using osuTK;
 using osuTK.Graphics;
-using CommonStrings = osu.Game.Resources.Localisation.Web.CommonStrings;
+using CommonStrings = typebeat.Game.Resources.Localisation.Web.CommonStrings;
 
 namespace typebeat.Game.Graphics.UserInterfaceV2
 {

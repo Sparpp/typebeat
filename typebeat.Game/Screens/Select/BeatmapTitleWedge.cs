@@ -22,7 +22,7 @@ using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Localisation;
 using typebeat.Game.Overlays;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Utils;

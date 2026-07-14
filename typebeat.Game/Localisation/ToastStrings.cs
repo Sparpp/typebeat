@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class ToastStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.Toast";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.Toast";
 
         /// <summary>
         /// "no key bound"

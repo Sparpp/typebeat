@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class MultiplayerTeamResultsScreenStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.MultiplayerTeamResultsScreen";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.MultiplayerTeamResultsScreen";
 
         /// <summary>
         /// "Team {0} wins!"

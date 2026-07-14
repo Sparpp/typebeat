@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class BeatmapCarouselFilterGroupingStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.BeatmapCarouselFilterGrouping";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.BeatmapCarouselFilterGrouping";
 
         /// <summary>
         /// "Never"

@@ -27,7 +27,7 @@ using typebeat.Game.Localisation;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.Leaderboards;
 using typebeat.Game.Overlays;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.UI;
@@ -634,7 +634,7 @@ namespace typebeat.Game.Screens.Select
                 if (ShowReplay != null)
                     items.Add(new OsuMenuItem(SongSelectStrings.WatchReplay, MenuItemType.Standard, () => ShowReplay.Invoke(Score)));
                 items.Add(new OsuMenuItem(CommonStrings.Export, MenuItemType.Standard, () => scoreManager.Export(Score)));
-                items.Add(new OsuMenuItem(osu.Game.Resources.Localisation.Web.CommonStrings.ButtonsDelete, MenuItemType.Destructive, () => dialogOverlay?.Push(new LocalScoreDeleteDialog(Score))));
+                items.Add(new OsuMenuItem(typebeat.Game.Resources.Localisation.Web.CommonStrings.ButtonsDelete, MenuItemType.Destructive, () => dialogOverlay?.Push(new LocalScoreDeleteDialog(Score))));
 
                 return items.ToArray();
             }

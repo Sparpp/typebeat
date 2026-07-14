@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class TabletSettingsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.TabletSettings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.TabletSettings";
 
         /// <summary>
         /// "Tablet"

@@ -6,7 +6,7 @@
 using osu.Framework.Graphics;
 using typebeat.Game.Graphics;
 using typebeat.Game.Localisation;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Overlays.BeatmapListing
 {

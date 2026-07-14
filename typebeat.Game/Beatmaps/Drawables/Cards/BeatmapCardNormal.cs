@@ -18,7 +18,7 @@ using typebeat.Game.Online.API.Requests.Responses;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.BeatmapSet;
 using osuTK;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Beatmaps.Drawables.Cards
 {

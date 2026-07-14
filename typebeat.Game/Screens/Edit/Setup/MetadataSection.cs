@@ -13,7 +13,7 @@ using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Localisation;
 using typebeat.Game.Overlays;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Screens.Edit.Setup
 {

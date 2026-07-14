@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation.HUD
 {
     public static class AimErrorMeterStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.HUD.AimErrorMeterStrings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.HUD.AimErrorMeterStrings";
 
         /// <summary>
         /// "Hit marker size"

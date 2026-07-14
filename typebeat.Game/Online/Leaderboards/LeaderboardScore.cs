@@ -31,12 +31,12 @@ using typebeat.Game.Users.Drawables;
 using osuTK;
 using osuTK.Graphics;
 using typebeat.Game.Online.API;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Utils;
 using CommonStrings = typebeat.Game.Localisation.CommonStrings;
 using SongSelect = typebeat.Game.Screens.Select.SongSelect;
-using WebCommonStrings = osu.Game.Resources.Localisation.Web.CommonStrings;
+using WebCommonStrings = typebeat.Game.Resources.Localisation.Web.CommonStrings;
 
 namespace typebeat.Game.Online.Leaderboards
 {

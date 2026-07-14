@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class BeatmapStatisticStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.BeatmapStatisticStrings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.BeatmapStatisticStrings";
 
         /// <summary>
         /// "Circles"

@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class DailyChallengeStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.DailyChallenge";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.DailyChallenge";
 
         /// <summary>
         /// "Today&#39;s daily challenge has concluded – thanks for playing!

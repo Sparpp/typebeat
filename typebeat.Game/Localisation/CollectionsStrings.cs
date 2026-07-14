@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class CollectionsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.Collections";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.Collections";
 
         /// <summary>
         /// "Manage Collections"

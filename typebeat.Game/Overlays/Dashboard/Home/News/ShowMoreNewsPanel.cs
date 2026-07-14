@@ -8,7 +8,7 @@ using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using osuTK.Graphics;
 
 namespace typebeat.Game.Overlays.Dashboard.Home.News

@@ -19,7 +19,7 @@ using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Input.Events;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.UserInterface;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using osuTK;
 using osuTK.Graphics;
 

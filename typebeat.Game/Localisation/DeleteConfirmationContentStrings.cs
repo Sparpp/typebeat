@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class DeleteConfirmationContentStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.DeleteConfirmationContent";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.DeleteConfirmationContent";
 
         /// <summary>
         /// "Are you sure you want to delete all beatmaps?"

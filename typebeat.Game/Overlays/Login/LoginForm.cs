@@ -16,7 +16,7 @@ using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Online.API;
 using typebeat.Game.Overlays.Settings;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using osuTK;
 using typebeat.Game.Localisation;
 

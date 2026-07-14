@@ -11,7 +11,7 @@ using osu.Framework.Graphics.Textures;
 using osu.Framework.Input.Events;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using osuTK;
 
 namespace typebeat.Game.Overlays.Chat

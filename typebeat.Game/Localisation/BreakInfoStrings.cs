@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class BreakInfoStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.BreakInfo";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.BreakInfo";
 
         /// <summary>
         /// "Current Progress"

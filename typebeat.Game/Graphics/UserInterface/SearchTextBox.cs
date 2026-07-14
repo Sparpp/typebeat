@@ -3,7 +3,7 @@
 
 using osu.Framework.Input;
 using osu.Framework.Input.Events;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using osuTK.Input;
 
 namespace typebeat.Game.Graphics.UserInterface

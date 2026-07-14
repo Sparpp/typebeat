@@ -30,7 +30,7 @@ using typebeat.Game.Overlays;
 using typebeat.Game.Rulesets;
 using osuTK;
 using osuTK.Graphics;
-using WebCommonStrings = osu.Game.Resources.Localisation.Web.CommonStrings;
+using WebCommonStrings = typebeat.Game.Resources.Localisation.Web.CommonStrings;
 
 namespace typebeat.Game.Screens.Select
 {

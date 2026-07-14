@@ -3,7 +3,7 @@
 
 using osu.Framework.Localisation;
 using osu.Framework.Utils;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Overlays.BeatmapListing
 {

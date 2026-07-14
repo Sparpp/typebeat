@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class NotificationsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.Notifications";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.Notifications";
 
         /// <summary>
         /// "notifications"

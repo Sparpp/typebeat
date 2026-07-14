@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class BeatmapLeaderboardWedgeStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.BeatmapLeaderboardWedge";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.BeatmapLeaderboardWedge";
 
         /// <summary>
         /// "Scope"

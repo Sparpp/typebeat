@@ -27,7 +27,7 @@ using typebeat.Game.Localisation;
 using typebeat.Game.Rulesets;
 using osuTK;
 using osuTK.Input;
-using CommonStrings = osu.Game.Resources.Localisation.Web.CommonStrings;
+using CommonStrings = typebeat.Game.Resources.Localisation.Web.CommonStrings;
 
 namespace typebeat.Game.Overlays.Settings.Sections.Input
 {

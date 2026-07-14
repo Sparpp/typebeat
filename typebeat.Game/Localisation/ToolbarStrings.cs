@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class ToolbarStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.Toolbar";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.Toolbar";
 
         /// <summary>
         /// "Connection interrupted, will try to reconnect..."

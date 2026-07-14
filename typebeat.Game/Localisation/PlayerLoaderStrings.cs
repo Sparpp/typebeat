@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class PlayerLoaderStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.PlayerLoader";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.PlayerLoader";
 
         /// <summary>
         /// "This beatmap contains scenes with rapidly flashing colours"

@@ -8,7 +8,7 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Sprites;
 using typebeat.Game.Configuration;
 using typebeat.Game.Localisation.SkinComponents;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Skinning;
 
 namespace typebeat.Game.Screens.Play.HUD

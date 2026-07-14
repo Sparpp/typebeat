@@ -20,7 +20,7 @@ using osu.Framework.Threading;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Overlays.Notifications;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using osuTK;
 using osuTK.Graphics;
 using NotificationsStrings = typebeat.Game.Localisation.NotificationsStrings;

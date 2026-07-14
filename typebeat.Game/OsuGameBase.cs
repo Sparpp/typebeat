@@ -59,7 +59,7 @@ using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Overlays.Settings.Sections;
 using typebeat.Game.Overlays.Settings.Sections.Input;
-using osu.Game.Resources;
+using typebeat.Game.Resources;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Scoring;

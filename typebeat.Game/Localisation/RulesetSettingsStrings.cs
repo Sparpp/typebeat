@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class RulesetSettingsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.RulesetSettings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.RulesetSettings";
 
         /// <summary>
         /// "Rulesets"

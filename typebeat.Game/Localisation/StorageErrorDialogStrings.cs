@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class StorageErrorDialogStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.StorageErrorDialog";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.StorageErrorDialog";
 
         /// <summary>
         /// "type!beat storage error"

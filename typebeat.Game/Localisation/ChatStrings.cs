@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class ChatStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.Chat";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.Chat";
 
         /// <summary>
         /// "chat"

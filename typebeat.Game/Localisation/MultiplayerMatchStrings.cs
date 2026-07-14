@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class MultiplayerMatchStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.MultiplayerMatchStrings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.MultiplayerMatchStrings";
 
         /// <summary>
         /// "Stop countdown"

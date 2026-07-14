@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation.HUD
 {
     public static class SpectatorListStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.SpectatorList";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.SpectatorList";
 
         /// <summary>
         /// "Spectators ({0})"

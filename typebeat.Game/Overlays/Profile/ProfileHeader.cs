@@ -9,7 +9,7 @@ using osu.Framework.Localisation;
 using typebeat.Game.Graphics;
 using typebeat.Game.Overlays.Profile.Header;
 using typebeat.Game.Overlays.Profile.Header.Components;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Overlays.Profile
 {

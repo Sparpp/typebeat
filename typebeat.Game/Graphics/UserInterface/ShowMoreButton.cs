@@ -15,7 +15,7 @@ using osuTK;
 using System.Collections.Generic;
 using osu.Framework.Extensions.LocalisationExtensions;
 using osu.Framework.Localisation;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Graphics.UserInterface
 {

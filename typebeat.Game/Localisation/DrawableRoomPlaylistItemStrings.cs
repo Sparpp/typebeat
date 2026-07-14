@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class DrawableRoomPlaylistItemStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.DrawableRoomPlaylistItem";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.DrawableRoomPlaylistItem";
 
         /// <summary>
         /// "You have completed this beatmap"

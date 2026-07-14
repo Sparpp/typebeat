@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation.HUD
 {
     public static class SongProgressStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.HUD.SongProgress";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.HUD.SongProgress";
 
         /// <summary>
         /// "Show difficulty graph"

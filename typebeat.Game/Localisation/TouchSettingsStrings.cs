@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class TouchSettingsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.TouchSettings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.TouchSettings";
 
         /// <summary>
         /// "Touch"

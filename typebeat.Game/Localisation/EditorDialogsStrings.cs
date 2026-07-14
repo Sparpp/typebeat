@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class EditorDialogsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.EditorDialogs";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.EditorDialogs";
 
         /// <summary>
         /// "Would you like to create a blank difficulty?"

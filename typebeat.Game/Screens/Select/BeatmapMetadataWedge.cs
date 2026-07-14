@@ -19,7 +19,7 @@ using typebeat.Game.Localisation;
 using typebeat.Game.Online;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.Chat;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using osuTK;
 
 namespace typebeat.Game.Screens.Select

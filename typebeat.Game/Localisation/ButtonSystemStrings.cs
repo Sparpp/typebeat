@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class ButtonSystemStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.ButtonSystem";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.ButtonSystem";
 
         /// <summary>
         /// "solo"

@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class PlayerSettingsOverlayStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.PlaybackSettings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.PlaybackSettings";
 
         /// <summary>
         /// "Step backward one frame"

@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class GameplayMenuOverlayStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.GameplayMenuOverlay";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.GameplayMenuOverlay";
 
         /// <summary>
         /// "Continue"

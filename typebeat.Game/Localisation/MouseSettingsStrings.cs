@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class MouseSettingsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.MouseSettings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.MouseSettings";
 
         /// <summary>
         /// "Mouse"

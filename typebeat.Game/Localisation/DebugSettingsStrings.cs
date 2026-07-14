@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class DebugSettingsStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.DebugSettings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.DebugSettings";
 
         /// <summary>
         /// "Import files"

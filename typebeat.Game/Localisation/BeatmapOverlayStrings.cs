@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class BeatmapOverlayStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.BeatmapOverlayStrings";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.BeatmapOverlayStrings";
 
         /// <summary>
         /// "User content disclaimer"

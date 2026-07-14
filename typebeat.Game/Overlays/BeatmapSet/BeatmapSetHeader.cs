@@ -11,7 +11,7 @@ using osu.Framework.Graphics.Effects;
 using osu.Framework.Localisation;
 using typebeat.Game.Graphics;
 using typebeat.Game.Online.API.Requests.Responses;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Rulesets;
 using osuTK;
 using osuTK.Graphics;

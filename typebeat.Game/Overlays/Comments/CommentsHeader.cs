@@ -16,7 +16,7 @@ using osuTK;
 using osu.Framework.Input.Events;
 using osu.Framework.Localisation;
 using typebeat.Game.Graphics.Sprites;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Overlays.Comments
 {

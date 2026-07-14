@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class GlobalActionKeyBindingStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.GlobalActionKeyBinding";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.GlobalActionKeyBinding";
 
         /// <summary>
         /// "Toggle chat overlay"

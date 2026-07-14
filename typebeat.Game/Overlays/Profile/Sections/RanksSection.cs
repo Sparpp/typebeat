@@ -4,7 +4,7 @@
 using typebeat.Game.Overlays.Profile.Sections.Ranks;
 using typebeat.Game.Online.API.Requests;
 using osu.Framework.Localisation;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Overlays.Profile.Sections
 {

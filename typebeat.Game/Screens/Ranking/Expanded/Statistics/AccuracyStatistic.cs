@@ -6,7 +6,7 @@ using osu.Framework.Localisation;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Screens.Ranking.Expanded.Accuracy;
 using typebeat.Game.Utils;
 using osuTK;

@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class NamedOverlayComponentStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.NamedOverlayComponent";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.NamedOverlayComponent";
 
         /// <summary>
         /// "browse for new beatmaps"

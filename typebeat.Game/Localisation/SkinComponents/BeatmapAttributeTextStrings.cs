@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation.SkinComponents
 {
     public static class BeatmapAttributeTextStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.SkinComponents.BeatmapAttributeText";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.SkinComponents.BeatmapAttributeText";
 
         /// <summary>
         /// "Attribute"

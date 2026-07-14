@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation.HUD
 {
     public static class JudgementCounterDisplayStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.HUD.JudgementCounterDisplay";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.HUD.JudgementCounterDisplay";
 
         /// <summary>
         /// "Display mode"

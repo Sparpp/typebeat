@@ -4,7 +4,7 @@
 using osu.Framework.Localisation;
 using typebeat.Game.Online.API.Requests;
 using typebeat.Game.Overlays.Profile.Sections.Beatmaps;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Overlays.Profile.Sections
 {

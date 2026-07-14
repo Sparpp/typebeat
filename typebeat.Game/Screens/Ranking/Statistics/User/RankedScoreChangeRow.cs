@@ -4,7 +4,7 @@
 using osu.Framework.Extensions.LocalisationExtensions;
 using osu.Framework.Localisation;
 using typebeat.Game.Localisation;
-using osu.Game.Resources.Localisation.Web;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Screens.Ranking.Statistics.User
 {

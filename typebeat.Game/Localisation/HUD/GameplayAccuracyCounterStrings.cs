@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation.HUD
 {
     public static class GameplayAccuracyCounterStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.HUD.GameplayAccuracyCounter";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.HUD.GameplayAccuracyCounter";
 
         /// <summary>
         /// "Accuracy display mode"

@@ -7,7 +7,7 @@ namespace typebeat.Game.Localisation
 {
     public static class LeaderboardStrings
     {
-        private const string prefix = @"osu.Game.Resources.Localisation.Leaderboard";
+        private const string prefix = @"typebeat.Game.Resources.Localisation.Leaderboard";
 
         /// <summary>
         /// "Couldn't fetch scores!"
