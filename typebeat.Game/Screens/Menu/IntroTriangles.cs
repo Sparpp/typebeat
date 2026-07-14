@@ -87,7 +87,7 @@ namespace typebeat.Game.Screens.Menu
             private Container logoContainerSecondary;
             private LazerLogo lazerLogo;
 
-            private GlitchingTriangles triangles;
+            private GlitchingSquares squares;
 
             public Action LoadMenu;
 
@@ -105,7 +105,7 @@ namespace typebeat.Game.Screens.Menu
             {
                 InternalChildren = new Drawable[]
                 {
-                    triangles = new GlitchingTriangles
+                    squares = new GlitchingSquares
                     {
                         Alpha = 0,
                         Anchor = Anchor.Centre,
@@ -193,14 +193,14 @@ namespace typebeat.Game.Screens.Menu
                     }
 
                     using (BeginDelayedSequence(text_glitch))
-                        triangles.FadeIn();
+                        squares.FadeIn();
 
                     using (BeginDelayedSequence(rulesets_1))
                     {
                         rulesetsScale.ScaleTo(0.8f, 1000);
                         rulesets.FadeIn().ScaleTo(1).TransformSpacingTo(new Vector2(200, 0));
                         welcomeText.FadeOut().Expire();
-                        triangles.FadeOut().Expire();
+                        squares.FadeOut().Expire();
                     }
 
                     using (BeginDelayedSequence(rulesets_2))
@@ -332,55 +332,55 @@ namespace typebeat.Game.Screens.Menu
                 }
             }
 
-            private partial class GlitchingTriangles : CompositeDrawable
+            private partial class GlitchingSquares : CompositeDrawable
             {
-                public GlitchingTriangles()
+                public GlitchingSquares()
                 {
                     RelativeSizeAxes = Axes.Both;
                 }
 
                 private double? lastGenTime;
 
-                private const double time_between_triangles = 22;
+                private const double time_between_squares = 22;
 
                 protected override void Update()
                 {
                     base.Update();
 
-                    if (lastGenTime == null || Time.Current - lastGenTime > time_between_triangles)
+                    if (lastGenTime == null || Time.Current - lastGenTime > time_between_squares)
                     {
-                        lastGenTime = (lastGenTime ?? Time.Current) + time_between_triangles;
+                        lastGenTime = (lastGenTime ?? Time.Current) + time_between_squares;
 
-                        Drawable triangle = new OutlineTriangle(RNG.NextBool(), (RNG.NextSingle() + 0.2f) * 80)
+                        Drawable square = new OutlineSquare(RNG.NextBool(), (RNG.NextSingle() + 0.2f) * 80)
                         {
                             RelativePositionAxes = Axes.Both,
                             Position = new Vector2(RNG.NextSingle(), RNG.NextSingle()),
                         };
 
-                        AddInternal(triangle);
+                        AddInternal(square);
 
-                        triangle.FadeOutFromOne(120);
+                        square.FadeOutFromOne(120);
                     }
                 }
 
                 /// <summary>
-                /// Represents a sprite that is drawn in a triangle shape, instead of a rectangle shape.
+                /// A square that is either solid or hollow (an outline with a punched-out centre).
                 /// </summary>
-                public partial class OutlineTriangle : BufferedContainer
+                public partial class OutlineSquare : BufferedContainer
                 {
-                    public OutlineTriangle(bool outlineOnly, float size)
+                    public OutlineSquare(bool outlineOnly, float size)
                         : base(cachedFrameBuffer: true)
                     {
                         Size = new Vector2(size);
 
                         InternalChildren = new Drawable[]
                         {
-                            new Triangle { RelativeSizeAxes = Axes.Both },
+                            new Box { RelativeSizeAxes = Axes.Both },
                         };
 
                         if (outlineOnly)
                         {
-                            AddInternal(new Triangle
+                            AddInternal(new Box
                             {
                                 Anchor = Anchor.Centre,
                                 Origin = Anchor.Centre,
