@@ -4,12 +4,12 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Build osu! (Debug)",
+            "label": "Build type!beat (Debug)",
             "type": "shell",
             "command": "dotnet",
             "args": [
                 "build",
-                "osu.Desktop",
+                "typebeat.Desktop",
                 "-p:GenerateFullPaths=true",
                 "-m",
                 "-verbosity:m"
@@ -18,12 +18,12 @@
             "problemMatcher": "$msCompile"
         },
         {
-            "label": "Build osu! (Release)",
+            "label": "Build type!beat (Release)",
             "type": "shell",
             "command": "dotnet",
             "args": [
                 "build",
-                "osu.Desktop",
+                "typebeat.Desktop",
                 "-p:Configuration=Release",
                 "-p:GenerateFullPaths=true",
                 "-m",
@@ -38,7 +38,7 @@
             "command": "dotnet",
             "args": [
                 "build",
-                "osu.Game.Tests",
+                "typebeat.Game.Tests",
                 "-p:GenerateFullPaths=true",
                 "-m",
                 "-verbosity:m"
@@ -52,7 +52,7 @@
             "command": "dotnet",
             "args": [
                 "build",
-                "osu.Game.Tests",
+                "typebeat.Game.Tests",
                 "-p:Configuration=Release",
                 "-p:GenerateFullPaths=true",
                 "-m",
@@ -67,7 +67,7 @@
             "command": "dotnet",
             "args": [
                 "build",
-                "osu.Game.Tournament.Tests",
+                "typebeat.Game.Tournament.Tests",
                 "-p:GenerateFullPaths=true",
                 "-m",
                 "-verbosity:m"
@@ -81,7 +81,7 @@
             "command": "dotnet",
             "args": [
                 "build",
-                "osu.Game.Tournament.Tests",
+                "typebeat.Game.Tournament.Tests",
                 "-p:Configuration=Release",
                 "-p:GenerateFullPaths=true",
                 "-m",
@@ -96,7 +96,7 @@
             "command": "dotnet",
             "args": [
                 "build",
-                "osu.Game.Benchmarks",
+                "typebeat.Game.Benchmarks",
                 "-p:Configuration=Release",
                 "-p:GenerateFullPaths=true",
                 "-m",

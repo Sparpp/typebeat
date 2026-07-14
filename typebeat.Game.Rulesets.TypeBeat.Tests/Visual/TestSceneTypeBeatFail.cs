@@ -1,0 +1,84 @@
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// See the LICENCE file in the repository root for full licence text.
+
+using System.Collections.Generic;
+using NUnit.Framework;
+using typebeat.Game.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Rulesets.TypeBeat.Scoring;
+using typebeat.Game.Rulesets.TypeBeat.UI;
+using typebeat.Game.Tests.Visual;
+
+namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
+{
+    /// <summary>
+    /// The mash-fail rule end-to-end through Player: 13 consecutive rejected wrong keys drain
+    /// the health processor to zero and fail the play; an accepted char resets the streak.
+    /// Keys are fed straight to the engine (its events drive the playfield wiring), which is
+    /// the same synchronous path raw keyboard input takes.
+    /// </summary>
+    public partial class TestSceneTypeBeatFail : PlayerTestScene
+    {
+        protected override Ruleset CreatePlayerRuleset() => new TypeBeatRuleset();
+
+        private TypeBeatPlayfield playfield => (TypeBeatPlayfield)Player.DrawableRuleset.Playfield;
+
+        protected override IBeatmap CreateBeatmap(RulesetInfo ruleset)
+        {
+            var line = new LyricLine
+            {
+                RawText = "ab",
+                StartTime = 0,
+                EndTime = 600000,
+                SingEndTime = 300000,
+                Units = new[] { new TimedUnit { Text = "ab", StartTime = 0, EndTime = 300000 } },
+            };
+
+            var beatmap = new Beatmap
+            {
+                HitObjects = new List<Rulesets.Objects.HitObject>
+                {
+                    new TypeBeatHitObject
+                    {
+                        StartTime = 0,
+                        LineIndex = 0,
+                        Line = line,
+                        Granularity = TimingGranularity.Line,
+                    },
+                },
+            };
+
+            beatmap.BeatmapInfo.Ruleset = ruleset;
+            return beatmap;
+        }
+
+        [Test]
+        public void TestThirteenConsecutiveWrongKeysFail()
+        {
+            AddUntilStep("line active", () => playfield.Engine.ActiveLineIndex == 0);
+
+            AddStep("mash 12 wrong keys", () =>
+            {
+                for (int i = 0; i < TypeBeatHealthProcessor.WRONG_KEY_FAIL_STREAK - 1; i++)
+                    playfield.Engine.ProcessKey('x', 1000 + i);
+            });
+
+            AddAssert("streak at 12", () => playfield.Engine.ConsecutiveWrongKeys == TypeBeatHealthProcessor.WRONG_KEY_FAIL_STREAK - 1);
+            AddAssert("health nearly empty", () => Player.GameplayState.HealthProcessor.Health.Value < 0.1);
+            AddAssert("not failed yet", () => !Player.GameplayState.HasFailed);
+
+            AddStep("correct key resets the streak", () => playfield.Engine.ProcessKey('a', 2000));
+            AddAssert("health restored", () => Player.GameplayState.HealthProcessor.Health.Value == 1);
+            AddAssert("streak reset", () => playfield.Engine.ConsecutiveWrongKeys == 0);
+
+            AddStep("mash 13 wrong keys", () =>
+            {
+                for (int i = 0; i < TypeBeatHealthProcessor.WRONG_KEY_FAIL_STREAK; i++)
+                    playfield.Engine.ProcessKey('x', 3000 + i);
+            });
+
+            AddUntilStep("player failed", () => Player.GameplayState.HasFailed);
+        }
+    }
+}

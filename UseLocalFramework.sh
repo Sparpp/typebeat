@@ -5,10 +5,10 @@
 #
 # https://github.com/ppy/osu-framework/wiki/Testing-local-framework-checkout-with-other-projects
 
-GAME_CSPROJ="osu.Game/osu.Game.csproj"
+GAME_CSPROJ="typebeat.Game/typebeat.Game.csproj"
 ANDROID_PROPS="osu.Android.props"
 IOS_PROPS="osu.iOS.props"
-SLN="osu.sln"
+SLN="typebeat.sln"
 
 dotnet remove $GAME_CSPROJ reference ppy.osu.Framework
 dotnet remove $ANDROID_PROPS reference ppy.osu.Framework.Android
@@ -35,8 +35,8 @@ sed -i.bak '/<\/Project>/i\
 
 tmp=$(mktemp)
 
-jq '.solution.projects += ["../osu-framework/osu.Framework/osu.Framework.csproj", "../osu-framework/osu.Framework.NativeLibs/osu.Framework.NativeLibs.csproj"]' osu.Desktop.slnf > $tmp
-mv -f $tmp osu.Desktop.slnf
+jq '.solution.projects += ["../osu-framework/osu.Framework/osu.Framework.csproj", "../osu-framework/osu.Framework.NativeLibs/osu.Framework.NativeLibs.csproj"]' typebeat.Desktop.slnf > $tmp
+mv -f $tmp typebeat.Desktop.slnf
 
 jq '.solution.projects += ["../osu-framework/osu.Framework/osu.Framework.csproj", "../osu-framework/osu.Framework.NativeLibs/osu.Framework.NativeLibs.csproj", "../osu-framework/osu.Framework.Android/osu.Framework.Android.csproj"]' osu.Android.slnf > $tmp
 mv -f $tmp osu.Android.slnf

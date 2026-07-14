@@ -3,10 +3,10 @@
 #
 # https://github.com/ppy/osu-framework/wiki/Testing-local-framework-checkout-with-other-projects
 
-$GAME_CSPROJ="osu.Game/osu.Game.csproj"
+$GAME_CSPROJ="typebeat.Game/typebeat.Game.csproj"
 $ANDROID_PROPS="osu.Android.props"
 $IOS_PROPS="osu.iOS.props"
-$SLN="osu.sln"
+$SLN="typebeat.sln"
 
 dotnet remove $GAME_CSPROJ reference ppy.osu.Framework;
 dotnet remove $ANDROID_PROPS reference ppy.osu.Framework.Android;
@@ -39,10 +39,10 @@ dotnet add $IOS_PROPS reference ../osu-framework/osu.Framework.iOS/osu.Framework
 
 $TMP=New-TemporaryFile
 
-$SLNF=Get-Content "osu.Desktop.slnf" | ConvertFrom-Json
+$SLNF=Get-Content "typebeat.Desktop.slnf" | ConvertFrom-Json
 $SLNF.solution.projects += ("../osu-framework/osu.Framework/osu.Framework.csproj", "../osu-framework/osu.Framework.NativeLibs/osu.Framework.NativeLibs.csproj")
 ConvertTo-Json $SLNF | Out-File $TMP -Encoding UTF8
-Move-Item -Path $TMP -Destination "osu.Desktop.slnf" -Force
+Move-Item -Path $TMP -Destination "typebeat.Desktop.slnf" -Force
 
 $SLNF=Get-Content "osu.Android.slnf" | ConvertFrom-Json
 $SLNF.solution.projects += ("../osu-framework/osu.Framework/osu.Framework.csproj", "../osu-framework/osu.Framework.NativeLibs/osu.Framework.NativeLibs.csproj", "../osu-framework/osu.Framework.Android/osu.Framework.Android.csproj")

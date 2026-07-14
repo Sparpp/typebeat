@@ -1,0 +1,171 @@
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// See the LICENCE file in the repository root for full licence text.
+
+// Ported verbatim from type!beat TypeBeat.Game/Gameplay/Judgement.cs (regression-anchored).
+// This file is the SINGLE tuning point for all judgement window constants.
+// Pure C# — no osu.Framework dependencies. All times are double milliseconds.
+// Renames on entry: public constants restyled to ALL_UPPER per fork naming rules.
+// No type here collides with typebeat.Game.Rulesets.Judgements.Judgement (no type named "Judgement").
+
+using System;
+using System.Collections.Generic;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+
+namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
+{
+    public enum JudgementType
+    {
+        Perfect,
+        Good,
+        Ok,
+        Premature,
+        Lagging,
+        WrongChar,
+        Miss
+    }
+
+    public sealed class SyncWindows
+    {
+        public const double LEAD_IN_MS = 2000;
+
+        /// <summary>
+        /// Aligner word confidence below this judges the word's cells at Line-granularity
+        /// windows: the least reliable timing gets the widest tolerance, never the tightest.
+        /// </summary>
+        public const double LOW_CONFIDENCE_SCORE = 0.15;
+
+        // Base (Line-granularity) window constants — the one tuning point.
+        private const double base_perfect_early = 250;
+        private const double base_perfect_late = 400;
+        private const double base_good_early = 600;
+        private const double base_good_late = 1000;
+        private const double base_ok_early = 1200;
+        private const double base_ok_late = 2000;
+
+        private static readonly SyncWindows line_windows = new SyncWindows(1.0);
+        private static readonly SyncWindows word_windows = new SyncWindows(0.6);
+        private static readonly SyncWindows syllable_windows = new SyncWindows(0.45);
+
+        public static SyncWindows For(TimingGranularity granularity)
+        {
+            switch (granularity)
+            {
+                case TimingGranularity.Word:
+                    return word_windows;
+
+                case TimingGranularity.Syllable:
+                    return syllable_windows;
+
+                default:
+                    return line_windows;
+            }
+        }
+
+        public double Scale { get; }
+
+        public double PerfectEarly { get; }
+        public double PerfectLate { get; }
+        public double GoodEarly { get; }
+        public double GoodLate { get; }
+        public double OkEarly { get; }
+        public double OkLate { get; }
+
+        private SyncWindows(double scale)
+        {
+            Scale = scale;
+            PerfectEarly = base_perfect_early * scale;
+            PerfectLate = base_perfect_late * scale;
+            GoodEarly = base_good_early * scale;
+            GoodLate = base_good_late * scale;
+            OkEarly = base_ok_early * scale;
+            OkLate = base_ok_late * scale;
+        }
+
+        /// <summary>
+        /// Classify a correct keypress's delta (keypress time - cell target time; negative = early).
+        /// Nested asymmetric ranges, tested Perfect -> Good -> Ok; outside Ok the sign decides
+        /// Premature (too early) vs Lagging (too late).
+        /// </summary>
+        public JudgementType Classify(double delta)
+        {
+            if (delta >= -PerfectEarly && delta <= PerfectLate)
+                return JudgementType.Perfect;
+
+            if (delta >= -GoodEarly && delta <= GoodLate)
+                return JudgementType.Good;
+
+            if (delta >= -OkEarly && delta <= OkLate)
+                return JudgementType.Ok;
+
+            return delta < -OkEarly ? JudgementType.Premature : JudgementType.Lagging;
+        }
+
+        /// <summary>
+        /// Asymmetric sync quality in [0, 1]: q = clamp(1 - (delta &lt; 0 ? -delta/OkEarly : delta/OkLate), 0, 1).
+        /// </summary>
+        public double SyncQuality(double delta)
+            => Math.Clamp(1 - (delta < 0 ? -delta / OkEarly : delta / OkLate), 0, 1);
+
+        public static int BasePoints(JudgementType type)
+        {
+            switch (type)
+            {
+                case JudgementType.Perfect:
+                    return 300;
+
+                case JudgementType.Good:
+                    return 150;
+
+                case JudgementType.Ok:
+                    return 50;
+
+                default:
+                    return 0;
+            }
+        }
+    }
+
+    public readonly record struct CharJudgement(int LineIndex, int CellIndex, JudgementType Type, double Delta, int PointsAwarded, int ComboAfter);
+
+    public readonly record struct LineSealResult(int LineIndex, int MissedCells, bool ComboBroken);
+
+    public readonly record struct SyncSample(double Time, double Delta);
+
+    public sealed class ResultsSummary
+    {
+        public required long Score { get; init; }
+
+        /// <summary>0..1.</summary>
+        public required double Accuracy { get; init; }
+
+        public required double Wpm { get; init; }
+
+        /// <summary>0..100.</summary>
+        public required double SyncPercent { get; init; }
+
+        public required int MaxCombo { get; init; }
+
+        /// <summary>All 7 <see cref="JudgementType"/> keys always present.</summary>
+        public required IReadOnlyDictionary<JudgementType, int> Counts { get; init; }
+
+        public required IReadOnlyList<SyncSample> SyncTimeline { get; init; }
+
+        public required string Artist { get; init; }
+
+        public required string Title { get; init; }
+
+        /// <summary>Both thresholds required: S >=95 sync &amp;&amp; >=0.95 acc; A 90/0.90; B 80/0.80; C 65/0.65; else D.</summary>
+        public string Grade
+        {
+            get
+            {
+                if (SyncPercent >= 95 && Accuracy >= 0.95) return "S";
+                if (SyncPercent >= 90 && Accuracy >= 0.90) return "A";
+                if (SyncPercent >= 80 && Accuracy >= 0.80) return "B";
+                if (SyncPercent >= 65 && Accuracy >= 0.65) return "C";
+
+                return "D";
+            }
+        }
+    }
+}

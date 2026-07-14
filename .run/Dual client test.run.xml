@@ -1,7 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Dual client test" type="CompoundRunConfigurationType">
-    <toRun name="osu!" type="DotNetProject" />
-    <toRun name="osu! (Second Client)" type="DotNetProject" />
+    <toRun name="type!beat" type="DotNetProject" />
+    <toRun name="type!beat (Second Client)" type="DotNetProject" />
     <method v="2" />
   </configuration>
 </component>

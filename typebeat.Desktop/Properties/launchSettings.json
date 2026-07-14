@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "type!beat Desktop": {
+      "commandName": "Project"
+    },
+    "type!beat Tournament": {
+      "commandName": "Project",
+      "commandLineArgs": "--tournament"
+    }
+  }
+}

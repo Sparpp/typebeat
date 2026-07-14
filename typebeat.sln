@@ -1,0 +1,87 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29424.173
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "typebeat.Game", "typebeat.Game\typebeat.Game.csproj", "{2A66DD92-ADB1-4994-89E2-C94E04ACDA0D}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "typebeat.Game.Rulesets.TypeBeat", "typebeat.Game.Rulesets.TypeBeat\typebeat.Game.Rulesets.TypeBeat.csproj", "{F7D46C44-9512-41D0-A019-41D44EE97937}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "typebeat.Desktop", "typebeat.Desktop\typebeat.Desktop.csproj", "{419659FD-72EA-4678-9EB8-B22A746CED70}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "typebeat.Game.Rulesets.TypeBeat.Tests", "typebeat.Game.Rulesets.TypeBeat.Tests\typebeat.Game.Rulesets.TypeBeat.Tests.csproj", "{3AD63355-DAF6-4E43-9E7C-7CBB84F3B3C6}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{10DF8F12-50FD-45D8-8A38-17BA764BF54D}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+		Directory.Build.props = Directory.Build.props
+		global.json = global.json
+		typebeat.sln.DotSettings = typebeat.sln.DotSettings
+		typebeat.TestProject.props = typebeat.TestProject.props
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "CodeAnalysis", "CodeAnalysis", "{FB156649-D457-4D1A-969C-D3A23FD31513}"
+	ProjectSection(SolutionItems) = preProject
+		CodeAnalysis\BannedSymbols.txt = CodeAnalysis\BannedSymbols.txt
+		CodeAnalysis\typebeat.globalconfig = CodeAnalysis\typebeat.globalconfig
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2A66DD92-ADB1-4994-89E2-C94E04ACDA0D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2A66DD92-ADB1-4994-89E2-C94E04ACDA0D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2A66DD92-ADB1-4994-89E2-C94E04ACDA0D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2A66DD92-ADB1-4994-89E2-C94E04ACDA0D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F7D46C44-9512-41D0-A019-41D44EE97937}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F7D46C44-9512-41D0-A019-41D44EE97937}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F7D46C44-9512-41D0-A019-41D44EE97937}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F7D46C44-9512-41D0-A019-41D44EE97937}.Release|Any CPU.Build.0 = Release|Any CPU
+		{419659FD-72EA-4678-9EB8-B22A746CED70}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{419659FD-72EA-4678-9EB8-B22A746CED70}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{419659FD-72EA-4678-9EB8-B22A746CED70}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{419659FD-72EA-4678-9EB8-B22A746CED70}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3AD63355-DAF6-4E43-9E7C-7CBB84F3B3C6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3AD63355-DAF6-4E43-9E7C-7CBB84F3B3C6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3AD63355-DAF6-4E43-9E7C-7CBB84F3B3C6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3AD63355-DAF6-4E43-9E7C-7CBB84F3B3C6}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {671B0BEC-2403-45B0-9357-2C97CC517668}
+	EndGlobalSection
+	GlobalSection(MonoDevelopProperties) = preSolution
+		Policies = $0
+		$0.TextStylePolicy = $1
+		$1.EolMarker = Windows
+		$1.inheritsSet = VisualStudio
+		$1.inheritsScope = text/plain
+		$1.scope = text/x-csharp
+		$0.CSharpFormattingPolicy = $2
+		$2.IndentSwitchSection = True
+		$2.NewLinesForBracesInProperties = True
+		$2.NewLinesForBracesInAccessors = True
+		$2.NewLinesForBracesInAnonymousMethods = True
+		$2.NewLinesForBracesInControlBlocks = True
+		$2.NewLinesForBracesInAnonymousTypes = True
+		$2.NewLinesForBracesInObjectCollectionArrayInitializers = True
+		$2.NewLinesForBracesInLambdaExpressionBody = True
+		$2.NewLineForElse = True
+		$2.NewLineForCatch = True
+		$2.NewLineForFinally = True
+		$2.NewLineForMembersInObjectInit = True
+		$2.NewLineForMembersInAnonymousTypes = True
+		$2.NewLineForClausesInQuery = True
+		$2.SpacingAfterMethodDeclarationName = False
+		$2.SpaceAfterMethodCallName = False
+		$2.SpaceBeforeOpenSquareBracket = False
+		$2.inheritsSet = Mono
+		$2.inheritsScope = text/x-csharp
+		$2.scope = text/x-csharp
+	EndGlobalSection
+EndGlobal
