@@ -65,6 +65,12 @@ namespace typebeat.Game.Beatmaps
 
         double AudioLeadIn { get; internal set; }
 
+        /// <summary>
+        /// Optional "beat drop" timestamp (ms). Maps that set this are eligible to soundtrack the
+        /// game intro, which times playback so this moment lands exactly on the main menu reveal.
+        /// </summary>
+        double? IntroBeatdropTime { get; internal set; }
+
         float StackLeniency { get; internal set; }
 
         bool SpecialStyle { get; internal set; }

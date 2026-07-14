@@ -40,24 +40,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
         }
 
-        protected override Drawable CreateTimelineContent() => new LineOverviewPart();
+        protected override Drawable CreateTimelineContent() => new Container
+        {
+            RelativeSizeAxes = Axes.Both,
+            Children = new Drawable[]
+            {
+                new LineOverviewPart(),
+                new BeatdropMarkerPart(),
+            },
+        };
 
         protected override Drawable CreateMainContent() => new GridContainer
         {
             RelativeSizeAxes = Axes.Both,
-            ColumnDimensions = new[]
+            RowDimensions = new[]
             {
-                new Dimension(GridSizeMode.Relative, 0.42f),
+                new Dimension(GridSizeMode.AutoSize),
                 new Dimension(GridSizeMode.Absolute, 6),
                 new Dimension(),
             },
             Content = new[]
             {
+                new[] { (Drawable)new BeatdropToolbar() },
+                new[] { Empty() },
                 new[]
                 {
-                    (Drawable)(lineList = new LineListPanel()),
-                    Empty(),
-                    new ActiveLineDetailPanel(),
+                    (Drawable)new GridContainer
+                    {
+                        RelativeSizeAxes = Axes.Both,
+                        ColumnDimensions = new[]
+                        {
+                            new Dimension(GridSizeMode.Relative, 0.42f),
+                            new Dimension(GridSizeMode.Absolute, 6),
+                            new Dimension(),
+                        },
+                        Content = new[]
+                        {
+                            new[]
+                            {
+                                (Drawable)(lineList = new LineListPanel()),
+                                Empty(),
+                                new ActiveLineDetailPanel(),
+                            },
+                        },
+                    },
                 },
             },
         };

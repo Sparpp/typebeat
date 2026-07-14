@@ -349,6 +349,12 @@ namespace typebeat.Game.Rulesets.Difficulty
                 set => baseBeatmap.AudioLeadIn = value;
             }
 
+            public double? IntroBeatdropTime
+            {
+                get => baseBeatmap.IntroBeatdropTime;
+                set => baseBeatmap.IntroBeatdropTime = value;
+            }
+
             public float StackLeniency
             {
                 get => baseBeatmap.StackLeniency;

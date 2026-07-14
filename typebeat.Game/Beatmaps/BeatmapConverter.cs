@@ -73,6 +73,7 @@ namespace typebeat.Game.Beatmaps
             beatmap.HitObjects = convertHitObjects(original.HitObjects, original, cancellationToken).OrderBy(s => s.StartTime).ToList();
             beatmap.Breaks = original.Breaks;
             beatmap.AudioLeadIn = original.AudioLeadIn;
+            beatmap.IntroBeatdropTime = original.IntroBeatdropTime;
             beatmap.StackLeniency = original.StackLeniency;
             beatmap.SpecialStyle = original.SpecialStyle;
             beatmap.LetterboxInBreaks = original.LetterboxInBreaks;

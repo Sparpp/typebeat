@@ -64,6 +64,7 @@ namespace typebeat.Game.Screens.Edit
 
             editorBeatmap.PreviewTime.Value = target.PreviewTime;
             editorBeatmap.AudioLeadIn = decoded.AudioLeadIn;
+            editorBeatmap.IntroBeatdrop.Value = decoded.IntroBeatdropTime;
 
             editorBeatmap.EndChange();
         }

@@ -94,6 +94,11 @@ namespace typebeat.Game.Screens.Edit
 
         public BindableInt PreviewTime { get; }
 
+        /// <summary>
+        /// The optional intro beatdrop timestamp (ms); null when unset. See <see cref="IBeatmap.IntroBeatdropTime"/>.
+        /// </summary>
+        public Bindable<double?> IntroBeatdrop { get; }
+
         private readonly IBeatmapProcessor beatmapProcessor;
 
         private readonly Dictionary<HitObject, Bindable<double>> startTimeBindables = new Dictionary<HitObject, Bindable<double>>();
@@ -145,6 +150,14 @@ namespace typebeat.Game.Screens.Edit
             {
                 BeginChange();
                 BeatmapInfo.Metadata.PreviewTime = s.NewValue;
+                EndChange();
+            });
+
+            IntroBeatdrop = new Bindable<double?>(playableBeatmap.IntroBeatdropTime);
+            IntroBeatdrop.BindValueChanged(s =>
+            {
+                BeginChange();
+                PlayableBeatmap.IntroBeatdropTime = s.NewValue;
                 EndChange();
             });
 
@@ -224,6 +237,12 @@ namespace typebeat.Game.Screens.Edit
         {
             get => PlayableBeatmap.AudioLeadIn;
             set => PlayableBeatmap.AudioLeadIn = value;
+        }
+
+        public double? IntroBeatdropTime
+        {
+            get => PlayableBeatmap.IntroBeatdropTime;
+            set => PlayableBeatmap.IntroBeatdropTime = value;
         }
 
         public float StackLeniency

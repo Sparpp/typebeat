@@ -23,8 +23,6 @@ namespace typebeat.Game.Screens.Menu
 {
     public partial class IntroWelcome : IntroScreen
     {
-        protected override string BeatmapHash => "64e00d7022195959bfa3109d09c2e2276c8f12f486b91fcf6175583e973b48f2";
-        protected override string BeatmapFile => "welcome.osz";
         private const double delay_step_two = 2142;
 
         private SkinnableSound skinnableWelcome;
@@ -78,18 +76,10 @@ namespace typebeat.Game.Screens.Menu
                     if (reverbChannel != null)
                         intro.LogoVisualisation.AddAmplitudeSource(reverbChannel);
 
-                    if (!UsingThemedIntro)
-                        StartTrack();
+                    StartTrack();
 
                     Scheduler.AddDelayed(() =>
                     {
-                        if (UsingThemedIntro)
-                        {
-                            StartTrack();
-                            // this classic intro loops forever.
-                            Track.Looping = true;
-                        }
-
                         const float fade_in_time = 200;
 
                         logo.ScaleTo(1);

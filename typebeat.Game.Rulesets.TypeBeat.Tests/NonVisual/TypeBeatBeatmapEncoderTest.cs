@@ -85,6 +85,52 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             assertLinesEqual(lines[1], actual[1], 1);
         }
 
+        [Test]
+        public void IntroBeatdropSurvivesRoundTrip()
+        {
+            var source = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
+            source.IntroBeatdropTime = 45210;
+
+            var reloaded = roundTrip(source);
+
+            Assert.That(reloaded.IntroBeatdropTime, Is.EqualTo(45210));
+
+            // A second pass must be byte-stable (the editor's undo stack diffs encoded states).
+            var sb1 = new StringBuilder();
+            using (var sw = new StringWriter(sb1))
+                TypeBeatBeatmapEncoder.Encode(source, sw);
+
+            var sb2 = new StringBuilder();
+            using (var sw = new StringWriter(sb2))
+                TypeBeatBeatmapEncoder.Encode(reloaded, sw);
+
+            Assert.That(sb2.ToString(), Is.EqualTo(sb1.ToString()));
+        }
+
+        [Test]
+        public void UnsetIntroBeatdropStaysUnset()
+        {
+            var source = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
+
+            Assert.That(roundTrip(source).IntroBeatdropTime, Is.Null);
+        }
+
+        private static List<LyricLine> singleLine() => new List<LyricLine>
+        {
+            new LyricLine
+            {
+                RawText = "hello world",
+                StartTime = 1000,
+                EndTime = 3000,
+                SingEndTime = 2800,
+                Units = new[]
+                {
+                    new TimedUnit { Text = "hello", StartTime = 1000, EndTime = 1900, Source = TimingSource.Explicit },
+                    new TimedUnit { Text = "world", StartTime = 1900, EndTime = 2800, Source = TimingSource.Explicit },
+                },
+            },
+        };
+
         private static Beatmap buildBeatmap(IReadOnlyList<LyricLine> lines, string artist, string title, string audio)
         {
             var beatmap = new Beatmap();

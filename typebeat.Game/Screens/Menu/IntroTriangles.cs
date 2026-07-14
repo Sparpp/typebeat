@@ -26,27 +26,11 @@ namespace typebeat.Game.Screens.Menu
 {
     public partial class IntroTriangles : IntroScreen
     {
-        protected override string BeatmapHash => "a1556d0801b3a6b175dda32ef546f0ec812b400499f575c44fccbe9c67f9b1e5";
-
-        protected override string BeatmapFile => "triangles.osz";
-
-        [Resolved]
-        private AudioManager audio { get; set; }
-
-        private Sample welcome;
-
         private TrianglesIntroSequence intro;
 
         public IntroTriangles([CanBeNull] Func<MainMenu> createNextScreen = null)
             : base(createNextScreen)
         {
-        }
-
-        [BackgroundDependencyLoader]
-        private void load()
-        {
-            if (MenuVoice.Value)
-                welcome = audio.Samples.Get(@"Intro/welcome");
         }
 
         protected override void LogoArriving(OsuLogo logo, bool resuming)
@@ -57,7 +41,7 @@ namespace typebeat.Game.Screens.Menu
             {
                 PrepareMenuLoad();
 
-                var decouplingClock = new DecouplingFramedClock(UsingThemedIntro ? Track : null);
+                var decouplingClock = new DecouplingFramedClock(null);
 
                 LoadComponentAsync(intro = new TrianglesIntroSequence(logo, () => FadeInBackground())
                 {
@@ -70,22 +54,15 @@ namespace typebeat.Game.Screens.Menu
 
                     // There is a chance that the intro timed out before being displayed, and this scheduled callback could
                     // happen during the outro rather than intro.
-                    // In such a scenario, we don't want to play the intro sample, nor attempt to start the intro track
+                    // In such a scenario, we don't want to start the intro track
                     // (that may have already been since disposed by MusicController).
                     if (DidLoadMenu)
                         return;
 
-                    if (!UsingThemedIntro)
-                    {
-                        // If the user has requested no theme, fallback to the same intro voice and delay as IntroCircles.
-                        // The triangles intro voice and theme are combined which makes it impossible to use.
-                        welcome?.Play();
-                        Scheduler.AddDelayed(StartTrack, IntroCircles.TRACK_START_DELAY);
-                    }
-                    else
-                        StartTrack();
+                    // Time the beatdrop track so its drop lands exactly on the menu reveal.
+                    // With no beatdrop map selected, the intro animation runs silent.
+                    StartBeatdropTrack(TrianglesIntroSequence.MENU_LOAD_TIME);
 
-                    // no-op for the case of themed intro, no harm in calling for both scenarios as a safety measure.
                     decouplingClock.Start();
                 });
             }
@@ -181,6 +158,12 @@ namespace typebeat.Game.Screens.Menu
             private const double logo_scale_duration = 920;
             private const double logo_1 = 2080;
             private const double logo_2 = logo_1 + logo_scale_duration;
+
+            /// <summary>
+            /// Time (ms from sequence start) at which <see cref="LoadMenu"/> fires — the menu
+            /// reveal. The intro beatdrop is timed to land exactly here.
+            /// </summary>
+            public const double MENU_LOAD_TIME = logo_2;
 
             protected override void LoadComplete()
             {

@@ -23,12 +23,8 @@ namespace typebeat.Game.Seasonal
 {
     public partial class IntroChristmas : IntroScreen
     {
-        // nekodex - circle the halls
+        // nekodex - circle the halls (still referenced by MusicController's shuffle exclusion).
         public const string CHRISTMAS_BEATMAP_SET_HASH = "7e26183e72a496f672c3a21292e6b469fdecd084d31c259ea10a31df5b46cd77";
-
-        protected override string BeatmapHash => CHRISTMAS_BEATMAP_SET_HASH;
-
-        protected override string BeatmapFile => "christmas2024.osz";
 
         private const double beat_length = 60000 / 172.0;
         private const double offset = 5924;
@@ -50,7 +46,7 @@ namespace typebeat.Game.Seasonal
             {
                 PrepareMenuLoad();
 
-                var decouplingClock = new DecouplingFramedClock(UsingThemedIntro ? Track : null);
+                var decouplingClock = new DecouplingFramedClock(null);
 
                 LoadComponentAsync(intro = new TrianglesIntroSequence(logo, () => FadeInBackground())
                 {

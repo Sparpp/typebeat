@@ -35,7 +35,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 creator: metadata.Author.Username,
                 timingJsonText: timingJson,
                 previewTime: metadata.PreviewTime,
-                audioLeadIn: beatmap.AudioLeadIn);
+                audioLeadIn: beatmap.AudioLeadIn,
+                beatdropMs: beatmap.IntroBeatdropTime);
 
             writer.Write(osu);
         }

@@ -27,9 +27,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <param name="timingJsonText">Source lyriclab timing.json (version 2).</param>
         /// <param name="previewTime">Menu preview start (ms); -1 for none (osu default).</param>
         /// <param name="audioLeadIn">Silent lead-in before the map starts (ms).</param>
+        /// <param name="beatdropMs">Optional intro beatdrop timestamp (ms); null when unset.</param>
         /// <exception cref="ArgumentException">When the timing.json is not a supported v2 document.</exception>
         public static string GenerateOsu(string artist, string title, string audioFilename, string creator, string timingJsonText,
-                                         double previewTime = -1, double audioLeadIn = 0)
+                                         double previewTime = -1, double audioLeadIn = 0, double? beatdropMs = null)
         {
             using var doc = JsonDocument.Parse(timingJsonText);
             JsonElement root = doc.RootElement;
@@ -100,6 +101,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             header.Append($"{{\"version\":{TimingJsonLoader.SUPPORTED_VERSION}");
             if (songEndMs is double end)
                 header.Append($",\"song_end_ms\":{end.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+            if (beatdropMs is double drop)
+                header.Append($",\"beatdrop_ms\":{drop.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
             header.Append($",\"granularity\":\"{(anyWords ? TimingGranularity.Word : TimingGranularity.Line)}\"}}");
             sb.AppendLine(header.ToString());
 

@@ -122,6 +122,8 @@ namespace typebeat.Game.Beatmaps
 
         public double AudioLeadIn { get; set; }
 
+        public double? IntroBeatdropTime { get; set; }
+
         public float StackLeniency { get; set; } = 0.7f;
 
         public bool SpecialStyle { get; set; }

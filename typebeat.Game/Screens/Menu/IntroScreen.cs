@@ -14,6 +14,7 @@ using osu.Framework.Audio.Track;
 using osu.Framework.Bindables;
 using osu.Framework.Extensions;
 using osu.Framework.Graphics;
+using osu.Framework.Logging;
 using osu.Framework.Screens;
 using osu.Framework.Utils;
 using typebeat.Game.Audio;
@@ -42,22 +43,22 @@ namespace typebeat.Game.Screens.Menu
         /// </summary>
         public bool DidLoadMenu { get; private set; }
 
-        /// <summary>
-        /// A hash used to find the associated beatmap if already imported.
-        /// </summary>
-        protected abstract string BeatmapHash { get; }
-
-        /// <summary>
-        /// A source file to use as an import source if the intro beatmap is not yet present.
-        /// Should be within the "Tracks" namespace of game resources.
-        /// </summary>
-        protected abstract string BeatmapFile { get; }
-
         protected IBindable<bool> MenuVoice { get; private set; }
 
         protected IBindable<bool> MenuMusic { get; private set; }
 
         private WorkingBeatmap initialBeatmap;
+
+        /// <summary>
+        /// The beatdrop timestamp (ms) of <see cref="initialBeatmap"/>, when one was selected.
+        /// </summary>
+        private double? beatdropTime;
+
+        /// <summary>
+        /// Whether a beatdrop-flagged beatmap was selected to soundtrack the intro.
+        /// When false, the intro runs silent.
+        /// </summary>
+        protected bool HasBeatdropTrack => beatdropTime != null;
 
         protected ITrack Track { get; private set; }
 
@@ -83,15 +84,6 @@ namespace typebeat.Game.Screens.Menu
         [CanBeNull]
         private readonly Func<OsuScreen> createNextScreen;
 
-        [Resolved]
-        private RulesetStore rulesets { get; set; }
-
-        /// <summary>
-        /// Whether the <see cref="Track"/> is provided by type!beat resources, rather than a user beatmap.
-        /// Only valid during or after <see cref="LogoArriving"/>.
-        /// </summary>
-        protected bool UsingThemedIntro { get; private set; }
-
         protected override BackgroundScreen CreateBackground() => new BackgroundScreenDefault
         {
             Colour = Color4.Black
@@ -108,7 +100,7 @@ namespace typebeat.Game.Screens.Menu
         private BeatmapManager beatmaps { get; set; }
 
         [BackgroundDependencyLoader]
-        private void load(OsuConfigManager config, osu.Framework.Game game, RealmAccess realm, IAPIProvider api)
+        private void load(OsuConfigManager config, RealmAccess realm, IAPIProvider api)
         {
             // prevent user from changing beatmap while the intro is still running.
             beatmap = Beatmap.BeginLease(false);
@@ -121,69 +113,47 @@ namespace typebeat.Game.Screens.Menu
             else
                 seeya = audio.Samples.Get(SeeyaSampleName);
 
-            // if the user has requested not to play theme music, we should attempt to find a random beatmap from their collection.
-            if (!MenuMusic.Value)
+            // The intro is soundtracked by a random user beatmap that declares an intro beatdrop
+            // (see IBeatmap.IntroBeatdropTime): subclasses start the track so the drop lands
+            // exactly on the menu reveal. No candidates (or menu music disabled) -> silent intro.
+            if (MenuMusic.Value)
             {
                 realm.Run(r =>
                 {
                     var usableBeatmapSets = r.All<BeatmapSetInfo>().Where(s => !s.DeletePending && !s.Protected).AsRealmCollection();
 
-                    int setCount = usableBeatmapSets.Count;
-
-                    if (setCount > 0)
+                    // Uniform pick over beatdrop-flagged maps: visiting sets in a random order and
+                    // taking the first flagged one is a uniform choice over the flagged subset;
+                    // unflagged maps only cost a decode along the way.
+                    foreach (var setInfo in usableBeatmapSets.AsEnumerable().OrderBy(_ => RNG.Next()).ToList())
                     {
-                        var found = usableBeatmapSets[RNG.Next(0, setCount - 1)].Beatmaps.FirstOrDefault();
+                        var beatmapInfo = setInfo.Beatmaps.FirstOrDefault();
 
-                        if (found != null)
-                            initialBeatmap = beatmaps.GetWorkingBeatmap(found);
+                        if (beatmapInfo == null)
+                            continue;
+
+                        try
+                        {
+                            var working = beatmaps.GetWorkingBeatmap(beatmapInfo);
+
+                            if (working.Beatmap.IntroBeatdropTime is double drop)
+                            {
+                                initialBeatmap = working;
+                                beatdropTime = drop;
+                                break;
+                            }
+                        }
+                        catch
+                        {
+                            // an unreadable/corrupt map shouldn't block startup — try the next one.
+                        }
                     }
                 });
-            }
 
-            // we generally want a song to be playing on startup, so use the intro music even if a user has specified not to if no other track is available.
-            if (initialBeatmap == null)
-            {
-                // The BUNDLED intro beatmap is an osu-mode (.osu Mode: 0) archive: importing it
-                // without the osu ruleset present throws "No valid beatmap files found" and
-                // crashes startup. Gate on ruleset 0 specifically until a type!beat intro map
-                // ships (fork milestone M6); until then a clean install has a silent intro.
-                bool bundledIntroPlayable = rulesets.GetRuleset(0) != null;
-
-                if (!loadThemedIntro() && bundledIntroPlayable)
-                {
-                    // if we detect that the theme track or beatmap is unavailable this is either first startup or things are in a bad state.
-                    // this could happen if a user has nuked their files store. for now, reimport to repair this.
-                    var import = beatmaps.Import(new ImportTask(game.Resources.GetStream($"Tracks/{BeatmapFile}"), BeatmapFile)).GetResultSafely();
-
-                    import?.PerformWrite(b => b.Protected = true);
-
-                    loadThemedIntro();
-                }
-            }
-
-            bool loadThemedIntro()
-            {
-                var setInfo = beatmaps.QueryBeatmapSet(b => b.Protected && b.Hash == BeatmapHash);
-
-                if (setInfo == null)
-                    return false;
-
-                setInfo.PerformRead(s =>
-                {
-                    if (s.Beatmaps.Count == 0)
-                        return;
-
-                    var working = beatmaps.GetWorkingBeatmap(s.Beatmaps.First());
-
-                    // Ensure files area actually present on disk.
-                    // This is to handle edge cases like users deleting files outside the game and breaking the world.
-                    if (!hasAllFiles(working))
-                        return;
-
-                    initialBeatmap = working;
-                });
-
-                return UsingThemedIntro = initialBeatmap != null;
+                if (initialBeatmap != null)
+                    Logger.Log($"Intro beatdrop track: {initialBeatmap.Metadata.Artist} - {initialBeatmap.Metadata.Title} (drop at {beatdropTime:0}ms)");
+                else
+                    Logger.Log("No beatdrop-flagged beatmaps; intro will run silent.");
             }
 
             AddInternal(new GlobalScrollAdjustsVolume());
@@ -197,20 +167,6 @@ namespace typebeat.Game.Screens.Menu
 
         [Resolved]
         private INotificationOverlay notifications { get; set; }
-
-        private bool hasAllFiles(WorkingBeatmap working)
-        {
-            foreach (var f in working.BeatmapSetInfo.Files)
-            {
-                using (var str = working.GetStream(f.File.GetStoragePath()))
-                {
-                    if (str == null)
-                        return false;
-                }
-            }
-
-            return true;
-        }
 
         private void ensureEventuallyArrivingAtMenu()
         {
@@ -306,18 +262,48 @@ namespace typebeat.Game.Screens.Menu
         {
             var drawableTrack = musicController.CurrentTrack;
 
-            if (!UsingThemedIntro)
-            {
-                initialBeatmap?.PrepareTrackForPreview(false, -2600);
+            initialBeatmap?.PrepareTrackForPreview(false, -2600);
 
+            drawableTrack.VolumeTo(0);
+            drawableTrack.Restart();
+            drawableTrack.VolumeTo(1, 2600, Easing.InCubic);
+        }
+
+        /// <summary>
+        /// Starts the selected beatdrop beatmap's track, timed so the beatdrop lands
+        /// <paramref name="dropTime"/> ms from now — the moment the intro animation reveals the
+        /// menu. If the drop sits earlier in the song than <paramref name="dropTime"/>, playback
+        /// is instead delayed (silence first) so the drop still lands on cue.
+        /// No-op when no beatdrop beatmap was selected (<see cref="HasBeatdropTrack"/>).
+        /// </summary>
+        protected void StartBeatdropTrack(double dropTime)
+        {
+            if (beatdropTime is not double drop)
+                return;
+
+            double seekTime = drop - dropTime;
+            double startDelay = 0;
+
+            if (seekTime < 0)
+            {
+                startDelay = -seekTime;
+                seekTime = 0;
+            }
+
+            // Ramp in over the available lead time but settle at full volume comfortably
+            // before the drop, so the drop itself is never mid-fade.
+            double rampTime = Math.Clamp(dropTime - startDelay - 250, 0, 2600);
+            double seek = seekTime;
+
+            Scheduler.AddDelayed(() =>
+            {
+                var drawableTrack = musicController.CurrentTrack;
+
+                Track.RestartPoint = seek;
                 drawableTrack.VolumeTo(0);
                 drawableTrack.Restart();
-                drawableTrack.VolumeTo(1, 2600, Easing.InCubic);
-            }
-            else
-            {
-                drawableTrack.Restart();
-            }
+                drawableTrack.VolumeTo(1, rampTime, Easing.InCubic);
+            }, startDelay);
         }
 
         protected override void LogoArriving(OsuLogo logo, bool resuming)
@@ -330,8 +316,8 @@ namespace typebeat.Game.Screens.Menu
 
             if (!resuming)
             {
-                // generally this can never be null
-                // an exception is running ruleset tests, where the type!beat ruleset may not be present (causing importing the intro to fail).
+                // Null when no beatdrop-flagged map exists (or menu music is disabled): the intro
+                // then runs on the default (silent) beatmap.
                 if (initialBeatmap != null)
                     beatmap.Value = initialBeatmap;
                 Track = beatmap.Value.Track;
