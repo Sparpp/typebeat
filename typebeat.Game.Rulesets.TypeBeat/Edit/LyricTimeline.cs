@@ -116,10 +116,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (timeline == null || !timeline.IsLoaded)
                 return;
 
-            // Mirror the waveform timeline's visible window (its Current is the content-space
-            // left edge; VisibleRange the on-screen duration).
-            windowStart = timeline.TimeAtPosition(timeline.Current);
+            // Mirror the waveform timeline's visible window. Its content carries a half-viewport
+            // margin on each side (the playhead is pinned to the timeline's CENTRE), so Current
+            // maps to the centre time of the view, not its left edge. Centring here is also what
+            // keeps the strip snapped to the playhead during playback — the timeline scrolls to
+            // track time every frame while the clock runs, and we follow it.
+            double windowCentre = timeline.TimeAtPosition(timeline.Current);
             windowLength = Math.Max(1, timeline.VisibleRange);
+            windowStart = windowCentre - windowLength / 2;
 
             var ordered = TypeBeatEditorOperations.OrderedLines(editorBeatmap);
 
