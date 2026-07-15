@@ -224,7 +224,7 @@ namespace typebeat.Game.Overlays.Settings.Sections.Input
                                         {
                                             Anchor = Anchor.TopRight,
                                             Origin = Anchor.TopRight,
-                                            Text = "Clear binding",
+                                            Text = InputSettingsStrings.ClearBindingButton,
                                             Size = new Vector2(120, 30),
                                             Action = clear
                                         },
