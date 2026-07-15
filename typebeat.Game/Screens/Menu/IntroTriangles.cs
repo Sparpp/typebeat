@@ -320,8 +320,9 @@ namespace typebeat.Game.Screens.Menu
 
             private partial class RulesetFlow : FillFlowContainer
             {
-                // The four classic ruleset icons, as textures shipped in the resources package.
-                private static readonly string[] ruleset_icons = { "RulesetOsu", "RulesetTaiko", "RulesetCatch", "RulesetMania" };
+                // Three ruleset icons, as textures shipped in the resources package. The flow
+                // auto-lays them out with no gap; spacing is animated in the intro sequence.
+                private static readonly string[] ruleset_icons = { "RulesetOsu", "RulesetCatch", "RulesetMania" };
 
                 [BackgroundDependencyLoader]
                 private void load(LargeTextureStore textures)
