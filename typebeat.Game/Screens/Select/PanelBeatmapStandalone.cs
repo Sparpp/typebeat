@@ -19,6 +19,7 @@ using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Carousel;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
+using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Overlays;
 using typebeat.Game.Resources.Localisation.Web;
 using typebeat.Game.Rulesets;
@@ -326,7 +327,17 @@ namespace typebeat.Game.Screens.Select
                 List<MenuItem> items = new List<MenuItem>();
 
                 if (songSelect != null)
+                {
                     items.AddRange(songSelect.GetForwardActions(beatmap));
+
+                    // Standalone panels are the fork's only carousel representation, so set-level
+                    // management lives here too (deleting the map deletes its whole set).
+                    if (beatmap.BeatmapSet != null)
+                    {
+                        items.Add(new OsuMenuItemSpacer());
+                        items.Add(new OsuMenuItem(Localisation.CommonStrings.DeleteWithConfirmation, MenuItemType.Destructive, () => songSelect.Delete(beatmap.BeatmapSet)));
+                    }
+                }
 
                 return items.ToArray();
             }

@@ -49,35 +49,17 @@ namespace typebeat.Game.Beatmaps
                 FetchCache();
         }
 
-        private bool shouldFetchCache()
-        {
-            // avoid downloading / using cache for unit tests.
-            if (DebugUtils.IsNUnitRunning)
-                return false;
-
-            if (!storage.Exists(cache_database_name))
-            {
-                log(@"Fetching local cache because it does not exist.");
-                return true;
-            }
-
-            // periodically update the cache to include newer beatmaps.
-            var fileInfo = new FileInfo(storage.GetFullPath(cache_database_name));
-
-            if (fileInfo.LastWriteTime < DateTime.Now.AddMonths(-1))
-            {
-                log($@"Refetching local cache because it was last written to on {fileInfo.LastWriteTime}.");
-                return true;
-            }
-
-            return false;
-        }
+        private bool shouldFetchCache() =>
+            // The upstream online.db cache is fetched from assets.ppy.sh and maps beatmap MD5s
+            // to *osu!* online IDs — actively wrong for type!beat. Disabled so that
+            // APIBeatmapMetadataSource falls through to our /api/v2/beatmaps/lookup on import
+            // (that lookup is what stamps OnlineIDs). If lookup volume ever matters,
+            // typebeat-web can publish its own cache file and this can be re-enabled.
+            false;
 
         public bool Available =>
-            // no download in progress.
-            cacheDownloadRequest == null
-            // cached database exists on disk.
-            && storage.Exists(cache_database_name);
+            // see shouldFetchCache — the upstream cache holds osu! IDs, never valid here.
+            false;
 
         public bool TryLookup(BeatmapInfo beatmapInfo, [NotNullWhen(true)] out OnlineBeatmapMetadata? onlineMetadata)
         {
@@ -167,6 +149,12 @@ namespace typebeat.Game.Beatmaps
 
         public Task FetchCache()
         {
+            // Never fetch: the upstream cache is osu!'s (see shouldFetchCache). Callers that
+            // invoke this directly (e.g. BackgroundDataStoreProcessor's user-tags
+            // backpopulation) already handle the "still unavailable afterwards" case.
+            return Task.CompletedTask;
+
+#pragma warning disable CS0162 // unreachable — kept intact for a future typebeat-web cache file.
             bool isRefetch = storage.Exists(cache_database_name);
 
             string cacheFilePath = storage.GetFullPath(cache_database_name);
@@ -236,6 +224,7 @@ namespace typebeat.Game.Beatmaps
                     // Prevent throwing unobserved exceptions, as they will be logged from the network request to the log file anyway.
                 }
             });
+#pragma warning restore CS0162
         }
 
         public bool IsAtLeastVersion(int version)

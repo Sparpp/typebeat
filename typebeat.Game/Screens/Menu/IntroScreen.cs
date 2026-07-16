@@ -4,10 +4,13 @@
 #nullable disable
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using JetBrains.Annotations;
 using osu.Framework.Allocation;
+using osu.Framework.Platform;
 using osu.Framework.Audio;
 using osu.Framework.Audio.Sample;
 using osu.Framework.Audio.Track;
@@ -99,6 +102,9 @@ namespace typebeat.Game.Screens.Menu
         [Resolved]
         private BeatmapManager beatmaps { get; set; }
 
+        [Resolved]
+        private Storage storage { get; set; }
+
         [BackgroundDependencyLoader]
         private void load(OsuConfigManager config, RealmAccess realm, IAPIProvider api)
         {
@@ -118,14 +124,28 @@ namespace typebeat.Game.Screens.Menu
             // exactly on the menu reveal. No candidates (or menu music disabled) -> silent intro.
             if (MenuMusic.Value)
             {
+                var recentlyPlayed = readBeatdropHistory();
+                Guid selectedSetId = Guid.Empty;
+
                 realm.Run(r =>
                 {
                     var usableBeatmapSets = r.All<BeatmapSetInfo>().Where(s => !s.DeletePending && !s.Protected).AsRealmCollection();
 
-                    // Uniform pick over beatdrop-flagged maps: visiting sets in a random order and
-                    // taking the first flagged one is a uniform choice over the flagged subset;
-                    // unflagged maps only cost a decode along the way.
-                    foreach (var setInfo in usableBeatmapSets.AsEnumerable().OrderBy(_ => RNG.Next()).ToList())
+                    // Human-feeling shuffle (à la Spotify): rather than a uniform random pick — which
+                    // happily repeats the same map two launches running — we bias away from what was
+                    // recently played. Unplayed maps come first in a fresh random order; recently-played
+                    // ones are pushed to the back, oldest-first, so the most recent map is dead last and
+                    // only resurfaces when nothing else is flagged. Taking the first flagged map in this
+                    // order therefore avoids repeats whenever the library allows it, and unflagged maps
+                    // only cost a decode along the way.
+                    int recencyOf(BeatmapSetInfo s) => recentlyPlayed.IndexOf(s.ID.ToString());
+
+                    var ordered = usableBeatmapSets.AsEnumerable()
+                                                   .OrderBy(s => recencyOf(s) < 0 ? 0 : 1)
+                                                   .ThenByDescending(s => recencyOf(s) < 0 ? RNG.Next() : recencyOf(s))
+                                                   .ToList();
+
+                    foreach (var setInfo in ordered)
                     {
                         var beatmapInfo = setInfo.Beatmaps.FirstOrDefault();
 
@@ -140,6 +160,7 @@ namespace typebeat.Game.Screens.Menu
                             {
                                 initialBeatmap = working;
                                 beatdropTime = drop;
+                                selectedSetId = setInfo.ID;
                                 break;
                             }
                         }
@@ -151,12 +172,69 @@ namespace typebeat.Game.Screens.Menu
                 });
 
                 if (initialBeatmap != null)
+                {
+                    writeBeatdropHistory(selectedSetId, recentlyPlayed);
                     Logger.Log($"Intro beatdrop track: {initialBeatmap.Metadata.Artist} - {initialBeatmap.Metadata.Title} (drop at {beatdropTime:0}ms)");
+                }
                 else
                     Logger.Log("No beatdrop-flagged beatmaps; intro will run silent.");
             }
 
             AddInternal(new GlobalScrollAdjustsVolume());
+        }
+
+        private const string beatdrop_history_filename = "intro_beatdrop_history.txt";
+
+        /// <summary>
+        /// How many recently-played beatdrop maps to remember and steer away from. Kept modest so
+        /// a small flagged library still cycles rather than starving.
+        /// </summary>
+        private const int beatdrop_history_size = 8;
+
+        /// <summary>
+        /// The set IDs of recently-chosen intro beatdrop maps, most-recent first. Used to bias the
+        /// intro shuffle away from immediate repeats (see the selection in <see cref="load"/>).
+        /// </summary>
+        private List<string> readBeatdropHistory()
+        {
+            try
+            {
+                if (!storage.Exists(beatdrop_history_filename))
+                    return new List<string>();
+
+                using var stream = storage.GetStream(beatdrop_history_filename);
+                using var reader = new StreamReader(stream);
+
+                return reader.ReadToEnd()
+                             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                             .ToList();
+            }
+            catch
+            {
+                return new List<string>();
+            }
+        }
+
+        private void writeBeatdropHistory(Guid selectedSetId, List<string> previous)
+        {
+            try
+            {
+                var updated = new List<string> { selectedSetId.ToString() };
+                updated.AddRange(previous);
+
+                updated = updated.Distinct().Take(beatdrop_history_size).ToList();
+
+                using var stream = storage.CreateFileSafely(beatdrop_history_filename);
+                using var writer = new StreamWriter(stream);
+
+                foreach (string id in updated)
+                    writer.WriteLine(id);
+            }
+            catch
+            {
+                // history is a best-effort nicety; failing to persist it just means the next
+                // intro might repeat, which is harmless.
+            }
         }
 
         public override void OnEntering(ScreenTransitionEvent e)

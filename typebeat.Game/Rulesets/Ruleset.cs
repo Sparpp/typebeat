@@ -33,6 +33,7 @@ using typebeat.Game.Scoring;
 using typebeat.Game.Screens.Edit.Setup;
 using typebeat.Game.Screens.Ranking.Statistics;
 using typebeat.Game.Skinning;
+using typebeat.Game.Storyboards;
 using typebeat.Game.Users;
 using osuTK;
 
@@ -296,7 +297,10 @@ namespace typebeat.Game.Rulesets
         /// Encodes <paramref name="beatmap"/> to this ruleset's native on-disk text format.
         /// Only called when <see cref="CanEncodeToNativeFormat"/> is true.
         /// </summary>
-        public virtual void EncodeToNativeFormat(IBeatmap beatmap, TextWriter writer) =>
+        /// <param name="beatmap">The beatmap to encode.</param>
+        /// <param name="storyboard">The beatmap's storyboard, when available — carries the background video.</param>
+        /// <param name="writer">The output writer.</param>
+        public virtual void EncodeToNativeFormat(IBeatmap beatmap, Storyboard? storyboard, TextWriter writer) =>
             throw new NotSupportedException($"{GetType().Name} does not support native-format encoding.");
 
         public virtual Drawable CreateIcon() => new SpriteIcon { Icon = FontAwesome.Solid.QuestionCircle };

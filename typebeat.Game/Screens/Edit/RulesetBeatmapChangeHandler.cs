@@ -37,7 +37,7 @@ namespace typebeat.Game.Screens.Edit
         protected override void WriteCurrentStateToStream(MemoryStream stream)
         {
             using (var sw = new StreamWriter(stream, Encoding.UTF8, 1024, true))
-                ruleset.EncodeToNativeFormat(editorBeatmap, sw);
+                ruleset.EncodeToNativeFormat(editorBeatmap, editorBeatmap.Storyboard, sw);
         }
 
         protected override void ApplyStateChange(byte[] previousState, byte[] newState)
@@ -61,6 +61,7 @@ namespace typebeat.Game.Screens.Edit
             current.TitleUnicode = target.TitleUnicode;
             current.Author.Username = target.Author.Username;
             current.AudioFile = target.AudioFile;
+            current.BackgroundFile = target.BackgroundFile;
 
             editorBeatmap.PreviewTime.Value = target.PreviewTime;
             editorBeatmap.AudioLeadIn = decoded.AudioLeadIn;

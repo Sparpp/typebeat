@@ -10,6 +10,7 @@ namespace typebeat.Game.Online.API
         public OsuJsonWebRequest(string uri)
             : base(uri)
         {
+            LocalDevInsecure.Allow(this, uri);
         }
 
         public OsuJsonWebRequest()

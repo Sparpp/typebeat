@@ -15,6 +15,7 @@ using osu.Framework.Input.Events;
 using osu.Framework.Threading;
 using osu.Framework.Utils;
 using typebeat.Game.Graphics.Containers;
+using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests;
 using typebeat.Game.Online.API.Requests.Responses;
 
@@ -29,6 +30,9 @@ namespace typebeat.Game.Screens.Menu
         internal Bindable<APIMenuContent> Current { get; } = new Bindable<APIMenuContent>(new APIMenuContent());
 
         private const float transition_duration = 500;
+
+        [Resolved]
+        private IAPIProvider api { get; set; } = null!;
 
         private Container<MenuImage> content = null!;
         private CancellationTokenSource? cancellationTokenSource;
@@ -69,7 +73,7 @@ namespace typebeat.Game.Screens.Menu
             if (!FetchOnlineContent)
                 return;
 
-            var request = new GetMenuContentRequest();
+            var request = new GetMenuContentRequest(api.Endpoints);
             Task.Run(request.Perform)
                 .ContinueWith(r =>
                 {

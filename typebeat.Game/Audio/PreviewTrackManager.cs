@@ -9,6 +9,7 @@ using osu.Framework.Graphics;
 using osu.Framework.Logging;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Online;
+using typebeat.Game.Online.API;
 
 namespace typebeat.Game.Audio
 {
@@ -30,9 +31,9 @@ namespace typebeat.Game.Audio
         }
 
         [BackgroundDependencyLoader]
-        private void load(AudioManager audioManager)
+        private void load(AudioManager audioManager, IAPIProvider api)
         {
-            trackStore = audioManager.GetTrackStore(new TrustedDomainOnlineStore());
+            trackStore = audioManager.GetTrackStore(new TrustedDomainOnlineStore(api.Endpoints));
         }
 
         /// <summary>

@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Storyboards;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
@@ -22,6 +23,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     public static class TypeBeatBeatmapEncoder
     {
         public static void Encode(IBeatmap beatmap, TextWriter writer)
+            => Encode(beatmap, null, writer);
+
+        public static void Encode(IBeatmap beatmap, Storyboard? storyboard, TextWriter writer)
         {
             var lines = beatmap.HitObjects.OfType<TypeBeatHitObject>().OrderBy(h => h.LineIndex).ToList();
             var metadata = beatmap.BeatmapInfo.Metadata;
@@ -36,7 +40,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 timingJsonText: timingJson,
                 previewTime: metadata.PreviewTime,
                 audioLeadIn: beatmap.AudioLeadIn,
-                beatdropMs: beatmap.IntroBeatdropTime);
+                beatdropMs: beatmap.IntroBeatdropTime,
+                backgroundFilename: metadata.BackgroundFile,
+                videoFilename: storyboard?.PrimaryVideo?.Path);
 
             writer.Write(osu);
         }

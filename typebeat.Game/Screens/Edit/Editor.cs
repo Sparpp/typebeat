@@ -295,11 +295,14 @@ namespace typebeat.Game.Screens.Edit
 
             if (canSave)
             {
-                // Legacy rulesets use the text-diff patcher; rulesets with their own native format
-                // (e.g. type!beat's [Lyrics] section) snapshot and restore the whole beatmap.
-                changeHandler = rulesetInstance is ILegacyRuleset
-                    ? new BeatmapEditorChangeHandler(editorBeatmap)
-                    : new RulesetBeatmapChangeHandler(editorBeatmap, rulesetInstance);
+                // Rulesets with their own native format (e.g. type!beat's [Lyrics] section)
+                // snapshot and restore the whole beatmap; legacy rulesets use the text-diff
+                // patcher. Native format takes precedence: type!beat is also an ILegacyRuleset
+                // (purely to claim online ruleset ID 0), but the legacy encoder cannot
+                // represent its [Lyrics] section.
+                changeHandler = rulesetInstance.CanEncodeToNativeFormat
+                    ? new RulesetBeatmapChangeHandler(editorBeatmap, rulesetInstance)
+                    : new BeatmapEditorChangeHandler(editorBeatmap);
                 dependencies.CacheAs<IEditorChangeHandler>(changeHandler);
             }
 

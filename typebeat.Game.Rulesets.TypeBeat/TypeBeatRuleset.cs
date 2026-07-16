@@ -13,6 +13,7 @@ using typebeat.Game.Rulesets.Configuration;
 using typebeat.Game.Rulesets.Difficulty;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Scoring;
+using typebeat.Game.Rulesets.Scoring.Legacy;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
@@ -20,12 +21,13 @@ using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Screens.Edit.Setup;
 using typebeat.Game.Rulesets.UI;
+using typebeat.Game.Storyboards;
 using osuTK;
 using osuTK.Graphics;
 
 namespace typebeat.Game.Rulesets.TypeBeat
 {
-    public partial class TypeBeatRuleset : Ruleset
+    public partial class TypeBeatRuleset : Ruleset, ILegacyRuleset
     {
         static TypeBeatRuleset()
         {
@@ -57,8 +59,8 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// </summary>
         public override bool CanEncodeToNativeFormat => true;
 
-        public override void EncodeToNativeFormat(IBeatmap beatmap, System.IO.TextWriter writer) =>
-            TypeBeatBeatmapEncoder.Encode(beatmap, writer);
+        public override void EncodeToNativeFormat(IBeatmap beatmap, Storyboard? storyboard, System.IO.TextWriter writer) =>
+            TypeBeatBeatmapEncoder.Encode(beatmap, storyboard, writer);
 
         /// <summary>Compose mode is type!beat's own lyric surface, not a circle composer.</summary>
         public override typebeat.Game.Screens.Edit.EditorScreen CreateEditorComposeScreen() => new LyricComposeScreen();
@@ -91,6 +93,16 @@ namespace typebeat.Game.Rulesets.TypeBeat
         public override IRulesetConfigManager CreateConfig(SettingsStore? settings) => new TypeBeatRulesetConfigManager(settings, RulesetInfo);
 
         public override string ShortName => "typebeat";
+
+        /// <summary>
+        /// type!beat's server-side ruleset ID. Claiming a "legacy" ID is what gives the ruleset
+        /// an <c>OnlineID</c> (0) — without one, score submission (<c>SoloPlayer</c>) and global
+        /// leaderboards (<c>LeaderboardManager</c>) silently no-op. Our server owns all
+        /// interpretation of ID 0; there is no osu!standard to collide with.
+        /// </summary>
+        public int LegacyID => 0;
+
+        public ILegacyScoreSimulator CreateLegacyScoreSimulator() => new TypeBeatLegacyScoreSimulator();
 
         public override IEnumerable<KeyBinding> GetDefaultKeyBindings(int variant = 0) => new[]
         {

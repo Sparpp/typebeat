@@ -106,10 +106,18 @@ namespace typebeat.Game
 
         public virtual bool UseDevelopmentServer => DebugUtils.IsDebugBuild;
 
-        public virtual EndpointConfiguration CreateEndpoints() =>
-            UseDevelopmentServer ? new DevelopmentEndpointConfiguration() : new ProductionEndpointConfiguration();
+        public virtual EndpointConfiguration CreateEndpoints()
+        {
+            // Lets any build (including Release) target a local or staging typebeat-web
+            // instance, e.g. TYPEBEAT_API_URL=http://localhost:5089 type!beat.exe
+            string envOverride = Environment.GetEnvironmentVariable("TYPEBEAT_API_URL");
+            if (!string.IsNullOrEmpty(envOverride))
+                return new TypebeatEndpointConfiguration(envOverride.TrimEnd('/'));
 
-        protected override OnlineStore CreateOnlineStore() => new TrustedDomainOnlineStore();
+            return UseDevelopmentServer ? new TypebeatDevEndpointConfiguration() : new TypebeatEndpointConfiguration();
+        }
+
+        protected override OnlineStore CreateOnlineStore() => new TrustedDomainOnlineStore(CreateEndpoints());
 
         public virtual Version AssemblyVersion => Assembly.GetEntryAssembly()?.GetName().Version ?? new Version();
 

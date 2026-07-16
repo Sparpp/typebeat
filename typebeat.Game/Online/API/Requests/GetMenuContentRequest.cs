@@ -7,8 +7,8 @@ namespace typebeat.Game.Online.API.Requests
 {
     public class GetMenuContentRequest : OsuJsonWebRequest<APIMenuContent>
     {
-        public GetMenuContentRequest()
-            : base(@"https://assets.ppy.sh/menu-content.json")
+        public GetMenuContentRequest(EndpointConfiguration endpoints)
+            : base($@"{endpoints.WebsiteUrl}/menu-content.json")
         {
         }
     }

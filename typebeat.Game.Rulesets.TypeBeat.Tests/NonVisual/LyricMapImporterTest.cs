@@ -229,6 +229,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void Mp4SourceBecomesAudioAndBackgroundVideo()
+        {
+            // A video container packaged as the map's audio also becomes its background video:
+            // the .osu references the same file from AudioFilename and an [Events] Video entry.
+            string mp4Path = Path.Combine(tempRoot, "Some Artist - Some Song.mp4");
+            File.WriteAllText(mp4Path, "fake video");
+
+            const string timing = "{\"version\":2,\"song_end_ms\":8000,\"lines\":["
+                                  + "{\"text\":\"one two\",\"start_ms\":1000,\"end_ms\":3000}]}";
+
+            string oszPath = Path.Combine(tempRoot, "video.osz");
+            var result = LyricMapImporter.PackageOsz(oszPath, "Some Artist", "Some Song", mp4Path, timing, "[00:01.00] one two\n");
+
+            Assert.That(result.Success, Is.True, result.Error);
+
+            using var archive = ZipFile.OpenRead(oszPath);
+            var osuEntry = archive.Entries.Single(e => e.FullName.EndsWith(".osu", StringComparison.OrdinalIgnoreCase));
+            string osuText = readEntry(osuEntry);
+
+            Assert.That(osuText, Does.Contain("AudioFilename: Some Artist - Some Song.mp4"));
+            Assert.That(osuText, Does.Contain("Video,0,\"Some Artist - Some Song.mp4\""));
+
+            var beatmap = decode(osuText);
+            Assert.That(beatmap.Metadata.AudioFile, Is.EqualTo("Some Artist - Some Song.mp4"));
+        }
+
+        [Test]
         public async Task UnstampedLyricsWithoutAlignerFails()
         {
             string audioPath = Path.Combine(tempRoot, "a.mp3");

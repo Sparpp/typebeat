@@ -88,8 +88,6 @@ namespace typebeat.Game.Screens.Menu
             private Container logoContainerSecondary;
             private LazerLogo lazerLogo;
 
-            private KeyboardMosaic keyboardMosaic;
-
             private GlitchingSquares squares;
 
             public Action LoadMenu;
@@ -123,13 +121,6 @@ namespace typebeat.Game.Screens.Menu
                         Font = OsuFont.GetFont(weight: FontWeight.Light, size: 42),
                         Alpha = 1,
                         Spacing = new Vector2(5),
-                    },
-                    keyboardMosaic = new KeyboardMosaic
-                    {
-                        Alpha = 0,
-                        Anchor = Anchor.Centre,
-                        Origin = Anchor.Centre,
-                        Size = new Vector2(760, 220),
                     },
                     rulesetsScale = new Container
                     {
@@ -183,7 +174,6 @@ namespace typebeat.Game.Screens.Menu
                 const float scale_adjust = 0.8f;
 
                 rulesets.Hide();
-                keyboardMosaic.Hide();
                 lazerLogo.Hide();
 
                 using (BeginAbsoluteSequence(0))
@@ -206,22 +196,17 @@ namespace typebeat.Game.Screens.Menu
                     using (BeginDelayedSequence(text_glitch))
                         squares.FadeIn();
 
-                    // Frame 1: a tile mosaic of the keyboard image, scrolling right at a constant
-                    // speed (self-driven loop in the mosaic), replacing the original spread-apart
-                    // ruleset icons converging on centre.
                     using (BeginDelayedSequence(rulesets_1))
                     {
-                        keyboardMosaic.FadeIn();
+                        rulesetsScale.ScaleTo(0.8f, 1000);
+                        rulesets.FadeIn().ScaleTo(1).TransformSpacingTo(new Vector2(200, 0));
                         welcomeText.FadeOut().Expire();
                         squares.FadeOut().Expire();
                     }
 
-                    // Frames 2 & 3: the four ruleset icons appear and scale up (original movement).
                     using (BeginDelayedSequence(rulesets_2))
                     {
-                        keyboardMosaic.FadeOut().Expire();
-                        rulesetsScale.ScaleTo(0.8f, 1000);
-                        rulesets.FadeIn().ScaleTo(2).TransformSpacingTo(new Vector2(30, 0));
+                        rulesets.ScaleTo(2).TransformSpacingTo(new Vector2(30, 0));
                     }
 
                     using (BeginDelayedSequence(rulesets_3))
@@ -342,51 +327,6 @@ namespace typebeat.Game.Screens.Menu
                             Texture = textures.Get($@"Icons/{name}"),
                         });
                     }
-                }
-            }
-
-            /// <summary>
-            /// A tiled mosaic of the keyboard image that scrolls right at a constant speed. The
-            /// grid is one tile wider on the left than the masked bounds and loops by exactly one
-            /// tile, so the rightward scroll is seamless for however long the frame is shown.
-            /// </summary>
-            private partial class KeyboardMosaic : CompositeDrawable
-            {
-                private const float tile = 96f;
-
-                // ms to advance one tile — smaller is faster. Constant (Easing.None) speed.
-                private const double ms_per_tile = 320;
-
-                [BackgroundDependencyLoader]
-                private void load(LargeTextureStore textures)
-                {
-                    Masking = true;
-
-                    var texture = textures.Get(@"Icons/keyboard");
-
-                    int cols = (int)Math.Ceiling(Size.X / tile) + 2;
-                    int rows = (int)Math.Ceiling(Size.Y / tile) + 1;
-
-                    var grid = new Container { AutoSizeAxes = Axes.None };
-
-                    for (int r = 0; r < rows; r++)
-                    {
-                        for (int c = 0; c < cols; c++)
-                        {
-                            grid.Add(new Sprite
-                            {
-                                Texture = texture,
-                                Size = new Vector2(tile),
-                                Position = new Vector2(c * tile, r * tile),
-                            });
-                        }
-                    }
-
-                    AddInternal(grid);
-
-                    // Loop a one-tile rightward slide; the tiles repeat every `tile`, so the wrap
-                    // is invisible.
-                    grid.Loop(b => b.MoveToX(-tile).MoveToX(0, ms_per_tile, Easing.None));
                 }
             }
 

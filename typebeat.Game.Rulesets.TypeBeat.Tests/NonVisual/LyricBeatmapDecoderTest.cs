@@ -104,11 +104,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void NonLyricFilesStillDecodeViaLegacyFallback()
         {
+            const string legacy_text = "osu file format v14\n\n[Metadata]\nTitle:legacy\n";
+
             // A stock legacy header must NOT be captured by the typebeat decoder.
-            var beatmap = decode("osu file format v14\n\n[Metadata]\nTitle:legacy\n");
+            // (Ruleset identity no longer distinguishes the two decoders: legacy mode 0 maps to
+            // type!beat by design now that TypeBeatRuleset claims online ruleset ID 0, so pin
+            // the decoder choice itself.)
+            using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(legacy_text)))
+            using (var reader = new LineBufferedReader(stream))
+                Assert.That(typebeat.Game.Beatmaps.Formats.Decoder.GetDecoder<typebeat.Game.Beatmaps.Beatmap>(reader), Is.Not.InstanceOf<LyricBeatmapDecoder>());
+
+            var beatmap = decode(legacy_text);
             Assert.That(beatmap.HitObjects, Is.Empty);
             Assert.That(beatmap.Metadata.Title, Is.EqualTo("legacy"));
-            Assert.That(beatmap.BeatmapInfo.Ruleset.ShortName, Is.Not.EqualTo("typebeat"));
         }
 
         private static void assertLinesEqual(LyricLine expected, TypeBeatHitObject actual, int index)

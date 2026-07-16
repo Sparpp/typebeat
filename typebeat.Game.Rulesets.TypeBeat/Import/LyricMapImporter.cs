@@ -409,7 +409,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 string audioFilename = Path.GetFileName(audioSourcePath);
                 (double previewTime, double audioLeadIn) = computePolish(timingJson);
 
-                string osuText = LyricOsuFormat.GenerateOsu(artist, title, audioFilename, CREATOR, timingJson, previewTime, audioLeadIn);
+                // A video container in the audio slot doubles as the map's background video:
+                // the same file is referenced from both AudioFilename and the [Events] video.
+                string? videoFilename = LyricImportExtensions.IsVideo(audioSourcePath) ? audioFilename : null;
+
+                string osuText = LyricOsuFormat.GenerateOsu(artist, title, audioFilename, CREATOR, timingJson, previewTime, audioLeadIn,
+                    videoFilename: videoFilename);
 
                 if (File.Exists(oszPath))
                     File.Delete(oszPath);

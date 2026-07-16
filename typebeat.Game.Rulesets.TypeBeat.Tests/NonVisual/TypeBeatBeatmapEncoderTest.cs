@@ -9,6 +9,7 @@ using NUnit.Framework;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Storyboards;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
@@ -115,6 +116,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(roundTrip(source).IntroBeatdropTime, Is.Null);
         }
 
+        [Test]
+        public void BackgroundAndVideoSurviveRoundTrip()
+        {
+            var source = buildBeatmap(singleLine(), "Artist", "Title", "song.mp4");
+            source.Metadata.BackgroundFile = "bg.jpg";
+
+            var storyboard = new Storyboard();
+            storyboard.GetLayer("Video").Elements.Add(new StoryboardVideo(StoryboardElementSource.Beatmap, "song.mp4", 0));
+
+            string encoded = encode(source, storyboard);
+
+            // Background round-trips through the inherited legacy [Events] beatmap parsing...
+            var reloaded = decode(encoded);
+            Assert.That(reloaded.Metadata.BackgroundFile, Is.EqualTo("bg.jpg"));
+
+            // ...and the video through the registered legacy storyboard decoder.
+            var reloadedStoryboard = decodeStoryboard(encoded);
+            Assert.That(reloadedStoryboard.PrimaryVideo, Is.Not.Null);
+            Assert.That(reloadedStoryboard.PrimaryVideo!.Path, Is.EqualTo("song.mp4"));
+
+            // Lyric lines are unaffected by the [Events] section.
+            Assert.That(reloaded.HitObjects, Has.Count.EqualTo(1));
+        }
+
+        [Test]
+        public void NoEventsSectionWhenUnset()
+        {
+            var source = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
+
+            Assert.That(encode(source, new Storyboard()), Does.Not.Contain("[Events]"));
+        }
+
         private static List<LyricLine> singleLine() => new List<LyricLine>
         {
             new LyricLine
@@ -155,15 +188,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return beatmap;
         }
 
-        private static Beatmap roundTrip(Beatmap source)
+        private static Beatmap roundTrip(Beatmap source) => decode(encode(source, null));
+
+        private static string encode(Beatmap source, Storyboard? storyboard)
         {
             var sb = new StringBuilder();
             using (var sw = new StringWriter(sb))
-                TypeBeatBeatmapEncoder.Encode(source, sw);
+                TypeBeatBeatmapEncoder.Encode(source, storyboard, sw);
 
-            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(sb.ToString()));
+            return sb.ToString();
+        }
+
+        private static Beatmap decode(string text)
+        {
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(text));
             using var reader = new typebeat.Game.IO.LineBufferedReader(stream);
             return (Beatmap)typebeat.Game.Beatmaps.Formats.Decoder.GetDecoder<Beatmap>(reader).Decode(reader);
+        }
+
+        private static Storyboard decodeStoryboard(string text)
+        {
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(text));
+            using var reader = new typebeat.Game.IO.LineBufferedReader(stream);
+            return typebeat.Game.Beatmaps.Formats.Decoder.GetDecoder<Storyboard>(reader).Decode(reader);
         }
 
         private static void assertLinesEqual(LyricLine expected, TypeBeatHitObject actual, int index)

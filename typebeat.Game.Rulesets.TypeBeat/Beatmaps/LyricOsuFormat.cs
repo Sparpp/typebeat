@@ -28,9 +28,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <param name="previewTime">Menu preview start (ms); -1 for none (osu default).</param>
         /// <param name="audioLeadIn">Silent lead-in before the map starts (ms).</param>
         /// <param name="beatdropMs">Optional intro beatdrop timestamp (ms); null when unset.</param>
+        /// <param name="backgroundFilename">Optional background image file name (emitted as a legacy [Events] background).</param>
+        /// <param name="videoFilename">Optional background video file name (emitted as a legacy [Events] video, offset 0).</param>
         /// <exception cref="ArgumentException">When the timing.json is not a supported v2 document.</exception>
         public static string GenerateOsu(string artist, string title, string audioFilename, string creator, string timingJsonText,
-                                         double previewTime = -1, double audioLeadIn = 0, double? beatdropMs = null)
+                                         double previewTime = -1, double audioLeadIn = 0, double? beatdropMs = null,
+                                         string? backgroundFilename = null, string? videoFilename = null)
         {
             using var doc = JsonDocument.Parse(timingJsonText);
             JsonElement root = doc.RootElement;
@@ -90,6 +93,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             sb.AppendLine("ApproachRate:5");
             sb.AppendLine("SliderMultiplier:1.4");
             sb.AppendLine("SliderTickRate:1");
+
+            // Legacy [Events] syntax so the inherited legacy beatmap/storyboard parsing picks the
+            // background and video up on decode without any custom handling.
+            if (!string.IsNullOrEmpty(backgroundFilename) || !string.IsNullOrEmpty(videoFilename))
+            {
+                sb.AppendLine();
+                sb.AppendLine("[Events]");
+                sb.AppendLine("//Background and Video events");
+
+                if (!string.IsNullOrEmpty(backgroundFilename))
+                    sb.AppendLine($"0,0,\"{backgroundFilename}\",0,0");
+
+                if (!string.IsNullOrEmpty(videoFilename))
+                    sb.AppendLine($"Video,0,\"{videoFilename}\"");
+            }
+
             sb.AppendLine();
             sb.AppendLine("[TimingPoints]");
             sb.AppendLine("0,500,4,2,0,100,1,0");

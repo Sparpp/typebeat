@@ -535,7 +535,7 @@ namespace typebeat.Game.Beatmaps
                     // Rulesets with a native on-disk text format (e.g. type!beat's [Lyrics]) encode
                     // themselves; everything else uses the legacy .osu encoder.
                     if (rulesetInstance.CanEncodeToNativeFormat)
-                        rulesetInstance.EncodeToNativeFormat(beatmapContent, sw);
+                        rulesetInstance.EncodeToNativeFormat(beatmapContent, storyboard, sw);
                     else
                         new LegacyBeatmapEncoder(beatmapContent, beatmapSkin, storyboard).Encode(sw);
                 }
