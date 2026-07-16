@@ -5,16 +5,17 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
-using osu.Framework.Graphics.UserInterface;
 using typebeat.Game.Graphics.UserInterface;
+using typebeat.Game.Graphics.UserInterfaceV2;
+using typebeat.Game.Localisation;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests;
 using typebeat.Game.Online.Rooms;
 using typebeat.Game.Screens.OnlinePlay.Lounge;
 using typebeat.Game.Screens.OnlinePlay.Lounge.Components;
+using Container = osu.Framework.Graphics.Containers.Container;
 
 namespace typebeat.Game.Screens.OnlinePlay.Playlists
 {
@@ -23,19 +24,24 @@ namespace typebeat.Game.Screens.OnlinePlay.Playlists
         [Resolved]
         private IAPIProvider api { get; set; } = null!;
 
-        private Dropdown<PlaylistsCategory> categoryDropdown = null!;
+        private FormEnumDropdown<PlaylistsCategory> categoryDropdown = null!;
 
         protected override IEnumerable<Drawable> CreateFilterControls()
         {
-            categoryDropdown = new SlimEnumDropdown<PlaylistsCategory>
+            foreach (var control in base.CreateFilterControls())
+                yield return control;
+
+            yield return new Container
             {
-                RelativeSizeAxes = Axes.None,
                 Width = 160,
+                AutoSizeAxes = Axes.Y,
+                Child = categoryDropdown = new FormEnumDropdown<PlaylistsCategory>
+                {
+                    Caption = LoungeSubScreenStrings.PlaylistFilterCategory,
+                }
             };
 
             categoryDropdown.Current.BindValueChanged(_ => UpdateFilter());
-
-            return base.CreateFilterControls().Append(categoryDropdown);
         }
 
         protected override LoungeFilterCriteria CreateFilterCriteria()

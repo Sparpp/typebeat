@@ -7,14 +7,17 @@ using osu.Framework.Allocation;
 using osu.Framework.Extensions.ExceptionExtensions;
 using osu.Framework.Logging;
 using osu.Framework.Graphics;
+using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.UserInterface;
 using typebeat.Game.Configuration;
 using typebeat.Game.Graphics.UserInterface;
+using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.Multiplayer;
 using typebeat.Game.Online.Rooms;
 using typebeat.Game.Screens.OnlinePlay.Lounge;
 using typebeat.Game.Screens.OnlinePlay.Lounge.Components;
+using typebeat.Game.Localisation;
 
 namespace typebeat.Game.Screens.OnlinePlay.Multiplayer
 {
@@ -27,33 +30,58 @@ namespace typebeat.Game.Screens.OnlinePlay.Multiplayer
         private MultiplayerClient client { get; set; } = null!;
 
         private Dropdown<RoomPermissionsFilter> roomAccessTypeDropdown = null!;
-        private OsuCheckbox showInProgress = null!;
+        private FormCheckBox showInProgress = null!;
+        private FormCheckBox showFull = null!;
 
         protected override IEnumerable<Drawable> CreateFilterControls()
         {
             foreach (var control in base.CreateFilterControls())
                 yield return control;
 
-            yield return roomAccessTypeDropdown = new SlimEnumDropdown<RoomPermissionsFilter>
+            yield return new Container
             {
-                RelativeSizeAxes = Axes.None,
-                Current = Config.GetBindable<RoomPermissionsFilter>(OsuSetting.MultiplayerRoomFilter),
                 Width = 160,
+                AutoSizeAxes = Axes.Y,
+                Child = roomAccessTypeDropdown = new FormEnumDropdown<RoomPermissionsFilter>
+                {
+                    Caption = LoungeSubScreenStrings.RoomFilterPrivacySetting,
+                    Current = Config.GetBindable<RoomPermissionsFilter>(OsuSetting.MultiplayerRoomFilter),
+                },
             };
 
             roomAccessTypeDropdown.Current.BindValueChanged(_ => UpdateFilter());
 
-            yield return showInProgress = new OsuCheckbox
+            yield return new Container
             {
-                LabelText = "Show in-progress rooms",
-                RelativeSizeAxes = Axes.None,
+                Width = 240,
+                Child = showInProgress = new FormCheckBox
+                {
+                    ExtendedHeight = true,
+                    HintText = LoungeSubScreenStrings.RoomFilterInProgressDescription,
+                    Caption = LoungeSubScreenStrings.RoomFilterInProgress,
+                    Current = Config.GetBindable<bool>(OsuSetting.MultiplayerShowInProgressFilter),
+                }
+            };
+
+            yield return new Container
+            {
                 Width = 220,
-                Padding = new MarginPadding { Vertical = 5, },
-                Current = Config.GetBindable<bool>(OsuSetting.MultiplayerShowInProgressFilter),
+                AutoSizeAxes = Axes.Y,
+                Child = showFull = new FormCheckBox
+                {
+                    ExtendedHeight = true,
+                    HintText = LoungeSubScreenStrings.RoomFilterFullRoomsDescription,
+                    Caption = LoungeSubScreenStrings.RoomFilterFullRooms,
+                    Current = Config.GetBindable<bool>(OsuSetting.MultiplayerShowFullFilter),
+                }
             };
 
             showInProgress.Current.BindValueChanged(_ => UpdateFilter());
-            StatusDropdown.Current.BindValueChanged(_ => showInProgress.Alpha = StatusDropdown.Current.Value == RoomModeFilter.Open ? 1 : 0, true);
+            showFull.Current.BindValueChanged(_ => UpdateFilter());
+            StatusDropdown.Current.BindValueChanged(_ =>
+            {
+                showFull.Alpha = showInProgress.Alpha = StatusDropdown.Current.Value == RoomModeFilter.Open ? 1 : 0;
+            }, true);
         }
 
         protected override LoungeFilterCriteria CreateFilterCriteria()
@@ -61,6 +89,7 @@ namespace typebeat.Game.Screens.OnlinePlay.Multiplayer
             var criteria = base.CreateFilterCriteria();
             criteria.Category = @"realtime";
             criteria.Permissions = roomAccessTypeDropdown.Current.Value;
+            criteria.Full = showFull.Current.Value;
             criteria.Status = showInProgress.Current.Value && criteria.Mode == RoomModeFilter.Open ? null : RoomStatusFilter.Idle;
             return criteria;
         }
