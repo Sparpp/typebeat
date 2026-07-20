@@ -33,9 +33,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         [Resolved]
         private EditorClock editorClock { get; set; } = null!;
 
-        [Resolved]
-        private LyricComposeScreen composeScreen { get; set; } = null!;
-
         private OsuSpriteText header = null!;
         private OsuSpriteText timing = null!;
 
@@ -103,16 +100,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 Padding = new MarginPadding { Top = 8 },
                                 Children = new Drawable[]
                                 {
-                                    actionButton("replay (R)", replayActiveLine),
+                                    // The R hotkey still replays the active line (see LyricComposeScreen);
+                                    // the button was dropped to declutter the row.
+                                    // Copy/paste timing stays on the standard ^C/^V hotkeys
+                                    // (LyricComposeScreen.Copy/Paste); the buttons were dropped.
                                     actionButton("add @ playhead", addAtPlayhead),
                                     actionButton("split @ word (S)", splitAtSelectedWord),
                                     actionButton("merge next (M)", mergeNext),
                                     actionButton("delete line", deleteLine),
-                                    // Timing clipboard: what gets copied/pasted follows the current
-                                    // selection (words here, or lines in the list) — see the screen's
-                                    // Copy/Paste dispatch.
-                                    actionButton("copy timing (^C)", composeScreen.Copy),
-                                    actionButton("paste timing (^V)", composeScreen.Paste),
                                 },
                             },
                         },
@@ -146,16 +141,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             header.Text = $"line {line.LineIndex + 1}: {l.RawText}";
             timing.Text = $"start {l.StartTime:0}ms   sung end {l.SingEndTime:0}ms   window end {l.EndTime:0}ms   "
                           + $"{line.Granularity} granularity{(l.Estimated ? "   [estimated]" : string.Empty)}{(l.SealGraceMs > 0 ? $"   grace {l.SealGraceMs:0}ms" : string.Empty)}";
-        }
-
-        private void replayActiveLine()
-        {
-            if (state.ActiveLine.Value is not TypeBeatHitObject line)
-                return;
-
-            editorClock.Seek(System.Math.Max(0, line.Line.StartTime - 600));
-            state.ReplayStopTime = line.Line.EndTime + 200;
-            editorClock.Start();
         }
 
         private void addAtPlayhead()

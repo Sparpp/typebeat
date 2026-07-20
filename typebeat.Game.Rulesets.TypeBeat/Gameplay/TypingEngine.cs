@@ -104,6 +104,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>Current run of consecutive rejected wrong keys; any accepted char resets it to 0.</summary>
         public int ConsecutiveWrongKeys => consecutiveWrongKeys;
 
+        /// <summary>Mashing mod (Relax): every keypress is judged as the caret cell's expected char.</summary>
+        public bool MashingEnabled { get; set; }
+
+        /// <summary>
+        /// Legacy "allow wrong input" setting: wrong (non-space) characters are typed through and
+        /// marked red instead of rejected, and can be backspaced. Off by default (strict rejection).
+        /// </summary>
+        public bool AllowWrongInput { get; set; }
+
         public event Action<CharJudgement>? CharJudged;
         public event Action<int>? LineActivated;
         public event Action<LineSealResult>? LineSealed;
@@ -291,14 +300,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 return false; // line complete — wait for the song.
 
             var cell = line.Cells[caretIndex];
+
+            // Mashing mod: any key is the right key — judge it as the caret cell's expected char.
+            if (MashingEnabled)
+                c = cell.Expected;
+
             double delta = time - cell.TargetTime;
             bool matched = Typeability.Fold(c) == Typeability.Fold(cell.Expected);
 
             if (!matched)
             {
-                // Wrong key — REJECTED: no cell mutation, no caret advance, no CharJudged.
-                // It still costs: the accuracy denominator, an error, a combo break, and the
-                // consecutive-wrong-key streak (the game fails the play when it hits 13).
+                // Legacy "allow wrong input" setting: a wrong LETTER is typed through — marked red,
+                // backspaceable — instead of rejected. The space key stays strict (no wrong space,
+                // and no wrong char consuming a word boundary), and this mode never feeds the
+                // mash-fail streak (consecutiveWrongKeys is left at 0).
+                if (AllowWrongInput && c != ' ' && cell.Expected != ' ')
+                {
+                    totalKeypresses++;
+                    errorCount++;
+                    combo = 0;
+                    counts[JudgementType.WrongChar]++;
+
+                    cell.State = CellState.Wrong;
+                    cell.TypedChar = c;
+
+                    int wrongCellIndex = caretIndex;
+                    caretIndex++;
+                    autoSkipForward();
+
+                    ComboBroken?.Invoke();
+                    // Miss result (see DrawableTypeBeatHitObject.toHitResult) + red/shake feedback;
+                    // a later backspace + correct retype re-judges the cell Correct for completion.
+                    CharJudged?.Invoke(new CharJudgement(activeLineIndex, wrongCellIndex, JudgementType.WrongChar, delta, 0, combo));
+                    return true;
+                }
+
+                // Strict (default): wrong key REJECTED — no cell mutation, no caret advance, no
+                // CharJudged. It still costs the accuracy denominator, an error, a combo break, and
+                // the consecutive-wrong-key streak (the game fails the play when it hits 13).
                 totalKeypresses++;
                 errorCount++;
                 consecutiveWrongKeys++;

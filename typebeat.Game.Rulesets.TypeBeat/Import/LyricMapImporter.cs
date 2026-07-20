@@ -13,11 +13,13 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
@@ -549,6 +551,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             return (previewTime, audioLeadIn);
         }
 
+        // Demucs (vocal separation) streams a tqdm bar measured in audio-seconds, emitting raw
+        // float counters like "169.64999999999998/269.09999999999997" that render absurdly long.
+        // Round any 3+-decimal number in a progress line down to one decimal place for display.
+        private static readonly Regex noisy_decimal = new Regex(@"\d+\.\d{3,}", RegexOptions.Compiled);
+
+        private static string trimNoisyDecimals(string line) =>
+            noisy_decimal.Replace(line, m =>
+                double.TryParse(m.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double v)
+                    ? v.ToString("0.#", CultureInfo.InvariantCulture)
+                    : m.Value);
+
         /// <summary>
         /// Runs a redirected process streaming non-empty output lines to <paramref name="progress"/>
         /// (background thread!). Returns the exit code (<see cref="cancelled_exit_code"/> when the
@@ -574,7 +587,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                         tail.Dequeue();
                 }
 
-                progress(line.Trim());
+                progress(trimNoisyDecimals(line.Trim()));
             }
 
             string tailString()

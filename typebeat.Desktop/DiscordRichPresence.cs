@@ -143,13 +143,17 @@ namespace typebeat.Desktop
                 if (!client.IsInitialized)
                     return;
 
-                if (!api.IsLoggedIn || userStatus.Value == UserStatus.Offline || privacyMode.Value == DiscordRichPresenceMode.Off)
+                if (userStatus.Value == UserStatus.Offline || privacyMode.Value == DiscordRichPresenceMode.Off)
                 {
                     client.ClearPresence();
                     return;
                 }
 
-                bool hideIdentifiableInformation = privacyMode.Value == DiscordRichPresenceMode.Limited || userStatus.Value == UserStatus.DoNotDisturb;
+                // Show presence even when signed out, so the game "just shows up" in Discord
+                // (upstream only shows it while logged in). A signed-out session is treated like
+                // Limited: the generic activity ("Typing lyrics", menus) shows, but username /
+                // rank / the specific beatmap stay hidden until the player logs in.
+                bool hideIdentifiableInformation = !api.IsLoggedIn || privacyMode.Value == DiscordRichPresenceMode.Limited || userStatus.Value == UserStatus.DoNotDisturb;
 
                 updatePresence(hideIdentifiableInformation);
                 client.SetPresence(presence);

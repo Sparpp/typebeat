@@ -33,7 +33,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// Physical keyboard layout the player types on. Keys arrive by physical position, so a
         /// non-QWERTY layout needs the produced character remapped (see <see cref="KeyboardLayout"/>).
         /// </summary>
-        KeyboardLayout
+        KeyboardLayout,
+
+        /// <summary>
+        /// Legacy typing model. Off (default) = strict: a wrong key is rejected and 13 in a row fail
+        /// the play. On = a wrong character is typed through (shown red) and can be backspaced; only
+        /// the space key stays strict, and the mash-fail streak does not apply.
+        /// </summary>
+        AllowWrongInput,
+
+        /// <summary>Vertical gap (px) between the three gameplay lyric lines.</summary>
+        LineSpacing
     }
 
     /// <summary>Monkeytype's caret styles. <see cref="Line"/> is the classic 3px beam.</summary>
@@ -60,6 +70,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.LyricLabPath, string.Empty);
             SetDefault(TypeBeatRulesetSetting.CaretStyle, CaretStyle.Line);
             SetDefault(TypeBeatRulesetSetting.KeyboardLayout, Gameplay.KeyboardLayout.Qwerty);
+            SetDefault(TypeBeatRulesetSetting.AllowWrongInput, false);
+            SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
         }
     }
 }

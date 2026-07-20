@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Extensions.Color4Extensions;
+using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Containers;
@@ -53,6 +54,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private FramedOffsetClock lyricClock = null!;
 
+        private LyricStage stage = null!;
+
+        /// <summary>Screen-space centre of the typing caret when it is visible — the Flashlight mod's
+        /// reveal point. Returns false while no line is active (caret hidden), so the mod can fade.</summary>
+        public bool TryGetCaretScreenPosition(out osuTK.Vector2 position)
+        {
+            if (stage.IsNotNull() && stage.PlayerCaretVisible)
+            {
+                position = stage.PlayerCaretScreenPosition;
+                return true;
+            }
+
+            position = default;
+            return false;
+        }
+
         // Both cached by Player; absent in bare drawable-ruleset test scenes.
         [Resolved]
         private ScoreProcessor? scoreProcessor { get; set; }
@@ -70,6 +87,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             config?.BindWith(TypeBeatRulesetSetting.LyricOffsetMs, lyricOffset);
             config?.BindWith(TypeBeatRulesetSetting.KeyboardLayout, keyboardLayout);
+
+            // The wrong-input model is fixed for the play; the engine reads the flag on every key.
+            if (config != null)
+                Engine.AllowWrongInput = config.Get<bool>(TypeBeatRulesetSetting.AllowWrongInput);
 
             // The Player already renders the beatmap background image (dimmed) and, when
             // "beatmap storyboard/video" is on, the video — both BELOW the ruleset. Historically
@@ -132,7 +153,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         // Ticks the engine FIRST in this subtree so the stage and HUD read
                         // fresh engine state for the same lyric-clock frame.
                         new EngineTicker(Engine),
-                        new LyricStage(Engine),
+                        stage = new LyricStage(Engine),
                         new TypeBeatHudOverlay(Engine),
                         new TypeBeatKeyHandler(Engine, keyboardLayout),
                     },

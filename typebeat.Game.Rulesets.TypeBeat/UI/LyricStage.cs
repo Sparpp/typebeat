@@ -6,6 +6,7 @@
 
 using System;
 using osu.Framework.Allocation;
+using osu.Framework.Bindables;
 using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
@@ -26,7 +27,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// </summary>
     public partial class LyricStage : CompositeDrawable
     {
-        private const float line_gap = 96f;
+        // Vertical gap between the three lyric lines; user-adjustable (TypeBeatRulesetSetting.LineSpacing),
+        // so a live change re-runs the layout by invalidating laidOutFocus.
+        private float lineGap = 96f;
+        private readonly BindableFloat lineSpacing = new BindableFloat(96f);
 
         // The "get ready" cue: two depleting bars under the upcoming line's first char. A solid
         // bar lands on the line BOUNDARY (StartTime) and a 50%-opaque bar lands on the FIRST
@@ -104,6 +108,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // Player caret style is the user's monkeytype-style choice; the sung caret is a
             // position marker and always stays a beam.
             config?.BindWith(TypeBeatRulesetSetting.CaretStyle, playerCaret.Style);
+
+            // Line spacing is user-adjustable and applies live: a change invalidates the laid-out
+            // focus so the next Update re-runs the layout with the new gap.
+            config?.BindWith(TypeBeatRulesetSetting.LineSpacing, lineSpacing);
+            lineSpacing.BindValueChanged(e =>
+            {
+                lineGap = e.NewValue;
+                laidOutFocus = int.MinValue;
+            }, true);
 
             approachBar = new Box // first-word cue (50% opaque)
             {
@@ -387,23 +400,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     case -1:
                         d.SetLineDim(0.7f);
                         fade(d, 1f, dur);
-                        move(d, -line_gap, dur);
+                        move(d, -lineGap, dur);
                         break;
 
                     case 1:
                         d.SetLineDim(0.4f);
                         fade(d, 1f, dur);
-                        move(d, line_gap, dur);
+                        move(d, lineGap, dur);
                         break;
 
                     case -2:
                         fade(d, 0f, dur);
-                        move(d, -2 * line_gap, dur);
+                        move(d, -2 * lineGap, dur);
                         break;
 
                     case 2:
                         fade(d, 0f, dur);
-                        move(d, 2 * line_gap, dur);
+                        move(d, 2 * lineGap, dur);
                         break;
 
                     default:
@@ -439,23 +452,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     case -1:
                         d.SetLineDim(0.7f);
                         fade(d, 1f, dur);
-                        move(d, -line_gap, dur);
+                        move(d, -lineGap, dur);
                         break;
 
                     case 1:
                         d.SetLineDim(0.6f);
                         fade(d, 1f, dur);
-                        move(d, line_gap, dur);
+                        move(d, lineGap, dur);
                         break;
 
                     case -2:
                         fade(d, 0f, dur);
-                        move(d, -2 * line_gap, dur);
+                        move(d, -2 * lineGap, dur);
                         break;
 
                     case 2:
                         fade(d, 0f, dur);
-                        move(d, 2 * line_gap, dur);
+                        move(d, 2 * lineGap, dur);
                         break;
 
                     default:
@@ -527,6 +540,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public Vector2 PlayerCaretPosition => playerCaret.IsNotNull() ? playerCaret.Position : Vector2.Zero;
         public Vector2 SungCaretPosition => sungCaret.IsNotNull() ? sungCaret.Position : Vector2.Zero;
         public bool PlayerCaretVisible => playerCaret.IsNotNull() && playerCaret.Alpha > 0.5f;
+
+        /// <summary>Screen-space centre of the typing caret — the point the Flashlight mod reveals around.</summary>
+        public Vector2 PlayerCaretScreenPosition => playerCaret.IsNotNull() ? playerCaret.ScreenSpaceDrawQuad.Centre : Vector2.Zero;
         public bool ApproachCueVisible =>
             (approachBar.IsNotNull() && approachBar.Alpha > 0.1f) || (boundaryBar.IsNotNull() && boundaryBar.Alpha > 0.1f);
 

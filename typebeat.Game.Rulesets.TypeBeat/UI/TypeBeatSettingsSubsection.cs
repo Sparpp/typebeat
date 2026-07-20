@@ -40,6 +40,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     LabelText = "Keyboard layout",
                     Current = config.GetBindable<KeyboardLayout>(TypeBeatRulesetSetting.KeyboardLayout),
                 },
+                new SettingsCheckbox
+                {
+                    LabelText = "Allow wrong keypresses",
+                    TooltipText = "Type wrong characters through (shown red, backspace to fix) instead of rejecting them. The space key stays strict.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.AllowWrongInput),
+                },
+                new SettingsSlider<float>
+                {
+                    LabelText = "Lyric line spacing",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.LineSpacing),
+                    KeyboardStep = 2f,
+                },
             };
         }
     }

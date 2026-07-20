@@ -20,6 +20,7 @@ using typebeat.Game.Rulesets.Scoring.Legacy;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
+using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Scoring;
@@ -55,7 +56,26 @@ namespace typebeat.Game.Rulesets.TypeBeat
         public override DifficultyCalculator CreateDifficultyCalculator(IWorkingBeatmap beatmap) =>
             new TypeBeatDifficultyCalculator(RulesetInfo, beatmap);
 
-        public override IEnumerable<Mod> GetModsFor(ModType type) => Array.Empty<Mod>();
+        public override IEnumerable<Mod> GetModsFor(ModType type) => type switch
+        {
+            ModType.DifficultyReduction => new Mod[]
+            {
+                new TypeBeatModNoFail(),
+                new TypeBeatModHalfTime(),
+            },
+            ModType.DifficultyIncrease => new Mod[]
+            {
+                new TypeBeatModSuddenDeath(),
+                new TypeBeatModDoubleTime(),
+                new TypeBeatModNightcore(),
+                new TypeBeatModFlashlight(),
+            },
+            ModType.Automation => new Mod[]
+            {
+                new TypeBeatModMashing(),
+            },
+            _ => Array.Empty<Mod>(),
+        };
 
         /// <summary>
         /// type!beat maps are stored in the "type!beat file format v1" .osu variant; the legacy
@@ -101,6 +121,19 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// <see cref="TypeBeatScoreProcessor"/>. Score, combo and accuracy stay standardised.
         /// </summary>
         public override ScoreProcessor CreateScoreProcessor() => new TypeBeatScoreProcessor(this);
+
+        /// <summary>
+        /// type!beat only ever awards Great/Ok/Meh (+ implicit Miss). Restricting the valid results
+        /// keeps the base ruleset from surfacing spurious rows on the results card — notably the
+        /// obsolete <see cref="HitResult.LegacyComboIncrease"/>, which the base "all enum values"
+        /// default would otherwise emit at count 0.
+        /// </summary>
+        public override IEnumerable<HitResult> GetValidHitResults() => new[]
+        {
+            HitResult.Great,
+            HitResult.Ok,
+            HitResult.Meh,
+        };
 
         /// <summary>
         /// Results-screen statistics: completion (the number the rank is graded on) alongside the

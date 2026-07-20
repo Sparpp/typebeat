@@ -22,6 +22,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     {
         protected override Ruleset CreatePlayerRuleset() => new TypeBeatRuleset();
 
+        // This scene tests the fail path itself, so the base must NOT auto-append NoFail (which it
+        // now does because the ruleset provides a NoFail mod).
+        protected override bool AllowFail => true;
+
         private TypeBeatPlayfield playfield => (TypeBeatPlayfield)Player.DrawableRuleset.Playfield;
 
         protected override IBeatmap CreateBeatmap(RulesetInfo ruleset)
