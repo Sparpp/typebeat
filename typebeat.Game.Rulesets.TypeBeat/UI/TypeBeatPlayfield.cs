@@ -4,11 +4,15 @@
 using System.Collections.Generic;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
+using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Graphics;
+using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Input.Events;
 using osu.Framework.Timing;
+using typebeat.Game.Beatmaps;
+using typebeat.Game.Configuration;
 using typebeat.Game.Rulesets.Objects.Drawables;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
@@ -16,6 +20,7 @@ using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects.Drawables;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.UI;
+using osuTK.Graphics;
 using osuTK.Input;
 
 namespace typebeat.Game.Rulesets.TypeBeat.UI
@@ -42,6 +47,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private readonly Bindable<KeyboardLayout> keyboardLayout = new Bindable<KeyboardLayout>(KeyboardLayout.Qwerty);
 
+        // Tracks the user's background dim so a 100% dim restores the flat serika-dark backdrop
+        // over the (then fully-black) beatmap image/video.
+        private readonly Bindable<double> backgroundDim = new Bindable<double>();
+
         private FramedOffsetClock lyricClock = null!;
 
         // Both cached by Player; absent in bare drawable-ruleset test scenes.
@@ -57,10 +66,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         [BackgroundDependencyLoader(true)]
-        private void load(TypeBeatRulesetConfigManager? config)
+        private void load(TypeBeatRulesetConfigManager? config, IBindable<WorkingBeatmap>? beatmap, OsuConfigManager? osuConfig)
         {
             config?.BindWith(TypeBeatRulesetSetting.LyricOffsetMs, lyricOffset);
             config?.BindWith(TypeBeatRulesetSetting.KeyboardLayout, keyboardLayout);
+
+            // The Player already renders the beatmap background image (dimmed) and, when
+            // "beatmap storyboard/video" is on, the video — both BELOW the ruleset. Historically
+            // this playfield painted an opaque serika-dark box over all of it (the monkeytype flat
+            // look), which blacked the real background out. Only cover it when there is nothing to
+            // show: reveal the image/video behind a readability scrim, else keep the flat panel.
+            bool showStoryboard = osuConfig?.Get<bool>(OsuSetting.ShowStoryboard) ?? true;
+            bool hasImage = !string.IsNullOrEmpty(beatmap?.Value.BeatmapInfo.Metadata.BackgroundFile);
+            bool hasVideo = beatmap?.Value.Storyboard.HasDrawable == true;
+            bool hasBackdrop = hasImage || (hasVideo && showStoryboard);
+
+            Drawable backdrop;
+
+            if (hasBackdrop)
+            {
+                // Reveal the image/video behind a readability scrim, but keep an opaque flat panel
+                // ready on top: at 100% background dim the video/image is fully black, so fade the
+                // classic monkeytype backdrop back in. Bound live to DimLevel so the settings slider
+                // toggles it without re-entering gameplay.
+                var dimCover = new Box
+                {
+                    RelativeSizeAxes = Axes.Both,
+                    Colour = TypeBeatStyle.Background,
+                    Alpha = 0f,
+                };
+
+                backdrop = new Container
+                {
+                    RelativeSizeAxes = Axes.Both,
+                    Children = new Drawable[] { createReadabilityScrim(), dimCover },
+                };
+
+                osuConfig?.BindWith(OsuSetting.DimLevel, backgroundDim);
+                backgroundDim.BindValueChanged(e => dimCover.FadeTo(e.NewValue >= 1 ? 1f : 0f, 150, Easing.OutQuint), true);
+            }
+            else
+            {
+                backdrop = new Box { RelativeSizeAxes = Axes.Both, Colour = TypeBeatStyle.Background };
+            }
 
             // Positive offset = lyrics later relative to the music => lyric time runs behind audio.
             // The source set here is provisional: the playfield's Clock is swapped after load
@@ -72,11 +120,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             AddRangeInternal(new Drawable[]
             {
-                new Box
-                {
-                    RelativeSizeAxes = Axes.Both,
-                    Colour = TypeBeatStyle.Background,
-                },
+                backdrop,
                 // Invisible scoring drawables (results-only; the stage does the rendering).
                 HitObjectContainer,
                 new Container
@@ -95,6 +139,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 },
             });
         }
+
+        /// <summary>
+        /// Sits above the (already dimmed) beatmap image/video and below the lyrics: a light
+        /// full-bleed tint so a bright video frame never blows out the text, plus a soft dark band
+        /// centred on the 3-line lyric stack that fades out top and bottom — keeping the words
+        /// legible on any footage while leaving most of the video visible.
+        /// </summary>
+        private static Drawable createReadabilityScrim() => new Container
+        {
+            RelativeSizeAxes = Axes.Both,
+            Children = new Drawable[]
+            {
+                new Box
+                {
+                    RelativeSizeAxes = Axes.Both,
+                    Colour = Color4.Black.Opacity(0.2f),
+                },
+                new Box
+                {
+                    RelativeSizeAxes = Axes.Both,
+                    Anchor = Anchor.Centre,
+                    Origin = Anchor.BottomCentre,
+                    Height = 0.3f,
+                    Colour = ColourInfo.GradientVertical(Color4.Black.Opacity(0f), Color4.Black.Opacity(0.5f)),
+                },
+                new Box
+                {
+                    RelativeSizeAxes = Axes.Both,
+                    Anchor = Anchor.Centre,
+                    Origin = Anchor.TopCentre,
+                    Height = 0.3f,
+                    Colour = ColourInfo.GradientVertical(Color4.Black.Opacity(0.5f), Color4.Black.Opacity(0f)),
+                },
+            },
+        };
 
         protected override void LoadComplete()
         {

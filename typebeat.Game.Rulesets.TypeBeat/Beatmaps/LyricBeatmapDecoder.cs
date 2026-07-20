@@ -43,8 +43,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             AddDecoder<Beatmap>(MAGIC, _ => new LyricBeatmapDecoder());
 
             // The same .osu file is also decoded for storyboards (WorkingBeatmap.Storyboard);
-            // without a magic match that path throws. type!beat files carry no [Events], so a
-            // stock storyboard decoder yields an empty storyboard.
+            // without a magic match that path throws. type!beat files with an imported background
+            // video DO carry an [Events] "Video,..." line, which the stock storyboard decoder turns
+            // into a StoryboardVideo the Player renders behind the ruleset (see TypeBeatPlayfield).
             AddDecoder<Storyboard>(MAGIC, _ => new LegacyStoryboardDecoder());
         }
 

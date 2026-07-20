@@ -59,6 +59,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         private double windowStart, windowLength = 1;
 
+        // Video-editor semantics: this strip owns its horizontal view offset. Panning moves the
+        // view WITHOUT seeking, and the playhead is a moving marker. `following` re-centres the
+        // view on the playhead — armed at load and re-armed whenever playback starts (so pressing
+        // play snaps the view back and then tracks it); any manual pan or seek disengages it.
+        private double viewStart;
+        private bool following = true;
+        private bool wasRunning;
+        private bool zoomInitialised;
+
+        private const double zoom_step = 1.2;        // window scale per wheel notch
+        private const double min_window_ms = 400;    // deepest zoom-in
+        private const double max_window_ms = 120000; // furthest zoom-out
+
         // Rebuild signature: line identities + text + unit counts (positions are re-polled).
         private readonly List<(TypeBeatHitObject hitObject, string rawText, int unitCount)> displayed = new List<(TypeBeatHitObject, string, int)>();
 
@@ -116,14 +129,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (timeline == null || !timeline.IsLoaded)
                 return;
 
-            // Mirror the waveform timeline's visible window. Its content carries a half-viewport
-            // margin on each side (the playhead is pinned to the timeline's CENTRE), so Current
-            // maps to the centre time of the view, not its left edge. Centring here is also what
-            // keeps the strip snapped to the playhead during playback — the timeline scrolls to
-            // track time every frame while the clock runs, and we follow it.
-            double windowCentre = timeline.TimeAtPosition(timeline.Current);
-            windowLength = Math.Max(1, timeline.VisibleRange);
-            windowStart = windowCentre - windowLength / 2;
+            // The view is owned locally — the strip no longer drives (or reads, beyond the initial
+            // zoom snapshot) the shared waveform timeline, so neither panning nor zooming seeks the
+            // clock. A rising edge of playback re-arms follow so the view snaps back to the playhead
+            // and tracks it each frame; a manual pan/seek has cleared `following`.
+            if (!zoomInitialised)
+            {
+                windowLength = Math.Clamp(timeline.VisibleRange, min_window_ms, max_window_ms);
+                zoomInitialised = true;
+            }
+
+            if (editorClock.IsRunning && !wasRunning)
+                following = true;
+            wasRunning = editorClock.IsRunning;
+
+            if (following)
+                viewStart = editorClock.CurrentTime - windowLength / 2;
+
+            windowStart = viewStart;
 
             var ordered = TypeBeatEditorOperations.OrderedLines(editorBeatmap);
 
@@ -197,61 +220,59 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         protected override bool OnScroll(ScrollEvent e)
         {
-            var timeline = screen.TimelineArea?.Timeline;
-
-            if (timeline == null || !timeline.IsLoaded)
+            if (DrawWidth <= 0)
                 return false;
 
-            // Wheel over the strip zooms the SHARED window, anchored at the time under the
-            // cursor — the waveform timeline pans/zooms with it, since it owns the window.
-            // (Raw ScrollDelta matches AdjustZoomRelatively's alt+wheel sensitivity.)
-            double cursorTime = TimeAt(ToLocalSpace(e.ScreenSpaceMousePosition).X);
-            timeline.AdjustZoomRelatively(e.ScrollDelta.Y, timeline.PositionAtTime(cursorTime));
+            // Zoom the strip's OWN window around the cursor. This never touches the shared waveform
+            // timeline or the clock, so zooming does NOT move the playhead. Wheel up = zoom in.
+            float cursorX = ToLocalSpace(e.ScreenSpaceMousePosition).X;
+            double cursorTime = TimeAt(cursorX); // uses the pre-zoom window
+
+            windowLength = Math.Clamp(windowLength * Math.Pow(zoom_step, -e.ScrollDelta.Y), min_window_ms, max_window_ms);
+
+            // Keep the time under the cursor fixed. While following, Update re-centres on the
+            // playhead each frame instead (zoom pivots on the playhead during playback).
+            if (!following)
+                viewStart = cursorTime - cursorX / DrawWidth * windowLength;
+
             return true;
         }
 
-        private double dragGrabCentreTime;
-        private bool dragWasPlaying;
+        private double dragStartViewStart;
 
         protected override bool OnDragStart(DragStartEvent e)
         {
-            var timeline = screen.TimelineArea?.Timeline;
-
-            if (timeline == null || !timeline.IsLoaded)
-                return false;
-
-            // Grab-and-pan the SHARED window: the strip drives the waveform timeline's scroll,
-            // which seeks the clock — the same contract as dragging the waveform itself, so
-            // playback pauses for the drag and resumes on release. Blocks/handles consume their
-            // own drags before this fires.
-            dragGrabCentreTime = windowStart + windowLength / 2;
-            dragWasPlaying = editorClock.IsRunning;
-
-            if (dragWasPlaying)
-                editorClock.Stop();
-
+            // Grab-and-pan the VIEW only — no seek, no clock stop. The playhead keeps its time and
+            // simply slides within the view. Word/line blocks and handles consume their own drags
+            // before this fires, so this is only a drag over empty strip space.
+            dragStartViewStart = viewStart;
+            following = false;
             return true;
         }
 
         protected override void OnDrag(DragEvent e)
         {
-            var timeline = screen.TimelineArea?.Timeline;
-
-            if (timeline == null || !timeline.IsLoaded || DrawWidth <= 0)
+            if (DrawWidth <= 0)
                 return;
 
             float deltaX = ToLocalSpace(e.ScreenSpaceMousePosition).X - ToLocalSpace(e.ScreenSpaceMouseDownPosition).X;
-            double targetCentre = dragGrabCentreTime - deltaX / DrawWidth * windowLength;
-
-            // The timeline's Current maps to the CENTRE time of the view (half-viewport content
-            // margins), so scrolling to the target centre's position pans both views together.
-            timeline.ScrollTo(timeline.PositionAtTime(targetCentre), false);
+            viewStart = dragStartViewStart - deltaX / DrawWidth * windowLength;
         }
 
-        protected override void OnDragEnd(DragEndEvent e)
+        /// <summary>Move the playhead to a screen-space X on the strip (video-editor seek), leaving
+        /// the view put. Shared by empty-space clicks (root) and line-band grey-area clicks.</summary>
+        internal void SeekToScreenSpace(Vector2 screenSpacePosition)
         {
-            if (dragWasPlaying)
-                editorClock.Start();
+            following = false;
+            editorClock.SeekSmoothlyTo(TimeAt(ToLocalSpace(screenSpacePosition).X));
+        }
+
+        protected override bool OnClick(ClickEvent e)
+        {
+            // A plain click that reaches the root landed on empty strip space (word blocks/handles
+            // consume their own clicks; a click-drag fires OnDrag, never OnClick).
+            SeekToScreenSpace(e.ScreenSpaceMousePosition);
+            return true;
         }
 
         protected override bool OnDoubleClick(DoubleClickEvent e)
@@ -284,7 +305,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>
         /// The background band spanning one line's window — shows line extents (alternating
-        /// tint), highlights the active line, and clicking it selects the line.
+        /// tint), highlights the active line. Its grey area is treated as empty space: clicking it
+        /// seeks the playhead there (and selects the line); word blocks sit above and take priority.
         /// </summary>
         private partial class LineBand : CompositeDrawable
         {
@@ -319,6 +341,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnClick(ClickEvent e)
             {
+                // Grey band area = empty space: bring the playhead here (word blocks above consume
+                // their own clicks), and select the line so the detail panel edits it.
+                strip.SeekToScreenSpace(e.ScreenSpaceMousePosition);
                 state.SelectedLine.Value = hitObject;
                 return true;
             }

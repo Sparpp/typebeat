@@ -60,6 +60,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 Font = TypeBeatStyle.Mono(30),
                 Colour = TypeBeatStyle.TypedChar,
                 Text = "0",
+                ShadowColour = TypeBeatStyle.TextShadow,
+                ShadowOffset = TypeBeatStyle.TEXT_SHADOW_OFFSET,
             };
 
             return new FillFlowContainer
@@ -75,6 +77,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         Font = TypeBeatStyle.Mono(14),
                         Colour = TypeBeatStyle.UntypedChar,
                         Text = caption,
+                        ShadowColour = TypeBeatStyle.TextShadow,
+                        ShadowOffset = TypeBeatStyle.TEXT_SHADOW_OFFSET,
                     },
                     value,
                 },

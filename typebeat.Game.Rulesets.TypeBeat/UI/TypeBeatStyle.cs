@@ -7,6 +7,7 @@
 
 using osu.Framework.Graphics.Sprites;
 using typebeat.Game.Graphics;
+using osuTK;
 using osuTK.Graphics;
 
 namespace typebeat.Game.Rulesets.TypeBeat.UI
@@ -27,6 +28,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public static Color4 SungAccent { get; } = new Color4((byte)126, (byte)200, (byte)227, (byte)255);  // #7ec8e3
         public static Color4 PanelBackground { get; } = new Color4((byte)44, (byte)46, (byte)49, (byte)255); // #2c2e31
 
+        /// <summary>Near-opaque black drop shadow applied to gameplay text so glyphs stay legible
+        /// over a beatmap background image or video (not just the flat serika-dark panel).</summary>
+        public static Color4 TextShadow { get; } = new Color4((byte)0, (byte)0, (byte)0, (byte)200);
+
+        /// <summary>Shadow offset (font-relative) paired with <see cref="TextShadow"/>.</summary>
+        public static readonly Vector2 TEXT_SHADOW_OFFSET = new Vector2(0f, 0.08f);
+
         public const double CARET_DAMP_HALF_TIME = 35;   // ms, player caret
         public const double SUNG_DAMP_HALF_TIME = 45;    // ms, sung caret
         public const double CARET_BLINK_PERIOD = 530;    // ms
@@ -35,9 +43,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public const float LYRIC_FONT_SIZE = 42;
 
         /// <summary>
-        /// type!beat's default font with a fixed per-glyph advance. The caret math
-        /// in <see cref="LyricLineDisplay"/> relies on this constant advance.
+        /// type!beat's default font with a fixed per-glyph advance — used for readouts (HUD
+        /// numbers, editor panels) where digits must not jitter as values change.
         /// </summary>
         public static FontUsage Mono(float size) => OsuFont.Default.With(size: size, fixedWidth: true);
+
+        /// <summary>
+        /// Lyric text: the default font at its natural (proportional) advances. The line layout
+        /// measures every glyph individually, so caret/sweep math does not assume a constant
+        /// advance (see <see cref="LyricLineDisplay"/>).
+        /// </summary>
+        public static FontUsage Lyric(float size) => OsuFont.Default.With(size: size);
     }
 }

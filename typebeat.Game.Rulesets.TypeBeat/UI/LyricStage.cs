@@ -157,6 +157,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 Colour = TypeBeatStyle.ErrorChar,
                 Text = (c == ' ' ? '_' : c).ToString(),
                 Position = playerCaret.Position + new Vector2(dir * 34, -4),
+                ShadowColour = TypeBeatStyle.TextShadow,
+                ShadowOffset = TypeBeatStyle.TEXT_SHADOW_OFFSET,
             };
 
             wrongKeyLayer.Add(letter);
@@ -214,7 +216,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 int caretIndex = engine.CaretIndex;
                 Vector2 playerPoint = d.ToSpaceOfOtherDrawable(d.PositionOfCell(caretIndex), this);
                 playerCaret.Height = d.LineHeight;
-                playerCaret.SetCellWidth(d.CellWidth);
+                playerCaret.SetCellWidth(d.CellWidthAt(caretIndex));
 
                 if (pendingSnap)
                 {

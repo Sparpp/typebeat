@@ -18,10 +18,11 @@ using osuTK;
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
     /// <summary>
-    /// Renders one <see cref="TypingLine"/> as fixed-advance <see cref="OsuSpriteText"/>s
-    /// with per-cell colouring, judgement feedback (Perfect pop / Wrong shake), and
-    /// the sung-position underline sweep. State is read pull-based via
-    /// <see cref="RefreshCell"/> — no engine reference is held.
+    /// Renders one <see cref="TypingLine"/> as per-cell <see cref="OsuSpriteText"/>s at the
+    /// font's natural (proportional) advances — every glyph is measured individually, so the
+    /// caret/sweep math never assumes a constant advance. Per-cell colouring, judgement
+    /// feedback (Perfect pop / Wrong shake), and the sung-position underline sweep. State is
+    /// read pull-based via <see cref="RefreshCell"/> — no engine reference is held.
     /// </summary>
     public partial class LyricLineDisplay : CompositeDrawable
     {
@@ -45,7 +46,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private float contentScale = 1f;
         private float glyphHeight;
 
-        /// <summary>Fixed per-glyph advance (content-local px). Valid after load.</summary>
+        /// <summary>Reference advance (content-local px) — a measured letter's width, used as the
+        /// fallback for glyphs that produced no measurement. Valid after load.</summary>
         public float CharWidth { get; private set; }
 
         /// <summary>Content-local width of the whole line (before the auto-shrink scale).</summary>
@@ -57,9 +59,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>Effective on-screen height of a glyph row (after auto-shrink scaling).</summary>
         public float LineHeight => glyphHeight * contentScale;
 
-        /// <summary>Effective on-screen advance of one cell (after auto-shrink scaling) — the
-        /// width a cell-covering caret style (block/outline/underline) spans.</summary>
-        public float CellWidth => CharWidth * contentScale;
+        /// <summary>Effective on-screen advance of a specific cell (after auto-shrink scaling) —
+        /// the width a cell-covering caret style (block/outline/underline) spans there. Advances
+        /// are proportional, so this varies per cell; past-the-end uses the last cell's width.</summary>
+        public float CellWidthAt(int cellIndex)
+        {
+            if (advances.Length == 0)
+                return CharWidth * contentScale;
+
+            return advances[Math.Clamp(cellIndex, 0, advances.Length - 1)] * contentScale;
+        }
 
         public LyricLineDisplay(TypingLine line, float fontSize = TypeBeatStyle.LYRIC_FONT_SIZE)
         {
@@ -104,11 +113,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 var cell = new OsuSpriteText
                 {
-                    Font = TypeBeatStyle.Mono(requestedFontSize),
+                    Font = TypeBeatStyle.Lyric(requestedFontSize),
                     Text = Line.Cells[i].Expected.ToString(),
                     Colour = TypeBeatStyle.UntypedChar,
                     Anchor = Anchor.TopLeft,
                     Origin = Anchor.Centre,
+                    // Drop shadow (OsuSpriteText enables Shadow by default, but faintly): darken it
+                    // so glyphs stay legible over a beatmap video/image, not just the flat panel.
+                    ShadowColour = TypeBeatStyle.TextShadow,
+                    ShadowOffset = TypeBeatStyle.TEXT_SHADOW_OFFSET,
                 };
                 cells[i] = cell;
                 content.Add(cell);
@@ -156,49 +169,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             if (glyphHeight <= 0.1f)
                 glyphHeight = requestedFontSize;
 
-            // Verify the space glyph advances identically. fixedWidth should guarantee
-            // this; if it does not, fall back to per-char measured positions.
-            bool uniform = true;
-
-            for (int i = 0; i < n; i++)
-            {
-                if (Line.Cells[i].Expected == ' ')
-                {
-                    float spaceAdvance = cells[i].DrawWidth;
-                    if (spaceAdvance > 0.1f && Math.Abs(spaceAdvance - refAdvance) > 0.5f)
-                        uniform = false;
-                    break;
-                }
-            }
-
             CharWidth = refAdvance;
             cellX = new float[n + 1];
             advances = new float[Math.Max(n, 1)];
 
-            if (uniform)
+            // Natural proportional layout: every cell advances by its own measured glyph width.
+            // A glyph that yielded no measurement (unloaded, or a space on fonts whose lone-space
+            // SpriteText measures empty) falls back to a sensible estimate.
+            float x = 0f;
+
+            for (int i = 0; i < n; i++)
             {
-                for (int i = 0; i < n; i++)
-                {
-                    cellX[i] = i * refAdvance;
-                    advances[i] = refAdvance;
-                }
-
-                cellX[n] = n * refAdvance;
+                float a = cells[i].DrawWidth > 0.1f
+                    ? cells[i].DrawWidth
+                    : Line.Cells[i].Expected == ' ' ? refAdvance * 0.55f : refAdvance;
+                cellX[i] = x;
+                advances[i] = a;
+                x += a;
             }
-            else
-            {
-                float x = 0f;
 
-                for (int i = 0; i < n; i++)
-                {
-                    float a = cells[i].DrawWidth > 0.1f ? cells[i].DrawWidth : refAdvance;
-                    cellX[i] = x;
-                    advances[i] = a;
-                    x += a;
-                }
-
-                cellX[n] = x;
-            }
+            cellX[n] = x;
 
             // Auto-shrink guard: keep the rendered line within 90% of the design width.
             float total = cellX[n];

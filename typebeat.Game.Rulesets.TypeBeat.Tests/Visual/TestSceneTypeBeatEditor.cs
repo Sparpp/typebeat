@@ -1,10 +1,12 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using osu.Framework.Testing;
+using osuTK;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
@@ -232,6 +234,63 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             AddStep("switch to setup", () => Editor.Mode.Value = EditorScreenMode.SongSetup);
             AddUntilStep("type!beat setup section shown", () => Editor.ChildrenOfType<TypeBeatSetupSection>().Any());
+        }
+
+        [Test]
+        public void TestClickEmptyTimelineSeeks()
+        {
+            LyricTimeline timeline = null!;
+
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("pause with playhead over the last line", () =>
+            {
+                timeline = Editor.ChildrenOfType<LyricTimeline>().Single();
+                EditorClock.Stop();
+                EditorClock.Seek(4500);
+            });
+            AddUntilStep("timeline present + sized", () => timeline.IsLoaded && timeline.DrawWidth > 0);
+
+            double before = 0;
+
+            AddStep("click empty grey space past the final line", () =>
+            {
+                before = EditorClock.CurrentTime;
+                var q = timeline.ScreenSpaceDrawQuad;
+                // 0.9 across (right of the centred playhead) is a time past the last line (5000ms),
+                // so this lands on empty background, not a word/line block.
+                InputManager.MoveMouseTo(q.TopLeft + new Vector2(q.Width * 0.9f, q.Height * 0.5f));
+                InputManager.Click(MouseButton.Left);
+            });
+
+            AddUntilStep("empty-space click moved the playhead", () => EditorClock.CurrentTime > before + 1);
+        }
+
+        [Test]
+        public void TestZoomDoesNotMovePlayhead()
+        {
+            LyricTimeline timeline = null!;
+
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("pause at 2000ms", () =>
+            {
+                timeline = Editor.ChildrenOfType<LyricTimeline>().Single();
+                EditorClock.Stop();
+                EditorClock.Seek(2000);
+            });
+            AddUntilStep("timeline present + sized", () => timeline.IsLoaded && timeline.DrawWidth > 0);
+
+            double before = 0;
+
+            AddStep("wheel-zoom over the strip", () =>
+            {
+                before = EditorClock.CurrentTime;
+                InputManager.MoveMouseTo(timeline);
+                InputManager.ScrollVerticalBy(3);
+            });
+
+            AddAssert("zoom left the playhead put", () => Math.Abs(EditorClock.CurrentTime - before) < 1);
         }
     }
 }
