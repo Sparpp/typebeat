@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup Label="Project">
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyTitle>typebeat.Game.Rulesets.TypeBeat</AssemblyTitle>
+    <AssemblyName>typebeat.Game.Rulesets.TypeBeat</AssemblyName>
+    <OutputType>Library</OutputType>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <RootNamespace>typebeat.Game.Rulesets.TypeBeat</RootNamespace>
+    <Description>type!beat</Description>
+  </PropertyGroup>
+  <ItemGroup Label="Project References">
+    <ProjectReference Include="..\typebeat.Game\typebeat.Game.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,69 @@
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// See the LICENCE file in the repository root for full licence text.
+
+using System.Collections.Generic;
+using System.Linq;
+using osu.Framework.Allocation;
+using osu.Framework.Input;
+using typebeat.Game.Beatmaps;
+using typebeat.Game.Rulesets.Mods;
+using typebeat.Game.Rulesets.Objects.Drawables;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Rulesets.TypeBeat.Objects.Drawables;
+using typebeat.Game.Rulesets.UI;
+
+namespace typebeat.Game.Rulesets.TypeBeat.UI
+{
+    [Cached]
+    public partial class DrawableTypeBeatRuleset : DrawableRuleset<TypeBeatHitObject>
+    {
+        private TypingEngine? engine;
+
+        /// <summary>
+        /// The gameplay/judgement authority, built once from the converted beatmap's lyric
+        /// lines. The engine's line order (and thus every CharJudgement.LineIndex) is the
+        /// LineIndex order of the hit objects, re-normalized to 0..n-1 for consistency.
+        /// </summary>
+        public TypingEngine Engine => engine ??= createEngine();
+
+        public DrawableTypeBeatRuleset(TypeBeatRuleset ruleset, IBeatmap beatmap, IReadOnlyList<Mod>? mods = null)
+            : base(ruleset, beatmap, mods)
+        {
+        }
+
+        protected override Playfield CreatePlayfield() => new TypeBeatPlayfield(Engine);
+
+        public override DrawableHitObject<TypeBeatHitObject> CreateDrawableRepresentation(TypeBeatHitObject h) => new DrawableTypeBeatHitObject(h);
+
+        protected override PassThroughInputManager CreateInputManager() => new TypeBeatInputManager(Ruleset.RulesetInfo);
+
+        private TypingEngine createEngine()
+        {
+            var lineObjects = Beatmap.HitObjects.OrderBy(h => h.LineIndex).ToList();
+
+            // Normalize indices so engine position == LineIndex == playfield registry key.
+            for (int i = 0; i < lineObjects.Count; i++)
+                lineObjects[i].LineIndex = i;
+
+            TimingGranularity granularity = lineObjects.Count > 0 ? lineObjects[0].Granularity : TimingGranularity.Line;
+
+            var lyricBeatmap = new LyricBeatmap
+            {
+                Metadata = new LyricBeatmapMetadata
+                {
+                    Artist = Beatmap.BeatmapInfo.Metadata.Artist,
+                    Title = Beatmap.BeatmapInfo.Metadata.Title,
+                    FolderPath = string.Empty,
+                    AudioFileName = Beatmap.BeatmapInfo.Metadata.AudioFile,
+                    HasWordTiming = granularity != TimingGranularity.Line,
+                },
+                Lines = lineObjects.Select(h => h.Line).ToList(),
+                Granularity = granularity,
+            };
+
+            return new TypingEngine(lyricBeatmap);
+        }
+    }
+}

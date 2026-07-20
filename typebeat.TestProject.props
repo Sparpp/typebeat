@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <StartupObject>typebeat.Game.Tests.VisualTestRunner</StartupObject>
+  </PropertyGroup>
+  <ItemGroup Label="Project References">
+    <ProjectReference Include="$(MSBuildThisFileDirectory)typebeat.Game\typebeat.Game.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)typebeat.Game\Tests\VisualTestRunner.cs">
+      <Link>VisualTestRunner.cs</Link>
+    </Compile>
+  </ItemGroup>
+  <PropertyGroup>
+    <GenerateProgramFile>false</GenerateProgramFile>
+  </PropertyGroup>
+</Project>

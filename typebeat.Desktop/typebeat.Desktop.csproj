@@ -1,0 +1,38 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup Label="Project">
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Description>A free-to-win rhythm game. Rhythm is just a *click* away!</Description>
+    <AssemblyName>type!beat</AssemblyName>
+    <AssemblyTitle>type!beat</AssemblyTitle>
+    <Title>type!beat</Title>
+    <Product>type!beat</Product>
+    <ApplicationIcon>lazer.ico</ApplicationIcon>
+    <Version>0.0.0</Version>
+    <FileVersion>0.0.0</FileVersion>
+  </PropertyGroup>
+  <PropertyGroup>
+    <StartupObject>typebeat.Desktop.Program</StartupObject>
+  </PropertyGroup>
+  <ItemGroup Label="Project References">
+    <ProjectReference Include="..\typebeat.Game\typebeat.Game.csproj" />
+    <ProjectReference Include="..\typebeat.Game.Rulesets.TypeBeat\typebeat.Game.Rulesets.TypeBeat.csproj" />
+  </ItemGroup>
+  <ItemGroup Label="Package References">
+    <PackageReference Include="System.IO.Packaging" Version="10.0.9" />
+    <!-- Held back due to invite bug in newer versions. See https://github.com/Lachee/discord-rpc-csharp/issues/286 -->
+    <PackageReference Include="DiscordRichPresence" Version="1.5.0.51" />
+    <PackageReference Include="Velopack" Version="0.0.1298" />
+  </ItemGroup>
+  <ItemGroup Label="Resources">
+    <EmbeddedResource Include="lazer.ico" />
+  </ItemGroup>
+  <ItemGroup Label="Windows Icons">
+    <Content Include="*.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup Label="Bundled Beatmaps">
+    <!-- Shipped next to the exe; imported (and consumed) on first launch — see OsuGame.importBundledBeatmaps. -->
+    <Content Include="Bundled\*.typb" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,5 @@
+# Machine-local: recreated by setup.ps1; caches rebuilt per song.
+.venv/
+out/
+work/
+__pycache__/

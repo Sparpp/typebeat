@@ -1,0 +1,1033 @@
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// See the LICENCE file in the repository root for full licence text.
+
+// Ported verbatim from type!beat TypeBeat.Game.Tests/NonVisual/TypingEngineTest.cs.
+// type!beat gameplay-core tests: headless NUnit coverage of the whole gameplay/scoring
+// state machine on fabricated beatmaps with round-number times. No game host — the
+// engine takes explicit double-millisecond times. Every expected value is hand-computed
+// in a comment beside its assert. This file is the correctness anchor for the whole game.
+// Adaptations on entry: namespaces; Beatmap->LyricBeatmap/BeatmapMetadata->LyricBeatmapMetadata;
+// classic asserts aliased for NUnit 4; the real-map pin resolves the standalone repo's maps
+// dir via StandaloneMaps (hardcoded path + graceful ignore) instead of BeatmapStore.
+
+using System.Collections.Generic;
+using System.IO;
+using NUnit.Framework;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using Assert = NUnit.Framework.Legacy.ClassicAssert;
+
+namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
+{
+    [TestFixture]
+    public class TypingEngineTest
+    {
+        #region Fixture builders
+
+        private static TimedUnit unit(string text, double start, double end)
+            => new TimedUnit { Text = text, StartTime = start, EndTime = end };
+
+        private static LyricLine line(string text, double start, double end, double singEnd, params TimedUnit[] units)
+            => new LyricLine { RawText = text, StartTime = start, EndTime = end, SingEndTime = singEnd, Units = units };
+
+        private static LyricBeatmap map(TimingGranularity granularity, params LyricLine[] lines) => new LyricBeatmap
+        {
+            Metadata = new LyricBeatmapMetadata
+            {
+                Artist = "Test",
+                Title = "Song",
+                FolderPath = @"X:\nowhere",
+                AudioFileName = "a.mp3",
+            },
+            Lines = lines,
+            Granularity = granularity,
+        };
+
+        /// <summary>
+        /// The workhorse line: "ab cd", active [1000, 4000), SingEnd 3000,
+        /// units "ab" [1000, 2000] and "cd" [2000, 3000].
+        /// Cell targets: 'a' = 1000 (unit start), 'b' = 1000 + 1*1000/2 = 1500,
+        /// ' ' = 2000 (unit0 end), 'c' = 2000, 'd' = 2000 + 1*1000/2 = 2500.
+        /// </summary>
+        private static LyricLine abcdLine() => line("ab cd", 1000, 4000, 3000,
+            unit("ab", 1000, 2000), unit("cd", 2000, 3000));
+
+        #endregion
+
+        [Test]
+        public void PerfectRunScoresAllPerfectFullComboSync100()
+        {
+            var engine = new TypingEngine(map(TimingGranularity.Line, abcdLine()));
+
+            // Flattening sanity: targets as documented on abcdLine().
+            var cells = engine.Lines[0].Cells;
+            Assert.AreEqual(5, cells.Count);
+            Assert.AreEqual(1000, cells[0].TargetTime); // 'a' at unit start
+            Assert.AreEqual(1500, cells[1].TargetTime); // 'b' = 1000 + 1*(2000-1000)/2
+            Assert.AreEqual(2000, cells[2].TargetTime); // ' ' = unit0.EndTime
+            Assert.AreEqual(2000, cells[3].TargetTime); // 'c' at unit1 start
+            Assert.AreEqual(2500, cells[4].TargetTime); // 'd' = 2000 + 1*(3000-2000)/2
+            Assert.AreEqual(5, engine.Lines[0].TypeableCount);
+
+            // SungPositionAt sanity: polyline (1000,0) a(1000,0) b(1500,1) ' '(2000,2) c(2000,3) d(2500,4) (3000,5).
+            Assert.AreEqual(0, engine.Lines[0].SungPositionAt(500));    // clamped before start
+            Assert.AreEqual(0.5, engine.Lines[0].SungPositionAt(1250)); // halfway a->b: 0 + 250/500
+            Assert.AreEqual(3, engine.Lines[0].SungPositionAt(2000));   // zero-length ' '->c segment skipped: jumps to c's index
+            Assert.AreEqual(4.5, engine.Lines[0].SungPositionAt(2750)); // halfway d(2500,4) -> singEnd(3000,5)
+            Assert.AreEqual(5, engine.Lines[0].SungPositionAt(9999));   // clamped after sing end
+
+            int finishedCount = 0;
+            engine.Finished += () => finishedCount++;
+
+            engine.Update(0);
+            Assert.AreEqual(-1, engine.ActiveLineIndex); // lead-in: nothing active
+            Assert.AreEqual(1.0, engine.LiveAccuracy);   // 1.0 before any keypress
+
+            engine.Update(1000); // line activates at its StartTime
+            Assert.AreEqual(0, engine.ActiveLineIndex);
+
+            // Every key exactly on target => delta 0 => Perfect (300 base).
+            // points = round(300 * (1 + min(comboBefore, 50)/50)):
+            //   'a': combo 0 before -> 300 * 1.00 = 300
+            Assert.IsTrue(engine.ProcessKey('a', 1000));
+            engine.Update(1500);
+            //   'b': combo 1 before -> 300 * 1.02 = 306
+            Assert.IsTrue(engine.ProcessKey('b', 1500));
+            engine.Update(2000);
+            //   ' ': combo 2 before -> 300 * 1.04 = 312
+            Assert.IsTrue(engine.ProcessKey(' ', 2000));
+            //   'c': combo 3 before -> 300 * 1.06 = 318
+            Assert.IsTrue(engine.ProcessKey('c', 2000));
+            engine.Update(2500);
+            //   'd': combo 4 before -> 300 * 1.08 = 324
+            Assert.IsTrue(engine.ProcessKey('d', 2500));
+
+            Assert.IsTrue(engine.IsLineComplete);
+            Assert.AreEqual(5, engine.CaretIndex); // == Cells.Count when complete
+
+            engine.Update(4000); // line EndTime: seal (nothing missed) and finish
+            Assert.IsTrue(engine.IsFinished);
+            Assert.AreEqual(1, finishedCount);
+            Assert.AreEqual(-1, engine.ActiveLineIndex);
+
+            var results = engine.BuildResults();
+
+            // Score = 300 + 306 + 312 + 318 + 324 = 1560.
+            Assert.AreEqual(1560, results.Score);
+            Assert.AreEqual(5, results.MaxCombo);
+            Assert.AreEqual(1.0, results.Accuracy);      // 5 correct / 5 keypresses
+            Assert.AreEqual(100.0, results.SyncPercent); // all deltas 0 => q = 1 each
+            Assert.AreEqual(5, results.Counts[JudgementType.Perfect]);
+            Assert.AreEqual(0, results.Counts[JudgementType.Miss]);
+            // Active time (accrued only while active AND incomplete): 1000->1500->2000->2500 = 1500 ms.
+            // WPM = (5 correct cells / 5) words / (1500/60000 min) = 1 / 0.025 = 40.
+            Assert.AreEqual(40.0, results.Wpm, 1e-9);
+            Assert.AreEqual("S", results.Grade); // sync 100 >= 95 && acc 1.0 >= 0.95
+        }
+
+        [Test]
+        public void WindowBoundariesClassifyExactly()
+        {
+            // Line granularity, scale 1.0: Perfect [-250,+400], Good [-600,+1000], Ok [-1200,+2000].
+            var w = SyncWindows.For(TimingGranularity.Line);
+
+            Assert.AreEqual(JudgementType.Good, w.Classify(-251));      // 1ms outside PerfectEarly
+            Assert.AreEqual(JudgementType.Perfect, w.Classify(-250));   // edge inclusive
+            Assert.AreEqual(JudgementType.Perfect, w.Classify(-249));   // 1ms inside
+            Assert.AreEqual(JudgementType.Perfect, w.Classify(399));    // 1ms inside PerfectLate
+            Assert.AreEqual(JudgementType.Perfect, w.Classify(400));    // edge inclusive
+            Assert.AreEqual(JudgementType.Good, w.Classify(401));       // 1ms outside
+            Assert.AreEqual(JudgementType.Ok, w.Classify(-601));        // 1ms outside GoodEarly
+            Assert.AreEqual(JudgementType.Good, w.Classify(-600));      // edge inclusive
+            Assert.AreEqual(JudgementType.Good, w.Classify(-599));      // 1ms inside
+            Assert.AreEqual(JudgementType.Good, w.Classify(999));       // 1ms inside GoodLate
+            Assert.AreEqual(JudgementType.Good, w.Classify(1000));      // edge inclusive
+            Assert.AreEqual(JudgementType.Ok, w.Classify(1001));        // 1ms outside
+            Assert.AreEqual(JudgementType.Premature, w.Classify(-1201)); // 1ms outside OkEarly
+            Assert.AreEqual(JudgementType.Ok, w.Classify(-1200));       // edge inclusive
+            Assert.AreEqual(JudgementType.Ok, w.Classify(-1199));       // 1ms inside
+            Assert.AreEqual(JudgementType.Ok, w.Classify(1999));        // 1ms inside OkLate
+            Assert.AreEqual(JudgementType.Ok, w.Classify(2000));        // edge inclusive
+            Assert.AreEqual(JudgementType.Lagging, w.Classify(2001));   // 1ms outside
+
+            // Word granularity, scale 0.6: Perfect [-150,+240], Good [-360,+600], Ok [-720,+1200].
+            var ww = SyncWindows.For(TimingGranularity.Word);
+
+            Assert.AreEqual(0.6, ww.Scale);
+            Assert.AreEqual(JudgementType.Good, ww.Classify(-151));     // 1ms outside PerfectEarly (250*0.6=150)
+            Assert.AreEqual(JudgementType.Perfect, ww.Classify(-150));
+            Assert.AreEqual(JudgementType.Perfect, ww.Classify(-149));
+            Assert.AreEqual(JudgementType.Perfect, ww.Classify(239));   // PerfectLate = 400*0.6 = 240
+            Assert.AreEqual(JudgementType.Perfect, ww.Classify(240));
+            Assert.AreEqual(JudgementType.Good, ww.Classify(241));
+            Assert.AreEqual(JudgementType.Ok, ww.Classify(-361));       // GoodEarly = 600*0.6 = 360
+            Assert.AreEqual(JudgementType.Good, ww.Classify(-360));
+            Assert.AreEqual(JudgementType.Good, ww.Classify(-359));
+            Assert.AreEqual(JudgementType.Good, ww.Classify(599));      // GoodLate = 1000*0.6 = 600
+            Assert.AreEqual(JudgementType.Good, ww.Classify(600));
+            Assert.AreEqual(JudgementType.Ok, ww.Classify(601));
+            Assert.AreEqual(JudgementType.Premature, ww.Classify(-721)); // OkEarly = 1200*0.6 = 720
+            Assert.AreEqual(JudgementType.Ok, ww.Classify(-720));
+            Assert.AreEqual(JudgementType.Ok, ww.Classify(-719));
+            Assert.AreEqual(JudgementType.Ok, ww.Classify(1199));       // OkLate = 2000*0.6 = 1200
+            Assert.AreEqual(JudgementType.Ok, ww.Classify(1200));
+            Assert.AreEqual(JudgementType.Lagging, ww.Classify(1201));
+
+            // An engine on a Word-granularity map uses the scaled windows:
+            // 'a' target 1000, typed at 1241 => delta +241 => 1ms past scaled PerfectLate => Good.
+            var engine = new TypingEngine(map(TimingGranularity.Word,
+                line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000))));
+            CharJudgement? judged = null;
+            engine.CharJudged += j => judged = j;
+            engine.Update(1000);
+            engine.ProcessKey('a', 1241);
+            Assert.AreEqual(JudgementType.Good, judged!.Value.Type);
+            Assert.AreEqual(241, judged!.Value.Delta);
+        }
+
+        [Test]
+        public void MashAheadYieldsPrematureAndNoProfit()
+        {
+            // "abcd", one unit [1000, 9000], k=4 => targets a=1000, b=3000, c=5000, d=7000.
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("abcd", 1000, 10000, 9000, unit("abcd", 1000, 9000))));
+
+            int comboBreaks = 0;
+            engine.ComboBroken += () => comboBreaks++;
+
+            engine.Update(1000);
+
+            // Mash the whole line instantly at t=1000:
+            //   'a' delta 0     => Perfect, 300 * (1 + 0/50) = 300, combo 1
+            //   'b' delta -2000 => Premature (< -OkEarly 1200), 0 pts, combo -> 0
+            //   'c' delta -4000 => Premature, 0 pts
+            //   'd' delta -6000 => Premature, 0 pts
+            Assert.IsTrue(engine.ProcessKey('a', 1000));
+            Assert.IsTrue(engine.ProcessKey('b', 1000));
+            Assert.IsTrue(engine.ProcessKey('c', 1000));
+            Assert.IsTrue(engine.ProcessKey('d', 1000));
+
+            Assert.AreEqual(300, engine.Score); // no profit beyond the single legitimate Perfect
+            Assert.AreEqual(0, engine.Combo);
+            Assert.AreEqual(1, engine.MaxCombo);
+            Assert.AreEqual(3, comboBreaks); // each Premature breaks combo
+            Assert.AreEqual(1.0, engine.LiveAccuracy); // right chars, wrong time: accuracy is not sync's job
+
+            // LiveSyncPercent over the 4 resolved cells: q(a)=1; q(b)=clamp(1-2000/1200)=0; q(c)=q(d)=0 => 25%.
+            Assert.AreEqual(25.0, engine.LiveSyncPercent, 1e-9);
+
+            engine.Update(10000); // seal: nothing Untyped (all Correct), so NO additional combo break
+
+            Assert.IsTrue(engine.IsFinished);
+            Assert.AreEqual(3, comboBreaks); // unchanged by the seal
+
+            var results = engine.BuildResults();
+            Assert.AreEqual(1, results.Counts[JudgementType.Perfect]);
+            Assert.AreEqual(3, results.Counts[JudgementType.Premature]);
+            Assert.AreEqual(0, results.Counts[JudgementType.Miss]);
+            Assert.AreEqual(25.0, results.SyncPercent, 1e-9);
+        }
+
+        [Test]
+        public void TypingNothingSealsWithMissesAndOneComboBreak()
+        {
+            // L0 "ab" [1000, 3000), unit [1000,2000] => a=1000, b=1500.
+            // L1 "cd" [3000, 5000), unit [3000,4000] => c=3000, d=3500 — never typed.
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000)),
+                line("cd", 3000, 5000, 4000, unit("cd", 3000, 4000))));
+
+            int comboBreaks = 0;
+            var seals = new List<LineSealResult>();
+            engine.ComboBroken += () => comboBreaks++;
+            engine.LineSealed += s => seals.Add(s);
+
+            engine.Update(1000);
+            engine.ProcessKey('a', 1000); // Perfect, combo 1
+            engine.ProcessKey('b', 1500); // Perfect, combo 2
+
+            engine.Update(3000); // seal L0 (0 missed, combo survives), activate L1
+            Assert.AreEqual(1, seals.Count);
+            Assert.AreEqual(new LineSealResult(0, 0, false), seals[0]);
+            Assert.AreEqual(0, comboBreaks);
+            Assert.AreEqual(2, engine.Combo);
+            Assert.AreEqual(1, engine.ActiveLineIndex);
+
+            engine.Update(5000); // seal L1: both typeable cells Untyped -> Missed; EXACTLY ONE combo break
+
+            Assert.AreEqual(2, seals.Count);
+            Assert.AreEqual(new LineSealResult(1, 2, true), seals[1]);
+            Assert.AreEqual(1, comboBreaks); // one break for the whole sealed line, not one per missed cell
+            Assert.AreEqual(0, engine.Combo);
+            Assert.AreEqual(2, engine.MaxCombo);
+            Assert.IsTrue(engine.IsFinished);
+
+            Assert.AreEqual(CellState.Missed, engine.Lines[1].Cells[0].State);
+            Assert.AreEqual(CellState.Missed, engine.Lines[1].Cells[1].State);
+
+            var results = engine.BuildResults();
+            Assert.AreEqual(2, results.Counts[JudgementType.Miss]);
+            Assert.AreEqual(1.0, results.Accuracy); // misses are not keypresses: 2 correct / 2 total
+            // Sync over ALL 4 typeable cells: a q=1, b q=1, c q=0, d q=0 => 50%.
+            Assert.AreEqual(50.0, results.SyncPercent, 1e-9);
+        }
+
+        [Test]
+        public void WrongKeyIsRejectedBreaksComboAndTracksStreak()
+        {
+            // "ab" [1000, 3000), unit [1000,2000] => a=1000, b=1500.
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000))));
+
+            var judgements = new List<CharJudgement>();
+            var rejected = new List<char>();
+            int comboBreaks = 0;
+            engine.CharJudged += j => judgements.Add(j);
+            engine.WrongKeyRejected += c => rejected.Add(c);
+            engine.ComboBroken += () => comboBreaks++;
+
+            engine.Update(1000);
+
+            // 'x' where 'a' is expected: REJECTED — nothing input, no judgement, streak grows.
+            Assert.IsTrue(engine.ProcessKey('x', 1000));
+            Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[0].State);
+            Assert.IsNull(engine.Lines[0].Cells[0].TypedChar);
+            Assert.AreEqual(0, engine.CaretIndex); // caret did NOT advance
+            Assert.AreEqual(0, engine.Combo);
+            Assert.AreEqual(1, comboBreaks);
+            Assert.AreEqual(0, judgements.Count);
+            Assert.AreEqual(new[] { 'x' }, rejected);
+            Assert.AreEqual(1, engine.ConsecutiveWrongKeys);
+
+            // A second wrong key keeps growing the streak (one combo break event per press).
+            Assert.IsTrue(engine.ProcessKey('q', 1100));
+            Assert.AreEqual(2, engine.ConsecutiveWrongKeys);
+            Assert.AreEqual(2, comboBreaks);
+            Assert.AreEqual(0, engine.CaretIndex);
+
+            // 'a' correct at t=1200 (delta +200 => Perfect at Line windows, late edge +400):
+            // judged at the REAL time — wrong presses never consumed the cell. Streak resets.
+            Assert.IsTrue(engine.ProcessKey('a', 1200));
+            Assert.AreEqual(new CharJudgement(0, 0, JudgementType.Perfect, 200, 300, 1), judgements[0]);
+            Assert.AreEqual(0, engine.ConsecutiveWrongKeys);
+            Assert.AreEqual(1, engine.CaretIndex);
+
+            // 'b' Perfect at target: combo continues, points 300 * (1 + 1/50) = 306.
+            Assert.IsTrue(engine.ProcessKey('b', 1500));
+            Assert.AreEqual(new CharJudgement(0, 1, JudgementType.Perfect, 0, 306, 2), judgements[1]);
+            Assert.AreEqual(606, engine.Score);
+
+            // Accuracy = 2 correct / 4 char keypresses (rejected keys stay in the denominator).
+            Assert.AreEqual(0.5, engine.LiveAccuracy);
+
+            engine.Update(3000); // seal: both cells Correct => no missed cells, no extra break
+            Assert.AreEqual(2, comboBreaks);
+
+            var results = engine.BuildResults();
+            Assert.AreEqual(2, results.Counts[JudgementType.WrongChar]);
+            Assert.AreEqual(0, results.Counts[JudgementType.Miss]);
+            // Sync: q(a) = 1 - 200/2000 = 0.9 (Line OkLate 2000); q(b) = 1. Mean => 95%.
+            Assert.AreEqual(95.0, results.SyncPercent, 1e-9);
+        }
+
+        [Test]
+        public void RejectedWrongKeyLeavesCellTypeable()
+        {
+            // "ab" [1000, 5000), unit [1000,2000] => a=1000, b=1500.
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("ab", 1000, 5000, 2000, unit("ab", 1000, 2000))));
+
+            // Backspace with no active line is inert.
+            Assert.IsFalse(engine.ProcessBackspace());
+
+            engine.Update(1000);
+
+            // Backspace with nothing typed is inert.
+            Assert.IsFalse(engine.ProcessBackspace());
+
+            engine.ProcessKey('x', 1000); // wrong on 'a': rejected — the cell never held it
+            Assert.IsFalse(engine.ProcessBackspace()); // still nothing typed to erase
+            Assert.AreEqual(0, engine.CaretIndex);
+            Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[0].State);
+            Assert.IsNull(engine.Lines[0].Cells[0].TypedChar);
+            Assert.IsNull(engine.Lines[0].Cells[0].JudgedDelta);
+
+            // 'a' at t=2500: judged at the real time. delta = 2500 - 1000 = +1500
+            // => Ok (1000 < 1500 <= 2000). Points = round(50 * (1 + 0/50)) = 50.
+            Assert.IsTrue(engine.ProcessKey('a', 2500));
+            Assert.AreEqual(CellState.Correct, engine.Lines[0].Cells[0].State);
+            Assert.AreEqual(1500, engine.Lines[0].Cells[0].JudgedDelta);
+
+            // 'b' at t=2600: delta = 2600 - 1500 = +1100 => Ok. Points = round(50 * 1.02) = 51.
+            Assert.IsTrue(engine.ProcessKey('b', 2600));
+
+            Assert.AreEqual(101, engine.Score); // 50 + 51
+
+            // Accuracy: keypresses x, a, b => 2 correct / 3 total (the rejected key stays in
+            // the denominator forever; backspace is not a keypress).
+            Assert.AreEqual(2.0 / 3, engine.LiveAccuracy, 1e-12);
+
+            engine.Update(5000);
+            var results = engine.BuildResults();
+
+            // Sync uses the correct deltas: q(a) = 1 - 1500/2000 = 0.25; q(b) = 1 - 1100/2000 = 0.45.
+            // SyncPercent = 100 * (0.25 + 0.45) / 2 = 35.
+            Assert.AreEqual(35.0, results.SyncPercent, 1e-9);
+            Assert.AreEqual(2, results.Counts[JudgementType.Ok]);
+            Assert.AreEqual(1, results.Counts[JudgementType.WrongChar]);
+        }
+
+        [Test]
+        public void AutoSkipPunctuationNeverRequiresKey()
+        {
+            // "beggin' him": tokens "beggin'" (k=6 typeable) and "him" (k=3).
+            // Unit "beggin'" [1000, 2200], step (2200-1000)/6 = 200:
+            //   b=1000 e=1200 g=1400 g=1600 i=1800 n=2000; apostrophe (idx 6) copies the
+            //   NEXT typeable cell = the space (idx 7) whose target is unit0.EndTime = 2200.
+            // Unit "him" [2200, 2800], step 200: h=2200 i=2400 m=2600.
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("beggin' him", 1000, 10000, 2800,
+                    unit("beggin'", 1000, 2200), unit("him", 2200, 2800))));
+
+            var tl = engine.Lines[0];
+            Assert.AreEqual(11, tl.Cells.Count);
+            Assert.AreEqual(10, tl.TypeableCount); // everything except the apostrophe
+            Assert.IsFalse(tl.Cells[6].IsTypeable);
+            Assert.AreEqual(2200, tl.Cells[6].TargetTime); // apostrophe copies next typeable (space) target
+            Assert.AreEqual(2200, tl.Cells[7].TargetTime); // space = unit0.EndTime
+
+            engine.Update(1000);
+
+            // Type b-e-g-g-i-n exactly on target — all Perfect.
+            engine.ProcessKey('b', 1000);
+            engine.ProcessKey('e', 1200);
+            engine.ProcessKey('g', 1400);
+            engine.ProcessKey('g', 1600);
+            engine.ProcessKey('i', 1800);
+            engine.ProcessKey('n', 2000);
+
+            // The apostrophe was hopped automatically: caret sits on the space (idx 7).
+            Assert.AreEqual(7, engine.CaretIndex);
+            Assert.AreEqual(CellState.AutoSkipped, tl.Cells[6].State);
+
+            engine.ProcessKey(' ', 2200);
+            engine.ProcessKey('h', 2200);
+            engine.ProcessKey('i', 2400);
+            engine.ProcessKey('m', 2600);
+            Assert.IsTrue(engine.IsLineComplete);
+            Assert.AreEqual(10, engine.Combo); // 10 keypresses, zero required for punctuation
+            Assert.AreEqual(1.0, engine.LiveAccuracy);
+
+            // Backspace transparently crosses the apostrophe: erase m, i, h, space...
+            Assert.IsTrue(engine.ProcessBackspace()); // m
+            Assert.IsTrue(engine.ProcessBackspace()); // i
+            Assert.IsTrue(engine.ProcessBackspace()); // h
+            Assert.IsTrue(engine.ProcessBackspace()); // space (caret now 7)
+            Assert.AreEqual(7, engine.CaretIndex);
+            // ...and the next one steps OVER the AutoSkipped apostrophe to erase 'n', un-skipping it.
+            Assert.IsTrue(engine.ProcessBackspace());
+            Assert.AreEqual(5, engine.CaretIndex);
+            Assert.AreEqual(CellState.Untyped, tl.Cells[6].State); // un-skipped
+            Assert.AreEqual(CellState.Untyped, tl.Cells[5].State);
+
+            // Retyping 'n' re-marks the apostrophe AutoSkipped and lands the caret on the space again.
+            engine.ProcessKey('n', 2000);
+            Assert.AreEqual(CellState.AutoSkipped, tl.Cells[6].State);
+            Assert.AreEqual(7, engine.CaretIndex);
+
+            // Leading + trailing punctuation: "(ab)", unit [1000, 2000], k=2 => a=1000, b=1500.
+            // '(' copies next typeable ('a') = 1000; ')' has no next typeable => copies previous ('b') = 1500.
+            var engine2 = new TypingEngine(map(TimingGranularity.Line,
+                line("(ab)", 1000, 4000, 2000, unit("(ab)", 1000, 2000))));
+
+            engine2.Update(1000);
+            // Leading '(' is auto-skipped at activation: caret starts on 'a' (idx 1).
+            Assert.AreEqual(1, engine2.CaretIndex);
+            Assert.AreEqual(CellState.AutoSkipped, engine2.Lines[0].Cells[0].State);
+            Assert.AreEqual(1000, engine2.Lines[0].Cells[0].TargetTime);
+            Assert.AreEqual(1500, engine2.Lines[0].Cells[3].TargetTime);
+
+            engine2.ProcessKey('a', 1000);
+            engine2.ProcessKey('b', 1500);
+            // Trailing ')' auto-skipped; line completes with just two keys.
+            Assert.IsTrue(engine2.IsLineComplete);
+            Assert.AreEqual(CellState.AutoSkipped, engine2.Lines[0].Cells[3].State);
+        }
+
+        [Test]
+        public void AccuracyCountsAllKeypressesForever()
+        {
+            // L0 "ab" [1000,3000); L1 "cd" [3000,5000) left entirely untyped.
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000)),
+                line("cd", 3000, 5000, 4000, unit("cd", 3000, 4000))));
+
+            engine.Update(1000);
+
+            engine.ProcessKey('x', 1000);      // wrong (denominator 1, correct 0)
+            engine.ProcessBackspace();          // NOT a keypress — changes nothing in the counts
+            engine.ProcessKey('a', 1200);      // correct (2, 1)
+            engine.ProcessKey('b', 1500);      // correct (3, 2)
+
+            // The corrected error stays in the denominator: 2/3.
+            Assert.AreEqual(2.0 / 3, engine.LiveAccuracy, 1e-12);
+
+            engine.Update(3000);
+            engine.Update(5000); // L1 sealed with 2 Missed cells — misses are NOT keypresses
+
+            Assert.IsTrue(engine.IsFinished);
+            Assert.AreEqual(2.0 / 3, engine.LiveAccuracy, 1e-12);
+            Assert.AreEqual(2.0 / 3, engine.BuildResults().Accuracy, 1e-12);
+        }
+
+        [Test]
+        public void ActiveTimeWpmIgnoresGapsAndPostLineWaits()
+        {
+            // L0 "ab cd" active [1000, 10000) but sung by 3000 — finish early, then a long wait.
+            // L1 "ef" [10000, 12000), unit [10000, 11000] => e=10000, f=10500.
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("ab cd", 1000, 10000, 3000, unit("ab", 1000, 2000), unit("cd", 2000, 3000)),
+                line("ef", 10000, 12000, 11000, unit("ef", 10000, 11000))));
+
+            engine.Update(0);    // lead-in: no accrual (no active line)
+            engine.Update(500);  // still lead-in: +0
+            engine.Update(1000); // activation frame: accrual happens BEFORE activation => +0
+
+            engine.ProcessKey('a', 1000);
+            engine.Update(1500); // active & incomplete: +500
+            engine.ProcessKey('b', 1500);
+            engine.Update(2000); // +500
+            engine.ProcessKey(' ', 2000);
+            engine.ProcessKey('c', 2000);
+            engine.Update(2500); // +500
+            engine.ProcessKey('d', 2500); // line complete at t=2500
+
+            engine.Update(9000);  // line complete: +0 (post-line wait ignored)
+            engine.Update(10000); // +0; seal L0, activate L1
+
+            engine.ProcessKey('e', 10000);
+            engine.Update(10500); // active & incomplete: +500
+            engine.ProcessKey('f', 10500); // complete
+
+            engine.Update(12000); // complete: +0; seal L1, finished
+
+            // activeTime = 500+500+500+500 = 2000 ms = 1/30 min.
+            // correct cells = 7 (5 + 2, spaces included) => 7/5 = 1.4 words.
+            // WPM = 1.4 / (1/30) = 42.
+            Assert.AreEqual(42.0, engine.LiveWpm, 1e-9);
+            Assert.AreEqual(42.0, engine.BuildResults().Wpm, 1e-9);
+        }
+
+        [Test]
+        public void InputInertDuringLeadInGapAndAfterCompletion()
+        {
+            // L0 "ab" [1000, 2000); L1 "cd" [5000, 6000) — a real dead gap [2000, 5000).
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("ab", 1000, 2000, 2000, unit("ab", 1000, 2000)),
+                line("cd", 5000, 6000, 6000, unit("cd", 5000, 6000))));
+
+            // Lead-in (negative time is legal): nothing active, keys inert and NOT counted.
+            engine.Update(-1500);
+            Assert.AreEqual(-1, engine.ActiveLineIndex);
+            Assert.IsFalse(engine.ProcessKey('a', -1500));
+            Assert.IsNull(engine.CurrentLeadLag(-1500));
+            Assert.AreEqual(1.0, engine.LiveAccuracy); // inert keys don't touch the counts
+
+            engine.Update(1000);
+            Assert.AreEqual(0, engine.ActiveLineIndex);
+            Assert.AreEqual(0, engine.CurrentLeadLag(1000)); // caret on 'a', target 1000
+            engine.ProcessKey('a', 1000);
+            engine.ProcessKey('b', 1500);
+            Assert.IsTrue(engine.IsLineComplete);
+
+            // Line complete: further keys inert ("line complete — wait for the song").
+            Assert.IsFalse(engine.ProcessKey('x', 1600));
+            Assert.IsNull(engine.CurrentLeadLag(1600));
+            Assert.AreEqual(1.0, engine.LiveAccuracy);
+
+            // Gap between lines: L0 sealed, L1 not started => inert.
+            engine.Update(3000);
+            Assert.AreEqual(-1, engine.ActiveLineIndex);
+            Assert.IsFalse(engine.ProcessKey('c', 3000));
+
+            engine.Update(5000);
+            Assert.AreEqual(1, engine.ActiveLineIndex);
+            Assert.IsTrue(engine.ProcessKey('c', 5000));
+
+            engine.Update(6000); // seal L1 ('d' missed), all lines sealed => finished
+            Assert.IsTrue(engine.IsFinished);
+
+            // After finish: everything inert.
+            Assert.IsFalse(engine.ProcessKey('d', 6100));
+            Assert.IsFalse(engine.ProcessBackspace());
+            Assert.IsNull(engine.CurrentLeadLag(6100));
+        }
+
+        [Test]
+        public void SyncQualityAsymmetricAndTimelineCaptured()
+        {
+            // Asymmetric normalization (Line scale): the SAME 600ms offset scores differently by sign:
+            //   early: q = 1 - 600/OkEarly(1200) = 0.5
+            //   late:  q = 1 - 600/OkLate(2000)  = 0.7
+            var w = SyncWindows.For(TimingGranularity.Line);
+            Assert.AreEqual(0.5, w.SyncQuality(-600), 1e-12);
+            Assert.AreEqual(0.7, w.SyncQuality(600), 1e-12);
+            Assert.AreEqual(1.0, w.SyncQuality(0), 1e-12);
+            Assert.AreEqual(0.0, w.SyncQuality(-1200), 1e-12); // early edge hits exactly 0
+            Assert.AreEqual(0.0, w.SyncQuality(-5000), 1e-12); // clamped below
+            Assert.AreEqual(0.0, w.SyncQuality(2000), 1e-12);  // late edge hits exactly 0
+            Assert.AreEqual(0.0, w.SyncQuality(9999), 1e-12);  // clamped
+
+            // "abc", one unit [1000, 2500], k=3 => a=1000, b=1500, c=2000.
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("abc", 1000, 10000, 2500, unit("abc", 1000, 2500))));
+
+            engine.Update(1000);
+            engine.ProcessKey('a', 400);  // delta -600 => Good; sample (400, -600)
+            engine.ProcessKey('x', 1500); // WRONG on 'b': rejected — caret stays, no timeline sample
+            engine.ProcessKey('c', 2600); // ALSO wrong ('b' expected): rejected, no sample
+
+            engine.Update(10000); // seal: 'b' and 'c' force-missed
+            var results = engine.BuildResults();
+
+            // Timeline captured per CORRECT judgement only.
+            Assert.AreEqual(1, results.SyncTimeline.Count);
+            Assert.AreEqual(new SyncSample(400, -600), results.SyncTimeline[0]);
+
+            // SyncPercent = 100 * (q(a) + q(b) + q(c)) / 3 = 100 * (0.5 + 0 + 0) / 3.
+            Assert.AreEqual(50.0 / 3, results.SyncPercent, 1e-9);
+            Assert.AreEqual(2, results.Counts[JudgementType.WrongChar]);
+            Assert.AreEqual(2, results.Counts[JudgementType.Miss]);
+        }
+
+        [Test]
+        public void ComboMultiplierUsesPreIncrementValueAndCapsAt50()
+        {
+            // 60 x 'a', one unit [1000, 61000], k=60 => step 1000: target_j = 1000 + j*1000.
+            string text = new string('a', 60);
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line(text, 1000, 70000, 61000, unit(text, 1000, 61000))));
+
+            var points = new List<int>();
+            engine.CharJudged += j => points.Add(j.PointsAwarded);
+
+            engine.Update(1000);
+
+            for (int j = 0; j < 60; j++)
+            {
+                double t = 1000 + j * 1000;
+                engine.Update(t);
+                Assert.IsTrue(engine.ProcessKey('a', t)); // delta 0 => Perfect every time
+            }
+
+            // points_j = round(300 * (1 + min(comboBefore, 50)/50)) with comboBefore = j
+            //          = 300 + 6*min(j, 50)  (exactly integral, no rounding ambiguity).
+            Assert.AreEqual(300, points[0]);  // combo 0 before  => 1.00x
+            Assert.AreEqual(306, points[1]);  // combo 1 before  => 1.02x (pre-increment value!)
+            Assert.AreEqual(594, points[49]); // combo 49 before => 1.98x
+            Assert.AreEqual(600, points[50]); // combo 50 before => capped 2.00x
+            Assert.AreEqual(600, points[59]); // stays capped
+
+            // Total = sum_{j=0}^{49} (300 + 6j) + 10*600 = 15000 + 6*1225 + 6000 = 28350.
+            Assert.AreEqual(28350, engine.Score);
+            Assert.AreEqual(60, engine.MaxCombo);
+        }
+
+        [Test]
+        public void SealActivationOrderDeterministicOnSharedBoundary()
+        {
+            // Shared boundary at t=3000: EndTime_0 == StartTime_1 == 3000.
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000)),
+                line("cd", 3000, 5000, 4000, unit("cd", 3000, 4000))));
+
+            var events = new List<string>();
+            engine.LineActivated += i => events.Add($"activated:{i}");
+            engine.LineSealed += s => events.Add($"sealed:{s.LineIndex}");
+            engine.Finished += () => events.Add("finished");
+
+            engine.Update(1000);
+            Assert.AreEqual(new[] { "activated:0" }, events);
+
+            // At exactly t == EndTime_0 == StartTime_1: seal line 0 FIRST, THEN activate line 1,
+            // in the SAME Update call (line active on [Start, End) — End belongs to the next line).
+            engine.Update(3000);
+            Assert.AreEqual(new[] { "activated:0", "sealed:0", "activated:1" }, events);
+            Assert.AreEqual(1, engine.ActiveLineIndex);
+
+            // The new line is immediately typeable at the boundary time: 'c' target 3000 => Perfect.
+            var judgements = new List<CharJudgement>();
+            engine.CharJudged += j => judgements.Add(j);
+            Assert.IsTrue(engine.ProcessKey('c', 3000));
+            Assert.AreEqual(JudgementType.Perfect, judgements[0].Type);
+            Assert.AreEqual(1, judgements[0].LineIndex);
+
+            engine.Update(5000);
+            Assert.AreEqual(new[] { "activated:0", "sealed:0", "activated:1", "sealed:1", "finished" }, events);
+        }
+
+        [Test]
+        public void BuildResultsMatchesHandComputedSummary()
+        {
+            // WORD granularity: windows scale 0.6 => Perfect [-150,+240], Good [-360,+600], Ok [-720,+1200].
+            // L0 "ab" [1000, 3000), unit [1000,2000] => a=1000, b=1500.
+            // L1 "cd" [3000, 5000), unit [3000,4000] => c=3000, d=3500.
+            var engine = new TypingEngine(map(TimingGranularity.Word,
+                line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000)),
+                line("cd", 3000, 5000, 4000, unit("cd", 3000, 4000))));
+
+            engine.Update(1000);   // activate L0 (accrual before activation => +0)
+            engine.Update(1200);   // +200 active time
+            engine.ProcessKey('a', 1200); // delta +200 => Perfect (<= 240). 300 * (1 + 0/50) = 300. combo 1.
+            engine.Update(2000);   // +800
+            engine.ProcessKey('b', 2000); // delta +500 => Good (<= 600). round(150 * 1.02) = 153. combo 2.
+            engine.Update(3000);   // line complete => +0; seal L0 (0 missed); activate L1
+            engine.Update(4000);   // +1000
+            engine.ProcessKey('c', 4000); // delta +1000 => Ok (<= 1200). round(50 * 1.04) = 52. combo 3.
+            engine.Update(5000);   // L1 active & incomplete ('d' pending) => +1000; seal L1: 'd' Missed, combo break
+
+            Assert.IsTrue(engine.IsFinished);
+
+            var results = engine.BuildResults();
+
+            Assert.AreEqual(505, results.Score);            // 300 + 153 + 52
+            Assert.AreEqual(1.0, results.Accuracy);         // 3 correct / 3 keypresses
+            Assert.AreEqual(3, results.MaxCombo);
+
+            // Sync qualities (Word scale: OkEarly 720, OkLate 1200):
+            //   q(a) = 1 - 200/1200  = 5/6
+            //   q(b) = 1 - 500/1200  = 7/12
+            //   q(c) = 1 - 1000/1200 = 1/6
+            //   q(d) = 0 (Missed)
+            // SyncPercent = 100 * (5/6 + 7/12 + 1/6 + 0) / 4 = 100 * (19/12) / 4 = 1900/48 = 39.58333...
+            Assert.AreEqual(1900.0 / 48, results.SyncPercent, 1e-9);
+
+            // Active time = 200 + 800 + 1000 + 1000 = 3000 ms = 0.05 min.
+            // Correct cells = 3 => 0.6 words => WPM = 0.6 / 0.05 = 12.
+            Assert.AreEqual(12.0, results.Wpm, 1e-9);
+
+            // Counts: all 7 keys present, exact values.
+            Assert.AreEqual(7, results.Counts.Count);
+            Assert.AreEqual(1, results.Counts[JudgementType.Perfect]);
+            Assert.AreEqual(1, results.Counts[JudgementType.Good]);
+            Assert.AreEqual(1, results.Counts[JudgementType.Ok]);
+            Assert.AreEqual(0, results.Counts[JudgementType.Premature]);
+            Assert.AreEqual(0, results.Counts[JudgementType.Lagging]);
+            Assert.AreEqual(0, results.Counts[JudgementType.WrongChar]);
+            Assert.AreEqual(1, results.Counts[JudgementType.Miss]);
+
+            Assert.AreEqual(3, results.SyncTimeline.Count);
+            Assert.AreEqual(new SyncSample(1200, 200), results.SyncTimeline[0]);
+
+            Assert.AreEqual("Test", results.Artist);
+            Assert.AreEqual("Song", results.Title);
+            Assert.AreEqual("D", results.Grade); // sync 39.58 fails every tier floor => D
+        }
+
+        [Test]
+        public void GradeThresholds()
+        {
+            // Both thresholds must hold at a tier; otherwise fall to the highest tier where both do.
+            Assert.AreEqual("S", summary(95, 0.95).Grade);      // exactly on the S floor
+            Assert.AreEqual("A", summary(94.999, 1.0).Grade);   // sync just below S => A (acc fine)
+            Assert.AreEqual("A", summary(100, 0.949).Grade);    // acc just below S => A (sync fine)
+            Assert.AreEqual("A", summary(90, 0.90).Grade);      // exactly on the A floor
+            Assert.AreEqual("B", summary(89.999, 1.0).Grade);   // sync just below A
+            Assert.AreEqual("B", summary(80, 0.80).Grade);      // exactly on the B floor
+            Assert.AreEqual("C", summary(79.999, 0.80).Grade);  // sync just below B
+            Assert.AreEqual("C", summary(65, 0.65).Grade);      // exactly on the C floor
+            Assert.AreEqual("D", summary(64.999, 1.0).Grade);   // sync below every floor
+            Assert.AreEqual("D", summary(100, 0.5).Grade);      // perfect sync can't rescue bad accuracy
+
+            static ResultsSummary summary(double syncPercent, double accuracy) => new ResultsSummary
+            {
+                Score = 0,
+                Accuracy = accuracy,
+                Wpm = 0,
+                SyncPercent = syncPercent,
+                MaxCombo = 0,
+                Counts = new Dictionary<JudgementType, int>(),
+                SyncTimeline = System.Array.Empty<SyncSample>(),
+                Artist = "Test",
+                Title = "Song",
+            };
+        }
+
+        [Test]
+        public void BackspaceRetypeIsScoringInert()
+        {
+            var engine = new TypingEngine(map(TimingGranularity.Line, abcdLine()));
+
+            engine.Update(1000);
+            Assert.IsTrue(engine.ProcessKey('a', 1000)); // Perfect at target: 300 * (1 + 0/50) = 300.
+            Assert.AreEqual(300, engine.Score);
+            Assert.AreEqual(1, engine.Combo);
+
+            // Backspace-retype the same correct cell repeatedly (score/combo/accuracy farming attempt).
+            for (int i = 0; i < 100; i++)
+            {
+                Assert.IsTrue(engine.ProcessBackspace());
+                Assert.IsTrue(engine.ProcessKey('a', 1400 + i));
+            }
+
+            // Fully inert: nothing accrued beyond the original judgement.
+            Assert.AreEqual(300, engine.Score);
+            Assert.AreEqual(1, engine.Combo);
+            Assert.AreEqual(1, engine.MaxCombo);
+            Assert.AreEqual(1.0, engine.LiveAccuracy);                    // retypes don't enter the denominator
+            Assert.AreEqual(0, engine.Lines[0].Cells[0].JudgedDelta!.Value); // original Perfect delta kept
+
+            engine.Update(4000); // seal line 0
+            var results = engine.BuildResults();
+            Assert.AreEqual(1, results.SyncTimeline.Count);               // one sample, not 101
+            Assert.AreEqual(1, results.Counts[JudgementType.Perfect]);    // one Perfect, not 101
+        }
+
+        /// <summary>
+        /// Overlap fixture mirroring the loader's output for overlapping vocals: line A's tail
+        /// unit is clamped onto its EndTime (3000) with the real 600ms overrun recorded as
+        /// SealGraceMs; line B starts exactly at A's boundary.
+        /// Cells of A: 'a'=1000, 'b'=1500, ' '=2000, 'c'=3000, 'd'=3000 (pinned).
+        /// </summary>
+        private static LyricBeatmap overlapMap() => map(TimingGranularity.Word,
+            new LyricLine
+            {
+                RawText = "ab cd", StartTime = 1000, EndTime = 3000, SingEndTime = 3000,
+                Units = new[] { unit("ab", 1000, 2000), unit("cd", 3000, 3000) },
+                SealGraceMs = 600,
+            },
+            line("ef", 3000, 5000, 4000, unit("ef", 3000, 4000)));
+
+        [Test]
+        public void SealGraceKeepsOverlapPinnedTailHittable()
+        {
+            var engine = new TypingEngine(overlapMap());
+
+            int comboBreaks = 0;
+            engine.ComboBroken += () => comboBreaks++;
+
+            engine.Update(1000);
+            Assert.IsTrue(engine.ProcessKey('a', 1000));
+            Assert.IsTrue(engine.ProcessKey('b', 1500));
+            Assert.IsTrue(engine.ProcessKey(' ', 2000));
+
+            // The frame lands past the boundary before the pinned cells could be typed in
+            // rhythm — pre-fix this frame force-missed 'c' and 'd' and broke combo.
+            engine.Update(3016);
+            Assert.AreEqual(0, engine.ActiveLineIndex);   // grace holds the line open
+            Assert.IsTrue(engine.ProcessKey('c', 3016));  // delta +16 vs pinned 3000 => Perfect
+            Assert.IsTrue(engine.ProcessKey('d', 3200));  // delta +200 => Perfect (Word late 240)
+
+            engine.Update(3216);                          // fully typed => seals early, B activates
+            Assert.AreEqual(1, engine.ActiveLineIndex);
+            Assert.AreEqual(0, comboBreaks);
+            Assert.AreEqual(0, engine.BuildResults().Counts[JudgementType.Miss]);
+            Assert.AreEqual(5, engine.Combo);             // rhythm play keeps the full combo
+        }
+
+        [Test]
+        public void SealGraceExpiryForceSealsUntypedTail()
+        {
+            var engine = new TypingEngine(overlapMap());
+
+            int comboBreaks = 0;
+            engine.ComboBroken += () => comboBreaks++;
+
+            engine.Update(1000);
+            engine.Update(3616); // grace (600) expired with nothing typed => A force-seals
+
+            Assert.AreEqual(1, engine.ActiveLineIndex);   // B active (3616 < 5000)
+            Assert.AreEqual(5, engine.BuildResults().Counts[JudgementType.Miss]);
+            Assert.AreEqual(1, comboBreaks);              // at most one break per sealed line
+        }
+
+        [Test]
+        public void EstimatedLineJudgedAtLineWindows()
+        {
+            // Word-granularity beatmap, but the line is aligner-estimated (no acoustic
+            // evidence) — its cells judge at the wider Line windows.
+            var est = new LyricLine
+            {
+                RawText = "ab cd", StartTime = 1000, EndTime = 4000, SingEndTime = 3000,
+                Units = new[] { unit("ab", 1000, 2000), unit("cd", 2000, 3000) },
+                Estimated = true,
+            };
+            var engine = new TypingEngine(map(TimingGranularity.Word, est));
+
+            int comboBreaks = 0;
+            engine.ComboBroken += () => comboBreaks++;
+
+            engine.Update(1000);
+
+            // delta +800 on 'a': past Word OkLate (1200 * 0.6 = 720) => would be Lagging +
+            // combo break; at Line windows (GoodLate 1000) it's Good with points.
+            Assert.IsTrue(engine.ProcessKey('a', 1800));
+            Assert.AreEqual(0, comboBreaks);
+            Assert.AreEqual(1, engine.Combo);
+            Assert.AreEqual(150, engine.Score); // Good = 150 * (1 + 0/50)
+        }
+
+        [Test]
+        public void LowConfidenceWordJudgedAtLineWindowsOnly()
+        {
+            var l = new LyricLine
+            {
+                RawText = "ab cd", StartTime = 1000, EndTime = 4000, SingEndTime = 3000,
+                Units = new[]
+                {
+                    new TimedUnit { Text = "ab", StartTime = 1000, EndTime = 2000, Confidence = 0.01 },
+                    new TimedUnit { Text = "cd", StartTime = 2000, EndTime = 3000 }, // trusted (1)
+                },
+            };
+            var engine = new TypingEngine(map(TimingGranularity.Word, l));
+            var cells = engine.Lines[0].Cells;
+
+            Assert.AreEqual(TimingGranularity.Line, cells[0].JudgeGranularity); // low-score word widened
+            Assert.AreEqual(TimingGranularity.Line, cells[2].JudgeGranularity); // its trailing space too
+            Assert.AreEqual(TimingGranularity.Word, cells[3].JudgeGranularity); // trusted word stays tight
+        }
+
+        [Test]
+        public void RealSpectatorRhythmPerfectPlayHasZeroMissesAndUnbrokenCombo()
+        {
+            // End-to-end guarantee for the game's core promise: a player who types every cell
+            // at exactly its target time (quantized to 60fps frames) through the ENTIRE real
+            // map must never be force-missed or combo-broken. Pre-seal-grace, the overlapping
+            // backing-vocal line ("Dying for a way to let go") force-missed its last 7 cells.
+            string path = StandaloneMaps.Require("Friday Pilots Club - Spectator", "timing.json");
+            Assert.IsTrue(TimingJsonLoader.TryLoad(path, out var lyricLines));
+
+            var beatmap = new LyricBeatmap
+            {
+                Metadata = new LyricBeatmapMetadata
+                {
+                    Artist = "Friday Pilots Club",
+                    Title = "Spectator",
+                    FolderPath = Path.GetDirectoryName(path)!,
+                    AudioFileName = "unused.mp3",
+                    HasWordTiming = true,
+                },
+                Lines = lyricLines,
+                Granularity = TimingGranularity.Word,
+            };
+
+            var engine = new TypingEngine(beatmap);
+
+            int comboBreaks = 0;
+            engine.ComboBroken += () => comboBreaks++;
+
+            const double frame = 1000.0 / 60;
+
+            for (double t = 0; t <= beatmap.LastLineEnd + 1000 && !engine.IsFinished; t += frame)
+            {
+                engine.Update(t);
+
+                // Rhythm-perfect player: type each caret cell on the first frame at/after its target.
+                while (engine.ActiveLineIndex != -1 && !engine.IsLineComplete)
+                {
+                    var cell = engine.Lines[engine.ActiveLineIndex].Cells[engine.CaretIndex];
+
+                    if (cell.TargetTime > t)
+                        break;
+
+                    Assert.IsTrue(engine.ProcessKey(cell.Expected, t));
+                }
+            }
+
+            engine.Update(beatmap.LastLineEnd + 1100);
+
+            var results = engine.BuildResults();
+            Assert.IsTrue(engine.IsFinished);
+            Assert.AreEqual(0, results.Counts[JudgementType.Miss], "rhythm-perfect play must never be force-missed");
+            Assert.AreEqual(0, comboBreaks, "rhythm-perfect play must never break combo");
+            Assert.AreEqual(1.0, results.Accuracy);
+        }
+
+        [Test]
+        public void UnreachableNonAsciiCharsAutoSkip()
+        {
+            // 'ß' has no FormD decomposition and no key can produce it — it must classify as
+            // non-typeable (auto-skip), never strand the caret. 'é' decomposes to 'e' upstream
+            // in Typeability.Normalize, so it never reaches the cells un-decomposed.
+            Assert.AreEqual("cafe", Typeability.Normalize("café"));
+            Assert.IsFalse(Typeability.IsTypeable('ß'));
+            Assert.IsFalse(Typeability.IsTypeable('ø'));
+
+            var l = line("straße", 1000, 3000, 2000, unit("straße", 1000, 2000));
+            var engine = new TypingEngine(map(TimingGranularity.Line, l));
+
+            engine.Update(1000);
+            Assert.IsTrue(engine.ProcessKey('s', 1000));
+            Assert.IsTrue(engine.ProcessKey('t', 1100));
+            Assert.IsTrue(engine.ProcessKey('r', 1200));
+            Assert.IsTrue(engine.ProcessKey('a', 1300));
+            // 'ß' auto-skips; caret lands on 'e'.
+            Assert.IsTrue(engine.ProcessKey('e', 1400));
+            Assert.IsTrue(engine.IsLineComplete);
+            Assert.AreEqual(CellState.AutoSkipped, engine.Lines[0].Cells[4].State);
+        }
+
+        [Test]
+        public void LateVocalsActivateAtCueNotBoundary()
+        {
+            // Window opens at 1000 but the first word starts at 8000: the line becomes typeable
+            // at firstWord - CUE_LEAD_MS = 8000 - 1500 = 6500, not at the boundary.
+            var l = line("ab", 1000, 10000, 9000, unit("ab", 8000, 9000));
+            var engine = new TypingEngine(map(TimingGranularity.Word, l));
+
+            Assert.AreEqual(6500, engine.Lines[0].ActivationTime);
+
+            engine.Update(1000);
+            Assert.AreEqual(-1, engine.ActiveLineIndex, "boundary alone must not activate");
+
+            engine.Update(6499);
+            Assert.AreEqual(-1, engine.ActiveLineIndex);
+            Assert.IsFalse(engine.ProcessKey('a', 6499), "typing before the cue is inert");
+
+            engine.Update(6500);
+            Assert.AreEqual(0, engine.ActiveLineIndex, "cue reached: line typeable");
+            Assert.IsTrue(engine.ProcessKey('a', 6500));
+        }
+
+        [Test]
+        public void DeadZoneBetweenSealAndCueHasNoActiveLine()
+        {
+            // Line 0 seals at its boundary (4000); line 1's first word is at 10000, so its cue is
+            // 8500. In between, no line is active (input inert) but line 1 is already the
+            // upcoming line — the stage scrolls at the seal, dimmed until the cue.
+            var l0 = abcdLine();
+            var l1 = line("ef", 4000, 12000, 11000, unit("ef", 10000, 11000));
+            var engine = new TypingEngine(map(TimingGranularity.Word, l0, l1));
+
+            engine.Update(3999);
+            Assert.AreEqual(0, engine.NextUnsealedLineIndex);
+
+            engine.Update(4000);
+            Assert.AreEqual(1, engine.NextUnsealedLineIndex, "line 0 sealed at its boundary");
+            Assert.AreEqual(-1, engine.ActiveLineIndex, "dead zone: nothing active yet");
+            Assert.IsFalse(engine.ProcessKey('e', 4000), "dead-zone typing is inert");
+
+            engine.Update(8499);
+            Assert.AreEqual(-1, engine.ActiveLineIndex);
+
+            engine.Update(8500);
+            Assert.AreEqual(1, engine.ActiveLineIndex, "line 1 activates at its cue");
+        }
+
+        [Test]
+        public void ImmediateVocalsActivateAtBoundaryAsBefore()
+        {
+            // When a line's first word starts on its boundary, the cue clamps to the boundary
+            // (a line can never activate before the previous one can seal) — the pre-cue
+            // behavior is unchanged for back-to-back lines.
+            var l0 = abcdLine();
+            var l1 = line("ef", 4000, 6000, 5500, unit("ef", 4000, 5000));
+            var engine = new TypingEngine(map(TimingGranularity.Word, l0, l1));
+
+            Assert.AreEqual(4000, engine.Lines[1].ActivationTime);
+
+            engine.Update(4000);
+            Assert.AreEqual(1, engine.ActiveLineIndex, "seal and next activation share the boundary frame");
+        }
+    }
+}

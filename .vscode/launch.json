@@ -1,0 +1,131 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "type!beat (Debug)",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "dotnet",
+            "args": [
+                "${workspaceRoot}/typebeat.Desktop/bin/Debug/net8.0/type!beat.dll"
+            ],
+            "cwd": "${workspaceRoot}",
+            "preLaunchTask": "Build type!beat (Debug)",
+            "console": "internalConsole"
+        },
+        {
+            "name": "type!beat (Debug, Second Client)",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "dotnet",
+            "args": [
+                "${workspaceRoot}/typebeat.Desktop/bin/Debug/net8.0/type!beat.dll",
+                "--debug-client-id=1"
+            ],
+            "cwd": "${workspaceRoot}",
+            "preLaunchTask": "Build type!beat (Debug)",
+            "console": "internalConsole"
+        },
+        {
+            "name": "type!beat (Release)",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "dotnet",
+            "args": [
+                "${workspaceRoot}/typebeat.Desktop/bin/Release/net8.0/type!beat.dll"
+            ],
+            "cwd": "${workspaceRoot}",
+            "preLaunchTask": "Build type!beat (Release)",
+            "console": "internalConsole"
+        },
+        {
+            "name": "type!beat (Tests, Debug)",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "dotnet",
+            "args": [
+                "${workspaceRoot}/typebeat.Game.Tests/bin/Debug/net8.0/typebeat.Game.Tests.dll"
+            ],
+            "cwd": "${workspaceRoot}",
+            "preLaunchTask": "Build tests (Debug)",
+            "console": "internalConsole"
+        },
+        {
+            "name": "type!beat (Tests, Release)",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "dotnet",
+            "args": [
+                "${workspaceRoot}/typebeat.Game.Tests/bin/Release/net8.0/typebeat.Game.Tests.dll"
+            ],
+            "cwd": "${workspaceRoot}",
+            "preLaunchTask": "Build tests (Release)",
+            "console": "internalConsole"
+        },
+        {
+            "name": "Tournament (Debug)",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "dotnet",
+            "args": [
+                "${workspaceRoot}/typebeat.Desktop/bin/Debug/net8.0/type!beat.dll",
+                "--tournament"
+            ],
+            "cwd": "${workspaceRoot}",
+            "preLaunchTask": "Build type!beat (Debug)",
+            "console": "internalConsole"
+        },
+        {
+            "name": "Tournament (Release)",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "dotnet",
+            "args": [
+                "${workspaceRoot}/typebeat.Desktop/bin/Release/net8.0/type!beat.dll",
+                "--tournament"
+            ],
+            "cwd": "${workspaceRoot}",
+            "preLaunchTask": "Build type!beat (Release)",
+            "console": "internalConsole"
+        },
+        {
+            "name": "Tournament (Tests, Debug)",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "dotnet",
+            "args": [
+                "${workspaceRoot}/typebeat.Game.Tournament.Tests/bin/Debug/net8.0/typebeat.Game.Tournament.Tests.dll",
+                "--tournament"
+            ],
+            "cwd": "${workspaceRoot}",
+            "preLaunchTask": "Build tournament tests (Debug)",
+            "console": "internalConsole"
+        },
+        {
+            "name": "Tournament (Tests, Release)",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "dotnet",
+            "args": [
+                "${workspaceRoot}/typebeat.Game.Tournament.Tests/bin/Debug/net8.0/typebeat.Game.Tournament.Tests.dll",
+                "--tournament"
+            ],
+            "cwd": "${workspaceRoot}",
+            "preLaunchTask": "Build tournament tests (Release)",
+            "console": "internalConsole"
+        },
+        {
+            "name": "Benchmark",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "${workspaceRoot}/typebeat.Game.Benchmarks/bin/Release/net8.0/typebeat.Game.Benchmarks.dll",
+            "args": [
+                "--filter",
+                "*"
+            ],
+            "cwd": "${workspaceRoot}",
+            "preLaunchTask": "Build benchmarks",
+            "console": "internalConsole"
+        }
+    ]
+}
