@@ -35,20 +35,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 BarDisplayLength = Math.Min(1, HitObjects.Count / 100f),
             };
 
+            // A faster clock (DoubleTime/Nightcore) means more words/characters per real minute, so
+            // WPM and CPM scale linearly with the mod rate; song select re-renders these live as the
+            // selected rate mods change (see BeatmapStatistic.RateAdjusted). Line count is unaffected.
+            double baseWpm = pace.AverageWpm;
+            double baseCpm = pace.AverageCpm;
+
             yield return new BeatmapStatistic
             {
                 Name = "Average WPM",
-                Content = pace.AverageWpm.ToString("0"),
+                Content = baseWpm.ToString("0"),
                 CreateIcon = () => new SpriteIcon { Icon = FontAwesome.Solid.Keyboard },
-                BarDisplayLength = (float)Math.Min(1, pace.AverageWpm / max_display_wpm),
+                BarDisplayLength = (float)Math.Min(1, baseWpm / max_display_wpm),
+                RateAdjusted = rate => ((baseWpm * rate).ToString("0"), (float?)Math.Min(1, baseWpm * rate / max_display_wpm)),
             };
 
             yield return new BeatmapStatistic
             {
                 Name = "Average CPM",
-                Content = pace.AverageCpm.ToString("0"),
+                Content = baseCpm.ToString("0"),
                 CreateIcon = () => new SpriteIcon { Icon = FontAwesome.Solid.Font },
-                BarDisplayLength = (float)Math.Min(1, pace.AverageCpm / (max_display_wpm * 5)),
+                BarDisplayLength = (float)Math.Min(1, baseCpm / (max_display_wpm * 5)),
+                RateAdjusted = rate => ((baseCpm * rate).ToString("0"), (float?)Math.Min(1, baseCpm * rate / (max_display_wpm * 5))),
             };
         }
     }

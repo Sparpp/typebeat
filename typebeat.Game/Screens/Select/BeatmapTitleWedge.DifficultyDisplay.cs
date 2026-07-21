@@ -219,11 +219,16 @@ namespace typebeat.Game.Screens.Select
                     settingChangeTracker?.Dispose();
 
                     updateDifficultyStatistics();
+                    applyCountStatistics();
 
                     if (m.NewValue.Any())
                     {
                         settingChangeTracker = new ModSettingChangeTracker(m.NewValue);
-                        settingChangeTracker.SettingChanged += _ => updateDifficultyStatistics();
+                        settingChangeTracker.SettingChanged += _ =>
+                        {
+                            updateDifficultyStatistics();
+                            applyCountStatistics();
+                        };
                     }
                 }, true);
 
@@ -257,10 +262,15 @@ namespace typebeat.Game.Screens.Select
                 updateDifficultyStatistics();
             }
 
+            // The raw per-beatmap statistics (Lines / WPM / CPM), cached so a mod toggle can re-apply
+            // the clock rate to the pace stats without reloading the playable beatmap.
+            private IReadOnlyList<BeatmapStatistic> countStatistics = Array.Empty<BeatmapStatistic>();
+
             private void updateCountStatistics(CancellationToken cancellationToken)
             {
                 if (beatmap.IsDefault)
                 {
+                    countStatistics = Array.Empty<BeatmapStatistic>();
                     countStatisticsDisplay.FadeOut(300, Easing.OutQuint);
                     return;
                 }
@@ -270,19 +280,34 @@ namespace typebeat.Game.Screens.Select
                     // This can take time as it is a synchronous task.
                     // TODO: We're calling `GetPlayableBeatmap` multiple times every map load at song select.
                     var playableBeatmap = beatmap.Value.GetPlayableBeatmap(ruleset.Value);
-                    var statistics = playableBeatmap.GetStatistics()
-                                                    .Select(s => new StatisticDifficulty.Data(s.Name, s.BarDisplayLength ?? 0, s.BarDisplayLength ?? 0, 1, s.Content))
-                                                    .ToList();
+                    var statistics = playableBeatmap.GetStatistics().ToList();
 
                     Schedule(() =>
                     {
                         if (cancellationToken.IsCancellationRequested)
                             return;
 
+                        countStatistics = statistics;
                         countStatisticsDisplay.FadeIn(200, Easing.OutQuint);
-                        countStatisticsDisplay.Statistics = statistics;
+                        applyCountStatistics();
                     });
                 }, cancellationToken);
+            }
+
+            // Re-render the cached count statistics at the currently-selected clock rate. Cheap enough
+            // to run on every mod change (no beatmap reload); rate-independent stats pass through.
+            private void applyCountStatistics()
+            {
+                double rate = 1;
+
+                foreach (var mod in mods.Value.OfType<IApplicableToRate>())
+                    rate = mod.ApplyToRate(0, rate);
+
+                countStatisticsDisplay.Statistics = countStatistics.Select(s =>
+                {
+                    (string content, float? bar) = s.RateAdjusted != null ? s.RateAdjusted(rate) : (s.Content, s.BarDisplayLength);
+                    return new StatisticDifficulty.Data(s.Name, bar ?? 0, bar ?? 0, 1, content);
+                }).ToList();
             }
 
             private void updateDifficultyStatistics() => Scheduler.AddOnce(() =>

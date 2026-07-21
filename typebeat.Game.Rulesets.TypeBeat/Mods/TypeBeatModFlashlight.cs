@@ -56,10 +56,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             {
                 base.LoadComplete();
 
-                // Start invisible (no darkening) — the effect fades in once the first caret appears,
-                // so there's no stray reveal parked in the top-left before typing begins.
-                Alpha = 0;
                 FlashlightSmoothness = 1.6f; // softer edges + rounded corners
+
+                // Fade the darkening in from the start of gameplay. Previously it stayed fully
+                // transparent until TryGetCaretScreenPosition first returned true — but the caret is
+                // only "visible" (alpha > 0.5) mid-blink once a line is active, so on many maps that
+                // moment was missed and the mod had no visible effect at all. Revealing on load
+                // (centred until the caret is acquired) guarantees the effect while still following
+                // the caret once typing begins.
+                this.FadeInFromZero(FLASHLIGHT_FADE_DURATION, Easing.OutQuint);
             }
 
             protected override void UpdateFlashlightSize(float size) =>
@@ -69,17 +74,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             {
                 base.Update();
 
-                // Follow the caret's screen-space centre; while no line is active the caret is hidden
-                // and the reveal simply holds its last position (no jump to the origin).
+                // Follow the caret's screen-space centre while a line is active; before the first
+                // caret appears (and between lines, until one is acquired) keep the reveal centred on
+                // the playfield rather than parked in the top-left corner.
                 if (((TypeBeatPlayfield)drawableRuleset.Playfield).TryGetCaretScreenPosition(out var caret))
                 {
                     FlashlightPosition = ToLocalSpace(caret);
-
-                    if (!revealed)
-                    {
-                        revealed = true;
-                        this.FadeIn(600, Easing.OutQuint);
-                    }
+                    revealed = true;
+                }
+                else if (!revealed)
+                {
+                    FlashlightPosition = ToLocalSpace(ScreenSpaceDrawQuad.Centre);
                 }
             }
         }

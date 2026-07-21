@@ -30,5 +30,13 @@ namespace typebeat.Game.Beatmaps
         /// The length of a bar which visually represents this statistic's relevance in the beatmap.
         /// </summary>
         public float? BarDisplayLength;
+
+        /// <summary>
+        /// Optional. When the beatmap clock rate changes (rate-adjusting mods such as DoubleTime /
+        /// HalfTime), song select recomputes this statistic's <see cref="Content"/> and
+        /// <see cref="BarDisplayLength"/> from the given rate (1 = no rate mods) so it updates live
+        /// as mods are toggled. Leave null for rate-independent statistics (they stay as authored).
+        /// </summary>
+        public Func<double, (string Content, float? BarDisplayLength)> RateAdjusted;
     }
 }
