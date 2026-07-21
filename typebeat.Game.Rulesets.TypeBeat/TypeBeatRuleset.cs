@@ -74,8 +74,16 @@ namespace typebeat.Game.Rulesets.TypeBeat
             {
                 new TypeBeatModMashing(),
             },
+            ModType.Fun => new Mod[]
+            {
+                new ModWindUp(),
+                new ModWindDown(),
+            },
             _ => Array.Empty<Mod>(),
         };
+
+        public override ScoreMultiplierCalculator CreateScoreMultiplierCalculator(ScoreMultiplierContext context) =>
+            new TypeBeatScoreMultiplierCalculator(context);
 
         /// <summary>
         /// type!beat maps are stored in the "type!beat file format v1" .osu variant; the legacy
