@@ -153,9 +153,14 @@ namespace typebeat.Game.Screens.Select
 
         public static bool ShouldGroupBeatmapsTogether(FilterCriteria criteria)
         {
-            // type!beat: every song carries exactly one difficulty, so sets are never grouped —
-            // each map presents as a single standalone panel with no difficulty expansion.
-            return false;
+            // A set's difficulties are grouped under one expandable set panel — except when the
+            // ordering is by difficulty itself, where each difficulty stands alone so the sort is
+            // meaningful. (Sets with a single difficulty still collapse to one row via the same
+            // set/expand path.)
+            if (criteria.Sort == SortMode.Difficulty || criteria.Group == GroupMode.Difficulty)
+                return false;
+
+            return true;
         }
 
         private List<GroupMapping> getGroups(List<CarouselItem> items, FilterCriteria criteria)

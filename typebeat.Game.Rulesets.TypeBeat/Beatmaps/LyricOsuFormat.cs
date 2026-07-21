@@ -32,11 +32,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <param name="videoFilename">Optional background video file name (emitted as a legacy [Events] video, offset 0).</param>
         /// <param name="beatmapId">Server-side beatmap ID; omitted from [Metadata] unless positive.</param>
         /// <param name="beatmapSetId">Server-side beatmap set ID; omitted from [Metadata] unless positive.</param>
+        /// <param name="difficultyName">Difficulty name (the [Metadata] Version), so a set can hold
+        /// several difficulties without their identities colliding; defaults to "type!beat".</param>
         /// <exception cref="ArgumentException">When the timing.json is not a supported v2 document.</exception>
         public static string GenerateOsu(string artist, string title, string audioFilename, string creator, string timingJsonText,
                                          double previewTime = -1, double audioLeadIn = 0, double? beatdropMs = null,
                                          string? backgroundFilename = null, string? videoFilename = null,
-                                         int beatmapId = -1, int beatmapSetId = -1)
+                                         int beatmapId = -1, int beatmapSetId = -1, string difficultyName = "type!beat")
         {
             using var doc = JsonDocument.Parse(timingJsonText);
             JsonElement root = doc.RootElement;
@@ -86,7 +88,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             sb.AppendLine($"Artist:{artist}");
             sb.AppendLine($"ArtistUnicode:{artist}");
             sb.AppendLine($"Creator:{creator}");
-            sb.AppendLine("Version:type!beat");
+            sb.AppendLine($"Version:{(string.IsNullOrWhiteSpace(difficultyName) ? "type!beat" : difficultyName)}");
             sb.AppendLine("Tags:typebeat lyrics typing");
 
             // Online IDs are stamped on submission; the server validates the embedded IDs

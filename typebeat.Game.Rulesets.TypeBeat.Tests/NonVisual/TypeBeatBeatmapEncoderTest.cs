@@ -148,6 +148,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(encode(source, new Storyboard()), Does.Not.Contain("[Events]"));
         }
 
+        [Test]
+        public void DifficultyNameSurvivesRoundTrip()
+        {
+            // A set can hold several difficulties only if each encodes its own Version (the osu
+            // identity key). A named difficulty must survive the encode/decode round-trip.
+            var named = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
+            named.BeatmapInfo.DifficultyName = "Hard";
+
+            string encoded = encode(named, null);
+            Assert.That(encoded, Does.Contain("Version:Hard"));
+            Assert.That(decode(encoded).BeatmapInfo.DifficultyName, Is.EqualTo("Hard"));
+
+            // A blank difficulty name falls back to the format's default marker (never "Version:").
+            var blank = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
+            blank.BeatmapInfo.DifficultyName = "";
+            Assert.That(encode(blank, null), Does.Contain("Version:type!beat"));
+        }
+
         private static List<LyricLine> singleLine() => new List<LyricLine>
         {
             new LyricLine

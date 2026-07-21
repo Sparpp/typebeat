@@ -44,7 +44,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 backgroundFilename: metadata.BackgroundFile,
                 videoFilename: storyboard?.PrimaryVideo?.Path,
                 beatmapId: beatmap.BeatmapInfo.OnlineID,
-                beatmapSetId: beatmap.BeatmapInfo.BeatmapSet?.OnlineID ?? -1);
+                beatmapSetId: beatmap.BeatmapInfo.BeatmapSet?.OnlineID ?? -1,
+                difficultyName: beatmap.BeatmapInfo.DifficultyName);
 
             writer.Write(osu);
         }
