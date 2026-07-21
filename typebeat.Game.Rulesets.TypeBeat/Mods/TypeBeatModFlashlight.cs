@@ -31,14 +31,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         public override BindableBool ComboBasedSize { get; } = new BindableBool(true);
 
         // The reveal's half-height (px, before the combo/size multipliers); the rectangle is much
-        // wider than tall so it frames the current line, not a big circle.
-        public override float DefaultFlashlightSize => 58f;
+        // wider than tall so it frames the current line, not a big circle. 30% shorter than the
+        // original 58px (paired with a narrower aspect in width_to_height for a 40% smaller width).
+        public override float DefaultFlashlightSize => 58f * 0.7f;
 
         protected override Flashlight CreateFlashlight() => new TypeBeatFlashlight(this);
 
         private partial class TypeBeatFlashlight : Flashlight
         {
-            private const float width_to_height = 3.4f; // reveal is this many times wider than tall
+            // Reveal aspect after the size-down (see DefaultFlashlightSize): the height shrinks 30%
+            // via DefaultFlashlightSize, and this bumps the aspect so the width ends up 40% smaller
+            // overall (0.6 / 0.7 × the original 3.4).
+            private const float width_to_height = 3.4f * 0.6f / 0.7f;
 
             [Resolved]
             private DrawableTypeBeatRuleset drawableRuleset { get; set; } = null!;
@@ -74,18 +78,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             {
                 base.Update();
 
-                // Follow the caret's screen-space centre while a line is active; before the first
-                // caret appears (and between lines, until one is acquired) keep the reveal centred on
-                // the playfield rather than parked in the top-left corner.
-                if (((TypeBeatPlayfield)drawableRuleset.Playfield).TryGetCaretScreenPosition(out var caret))
+                var playfield = (TypeBeatPlayfield)drawableRuleset.Playfield;
+
+                if (playfield.TryGetCaretScreenPosition(out var caret))
                 {
+                    // Active line: follow the caret (this also recentres the reveal onto the new
+                    // line's caret the moment it appears, after the cue-in snap below).
                     FlashlightPosition = ToLocalSpace(caret);
+                    revealed = true;
+                }
+                else if (playfield.TryGetUpcomingCaretScreenPosition(out var upcoming))
+                {
+                    // Between lines: the boundary cue is counting the next line in. Snap ahead to
+                    // where its caret will appear, instead of holding on the line just finished.
+                    FlashlightPosition = ToLocalSpace(upcoming);
                     revealed = true;
                 }
                 else if (!revealed)
                 {
+                    // Before anything is acquired, centre the reveal rather than park it top-left.
                     FlashlightPosition = ToLocalSpace(ScreenSpaceDrawQuad.Centre);
                 }
+                // else: hold the last position through the brief gap before the next cue opens.
             }
         }
     }

@@ -543,6 +543,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>Screen-space centre of the typing caret — the point the Flashlight mod reveals around.</summary>
         public Vector2 PlayerCaretScreenPosition => playerCaret.IsNotNull() ? playerCaret.ScreenSpaceDrawQuad.Centre : Vector2.Zero;
+
+        /// <summary>
+        /// While a boundary/first-word cue is counting a not-yet-active line in, the screen-space
+        /// point where that line's typing caret will first appear — so the Flashlight mod can snap
+        /// ahead to the new line before the caret arrives. False when no such cue is showing, or it
+        /// targets the already-active line (use its live caret position instead).
+        /// </summary>
+        public bool TryGetUpcomingCaretScreenPosition(out Vector2 position)
+        {
+            int target = approachCueTargetLine;
+
+            if (target >= 0 && target < displays.Length && target != engine.ActiveLineIndex)
+            {
+                var d = displays[target];
+                int cell = firstTypeableIndex(engine.Lines[target]);
+                Vector2 local = d.ToSpaceOfOtherDrawable(d.PositionOfCell(cell < 0 ? 0 : cell), this);
+                position = ToScreenSpace(local);
+                return true;
+            }
+
+            position = default;
+            return false;
+        }
         public bool ApproachCueVisible =>
             (approachBar.IsNotNull() && approachBar.Alpha > 0.1f) || (boundaryBar.IsNotNull() && boundaryBar.Alpha > 0.1f);
 

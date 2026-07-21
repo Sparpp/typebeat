@@ -70,6 +70,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             return false;
         }
 
+        /// <summary>Screen-space point where the upcoming line's caret will appear while its boundary
+        /// cue counts in — the Flashlight mod snaps ahead to it before the caret arrives.</summary>
+        public bool TryGetUpcomingCaretScreenPosition(out osuTK.Vector2 position)
+        {
+            if (stage.IsNotNull() && stage.TryGetUpcomingCaretScreenPosition(out position))
+                return true;
+
+            position = default;
+            return false;
+        }
+
         // Both cached by Player; absent in bare drawable-ruleset test scenes.
         [Resolved]
         private ScoreProcessor? scoreProcessor { get; set; }
