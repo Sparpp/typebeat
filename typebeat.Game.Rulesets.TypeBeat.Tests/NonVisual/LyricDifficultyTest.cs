@@ -52,13 +52,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void MatchesHandComputedRating()
         {
-            // "cat cat" — both 400 ms words land in real-time section 0. Loads: cat0 cost = 4
-            // (run 1.0, rep 1), cat1 repeats -> rep 0.85, cost 3.4; line multiplier 1 (first line,
-            // even rhythm). Section load 7.4 -> Dmax 7.4, agg = 7.4/4 + ln(1) = 1.85,
-            // stars = 0.108 * 1.85^1.5 = 0.27. Shared with the web port's LyricPaceTest.
+            // "cat cat" -> 0.45 stars. Shared anchor with the web port's LyricPaceTest, locking
+            // the two ports to the same per-word strain sum.
             double sr = LyricDifficulty.Compute(new[] { line(0, 800, ("cat", 0, 400), ("cat", 400, 800)) });
 
-            Assert.AreEqual(0.27, sr, 0.01);
+            Assert.AreEqual(0.45, sr, 0.01);
         }
 
         [Test]
@@ -117,6 +115,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             TestContext.WriteLine($"~100 WPM / 40-line map -> {sr:0.00} stars");
             Assert.That(sr, Is.InRange(2.0, 6.5));
+        }
+
+        [Test]
+        public void SustainedDifficultyOutweighsAMatchingPeak()
+        {
+            // Two maps share an identical single hardest chorus (same peak strain), but one keeps
+            // going with a dense a cappella section afterwards ("Insane" keeping the backing-vocal
+            // lines a "Hard" diff would drop) while the other cuts to something easy. A bucket/
+            // single-peak formula rates these nearly equal since D_max is identical; summing over
+            // every word must rate the sustained one clearly harder, since the extra section is
+            // real additional difficulty, not filler.
+            var peakChorus = buildMap(lineCount: 4, wordsPerLine: 4, lineMs: 1200); // ~a hard chorus
+            double peakEndMs = 4 * 1200;
+
+            var easyTail = buildMap(lineCount: 10, wordsPerLine: 2, lineMs: 2400, startAt: peakEndMs);
+            // Same density as the chorus — like an Insane diff keeping backing-vocal lines a Hard
+            // diff drops, so the ending stays just as dense as the peak instead of going quiet.
+            var hardTail = buildMap(lineCount: 10, wordsPerLine: 4, lineMs: 1200, startAt: peakEndMs);
+
+            var easierVersion = peakChorus.Concat(easyTail).ToArray();
+            var harderVersion = peakChorus.Concat(hardTail).ToArray();
+
+            double easierSr = LyricDifficulty.Compute(easierVersion);
+            double harderSr = LyricDifficulty.Compute(harderVersion);
+
+            TestContext.WriteLine($"matching-peak, easy tail -> {easierSr:0.00}; matching-peak, hard tail -> {harderSr:0.00}");
+
+            // Same peak, but the sustained-hard version must clearly separate from the easy one —
+            // this is exactly what a single-bucket/D_max-only formula cannot see.
+            Assert.That(harderSr - easierSr, Is.GreaterThan(0.15));
         }
     }
 }

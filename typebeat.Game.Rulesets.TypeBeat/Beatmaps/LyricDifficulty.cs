@@ -9,12 +9,13 @@ using System.Text;
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
-    /// Star rating for a lyric map. Keystroke load (word cost × line pressure/rhythm multiplier) is
-    /// binned into fixed real-time sections; a section's difficulty is its load PER SECOND — a
-    /// smooth, artifact-resistant measure of how fast you must type there. A soft maximum
-    /// (log-sum-exp) over the sections then makes the hardest sustained stretches dominate while
-    /// length still counts only logarithmically, and — every term being positive — a map can never
-    /// rate below a subset of itself.
+    /// Star rating for a lyric map. Each word carries a keystroke load (cost × line pressure/rhythm
+    /// multiplier) divided by the time you have for it; that load accumulates into a per-word
+    /// "strain" that decays with rest, and a duration-weighted soft maximum (log-sum-exp) over the
+    /// strains is remapped to stars. The soft max means difficulty spikes dominate and a subset can
+    /// never rate above its superset, while summing over every word (rather than one peak bucket)
+    /// means a sustained hard stretch actually counts — the thing that separates otherwise-equal-peak
+    /// diffs (e.g. an Insane that keeps a Hard's peak chorus but adds a dense a cappella ending).
     ///
     /// Kept byte-for-byte in step with the website's port
     /// (typebeat-web: Typebeat.Web.Packages.Lyrics.LyricDifficulty) so the in-game star rating and
@@ -22,8 +23,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// and its LyricPace.VERSION bumped so existing rows recompute.
     ///
     /// Rate-adjusting mods (DoubleTime/Nightcore/HalfTime) scale every real-time interval by
-    /// <c>rate</c>: a faster clock packs the same load into fewer, denser sections, raising the
-    /// rating; a slower clock lowers it.
+    /// <c>rate</c>: a faster clock shrinks each word's time budget, raising the rating; a slower
+    /// clock lowers it.
     /// </summary>
     public static class LyricDifficulty
     {
@@ -32,11 +33,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private const double back_to_back_bonus = 0.70; // max inter-line multiplier
         private const double variation_weight = 0.50; // how much rhythm cv scales a line
         private const double variation_cap = 1.5; // cv is clamped here
-        private const double section_ms = 1000; // real-time bin width for the per-second load
-        private const double spike_focus = 4; // w — how sharply the hardest sections dominate
-        private const double star_scale = 0.108; // maps the aggregate to stars (calibrated to real maps)
-        private const double star_power = 1.5; // stretches the hard end so top ratings spread
+        private const double strain_decay_per_s = 0.05; // strain carried per second of rest
+        private const double spike_focus = 14; // w — how sharply the hardest strains dominate
+        private const double reference_duration_s = 0.4; // duration weight unit
+        private const double star_scale = 0.277; // maps the aggregate to stars
+        private const double star_power = 1.3; // stretches the hard end so top ratings spread
         private const double max_stars = 10;
+        private const double min_interval_ms = 130; // floor a word's inter-onset (human minimum; guards timing artifacts)
         private const double min_span_ms = 50; // floor a word's sung span (cv guard)
         private const double repeat_window_ms = 20_000; // "last 20 seconds" for word repetition
 
@@ -46,14 +49,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             public readonly int Chars;
             public readonly int Runs;
             public readonly double StartMs; // real-time onset (beatmap time / rate)
+            public readonly double SpanMs; // beatmap-time sung span (final-word duration fallback)
             public readonly int LineIndex;
 
-            public Word(string text, int chars, int runs, double startMs, int lineIndex)
+            public Word(string text, int chars, int runs, double startMs, double spanMs, int lineIndex)
             {
                 Text = text;
                 Chars = chars;
                 Runs = runs;
                 StartMs = startMs;
+                SpanMs = spanMs;
                 LineIndex = lineIndex;
             }
         }
@@ -107,7 +112,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     for (int c = 0; c < text.Length; c++)
                         charDurations.Add(perChar);
 
-                    words.Add(new Word(text, text.Length, countRuns(text), unitStart / rate, li));
+                    words.Add(new Word(text, text.Length, countRuns(text), unitStart / rate, spanMs, li));
                 }
 
                 double pressure;
@@ -131,41 +136,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (words.Count == 0)
                 return 0;
 
-            // Bin each word's keystroke load into its real-time section.
-            var sectionLoad = new Dictionary<long, double>();
+            // Per-word strain: load (cost × line multiplier) per second you have for the word, carried
+            // forward with time decay. Intervals are floored so a mistimed sub-130ms onset can't spike it.
+            double floorMs = min_interval_ms / rate;
+            double strain = 0;
+            double prevStartMs = words[0].StartMs;
+            double maxStrain = double.NegativeInfinity;
+            double[] strains = new double[words.Count];
+            double[] durations = new double[words.Count];
 
             for (int i = 0; i < words.Count; i++)
             {
                 var w = words[i];
+
+                // Time budget for this word: until the next word begins (final word → its own span).
+                double intervalMs = i + 1 < words.Count ? words[i + 1].StartMs - w.StartMs : w.SpanMs / rate;
+                double durationS = Math.Max(intervalMs, floorMs) / 1000.0;
+                durations[i] = durationS;
+
                 double run = 0.5 + 0.5 * ((double)w.Runs / w.Chars);
                 double rep = repetitionFactor(words, i);
-                double load = (w.Chars + 1) * run * rep * lineMultipliers[w.LineIndex];
+                double cost = (w.Chars + 1) * run * rep;
+                double load = cost * lineMultipliers[w.LineIndex] / durationS;
 
-                long section = (long)(w.StartMs / section_ms);
-                sectionLoad[section] = sectionLoad.GetValueOrDefault(section) + load;
-            }
+                double dt = i == 0 ? 0 : Math.Max(w.StartMs - prevStartMs, floorMs) / 1000.0;
+                double carried = i == 0 ? 0 : strain * Math.Pow(strain_decay_per_s, dt);
+                strain = load + carried;
 
-            // Section difficulty = load per second; soft-max over sections (factor out the peak).
-            double sectionSeconds = section_ms / 1000.0;
-            double maxDifficulty = double.NegativeInfinity;
+                strains[i] = strain;
 
-            foreach (double load in sectionLoad.Values)
-            {
-                double d = load / sectionSeconds;
+                if (strain > maxStrain)
+                    maxStrain = strain;
 
-                if (d > maxDifficulty)
-                    maxDifficulty = d;
+                prevStartMs = w.StartMs;
             }
 
             double sum = 0;
 
-            foreach (double load in sectionLoad.Values)
-                sum += Math.Exp((load / sectionSeconds - maxDifficulty) / spike_focus);
+            for (int i = 0; i < words.Count; i++)
+                sum += durations[i] / reference_duration_s * Math.Exp((strains[i] - maxStrain) / spike_focus);
 
-            // Soft-max aggregate (peak + log of how much sustained difficulty sits near it), remapped
-            // to stars by a power curve so the hard end spreads. Monotonic in content throughout.
-            double aggregate = maxDifficulty / spike_focus + Math.Log(sum);
-            double stars = star_scale * Math.Pow(aggregate, star_power);
+            // Duration-weighted soft maximum over the strains, remapped to stars by a power curve.
+            double raw = maxStrain / spike_focus + Math.Log(sum);
+            double stars = star_scale * Math.Pow(raw, star_power);
 
             return Math.Clamp(stars, 0, max_stars);
         }
