@@ -39,7 +39,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private const double star_scale = 0.277; // maps the aggregate to stars
         private const double star_power = 1.3; // stretches the hard end so top ratings spread
         private const double max_stars = 10;
-        private const double min_interval_ms = 130; // floor a word's inter-onset (human minimum; guards timing artifacts)
+        private const double per_char_floor_ms = 40; // min plausible real-time per typed character; floors a word's window at chars × this (see the strain loop)
         private const double min_span_ms = 50; // floor a word's sung span (cv guard)
         private const double repeat_window_ms = 20_000; // "last 20 seconds" for word repetition
 
@@ -137,8 +137,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return 0;
 
             // Per-word strain: load (cost × line multiplier) per second you have for the word, carried
-            // forward with time decay. Intervals are floored so a mistimed sub-130ms onset can't spike it.
-            double floorMs = min_interval_ms / rate;
+            // forward with time decay. Windows are floored per-character (below) so a mistimed onset
+            // can't spike a word, without over-capping legitimately fast multi-character words.
+            double perCharFloorMs = per_char_floor_ms / rate;
             double strain = 0;
             double prevStartMs = words[0].StartMs;
             double maxStrain = double.NegativeInfinity;
@@ -151,7 +152,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 // Time budget for this word: until the next word begins (final word → its own span).
                 double intervalMs = i + 1 < words.Count ? words[i + 1].StartMs - w.StartMs : w.SpanMs / rate;
-                double durationS = Math.Max(intervalMs, floorMs) / 1000.0;
+                // Per-character floor: typing a word takes at least ~45 ms/char of real time, so its
+                // window can't drop below chars × that. A flat floor treated a 1-char and a 7-char word
+                // alike — over-capping fast multi-char words (exactly what separates a dense "Insane"
+                // ending from a "Hard") while under-guarding crammed long words.
+                double durationS = Math.Max(intervalMs, w.Chars * perCharFloorMs) / 1000.0;
                 durations[i] = durationS;
 
                 double run = 0.5 + 0.5 * ((double)w.Runs / w.Chars);
@@ -159,7 +164,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 double cost = (w.Chars + 1) * run * rep;
                 double load = cost * lineMultipliers[w.LineIndex] / durationS;
 
-                double dt = i == 0 ? 0 : Math.Max(w.StartMs - prevStartMs, floorMs) / 1000.0;
+                // Decay interval = the previous word's window; floor it by that word's char count.
+                double dtFloorMs = i == 0 ? 0 : words[i - 1].Chars * perCharFloorMs;
+                double dt = i == 0 ? 0 : Math.Max(w.StartMs - prevStartMs, dtFloorMs) / 1000.0;
                 double carried = i == 0 ? 0 : strain * Math.Pow(strain_decay_per_s, dt);
                 strain = load + carried;
 
