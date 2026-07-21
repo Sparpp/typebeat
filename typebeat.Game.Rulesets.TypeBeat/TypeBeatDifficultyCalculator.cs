@@ -15,14 +15,12 @@ using typebeat.Game.Rulesets.TypeBeat.Objects;
 namespace typebeat.Game.Rulesets.TypeBeat
 {
     /// <summary>
-    /// Star rating straight from the map's boundary-window typing pace: stars = WPM / 25,
-    /// capped at 10 — a leisurely 50 WPM map sits at 2*, a demanding 150 WPM map at 6*.
+    /// Star rating from <see cref="LyricDifficulty"/> — a duration-weighted soft maximum over
+    /// per-word typing strain (see sr-formula-v1.md). Rate-adjusting mods (DoubleTime/Nightcore/
+    /// HalfTime) feed their combined clock rate in, so a faster clock raises the rating.
     /// </summary>
     public class TypeBeatDifficultyCalculator : DifficultyCalculator
     {
-        private const double wpm_per_star = 25;
-        private const double max_stars = 10;
-
         public TypeBeatDifficultyCalculator(IRulesetInfo ruleset, IWorkingBeatmap beatmap)
             : base(ruleset, beatmap)
         {
@@ -35,9 +33,13 @@ namespace typebeat.Game.Rulesets.TypeBeat
             if (objects.Count == 0)
                 return new DifficultyAttributes(mods, 0);
 
-            var pace = LyricPaceStatistics.Compute(objects.Select(h => h.Line));
+            // Combined clock rate of any rate-adjusting mods (DT 1.5x, HT 0.75x, ...); 1 with none.
+            double rate = 1;
 
-            return new DifficultyAttributes(mods, Math.Min(max_stars, pace.AverageWpm / wpm_per_star));
+            foreach (var mod in mods.OfType<IApplicableToRate>())
+                rate = mod.ApplyToRate(0, rate);
+
+            return new DifficultyAttributes(mods, LyricDifficulty.Compute(objects.Select(h => h.Line), rate));
         }
 
         protected override IEnumerable<DifficultyHitObject> CreateDifficultyHitObjects(IBeatmap beatmap, Mod[] mods) => Enumerable.Empty<DifficultyHitObject>();
