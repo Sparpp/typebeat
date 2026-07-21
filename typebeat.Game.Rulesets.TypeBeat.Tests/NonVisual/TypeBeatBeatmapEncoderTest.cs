@@ -178,9 +178,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(encoded, Does.Contain("Tags:cover acoustic slow"));
             Assert.That(decode(encoded).Metadata.Tags, Is.EqualTo("cover acoustic slow"));
 
-            // Unset tags fall back to the format default (never a blank "Tags:" line).
+            // Unset tags produce NO default tags — an empty Tags line, decoding to empty.
             var untagged = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
-            Assert.That(encode(untagged, null), Does.Contain("Tags:typebeat lyrics typing"));
+            string untaggedOsu = encode(untagged, null);
+            Assert.That(untaggedOsu, Does.Not.Contain("typebeat lyrics typing"));
+            Assert.That(decode(untaggedOsu).Metadata.Tags, Is.Empty);
         }
 
         private static List<LyricLine> singleLine() => new List<LyricLine>
