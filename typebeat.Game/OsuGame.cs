@@ -1201,8 +1201,32 @@ namespace typebeat.Game
 
                 string[] packages = Directory.GetFiles(bundledDirectory, @"*.typb");
 
-                if (packages.Length > 0)
-                    Task.Run(() => Import(packages));
+                if (packages.Length == 0)
+                    return;
+
+                // Import silently: no boot-time "Imported ... Click to view" toast and no jump to
+                // the map. Driving the importer with a notification we never post skips both — the
+                // toast text and its click-to-present action live on that notification. Delete the
+                // packages afterwards so this stays one-shot; a re-run would dedup harmlessly anyway.
+                var tasks = packages.Select(p => new ImportTask(p)).ToArray();
+
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        await BeatmapManager.Import(new ProgressNotification(), tasks).ConfigureAwait(false);
+                    }
+                    catch (Exception e)
+                    {
+                        Logger.Error(e, "Failed to import bundled beatmaps.");
+                    }
+
+                    foreach (string package in packages)
+                    {
+                        try { File.Delete(package); }
+                        catch { /* best-effort cleanup; dedup makes a leftover package a no-op */ }
+                    }
+                });
             }
             catch (Exception e)
             {

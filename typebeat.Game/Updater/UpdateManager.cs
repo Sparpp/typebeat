@@ -224,26 +224,18 @@ namespace typebeat.Game.Updater
 
     public partial class UpdateCompleteNotification : SimpleNotification
     {
-        private readonly string version;
-
         public UpdateCompleteNotification(string version)
         {
-            this.version = version;
-            Text = NotificationsStrings.GameVersionAfterUpdate(version);
+            // type!beat has no changelog overlay, so no "click to see what's new" link (its
+            // ChangelogOverlay dependency is unregistered and would throw on load).
+            Text = $"You are now running type!beat {version}.";
         }
 
         [BackgroundDependencyLoader]
-        private void load(OsuColour colours, ChangelogOverlay changelog, INotificationOverlay notificationOverlay)
+        private void load(OsuColour colours)
         {
             Icon = FontAwesome.Solid.CheckSquare;
             IconContent.Colour = colours.BlueDark;
-
-            Activated = delegate
-            {
-                notificationOverlay.Hide();
-                changelog.ShowBuild(version);
-                return true;
-            };
         }
     }
 }
