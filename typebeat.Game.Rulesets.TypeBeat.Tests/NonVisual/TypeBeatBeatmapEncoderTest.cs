@@ -185,6 +185,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(decode(untaggedOsu).Metadata.Tags, Is.Empty);
         }
 
+        [Test]
+        public void OriginalTitleAndArtistSurviveRoundTrip()
+        {
+            // The editor's romanised (Title/Artist) and original (TitleUnicode/ArtistUnicode)
+            // fields are DISTINCT text boxes — the encoder was duplicating the romanised value
+            // into both, so an author's entered original text never reached the website.
+            var source = buildBeatmap(singleLine(), "Ultra Soul", "Neon Nights", "song.mp3");
+            source.Metadata.ArtistUnicode = "ウルトラソウル";
+            source.Metadata.TitleUnicode = "ネオンナイツ";
+
+            string encoded = encode(source, null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(encoded, Does.Contain("Title:Neon Nights"));
+                Assert.That(encoded, Does.Contain("TitleUnicode:ネオンナイツ"));
+                Assert.That(encoded, Does.Contain("Artist:Ultra Soul"));
+                Assert.That(encoded, Does.Contain("ArtistUnicode:ウルトラソウル"));
+            });
+
+            var reloaded = decode(encoded);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(reloaded.Metadata.Title, Is.EqualTo("Neon Nights"));
+                Assert.That(reloaded.Metadata.TitleUnicode, Is.EqualTo("ネオンナイツ"));
+                Assert.That(reloaded.Metadata.Artist, Is.EqualTo("Ultra Soul"));
+                Assert.That(reloaded.Metadata.ArtistUnicode, Is.EqualTo("ウルトラソウル"));
+            });
+
+            // No separate original set — TitleUnicode/ArtistUnicode fall back to the romanised
+            // value rather than writing (and round-tripping) a blank line.
+            var noOriginal = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
+            string noOriginalOsu = encode(noOriginal, null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(noOriginalOsu, Does.Contain("TitleUnicode:Title"));
+                Assert.That(noOriginalOsu, Does.Contain("ArtistUnicode:Artist"));
+            });
+        }
+
         private static List<LyricLine> singleLine() => new List<LyricLine>
         {
             new LyricLine

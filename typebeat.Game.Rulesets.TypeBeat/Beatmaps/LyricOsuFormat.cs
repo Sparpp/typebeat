@@ -20,8 +20,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// (one per line, full fidelity including fields the decoder ignores) so the .osu
         /// remains the map's provenance-complete lyric source.
         /// </summary>
-        /// <param name="artist">Artist metadata (Artist + ArtistUnicode).</param>
-        /// <param name="title">Title metadata (Title + TitleUnicode).</param>
+        /// <param name="artist">Romanised [Metadata] Artist.</param>
+        /// <param name="title">Romanised [Metadata] Title.</param>
         /// <param name="audioFilename">Audio file name as stored in the beatmap set.</param>
         /// <param name="creator">Creator metadata tag.</param>
         /// <param name="timingJsonText">Source lyriclab timing.json (version 2).</param>
@@ -37,12 +37,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <param name="tags">Space-separated [Metadata] Tags — exactly what the author set in the
         /// editor (empty when unset; there are no default tags). Flows to the website's
         /// beatmapsets.tags on submission.</param>
+        /// <param name="titleUnicode">Original (non-romanised) [Metadata] TitleUnicode; falls back
+        /// to <paramref name="title"/> when unset, so a map without a separate original never
+        /// writes a blank TitleUnicode line.</param>
+        /// <param name="artistUnicode">Original (non-romanised) [Metadata] ArtistUnicode; falls back
+        /// to <paramref name="artist"/> when unset.</param>
         /// <exception cref="ArgumentException">When the timing.json is not a supported v2 document.</exception>
         public static string GenerateOsu(string artist, string title, string audioFilename, string creator, string timingJsonText,
                                          double previewTime = -1, double audioLeadIn = 0, double? beatdropMs = null,
                                          string? backgroundFilename = null, string? videoFilename = null,
                                          int beatmapId = -1, int beatmapSetId = -1, string difficultyName = "type!beat",
-                                         string tags = "")
+                                         string tags = "", string? titleUnicode = null, string? artistUnicode = null)
         {
             using var doc = JsonDocument.Parse(timingJsonText);
             JsonElement root = doc.RootElement;
@@ -88,9 +93,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             sb.AppendLine();
             sb.AppendLine("[Metadata]");
             sb.AppendLine($"Title:{title}");
-            sb.AppendLine($"TitleUnicode:{title}");
+            sb.AppendLine($"TitleUnicode:{(string.IsNullOrEmpty(titleUnicode) ? title : titleUnicode)}");
             sb.AppendLine($"Artist:{artist}");
-            sb.AppendLine($"ArtistUnicode:{artist}");
+            sb.AppendLine($"ArtistUnicode:{(string.IsNullOrEmpty(artistUnicode) ? artist : artistUnicode)}");
             sb.AppendLine($"Creator:{creator}");
             sb.AppendLine($"Version:{(string.IsNullOrWhiteSpace(difficultyName) ? "type!beat" : difficultyName)}");
             // Legacy [Metadata] Tags is a single line; strip stray newlines defensively. No default

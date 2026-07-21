@@ -46,7 +46,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 beatmapId: beatmap.BeatmapInfo.OnlineID,
                 beatmapSetId: beatmap.BeatmapInfo.BeatmapSet?.OnlineID ?? -1,
                 difficultyName: beatmap.BeatmapInfo.DifficultyName,
-                tags: metadata.Tags);
+                tags: metadata.Tags,
+                titleUnicode: metadata.TitleUnicode,
+                artistUnicode: metadata.ArtistUnicode);
 
             writer.Write(osu);
         }
