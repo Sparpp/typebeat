@@ -34,11 +34,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <param name="beatmapSetId">Server-side beatmap set ID; omitted from [Metadata] unless positive.</param>
         /// <param name="difficultyName">Difficulty name (the [Metadata] Version), so a set can hold
         /// several difficulties without their identities colliding; defaults to "type!beat".</param>
+        /// <param name="tags">Space-separated [Metadata] Tags; defaults to the base map tags. What
+        /// the author sets in the editor flows to the website's beatmapsets.tags on submission.</param>
         /// <exception cref="ArgumentException">When the timing.json is not a supported v2 document.</exception>
         public static string GenerateOsu(string artist, string title, string audioFilename, string creator, string timingJsonText,
                                          double previewTime = -1, double audioLeadIn = 0, double? beatdropMs = null,
                                          string? backgroundFilename = null, string? videoFilename = null,
-                                         int beatmapId = -1, int beatmapSetId = -1, string difficultyName = "type!beat")
+                                         int beatmapId = -1, int beatmapSetId = -1, string difficultyName = "type!beat",
+                                         string tags = "typebeat lyrics typing")
         {
             using var doc = JsonDocument.Parse(timingJsonText);
             JsonElement root = doc.RootElement;
@@ -89,7 +92,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             sb.AppendLine($"ArtistUnicode:{artist}");
             sb.AppendLine($"Creator:{creator}");
             sb.AppendLine($"Version:{(string.IsNullOrWhiteSpace(difficultyName) ? "type!beat" : difficultyName)}");
-            sb.AppendLine("Tags:typebeat lyrics typing");
+            // Legacy [Metadata] Tags is a single line; strip stray newlines defensively.
+            string sanitizedTags = tags.Replace("\r", " ").Replace("\n", " ").Trim();
+            sb.AppendLine($"Tags:{(sanitizedTags.Length == 0 ? "typebeat lyrics typing" : sanitizedTags)}");
 
             // Online IDs are stamped on submission; the server validates the embedded IDs
             // against the set being uploaded, and the inherited legacy [Metadata] parsing

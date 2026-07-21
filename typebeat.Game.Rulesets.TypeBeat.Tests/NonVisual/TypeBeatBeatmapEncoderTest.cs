@@ -166,6 +166,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(encode(blank, null), Does.Contain("Version:type!beat"));
         }
 
+        [Test]
+        public void MetadataTagsSurviveRoundTrip()
+        {
+            // The editor's Tags field must reach the submitted .osu (was hardcoded, so tags the
+            // author set in-game never reached the website's beatmapsets.tags on upload).
+            var source = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
+            source.Metadata.Tags = "cover acoustic slow";
+
+            string encoded = encode(source, null);
+            Assert.That(encoded, Does.Contain("Tags:cover acoustic slow"));
+            Assert.That(decode(encoded).Metadata.Tags, Is.EqualTo("cover acoustic slow"));
+
+            // Unset tags fall back to the format default (never a blank "Tags:" line).
+            var untagged = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
+            Assert.That(encode(untagged, null), Does.Contain("Tags:typebeat lyrics typing"));
+        }
+
         private static List<LyricLine> singleLine() => new List<LyricLine>
         {
             new LyricLine
