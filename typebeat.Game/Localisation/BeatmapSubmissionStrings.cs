@@ -130,6 +130,11 @@ namespace typebeat.Game.Localisation
         public static LocalisableString BeatmapSubmissionTargetPending => new TranslatableString(getKey(@"beatmap_submission_target_pending"), @"Pending (complete, ready for ranking)");
 
         /// <summary>
+        /// "Unranked (complete, not intended for ranking)"
+        /// </summary>
+        public static LocalisableString BeatmapSubmissionTargetUnranked => new TranslatableString(getKey(@"beatmap_submission_target_unranked"), @"Unranked (complete, not intended for ranking)");
+
+        /// <summary>
         /// "Receive notifications for discussion replies"
         /// </summary>
         public static LocalisableString NotifyOnDiscussionReplies => new TranslatableString(getKey(@"notify_for_discussion_replies"), @"Receive notifications for discussion replies");

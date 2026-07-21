@@ -45,6 +45,11 @@ namespace typebeat.Game.Localisation
         public static LocalisableString StatusUnknown => new TranslatableString(getKey(@"status_unknown"), @"Unknown");
 
         /// <summary>
+        /// "Unranked"
+        /// </summary>
+        public static LocalisableString Unranked => new TranslatableString(getKey(@"unranked"), @"Unranked");
+
+        /// <summary>
         /// "Total Plays"
         /// </summary>
         public static LocalisableString TotalPlays => new TranslatableString(getKey(@"total_plays"), @"Total Plays");

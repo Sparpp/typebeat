@@ -181,6 +181,10 @@ namespace typebeat.Game.Graphics
                 case BeatmapOnlineStatus.Graveyard:
                     return Color4.Black;
 
+                case BeatmapOnlineStatus.Unranked:
+                    // Muted slate — clearly "not ranked" without reading as an error/graveyard state.
+                    return Color4Extensions.FromHex(@"6f7583");
+
                 default:
                     return null;
             }

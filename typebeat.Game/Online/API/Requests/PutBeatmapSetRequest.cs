@@ -83,5 +83,8 @@ namespace typebeat.Game.Online.API.Requests
 
         [LocalisableDescription(typeof(BeatmapSubmissionStrings), nameof(BeatmapSubmissionStrings.BeatmapSubmissionTargetPending))]
         Pending,
+
+        [LocalisableDescription(typeof(BeatmapSubmissionStrings), nameof(BeatmapSubmissionStrings.BeatmapSubmissionTargetUnranked))]
+        Unranked,
     }
 }

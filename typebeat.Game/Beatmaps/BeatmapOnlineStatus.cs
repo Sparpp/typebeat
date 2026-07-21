@@ -19,6 +19,15 @@ namespace typebeat.Game.Beatmaps
         [LocalisableDescription(typeof(SongSelectStrings), nameof(SongSelectStrings.StatusUnknown))]
         None = -3,
 
+        /// <summary>
+        /// type!beat-specific: a published map the creator has deliberately marked as not for
+        /// ranking. Browsable and playable like Pending, but never leaderboard-eligible and never
+        /// promoted. Kept below <see cref="Pending"/> so the natural <c>Status &lt;= Pending</c>
+        /// leaderboard gate (LeaderboardManager) excludes it without special-casing.
+        /// </summary>
+        [LocalisableDescription(typeof(SongSelectStrings), nameof(SongSelectStrings.Unranked))]
+        Unranked = -5,
+
         [LocalisableDescription(typeof(BeatmapsetsStrings), nameof(BeatmapsetsStrings.ShowStatusGraveyard))]
         Graveyard = -2,
 

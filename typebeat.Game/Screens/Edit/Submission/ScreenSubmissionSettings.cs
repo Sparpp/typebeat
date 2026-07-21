@@ -78,7 +78,14 @@ namespace typebeat.Game.Screens.Edit.Submission
         {
             Debug.Assert(settings.LatestOnlineStateRequest != null);
             settings.Target.Disabled = false;
-            settings.Target.Value = settings.LatestOnlineStateRequest.Response?.Status >= BeatmapOnlineStatus.Pending ? BeatmapSubmissionTarget.Pending : BeatmapSubmissionTarget.WIP;
+
+            settings.Target.Value = settings.LatestOnlineStateRequest.Response?.Status switch
+            {
+                // Preserve the creator's "not for ranking" choice across re-submissions.
+                BeatmapOnlineStatus.Unranked => BeatmapSubmissionTarget.Unranked,
+                >= BeatmapOnlineStatus.Pending => BeatmapSubmissionTarget.Pending,
+                _ => BeatmapSubmissionTarget.WIP,
+            };
         }
     }
 }
