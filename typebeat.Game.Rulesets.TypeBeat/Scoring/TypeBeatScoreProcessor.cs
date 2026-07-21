@@ -36,6 +36,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         public override ScoreRank RankFromScore(double accuracy, IReadOnlyDictionary<HitResult, int> results)
             => RankFromCompletion(ComputeCompletion(results));
 
+        /// <summary>Grade is awarded on completion, so the results-screen gauge fills to completion.</summary>
+        public override double GradeProgress(ScoreInfo score) => ComputeCompletion(score);
+
         /// <summary>
         /// Completion over a set of judgement counts: typed cells / judged cells. Mid-play the
         /// denominator is what has been judged so far (completion sits at 1 until a cell seals as

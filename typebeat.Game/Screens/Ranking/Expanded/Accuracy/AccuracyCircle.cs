@@ -120,6 +120,13 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Accuracy
         private readonly bool isFailedSDueToMisses;
         private RankText failedSRankText = null!;
 
+        /// <summary>
+        /// The 0..1 value the gauge fills to — the metric the rank is graded on (accuracy by
+        /// default; completion in type!beat), so the gauge lands on the shown grade rather than
+        /// on a timing-accuracy figure that no longer decides the rank.
+        /// </summary>
+        private readonly double gradeProgress;
+
         public AccuracyCircle(ScoreInfo score, bool withFlair = false)
         {
             this.score = score;
@@ -134,7 +141,9 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Accuracy
             accuracyC = scoreProcessor.AccuracyCutoffFromRank(ScoreRank.C);
             accuracyD = scoreProcessor.AccuracyCutoffFromRank(ScoreRank.D);
 
-            isFailedSDueToMisses = score.Accuracy >= accuracyS && score.Rank == ScoreRank.A;
+            gradeProgress = scoreProcessor.GradeProgress(score);
+
+            isFailedSDueToMisses = gradeProgress >= accuracyS && score.Rank == ScoreRank.A;
         }
 
         [BackgroundDependencyLoader]
@@ -232,7 +241,7 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Accuracy
 
             using (BeginDelayedSequence(ACCURACY_TRANSFORM_DELAY))
             {
-                double targetAccuracy = score.Accuracy;
+                double targetAccuracy = gradeProgress;
                 double[] notchPercentages =
                 {
                     accuracyS,

@@ -144,6 +144,17 @@ namespace typebeat.Game.Screens.Select
         [BackgroundDependencyLoader]
         private void load()
         {
+            // Local scores persist only the RealmUser (OnlineID/username/country) — the avatar_url
+            // is dropped. When the row is the signed-in user's own score, fill their avatar in from
+            // the API so it shows instead of the placeholder.
+            if (string.IsNullOrEmpty(Score.User.AvatarUrl)
+                && Score.User.OnlineID > 1
+                && Score.User.OnlineID == api.LocalUser.Value.OnlineID
+                && !string.IsNullOrEmpty(api.LocalUser.Value.AvatarUrl))
+            {
+                Score.User.AvatarUrl = api.LocalUser.Value.AvatarUrl;
+            }
+
             foregroundColour = colourProvider.Background5;
             backgroundColour = colourProvider.Background3;
             totalScoreBackgroundGradient = ColourInfo.GradientHorizontal(backgroundColour.Opacity(0), backgroundColour);
