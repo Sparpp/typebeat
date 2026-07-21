@@ -24,6 +24,7 @@ using osu.Framework.Input.Events;
 using osu.Framework.Screens;
 using osu.Framework.Threading;
 using typebeat.Game.Database;
+using typebeat.Game.Extensions;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
@@ -893,7 +894,7 @@ namespace typebeat.Game.Screens.OnlinePlay.Matchmaking.Queue
             {
                 base.Update();
 
-                Text = queue.QueueTimer.Elapsed.ToString(@"mm\:ss");
+                Text = queue.QueueTimer.Elapsed.ToFormattedDuration();
             }
         }
     }
