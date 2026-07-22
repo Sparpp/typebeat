@@ -498,6 +498,13 @@ namespace typebeat.Game.Rulesets.UI
         public abstract double GameplayStartTime { get; }
 
         /// <summary>
+        /// Purely instrumental stretches of the beatmap (no active/typeable content) long enough that
+        /// the player should be offered a mid-song skip, reusing the intro <see cref="SkipOverlay"/>
+        /// machinery. Empty by default; rulesets with the notion (e.g. lyric typing) override this.
+        /// </summary>
+        public virtual IReadOnlyList<InstrumentalSkipSection> InstrumentalSkipSections { get; } = Array.Empty<InstrumentalSkipSection>();
+
+        /// <summary>
         /// The currently loaded replay. Usually null in the case of a local player.
         /// </summary>
         public Score ReplayScore { get; protected set; }
