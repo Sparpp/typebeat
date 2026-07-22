@@ -141,7 +141,9 @@ namespace typebeat.Game.Configuration
 
             // Gameplay
             SetDefault(OsuSetting.PositionalHitsoundsLevel, 0.2f, 0, 1, 0.01f);
-            SetDefault(OsuSetting.DimLevel, 0.7, 0, 1, 0.01);
+            // type!beat ships with no gameplay background dim by default so the beatmap
+            // background image/video is fully visible. (Only affects fresh installs; see below.)
+            SetDefault(OsuSetting.DimLevel, 0, 0, 1, 0.01);
             SetDefault(OsuSetting.BlurLevel, 0, 0, 1, 0.01);
             SetDefault(OsuSetting.LightenDuringBreaks, true);
 
@@ -194,7 +196,9 @@ namespace typebeat.Game.Configuration
 
             SetDefault(OsuSetting.IntroSequence, IntroSequence.Triangles);
 
-            SetDefault(OsuSetting.MenuBackgroundSource, BackgroundSource.Skin);
+            // Default the global (menu) background to the beatmap's own background image and
+            // storyboard/video rather than the skin background. (Only affects fresh installs.)
+            SetDefault(OsuSetting.MenuBackgroundSource, BackgroundSource.BeatmapWithStoryboard);
             // No settings UI for this (row removed): silently pinned to Never until seasonal
             // backgrounds make a return.
             SetDefault(OsuSetting.SeasonalBackgroundMode, SeasonalBackgroundMode.Never);
