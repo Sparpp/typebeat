@@ -73,7 +73,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private const double max_window_ms = 120000; // furthest zoom-out
 
         // Rebuild signature: line identities + text + unit counts (positions are re-polled).
-        private readonly List<(TypeBeatHitObject hitObject, string rawText, int unitCount)> displayed = new List<(TypeBeatHitObject, string, int)>();
+        private readonly List<(TypeBeatHitObject hitObject, string rawText, int unitCount, int syllableCount)> displayed = new List<(TypeBeatHitObject, string, int, int)>();
 
         private bool edgeHovered;
 
@@ -162,6 +162,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             foreach (var handle in handleLayer.OfType<BoundaryHandle>())
                 handle.UpdateLayout(this);
 
+            foreach (var syllable in handleLayer.OfType<SyllableHandle>())
+                syllable.UpdateLayout(this);
+
             foreach (var flag in handleLayer.OfType<SingEndFlag>())
                 flag.UpdateLayout(this);
 
@@ -179,13 +182,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             for (int i = 0; i < ordered.Count; i++)
             {
-                var (hitObject, rawText, unitCount) = displayed[i];
+                var (hitObject, rawText, unitCount, syllableCount) = displayed[i];
 
-                if (ordered[i] != hitObject || ordered[i].Line.RawText != rawText || ordered[i].Line.Units.Count != unitCount)
+                if (ordered[i] != hitObject || ordered[i].Line.RawText != rawText || ordered[i].Line.Units.Count != unitCount
+                    || totalSyllableBoundaries(ordered[i].Line) != syllableCount)
+                {
                     return true;
+                }
             }
 
             return false;
+        }
+
+        /// <summary>Total subdivision boundaries across a line's words — a rebuild trigger (add/remove of a dotted line).</summary>
+        private static int totalSyllableBoundaries(LyricLine line)
+        {
+            int count = 0;
+
+            foreach (var unit in line.Units)
+                count += unit.SyllableBoundaries.Count;
+
+            return count;
         }
 
         private void rebuild(IReadOnlyList<TypeBeatHitObject> ordered)
@@ -198,12 +215,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             for (int i = 0; i < ordered.Count; i++)
             {
                 var hitObject = ordered[i];
-                displayed.Add((hitObject, hitObject.Line.RawText, hitObject.Line.Units.Count));
+                displayed.Add((hitObject, hitObject.Line.RawText, hitObject.Line.Units.Count, totalSyllableBoundaries(hitObject.Line)));
 
                 bandLayer.Add(new LineBand(this, hitObject, i));
 
                 for (int j = 0; j < hitObject.Line.Units.Count; j++)
+                {
                     blockLayer.Add(new WordBlock(this, hitObject, j));
+
+                    // One draggable dotted line per syllable subdivision inside the word; sits above
+                    // the word block so it takes the drag before the block's move/resize.
+                    for (int k = 0; k < hitObject.Line.Units[j].SyllableBoundaries.Count; k++)
+                        handleLayer.Add(new SyllableHandle(this, hitObject, j, k));
+                }
 
                 // ONE boundary per line start: dragging it moves this line's start and the
                 // previous line's end together (SetLineStart maintains both sides).
@@ -649,6 +673,156 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             protected override void OnDrag(DragEvent e)
             {
                 TypeBeatEditorOperations.SetLineStart(editorBeatmap, hitObject, strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X));
+            }
+
+            protected override void OnDragEnd(DragEndEvent e)
+            {
+                editorBeatmap.EndChange();
+                state.EndInteraction();
+            }
+        }
+
+        /// <summary>
+        /// A draggable DOTTED line inside a word block marking one syllable subdivision. Dragging it
+        /// re-times that boundary (clamped inside the word); double-clicking removes it. Added by the
+        /// "subdivide word" action, one per boundary. Sits in the handle layer above the word blocks.
+        /// </summary>
+        private partial class SyllableHandle : CompositeDrawable
+        {
+            private readonly LyricTimeline strip;
+            private readonly TypeBeatHitObject hitObject;
+            private readonly int unitIndex;
+            private readonly int boundaryIndex;
+            private readonly Container visual;
+
+            [Resolved]
+            private EditorBeatmap editorBeatmap { get; set; } = null!;
+
+            [Resolved]
+            private LyricEditState state { get; set; } = null!;
+
+            public SyllableHandle(LyricTimeline strip, TypeBeatHitObject hitObject, int unitIndex, int boundaryIndex)
+            {
+                this.strip = strip;
+                this.hitObject = hitObject;
+                this.unitIndex = unitIndex;
+                this.boundaryIndex = boundaryIndex;
+
+                Anchor = Anchor.CentreLeft;
+                Origin = Anchor.Centre;
+                RelativeSizeAxes = Axes.Y;
+                // Match the word block's height so the dotted line reads as splitting the block, with
+                // a wide invisible grab zone (like BoundaryHandle) around a thin dotted visual.
+                Height = 0.55f;
+                Width = 16;
+
+                // Dotted line: a column of short dashes clipped to the block height by the masking
+                // container (there is no dashed-line drawable, so it is tiled from boxes). Enough
+                // dashes to overflow any row height; masking trims the rest.
+                var dashes = new FillFlowContainer
+                {
+                    Anchor = Anchor.Centre,
+                    Origin = Anchor.Centre,
+                    RelativeSizeAxes = Axes.X,
+                    AutoSizeAxes = Axes.Y,
+                    Direction = FillDirection.Vertical,
+                    Spacing = new Vector2(0, 3),
+                };
+
+                for (int i = 0; i < 40; i++)
+                {
+                    dashes.Add(new Box
+                    {
+                        RelativeSizeAxes = Axes.X,
+                        Height = 4,
+                        Colour = TypeBeatStyle.TypedChar,
+                    });
+                }
+
+                InternalChild = visual = new Container
+                {
+                    Anchor = Anchor.Centre,
+                    Origin = Anchor.Centre,
+                    RelativeSizeAxes = Axes.Y,
+                    Width = 2,
+                    Masking = true,
+                    Alpha = 0.85f,
+                    Child = dashes,
+                };
+            }
+
+            public override bool HandlePositionalInput => true;
+
+            /// <summary>Current boundary time, or null when this handle's word/boundary no longer exists.</summary>
+            private double? boundaryTime()
+            {
+                var units = hitObject.Line.Units;
+
+                if (unitIndex < 0 || unitIndex >= units.Count)
+                    return null;
+
+                var boundaries = units[unitIndex].SyllableBoundaries;
+
+                if (boundaryIndex < 0 || boundaryIndex >= boundaries.Count)
+                    return null;
+
+                return boundaries[boundaryIndex];
+            }
+
+            public void UpdateLayout(LyricTimeline parent)
+            {
+                double? time = boundaryTime();
+
+                // Stale handle (an undo/edit dropped this boundary before the next rebuild) — hide it.
+                Alpha = time.HasValue ? 1 : 0;
+
+                if (time.HasValue)
+                    X = parent.PositionOf(time.Value);
+            }
+
+            protected override bool OnHover(HoverEvent e)
+            {
+                visual.Width = 4;
+                visual.Alpha = 1;
+                return false;
+            }
+
+            protected override void OnHoverLost(HoverLostEvent e)
+            {
+                visual.Width = 2;
+                visual.Alpha = 0.85f;
+            }
+
+            protected override bool OnMouseDown(MouseDownEvent e) => true;
+
+            protected override bool OnClick(ClickEvent e)
+            {
+                // Pull selection to this word so the detail panel / subdivide button target it.
+                if (state.ActiveLine.Value != hitObject)
+                    state.SelectedLine.Value = hitObject;
+                else
+                    state.SelectUnit(unitIndex);
+
+                return true;
+            }
+
+            protected override bool OnDoubleClick(DoubleClickEvent e)
+            {
+                TypeBeatEditorOperations.RemoveSyllableBoundary(editorBeatmap, hitObject, unitIndex, boundaryIndex);
+                return true;
+            }
+
+            protected override bool OnDragStart(DragStartEvent e)
+            {
+                state.BeginInteraction();
+                editorBeatmap.BeginChange();
+                return true;
+            }
+
+            protected override void OnDrag(DragEvent e)
+            {
+                TypeBeatEditorOperations.SetSyllableBoundary(editorBeatmap, hitObject, unitIndex, boundaryIndex,
+                    strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X));
             }
 
             protected override void OnDragEnd(DragEndEvent e)

@@ -101,6 +101,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                             json.WriteNumber("start_ms", unit.StartTime);
                             json.WriteNumber("end_ms", unit.EndTime);
                             json.WriteNumber("score", unit.Confidence);
+
+                            if (unit.SyllableBoundaries.Count > 0)
+                            {
+                                json.WriteStartArray("syllables");
+                                writeSyllables(json, unit);
+                                json.WriteEndArray();
+                            }
+
                             json.WriteEndObject();
                         }
 
@@ -115,6 +123,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
 
             return Encoding.UTF8.GetString(ms.ToArray());
+        }
+
+        /// <summary>
+        /// Emits a word's syllable segments (lyriclab <c>{text,start_ms,end_ms}</c> shape) from its
+        /// subdivision boundaries: N boundaries → N+1 segments spanning [start, b1, …, end]. The
+        /// word's characters are split across the segments as evenly as possible so each syllable
+        /// carries some text; only the segment TIMES round-trip (the loader derives boundaries from
+        /// each syllable's start_ms), so the text split is just a sensible default.
+        /// </summary>
+        private static void writeSyllables(Utf8JsonWriter json, TimedUnit unit)
+        {
+            var edges = new List<double> { unit.StartTime };
+            edges.AddRange(unit.SyllableBoundaries);
+            edges.Add(unit.EndTime);
+
+            string text = unit.Text;
+            int segments = edges.Count - 1;
+
+            for (int i = 0; i < segments; i++)
+            {
+                int from = (int)System.Math.Round((double)i * text.Length / segments);
+                int to = (int)System.Math.Round((double)(i + 1) * text.Length / segments);
+                from = System.Math.Clamp(from, 0, text.Length);
+                to = System.Math.Clamp(to, from, text.Length);
+
+                json.WriteStartObject();
+                json.WriteString("text", System.MemoryExtensions.AsSpan(text, from, to - from));
+                json.WriteNumber("start_ms", edges[i]);
+                json.WriteNumber("end_ms", edges[i + 1]);
+                json.WriteEndObject();
+            }
         }
     }
 }

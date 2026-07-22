@@ -106,6 +106,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                     // (LyricComposeScreen.Copy/Paste); the buttons were dropped.
                                     actionButton("add @ playhead", addAtPlayhead),
                                     actionButton("split @ word (S)", splitAtSelectedWord),
+                                    actionButton("subdivide (D)", subdivideSelectedWords),
                                     actionButton("merge next (M)", mergeNext),
                                     actionButton("delete line", deleteLine),
                                 },
@@ -120,7 +121,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             Text = text,
             Action = action,
-            Width = 130,
+            Width = 108,
             Height = 30,
         };
 
@@ -155,6 +156,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             if (state.ActiveLine.Value is TypeBeatHitObject line && state.SelectedUnitIndex.Value > 0)
                 TypeBeatEditorOperations.SplitLine(editorBeatmap, line, state.SelectedUnitIndex.Value);
+        }
+
+        private void subdivideSelectedWords()
+        {
+            if (state.ActiveLine.Value is not TypeBeatHitObject line)
+                return;
+
+            // Every selected word gets a subdivision (the primary alone when nothing is multi-selected),
+            // as one undo. Each press bisects the widest remaining segment, so pressing again keeps
+            // splitting. The draggable dotted lines appear in the timeline.
+            int[] targets = state.SelectedUnitIndices.Count > 0
+                ? state.SelectedUnitIndices.OrderBy(i => i).ToArray()
+                : state.SelectedUnitIndex.Value >= 0
+                    ? new[] { state.SelectedUnitIndex.Value }
+                    : System.Array.Empty<int>();
+
+            if (targets.Length == 0)
+                return;
+
+            editorBeatmap.BeginChange();
+
+            foreach (int i in targets)
+                TypeBeatEditorOperations.AddSyllableBoundary(editorBeatmap, line, i);
+
+            editorBeatmap.EndChange();
         }
 
         private void mergeNext()

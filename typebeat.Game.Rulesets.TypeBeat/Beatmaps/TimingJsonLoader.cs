@@ -9,6 +9,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
@@ -145,7 +146,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             bool estimated = lineElement.TryGetProperty("estimated", out JsonElement estimatedElement)
                              && estimatedElement.ValueKind == JsonValueKind.True;
 
-            var words = new List<(string Text, double Start, double End, double Score)>();
+            var words = new List<(string Text, double Start, double End, double Score, List<double> Syllables)>();
 
             if (lineElement.TryGetProperty("words", out JsonElement wordsElement)
                 && wordsElement.ValueKind == JsonValueKind.Array)
@@ -165,7 +166,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     // Missing score = trusted (1); only genuinely low-margin words widen windows.
                     double score = wordElement.TryGetProperty("score", out JsonElement scEl) && tryGetDouble(scEl, out double scv) ? scv : 1;
 
-                    words.Add((wordText, ws, we, score));
+                    // Optional syllable subdivisions: each syllable's start_ms strictly inside the
+                    // word becomes an internal boundary (the first syllable starts at the word start,
+                    // so it contributes no boundary). Both the aligner and the editor emit these.
+                    var syllables = new List<double>();
+
+                    if (wordElement.TryGetProperty("syllables", out JsonElement sylsEl) && sylsEl.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (JsonElement sylEl in sylsEl.EnumerateArray())
+                        {
+                            if (sylEl.ValueKind == JsonValueKind.Object
+                                && sylEl.TryGetProperty("start_ms", out JsonElement sylStart)
+                                && tryGetDouble(sylStart, out double sylMs)
+                                && sylMs > ws && sylMs < we)
+                            {
+                                syllables.Add(sylMs);
+                            }
+                        }
+                    }
+
+                    words.Add((wordText, ws, we, score, syllables));
                 }
             }
 
@@ -256,7 +276,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         private static IReadOnlyList<TimedUnit> buildExplicitUnits(
             string[] tokens,
-            List<(string Text, double Start, double End, double Score)> words,
+            List<(string Text, double Start, double End, double Score, List<double> Syllables)> words,
             double lineStart,
             double lineEnd)
         {
@@ -274,13 +294,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 if (we < ws)
                     we = ws;
 
+                // Keep only subdivisions that stayed strictly inside the (possibly clamped) word.
+                var syllables = words[m].Syllables.Where(b => b > ws && b < we).Distinct().OrderBy(b => b).ToArray();
+
                 units.Add(new TimedUnit
                 {
                     Text = tokens[m],
                     StartTime = ws,
                     EndTime = we,
                     Source = TimingSource.Explicit,
-                    Confidence = Math.Clamp(words[m].Score, 0, 1)
+                    Confidence = Math.Clamp(words[m].Score, 0, 1),
+                    SyllableBoundaries = syllables.Length == 0 ? System.Array.Empty<double>() : syllables,
                 });
 
                 prevEnd = we;
@@ -323,7 +347,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double StartMs,
             double EndMs,
             bool Estimated,
-            List<(string Text, double Start, double End, double Score)> Words,
+            List<(string Text, double Start, double End, double Score, List<double> Syllables)> Words,
             double? SealGraceMs = null);
     }
 }

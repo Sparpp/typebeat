@@ -259,6 +259,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     TypeBeatEditorOperations.MergeWithNext(EditorBeatmap, line);
                     return true;
 
+                case Key.D when line != null && (state.SelectedUnitIndices.Count > 0 || state.SelectedUnitIndex.Value >= 0):
+                    subdivideSelectedWords(line);
+                    return true;
+
                 case Key.Escape when state.SelectedLine.Value != null || state.MultiSelectedLines.Count > 0:
                     // Back to playhead-follow, dropping any multi-selection with it.
                     state.SelectedLine.Value = null;
@@ -267,6 +271,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             }
 
             return base.OnKeyDown(e);
+        }
+
+        /// <summary>
+        /// Adds one syllable subdivision to every selected word of <paramref name="line"/> (the
+        /// primary word alone when there is no multi-selection), as a single undo. Each call bisects
+        /// the widest remaining segment, so pressing D repeatedly keeps splitting.
+        /// </summary>
+        private void subdivideSelectedWords(TypeBeatHitObject line)
+        {
+            int[] targets = state.SelectedUnitIndices.Count > 0
+                ? state.SelectedUnitIndices.OrderBy(i => i).ToArray()
+                : state.SelectedUnitIndex.Value >= 0
+                    ? new[] { state.SelectedUnitIndex.Value }
+                    : System.Array.Empty<int>();
+
+            if (targets.Length == 0)
+                return;
+
+            EditorBeatmap.BeginChange();
+
+            foreach (int i in targets)
+                TypeBeatEditorOperations.AddSyllableBoundary(EditorBeatmap, line, i);
+
+            EditorBeatmap.EndChange();
         }
     }
 }

@@ -181,7 +181,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(hitObjects[i].Line.RawText, Is.EqualTo(expected[i].RawText), $"line {i} text");
                 Assert.That(hitObjects[i].Line.EndTime, Is.EqualTo(expected[i].EndTime), $"line {i} end");
                 Assert.That(hitObjects[i].Line.Units.Count, Is.EqualTo(expected[i].Units.Count), $"line {i} units");
-                Assert.That(hitObjects[i].Granularity, Is.EqualTo(TimingGranularity.Word));
+                // The real Spectator timing.json carries aligner-emitted words[].syllables[], which the
+                // loader now threads into SyllableBoundaries — so the packaged map infers Syllable.
+                Assert.That(hitObjects[i].Granularity, Is.EqualTo(TimingGranularity.Syllable));
             }
         }
 

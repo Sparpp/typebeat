@@ -68,16 +68,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 songEndMs = songEnd.GetDouble();
 
             bool anyWords = false;
+            bool anySyllables = false;
 
             foreach (JsonElement line in lines.EnumerateArray())
             {
-                if (line.ValueKind == JsonValueKind.Object
-                    && line.TryGetProperty("words", out JsonElement words)
-                    && words.ValueKind == JsonValueKind.Array && words.GetArrayLength() > 0)
+                if (line.ValueKind != JsonValueKind.Object
+                    || !line.TryGetProperty("words", out JsonElement words)
+                    || words.ValueKind != JsonValueKind.Array || words.GetArrayLength() == 0)
                 {
-                    anyWords = true;
-                    break;
+                    continue;
                 }
+
+                anyWords = true;
+
+                foreach (JsonElement word in words.EnumerateArray())
+                {
+                    if (word.ValueKind == JsonValueKind.Object
+                        && word.TryGetProperty("syllables", out JsonElement syls)
+                        && syls.ValueKind == JsonValueKind.Array && syls.GetArrayLength() > 1)
+                    {
+                        anySyllables = true;
+                        break;
+                    }
+                }
+
+                if (anySyllables)
+                    break;
             }
 
             var sb = new StringBuilder();
@@ -147,7 +163,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 header.Append($",\"song_end_ms\":{end.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
             if (beatdropMs is double drop)
                 header.Append($",\"beatdrop_ms\":{drop.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
-            header.Append($",\"granularity\":\"{(anyWords ? TimingGranularity.Word : TimingGranularity.Line)}\"}}");
+            header.Append($",\"granularity\":\"{(anySyllables ? TimingGranularity.Syllable : anyWords ? TimingGranularity.Word : TimingGranularity.Line)}\"}}");
             sb.AppendLine(header.ToString());
 
             foreach (JsonElement line in lines.EnumerateArray())

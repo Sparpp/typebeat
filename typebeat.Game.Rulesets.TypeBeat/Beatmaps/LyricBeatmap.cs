@@ -177,6 +177,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// SyncWindows.LowConfidenceScore are judged at Line-granularity windows.
         /// </summary>
         public double Confidence { get; init; } = 1;
+
+        /// <summary>
+        /// Optional syllable-subdivision boundaries (absolute ms), each strictly inside
+        /// (<see cref="StartTime"/>, <see cref="EndTime"/>) and sorted ascending. N boundaries split
+        /// the word into N+1 syllable segments for finer sub-word timing; empty for an undivided
+        /// word. Editor-authored (the draggable dotted lines) and round-tripped through the
+        /// timing.json <c>words[].syllables[]</c>.
+        /// </summary>
+        public IReadOnlyList<double> SyllableBoundaries { get; init; } = Array.Empty<double>();
     }
 
     public sealed class LyricLine

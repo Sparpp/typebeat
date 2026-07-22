@@ -63,6 +63,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 EndTime = u.EndTime + deltaMs,
                 Source = u.Source,
                 Confidence = u.Confidence,
+                SyllableBoundaries = u.SyllableBoundaries.Count == 0
+                    ? u.SyllableBoundaries
+                    : u.SyllableBoundaries.Select(b => b + deltaMs).ToArray(),
             }).ToArray(),
         };
 
@@ -93,15 +96,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// Word granularity only when some unit timing is Explicit (authored words[]).
+        /// The finest granularity the unit data requires: Syllable when any word carries subdivision
+        /// boundaries, else Word when some unit timing is Explicit (authored words[]), else Line.
         /// Line-granularity maps also carry one unit per token, but those are Interpolated —
         /// synthesized by the loader, not real word timing.
         /// </summary>
         public static TimingGranularity InferGranularity(IReadOnlyList<LyricLine> lines)
-            => lines.Any(l => l.Units.Any(u => u.Source == TimingSource.Explicit)) ? TimingGranularity.Word : TimingGranularity.Line;
+        {
+            if (lines.Any(l => l.Units.Any(u => u.SyllableBoundaries.Count > 0)))
+                return TimingGranularity.Syllable;
+            if (lines.Any(l => l.Units.Any(u => u.Source == TimingSource.Explicit)))
+                return TimingGranularity.Word;
+            return TimingGranularity.Line;
+        }
 
         /// <summary>Smallest line/word span the editor will produce, so nothing degenerates to zero width.</summary>
         public const double MIN_SPAN_MS = 30;
+
+        /// <summary>Smallest syllable segment (and gap between subdivision boundaries) the editor will produce.</summary>
+        public const double MIN_SYLLABLE_MS = 20;
 
         /// <summary>The last line's typeable window extends this far past its sung end (mirrors the loader).</summary>
         public const double LAST_LINE_TAIL_MS = TimingJsonLoader.LAST_LINE_TAIL_MS;
@@ -129,7 +142,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 EndTime = end,
                 Source = source ?? unit.Source,
                 Confidence = confidence ?? unit.Confidence,
+                // Syllable subdivisions ride along, clamped to the new span (any that fall outside
+                // the re-timed window are dropped — the word shrank past them).
+                SyllableBoundaries = clampBoundaries(unit.SyllableBoundaries, start, end),
             };
+
+        /// <summary>Keeps only boundaries strictly inside (start, end), sorted; empty stays empty.</summary>
+        private static IReadOnlyList<double> clampBoundaries(IReadOnlyList<double> boundaries, double start, double end)
+        {
+            if (boundaries.Count == 0)
+                return boundaries;
+
+            var kept = boundaries.Where(b => b > start + 1e-3 && b < end - 1e-3).Distinct().OrderBy(b => b).ToArray();
+            return kept.Length == 0 ? System.Array.Empty<double>() : kept;
+        }
 
         #endregion
 
@@ -482,7 +508,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
             else if (tokens.Length == line.Units.Count)
             {
-                // Same word count: keep every word's timing, swap the text.
+                // Same word count: keep every word's timing (and its subdivisions), swap the text.
                 units = line.Units.Select((u, i) => new TimedUnit
                 {
                     Text = tokens[i],
@@ -490,6 +516,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     EndTime = u.EndTime,
                     Source = u.Source,
                     Confidence = u.Confidence,
+                    SyllableBoundaries = u.SyllableBoundaries,
                 }).ToArray();
             }
             else
@@ -678,6 +705,147 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             editorBeatmap.Remove(hitObject);
             renumber(editorBeatmap);
+            editorBeatmap.EndChange();
+        }
+
+        #endregion
+
+        #region Syllable subdivisions (per-word dotted-line boundaries)
+
+        /// <summary>
+        /// Adds one syllable-subdivision boundary inside the given word unit, bisecting its widest
+        /// current segment (so successive presses keep splitting evenly). The word becomes Explicit
+        /// hand timing and the beatmap is promoted to Syllable granularity — the encoder only
+        /// persists syllables[] for units that carry boundaries, so without the promotion a
+        /// subdivision would silently vanish on save. No-op when the widest segment is too narrow
+        /// to split into two <see cref="MIN_SYLLABLE_MS"/> halves. Returns the new boundary time (for
+        /// the UI to focus the fresh handle), or null when nothing was added.
+        /// </summary>
+        public static double? AddSyllableBoundary(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < 0 || unitIndex >= line.Units.Count)
+                return null;
+
+            var unit = line.Units[unitIndex];
+
+            // Segment edges: word start, existing boundaries, word end. Split the widest gap.
+            var edges = new List<double> { unit.StartTime };
+            edges.AddRange(unit.SyllableBoundaries);
+            edges.Add(unit.EndTime);
+
+            double mid = double.NaN;
+            double widest = 0;
+
+            for (int i = 0; i < edges.Count - 1; i++)
+            {
+                double width = edges[i + 1] - edges[i];
+
+                if (width > widest)
+                {
+                    widest = width;
+                    mid = (edges[i] + edges[i + 1]) / 2;
+                }
+            }
+
+            // Even the widest segment cannot hold two MIN_SYLLABLE_MS halves — no room to subdivide.
+            if (double.IsNaN(mid) || widest < MIN_SYLLABLE_MS * 2)
+                return null;
+
+            var boundaries = unit.SyllableBoundaries.Append(mid).OrderBy(b => b).ToArray();
+            replaceUnitBoundaries(editorBeatmap, hitObject, unitIndex, boundaries);
+            return mid;
+        }
+
+        /// <summary>
+        /// Drags syllable boundary <paramref name="boundaryIndex"/> of a word to
+        /// <paramref name="newTime"/>, clamped to stay <see cref="MIN_SYLLABLE_MS"/> inside the word
+        /// and from its adjacent boundaries (order preserved). Single undo step.
+        /// </summary>
+        public static void SetSyllableBoundary(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int boundaryIndex, double newTime)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < 0 || unitIndex >= line.Units.Count)
+                return;
+
+            var unit = line.Units[unitIndex];
+
+            if (boundaryIndex < 0 || boundaryIndex >= unit.SyllableBoundaries.Count)
+                return;
+
+            double lower = (boundaryIndex > 0 ? unit.SyllableBoundaries[boundaryIndex - 1] : unit.StartTime) + MIN_SYLLABLE_MS;
+            double upper = (boundaryIndex < unit.SyllableBoundaries.Count - 1 ? unit.SyllableBoundaries[boundaryIndex + 1] : unit.EndTime) - MIN_SYLLABLE_MS;
+
+            // The word (or the neighbouring boundaries) leaves no valid slot — no-op rather than
+            // clamp into an inverted range.
+            if (upper < lower)
+                return;
+
+            newTime = Math.Clamp(newTime, lower, upper);
+
+            var boundaries = unit.SyllableBoundaries.ToArray();
+            boundaries[boundaryIndex] = newTime;
+            replaceUnitBoundaries(editorBeatmap, hitObject, unitIndex, boundaries);
+        }
+
+        /// <summary>
+        /// Removes syllable boundary <paramref name="boundaryIndex"/> from a word, merging the two
+        /// segments it split. When the word's last boundary goes the beatmap reconciles back down to
+        /// Word granularity. Single undo step.
+        /// </summary>
+        public static void RemoveSyllableBoundary(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int boundaryIndex)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < 0 || unitIndex >= line.Units.Count)
+                return;
+
+            var unit = line.Units[unitIndex];
+
+            if (boundaryIndex < 0 || boundaryIndex >= unit.SyllableBoundaries.Count)
+                return;
+
+            var boundaries = unit.SyllableBoundaries.Where((_, i) => i != boundaryIndex).ToArray();
+            replaceUnitBoundaries(editorBeatmap, hitObject, unitIndex, boundaries);
+        }
+
+        /// <summary>
+        /// Rebuilds a line with one unit's syllable boundaries replaced. The unit becomes Explicit
+        /// and fully trusted (subdivision IS hand timing), the line stops being Estimated, and the
+        /// beatmap's granularity is reconciled (up to Syllable while any boundary survives, back to
+        /// Word when the last one is removed). Single undo step.
+        /// </summary>
+        private static void replaceUnitBoundaries(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, IReadOnlyList<double> boundaries)
+        {
+            var line = hitObject.Line;
+            var units = line.Units.ToArray();
+            var unit = units[unitIndex];
+
+            units[unitIndex] = new TimedUnit
+            {
+                Text = unit.Text,
+                StartTime = unit.StartTime,
+                EndTime = unit.EndTime,
+                Source = TimingSource.Explicit,
+                Confidence = 1,
+                SyllableBoundaries = boundaries.Count == 0 ? Array.Empty<double>() : boundaries.ToArray(),
+            };
+
+            editorBeatmap.BeginChange();
+            hitObject.Line = new LyricLine
+            {
+                RawText = line.RawText,
+                StartTime = line.StartTime,
+                EndTime = line.EndTime,
+                SingEndTime = line.SingEndTime,
+                Units = units,
+                SealGraceMs = line.SealGraceMs,
+                Estimated = false,
+            };
+            editorBeatmap.Update(hitObject);
+            syncGranularity(editorBeatmap);
             editorBeatmap.EndChange();
         }
 
@@ -925,6 +1093,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             {
                 o.Granularity = TimingGranularity.Word;
                 editorBeatmap.Update(o);
+            }
+        }
+
+        /// <summary>
+        /// Sets every line to the granularity its unit data now requires (<see cref="InferGranularity"/>):
+        /// promotes when subdivision boundaries appear (up to Syllable), demotes Syllable→Word when the
+        /// last boundary is removed. Never falls below Word while any hand timing remains (removing a
+        /// boundary leaves the word Explicit). Idempotent — used by the syllable ops, which can move
+        /// granularity in either direction, unlike <see cref="promoteToWordGranularity"/>.
+        /// </summary>
+        private static void syncGranularity(EditorBeatmap editorBeatmap)
+        {
+            var objects = editorBeatmap.HitObjects.OfType<TypeBeatHitObject>().ToList();
+
+            if (objects.Count == 0)
+                return;
+
+            var target = InferGranularity(objects.Select(o => o.Line).ToList());
+
+            foreach (var o in objects)
+            {
+                if (o.Granularity != target)
+                {
+                    o.Granularity = target;
+                    editorBeatmap.Update(o);
+                }
             }
         }
 
