@@ -108,6 +108,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool MashingEnabled { get; set; }
 
         /// <summary>
+        /// Literate mod: when true, input is matched against the target's EXACT case (no
+        /// <see cref="Typeability.Fold"/>), so a right letter typed in the wrong case is judged
+        /// wrong — rejected/miss — exactly like any other wrong char. Off by default: gameplay is
+        /// case-insensitive. Requires the input path to actually produce upper-case chars for
+        /// Shift-held keys (see <see cref="KeyCharMap"/>), else capitals would be untypeable.
+        /// </summary>
+        public bool CaseSensitive { get; set; }
+
+        /// <summary>
         /// Legacy "allow wrong input" setting: wrong (non-space) characters are typed through and
         /// marked red instead of rejected, and can be backspaced. Off by default (strict rejection).
         /// </summary>
@@ -306,7 +315,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 c = cell.Expected;
 
             double delta = time - cell.TargetTime;
-            bool matched = Typeability.Fold(c) == Typeability.Fold(cell.Expected);
+            // Literate mod folds nothing: the typed char must match the target's exact case.
+            // Default gameplay is case-insensitive (both sides lower-cased through Fold).
+            bool matched = CaseSensitive ? c == cell.Expected : Typeability.Fold(c) == Typeability.Fold(cell.Expected);
 
             if (!matched)
             {

@@ -28,6 +28,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             Single<TypeBeatModDoubleTime>(hasMultiplier: doubleTime => doubleTimeMultiplier(doubleTime.SpeedChange.Value));
             Single<TypeBeatModNightcore>(hasMultiplier: nightcore => doubleTimeMultiplier(nightcore.SpeedChange.Value));
             Single<TypeBeatModFlashlight>(hasMultiplier: flashlightMultiplier);
+            Single<TypeBeatModLiterate>(hasMultiplier: 1.05);
 
             // Automation.
             Single<TypeBeatModMashing>(hasMultiplier: 0.1);

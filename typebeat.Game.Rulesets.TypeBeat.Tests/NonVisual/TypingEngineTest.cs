@@ -1029,5 +1029,78 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             engine.Update(4000);
             Assert.AreEqual(1, engine.ActiveLineIndex, "seal and next activation share the boundary frame");
         }
+
+        [Test]
+        public void CaseSensitiveRejectsWrongCaseLikeWrongChar()
+        {
+            // "aB": 'a' lower-case target @1000, 'B' upper-case target @1500.
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("aB", 1000, 3000, 2000, unit("aB", 1000, 2000))))
+            {
+                CaseSensitive = true, // Literate mod
+            };
+
+            var rejected = new List<char>();
+            int comboBreaks = 0;
+            engine.WrongKeyRejected += c => rejected.Add(c);
+            engine.ComboBroken += () => comboBreaks++;
+
+            engine.Update(1000);
+
+            // Matching lower-case 'a' is accepted (right char, right case).
+            Assert.IsTrue(engine.ProcessKey('a', 1000));
+            Assert.AreEqual(CellState.Correct, engine.Lines[0].Cells[0].State);
+            Assert.AreEqual(1, engine.CaretIndex);
+            Assert.AreEqual(1, engine.Combo);
+
+            // Lower-case 'b' where 'B' is expected: WRONG-CASE => rejected exactly like a wrong
+            // char — nothing input, caret held, combo broken, streak grown.
+            Assert.IsTrue(engine.ProcessKey('b', 1500));
+            Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[1].State);
+            Assert.IsNull(engine.Lines[0].Cells[1].TypedChar);
+            Assert.AreEqual(1, engine.CaretIndex); // caret did NOT advance
+            Assert.AreEqual(0, engine.Combo);
+            Assert.AreEqual(1, engine.ConsecutiveWrongKeys);
+            Assert.AreEqual(new[] { 'b' }, rejected);
+
+            // The correct capital is accepted.
+            Assert.IsTrue(engine.ProcessKey('B', 1500));
+            Assert.AreEqual(CellState.Correct, engine.Lines[0].Cells[1].State);
+            Assert.AreEqual(2, engine.CaretIndex);
+            Assert.AreEqual(0, engine.ConsecutiveWrongKeys);
+
+            engine.Update(3000); // seal: both cells Correct => no missed cells
+
+            var results = engine.BuildResults();
+            Assert.AreEqual(1, results.Counts[JudgementType.WrongChar]); // the wrong-case 'b'
+            Assert.AreEqual(0, results.Counts[JudgementType.Miss]);
+            // 2 correct / 3 keypresses (the rejected wrong-case key stays in the denominator).
+            Assert.AreEqual(2.0 / 3.0, engine.LiveAccuracy, 1e-9);
+        }
+
+        [Test]
+        public void CaseInsensitiveByDefaultAcceptsWrongCase()
+        {
+            // Same line, but CaseSensitive left OFF (default) — behaviour is unchanged:
+            // lower-case input matches an upper-case target through Fold.
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("aB", 1000, 3000, 2000, unit("aB", 1000, 2000))));
+
+            Assert.IsFalse(engine.CaseSensitive);
+
+            var rejected = new List<char>();
+            engine.WrongKeyRejected += c => rejected.Add(c);
+
+            engine.Update(1000);
+
+            Assert.IsTrue(engine.ProcessKey('a', 1000));
+            // 'b' folds to match the 'B' target: accepted, caret advances, combo intact.
+            Assert.IsTrue(engine.ProcessKey('b', 1500));
+            Assert.AreEqual(CellState.Correct, engine.Lines[0].Cells[1].State);
+            Assert.AreEqual(2, engine.CaretIndex);
+            Assert.AreEqual(2, engine.Combo);
+            Assert.IsEmpty(rejected);
+            Assert.AreEqual(1.0, engine.LiveAccuracy);
+        }
     }
 }

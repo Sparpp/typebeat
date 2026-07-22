@@ -331,7 +331,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     return true;
                 }
 
-                if (KeyCharMap.TryMap(e.Key, keyboardLayout.Value, out char c))
+                // Pass Shift through so held-Shift keys produce capitals — required for the
+                // Literate (case-sensitive) mod; folded away harmlessly in normal play.
+                if (KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, out char c))
                 {
                     // Holding a character key must not machine-gun judgements.
                     if (!e.Repeat)
