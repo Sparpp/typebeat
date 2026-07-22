@@ -1,0 +1,171 @@
+# Builds a self-contained linux-x64 package of type!beat with Velopack (vpk), producing an
+# AppImage + Velopack update feed, and deploys them to production (the same Hetzner box that
+# hosts typebeat-web). Manual trigger only — releases are cut deliberately, not on every push.
+#
+# ---------------------------------------------------------------------------------------------
+# REQUIRED GITHUB SECRETS (repo Settings -> Secrets and variables -> Actions)
+#   SUBMODULE_TOKEN   Fine-grained PAT with read-only Contents on Sparpp/type-beat-assets
+#                     (private). Used to clone the assets repo so typebeat.Game.Resources can be
+#                     packed at the exact version the game demands. This is the SAME secret name
+#                     typebeat-web's CI uses; reuse the same token.
+#   DEPLOY_SSH_KEY_B64  Single-line base64 of the deploy SSH private key (root@46.62.142.5).
+#                     Base64 (not raw multiline) because Windows-pasted PEMs arrive CRLF-mangled
+#                     -> "error in libcrypto". Same secret typebeat-web's deploy uses. If it is
+#                     already set for typebeat-web it is a DIFFERENT repo — you must add it here too
+#                     (secrets are per-repo).
+#
+# ---------------------------------------------------------------------------------------------
+# ONE-TIME SERVER CONFIG the maintainer must do for the /download page's Linux button to light up
+# (the web app never forwards an undeclared host env var into the container):
+#   1. In the typebeat-web repo, deploy/compose.prod.yml -> service `app` -> `environment:` add:
+#          TYPEBEAT_GAME_DOWNLOAD_LINUX: "${TYPEBEAT_GAME_DOWNLOAD_LINUX:-}"
+#      (compose currently declares TYPEBEAT_GAME_DOWNLOAD but NOT the _LINUX variant, so without
+#       this line the value below is silently ignored — same footgun documented on the win line.)
+#   2. On the box, in /opt/typebeat-web/deploy/.env add:
+#          TYPEBEAT_GAME_DOWNLOAD_LINUX=typebeat-linux.AppImage
+#      (this workflow always publishes the AppImage under that stable, un-versioned name, so the
+#       value is set ONCE and never changes between releases.)
+#   3. Redeploy typebeat-web (its CI, or ./deploy/up.sh up -d app) so the container picks up the env.
+#      The Velopack update feed (releases.linux.json + *.nupkg under /data/downloads/releases/) is
+#      served by the existing /releases/{file} route and needs no config.
+# ---------------------------------------------------------------------------------------------
+
+name: Build & Deploy (Linux)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (yyyy.Mdd.r, e.g. 2026.722.0)"
+        required: true
+        type: string
+
+concurrency: production-linux-deploy
+
+env:
+  DEPLOY_HOST: 46.62.142.5
+  DEPLOY_USER: root
+  APP_CONTAINER: typebeat-web-app-1
+  # Stable download name so TYPEBEAT_GAME_DOWNLOAD_LINUX is set once (see header).
+  APPIMAGE_NAME: typebeat-linux.AppImage
+  VPK_VERSION: "0.0.1298"   # MUST match the Velopack lib version in typebeat.Desktop.csproj.
+
+jobs:
+  build-deploy-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate version input
+        run: |
+          echo "${{ inputs.version }}" | grep -qE '^[0-9]{4}\.[0-9]{1,2}[0-9]{2}\.[0-9]+$' \
+            || { echo "::error::version must be yyyy.Mdd.r (e.g. 2026.722.0)"; exit 1; }
+
+      - uses: actions/checkout@v4
+
+      # typebeat.Game references typebeat.Game.Resources (art/audio/fonts, ~116 MB), which is not on
+      # nuget.org and is not a submodule here. The game's nuget.config expects it in a sibling
+      # ../type-beat-assets/artifacts feed, so clone the assets repo to exactly that sibling path and
+      # pack the package at the version the game csproj pins — then restore just works, unchanged.
+      - name: Clone assets repo (typebeat.Game.Resources source)
+        run: |
+          git clone --depth 1 \
+            "https://x-access-token:${{ secrets.SUBMODULE_TOKEN }}@github.com/Sparpp/type-beat-assets.git" \
+            "${GITHUB_WORKSPACE}/../type-beat-assets"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Pack typebeat.Game.Resources into the local feed
+        run: |
+          # sed (not grep -P) for locale portability; guard the empty match — an empty -p:Version
+          # fails the pack with an opaque MSB4044.
+          VER=$(sed -n 's/.*Include="typebeat.Game.Resources" Version="\([^"]*\)".*/\1/p' typebeat.Game/typebeat.Game.csproj)
+          if [ -z "$VER" ]; then echo "::error::could not read typebeat.Game.Resources version from the game csproj"; exit 1; fi
+          echo "game requires typebeat.Game.Resources $VER"
+          dotnet pack ../type-beat-assets/typebeat.Game.Resources/typebeat.Game.Resources.csproj \
+            -c Release -o ../type-beat-assets/artifacts -p:PackageVersion="$VER" -p:Version="$VER"
+
+      - name: Publish linux-x64 (self-contained)
+        run: |
+          dotnet publish typebeat.Desktop -c Release -r linux-x64 --self-contained \
+            -p:Version="${{ inputs.version }}" -o "${GITHUB_WORKSPACE}/publish-linux"
+          # The apphost the SDK emits has no extension and keeps the AssemblyName verbatim,
+          # including the '!' — verified by a linux-x64 publish on the dev box.
+          test -f "${GITHUB_WORKSPACE}/publish-linux/type!beat" \
+            || { echo "::error::expected apphost 'type!beat' not found in publish output"; ls "${GITHUB_WORKSPACE}/publish-linux"; exit 1; }
+
+      - name: Install Velopack CLI (vpk)
+        run: |
+          dotnet tool install -g vpk --version "${VPK_VERSION}"
+          echo "${HOME}/.dotnet/tools" >> "${GITHUB_PATH}"
+
+      # vpk on a linux host emits: the AppImage, a full package (*-linux-x64-full.nupkg) and the
+      # linux-channel feed manifest (releases.linux.json / assets.linux.json). Those *.linux.*
+      # names never collide with the Windows feed files already in the same directory, so the whole
+      # feed lives side by side under /data/downloads/releases/. mainExe is the extensionless linux
+      # apphost name; packId 'typebeat' matches the SimpleWebSource the installed game polls
+      # (https://typebeat.mingda.sh/releases).
+      - name: Pack with Velopack
+        run: |
+          vpk pack \
+            --packId typebeat \
+            --packVersion "${{ inputs.version }}" \
+            --packDir "${GITHUB_WORKSPACE}/publish-linux" \
+            --mainExe "type!beat" \
+            --packTitle "type!beat" \
+            --icon "${GITHUB_WORKSPACE}/assets/lazer.png" \
+            --outputDir "${GITHUB_WORKSPACE}/release-linux"
+          echo "---- vpk output ----"
+          ls -la "${GITHUB_WORKSPACE}/release-linux"
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # Key travels as single-line base64 (see header); validate the decoded key up front so a
+          # bad secret fails loudly here rather than as an opaque auth error mid-deploy.
+          echo "${{ secrets.DEPLOY_SSH_KEY_B64 }}" | base64 -d > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keygen -y -f ~/.ssh/deploy_key > /dev/null && echo "deploy key parses OK"
+          # Pin the box's host key (copied from typebeat-web/deploy/known_hosts) so the connection
+          # is not vulnerable to a first-use MITM.
+          echo "46.62.142.5 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPrS4lA2m05VkJuLeaodsTV42Co8p0GWCE+NeeA9Wb7E" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      # Ship the artifacts to a scratch dir on the box, then land them inside the app container's
+      # /data volume with docker cp + an in-container atomic mv (rename within the same dir), so a
+      # download or an updater poll never observes a half-written file. The AppImage is renamed to
+      # the stable APPIMAGE_NAME (the /download button's fixed target); feed files keep their
+      # versioned/channel names and accumulate under releases/.
+      - name: Deploy to production
+        run: |
+          set -euo pipefail
+          SSH="ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_HOST}"
+          SCP="scp -i ~/.ssh/deploy_key"
+          REMOTE_TMP="/tmp/typebeat-linux-${{ inputs.version }}"
+
+          $SSH "rm -rf ${REMOTE_TMP} && mkdir -p ${REMOTE_TMP}"
+          $SCP "${GITHUB_WORKSPACE}"/release-linux/* "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_TMP}/"
+
+          # Land the AppImage under its stable name in /data/downloads/.
+          APPIMAGE=$(basename "$(ls "${GITHUB_WORKSPACE}"/release-linux/*.AppImage | head -n1)")
+          $SSH "set -e
+            docker exec ${APP_CONTAINER} mkdir -p /data/downloads/releases
+            docker cp '${REMOTE_TMP}/${APPIMAGE}' ${APP_CONTAINER}:/data/downloads/.incoming-${APPIMAGE_NAME}
+            docker exec ${APP_CONTAINER} mv -f /data/downloads/.incoming-${APPIMAGE_NAME} /data/downloads/${APPIMAGE_NAME}
+            echo 'AppImage deployed as ${APPIMAGE_NAME}'"
+
+          # Land every feed asset (releases.linux.json, assets.linux.json, *.nupkg) into
+          # /data/downloads/releases/ with the same temp-then-atomic-mv dance. The AppImage is a
+          # download artifact, not a feed asset, so it is excluded here.
+          for f in "${GITHUB_WORKSPACE}"/release-linux/*; do
+            b=$(basename "$f")
+            case "$b" in *.AppImage) continue;; esac
+            $SSH "set -e
+              docker cp '${REMOTE_TMP}/${b}' ${APP_CONTAINER}:/data/downloads/releases/.incoming-${b}
+              docker exec ${APP_CONTAINER} mv -f '/data/downloads/releases/.incoming-${b}' '/data/downloads/releases/${b}'
+              echo 'feed asset deployed: ${b}'"
+          done
+
+          $SSH "rm -rf ${REMOTE_TMP}"
+          echo "Linux release ${{ inputs.version }} deployed."
