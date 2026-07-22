@@ -324,6 +324,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (e.ControlPressed || e.AltPressed)
                     return false;
 
+                // Once the player has reached the end of the current line the engine has no active
+                // line (pre-roll, the dead zone between a line's seal and the next line's cue, or
+                // after the final line). Typing is inert there anyway, so DON'T swallow the key —
+                // let it fall through to global key bindings so Space reaches GlobalAction.SkipCutscene
+                // and the intro / mid-song instrumental skip overlays can act. While a line IS active
+                // every typeable key (Space included) is consumed for typing, so a skip can never
+                // interrupt live gameplay.
+                if (!engine.LineIsActive)
+                    return false;
+
                 if (e.Key == Key.BackSpace)
                 {
                     // Repeat honoured: hold to erase, monkeytype-style.

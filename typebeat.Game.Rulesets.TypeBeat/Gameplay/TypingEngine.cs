@@ -35,6 +35,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public int ActiveLineIndex => activeLineIndex;
 
         /// <summary>
+        /// Whether a lyric line is currently typeable — false during the pre-roll, the dead zone
+        /// between a line's seal and the next line's cue, and after the final line. This is the seam
+        /// the playfield's raw key handler gates on: keys are consumed for typing only while a line
+        /// is active, and fall through to global bindings (so Space can trigger the skip overlay)
+        /// once the player has reached the end of the line. Because Space is itself a typeable
+        /// character, gating on an active line is what guarantees a skip can never eat a live keystroke.
+        /// </summary>
+        public bool LineIsActive => activeLineIndex != -1;
+
+        /// <summary>
         /// The first line that has not sealed yet; -1 once every line has sealed. While no line is
         /// active (pre-roll, or the dead zone between a seal and the next line's cue) this is the
         /// UPCOMING line — the one the stage should focus, dimmed, after the boundary scroll.

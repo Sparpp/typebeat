@@ -9,3 +9,6 @@ using System.Runtime.CompilerServices;
 
 // intended for Moq usage
 [assembly: InternalsVisibleTo("DynamicProxyGenAssembly2")]
+
+// Gameplay-overlay lifecycle assertions (SkipOverlay visibility / deferred state).
+[assembly: InternalsVisibleTo("typebeat.Game.Rulesets.TypeBeat.Tests")]
