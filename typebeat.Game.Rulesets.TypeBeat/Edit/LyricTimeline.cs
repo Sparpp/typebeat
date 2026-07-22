@@ -24,10 +24,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
     /// The fine-timing surface as a continuous timeline: every line's word blocks laid out along
-    /// song time, with the visible window mirrored from the waveform timeline (scroll and zoom
-    /// stay in sync — one window, two viewports). The mouse wheel over this strip zooms that
-    /// shared window, anchored at the time under the cursor; over the waveform timeline the
-    /// wheel scrolls as usual. Adjacent lines share ONE boundary — the handle at a line's start
+    /// song time, hosted as a full-width strip directly beneath the waveform timeline so the two
+    /// read as one surface. The strip owns its view window (initial zoom snapshotted from the
+    /// waveform timeline): the wheel zooms it anchored at the time under the cursor, dragging
+    /// empty space pans it, and it re-centres on the playhead whenever playback starts.
+    /// Adjacent lines share ONE boundary — the handle at a line's start
     /// is also the previous line's end (<see cref="TypeBeatEditorOperations.SetLineStart"/>
     /// moves both sides together).
     ///

@@ -87,6 +87,42 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
         private Bindable<bool> controlPointsVisible = null!;
         private Bindable<bool> ticksVisible = null!;
 
+        private float? waveformOpacityOverride;
+
+        /// <summary>
+        /// When set, overrides the user's <see cref="OsuSetting.EditorWaveformOpacity"/> for this
+        /// timeline instance (screens where the waveform is the primary reading surface).
+        /// </summary>
+        public float? WaveformOpacityOverride
+        {
+            get => waveformOpacityOverride;
+            set
+            {
+                waveformOpacityOverride = value;
+
+                if (IsLoaded)
+                    updateWaveformOpacity();
+            }
+        }
+
+        private float tickAlpha = 1;
+
+        /// <summary>
+        /// Peak alpha of the beat tick display (1 by default). The user's ticks-visible setting
+        /// still gates whether ticks show at all.
+        /// </summary>
+        public float TickAlpha
+        {
+            get => tickAlpha;
+            set
+            {
+                tickAlpha = value;
+
+                if (IsLoaded)
+                    ticksVisible.TriggerChange();
+            }
+        }
+
         private double trackLengthForZoom;
 
         public Timeline(Drawable userContent)
@@ -190,7 +226,7 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
 
             waveformOpacity.BindValueChanged(_ => updateWaveformOpacity(), true);
 
-            ticksVisible.BindValueChanged(visible => ticks.FadeTo(visible.NewValue ? 1 : 0, 200, Easing.OutQuint), true);
+            ticksVisible.BindValueChanged(visible => ticks.FadeTo(visible.NewValue ? tickAlpha : 0, 200, Easing.OutQuint), true);
 
             controlPointsVisible.BindValueChanged(visible =>
             {
@@ -202,7 +238,7 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
         }
 
         private void updateWaveformOpacity() =>
-            waveform.FadeTo(waveformOpacity.Value, 200, Easing.OutQuint);
+            waveform.FadeTo(waveformOpacityOverride ?? waveformOpacity.Value, 200, Easing.OutQuint);
 
         protected override void Update()
         {

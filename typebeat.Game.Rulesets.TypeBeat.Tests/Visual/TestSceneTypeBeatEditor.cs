@@ -86,10 +86,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             AddUntilStep("lyric compose screen shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
             AddUntilStep("line list has a row per line", () => textBoxCount() == 2);
-            AddUntilStep("overview has a bar per line", () =>
-                Editor.ChildrenOfType<LineOverviewPart>().SingleOrDefault()?.Children.Count == 2);
             AddUntilStep("lyric timeline surfaces the words", () =>
                 Editor.ChildrenOfType<LyricTimeline>().Single().ChildrenOfType<typebeat.Game.Graphics.Sprites.OsuSpriteText>().Any(t => t.Text.ToString() == "hello world"));
+            AddAssert("word strip hosted outside the detail panel", () =>
+                !Editor.ChildrenOfType<ActiveLineDetailPanel>().Single().ChildrenOfType<LyricTimeline>().Any());
 
             AddStep("delete first line via ops", () =>
                 TypeBeatEditorOperations.DeleteLine(EditorBeatmap, EditorBeatmap.HitObjects.OfType<TypeBeatHitObject>().First()));
@@ -264,6 +264,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             });
 
             AddUntilStep("empty-space click moved the playhead", () => EditorClock.CurrentTime > before + 1);
+        }
+
+        [Test]
+        public void TestDoubleClickEmptyStripAddsLine()
+        {
+            LyricTimeline timeline = null!;
+
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("pause with playhead over the last line", () =>
+            {
+                timeline = Editor.ChildrenOfType<LyricTimeline>().Single();
+                EditorClock.Stop();
+                EditorClock.Seek(4500);
+            });
+            AddUntilStep("timeline present + sized", () => timeline.IsLoaded && timeline.DrawWidth > 0);
+
+            // The gap-double-click affordance used to also live on the waveform's line overview
+            // bars; the word strip is its home now that those bars are gone.
+            AddStep("double-click empty space past the final line", () =>
+            {
+                var q = timeline.ScreenSpaceDrawQuad;
+                InputManager.MoveMouseTo(q.TopLeft + new Vector2(q.Width * 0.9f, q.Height * 0.5f));
+                InputManager.Click(MouseButton.Left);
+                InputManager.Click(MouseButton.Left);
+            });
+
+            AddUntilStep("a third line was added", () => EditorBeatmap.HitObjects.Count == 3);
         }
 
         [Test]
