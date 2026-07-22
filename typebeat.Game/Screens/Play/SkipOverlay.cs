@@ -70,6 +70,12 @@ namespace typebeat.Game.Screens.Play
         private IGameplayClock gameplayClock { get; set; }
 
         internal bool IsButtonVisible => FadingContent.State == Visibility.Visible && buttonContainer.State.Value == Visibility.Visible;
+
+        /// <summary>Whether this is a deferred (mid-song instrumental) overlay rather than the intro/outro one. Test hook.</summary>
+        internal bool IsDeferred => skipStartTime != null;
+
+        /// <summary>Whether the skip period is currently open (button enabled), independent of the auto-hiding fade. Test hook.</summary>
+        internal bool InSkipPeriod => inSkipPeriod.Value;
         public override bool ReceivePositionalInputAt(Vector2 screenSpacePos) => true;
 
         /// <summary>

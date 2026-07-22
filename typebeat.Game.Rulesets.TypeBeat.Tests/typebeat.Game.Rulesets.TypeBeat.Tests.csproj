@@ -21,5 +21,10 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>typebeat.Game.Rulesets.TypeBeat.Tests</RootNamespace>
+    <!-- The .NET 10 SDK's Roslyn spuriously reports CS9202 ('extensions' feature) when this
+         test assembly references certain members of the project-referenced game assemblies under
+         LangVersion 12. No test here uses C# 14 features; raising only this consumer project's
+         language version clears the false positive without touching the shipped assemblies. -->
+    <LangVersion>latest</LangVersion>
   </PropertyGroup>
 </Project>
