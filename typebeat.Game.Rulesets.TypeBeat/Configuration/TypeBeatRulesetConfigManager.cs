@@ -24,6 +24,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         LyricLabPath,
 
         /// <summary>
+        /// Whether the locally installed lyriclab auto-aligner is used for imports. On by default:
+        /// when an installed environment exists the local aligner is preferred over the server one;
+        /// when off (or nothing is installed) imports use the server aligner / LRC fallback. This
+        /// only decides which aligner runs — it never triggers the multi-GB install, which stays an
+        /// explicit action (the first-run prompt and the Settings button).
+        /// </summary>
+        LocalAlignerEnabled,
+
+        /// <summary>
         /// Player caret rendering style (monkeytype's caret options). Applies to the typing
         /// caret only — the sung caret is a position marker and stays a beam.
         /// </summary>
@@ -68,6 +77,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 
             SetDefault(TypeBeatRulesetSetting.LyricOffsetMs, 0.0, -500.0, 500.0, 1.0);
             SetDefault(TypeBeatRulesetSetting.LyricLabPath, string.Empty);
+            SetDefault(TypeBeatRulesetSetting.LocalAlignerEnabled, true);
             SetDefault(TypeBeatRulesetSetting.CaretStyle, CaretStyle.Line);
             SetDefault(TypeBeatRulesetSetting.KeyboardLayout, Gameplay.KeyboardLayout.Qwerty);
             SetDefault(TypeBeatRulesetSetting.AllowWrongInput, false);

@@ -37,8 +37,10 @@ namespace typebeat.Desktop
         private readonly HighPerformanceSessionManager highPerformanceSessionManager = new HighPerformanceSessionManager();
 
         // The lyric-map import pipeline lives in the ruleset; typebeat.Desktop is the one project that
-        // references both it and typebeat.Game, so it bridges the shell's ILyricMapImporter seam here.
+        // references both it and typebeat.Game, so it bridges the shell's ILyricMapImporter seam here
+        // (and the local auto-aligner installer seam the first-run setup / settings UI drive).
         [Cached(typeof(ILyricMapImporter))]
+        [Cached(typeof(ILocalAlignerManager))]
         private readonly LyricMapImportService lyricMapImporter = new LyricMapImportService();
 
         public bool IsFirstRun { get; init; }

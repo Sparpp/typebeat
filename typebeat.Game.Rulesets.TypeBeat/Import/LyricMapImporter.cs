@@ -43,6 +43,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
         private const string aligner_script = "align_lyrics.py";
 
+        /// <summary>
+        /// Marker file written beside the venv recording which torch flavour the environment was
+        /// built with ("cuda" or "cpu"). When it says cuda, alignment runs with --device cuda.
+        /// </summary>
+        public const string DEVICE_MARKER_FILE = "device.txt";
+
         private const int cancelled_exit_code = int.MinValue;
 
         /// <summary>Creator tag stamped into generated maps' [Metadata].</summary>
@@ -118,7 +124,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// <see cref="BuildOszAsync"/> (which prefers the instant LRC fallback); exposed for an
         /// explicit "set up aligner" action.
         /// </summary>
-        public static async Task<LyricImportResult> BootstrapEnvironmentAsync(string lyricLabDir, Action<string> progress, CancellationToken token)
+        public static async Task<LyricImportResult> BootstrapEnvironmentAsync(string lyricLabDir, Action<string> progress, CancellationToken token, string device = "cpu")
         {
             if (EnvironmentReady(lyricLabDir))
                 return LyricImportResult.Ok(string.Empty);
@@ -128,7 +134,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             if (!File.Exists(script))
                 return LyricImportResult.Fail($"aligner environment missing and no {SetupScriptName} to build it in {lyricLabDir}");
 
-            progress("setting up the aligner environment — one-time download of packages (~2 GB), please wait...");
+            progress(device == "cuda"
+                ? "setting up the aligner environment (GPU) — one-time download of packages (~2.5 GB), please wait..."
+                : "setting up the aligner environment — one-time download of packages (~2 GB), please wait...");
 
             var psi = new ProcessStartInfo
             {
@@ -147,6 +155,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 psi.ArgumentList.Add("Bypass");
                 psi.ArgumentList.Add("-File");
                 psi.ArgumentList.Add(script);
+                psi.ArgumentList.Add("-Device");
+                psi.ArgumentList.Add(device);
             }
             else
             {
@@ -155,6 +165,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 // checkout or zip extraction.
                 psi.FileName = "bash";
                 psi.ArgumentList.Add(script);
+                psi.ArgumentList.Add(device);
             }
 
             (int exitCode, string tail) = await RunProcessAsync(psi, progress, token).ConfigureAwait(false);
@@ -167,6 +178,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             if (!EnvironmentReady(lyricLabDir))
                 return LyricImportResult.Fail($"environment setup finished but no venv python at {PythonExeFor(lyricLabDir)}");
+
+            // Record which torch flavour this environment carries so alignment runs pick the device.
+            try
+            {
+                await File.WriteAllTextAsync(Path.Combine(lyricLabDir, DEVICE_MARKER_FILE), device, token).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Non-fatal: alignment falls back to CPU without the marker.
+            }
 
             progress("aligner environment ready");
             return LyricImportResult.Ok(string.Empty);
@@ -414,11 +435,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 CreateNoWindow = true,
             };
 
+            // The venv's scripts dir carries the provisioned ffmpeg (setup copies the static
+            // imageio-ffmpeg build there); prepend it so align_lyrics.py's `ffmpeg` shell-out
+            // resolves without a system-wide install.
+            string venvBin = Path.GetDirectoryName(python)!;
+            string existingPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+            psi.Environment["PATH"] = venvBin + Path.PathSeparator + existingPath;
+
             psi.ArgumentList.Add(aligner_script);
             psi.ArgumentList.Add(audioPath);
             psi.ArgumentList.Add(lyricsPath);
             psi.ArgumentList.Add("-o");
             psi.ArgumentList.Add(outDir);
+
+            // Environments built with CUDA torch (device marker "cuda") align on the GPU —
+            // dramatically faster separation/emission on machines with a good NVIDIA card.
+            string deviceMarker = Path.Combine(lyricLabDir, DEVICE_MARKER_FILE);
+
+            if (File.Exists(deviceMarker) && File.ReadAllText(deviceMarker).Trim().Equals("cuda", StringComparison.OrdinalIgnoreCase))
+            {
+                psi.ArgumentList.Add("--device");
+                psi.ArgumentList.Add("cuda");
+            }
 
             if (!HasLineStamps(lyricsContent))
             {
