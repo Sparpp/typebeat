@@ -17,10 +17,11 @@ using osuTK;
 namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
-    /// Everything about the ACTIVE line: header readouts (index, start / sung end / window end,
-    /// granularity, estimated badge), the <see cref="LyricTimeline"/> fine-timing surface
-    /// (window-synced to the waveform timeline; wheel = zoom), and the structural action bar
-    /// (replay, add at playhead, split before word, merge, delete).
+    /// Everything about the ACTIVE line: the line view (index, text, start / sung end / window
+    /// end, granularity, estimated badge) sandwiched between two categorised action rows —
+    /// LINE-level actions on top (add at playhead, split before word, merge, delete), WORD-level
+    /// actions on the bottom (subdivide). The fine-timing surface itself
+    /// (<see cref="LyricTimeline"/>) lives full-width under the waveform timeline.
     /// </summary>
     public partial class ActiveLineDetailPanel : CompositeDrawable
     {
@@ -58,59 +59,57 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     Padding = new MarginPadding(8),
                     RowDimensions = new[]
                     {
-                        new Dimension(GridSizeMode.Absolute, 26),
-                        new Dimension(GridSizeMode.Absolute, 22),
+                        // The line VIEW (readouts) is sandwiched between two categorised action
+                        // rows: LINE-level structural actions on top, WORD-level ones below.
+                        new Dimension(GridSizeMode.Absolute, 30),
                         new Dimension(),
-                        new Dimension(GridSizeMode.Absolute, 44),
+                        new Dimension(GridSizeMode.Absolute, 30),
                     },
                     Content = new[]
                     {
                         new Drawable[]
                         {
-                            header = new OsuSpriteText
+                            // The R hotkey still replays the active line (see LyricComposeScreen);
+                            // the button was dropped to declutter the row.
+                            // Copy/paste timing stays on the standard ^C/^V hotkeys
+                            // (LyricComposeScreen.Copy/Paste); the buttons were dropped.
+                            actionRow("line", new[]
                             {
-                                Font = TypeBeatStyle.Mono(18),
-                                Colour = TypeBeatStyle.TypedChar,
-                            },
-                        },
-                        new Drawable[]
-                        {
-                            timing = new OsuSpriteText
-                            {
-                                Font = TypeBeatStyle.Mono(13),
-                                Colour = TypeBeatStyle.UntypedChar,
-                            },
-                        },
-                        new Drawable[]
-                        {
-                            new Container
-                            {
-                                RelativeSizeAxes = Axes.Both,
-                                Padding = new MarginPadding { Vertical = 6 },
-                                Child = new LyricTimeline(),
-                            },
+                                actionButton("add @ playhead", addAtPlayhead),
+                                actionButton("split @ word (S)", splitAtSelectedWord),
+                                actionButton("merge next (M)", mergeNext),
+                                actionButton("delete line", deleteLine),
+                            }),
                         },
                         new Drawable[]
                         {
                             new FillFlowContainer
                             {
                                 RelativeSizeAxes = Axes.Both,
-                                Direction = FillDirection.Horizontal,
-                                Spacing = new Vector2(6, 0),
-                                Padding = new MarginPadding { Top = 8 },
+                                Direction = FillDirection.Vertical,
+                                Spacing = new Vector2(0, 4),
+                                Padding = new MarginPadding { Vertical = 8 },
                                 Children = new Drawable[]
                                 {
-                                    // The R hotkey still replays the active line (see LyricComposeScreen);
-                                    // the button was dropped to declutter the row.
-                                    // Copy/paste timing stays on the standard ^C/^V hotkeys
-                                    // (LyricComposeScreen.Copy/Paste); the buttons were dropped.
-                                    actionButton("add @ playhead", addAtPlayhead),
-                                    actionButton("split @ word (S)", splitAtSelectedWord),
-                                    actionButton("subdivide (D)", subdivideSelectedWords),
-                                    actionButton("merge next (M)", mergeNext),
-                                    actionButton("delete line", deleteLine),
+                                    header = new OsuSpriteText
+                                    {
+                                        Font = TypeBeatStyle.Mono(18),
+                                        Colour = TypeBeatStyle.TypedChar,
+                                    },
+                                    timing = new OsuSpriteText
+                                    {
+                                        Font = TypeBeatStyle.Mono(13),
+                                        Colour = TypeBeatStyle.UntypedChar,
+                                    },
                                 },
                             },
+                        },
+                        new Drawable[]
+                        {
+                            actionRow("word", new[]
+                            {
+                                actionButton("subdivide (D)", subdivideSelectedWords),
+                            }),
                         },
                     },
                 },
@@ -124,6 +123,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             Width = 108,
             Height = 30,
         };
+
+        /// <summary>One categorised action row: a small caption ("line" / "word") then its buttons.</summary>
+        private static Drawable actionRow(string category, Drawable[] buttons)
+        {
+            var row = new FillFlowContainer
+            {
+                RelativeSizeAxes = Axes.Both,
+                Direction = FillDirection.Horizontal,
+                Spacing = new Vector2(6, 0),
+            };
+
+            row.Add(new Container
+            {
+                Width = 36,
+                RelativeSizeAxes = Axes.Y,
+                Child = new OsuSpriteText
+                {
+                    Anchor = Anchor.CentreLeft,
+                    Origin = Anchor.CentreLeft,
+                    Text = category,
+                    Font = TypeBeatStyle.Mono(11),
+                    Colour = TypeBeatStyle.UntypedChar,
+                },
+            });
+
+            row.AddRange(buttons);
+            return row;
+        }
 
         protected override void Update()
         {

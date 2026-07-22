@@ -13,14 +13,17 @@ using osu.Framework.Input.Events;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.Edit;
+using typebeat.Game.Screens.Edit.Compose.Components.Timeline;
 using osuTK.Input;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
-    /// type!beat's compose mode: the top waveform timeline carries per-line overview bars; the
-    /// main area is a line list (sweeping text edits) beside the active line's fine-timing
-    /// surface. The whole screen is organised around the mapper's loop — listen, nudge, listen:
+    /// type!beat's compose mode: the top waveform timeline (solid waveform, half-strength beat
+    /// ticks) sits directly above the full-width word-block strip (<see cref="LyricTimeline"/>),
+    /// so the audio and the words read as one surface; the main area below is a line list
+    /// (sweeping text edits) beside the active line's detail/action panel.
+    /// The whole screen is organised around the mapper's loop — listen, nudge, listen:
     /// the active line follows the playhead unless a line is explicitly selected, R replays the
     /// active line with pre-roll and auto-pause, T stamps the focused word's start at the
     /// playhead, Enter stamps the active line's start.
@@ -77,10 +80,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             RelativeSizeAxes = Axes.Both,
             Children = new Drawable[]
             {
-                new LineOverviewPart(),
+                // No per-line bars here any more — the word-block strip directly beneath the
+                // waveform carries the lines (select, add, drag); the waveform stays clean.
                 new BeatdropMarkerPart(),
             },
         };
+
+        protected override void ConfigureTimeline(TimelineArea timelineArea)
+        {
+            base.ConfigureTimeline(timelineArea);
+
+            // The waveform is the primary reading surface in lyric compose: show it solid, and
+            // pull the beat ticks back to half strength so they stop competing with it.
+            timelineArea.Timeline.WaveformOpacityOverride = 1;
+            timelineArea.Timeline.TickAlpha = 0.5f;
+        }
 
         protected override void LoadComplete()
         {
@@ -134,22 +148,60 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             }
         }
 
+        /// <summary>Height of the full-width word-block strip under the waveform timeline.</summary>
+        private const float word_strip_height = 90;
+
+        /// <summary>
+        /// Horizontal inset matching the shared timeline's right-hand columns (90 outer spacer
+        /// + 35 zoom buttons + 120 controls), so the strip's extents line up with the waveform
+        /// above it and both playheads sit on the same vertical while following playback.
+        /// </summary>
+        private const float timeline_right_inset = 245;
+
         protected override Drawable CreateMainContent() => new GridContainer
         {
             RelativeSizeAxes = Axes.Both,
-            ColumnDimensions = new[]
+            RowDimensions = new[]
             {
-                new Dimension(GridSizeMode.Relative, 0.42f),
+                new Dimension(GridSizeMode.Absolute, word_strip_height),
                 new Dimension(GridSizeMode.Absolute, 6),
                 new Dimension(),
             },
             Content = new[]
             {
-                new[]
+                new Drawable[]
                 {
-                    (Drawable)(lineList = new LineListPanel()),
-                    Empty(),
-                    new ActiveLineDetailPanel(),
+                    // The word-block strip sits directly beneath the waveform so the two read as
+                    // one synchronized surface; the panels below give up this height for it.
+                    new Container
+                    {
+                        RelativeSizeAxes = Axes.Both,
+                        Padding = new MarginPadding { Right = timeline_right_inset },
+                        Child = new LyricTimeline(),
+                    },
+                },
+                new[] { Empty() },
+                new Drawable[]
+                {
+                    new GridContainer
+                    {
+                        RelativeSizeAxes = Axes.Both,
+                        ColumnDimensions = new[]
+                        {
+                            new Dimension(GridSizeMode.Relative, 0.42f),
+                            new Dimension(GridSizeMode.Absolute, 6),
+                            new Dimension(),
+                        },
+                        Content = new[]
+                        {
+                            new[]
+                            {
+                                (Drawable)(lineList = new LineListPanel()),
+                                Empty(),
+                                new ActiveLineDetailPanel(),
+                            },
+                        },
+                    },
                 },
             },
         };
