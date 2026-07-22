@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
@@ -84,6 +85,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             crossed.Sort();
             return crossed;
+        }
+    }
+
+    /// <summary>
+    /// Collects the compose screen's audible tick times from the live lines, split into the two
+    /// streams the screen plays with different samples: WORD-unit starts (the dominant tick) and
+    /// syllable-subdivision boundaries (the lighter sub-tick for the draggable dotted lines).
+    ///
+    /// Dedupe rule: a time that is both a word start and (degenerately) a syllable boundary
+    /// belongs to the word stream ONLY — the accented word tick plays alone, never doubled by a
+    /// sub-tick at the same instant. Pure and allocation-per-call so the screen can poll it fresh
+    /// every running frame (lines are rebuilt on edit/undo, so nothing may be cached).
+    /// </summary>
+    public static class EditorTickTimes
+    {
+        public static (IReadOnlyList<double> wordStarts, IReadOnlyList<double> syllableBoundaries) Collect(IEnumerable<LyricLine> lines)
+        {
+            var wordStarts = new List<double>();
+            var boundaries = new List<double>();
+
+            foreach (var line in lines)
+            {
+                foreach (var unit in line.Units)
+                {
+                    wordStarts.Add(unit.StartTime);
+
+                    for (int i = 0; i < unit.SyllableBoundaries.Count; i++)
+                        boundaries.Add(unit.SyllableBoundaries[i]);
+                }
+            }
+
+            if (boundaries.Count == 0)
+                return (wordStarts, boundaries);
+
+            // Filter AFTER the full pass so a boundary coinciding with ANY word start (its own
+            // word's degenerate edge or another word's) yields only the word tick.
+            var startSet = new HashSet<double>(wordStarts);
+            boundaries.RemoveAll(startSet.Contains);
+
+            return (wordStarts, boundaries);
         }
     }
 }

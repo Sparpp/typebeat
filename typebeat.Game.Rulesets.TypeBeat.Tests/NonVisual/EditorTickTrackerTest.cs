@@ -1,6 +1,8 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the LICENCE file in the repository root.
 
+using System.Linq;
 using NUnit.Framework;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
@@ -132,6 +134,103 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             tracker.Advance(900, unordered);
 
             Assert.That(tracker.Advance(2100, unordered), Is.EqualTo(new[] { 1000d, 1500d, 2000d }));
+        }
+    }
+
+    /// <summary>
+    /// The time-collection helper feeding the compose screen's two tick streams: WORD-unit starts
+    /// (accented tick) and syllable-subdivision boundaries (lighter sub-tick), with any boundary
+    /// coinciding with a word start deduped into the word stream only.
+    /// </summary>
+    [TestFixture]
+    public class EditorTickTimesTest
+    {
+        private static TimedUnit unit(double start, double end, params double[] syllables) => new TimedUnit
+        {
+            Text = "word",
+            StartTime = start,
+            EndTime = end,
+            SyllableBoundaries = syllables,
+        };
+
+        private static LyricLine line(params TimedUnit[] units) => new LyricLine
+        {
+            RawText = string.Join(" ", units.Select(u => u.Text)),
+            StartTime = units[0].StartTime,
+            EndTime = units[^1].EndTime,
+            SingEndTime = units[^1].EndTime,
+            Units = units,
+        };
+
+        [Test]
+        public void CollectsWordStartsAcrossLines()
+        {
+            var (wordStarts, syllables) = EditorTickTimes.Collect(new[]
+            {
+                line(unit(1000, 1400), unit(1400, 2000)),
+                line(unit(3000, 3500)),
+            });
+
+            Assert.That(wordStarts, Is.EqualTo(new[] { 1000d, 1400d, 3000d }));
+            Assert.That(syllables, Is.Empty);
+        }
+
+        [Test]
+        public void CollectsSyllableBoundariesFromAllUnits()
+        {
+            var (wordStarts, syllables) = EditorTickTimes.Collect(new[]
+            {
+                line(unit(1000, 1400, 1200), unit(1400, 2000, 1600, 1800)),
+            });
+
+            Assert.That(wordStarts, Is.EqualTo(new[] { 1000d, 1400d }));
+            Assert.That(syllables, Is.EqualTo(new[] { 1200d, 1600d, 1800d }));
+        }
+
+        [Test]
+        public void BoundaryCoincidingWithAWordStart_YieldsOnlyTheWordTick()
+        {
+            // 1400 is both the second word's start and (degenerately) a boundary of the first
+            // word; 3000 collides with a word start on a DIFFERENT line. Both must be dropped
+            // from the syllable stream, leaving only the genuinely interior 1200.
+            var (wordStarts, syllables) = EditorTickTimes.Collect(new[]
+            {
+                line(unit(1000, 1400, 1200, 1400), unit(1400, 2000, 3000)),
+                line(unit(3000, 3500)),
+            });
+
+            Assert.That(wordStarts, Is.EqualTo(new[] { 1000d, 1400d, 3000d }));
+            Assert.That(syllables, Is.EqualTo(new[] { 1200d }));
+        }
+
+        [Test]
+        public void CombinedStreams_CrossingDetection_TicksEachTimeOnce()
+        {
+            // The compose screen runs one tracker per stream over the same frame times. Sweep a
+            // frame across everything and check each stream reports exactly its own times — the
+            // deduped 1400 fires once, as a word tick.
+            var (wordStarts, syllables) = EditorTickTimes.Collect(new[]
+            {
+                line(unit(1000, 1400, 1200, 1400), unit(1400, 2000, 1600)),
+            });
+
+            var wordTracker = new EditorTickTracker(maxFrameDelta: 100_000);
+            var syllableTracker = new EditorTickTracker(maxFrameDelta: 100_000);
+
+            wordTracker.Advance(900, wordStarts);
+            syllableTracker.Advance(900, syllables);
+
+            Assert.That(wordTracker.Advance(2000, wordStarts), Is.EqualTo(new[] { 1000d, 1400d }));
+            Assert.That(syllableTracker.Advance(2000, syllables), Is.EqualTo(new[] { 1200d, 1600d }));
+        }
+
+        [Test]
+        public void NoLines_YieldsEmptyStreams()
+        {
+            var (wordStarts, syllables) = EditorTickTimes.Collect(System.Array.Empty<LyricLine>());
+
+            Assert.That(wordStarts, Is.Empty);
+            Assert.That(syllables, Is.Empty);
         }
     }
 }

@@ -56,13 +56,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private LineListPanel lineList = null!;
         private TypeBeatHitObject? lastAutoScrolled;
 
-        /// <summary>Volume of the per-note editor tick — audible over the track without masking it.</summary>
+        /// <summary>Volume of the per-word editor tick — audible over the track without masking it.</summary>
         private const double tick_volume = 0.6;
+
+        /// <summary>
+        /// Volume of the syllable-boundary sub-tick — clearly subordinate to the word tick, so the
+        /// word starts stay the dominant rhythm and the dotted-line subdivisions read as grace notes.
+        /// </summary>
+        private const double syllable_tick_volume = 0.35;
 
         /// <summary>Detects which word-unit starts the playhead swept across each running frame.</summary>
         private readonly EditorTickTracker tickTracker = new EditorTickTracker();
 
+        /// <summary>Same crossing detection for syllable-subdivision boundaries (the dotted lines).</summary>
+        private readonly EditorTickTracker syllableTickTracker = new EditorTickTracker();
+
         private Sample? tickSample;
+        private Sample? syllableTickSample;
 
         public LyricComposeScreen()
             : base(EditorScreenMode.Compose)
@@ -72,8 +82,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         [BackgroundDependencyLoader]
         private void load(AudioManager audio)
         {
-            // Short editor metronome click, shipped in typebeat.Game.Resources under Samples/UI.
+            // Short editor metronome click for word starts, and the lighter UI notch click for
+            // syllable boundaries — a distinct, softer timbre so the two never blur together.
+            // Both ship in typebeat.Game.Resources under Samples/UI.
             tickSample = audio.Samples.Get(@"UI/metronome-tick");
+            syllableTickSample = audio.Samples.Get(@"UI/notch-tick");
         }
 
         protected override Drawable CreateTimelineContent() => new Container
@@ -224,10 +237,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>
-        /// While the song plays, click once as the playhead reaches the start of each note (word unit).
-        /// Only crossings inside the current frame's window fire; paused/scrubbing and seek jumps are
-        /// suppressed by <see cref="EditorTickTracker"/>. Live hit objects are polled every frame so
-        /// concurrent line edits (undo storms rebuild instances) are always reflected.
+        /// While the song plays, click as the playhead reaches the start of each note (word unit),
+        /// and click the lighter sub-tick at each syllable-subdivision boundary (the dotted lines).
+        /// A time that is both plays only the word tick (<see cref="EditorTickTimes.Collect"/>
+        /// dedupes). Only crossings inside the current frame's window fire; paused/scrubbing and
+        /// seek jumps are suppressed by <see cref="EditorTickTracker"/>. Live hit objects are
+        /// polled every frame so concurrent line edits (undo storms rebuild instances) are always
+        /// reflected.
         /// </summary>
         private void updateNoteTicks()
         {
@@ -235,37 +251,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 // Paused/stopped: forget the frame time so resuming (or a scrub target) never bursts.
                 tickTracker.Reset();
+                syllableTickTracker.Reset();
                 return;
             }
 
-            var crossed = tickTracker.Advance(editorClock.CurrentTime, unitStartTimes());
+            var (wordStarts, syllableBoundaries) = EditorTickTimes.Collect(
+                EditorBeatmap.HitObjects.OfType<TypeBeatHitObject>().Select(o => o.Line));
 
-            for (int i = 0; i < crossed.Count; i++)
-                playTick();
+            double now = editorClock.CurrentTime;
+
+            var crossedWords = tickTracker.Advance(now, wordStarts);
+            var crossedSyllables = syllableTickTracker.Advance(now, syllableBoundaries);
+
+            for (int i = 0; i < crossedWords.Count; i++)
+                playTick(tickSample, tick_volume);
+
+            for (int i = 0; i < crossedSyllables.Count; i++)
+                playTick(syllableTickSample, syllable_tick_volume);
         }
 
-        /// <summary>
-        /// Every word-unit start time in the map, polled fresh (never cached — lines are rebuilt on
-        /// edit/undo). Structured so per-syllable ticks could be added by also yielding
-        /// <see cref="TimedUnit.SyllableBoundaries"/>; the task asks for note starts only.
-        /// </summary>
-        private IEnumerable<double> unitStartTimes()
+        private static void playTick(Sample? sample, double volume)
         {
-            foreach (var lineObject in EditorBeatmap.HitObjects.OfType<TypeBeatHitObject>())
-            {
-                foreach (var unit in lineObject.Line.Units)
-                    yield return unit.StartTime;
-            }
-        }
-
-        private void playTick()
-        {
-            var channel = tickSample?.GetChannel();
+            var channel = sample?.GetChannel();
 
             if (channel == null)
                 return;
 
-            channel.Volume.Value = tick_volume;
+            channel.Volume.Value = volume;
             channel.Play();
         }
 
