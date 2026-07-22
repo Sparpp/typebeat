@@ -239,9 +239,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private void onCharJudged(CharJudgement judgement)
         {
-            // Any accepted char (even a scoring-inert retype) ends the wrong-key streak.
-            (healthProcessor as TypeBeatHealthProcessor)?.ResetWrongKeyStreak();
-
+            // The accepted char reaches the health processor as its own Great/Ok/Meh (or, for a
+            // wrong char in allow-wrong-input mode, Miss) result via ApplyCharJudgement below, which
+            // is what recovers HP — no separate reset needed.
             if (lineDrawables.TryGetValue(judgement.LineIndex, out var line))
                 line.ApplyCharJudgement(judgement);
         }
