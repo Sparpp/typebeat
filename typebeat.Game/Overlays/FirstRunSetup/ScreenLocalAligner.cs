@@ -26,7 +26,7 @@ namespace typebeat.Game.Overlays.FirstRunSetup
     public partial class ScreenLocalAligner : WizardScreen
     {
         [Resolved(CanBeNull = true)]
-        private ILocalAlignerManager alignerManager { get; set; }
+        private ILocalAlignerManager? alignerManager { get; set; }
 
         private ProgressRoundedButton installButton = null!;
         private OsuTextFlowContainer statusText = null!;
@@ -35,7 +35,7 @@ namespace typebeat.Game.Overlays.FirstRunSetup
         // line yet so the async GPU probe doesn't overwrite install progress.
         private bool statusClaimed;
 
-        private CancellationTokenSource installCancellation;
+        private CancellationTokenSource installCancellation = null!;
 
         [BackgroundDependencyLoader]
         private void load()
@@ -77,9 +77,10 @@ namespace typebeat.Game.Overlays.FirstRunSetup
             }
 
             // GPU probe spawns a process — do it off the load path and annotate the pitch once known.
+            var manager = alignerManager;
             Task.Run(() =>
             {
-                bool gpu = alignerManager.GpuDetected;
+                bool gpu = manager.GpuDetected;
 
                 Schedule(() =>
                 {
@@ -95,7 +96,9 @@ namespace typebeat.Game.Overlays.FirstRunSetup
 
         private void startInstall()
         {
-            if (alignerManager == null)
+            var manager = alignerManager;
+
+            if (manager == null)
                 return;
 
             statusClaimed = true;
@@ -105,7 +108,7 @@ namespace typebeat.Game.Overlays.FirstRunSetup
             {
                 try
                 {
-                    var result = await alignerManager.InstallAsync(
+                    var result = await manager.InstallAsync(
                         line => Schedule(() => statusText.Text = line),
                         installCancellation.Token).ConfigureAwait(false);
 

@@ -95,7 +95,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             var notification = new ProgressNotification
             {
                 Text = "Installing the local auto-aligner...",
-                CompletionText = "Local auto-aligner installed — your imports now align on this machine.",
+                CompletionText = "Local auto-aligner ready — your imports now align on this machine.",
                 State = ProgressNotificationState.Active,
             };
 
@@ -106,21 +106,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 try
                 {
                     var result = await alignerManager.InstallAsync(
-                        line => Schedule(() => notification.Text = line),
+                        line => notification.Text = line,
                         notification.CancellationToken).ConfigureAwait(false);
 
+                    // Drive the notification to its terminal state directly off the worker thread: the
+                    // Text/State setters self-marshal to the update thread (the osu ProgressNotification
+                    // idiom), so the Ok -> Completed / failure -> error transition fires regardless of
+                    // whether this settings subsection is still alive. Setting State = Completed swaps
+                    // the running toast for the CompletionText notification; without this flip the
+                    // notification was left on the last script line with a live spinner (looked hung),
+                    // since the bootstrap's final step emits no output to overwrite it.
+                    if (result.Success)
+                        notification.State = ProgressNotificationState.Completed;
+                    else
+                    {
+                        notification.State = ProgressNotificationState.Cancelled;
+                        notifications?.Post(new SimpleErrorNotification { Text = $"Aligner install failed: {result.Error}" });
+                    }
+
+                    // Only the install button belongs to this subsection, so it stays marshalled here.
                     Schedule(() =>
                     {
                         if (result.Success)
-                        {
-                            notification.State = ProgressNotificationState.Completed;
                             installButton.Text = "Reinstall local auto-aligner";
-                        }
-                        else
-                        {
-                            notification.State = ProgressNotificationState.Cancelled;
-                            notifications?.Post(new SimpleErrorNotification { Text = $"Aligner install failed: {result.Error}" });
-                        }
 
                         installButton.Enabled.Value = true;
                     });
@@ -128,11 +136,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 catch (Exception e)
                 {
                     Logger.Error(e, "Local aligner install failed");
-                    Schedule(() =>
-                    {
-                        notification.State = ProgressNotificationState.Cancelled;
-                        installButton.Enabled.Value = true;
-                    });
+                    notification.Text = "Local auto-aligner install failed unexpectedly — see logs.";
+                    notification.State = ProgressNotificationState.Cancelled;
+                    Schedule(() => installButton.Enabled.Value = true);
                 }
             });
         }
