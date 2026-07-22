@@ -88,8 +88,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("line list has a row per line", () => textBoxCount() == 2);
             AddUntilStep("lyric timeline surfaces the words", () =>
                 Editor.ChildrenOfType<LyricTimeline>().Single().ChildrenOfType<typebeat.Game.Graphics.Sprites.OsuSpriteText>().Any(t => t.Text.ToString() == "hello world"));
-            AddAssert("word strip hosted outside the detail panel", () =>
-                !Editor.ChildrenOfType<ActiveLineDetailPanel>().Single().ChildrenOfType<LyricTimeline>().Any());
+            AddAssert("word strip hosted inside the detail panel", () =>
+                Editor.ChildrenOfType<ActiveLineDetailPanel>().Single().ChildrenOfType<LyricTimeline>().Any());
+            AddAssert("minimal boundaries band present outside the panel", () =>
+                Editor.ChildrenOfType<LineBoundariesBand>().Any()
+                && !Editor.ChildrenOfType<ActiveLineDetailPanel>().Single().ChildrenOfType<LineBoundariesBand>().Any());
 
             AddStep("delete first line via ops", () =>
                 TypeBeatEditorOperations.DeleteLine(EditorBeatmap, EditorBeatmap.HitObjects.OfType<TypeBeatHitObject>().First()));
@@ -281,8 +284,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             });
             AddUntilStep("timeline present + sized", () => timeline.IsLoaded && timeline.DrawWidth > 0);
 
-            // The gap-double-click affordance used to also live on the waveform's line overview
-            // bars; the word strip is its home now that those bars are gone.
+            // The gap-double-click affordance lives on the panel-hosted word strip AND on the
+            // minimal boundaries band under the waveform (covered separately below).
             AddStep("double-click empty space past the final line", () =>
             {
                 var q = timeline.ScreenSpaceDrawQuad;
@@ -292,6 +295,64 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             });
 
             AddUntilStep("a third line was added", () => EditorBeatmap.HitObjects.Count == 3);
+        }
+
+        [Test]
+        public void TestDoubleClickEmptyBandAddsLine()
+        {
+            LineBoundariesBand band = null!;
+
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("pause with playhead over the last line", () =>
+            {
+                band = Editor.ChildrenOfType<LineBoundariesBand>().Single();
+                EditorClock.Stop();
+                EditorClock.Seek(4500);
+            });
+            AddUntilStep("band present + sized", () => band.IsLoaded && band.DrawWidth > 0);
+
+            // The band mirrors the waveform's window (centred on the playhead), so 0.9 across is
+            // a time well past the last line (5000ms) — empty space.
+            AddStep("double-click empty band space past the final line", () =>
+            {
+                var q = band.ScreenSpaceDrawQuad;
+                InputManager.MoveMouseTo(q.TopLeft + new Vector2(q.Width * 0.9f, q.Height * 0.5f));
+                InputManager.Click(MouseButton.Left);
+                InputManager.Click(MouseButton.Left);
+            });
+
+            AddUntilStep("a third line was added", () => EditorBeatmap.HitObjects.Count == 3);
+        }
+
+        [Test]
+        public void TestClickBandSelectsLineAndSeeks()
+        {
+            LineBoundariesBand band = null!;
+
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("pause with playhead over the last line", () =>
+            {
+                band = Editor.ChildrenOfType<LineBoundariesBand>().Single();
+                EditorClock.Stop();
+                EditorClock.Seek(4500);
+            });
+            AddUntilStep("band present + sized", () => band.IsLoaded && band.DrawWidth > 0);
+
+            // Window is playhead-centred: [1500, 7500] at the default 6000ms zoom. A click at
+            // ~0.083 across lands on ~2000ms — inside line 1 ("hello world", 1000..3000).
+            AddStep("click band over line 1", () =>
+            {
+                var q = band.ScreenSpaceDrawQuad;
+                float fraction = (float)((2000 - (EditorClock.CurrentTime - 3000)) / 6000);
+                InputManager.MoveMouseTo(q.TopLeft + new Vector2(q.Width * fraction, q.Height * 0.5f));
+                InputManager.Click(MouseButton.Left);
+            });
+
+            AddUntilStep("line 1 selected", () =>
+                Editor.ChildrenOfType<LyricComposeScreen>().Single().EditState.SelectedLine.Value?.Line.RawText == "hello world");
+            AddUntilStep("seeked to line 1 start", () => Math.Abs(EditorClock.CurrentTime - 1000) < 50);
         }
 
         [Test]

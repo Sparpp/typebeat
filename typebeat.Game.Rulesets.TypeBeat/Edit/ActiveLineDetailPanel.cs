@@ -17,11 +17,11 @@ using osuTK;
 namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
-    /// Everything about the ACTIVE line: the line view (index, text, start / sung end / window
-    /// end, granularity, estimated badge) sandwiched between two categorised action rows —
-    /// LINE-level actions on top (add at playhead, split before word, merge, delete), WORD-level
-    /// actions on the bottom (subdivide). The fine-timing surface itself
-    /// (<see cref="LyricTimeline"/>) lives full-width under the waveform timeline.
+    /// Everything about the ACTIVE line, sandwiched between two categorised action rows:
+    /// LINE-level actions on top (add at playhead, split before word, merge, delete), then the
+    /// line view (index, text, start / sung end / window end, granularity, estimated badge),
+    /// then the interactive fine-timing surface (<see cref="LyricTimeline"/>), and WORD-level
+    /// actions on the bottom (subdivide) right beside the word blocks they act on.
     /// </summary>
     public partial class ActiveLineDetailPanel : CompositeDrawable
     {
@@ -59,9 +59,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     Padding = new MarginPadding(8),
                     RowDimensions = new[]
                     {
-                        // The line VIEW (readouts) is sandwiched between two categorised action
-                        // rows: LINE-level structural actions on top, WORD-level ones below.
+                        // Sandwich: LINE-level actions on top, then the readouts, then the
+                        // fine-timing word strip, and WORD-level actions on the bottom (so the
+                        // word buttons sit right under the word blocks they act on).
                         new Dimension(GridSizeMode.Absolute, 30),
+                        new Dimension(GridSizeMode.Absolute, 52),
                         new Dimension(),
                         new Dimension(GridSizeMode.Absolute, 30),
                     },
@@ -102,6 +104,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                         Colour = TypeBeatStyle.UntypedChar,
                                     },
                                 },
+                            },
+                        },
+                        new Drawable[]
+                        {
+                            new Container
+                            {
+                                RelativeSizeAxes = Axes.Both,
+                                Padding = new MarginPadding { Vertical = 6 },
+                                Child = new LyricTimeline(),
                             },
                         },
                         new Drawable[]

@@ -20,9 +20,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
     /// type!beat's compose mode: the top waveform timeline (solid waveform, half-strength beat
-    /// ticks) sits directly above the full-width word-block strip (<see cref="LyricTimeline"/>),
-    /// so the audio and the words read as one surface; the main area below is a line list
-    /// (sweeping text edits) beside the active line's detail/action panel.
+    /// ticks) sits directly above a thin minimal boundaries band (<see cref="LineBoundariesBand"/>
+    /// — line boundaries + word-block ticks, window-mirrored from the waveform); the main area
+    /// below is a line list (sweeping text edits) beside the active line's detail/action panel,
+    /// which hosts the interactive word-block strip (<see cref="LyricTimeline"/>).
     /// The whole screen is organised around the mapper's loop — listen, nudge, listen:
     /// the active line follows the playhead unless a line is explicitly selected, R replays the
     /// active line with pre-roll and auto-pause, T stamps the focused word's start at the
@@ -55,13 +56,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private LineListPanel lineList = null!;
         private TypeBeatHitObject? lastAutoScrolled;
 
-        /// <summary>Volume of the per-note editor tick — audible over the track without masking it.</summary>
+        /// <summary>Volume of the per-word editor tick — audible over the track without masking it.</summary>
         private const double tick_volume = 0.6;
+
+        /// <summary>
+        /// Volume of the syllable-boundary sub-tick — clearly subordinate to the word tick, so the
+        /// word starts stay the dominant rhythm and the dotted-line subdivisions read as grace notes.
+        /// </summary>
+        private const double syllable_tick_volume = 0.35;
 
         /// <summary>Detects which word-unit starts the playhead swept across each running frame.</summary>
         private readonly EditorTickTracker tickTracker = new EditorTickTracker();
 
+        /// <summary>Same crossing detection for syllable-subdivision boundaries (the dotted lines).</summary>
+        private readonly EditorTickTracker syllableTickTracker = new EditorTickTracker();
+
         private Sample? tickSample;
+        private Sample? syllableTickSample;
 
         public LyricComposeScreen()
             : base(EditorScreenMode.Compose)
@@ -71,8 +82,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         [BackgroundDependencyLoader]
         private void load(AudioManager audio)
         {
-            // Short editor metronome click, shipped in typebeat.Game.Resources under Samples/UI.
+            // Short editor metronome click for word starts, and the lighter UI notch click for
+            // syllable boundaries — a distinct, softer timbre so the two never blur together.
+            // Both ship in typebeat.Game.Resources under Samples/UI.
             tickSample = audio.Samples.Get(@"UI/metronome-tick");
+            syllableTickSample = audio.Samples.Get(@"UI/notch-tick");
         }
 
         protected override Drawable CreateTimelineContent() => new Container
@@ -148,12 +162,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             }
         }
 
-        /// <summary>Height of the full-width word-block strip under the waveform timeline.</summary>
-        private const float word_strip_height = 90;
+        /// <summary>Height of the thin minimal boundaries band under the waveform timeline.</summary>
+        private const float boundaries_band_height = 26;
 
         /// <summary>
         /// Horizontal inset matching the shared timeline's right-hand columns (90 outer spacer
-        /// + 35 zoom buttons + 120 controls), so the strip's extents line up with the waveform
+        /// + 35 zoom buttons + 120 controls), so the band's extents line up with the waveform
         /// above it and both playheads sit on the same vertical while following playback.
         /// </summary>
         private const float timeline_right_inset = 245;
@@ -163,7 +177,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             RelativeSizeAxes = Axes.Both,
             RowDimensions = new[]
             {
-                new Dimension(GridSizeMode.Absolute, word_strip_height),
+                new Dimension(GridSizeMode.Absolute, boundaries_band_height),
                 new Dimension(GridSizeMode.Absolute, 6),
                 new Dimension(),
             },
@@ -171,13 +185,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 new Drawable[]
                 {
-                    // The word-block strip sits directly beneath the waveform so the two read as
-                    // one synchronized surface; the panels below give up this height for it.
+                    // The minimal boundaries band sits directly beneath the waveform so line/word
+                    // structure reads against the audio; the interactive word strip itself lives
+                    // in the detail panel, so the panels keep their height.
                     new Container
                     {
                         RelativeSizeAxes = Axes.Both,
                         Padding = new MarginPadding { Right = timeline_right_inset },
-                        Child = new LyricTimeline(),
+                        Child = new LineBoundariesBand(),
                     },
                 },
                 new[] { Empty() },
@@ -222,10 +237,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>
-        /// While the song plays, click once as the playhead reaches the start of each note (word unit).
-        /// Only crossings inside the current frame's window fire; paused/scrubbing and seek jumps are
-        /// suppressed by <see cref="EditorTickTracker"/>. Live hit objects are polled every frame so
-        /// concurrent line edits (undo storms rebuild instances) are always reflected.
+        /// While the song plays, click as the playhead reaches the start of each note (word unit),
+        /// and click the lighter sub-tick at each syllable-subdivision boundary (the dotted lines).
+        /// A time that is both plays only the word tick (<see cref="EditorTickTimes.Collect"/>
+        /// dedupes). Only crossings inside the current frame's window fire; paused/scrubbing and
+        /// seek jumps are suppressed by <see cref="EditorTickTracker"/>. Live hit objects are
+        /// polled every frame so concurrent line edits (undo storms rebuild instances) are always
+        /// reflected.
         /// </summary>
         private void updateNoteTicks()
         {
@@ -233,37 +251,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 // Paused/stopped: forget the frame time so resuming (or a scrub target) never bursts.
                 tickTracker.Reset();
+                syllableTickTracker.Reset();
                 return;
             }
 
-            var crossed = tickTracker.Advance(editorClock.CurrentTime, unitStartTimes());
+            var (wordStarts, syllableBoundaries) = EditorTickTimes.Collect(
+                EditorBeatmap.HitObjects.OfType<TypeBeatHitObject>().Select(o => o.Line));
 
-            for (int i = 0; i < crossed.Count; i++)
-                playTick();
+            double now = editorClock.CurrentTime;
+
+            var crossedWords = tickTracker.Advance(now, wordStarts);
+            var crossedSyllables = syllableTickTracker.Advance(now, syllableBoundaries);
+
+            for (int i = 0; i < crossedWords.Count; i++)
+                playTick(tickSample, tick_volume);
+
+            for (int i = 0; i < crossedSyllables.Count; i++)
+                playTick(syllableTickSample, syllable_tick_volume);
         }
 
-        /// <summary>
-        /// Every word-unit start time in the map, polled fresh (never cached — lines are rebuilt on
-        /// edit/undo). Structured so per-syllable ticks could be added by also yielding
-        /// <see cref="TimedUnit.SyllableBoundaries"/>; the task asks for note starts only.
-        /// </summary>
-        private IEnumerable<double> unitStartTimes()
+        private static void playTick(Sample? sample, double volume)
         {
-            foreach (var lineObject in EditorBeatmap.HitObjects.OfType<TypeBeatHitObject>())
-            {
-                foreach (var unit in lineObject.Line.Units)
-                    yield return unit.StartTime;
-            }
-        }
-
-        private void playTick()
-        {
-            var channel = tickSample?.GetChannel();
+            var channel = sample?.GetChannel();
 
             if (channel == null)
                 return;
 
-            channel.Volume.Value = tick_volume;
+            channel.Volume.Value = volume;
             channel.Play();
         }
 
