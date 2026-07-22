@@ -5,6 +5,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
+using osu.Framework.Audio;
+using osu.Framework.Audio.Sample;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Input.Events;
@@ -50,9 +52,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private LineListPanel lineList = null!;
         private TypeBeatHitObject? lastAutoScrolled;
 
+        /// <summary>Volume of the per-note editor tick — audible over the track without masking it.</summary>
+        private const double tick_volume = 0.6;
+
+        /// <summary>Detects which word-unit starts the playhead swept across each running frame.</summary>
+        private readonly EditorTickTracker tickTracker = new EditorTickTracker();
+
+        private Sample? tickSample;
+
         public LyricComposeScreen()
             : base(EditorScreenMode.Compose)
         {
+        }
+
+        [BackgroundDependencyLoader]
+        private void load(AudioManager audio)
+        {
+            // Short editor metronome click, shipped in typebeat.Game.Resources under Samples/UI.
+            tickSample = audio.Samples.Get(@"UI/metronome-tick");
         }
 
         protected override Drawable CreateTimelineContent() => new Container
@@ -148,7 +165,54 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 state.ReplayStopTime = null;
             }
 
+            updateNoteTicks();
             updateActiveLine();
+        }
+
+        /// <summary>
+        /// While the song plays, click once as the playhead reaches the start of each note (word unit).
+        /// Only crossings inside the current frame's window fire; paused/scrubbing and seek jumps are
+        /// suppressed by <see cref="EditorTickTracker"/>. Live hit objects are polled every frame so
+        /// concurrent line edits (undo storms rebuild instances) are always reflected.
+        /// </summary>
+        private void updateNoteTicks()
+        {
+            if (!editorClock.IsRunning)
+            {
+                // Paused/stopped: forget the frame time so resuming (or a scrub target) never bursts.
+                tickTracker.Reset();
+                return;
+            }
+
+            var crossed = tickTracker.Advance(editorClock.CurrentTime, unitStartTimes());
+
+            for (int i = 0; i < crossed.Count; i++)
+                playTick();
+        }
+
+        /// <summary>
+        /// Every word-unit start time in the map, polled fresh (never cached — lines are rebuilt on
+        /// edit/undo). Structured so per-syllable ticks could be added by also yielding
+        /// <see cref="TimedUnit.SyllableBoundaries"/>; the task asks for note starts only.
+        /// </summary>
+        private IEnumerable<double> unitStartTimes()
+        {
+            foreach (var lineObject in EditorBeatmap.HitObjects.OfType<TypeBeatHitObject>())
+            {
+                foreach (var unit in lineObject.Line.Units)
+                    yield return unit.StartTime;
+            }
+        }
+
+        private void playTick()
+        {
+            var channel = tickSample?.GetChannel();
+
+            if (channel == null)
+                return;
+
+            channel.Volume.Value = tick_volume;
+            channel.Play();
         }
 
         private void updateActiveLine()
