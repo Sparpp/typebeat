@@ -120,8 +120,10 @@ namespace typebeat.Game.Rulesets.TypeBeat
         };
 
         /// <summary>
-        /// Desync is punished with score/combo only; the sole fail condition is mashing —
-        /// <see cref="TypeBeatHealthProcessor.WRONG_KEY_FAIL_STREAK"/> consecutive wrong keys.
+        /// Health is a genuine HP pool (<see cref="TypeBeatHealthProcessor"/>): untyped cells drain
+        /// it and typing recovers it, so sustained AFK fails the play, while mashing
+        /// (<see cref="TypeBeatHealthProcessor.WRONG_KEY_FAIL_STREAK"/> consecutive wrong keys) fails
+        /// outright. Score/accuracy/combo are unaffected by health.
         /// </summary>
         public override HealthProcessor CreateHealthProcessor(double drainStartTime) => new TypeBeatHealthProcessor();
 

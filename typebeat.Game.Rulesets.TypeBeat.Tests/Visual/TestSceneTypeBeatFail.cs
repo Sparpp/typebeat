@@ -14,9 +14,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 {
     /// <summary>
     /// The mash-fail rule end-to-end through Player: 13 consecutive rejected wrong keys drain
-    /// the health processor to zero and fail the play; an accepted char resets the streak.
-    /// Keys are fed straight to the engine (its events drive the playfield wiring), which is
-    /// the same synchronous path raw keyboard input takes.
+    /// the health processor to zero and fail the play; an accepted char ends the streak and
+    /// recovers a little HP (the bar is now a genuine osu HP pool, not a streak mirror, so
+    /// recovery is a judgement increment rather than a snap back to full). Keys are fed straight
+    /// to the engine (its events drive the playfield wiring), which is the same synchronous path
+    /// raw keyboard input takes.
     /// </summary>
     public partial class TestSceneTypeBeatFail : PlayerTestScene
     {
@@ -72,8 +74,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("health nearly empty", () => Player.GameplayState.HealthProcessor.Health.Value < 0.1);
             AddAssert("not failed yet", () => !Player.GameplayState.HasFailed);
 
-            AddStep("correct key resets the streak", () => playfield.Engine.ProcessKey('a', 2000));
-            AddAssert("health restored", () => Player.GameplayState.HealthProcessor.Health.Value == 1);
+            double healthBeforeRecovery = 0;
+            AddStep("capture health", () => healthBeforeRecovery = Player.GameplayState.HealthProcessor.Health.Value);
+            AddStep("correct key ends the streak", () => playfield.Engine.ProcessKey('a', 2000));
+            AddAssert("health recovered", () => Player.GameplayState.HealthProcessor.Health.Value > healthBeforeRecovery);
             AddAssert("streak reset", () => playfield.Engine.ConsecutiveWrongKeys == 0);
 
             AddStep("mash 13 wrong keys", () =>
