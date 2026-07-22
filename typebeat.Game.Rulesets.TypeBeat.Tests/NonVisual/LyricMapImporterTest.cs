@@ -273,6 +273,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public async Task BootstrapReturnsOkWhenEnvironmentAlreadyReady()
+        {
+            // A built venv exists: bootstrap must short-circuit to Ok (Success) without spawning the
+            // setup process. This pins the "Ok result" contract the install notification keys its
+            // flip-to-completed on — see TypeBeatSettingsSubsection.startInstall.
+            string lab = Path.Combine(tempRoot, "lyriclab");
+            Directory.CreateDirectory(lab);
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "# stub");
+
+            string python = LyricMapImporter.PythonExeFor(lab);
+            Directory.CreateDirectory(Path.GetDirectoryName(python)!);
+            File.WriteAllText(python, "stub exe");
+            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+
+            bool anyProgress = false;
+            var result = await LyricMapImporter.BootstrapEnvironmentAsync(
+                lab, _ => anyProgress = true, CancellationToken.None).ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.True, result.Error);
+            Assert.That(anyProgress, Is.False, "a ready environment should not emit setup progress");
+        }
+
+        [Test]
+        public async Task BootstrapFailsWithClearErrorWhenNoSetupScript()
+        {
+            // No venv and no setup script to build one: bootstrap must fail with a descriptive error
+            // (not hang) so the notification surfaces a failure state rather than a stale line.
+            string lab = Path.Combine(tempRoot, "lyriclab");
+            Directory.CreateDirectory(lab);
+
+            var result = await LyricMapImporter.BootstrapEnvironmentAsync(
+                lab, _ => { }, CancellationToken.None).ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Error, Does.Contain(LyricMapImporter.SetupScriptName));
+        }
+
+        [Test]
         public void MetadataEscapingRoundTrips()
         {
             // '!' (the game's namesake) and unicode in artist/title must survive the writer + decoder.
