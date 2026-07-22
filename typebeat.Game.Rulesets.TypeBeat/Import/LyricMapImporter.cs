@@ -35,7 +35,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// </summary>
         public static readonly string[] LyricLabFolderNames = { "lyriclab", "typebeat-lyriclab" };
 
-        public const string SetupScriptName = "setup.ps1";
+        /// <summary>
+        /// Environment bootstrap script shipped beside the aligner: PowerShell on Windows,
+        /// the POSIX shell counterpart on Linux/macOS.
+        /// </summary>
+        public static string SetupScriptName => OperatingSystem.IsWindows() ? "setup.ps1" : "setup.sh";
 
         private const string aligner_script = "align_lyrics.py";
 
@@ -104,10 +108,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             => !string.IsNullOrEmpty(dir) && File.Exists(Path.Combine(dir, aligner_script));
 
         public static string PythonExeFor(string lyricLabDir)
-            => Path.Combine(lyricLabDir, ".venv", "Scripts", "python.exe");
+            => OperatingSystem.IsWindows()
+                ? Path.Combine(lyricLabDir, ".venv", "Scripts", "python.exe")
+                : Path.Combine(lyricLabDir, ".venv", "bin", "python");
 
         /// <summary>
-        /// One-time environment bootstrap: runs the component's setup.ps1 (venv + pinned packages,
+        /// One-time environment bootstrap: runs the component's setup script (venv + pinned packages,
         /// a multi-GB first-time download). No-op when the venv already exists. Not auto-invoked by
         /// <see cref="BuildOszAsync"/> (which prefers the instant LRC fallback); exposed for an
         /// explicit "set up aligner" action.
@@ -126,7 +132,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             var psi = new ProcessStartInfo
             {
-                FileName = "powershell.exe",
                 WorkingDirectory = lyricLabDir,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -134,11 +139,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 CreateNoWindow = true,
             };
 
-            psi.ArgumentList.Add("-NoProfile");
-            psi.ArgumentList.Add("-ExecutionPolicy");
-            psi.ArgumentList.Add("Bypass");
-            psi.ArgumentList.Add("-File");
-            psi.ArgumentList.Add(script);
+            if (OperatingSystem.IsWindows())
+            {
+                psi.FileName = "powershell.exe";
+                psi.ArgumentList.Add("-NoProfile");
+                psi.ArgumentList.Add("-ExecutionPolicy");
+                psi.ArgumentList.Add("Bypass");
+                psi.ArgumentList.Add("-File");
+                psi.ArgumentList.Add(script);
+            }
+            else
+            {
+                // POSIX shells run the .sh bootstrap directly. Invoking through "bash" (rather than
+                // executing the script path) means we don't depend on the executable bit surviving a
+                // checkout or zip extraction.
+                psi.FileName = "bash";
+                psi.ArgumentList.Add(script);
+            }
 
             (int exitCode, string tail) = await RunProcessAsync(psi, progress, token).ConfigureAwait(false);
 
@@ -330,7 +347,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             {
                 progress(lyricLabDir == null
                     ? "no local aligner environment found"
-                    : "local aligner environment not set up (run lyriclab/setup.ps1 for word timing)");
+                    : $"local aligner environment not set up (run lyriclab/{SetupScriptName} for word timing)");
             }
 
             // Server-side alignment: same word-level quality, no local Python/torch needed.
@@ -358,7 +375,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                       + "[mm:ss.xx] line timestamps to fall back on. Sign in to type!beat for "
                       + "server-side alignment, or add line stamps to the lyrics."
                     : "no local aligner is available and the lyrics have no [mm:ss.xx] line "
-                      + "timestamps to fall back on. Set up the aligner (lyriclab/setup.ps1) or "
+                      + $"timestamps to fall back on. Set up the aligner (lyriclab/{SetupScriptName}) or "
                       + "add line stamps to the lyrics.";
 
                 return (LyricImportResult.Fail(reason), null);
