@@ -36,8 +36,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
     public static class InstrumentalGaps
     {
-        /// <summary>Only instrumental stretches at least this long qualify for a skip.</summary>
+        /// <summary>
+        /// Only instrumental stretches at least this long qualify for a skip. Measured as the
+        /// PERCEIVED stretch — the previous line's <see cref="TypingLine.SingEndTime"/> to the next
+        /// line's <see cref="TypingLine.FirstVocalTime"/> ("sections defined by lack of lyric
+        /// line") — NOT as the mechanical seal→activation window, which is shorter by the seal
+        /// grace plus the cue lead (~1.5–3 s) and made real ~10–11 s gaps silently unskippable.
+        /// </summary>
         public const double MIN_GAP_MS = 10_000;
+
+        /// <summary>
+        /// The skip period the overlay gets (seal → skip target) must be at least this long to be
+        /// usable; matches MasterGameplayClockContainer.MINIMUM_SKIP_TIME. A qualifying perceived
+        /// gap whose mechanical window is squeezed below this (late line boundary pushing the seal
+        /// almost onto the skip target) is dropped rather than flashing an unusable overlay.
+        /// </summary>
+        public const double MIN_SKIP_WINDOW_MS = 1_000;
 
         /// <summary>
         /// How far before the next line's activation the skip lands the player. This reproduces the
@@ -51,10 +65,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>
         /// The instrumental gaps between consecutive lines that qualify for a mid-song skip.
-        /// A gap runs from the earlier line's seal (<see cref="TypingLine.EndTime"/> +
-        /// <see cref="TypingLine.SealGraceMs"/>, the last instant it could still be typeable) to the
-        /// next line's <see cref="TypingLine.ActivationTime"/>. The trailing outro after the last
-        /// line is never a gap (there is no next line).
+        /// QUALIFICATION is on the perceived stretch (previous <see cref="TypingLine.SingEndTime"/>
+        /// → next <see cref="TypingLine.FirstVocalTime"/> ≥ <see cref="MIN_GAP_MS"/>); the gap's
+        /// MECHANICAL window is unchanged — it runs from the earlier line's seal
+        /// (<see cref="TypingLine.EndTime"/> + <see cref="TypingLine.SealGraceMs"/>, the last
+        /// instant it could still be typeable) to the next line's
+        /// <see cref="TypingLine.ActivationTime"/>, and must leave a usable skip period
+        /// (≥ <see cref="MIN_SKIP_WINDOW_MS"/> between seal and skip target). The trailing outro
+        /// after the last line is never a gap (there is no next line).
         /// </summary>
         public static IReadOnlyList<InstrumentalGap> Compute(IReadOnlyList<TypingLine> lines)
         {
@@ -65,11 +83,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             for (int i = 0; i < lines.Count - 1; i++)
             {
+                double perceived = lines[i + 1].FirstVocalTime - lines[i].SingEndTime;
+
+                if (perceived < MIN_GAP_MS)
+                    continue;
+
                 double sealTime = lines[i].EndTime + lines[i].SealGraceMs;
                 double activation = lines[i + 1].ActivationTime;
+                double skipTarget = activation - SKIP_LEAD_MS;
 
-                if (activation - sealTime >= MIN_GAP_MS)
-                    gaps.Add(new InstrumentalGap(sealTime, activation, activation - SKIP_LEAD_MS));
+                if (skipTarget - sealTime >= MIN_SKIP_WINDOW_MS)
+                    gaps.Add(new InstrumentalGap(sealTime, activation, skipTarget));
             }
 
             return gaps;

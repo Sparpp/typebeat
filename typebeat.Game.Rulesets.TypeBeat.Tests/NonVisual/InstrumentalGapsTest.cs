@@ -39,21 +39,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             => line(text, start, end, start + 400, unit(text, start, start + 400));
 
         [Test]
-        public void GapExactly10sQualifies()
+        public void PerceivedGapExactly10sQualifies()
         {
-            // Line A seals at 2000 (grace 0). Line B activates at its StartTime 12000
-            // (first target 12000, cue lead would be 10500, clamped up to StartTime).
-            // Gap = 12000 - 2000 = 10000 == MIN_GAP_MS -> qualifies.
+            // Line A's vocals end at 2000 (SingEnd); line B's first vocal is 12000. Perceived
+            // instrumental stretch = 12000 - 2000 = 10000 == MIN_GAP_MS -> qualifies. The
+            // mechanical window is unchanged: seal 2000 (grace 0) -> activation 12000 (first
+            // target 12000, cue lead clamped up to StartTime).
             var l = lines(
-                line("ab", 1000, 2000, 1800, unit("ab", 1000, 1800)),
+                line("ab", 1000, 2000, 2000, unit("ab", 1000, 1800)),
                 line("cd", 12000, 13000, 13000, unit("cd", 12000, 13000)));
 
             Assert.AreEqual(2000, l[0].EndTime + l[0].SealGraceMs, "line A seal");
             Assert.AreEqual(12000, l[1].ActivationTime, "line B activation");
+            Assert.AreEqual(12000, l[1].FirstVocalTime, "line B first vocal");
 
             var gaps = InstrumentalGaps.Compute(l);
 
-            Assert.AreEqual(1, gaps.Count, "exactly-10s gap qualifies");
+            Assert.AreEqual(1, gaps.Count, "exactly-10s perceived gap qualifies");
             Assert.AreEqual(2000, gaps[0].SealTime);
             Assert.AreEqual(12000, gaps[0].ActivationTime);
             Assert.AreEqual(10000, gaps[0].Duration);
@@ -62,23 +64,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void GapJustUnder10sDoesNotQualify()
+        public void PerceivedGapJustUnder10sDoesNotQualify()
         {
-            // Line B activates at 11990 -> gap = 9990 < 10000 -> no skip.
+            // Vocals end 2000, next vocals 11990 -> perceived 9990 < 10000 -> no skip.
             var gaps = InstrumentalGaps.Compute(lines(
-                line("ab", 1000, 2000, 1800, unit("ab", 1000, 1800)),
+                line("ab", 1000, 2000, 2000, unit("ab", 1000, 1800)),
                 line("cd", 11990, 13000, 13000, unit("cd", 11990, 13000))));
 
-            Assert.AreEqual(0, gaps.Count, "9.99s gap does not qualify");
+            Assert.AreEqual(0, gaps.Count, "9.99s perceived gap does not qualify");
         }
 
         [Test]
-        public void SealGraceIsCountedIntoTheGapStart()
+        public void SealGraceSetsTheWindowStartButDoesNotDisqualify()
         {
-            // Line A's single target sits ON its EndTime boundary -> min boundary grace 250 ms.
-            // Seal = 2000 + 250 = 2250. Line B activates at 12000. Gap = 9750 < 10000 -> no skip,
-            // whereas measuring from EndTime (2000) would have been exactly 10000. Proves the seal
-            // grace (the last typeable instant) is included in the gap start.
+            // Line A's single target sits ON its EndTime boundary -> min boundary grace 250 ms, so
+            // the seal is 2250. Under the old seal->activation qualification this 10s perceived gap
+            // (SingEnd 2000 -> first vocal 12000) came out at 9750 and was silently unskippable —
+            // the "immortal flame" class of bug. Qualification now uses the perceived stretch, so
+            // it qualifies; the grace still (correctly) delays the overlay window's start.
             var l = lines(
                 line("a", 1000, 2000, 2000, unit("a", 2000, 2000)),
                 line("cd", 12000, 13000, 13000, unit("cd", 12000, 13000)));
@@ -87,7 +90,47 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var gaps = InstrumentalGaps.Compute(l);
 
-            Assert.AreEqual(0, gaps.Count, "grace pushes the seal past the 10s threshold");
+            Assert.AreEqual(1, gaps.Count, "perceived 10s gap qualifies despite the grace");
+            Assert.AreEqual(2250, gaps[0].SealTime, "grace still delays the window start");
+            Assert.AreEqual(9000, gaps[0].SkipTarget);
+        }
+
+        [Test]
+        public void PerceivedGapQualifiesDespiteShortMechanicalWindow()
+        {
+            // The user-reported shape: vocals end at 50000, next vocals at 60500 -> perceived
+            // 10500 >= 10s. But the line boundary sits late (line A's window runs to 51000), so the
+            // mechanical window is only seal 51000 -> activation 59000 = 8000 — under the OLD rule
+            // this never qualified and no overlay was ever created. Now it qualifies; the skip
+            // period (51000 -> 56000) is comfortably usable.
+            var l = lines(
+                line("ab", 49000, 51000, 50000, unit("ab", 49000, 50000)),
+                line("cd", 51000, 62000, 62000, unit("cd", 60500, 62000)));
+
+            Assert.AreEqual(59000, l[1].ActivationTime, "activation = first vocal - cue lead");
+
+            var gaps = InstrumentalGaps.Compute(l);
+
+            Assert.AreEqual(1, gaps.Count, "perceived >=10s gap qualifies even with a short mechanical window");
+            Assert.AreEqual(51000, gaps[0].SealTime);
+            Assert.AreEqual(56000, gaps[0].SkipTarget);
+        }
+
+        [Test]
+        public void UnusableSkipWindowIsDropped()
+        {
+            // Perceived gap qualifies (2000 -> 12000 = 10000), but the line boundary sits so late
+            // (line A's window runs to 7000) that the skip period would be seal 7000 -> skip target
+            // 7500 = 500 ms < MIN_SKIP_WINDOW_MS. Dropped rather than flashing an unusable overlay.
+            var l = lines(
+                line("ab", 1000, 7000, 2000, unit("ab", 1000, 1800)),
+                line("cd", 7000, 13000, 13000, unit("cd", 12000, 13000)));
+
+            Assert.AreEqual(10500, l[1].ActivationTime, "activation = first vocal - cue lead");
+
+            var gaps = InstrumentalGaps.Compute(l);
+
+            Assert.AreEqual(0, gaps.Count, "sub-second skip period is not worth an overlay");
         }
 
         [Test]

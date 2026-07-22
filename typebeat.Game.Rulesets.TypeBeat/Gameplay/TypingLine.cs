@@ -83,6 +83,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public double ActivationTime { get; }
 
         /// <summary>
+        /// When this line's vocals actually begin: the first typeable cell's target time, falling
+        /// back to <see cref="StartTime"/> for a line with no typeable cells. Together with the
+        /// previous line's <see cref="SingEndTime"/> this measures the *perceived* instrumental
+        /// stretch between two lines (what a player hears as "no lyrics").
+        /// </summary>
+        public double FirstVocalTime { get; }
+
+        /// <summary>
         /// Extra typeable time past <see cref="EndTime"/> before the engine may force-seal an
         /// incomplete line. Positive when source vocals overrun the boundary (overlapping lines)
         /// or when the last cell's target sits on the boundary itself.
@@ -132,6 +140,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             ActivationTime = firstTypeableTarget is double first
                 ? Math.Max(StartTime, first - TypingEngine.CUE_LEAD_MS)
                 : StartTime;
+
+            FirstVocalTime = firstTypeableTarget ?? StartTime;
 
             // Pre-build the sung-position polyline, clamping times monotonic.
             sungPoints = new List<(double, double)>(typeable + 2) { (StartTime, 0) };
