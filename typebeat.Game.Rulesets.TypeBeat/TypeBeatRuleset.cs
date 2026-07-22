@@ -69,6 +69,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
                 new TypeBeatModDoubleTime(),
                 new TypeBeatModNightcore(),
                 new TypeBeatModFlashlight(),
+                new TypeBeatModLiterate(),
             },
             ModType.Automation => new Mod[]
             {

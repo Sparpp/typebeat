@@ -28,15 +28,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
     /// <summary>
     /// Pure static map from a <see cref="Key"/> to the single character it produces on the restricted
-    /// typing surface: letters a-z (case-insensitive, always lowercase), digits 0-9 (top row and keypad),
-    /// and space. Everything else maps to nothing. This is the one-function seam for a future
-    /// <c>TextInputSource</c> swap; it contains no modifier logic — callers filter Ctrl/Alt.
+    /// typing surface: letters a-z (lower-case by default, upper-cased when <c>shift</c> is held),
+    /// digits 0-9 (top row and keypad), and space. Everything else maps to nothing. This is the
+    /// one-function seam for a future <c>TextInputSource</c> swap; the only modifier it interprets is
+    /// Shift (for letter case) — callers still filter Ctrl/Alt. Shift is applied AFTER the layout
+    /// remap, so the produced capital always matches the keycap the player reads (e.g. AZERTY Q → 'A').
+    /// Only letters carry case; digits and space ignore Shift. Case only matters to gameplay under the
+    /// Literate mod (<see cref="TypingEngine.CaseSensitive"/>); otherwise the caret folds it away.
     /// </summary>
     public static class KeyCharMap
     {
-        public static bool TryMap(Key key, out char c) => TryMap(key, KeyboardLayout.Qwerty, out c);
+        public static bool TryMap(Key key, out char c) => TryMap(key, KeyboardLayout.Qwerty, false, out c);
 
-        public static bool TryMap(Key key, KeyboardLayout layout, out char c)
+        public static bool TryMap(Key key, KeyboardLayout layout, out char c) => TryMap(key, layout, false, out c);
+
+        public static bool TryMap(Key key, KeyboardLayout layout, bool shift, out char c)
+        {
+            if (!tryMapLower(key, layout, out c))
+                return false;
+
+            // Shift upper-cases letters only; digits/space have no case. In case-insensitive
+            // play the caret folds this back to lower-case, so it is a no-op there; under the
+            // Literate mod it is what lets the player produce the capitals the target demands.
+            if (shift && c >= 'a' && c <= 'z')
+                c = (char)(c - ('a' - 'A'));
+
+            return true;
+        }
+
+        private static bool tryMapLower(Key key, KeyboardLayout layout, out char c)
         {
             // Keys arrive by PHYSICAL position, so on non-QWERTY layouts the keycap a player
             // reads can differ from the position's QWERTY letter — remap so what they press

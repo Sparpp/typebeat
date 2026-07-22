@@ -104,5 +104,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(KeyCharMap.TryMap(Key.Y, out char y));
             Assert.AreEqual('y', y);
         }
+
+        [Test]
+        public void ShiftUpperCasesLettersAfterLayoutRemap()
+        {
+            // Shift on a letter produces the capital (needed for the Literate mod).
+            Assert.IsTrue(KeyCharMap.TryMap(Key.A, KeyboardLayout.Qwerty, shift: true, out char a));
+            Assert.AreEqual('A', a);
+
+            // Case is applied AFTER the layout remap: AZERTY's physical Q keycap is 'a', so
+            // Shift+Q yields 'A' (the capital the player reads), not 'Q'.
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Q, KeyboardLayout.Azerty, shift: true, out char azertyQ));
+            Assert.AreEqual('A', azertyQ);
+
+            // QWERTZ's physical Y keycap is 'z', so Shift+Y yields 'Z'.
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Y, KeyboardLayout.Qwertz, shift: true, out char qwertzY));
+            Assert.AreEqual('Z', qwertzY);
+        }
+
+        [Test]
+        public void ShiftLeavesDigitsAndSpaceUnchanged()
+        {
+            // Digits and space have no case; Shift must not alter them (a stray Shift never
+            // turns a space/number into an un-typeable char).
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Number5, KeyboardLayout.Qwerty, shift: true, out char five));
+            Assert.AreEqual('5', five);
+
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Keypad0, KeyboardLayout.Qwerty, shift: true, out char zero));
+            Assert.AreEqual('0', zero);
+
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Space, KeyboardLayout.Qwerty, shift: true, out char space));
+            Assert.AreEqual(' ', space);
+        }
     }
 }
