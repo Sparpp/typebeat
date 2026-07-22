@@ -4,6 +4,7 @@
 #nullable disable
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -156,6 +157,8 @@ namespace typebeat.Game.Screens.Play
 
         protected SkipOverlay SkipIntroOverlay { get; private set; }
         private SkipOverlay skipOutroOverlay;
+
+        private readonly List<SkipOverlay> skipInstrumentalOverlays = new List<SkipOverlay>();
 
         protected ScoreProcessor ScoreProcessor { get; private set; }
 
@@ -527,10 +530,31 @@ namespace typebeat.Game.Screens.Play
                 },
             };
 
+            // Mid-song skips for long purely-instrumental stretches (ruleset-provided). Each reuses the
+            // intro SkipOverlay machinery, but its skip period is deferred to the instrumental gap.
+            foreach (var section in DrawableRuleset.InstrumentalSkipSections)
+            {
+                // Anchor the overlay so its fade-out point coincides with the seek target, exactly as
+                // the intro overlay's does (fadeOutBeginTime == GameplayStartTime - MINIMUM_SKIP_TIME).
+                double anchor = section.SkipTargetTime + MasterGameplayClockContainer.MINIMUM_SKIP_TIME;
+                double skipTarget = section.SkipTargetTime;
+
+                var overlay = new SkipOverlay(anchor, skipStartTime: section.GapStartTime)
+                {
+                    RequestSkip = () => PerformSkipTo(skipTarget),
+                };
+
+                skipInstrumentalOverlays.Add(overlay);
+                container.Add(overlay);
+            }
+
             if (!Configuration.AllowSkipping || !DrawableRuleset.AllowGameplayOverlays)
             {
                 SkipIntroOverlay.Expire();
                 skipOutroOverlay.Expire();
+
+                foreach (var overlay in skipInstrumentalOverlays)
+                    overlay.Expire();
             }
 
             return container;
@@ -729,6 +753,44 @@ namespace typebeat.Game.Screens.Play
 
             // return samplePlaybackDisabled.Value to what is defined by the beatmap's current state
             updateSampleDisabledState();
+        }
+
+        /// <summary>
+        /// Skip forward to a specific mid-song time (e.g. past a long instrumental gap).
+        /// </summary>
+        /// <remarks>
+        /// Mirrors <see cref="PerformIntroSkip"/> (same sample handling and clock seek), but seeks to an
+        /// explicit target rather than <see cref="IGameplayClock.GameplayStartTime"/>. Unlike the intro
+        /// skip — which lands before <see cref="IGameplayClock.GameplayStartTime"/> where the frame-stable
+        /// clock jumps freely — a jump past that point is otherwise clamped/rejected by frame stability, so
+        /// (as in <see cref="SetGameplayStartTime"/>) frame stability is dropped for the seek and restored a
+        /// frame later. Only used across instrumental gaps that contain no judgements, so the non-frame-stable
+        /// jump has nothing to mis-apply.
+        /// </remarks>
+        /// <param name="skipTarget">The destination time to seek to.</param>
+        protected void PerformSkipTo(double skipTarget)
+        {
+            if (GameplayClockContainer.CurrentTime >= skipTarget)
+                return;
+
+            if (frameStablePlaybackResetDelegate?.Cancelled == false && !frameStablePlaybackResetDelegate.Completed)
+                frameStablePlaybackResetDelegate.RunTask();
+
+            // stop currently playing samples and perform the skip (mirrors PerformIntroSkip).
+            samplePlaybackDisabled.Value = true;
+
+            bool wasFrameStable = DrawableRuleset.FrameStablePlayback;
+            DrawableRuleset.FrameStablePlayback = false;
+
+            GameplayClockContainer.Seek(skipTarget);
+
+            // Delay restoring frame-stable playback for one frame to give the FrameStabilityContainer a
+            // chance to seek, then return sample playback to what the beatmap's current state dictates.
+            frameStablePlaybackResetDelegate = ScheduleAfterChildren(() =>
+            {
+                DrawableRuleset.FrameStablePlayback = wasFrameStable;
+                updateSampleDisabledState();
+            });
         }
 
         /// <summary>

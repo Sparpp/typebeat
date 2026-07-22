@@ -13,6 +13,7 @@ using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Objects.Drawables;
 using typebeat.Game.Rulesets.UI;
+using typebeat.Game.Screens.Play;
 
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
@@ -27,6 +28,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// LineIndex order of the hit objects, re-normalized to 0..n-1 for consistency.
         /// </summary>
         public TypingEngine Engine => engine ??= createEngine();
+
+        private IReadOnlyList<InstrumentalSkipSection>? instrumentalSkipSections;
+
+        /// <summary>
+        /// Long purely-instrumental stretches between lyric lines (see <see cref="InstrumentalGaps"/>),
+        /// mapped to the shared skip-section shape <see cref="Player"/> consumes to offer a mid-song
+        /// skip. The seek target keeps the same run-up before the next line that the intro skip leaves
+        /// before the first line.
+        /// </summary>
+        public override IReadOnlyList<InstrumentalSkipSection> InstrumentalSkipSections =>
+            instrumentalSkipSections ??= InstrumentalGaps.Compute(Engine.Lines)
+                                                         .Select(g => new InstrumentalSkipSection(g.SealTime, g.SkipTarget))
+                                                         .ToArray();
 
         public DrawableTypeBeatRuleset(TypeBeatRuleset ruleset, IBeatmap beatmap, IReadOnlyList<Mod>? mods = null)
             : base(ruleset, beatmap, mods)

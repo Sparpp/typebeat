@@ -39,6 +39,15 @@ namespace typebeat.Game.Screens.Play
 
         private readonly double startTime;
 
+        /// <summary>
+        /// For a deferred (mid-song) skip: the time at which the skip period begins. Before it the
+        /// overlay stays fully hidden; the button is only offered from here until <see cref="fadeOutBeginTime"/>.
+        /// <c>null</c> for the intro/outro overlays, which begin their skip period at load.
+        /// </summary>
+        private readonly double? skipStartTime;
+
+        private bool skipPeriodEntered;
+
         public Action RequestSkip;
 
         protected FadeContainer FadingContent { get; private set; }
@@ -67,9 +76,15 @@ namespace typebeat.Game.Screens.Play
         /// Displays a skip overlay, giving the user the ability to skip forward.
         /// </summary>
         /// <param name="startTime">The time at which gameplay begins to appear.</param>
-        public SkipOverlay(double startTime)
+        /// <param name="skipStartTime">
+        /// For a deferred (mid-song) skip, the time at which the skip period begins; the overlay stays
+        /// hidden until then. <c>null</c> (default) for the intro/outro overlays, whose skip period
+        /// begins at load.
+        /// </param>
+        public SkipOverlay(double startTime, double? skipStartTime = null)
         {
             this.startTime = startTime;
+            this.skipStartTime = skipStartTime;
 
             RelativePositionAxes = Axes.Both;
             RelativeSizeAxes = Axes.X;
@@ -136,7 +151,9 @@ namespace typebeat.Game.Screens.Play
         {
             base.LoadComplete();
 
-            displayTime = gameplayClock.CurrentTime;
+            // A deferred (mid-song) skip's period begins at its explicit start time; the intro/outro
+            // overlays begin theirs at load.
+            displayTime = skipStartTime ?? gameplayClock.CurrentTime;
 
             // skip is not required if there is no extra "empty" time to skip.
             // we may need to remove this if rewinding before the initial player load position becomes a thing.
@@ -152,7 +169,9 @@ namespace typebeat.Game.Screens.Play
                 RequestSkip?.Invoke();
             };
 
-            FadingContent.TriggerShow();
+            // A deferred skip shows itself when its period is reached (see Update); load-time skips show now.
+            if (skipStartTime == null)
+                FadingContent.TriggerShow();
         }
 
         /// <summary>
@@ -186,6 +205,21 @@ namespace typebeat.Game.Screens.Play
             // Avoid div-by-zero below.
             if (fadeOutBeginTime <= displayTime)
                 return;
+
+            // A deferred (mid-song) skip stays fully hidden until its skip period begins, then fades
+            // its button in once — the same entrance the intro overlay gets at load.
+            if (skipStartTime != null && gameplayClock.CurrentTime < skipStartTime.Value)
+            {
+                inSkipPeriod.Value = false;
+                buttonContainer.State.Value = Visibility.Hidden;
+                return;
+            }
+
+            if (skipStartTime != null && !skipPeriodEntered)
+            {
+                skipPeriodEntered = true;
+                FadingContent.TriggerShow();
+            }
 
             double progress = Math.Max(0, 1 - (gameplayClock.CurrentTime - displayTime) / (fadeOutBeginTime - displayTime));
 
