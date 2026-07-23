@@ -324,7 +324,9 @@ namespace typebeat.Game.Screens.Play
                 FailOverlay = new FailOverlay
                 {
                     SaveReplay = Configuration.AllowUserInteraction ? async () => await prepareAndImportScoreAsync(true).ConfigureAwait(false) : null,
-                    OnRetry = Configuration.AllowUserInteraction ? () => Restart() : null,
+                    // Retrying the same map with the same mods is a quick restart: skip the full
+                    // PlayerLoader interstitial (metadata, disclaimers, intro) and relaunch directly.
+                    OnRetry = Configuration.AllowUserInteraction ? () => Restart(true) : null,
                     OnQuit = () => PerformExitWithConfirmation(),
                 },
             });
@@ -524,7 +526,8 @@ namespace typebeat.Game.Screens.Play
                     {
                         OnResume = Resume,
                         Retries = RestartCount,
-                        OnRetry = () => Restart(),
+                        // Same map, same mods: relaunch straight into gameplay via the quick restart path.
+                        OnRetry = () => Restart(true),
                         OnQuit = () => PerformExitWithConfirmation(),
                     },
                 },
