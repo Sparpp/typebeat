@@ -37,6 +37,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             apply(health, HitResult.Miss);
             Assert.AreEqual(1 - TypeBeatHealthProcessor.MISS_HEALTH_DRAIN, health.Health.Value, 1e-9);
 
+            // MISS_HEALTH_DRAIN (0.04) now exceeds GREAT_HEALTH_INCREASE (0.03), so a single miss no
+            // longer undoes in one Great; two Greats overshoot past full, which is what exercises the
+            // clamp this test pins.
+            apply(health, HitResult.Great);
             apply(health, HitResult.Great);
             // Recovery caps at the full bar.
             Assert.AreEqual(1.0, health.Health.Value, 1e-9);
