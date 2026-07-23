@@ -52,6 +52,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private Container lineContainer = null!;
         private LyricLineDisplay[] displays = Array.Empty<LyricLineDisplay>();
+
+        // Flashlight stream geometry, fixed once the lines are known: countable (typeable, non-space)
+        // char count per line, and its running total before each line (countableBase[k] = sum of
+        // counts for lines 0..k-1). Together they place any caret in the one continuous countable
+        // stream so the visible window can spill across line boundaries.
+        private int[] lineCountableCounts = Array.Empty<int>();
+        private int[] countableBase = Array.Empty<int>();
         private Caret playerCaret = null!;
         private Caret sungCaret = null!;
         private Box approachBar = null!;   // first-word cue (50% opaque)
@@ -79,6 +86,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             var lines = engine.Lines;
             displays = new LyricLineDisplay[lines.Count];
+
+            // Precompute the flashlight stream geometry (immutable for the map's lifetime).
+            lineCountableCounts = new int[lines.Count];
+            countableBase = new int[lines.Count];
+            int runningCountable = 0;
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                countableBase[i] = runningCountable;
+                int c = 0;
+
+                foreach (var cell in lines[i].Cells)
+                {
+                    if (LyricLineDisplay.IsCountable(cell))
+                        c++;
+                }
+
+                lineCountableCounts[i] = c;
+                runningCountable += c;
+            }
 
             // The gameplay typing font is an accessibility pick (OpenDyslexic / a system font) applied
             // only to the lyric stack. Resolved once here: an unset/unknown/failed font stays null so
@@ -314,12 +341,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
-        /// Flashlight mod: light only a window of characters around the caret on the active line and
-        /// hide the rest of the stack. No-op when the mod is off (radius 0). During pre-roll and the
-        /// dead zones between lines no line is active, so every line hides, keeping with the mod's
-        /// spirit (you cannot read ahead through an instrumental); the approach cue still counts the
-        /// next line in, so the screen is never featureless. Purely visual, so replays and autoplay
-        /// (which advance the same caret) light up identically and judgement is unaffected.
+        /// Flashlight mod: light a window of a fixed number of countable chars either side of the
+        /// caret, taken over the WHOLE stack read as one continuous countable stream, so the budget
+        /// spills across line boundaries (a line's tail and the next line's head can be lit at once).
+        /// No-op when the mod is off (radius 0).
+        ///
+        /// While a line is active the window centres on its live caret. While no line is active but a
+        /// line's approach cue is counting it in, the window anchors on that line's first char, so the
+        /// player can read the letters they are about to type (and the tail of the line they just
+        /// finished) before it activates; this covers pre-roll before the first line too. A dead zone
+        /// with no cue showing (a long instrumental gap) stays fully dark, which is on-theme. Purely
+        /// visual, so replays and autoplay light up identically and judgement is unaffected.
         /// </summary>
         private void updateFlashlight()
         {
@@ -329,14 +361,61 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 return;
 
             int active = engine.ActiveLineIndex;
+            int caretStreamSlot;
+            bool haveWindow;
+
+            if (active >= 0 && !engine.IsFinished)
+            {
+                caretStreamSlot = streamSlotOf(active, engine.CaretIndex);
+                haveWindow = true;
+            }
+            else if (!engine.IsFinished && approachCueTargetLine >= 0 && approachCueTargetLine < displays.Length)
+            {
+                // Cue-in: no line is active, but one is being counted in. Anchor at its first char.
+                caretStreamSlot = streamSlotOf(approachCueTargetLine, 0);
+                haveWindow = true;
+            }
+            else
+            {
+                caretStreamSlot = 0;
+                haveWindow = false;
+            }
+
+            if (!haveWindow)
+            {
+                foreach (var d in displays)
+                    d.HideForFlashlight();
+
+                return;
+            }
+
+            var windows = LyricLineDisplay.ComputeStreamWindows(lineCountableCounts, caretStreamSlot, radius);
 
             for (int k = 0; k < displays.Length; k++)
             {
-                if (k == active && !engine.IsFinished)
-                    displays[k].SetFlashlightWindow(engine.CaretIndex, radius);
+                if (!engine.IsFinished && !windows[k].IsHidden)
+                    displays[k].SetFlashlightWindow(windows[k], showSweep: k == active);
                 else
                     displays[k].HideForFlashlight();
             }
+        }
+
+        /// <summary>The caret's slot in the continuous countable stream: every countable char in the
+        /// lines before <paramref name="lineIndex"/>, plus the countable chars strictly before
+        /// <paramref name="caretCellIndex"/> within that line.</summary>
+        private int streamSlotOf(int lineIndex, int caretCellIndex)
+        {
+            var cells = engine.Lines[lineIndex].Cells;
+            int caret = Math.Clamp(caretCellIndex, 0, cells.Count);
+            int before = 0;
+
+            for (int i = 0; i < caret; i++)
+            {
+                if (LyricLineDisplay.IsCountable(cells[i]))
+                    before++;
+            }
+
+            return countableBase[lineIndex] + before;
         }
 
         /// <summary>
