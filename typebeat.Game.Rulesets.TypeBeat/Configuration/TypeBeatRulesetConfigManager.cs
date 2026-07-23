@@ -27,14 +27,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// Whether the locally installed lyriclab auto-aligner is used for imports. On by default:
         /// when an installed environment exists the local aligner is preferred over the server one;
         /// when off (or nothing is installed) imports use the server aligner / LRC fallback. This
-        /// only decides which aligner runs — it never triggers the multi-GB install, which stays an
+        /// only decides which aligner runs; it never triggers the multi-GB install, which stays an
         /// explicit action (the first-run prompt and the Settings button).
         /// </summary>
         LocalAlignerEnabled,
 
         /// <summary>
         /// Player caret rendering style (monkeytype's caret options). Applies to the typing
-        /// caret only — the sung caret is a position marker and stays a beam.
+        /// caret only; the sung caret is a position marker and stays a beam.
         /// </summary>
         CaretStyle,
 
@@ -59,7 +59,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// characters). <see cref="TypeBeatRulesetConfigManager.LYRIC_FONT_DEFAULT"/> keeps the game's
         /// built-in font; <c>"OpenDyslexic"</c> selects the bundled accessibility face; any other value
         /// is treated as an installed system-font family. Unknown or failed fonts fall back to the
-        /// default. Only the typing surface is affected — the rest of the UI keeps its default fonts.
+        /// default. Only the typing surface is affected; the rest of the UI keeps its default fonts.
         /// </summary>
         LyricFont
     }

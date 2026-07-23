@@ -20,10 +20,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
     /// <summary>
     /// Renders one <see cref="TypingLine"/> as per-cell <see cref="OsuSpriteText"/>s at the
-    /// font's natural (proportional) advances — every glyph is measured individually, so the
+    /// font's natural (proportional) advances; every glyph is measured individually, so the
     /// caret/sweep math never assumes a constant advance. Per-cell colouring, judgement
     /// feedback (Perfect pop / Wrong shake), and the sung-position underline sweep. State is
-    /// read pull-based via <see cref="RefreshCell"/> — no engine reference is held.
+    /// read pull-based via <see cref="RefreshCell"/>; no engine reference is held.
     /// </summary>
     public partial class LyricLineDisplay : CompositeDrawable
     {
@@ -55,7 +55,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private float contentScale = 1f;
         private float glyphHeight;
 
-        /// <summary>Reference advance (content-local px) — a measured letter's width, used as the
+        /// <summary>Reference advance (content-local px): a measured letter's width, used as the
         /// fallback for glyphs that produced no measurement. Valid after load.</summary>
         public float CharWidth { get; private set; }
 
@@ -68,7 +68,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>Effective on-screen height of a glyph row (after auto-shrink scaling).</summary>
         public float LineHeight => glyphHeight * contentScale;
 
-        /// <summary>Effective on-screen advance of a specific cell (after auto-shrink scaling) —
+        /// <summary>Effective on-screen advance of a specific cell (after auto-shrink scaling):
         /// the width a cell-covering caret style (block/outline/underline) spans there. Advances
         /// are proportional, so this varies per cell; past-the-end uses the last cell's width.</summary>
         public float CellWidthAt(int cellIndex)

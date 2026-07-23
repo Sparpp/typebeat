@@ -19,7 +19,7 @@ namespace typebeat.Game.Overlays.FirstRunSetup
     /// First-run pitch for the LOCAL lyriclab auto-aligner: explains what the aligner does (AI
     /// word-by-word lyric timing for created maps), why installing it locally is worth it on a
     /// machine with a good GPU (no server queue, nothing uploaded), and offers the one-time
-    /// multi-GB install right here. Entirely skippable — server-side alignment remains the
+    /// multi-GB install right here. Entirely skippable; server-side alignment remains the
     /// default for everyone else, and the install stays available from Settings.
     /// </summary>
     [LocalisableDescription(typeof(FirstRunSetupOverlayStrings), nameof(FirstRunSetupOverlayStrings.LocalAligner))]
@@ -76,7 +76,7 @@ namespace typebeat.Game.Overlays.FirstRunSetup
                 return;
             }
 
-            // GPU probe spawns a process — do it off the load path and annotate the pitch once known.
+            // GPU probe spawns a process; do it off the load path and annotate the pitch once known.
             var manager = alignerManager;
             Task.Run(() =>
             {
@@ -87,8 +87,8 @@ namespace typebeat.Game.Overlays.FirstRunSetup
                     if (!statusClaimed)
                     {
                         statusText.Text = gpu
-                            ? "An NVIDIA GPU was detected — the fast GPU build will be installed (~2.5 GB)."
-                            : "No NVIDIA GPU detected — the CPU build will be installed (~2 GB). Alignment will be slower but still fully local.";
+                            ? "An NVIDIA GPU was detected. The fast GPU build will be installed (~2.5 GB)."
+                            : "No NVIDIA GPU detected. The CPU build will be installed (~2 GB). Alignment will be slower but still fully local.";
                     }
                 });
             });
@@ -122,7 +122,7 @@ namespace typebeat.Game.Overlays.FirstRunSetup
                         else
                         {
                             installButton.Abort();
-                            statusText.Text = $"Install failed: {result.Error} — you can retry, or install later from Settings. Server alignment keeps working either way.";
+                            statusText.Text = $"Install failed: {result.Error}. You can retry, or install later from Settings. Server alignment keeps working either way.";
                         }
                     });
                 }
@@ -132,7 +132,7 @@ namespace typebeat.Game.Overlays.FirstRunSetup
                     Schedule(() =>
                     {
                         installButton.Abort();
-                        statusText.Text = "Install failed unexpectedly — you can install later from Settings.";
+                        statusText.Text = "Install failed unexpectedly. You can install later from Settings.";
                     });
                 }
             });

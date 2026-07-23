@@ -11,7 +11,7 @@ namespace typebeat.Game.Screens.ImportLyrics
 {
     /// <summary>
     /// Confirms tearing down an in-flight lyric import. Shown when the user tries to leave
-    /// <see cref="ImportLyricsScreen"/> while an alignment is running — which, for server-side
+    /// <see cref="ImportLyricsScreen"/> while an alignment is running, which, for server-side
     /// alignment, is a multi-minute job a stray Esc would otherwise abandon silently (and, until
     /// the cancel wired up alongside this dialog, leave running on the server for nobody).
     /// </summary>

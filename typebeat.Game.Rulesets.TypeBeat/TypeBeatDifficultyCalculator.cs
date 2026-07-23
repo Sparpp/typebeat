@@ -15,7 +15,7 @@ using typebeat.Game.Rulesets.TypeBeat.Objects;
 namespace typebeat.Game.Rulesets.TypeBeat
 {
     /// <summary>
-    /// Star rating from <see cref="LyricDifficulty"/> — a duration-weighted soft maximum over
+    /// Star rating from <see cref="LyricDifficulty"/>: a duration-weighted soft maximum over
     /// per-word typing strain (see sr-formula-v1.md). Rate-adjusting mods (DoubleTime/Nightcore/
     /// HalfTime) feed their combined clock rate in, so a faster clock raises the rating.
     /// </summary>

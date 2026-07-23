@@ -51,7 +51,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             Assert.That(TimingJsonLoader.TryLoad(realTimingJsonPath(), out var lines), Is.True);
 
-            // Bracketed backing-vocal lines are dropped entirely — never displayed, never typed.
+            // Bracketed backing-vocal lines are dropped entirely, never displayed, never typed.
             Assert.That(lines.Any(l => l.RawText.Contains('(')), Is.False);
 
             // Dropping "(Cold stare...)" dissolves the overlap at its source: "Dying for a way to
@@ -74,7 +74,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void WholeNumberFloatVersionTokenAccepted()
         {
-            // JSON doesn't distinguish 2 from 2.0 — a producer emitting a float version must not
+            // JSON doesn't distinguish 2 from 2.0; a producer emitting a float version must not
             // silently lose the whole file (and with it, all word timing).
             string path = writeTemp("{\"version\": 2.0, \"song_end_ms\": 10000, \"lines\": [ {\"text\": \"ab\", \"start_ms\": 0, \"end_ms\": 1000, \"words\": [ {\"text\": \"ab\", \"start_ms\": 0, \"end_ms\": 1000} ] } ] }");
             Assert.That(TimingJsonLoader.TryLoad(path, out var lines), Is.True);

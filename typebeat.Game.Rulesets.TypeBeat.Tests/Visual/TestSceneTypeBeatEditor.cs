@@ -133,7 +133,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("compose screen shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
 
             // Select line 1 while paused. The active line should pin to it even when the playhead
-            // is parked over a different line — a selection is a manual override while paused.
+            // is parked over a different line; a selection is a manual override while paused.
             // (The continuous timeline shows every line, so "which line is active" is the state
             // under test, not which words are visible.)
             AddStep("select first line", () =>
@@ -313,7 +313,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("band present + sized", () => band.IsLoaded && band.DrawWidth > 0);
 
             // The band mirrors the waveform's window (centred on the playhead), so 0.9 across is
-            // a time well past the last line (5000ms) — empty space.
+            // a time well past the last line (5000ms), empty space.
             AddStep("double-click empty band space past the final line", () =>
             {
                 var q = band.ScreenSpaceDrawQuad;
@@ -341,7 +341,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("band present + sized", () => band.IsLoaded && band.DrawWidth > 0);
 
             // Window is playhead-centred: [1500, 7500] at the default 6000ms zoom. A click at
-            // ~0.083 across lands on ~2000ms — inside line 1 ("hello world", 1000..3000).
+            // ~0.083 across lands on ~2000ms, inside line 1 ("hello world", 1000..3000).
             AddStep("click band over line 1", () =>
             {
                 var q = band.ScreenSpaceDrawQuad;

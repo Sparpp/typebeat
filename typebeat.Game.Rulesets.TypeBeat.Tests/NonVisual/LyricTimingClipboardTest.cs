@@ -11,7 +11,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
     /// The timing clipboard: copying a line's (or word run's) internal timing and pasting it
-    /// elsewhere REBASED — the repeated-chorus workflow. Boundaries must never move, pastes are
+    /// elsewhere REBASED: the repeated-chorus workflow. Boundaries must never move, pastes are
     /// timings-only (text stays the target's), overwrite applies regardless of word match, and
     /// every result stays monotonic inside the target window.
     /// </summary>
@@ -120,7 +120,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // Chorus rebase: line 0's internal pattern at line 1's own start.
                 Assert.That(target.StartTime, Is.EqualTo(3000)); // boundary untouched
                 Assert.That(target.EndTime, Is.EqualTo(6000));   // boundary untouched
-                Assert.That(target.RawText, Is.EqualTo("gamma delta")); // timings-only — text is the target's
+                Assert.That(target.RawText, Is.EqualTo("gamma delta")); // timings-only; text is the target's
                 Assert.That(target.Units.Select(u => (u.StartTime, u.EndTime)), Is.EqualTo(new[] { (3000d, 3800d), (3900d, 4800d) }));
                 Assert.That(target.SingEndTime, Is.EqualTo(4800));
                 Assert.That(target.Units.All(u => u.Source == TimingSource.Explicit), Is.True);
@@ -175,7 +175,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 // line1's pattern rebased at 6000: span (0,1200) → (6000,7200); the second span drops (one word).
                 Assert.That((second.Units[0].StartTime, second.Units[0].EndTime), Is.EqualTo((6000d, 7200d)));
-                Assert.That(untouchedBefore, Is.Not.SameAs(second)); // instance rebuilt — sanity that paste touched it
+                Assert.That(untouchedBefore, Is.Not.SameAs(second)); // instance rebuilt; sanity that paste touched it
             });
         }
 
@@ -283,7 +283,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var run = TypeBeatEditorOperations.CopyUnitTimings(line(editorBeatmap, 0), new[] { 0, 1 })!;
 
-            // Anchor at line1's LAST word — only the first span fits.
+            // Anchor at line1's LAST word; only the first span fits.
             TypeBeatEditorOperations.PasteUnitTimings(editorBeatmap, line(editorBeatmap, 1), 1, run);
 
             var target = line(editorBeatmap, 1).Line;

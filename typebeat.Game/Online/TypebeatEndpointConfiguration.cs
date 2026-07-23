@@ -4,7 +4,7 @@
 namespace typebeat.Game.Online
 {
     /// <summary>
-    /// Endpoints for the type!beat server ("typebeat-web" — one ASP.NET Core monolith serving
+    /// Endpoints for the type!beat server ("typebeat-web": one ASP.NET Core monolith serving
     /// both the website and the API; see docs/online-architecture.md in the project root).
     /// </summary>
     public class TypebeatEndpointConfiguration : EndpointConfiguration
@@ -21,7 +21,7 @@ namespace typebeat.Game.Online
             WebsiteUrl = APIUrl = apiRoot;
 
             // OAuth "secret" for the official client. Like osu!'s, this is a public client
-            // credential (it ships in source and binaries) — the server treats it as a client
+            // credential (it ships in source and binaries); the server treats it as a client
             // identifier, not a proof of trust.
             APIClientID = "1";
             APIClientSecret = @"typebeat-official-client";

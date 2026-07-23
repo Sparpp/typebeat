@@ -19,7 +19,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// End-to-end coverage of the mid-song instrumental skip over a map with one qualifying (>10s)
     /// instrumental gap, built through the PRODUCTION line resolution
     /// (<see cref="TimingJsonLoader.BuildLines"/>) so it carries the real decoder shape: line
-    /// windows are CONTIGUOUS — the line before the gap stays active (complete, input-inert) for
+    /// windows are CONTIGUOUS: the line before the gap stays active (complete, input-inert) for
     /// the entire instrumental, because its window runs to the next line's start. This is the
     /// exact shape of the user's "immortal flame" / "neon rain" maps, on which two prior
     /// hole-between-lines synthetic tests falsely passed. Drives a real <see cref="Player"/> and
@@ -45,7 +45,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             beatmap.BeatmapInfo.Metadata.Title = "InstrumentalGap";
 
             // Real decoder shape via BuildLines: line 0 sings "ab" 1000-2000, line 1 sings "cd"
-            // from 14000 — so line 0's WINDOW runs to 14000 (contiguous; no dead zone anywhere).
+            // from 14000, so line 0's WINDOW runs to 14000 (contiguous; no dead zone anywhere).
             // Perceived gap = 14000 - 2000 = 12000 >= 10s -> qualifies. Skip period opens at
             // SingEnd + settle = 3000; line 1 activates at 14000; skip target = 11000.
             var built = TimingJsonLoader.BuildLines(new[]
@@ -81,7 +81,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("line 0 window runs to line 1 start", () => playfield.Engine.Lines[0].EndTime == playfield.Engine.Lines[1].StartTime);
 
             // While the opening line is being typed the skip machinery must be dormant, and a Space
-            // press (Space is a typeable character) must NOT skip — it belongs to the typing surface.
+            // press (Space is a typeable character) must NOT skip; it belongs to the typing surface.
             AddUntilStep("line 0 active", () => playfield.Engine.ActiveLineIndex == 0);
             AddAssert("overlay dormant during typing", () => !instrumentalOverlay.InSkipPeriod && !instrumentalOverlay.IsButtonVisible);
             AddStep("press Space while typing", () => InputManager.Key(Key.Space));

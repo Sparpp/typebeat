@@ -9,7 +9,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
     /// Writes the "type!beat file format v1" .osu variant from a lyriclab timing.json (v2).
-    /// The single source of truth for the [Lyrics] serialization — used by the map-conversion
+    /// The single source of truth for the [Lyrics] serialization, used by the map-conversion
     /// tool (tools/TypeBeatOszConverter) and the decoder round-trip tests, so what the tool
     /// produces is exactly what <see cref="LyricBeatmapDecoder"/> parses.
     /// </summary>
@@ -34,7 +34,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <param name="beatmapSetId">Server-side beatmap set ID; omitted from [Metadata] unless positive.</param>
         /// <param name="difficultyName">Difficulty name (the [Metadata] Version), so a set can hold
         /// several difficulties without their identities colliding; defaults to "type!beat".</param>
-        /// <param name="tags">Space-separated [Metadata] Tags — exactly what the author set in the
+        /// <param name="tags">Space-separated [Metadata] Tags, exactly what the author set in the
         /// editor (empty when unset; there are no default tags). Flows to the website's
         /// beatmapsets.tags on submission.</param>
         /// <param name="titleUnicode">Original (non-romanised) [Metadata] TitleUnicode; falls back
@@ -115,7 +115,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             sb.AppendLine($"Creator:{creator}");
             sb.AppendLine($"Version:{(string.IsNullOrWhiteSpace(difficultyName) ? "type!beat" : difficultyName)}");
             // Legacy [Metadata] Tags is a single line; strip stray newlines defensively. No default
-            // tags — an unset field writes an empty Tags line.
+            // tags; an unset field writes an empty Tags line.
             string sanitizedTags = (tags ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
             sb.AppendLine($"Tags:{sanitizedTags}");
 

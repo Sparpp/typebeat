@@ -50,7 +50,7 @@ namespace typebeat.Game.Screens.Edit
             editorBeatmap.AddRange(decoded.HitObjects.ToArray());
 
             // The native encoder captures beatmap-level fields (metadata, preview time, audio
-            // lead-in) into every state, so undo/redo must restore them too — otherwise a metadata
+            // lead-in) into every state, so undo/redo must restore them too, otherwise a metadata
             // or preview-time edit is silently unreverted (and HasUnsavedChanges goes stale).
             var target = decoded.BeatmapInfo.Metadata;
             var current = editorBeatmap.Metadata;

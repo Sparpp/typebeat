@@ -11,7 +11,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests
     /// Locates a local maps directory for real-map regression pins. These maps ship separately
     /// (not in this repo), so the directory is supplied via the TYPEBEAT_MAPS_DIR environment
     /// variable; tests that need it gracefully Assert.Ignore when it is unset or the file is
-    /// absent — so a fresh checkout runs the rest of the suite without any local setup.
+    /// absent, so a fresh checkout runs the rest of the suite without any local setup.
     /// </summary>
     public static class StandaloneMaps
     {

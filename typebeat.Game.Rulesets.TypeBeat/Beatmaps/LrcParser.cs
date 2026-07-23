@@ -11,7 +11,7 @@ using System.Globalization;
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
-    /// Pure static LRC parser — the fallback path for maps without a timing.json.
+    /// Pure static LRC parser; the fallback path for maps without a timing.json.
     /// Handles [mm:ss.xx]/[mm:ss.xxx] tags, multiple leading tags (duplicate the line),
     /// [offset:] shifting, a trailing bare terminator timestamp, the vocal-density cap,
     /// and char-weighted word-unit interpolation.
@@ -42,7 +42,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     offset = parsed;
             }
 
-            // Second pass: collect every timestamped entry (empty text allowed — those are
+            // Second pass: collect every timestamped entry (empty text allowed; those are
             // pure boundary/terminator markers).
             var entries = new List<(double Time, string Text)>();
 
@@ -160,7 +160,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 if (!int.TryParse(fractionPart, NumberStyles.None, CultureInfo.InvariantCulture, out int frac))
                     return false;
 
-                // ".48" -> 480ms, ".395" -> 395ms — scale by the number of fractional digits.
+                // ".48" -> 480ms, ".395" -> 395ms; scale by the number of fractional digits.
                 fractionMs = frac / Math.Pow(10, fractionPart.Length) * 1000.0;
             }
 
@@ -277,12 +277,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
 
             if (times.Count == 0)
-                return; // Non-timestamped line — skipped entirely.
+                return; // Non-timestamped line, skipped entirely.
 
             string rawText = rawLine.Substring(idx);
             string text = Typeability.Normalize(Typeability.StripBackingVocals(rawText));
 
-            // A backing-vocal-only line (all bracketed) vanishes entirely — it must NOT linger
+            // A backing-vocal-only line (all bracketed) vanishes entirely; it must NOT linger
             // as an empty entry, or it would masquerade as a boundary/terminator marker. Genuine
             // bare-timestamp terminators had no text to begin with and pass through unchanged.
             if (text.Length == 0 && Typeability.Normalize(rawText).Length > 0)

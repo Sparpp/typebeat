@@ -12,8 +12,8 @@ namespace typebeat.Game.Screens.ImportLyrics
     /// <summary>
     /// Shell-side seam for the type!beat lyric-map import pipeline. The concrete implementation
     /// lives in the ruleset (it depends on the ruleset's <c>LyricOsuFormat</c>/<c>LrcParser</c>/
-    /// <c>TimingJsonLoader</c>), which cannot be referenced from typebeat.Game; typebeat.Desktop — which
-    /// references both — caches an instance so <see cref="ImportLyricsScreen"/> can resolve it.
+    /// <c>TimingJsonLoader</c>), which cannot be referenced from typebeat.Game; typebeat.Desktop
+    /// (which references both) caches an instance so <see cref="ImportLyricsScreen"/> can resolve it.
     /// </summary>
     public interface ILyricMapImporter
     {
@@ -25,7 +25,7 @@ namespace typebeat.Game.Screens.ImportLyrics
         /// directory. With <paramref name="useAutomaticAlignment"/> the automatic aligner (local
         /// subprocess or server) provides word-level timing; without it only the line-stamp LRC
         /// path is used. Progress lines stream through <paramref name="progress"/> on a background
-        /// thread — marshal to the update thread yourself. Cancelling kills any spawned process tree.
+        /// thread; marshal to the update thread yourself. Cancelling kills any spawned process tree.
         /// </summary>
         Task<LyricImportResult> BuildOszAsync(
             string audioPath, string lyricsPath, string artist, string title,
@@ -33,7 +33,7 @@ namespace typebeat.Game.Screens.ImportLyrics
 
         /// <summary>
         /// Aligns raw lyrics text to an audio file and returns timing.json (v2) text WITHOUT
-        /// packaging an .osz — used by the in-editor "auto-time to this song" flow, which then
+        /// packaging an .osz; used by the in-editor "auto-time to this song" flow, which then
         /// parses the timing into the open beatmap. Same aligner/LRC-fallback behaviour as
         /// <see cref="BuildOszAsync"/>. The timing.json text is returned as the tuple's second
         /// element; <see cref="LyricImportResult.OszPath"/> is unused on this path.

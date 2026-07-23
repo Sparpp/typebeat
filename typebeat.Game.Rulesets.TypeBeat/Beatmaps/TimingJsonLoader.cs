@@ -30,7 +30,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         // NOTE on engine.offset_ms: the producer (typebeat-lyriclab align_lyrics.py) bakes the
         // offset into every start_ms/end_ms it writes (frame_ms() adds it before serialization),
         // so engine.offset_ms is a RECORD of what was applied, not a pending correction.
-        // Deliberately not applied here — subtracting it would double-count the shift.
+        // Deliberately not applied here; subtracting it would double-count the shift.
 
         public static bool TryLoad(string timingJsonPath, out IReadOnlyList<LyricLine> lines)
         {
@@ -107,10 +107,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// Parses one timing.json "lines[]" element into a <see cref="RawLine"/>.
         /// False for non-objects, missing text/start_ms, and lines whose text normalizes to
-        /// empty (whole-line bracketed backing vocals — dropped so the previous line extends
+        /// empty (whole-line bracketed backing vocals, dropped so the previous line extends
         /// over their span, which also dissolves the overlapping-lines case at its source).
         /// A partial strip changes the token count, so the words[] alignment in
-        /// <see cref="BuildLines"/> falls back to interpolation for that line — acceptable.
+        /// <see cref="BuildLines"/> falls back to interpolation for that line, which is acceptable.
         /// </summary>
         public static bool TryParseRawLine(JsonElement lineElement, out RawLine rawLine)
         {
@@ -189,7 +189,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 }
             }
 
-            // Optional explicit seal grace — written by the editor's encoder so the grace derived
+            // Optional explicit seal grace, written by the editor's encoder so the grace derived
             // from raw (pre-clamp) word overruns survives a save/reload round-trip, where the
             // re-emitted word times are clamped and the overrun can no longer be recomputed.
             double? sealGraceMs = null;
@@ -323,7 +323,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (element.TryGetInt32(out value))
                 return true;
 
-            // JSON doesn't distinguish 2 from 2.0 — accept whole-number float tokens too.
+            // JSON doesn't distinguish 2 from 2.0; accept whole-number float tokens too.
             if (element.TryGetDouble(out double d) && d == Math.Floor(d) && d >= int.MinValue && d <= int.MaxValue)
             {
                 value = (int)d;

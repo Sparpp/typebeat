@@ -21,7 +21,7 @@ using osuTK;
 namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
-    /// The scrollable list of all lyric lines: index, time, and an editable text box per line —
+    /// The scrollable list of all lyric lines: index, time, and an editable text box per line,
     /// the fastest surface for sweeping text edits ("yeah" → "yeaaaaaaaah") across a whole song.
     /// Clicking a row selects the line and seeks to it. Poll-synced: rows rebuild only when the
     /// line set changes identity; labels refresh in place; a focused text box is never stomped.
@@ -188,7 +188,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 if (!TypeBeatEditorOperations.SetLineText(editorBeatmap, HitObject, textBox.Text))
                 {
-                    // Normalized to empty — refuse and flash (delete the line instead).
+                    // Normalized to empty; refuse and flash (delete the line instead).
                     textBox.Text = HitObject.Line.RawText;
                     background.FlashColour(TypeBeatStyle.ErrorChar, 400, Easing.OutQuint);
                 }
@@ -221,7 +221,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnClick(ClickEvent e)
             {
-                // Ctrl/Shift build a multi-selection (for timing copy/paste) without seeking —
+                // Ctrl/Shift build a multi-selection (for timing copy/paste) without seeking;
                 // yanking the playhead mid-selection would fight the user.
                 if (e.ControlPressed)
                 {

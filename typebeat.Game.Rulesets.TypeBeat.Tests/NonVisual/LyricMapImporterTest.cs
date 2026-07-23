@@ -182,7 +182,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(hitObjects[i].Line.EndTime, Is.EqualTo(expected[i].EndTime), $"line {i} end");
                 Assert.That(hitObjects[i].Line.Units.Count, Is.EqualTo(expected[i].Units.Count), $"line {i} units");
                 // The real Spectator timing.json carries aligner-emitted words[].syllables[], which the
-                // loader now threads into SyllableBoundaries — so the packaged map infers Syllable.
+                // loader now threads into SyllableBoundaries, so the packaged map infers Syllable.
                 Assert.That(hitObjects[i].Granularity, Is.EqualTo(TimingGranularity.Syllable));
             }
         }
@@ -277,7 +277,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // A built venv exists: bootstrap must short-circuit to Ok (Success) without spawning the
             // setup process. This pins the "Ok result" contract the install notification keys its
-            // flip-to-completed on — see TypeBeatSettingsSubsection.startInstall.
+            // flip-to-completed on; see TypeBeatSettingsSubsection.startInstall.
             string lab = Path.Combine(tempRoot, "lyriclab");
             Directory.CreateDirectory(lab);
             File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "# stub");

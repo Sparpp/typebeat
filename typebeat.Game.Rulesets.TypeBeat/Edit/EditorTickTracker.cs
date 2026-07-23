@@ -10,7 +10,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// <summary>
     /// Frame-to-frame crossing detector for the compose screen's audible note ticks. Given the
     /// playhead time each running frame, it reports which fixed tick times (word-unit starts) the
-    /// playhead swept across since the previous frame — the half-open interval (prev, now].
+    /// playhead swept across since the previous frame: the half-open interval (prev, now].
     ///
     /// It is deliberately state-light and side-effect free so the compose screen owns all the audio:
     /// the screen calls <see cref="Advance"/> only while the editor clock is running and plays a
@@ -94,7 +94,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// syllable-subdivision boundaries (the lighter sub-tick for the draggable dotted lines).
     ///
     /// Dedupe rule: a time that is both a word start and (degenerately) a syllable boundary
-    /// belongs to the word stream ONLY — the accented word tick plays alone, never doubled by a
+    /// belongs to the word stream ONLY; the accented word tick plays alone, never doubled by a
     /// sub-tick at the same instant. Pure and allocation-per-call so the screen can poll it fresh
     /// every running frame (lines are rebuilt on edit/undo, so nothing may be cached).
     /// </summary>

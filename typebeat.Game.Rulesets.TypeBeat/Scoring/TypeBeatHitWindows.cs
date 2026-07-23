@@ -11,7 +11,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// Mirrors the engine's asymmetric <see cref="SyncWindows"/> onto osu's symmetric
     /// <see cref="HitWindows"/> API so <see cref="typebeat.Game.Rulesets.Objects.Drawables.DrawableHitObject"/>
     /// lifetimes and time-offset bookkeeping are coherent. osu's API has one width per result
-    /// (± around the target), so the LATE (wider) side of each engine window is used — the
+    /// (± around the target), so the LATE (wider) side of each engine window is used; the
     /// engine remains the sole judgement authority; these windows are never used to classify.
     /// Difficulty does not scale the windows (granularity does, via the engine's tiers).
     /// </summary>

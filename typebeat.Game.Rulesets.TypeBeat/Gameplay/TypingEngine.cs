@@ -5,7 +5,7 @@
 // type!beat gameplay-core: the headless gameplay/judgement heart.
 // Time-driven line activation/sealing, keypress judgement, backspace, auto-skip,
 // score/combo/accuracy/active-time-WPM/sync accumulation, SyncTimeline capture.
-// Pure C# — zero osu.Framework dependencies. Driven entirely by explicit
+// Pure C#: zero osu.Framework dependencies. Driven entirely by explicit
 // double-millisecond time arguments. Events fire synchronously on the caller thread.
 
 using System;
@@ -35,7 +35,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public int ActiveLineIndex => activeLineIndex;
 
         /// <summary>
-        /// Whether a lyric line is currently typeable — false during the pre-roll, the dead zone
+        /// Whether a lyric line is currently typeable: false during the pre-roll, the dead zone
         /// between a line's seal and the next line's cue, and after the final line. This is the seam
         /// the playfield's raw key handler gates on: keys are consumed for typing only while a line
         /// is active, and fall through to global bindings (so Space can trigger the skip overlay)
@@ -47,7 +47,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// The first line that has not sealed yet; -1 once every line has sealed. While no line is
         /// active (pre-roll, or the dead zone between a seal and the next line's cue) this is the
-        /// UPCOMING line — the one the stage should focus, dimmed, after the boundary scroll.
+        /// UPCOMING line, the one the stage should focus, dimmed, after the boundary scroll.
         /// </summary>
         public int NextUnsealedLineIndex => nextSealIndex < lines.Count ? nextSealIndex : -1;
 
@@ -120,7 +120,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// Literate mod: when true, input is matched against the target's EXACT case (no
         /// <see cref="Typeability.Fold"/>), so a right letter typed in the wrong case is judged
-        /// wrong — rejected/miss — exactly like any other wrong char. Off by default: gameplay is
+        /// wrong: rejected/miss, exactly like any other wrong char. Off by default: gameplay is
         /// case-insensitive. Requires the input path to actually produce upper-case chars for
         /// Shift-held keys (see <see cref="KeyCharMap"/>), else capitals would be untypeable.
         /// </summary>
@@ -251,7 +251,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             // (3) Activate strictly by time: the first unsealed line, while it is judgeable
             //     (ActivationTime <= time < EndTime + grace). ActivationTime is the constant cue
-            //     before the first word (CUE_LEAD_MS), not the boundary — crossing a boundary
+            //     before the first word (CUE_LEAD_MS), not the boundary; crossing a boundary
             //     scrolls the stack (the seal above), but typing opens relative to the vocals.
             //     Typing never unlocks the next line.
             if (nextSealIndex >= lines.Count)
@@ -302,7 +302,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// Process a lowercased char from KeyCharMap at gameplay time <paramref name="time"/>.
         /// Returns false when inert (no active line / line complete / finished).
-        /// A wrong char is REJECTED — never input — but still breaks combo, stays in the
+        /// A wrong char is REJECTED, never input, but still breaks combo, stays in the
         /// accuracy denominator forever, and grows <see cref="ConsecutiveWrongKeys"/>.
         /// </summary>
         public bool ProcessKey(char c, double time)
@@ -316,11 +316,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             autoSkipForward();
 
             if (caretIndex >= line.Cells.Count)
-                return false; // line complete — wait for the song.
+                return false; // line complete, wait for the song.
 
             var cell = line.Cells[caretIndex];
 
-            // Mashing mod: any key is the right key — judge it as the caret cell's expected char.
+            // Mashing mod: any key is the right key; judge it as the caret cell's expected char.
             if (MashingEnabled)
                 c = cell.Expected;
 
@@ -331,8 +331,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             if (!matched)
             {
-                // Legacy "allow wrong input" setting: a wrong LETTER is typed through — marked red,
-                // backspaceable — instead of rejected. The space key stays strict (no wrong space,
+                // Legacy "allow wrong input" setting: a wrong LETTER is typed through, marked red,
+                // backspaceable, instead of rejected. The space key stays strict (no wrong space,
                 // and no wrong char consuming a word boundary), and this mode never feeds the
                 // mash-fail streak (consecutiveWrongKeys is left at 0).
                 if (AllowWrongInput && c != ' ' && cell.Expected != ' ')
@@ -356,7 +356,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     return true;
                 }
 
-                // Strict (default): wrong key REJECTED — no cell mutation, no caret advance, no
+                // Strict (default): wrong key REJECTED, no cell mutation, no caret advance, no
                 // CharJudged. It still costs the accuracy denominator, an error, a combo break, and
                 // the consecutive-wrong-key streak (the game fails the play when it hits 13).
                 totalKeypresses++;
@@ -373,7 +373,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             // Correctly re-typing a cell that was EVER judged correct (reached again via backspace,
             // which resets State but not FirstCorrectDelta) is scoring-inert: no counters, no
-            // points/combo, no timeline sample, and the first judgement stands — otherwise
+            // points/combo, no timeline sample, and the first judgement stands; otherwise
             // backspace-retype farms score, combo and accuracy without bound.
             bool inertRetype = cell.FirstCorrectDelta is not null;
 
@@ -394,7 +394,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // ALL scoring keypresses (correct + wrong) count in the accuracy denominator, forever.
                 totalKeypresses++;
 
-                // Correct char — always accepted; the clock decides the judgement.
+                // Correct char: always accepted; the clock decides the judgement.
                 // Premature/Lagging still count as CORRECT keypresses (right char, wrong time).
                 correctKeypresses++;
 
@@ -530,7 +530,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             };
         }
 
-        /// <summary>Correct cells (including spaces) across all lines — the WPM numerator source.</summary>
+        /// <summary>Correct cells (including spaces) across all lines: the WPM numerator source.</summary>
         private int countCorrectCells()
         {
             int count = 0;

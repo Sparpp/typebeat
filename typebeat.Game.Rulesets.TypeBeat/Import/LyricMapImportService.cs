@@ -24,7 +24,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
     /// <see cref="LyricMapImporter"/> core. Owns the concerns the core cannot reach on its own:
     /// the ruleset-scoped <see cref="TypeBeatRulesetSetting.LyricLabPath"/> override, the game's
     /// runtime location (start directories for aligner discovery), and the API session behind
-    /// server-side alignment (<see cref="RemoteAlignClient"/>) — which is offered only in deployed
+    /// server-side alignment (<see cref="RemoteAlignClient"/>), which is offered only in deployed
     /// builds, never in a dev build (those use the local lyriclab checkout). A <see cref="Component"/>
     /// so it can resolve the ruleset config cache; typebeat.Desktop caches it and adds it to the hierarchy.
     ///
@@ -74,7 +74,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             // Server-side alignment exists for SHIPPED builds, which carry no local Python/torch.
             // A development build (non-deployed: AssemblyVersion.Major == 0) has the vendored
-            // lyriclab beside the repo and must use it, never offload to the production aligner —
+            // lyriclab beside the repo and must use it, never offload to the production aligner,
             // so the remote fallback is withheld here and import resolves local aligner -> LRC only.
             if (game?.IsDeployedBuild != true)
                 return null;
@@ -91,7 +91,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             }
             catch
             {
-                // Config unavailable (cache not loaded / ruleset unregistered) — discovery covers it.
+                // Config unavailable (cache not loaded / ruleset unregistered); discovery covers it.
                 return null;
             }
         }
@@ -99,7 +99,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         private bool localAlignerEnabled() => config()?.Get<bool>(TypeBeatRulesetSetting.LocalAlignerEnabled) ?? true;
 
         /// <summary>
-        /// The configured lyriclab path for import runs — null when the local aligner is switched
+        /// The configured lyriclab path for import runs; null when the local aligner is switched
         /// off, which (together with empty start directories) makes discovery find nothing and the
         /// pipeline go straight to the server aligner / LRC fallback.
         /// </summary>
@@ -251,7 +251,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             string? source = LyricMapImporter.ResolveLyricLabDir(null, startDirectories());
 
             if (source == null && !LyricMapImporter.IsLyricLabDir(target))
-                return LyricImportResult.Fail("this build did not ship the aligner component — update the game and try again");
+                return LyricImportResult.Fail("this build did not ship the aligner component, update the game and try again");
 
             try
             {
@@ -277,7 +277,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             string device = GpuDetected ? "cuda" : "cpu";
 
-            // A previously built environment of the other torch flavour must be rebuilt — the venv
+            // A previously built environment of the other torch flavour must be rebuilt; the venv
             // pins CPU or CUDA wheels at install time.
             try
             {
@@ -286,7 +286,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 if (LyricMapImporter.EnvironmentReady(target) && File.Exists(marker)
                     && !File.ReadAllText(marker).Trim().Equals(device, StringComparison.OrdinalIgnoreCase))
                 {
-                    progress("switching aligner device flavour — rebuilding the environment...");
+                    progress("switching aligner device flavour, rebuilding the environment...");
                     Directory.Delete(Path.Combine(target, ".venv"), recursive: true);
                 }
             }
@@ -296,8 +296,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             }
 
             progress(device == "cuda"
-                ? "NVIDIA GPU detected — installing the GPU aligner"
-                : "no NVIDIA GPU detected — installing the CPU aligner");
+                ? "NVIDIA GPU detected, installing the GPU aligner"
+                : "no NVIDIA GPU detected, installing the CPU aligner");
 
             var result = await LyricMapImporter.BootstrapEnvironmentAsync(target, progress, token, device).ConfigureAwait(false);
 

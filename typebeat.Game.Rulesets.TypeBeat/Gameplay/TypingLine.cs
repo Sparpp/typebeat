@@ -2,7 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 // Ported verbatim from type!beat TypeBeat.Game/Gameplay/TypingLine.cs (regression-anchored).
-// Pure C# — no osu.Framework dependencies. All times are double milliseconds.
+// Pure C#: no osu.Framework dependencies. All times are double milliseconds.
 
 using System;
 using System.Collections.Generic;
@@ -42,7 +42,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public double? JudgedDelta { get; internal set; }
 
         /// <summary>
-        /// Delta of the FIRST correct judgement — set once, never cleared (survives backspace).
+        /// Delta of the FIRST correct judgement: set once, never cleared (survives backspace).
         /// Its presence makes later correct retypes scoring-inert, so backspace-retype cannot
         /// farm score/combo/accuracy.
         /// </summary>
@@ -76,7 +76,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// When this line becomes typeable: a constant cue lead before its first typeable cell's
         /// target (<see cref="TypingEngine.CUE_LEAD_MS"/>), never earlier than <see cref="StartTime"/>
-        /// (the shared boundary — the previous line cannot seal before it). Independent of the
+        /// (the shared boundary; the previous line cannot seal before it). Independent of the
         /// boundary otherwise: a line whose vocals start late in its window activates late, and
         /// the gap in between is a dead zone where no line is active.
         /// </summary>
@@ -173,7 +173,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (time >= sungPoints[^1].time)
                 return sungPoints[^1].index;
 
-            // Left anchor: the LAST point with point.time <= time (this skips zero-length segments —
+            // Left anchor: the LAST point with point.time <= time (this skips zero-length segments;
             // among points sharing one time we anchor at the greatest index).
             int left = 0;
 
@@ -254,12 +254,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     if (Typeability.IsTypeable(ch))
                     {
                         isTypeable[pos] = true;
-                        // Typeable char j of k in unit u — first char AT unit start, piecewise across
+                        // Typeable char j of k in unit u: first char AT unit start, piecewise across
                         // syllable boundaries (degenerates to u.Start + j*(u.End-u.Start)/k when undivided).
                         targets[pos] = syllableCharTarget(unitStart, unitEnd, boundaries, k, j);
                         j++;
                     }
-                    // else: punctuation — resolved in the second pass.
+                    // else: punctuation, resolved in the second pass.
 
                     pos++;
                 }
@@ -310,7 +310,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 cells[i] = new TypingCell(expected[i], isTypeable[i], targets[i]!.Value, judgeGrans[i]);
 
             // A last typeable cell whose target sits on the seal boundary loses the target-vs-seal
-            // race every frame — grant a minimum finish window on top of any data-driven grace.
+            // race every frame; grant a minimum finish window on top of any data-driven grace.
             double sealGrace = line.SealGraceMs;
 
             for (int i = n - 1; i >= 0; i--)

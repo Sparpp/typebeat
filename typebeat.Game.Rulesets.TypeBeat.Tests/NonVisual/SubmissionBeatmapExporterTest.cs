@@ -22,7 +22,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
     /// Pins the submission export path: server-allocated online IDs must be stamped into each
-    /// <c>.osu</c> through the NATIVE encoder — so the [Lyrics] section survives — while every
+    /// <c>.osu</c> through the NATIVE encoder, so the [Lyrics] section survives, while every
     /// other file in the set is copied byte-for-byte.
     /// </summary>
     [TestFixture]

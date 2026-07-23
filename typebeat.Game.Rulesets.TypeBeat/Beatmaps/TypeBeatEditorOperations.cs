@@ -98,7 +98,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// The finest granularity the unit data requires: Syllable when any word carries subdivision
         /// boundaries, else Word when some unit timing is Explicit (authored words[]), else Line.
-        /// Line-granularity maps also carry one unit per token, but those are Interpolated —
+        /// Line-granularity maps also carry one unit per token, but those are Interpolated,
         /// synthesized by the loader, not real word timing.
         /// </summary>
         public static TimingGranularity InferGranularity(IReadOnlyList<LyricLine> lines)
@@ -119,7 +119,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>The last line's typeable window extends this far past its sung end (mirrors the loader).</summary>
         public const double LAST_LINE_TAIL_MS = TimingJsonLoader.LAST_LINE_TAIL_MS;
 
-        #region Single-line rebuild helpers (model is init-only — every edit builds new instances)
+        #region Single-line rebuild helpers (model is init-only: every edit builds new instances)
 
         private static LyricLine rebuild(LyricLine line, string? rawText = null, double? start = null, double? end = null,
                                          double? singEnd = null, IReadOnlyList<TimedUnit>? units = null, double? sealGrace = null)
@@ -143,7 +143,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Source = source ?? unit.Source,
                 Confidence = confidence ?? unit.Confidence,
                 // Syllable subdivisions ride along, clamped to the new span (any that fall outside
-                // the re-timed window are dropped — the word shrank past them).
+                // the re-timed window are dropped: the word shrank past them).
                 SyllableBoundaries = clampBoundaries(unit.SyllableBoundaries, start, end),
             };
 
@@ -226,7 +226,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double singEndMin = line.StartTime + MIN_SPAN_MS;
             double singEndMax = isLast ? double.MaxValue : line.EndTime;
 
-            // A non-last line shorter than MIN_SPAN_MS has no movable sung-end — no-op rather than
+            // A non-last line shorter than MIN_SPAN_MS has no movable sung-end; no-op rather than
             // clamp into an inverted [min, max] (which would crash Math.Clamp).
             if (singEndMax < singEndMin)
                 return;
@@ -250,9 +250,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// Resizes one word unit's edges independently. Each edge is clamped inside the line's
         /// window and against the neighbouring units (the loader forces non-decreasing order on
-        /// reload — allowing overlap here would silently drift). A hand-timed unit becomes Explicit
+        /// reload; allowing overlap here would silently drift). A hand-timed unit becomes Explicit
         /// and fully trusted, the line stops being Estimated, and the beatmap is promoted to Word
-        /// granularity if it was Line — the encoder only persists words[] for Word maps, so without
+        /// granularity if it was Line. The encoder only persists words[] for Word maps, so without
         /// the flip a hand-timed word would silently vanish on save.
         /// </summary>
         public static void SetUnitTiming(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, double newStart, double newEnd)
@@ -265,7 +265,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double lower = unitIndex > 0 ? line.Units[unitIndex - 1].EndTime : line.StartTime;
             double upper = unitIndex < line.Units.Count - 1 ? line.Units[unitIndex + 1].StartTime : line.EndTime;
 
-            // The neighbours (or the line window) leave this unit less than MIN_SPAN_MS of room —
+            // The neighbours (or the line window) leave this unit less than MIN_SPAN_MS of room;
             // there is nowhere to retime it to. No-op rather than clamp into an inverted range.
             // (Aligner output routinely packs short function words under 30ms apart.)
             if (upper - lower < MIN_SPAN_MS)
@@ -280,7 +280,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// Moves one word unit as a RIGID block (its duration is preserved), clamped so the whole
         /// word stays between its neighbours. Dragging a word into the next one just stops it at
-        /// the boundary — it never gets squashed (which independent-edge clamping would do).
+        /// the boundary; it never gets squashed (which independent-edge clamping would do).
         /// </summary>
         public static void MoveUnit(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, double newStart)
         {
@@ -295,7 +295,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double lower = unitIndex > 0 ? line.Units[unitIndex - 1].EndTime : line.StartTime;
             double upper = unitIndex < line.Units.Count - 1 ? line.Units[unitIndex + 1].StartTime : line.EndTime;
 
-            // No room to fit the word whole between its neighbours — stop rather than resize it.
+            // No room to fit the word whole between its neighbours; stop rather than resize it.
             if (upper - lower < duration)
                 return;
 
@@ -312,7 +312,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// Applies ONE uniform time delta to a group of selected word units at once — moving or
+        /// Applies ONE uniform time delta to a group of selected word units at once, moving or
         /// stretching them all by the same amount (the distance the mouse travelled), never
         /// clipping each edge straight to the cursor (which would squash individuals differently).
         /// The delta is clamped once, globally, so no unit crosses a non-selected neighbour, the
@@ -366,7 +366,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         high = (i < count - 1 ? line.Units[i + 1].StartTime : line.EndTime) - e;
                         break;
 
-                    default: // Move — bounded only by the nearest NON-selected neighbours, since the
+                    default: // Move, bounded only by the nearest NON-selected neighbours, since the
                              // selected units all translate together and keep their relative spacing.
                         low = nearestNonSelectedEnd(line, selected, i) - s;
                         high = nearestNonSelectedStart(line, selected, i) - e;
@@ -455,7 +455,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 SingEndTime = line.SingEndTime,
                 Units = units,
                 SealGraceMs = line.SealGraceMs,
-                Estimated = false, // hand timing IS acoustic evidence — judge at full granularity again.
+                Estimated = false, // hand timing IS acoustic evidence; judge at full granularity again.
             };
             editorBeatmap.Update(hitObject);
             promoteToWordGranularity(editorBeatmap);
@@ -464,7 +464,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         /// <summary>
         /// Tap-to-time: stamps the unit's START at the given (playhead) time, keeping its end
-        /// (pushed if needed) — retime a whole line by ear in one playback pass. Same Explicit
+        /// (pushed if needed); retime a whole line by ear in one playback pass. Same Explicit
         /// promotion rules as <see cref="SetUnitTiming"/>.
         /// </summary>
         public static void StampUnitStart(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, double time)
@@ -482,7 +482,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// Replaces a line's typed text ("yeah" -> "yeaaaaaaaah"). The raw input is normalized
         /// through the game's typeability rules. When the token count is unchanged, each word
         /// keeps its timing; otherwise timings are redistributed (char-weighted) across the sung
-        /// window. Returns false (no change) when the text normalizes to empty — an empty line
+        /// window. Returns false (no change) when the text normalizes to empty; an empty line
         /// cannot exist in the format; delete the line instead.
         /// </summary>
         public static bool SetLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText)
@@ -502,7 +502,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             if (hitObject.Granularity == TimingGranularity.Line)
             {
-                // Line-granularity maps persist no word data — units are always the loader's
+                // Line-granularity maps persist no word data; units are always the loader's
                 // interpolation, which is text-weight-dependent, so re-derive with the new text.
                 units = LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime);
             }
@@ -521,7 +521,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
             else
             {
-                // Word count changed: no per-word mapping exists — redistribute within the sung window.
+                // Word count changed: no per-word mapping exists, so redistribute within the sung window.
                 units = LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime);
             }
 
@@ -631,7 +631,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             var ordered = orderedLines(editorBeatmap);
 
             // Reject if any existing line starts within MIN_SPAN_MS of the requested time (covers
-            // too-close-to-previous, too-close-to-following, and exact-collision in one guard) —
+            // too-close-to-previous, too-close-to-following, and exact-collision in one guard);
             // otherwise the new line would overlap a neighbour and its saved EndTime (derived from
             // the true next line's start) would not match what the editor showed.
             if (ordered.Any(o => Math.Abs(o.Line.StartTime - startTime) < MIN_SPAN_MS))
@@ -694,7 +694,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 var previous = ordered[index - 1];
 
                 // The predecessor inherits the freed span. When it becomes the LAST line, the
-                // reload-derived window caps at singEnd + tail — apply the same cap here.
+                // reload-derived window caps at singEnd + tail; apply the same cap here.
                 double inheritedEnd = index == ordered.Count - 1
                     ? Math.Clamp(hitObject.Line.EndTime, previous.Line.SingEndTime, previous.Line.SingEndTime + LAST_LINE_TAIL_MS)
                     : hitObject.Line.EndTime;
@@ -715,7 +715,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// Adds one syllable-subdivision boundary inside the given word unit, bisecting its widest
         /// current segment (so successive presses keep splitting evenly). The word becomes Explicit
-        /// hand timing and the beatmap is promoted to Syllable granularity — the encoder only
+        /// hand timing and the beatmap is promoted to Syllable granularity. The encoder only
         /// persists syllables[] for units that carry boundaries, so without the promotion a
         /// subdivision would silently vanish on save. No-op when the widest segment is too narrow
         /// to split into two <see cref="MIN_SYLLABLE_MS"/> halves. Returns the new boundary time (for
@@ -749,7 +749,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 }
             }
 
-            // Even the widest segment cannot hold two MIN_SYLLABLE_MS halves — no room to subdivide.
+            // Even the widest segment cannot hold two MIN_SYLLABLE_MS halves; no room to subdivide.
             if (double.IsNaN(mid) || widest < MIN_SYLLABLE_MS * 2)
                 return null;
 
@@ -778,7 +778,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double lower = (boundaryIndex > 0 ? unit.SyllableBoundaries[boundaryIndex - 1] : unit.StartTime) + MIN_SYLLABLE_MS;
             double upper = (boundaryIndex < unit.SyllableBoundaries.Count - 1 ? unit.SyllableBoundaries[boundaryIndex + 1] : unit.EndTime) - MIN_SYLLABLE_MS;
 
-            // The word (or the neighbouring boundaries) leaves no valid slot — no-op rather than
+            // The word (or the neighbouring boundaries) leaves no valid slot; no-op rather than
             // clamp into an inverted range.
             if (upper < lower)
                 return;
@@ -883,7 +883,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         /// <summary>
         /// Applies copied line timings onto <paramref name="targets"/> (in order), REBASED to each
-        /// target's own start — line boundaries never move, so nothing cascades through the
+        /// target's own start; line boundaries never move, so nothing cascades through the
         /// shared-boundary chain. One copied line broadcasts to every target (chorus line repeated
         /// N times); multiple copied lines zip positionally (extra targets are left untouched).
         ///
@@ -916,7 +916,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 var line = target.Line;
 
                 // Sung end rebased into the target's window. For the LAST line the typeable
-                // window is reload-derived as min(song_end, singEnd + tail) — apply the same
+                // window is reload-derived as min(song_end, singEnd + tail); apply the same
                 // clamp SetSingEnd uses or the saved map would reopen differently.
                 bool isLast = ordered.Count > 0 && ordered[^1] == target;
                 double singEnd = Math.Clamp(line.StartTime + source.SingEndOffset, line.StartTime + MIN_SPAN_MS, line.EndTime);
@@ -1049,7 +1049,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         /// <summary>
         /// The reload-faithful units for a line after its window changed. Line-granularity maps
-        /// persist no words[] — the loader re-interpolates units over [start, singEnd] on every
+        /// persist no words[]; the loader re-interpolates units over [start, singEnd] on every
         /// load, so the editor must derive them the same way or unit times drift on reload.
         /// Word maps persist units verbatim; they are preserved, clamped into the new window.
         /// </summary>
@@ -1100,7 +1100,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// Sets every line to the granularity its unit data now requires (<see cref="InferGranularity"/>):
         /// promotes when subdivision boundaries appear (up to Syllable), demotes Syllable→Word when the
         /// last boundary is removed. Never falls below Word while any hand timing remains (removing a
-        /// boundary leaves the word Explicit). Idempotent — used by the syllable ops, which can move
+        /// boundary leaves the word Explicit). Idempotent; used by the syllable ops, which can move
         /// granularity in either direction, unlike <see cref="promoteToWordGranularity"/>.
         /// </summary>
         private static void syncGranularity(EditorBeatmap editorBeatmap)

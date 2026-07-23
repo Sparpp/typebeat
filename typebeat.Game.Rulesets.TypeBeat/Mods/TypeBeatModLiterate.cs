@@ -12,7 +12,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// <summary>
     /// Literate: restores case sensitivity to gameplay. Normally typing is case-insensitive (the
     /// caret folds both the key and the target to lower-case before matching); with this mod on, a
-    /// letter must be typed in the target's EXACT case — a right letter in the wrong case is judged
+    /// letter must be typed in the target's EXACT case; a right letter in the wrong case is judged
     /// wrong, just like any other wrong char. Implemented by flipping a single engine flag
     /// (<see cref="Gameplay.TypingEngine.CaseSensitive"/>); the key handler already forwards Shift so
     /// held-Shift keys produce the capitals the target demands.
@@ -23,7 +23,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
         public override string Acronym => "LT";
 
-        public override LocalisableString Description => "Case matters — type every letter in its exact case.";
+        public override LocalisableString Description => "Case matters: type every letter in its exact case.";
 
         public override ModType Type => ModType.DifficultyIncrease;
 

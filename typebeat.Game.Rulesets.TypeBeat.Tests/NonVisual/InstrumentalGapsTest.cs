@@ -4,8 +4,8 @@
 // Headless coverage of InstrumentalGaps: which purely-instrumental stretches between lyric lines
 // qualify for a mid-song skip, and where the skip lands.
 //
-// IMPORTANT: every fixture line is built through TimingJsonLoader.BuildLines — the PRODUCTION
-// decode path — never hand-assembled LyricLines. Two prior fixes to the skip passed on hand-made
+// IMPORTANT: every fixture line is built through TimingJsonLoader.BuildLines, the PRODUCTION
+// decode path, never hand-assembled LyricLines. Two prior fixes to the skip passed on hand-made
 // lines with a timeline hole between one line's EndTime and the next line's StartTime, a shape
 // the real decoder never produces (BuildLines makes windows contiguous: a non-last line's EndTime
 // IS the next line's StartMs), and both fixes were dead on arrival on real maps. Building through
@@ -38,7 +38,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void RealDecodeShapeIsContiguousAndStillQualifies()
         {
             // The real-map shape verbatim: line A sings 1000-2000, line B starts (and sings from)
-            // 12000. The decoder runs A's window all the way to B's start — there is NO timeline
+            // 12000. The decoder runs A's window all the way to B's start; there is NO timeline
             // hole, no dead zone, and the old "seal -> activation" mechanical window is exactly
             // zero. The 10s instrumental exists only as the perceived stretch.
             var l = lines(60000,
@@ -96,7 +96,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // Line A's REPORTED end is 2000, but its actual last word is sung 14900-15000 (a held
             // note running almost to line B at 15000). The perceived stretch measured from SingEnd
-            // (2000) would qualify, but the last typeable target sits at 14900 — the player is
+            // (2000) would qualify, but the last typeable target sits at 14900; the player is
             // still typing there, so the usable skip period (15900 -> 12000) is negative and the
             // gap is dropped rather than flashing an overlay over live typing.
             var l = lines(60000,
@@ -134,7 +134,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void LastLineOutroIsNotAGap()
         {
             // Line B is the last line; whatever instrumental follows it is the outro, handled by
-            // the outro flow, never by a mid-song gap — Compute only looks between lines.
+            // the outro flow, never by a mid-song gap; Compute only looks between lines.
             var l = lines(60000,
                 raw("ab", 1000, 2000, ("ab", 1000, 1800)),
                 raw("cd", 12000, 12800, ("cd", 12000, 12800)));

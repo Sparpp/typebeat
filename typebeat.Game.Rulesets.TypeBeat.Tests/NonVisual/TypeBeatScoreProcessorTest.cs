@@ -12,7 +12,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// <summary>
     /// Rank is graded on COMPLETION (% of cells typed), not accuracy: sloppy timing (ok/meh) must
     /// not cost the SS, and only missed cells move the grade. The cutoffs must stay in sync with
-    /// the server's ScoringContract (typebeat-web) — these tests pin the client half.
+    /// the server's ScoringContract (typebeat-web); these tests pin the client half.
     /// </summary>
     [TestFixture]
     public class TypeBeatScoreProcessorTest
@@ -27,8 +27,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void SloppyTiming_ButEverythingTyped_IsStillSS()
         {
-            // The headline rule: every character typed — even entirely with the worst timing
-            // window — earns the SS. Accuracy will be low; the rank must not care.
+            // The headline rule: every character typed, even entirely with the worst timing
+            // window, earns the SS. Accuracy will be low; the rank must not care.
             var results = new Dictionary<HitResult, int>
             {
                 [HitResult.Great] = 10,
@@ -42,7 +42,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void LineJudgements_AreInvisibleToCompletion()
         {
-            // Line containers seal as IgnoreHit/IgnoreMiss — scoring-inert, so they must not
+            // Line containers seal as IgnoreHit/IgnoreMiss, scoring-inert, so they must not
             // dilute (or inflate) the cell-based completion.
             var results = new Dictionary<HitResult, int>
             {

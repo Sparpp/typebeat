@@ -3,7 +3,7 @@
 
 // Ported verbatim from type!beat TypeBeat.Game.Tests/NonVisual/TypingEngineTest.cs.
 // type!beat gameplay-core tests: headless NUnit coverage of the whole gameplay/scoring
-// state machine on fabricated beatmaps with round-number times. No game host — the
+// state machine on fabricated beatmaps with round-number times. No game host; the
 // engine takes explicit double-millisecond times. Every expected value is hand-computed
 // in a comment beside its assert. This file is the correctness anchor for the whole game.
 // Adaptations on entry: namespaces; Beatmap->LyricBeatmap/BeatmapMetadata->LyricBeatmapMetadata;
@@ -232,7 +232,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void TypingNothingSealsWithMissesAndOneComboBreak()
         {
             // L0 "ab" [1000, 3000), unit [1000,2000] => a=1000, b=1500.
-            // L1 "cd" [3000, 5000), unit [3000,4000] => c=3000, d=3500 — never typed.
+            // L1 "cd" [3000, 5000), unit [3000,4000] => c=3000, d=3500, never typed.
             var engine = new TypingEngine(map(TimingGranularity.Line,
                 line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000)),
                 line("cd", 3000, 5000, 4000, unit("cd", 3000, 4000))));
@@ -288,7 +288,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             engine.Update(1000);
 
-            // 'x' where 'a' is expected: REJECTED — nothing input, no judgement, streak grows.
+            // 'x' where 'a' is expected: REJECTED, nothing input, no judgement, streak grows.
             Assert.IsTrue(engine.ProcessKey('x', 1000));
             Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[0].State);
             Assert.IsNull(engine.Lines[0].Cells[0].TypedChar);
@@ -306,7 +306,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, engine.CaretIndex);
 
             // 'a' correct at t=1200 (delta +200 => Perfect at Line windows, late edge +400):
-            // judged at the REAL time — wrong presses never consumed the cell. Streak resets.
+            // judged at the REAL time; wrong presses never consumed the cell. Streak resets.
             Assert.IsTrue(engine.ProcessKey('a', 1200));
             Assert.AreEqual(new CharJudgement(0, 0, JudgementType.Perfect, 200, 300, 1), judgements[0]);
             Assert.AreEqual(0, engine.ConsecutiveWrongKeys);
@@ -345,7 +345,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Backspace with nothing typed is inert.
             Assert.IsFalse(engine.ProcessBackspace());
 
-            engine.ProcessKey('x', 1000); // wrong on 'a': rejected — the cell never held it
+            engine.ProcessKey('x', 1000); // wrong on 'a': rejected, the cell never held it
             Assert.IsFalse(engine.ProcessBackspace()); // still nothing typed to erase
             Assert.AreEqual(0, engine.CaretIndex);
             Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[0].State);
@@ -398,7 +398,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             engine.Update(1000);
 
-            // Type b-e-g-g-i-n exactly on target — all Perfect.
+            // Type b-e-g-g-i-n exactly on target; all Perfect.
             engine.ProcessKey('b', 1000);
             engine.ProcessKey('e', 1200);
             engine.ProcessKey('g', 1400);
@@ -465,7 +465,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             engine.Update(1000);
 
             engine.ProcessKey('x', 1000);      // wrong (denominator 1, correct 0)
-            engine.ProcessBackspace();          // NOT a keypress — changes nothing in the counts
+            engine.ProcessBackspace();          // NOT a keypress; changes nothing in the counts
             engine.ProcessKey('a', 1200);      // correct (2, 1)
             engine.ProcessKey('b', 1500);      // correct (3, 2)
 
@@ -473,7 +473,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(2.0 / 3, engine.LiveAccuracy, 1e-12);
 
             engine.Update(3000);
-            engine.Update(5000); // L1 sealed with 2 Missed cells — misses are NOT keypresses
+            engine.Update(5000); // L1 sealed with 2 Missed cells; misses are NOT keypresses
 
             Assert.IsTrue(engine.IsFinished);
             Assert.AreEqual(2.0 / 3, engine.LiveAccuracy, 1e-12);
@@ -483,7 +483,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void ActiveTimeWpmIgnoresGapsAndPostLineWaits()
         {
-            // L0 "ab cd" active [1000, 10000) but sung by 3000 — finish early, then a long wait.
+            // L0 "ab cd" active [1000, 10000) but sung by 3000, finish early, then a long wait.
             // L1 "ef" [10000, 12000), unit [10000, 11000] => e=10000, f=10500.
             var engine = new TypingEngine(map(TimingGranularity.Line,
                 line("ab cd", 1000, 10000, 3000, unit("ab", 1000, 2000), unit("cd", 2000, 3000)),
@@ -521,7 +521,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void InputInertDuringLeadInGapAndAfterCompletion()
         {
-            // L0 "ab" [1000, 2000); L1 "cd" [5000, 6000) — a real dead gap [2000, 5000).
+            // L0 "ab" [1000, 2000); L1 "cd" [5000, 6000): a real dead gap [2000, 5000).
             var engine = new TypingEngine(map(TimingGranularity.Line,
                 line("ab", 1000, 2000, 2000, unit("ab", 1000, 2000)),
                 line("cd", 5000, 6000, 6000, unit("cd", 5000, 6000))));
@@ -540,7 +540,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             engine.ProcessKey('b', 1500);
             Assert.IsTrue(engine.IsLineComplete);
 
-            // Line complete: further keys inert ("line complete — wait for the song").
+            // Line complete: further keys inert ("line complete, wait for the song").
             Assert.IsFalse(engine.ProcessKey('x', 1600));
             Assert.IsNull(engine.CurrentLeadLag(1600));
             Assert.AreEqual(1.0, engine.LiveAccuracy);
@@ -584,7 +584,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             engine.Update(1000);
             engine.ProcessKey('a', 400);  // delta -600 => Good; sample (400, -600)
-            engine.ProcessKey('x', 1500); // WRONG on 'b': rejected — caret stays, no timeline sample
+            engine.ProcessKey('x', 1500); // WRONG on 'b': rejected, caret stays, no timeline sample
             engine.ProcessKey('c', 2600); // ALSO wrong ('b' expected): rejected, no sample
 
             engine.Update(10000); // seal: 'b' and 'c' force-missed
@@ -650,7 +650,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(new[] { "activated:0" }, events);
 
             // At exactly t == EndTime_0 == StartTime_1: seal line 0 FIRST, THEN activate line 1,
-            // in the SAME Update call (line active on [Start, End) — End belongs to the next line).
+            // in the SAME Update call (line active on [Start, End); End belongs to the next line).
             engine.Update(3000);
             Assert.AreEqual(new[] { "activated:0", "sealed:0", "activated:1" }, events);
             Assert.AreEqual(1, engine.ActiveLineIndex);
@@ -812,7 +812,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(engine.ProcessKey(' ', 2000));
 
             // The frame lands past the boundary before the pinned cells could be typed in
-            // rhythm — pre-fix this frame force-missed 'c' and 'd' and broke combo.
+            // rhythm; pre-fix this frame force-missed 'c' and 'd' and broke combo.
             engine.Update(3016);
             Assert.AreEqual(0, engine.ActiveLineIndex);   // grace holds the line open
             Assert.IsTrue(engine.ProcessKey('c', 3016));  // delta +16 vs pinned 3000 => Perfect
@@ -845,7 +845,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void EstimatedLineJudgedAtLineWindows()
         {
             // Word-granularity beatmap, but the line is aligner-estimated (no acoustic
-            // evidence) — its cells judge at the wider Line windows.
+            // evidence); its cells judge at the wider Line windows.
             var est = new LyricLine
             {
                 RawText = "ab cd", StartTime = 1000, EndTime = 4000, SingEndTime = 3000,
@@ -946,7 +946,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void UnreachableNonAsciiCharsAutoSkip()
         {
-            // 'ß' has no FormD decomposition and no key can produce it — it must classify as
+            // 'ß' has no FormD decomposition and no key can produce it; it must classify as
             // non-typeable (auto-skip), never strand the caret. 'é' decomposes to 'e' upstream
             // in Typeability.Normalize, so it never reaches the cells un-decomposed.
             Assert.AreEqual("cafe", Typeability.Normalize("café"));
@@ -994,7 +994,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // Line 0 seals at its boundary (4000); line 1's first word is at 10000, so its cue is
             // 8500. In between, no line is active (input inert) but line 1 is already the
-            // upcoming line — the stage scrolls at the seal, dimmed until the cue.
+            // upcoming line; the stage scrolls at the seal, dimmed until the cue.
             var l0 = abcdLine();
             var l1 = line("ef", 4000, 12000, 11000, unit("ef", 10000, 11000));
             var engine = new TypingEngine(map(TimingGranularity.Word, l0, l1));
@@ -1018,7 +1018,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void ImmediateVocalsActivateAtBoundaryAsBefore()
         {
             // When a line's first word starts on its boundary, the cue clamps to the boundary
-            // (a line can never activate before the previous one can seal) — the pre-cue
+            // (a line can never activate before the previous one can seal); the pre-cue
             // behavior is unchanged for back-to-back lines.
             var l0 = abcdLine();
             var l1 = line("ef", 4000, 6000, 5500, unit("ef", 4000, 5000));
@@ -1054,7 +1054,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(1, engine.Combo);
 
             // Lower-case 'b' where 'B' is expected: WRONG-CASE => rejected exactly like a wrong
-            // char — nothing input, caret held, combo broken, streak grown.
+            // char, nothing input, caret held, combo broken, streak grown.
             Assert.IsTrue(engine.ProcessKey('b', 1500));
             Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[1].State);
             Assert.IsNull(engine.Lines[0].Cells[1].TypedChar);
@@ -1081,7 +1081,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void CaseInsensitiveByDefaultAcceptsWrongCase()
         {
-            // Same line, but CaseSensitive left OFF (default) — behaviour is unchanged:
+            // Same line, but CaseSensitive left OFF (default); behaviour is unchanged:
             // lower-case input matches an upper-case target through Fold.
             var engine = new TypingEngine(map(TimingGranularity.Line,
                 line("aB", 1000, 3000, 2000, unit("aB", 1000, 2000))));
@@ -1126,7 +1126,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(1200, divided.Cells[2].TargetTime);
             Assert.AreEqual(1600, divided.Cells[3].TargetTime);
 
-            // Non-uniform: the first two chars are 100 ms apart, the last two 400 ms — the caret
+            // Non-uniform: the first two chars are 100 ms apart, the last two 400 ms; the caret
             // slows down in the longer second syllable instead of a constant 250 ms/char.
             Assert.AreNotEqual(divided.Cells[1].TargetTime - divided.Cells[0].TargetTime,
                 divided.Cells[3].TargetTime - divided.Cells[2].TargetTime);
@@ -1141,7 +1141,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void UndividedWordKeepsFlatInterpolation()
         {
-            // Identical word with NO boundary: unchanged flat ramp 1000/1250/1500/1750 — the fix must
+            // Identical word with NO boundary: unchanged flat ramp 1000/1250/1500/1750; the fix must
             // leave every existing (undivided) map byte-identical.
             var flat = TypingLine.FromLyricLine(
                 line("abcd", 1000, 3000, 2000, unit("abcd", 1000, 2000)),

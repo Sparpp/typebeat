@@ -23,8 +23,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// Only sources that already carry typebeat objects (the M6 decoder path) — or entirely
-        /// empty beatmaps — are convertible. Legacy maps are not: Player refuses empty playable
+        /// Only sources that already carry typebeat objects (the M6 decoder path), or entirely
+        /// empty beatmaps, are convertible. Legacy maps are not: Player refuses empty playable
         /// beatmaps ("Beatmap contains no hit objects!") and unconvertible maps simply are not
         /// playable in this ruleset.
         /// </summary>
@@ -37,7 +37,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// The base converter passes native <see cref="TypeBeatHitObject"/>s through BY REFERENCE, so
         /// without this every play would share the WorkingBeatmap's cached instances. Each play's
         /// <c>GetPlayableBeatmap</c> then calls <c>ApplyDefaults</c> on those shared instances and
-        /// fires <c>HitObject.DefaultsApplied</c> — which, on a fast quick-restart, is still subscribed
+        /// fires <c>HitObject.DefaultsApplied</c>, which, on a fast quick-restart, is still subscribed
         /// by the OUTGOING player's drawables (not yet disposed) and mutates them off-thread, throwing
         /// and surfacing as "Could not load beatmap successfully!". Cloning gives every play its own
         /// hit-object instances so a new load can never touch objects a live player still holds.

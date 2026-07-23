@@ -15,7 +15,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// <summary>
     /// The editor mutation core: every operation must (a) respect the immutable-model rebuild
     /// pattern, (b) maintain the boundary invariant EndTime_i == StartTime_(i+1), and (c) be
-    /// RELOAD-STABLE — encoding the edited beatmap and decoding it back reproduces exactly the
+    /// RELOAD-STABLE: encoding the edited beatmap and decoding it back reproduces exactly the
     /// state the editor showed (the format derives line EndTimes, so any drift here would make
     /// saved edits silently change on reopen).
     /// </summary>
@@ -131,7 +131,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var editorBeatmap = createBeatmap();
 
-            // Try to drag line 1's start before line 0's start — clamps to min span after it.
+            // Try to drag line 1's start before line 0's start; clamps to min span after it.
             TypeBeatEditorOperations.SetLineStart(editorBeatmap, lineAt(editorBeatmap, 1), 500);
             Assert.That(lineAt(editorBeatmap, 1).Line.StartTime, Is.EqualTo(1000 + TypeBeatEditorOperations.MIN_SPAN_MS));
 
@@ -150,7 +150,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(lineAt(editorBeatmap, 2).Line.SingEndTime, Is.EqualTo(6200));
             Assert.That(lineAt(editorBeatmap, 2).Line.EndTime, Is.EqualTo(8000)); // 8000 <= 6200 + 3000
 
-            // 8000 stays within [6050, 6050 + tail] — no clamp needed, and reload agrees.
+            // 8000 stays within [6050, 6050 + tail]; no clamp needed, and reload agrees.
             TypeBeatEditorOperations.SetSingEnd(editorBeatmap, lineAt(editorBeatmap, 2), 6050);
             Assert.That(lineAt(editorBeatmap, 2).Line.EndTime, Is.EqualTo(8000));
 
@@ -219,7 +219,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(line.Line.Units[1].EndTime, Is.EqualTo(5700));
 
             // Excessive move: the whole group stops together when the trailing word hits the line
-            // end (6000). Delta is clamped ONCE to +500 and applied uniformly — nothing squashes.
+            // end (6000). Delta is clamped ONCE to +500 and applied uniformly; nothing squashes.
             TypeBeatEditorOperations.EditUnitGroup(editorBeatmap, line, idx, os, oe, 2000, TypeBeatEditorOperations.UnitGroupEdit.Move);
             Assert.That(line.Line.Units[0].StartTime, Is.EqualTo(3500));
             Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(4700));
@@ -240,7 +240,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             double[] oe = { 4200, 5500 };
 
             // Drag the end edge far right. gamma's end is blocked by delta's (fixed) start at 4300,
-            // so the shared uniform delta is clamped to +100 and BOTH ends move by exactly that —
+            // so the shared uniform delta is clamped to +100 and BOTH ends move by exactly that;
             // the amount is the (clamped) mouse distance, not each edge clipped to the cursor.
             TypeBeatEditorOperations.EditUnitGroup(editorBeatmap, line, idx, os, oe, 2000, TypeBeatEditorOperations.UnitGroupEdit.ResizeEnd);
 
@@ -377,13 +377,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             TypeBeatEditorOperations.DeleteLine(editorBeatmap, lineAt(editorBeatmap, 1));
 
-            // Inherited 30000 clamps to singEnd(4000) + tail(3000) = 7000 — exactly what reload derives.
+            // Inherited 30000 clamps to singEnd(4000) + tail(3000) = 7000, exactly what reload derives.
             Assert.That(lineAt(editorBeatmap, 0).Line.EndTime, Is.EqualTo(4000 + TypeBeatEditorOperations.LAST_LINE_TAIL_MS));
 
             assertReloadStable(editorBeatmap);
         }
 
-        /// <summary>Line-granularity fixture: no persisted word data — units are loader interpolations.</summary>
+        /// <summary>Line-granularity fixture: no persisted word data; units are loader interpolations.</summary>
         private static EditorBeatmap createLineGranularityBeatmap()
         {
             var beatmap = new Beatmap();
@@ -420,7 +420,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var editorBeatmap = createLineGranularityBeatmap();
 
-            // Boundary drag: reload re-interpolates units — the editor must too.
+            // Boundary drag: reload re-interpolates units; the editor must too.
             TypeBeatEditorOperations.SetLineStart(editorBeatmap, lineAt(editorBeatmap, 1), 3400);
             assertReloadStable(editorBeatmap);
 
@@ -439,7 +439,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             TypeBeatEditorOperations.MergeWithNext(editorBeatmap, lineAt(editorBeatmap, 1));
             assertReloadStable(editorBeatmap);
 
-            // None of the above authored word timing — the map must still be Line granularity.
+            // None of the above authored word timing; the map must still be Line granularity.
             Assert.That(lineAt(editorBeatmap, 0).Granularity, Is.EqualTo(TimingGranularity.Line));
         }
 
@@ -478,7 +478,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void SubMinSpanWindowsNeverThrow()
         {
-            // A map whose lines and words are packed tighter than MIN_SPAN_MS — legal aligner
+            // A map whose lines and words are packed tighter than MIN_SPAN_MS: legal aligner
             // output (BuildLines enforces only non-decreasing order). Every retime op must be a
             // safe no-op on a degenerate window, not a Math.Clamp(min>max) crash.
             var beatmap = new Beatmap();
@@ -501,7 +501,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 TypeBeatEditorOperations.SetLineStart(editorBeatmap, lineAt(editorBeatmap, 1), 1010);
                 // Sung-end on a sub-span (non-last) line.
                 TypeBeatEditorOperations.SetSingEnd(editorBeatmap, lineAt(editorBeatmap, 0), 1005);
-                // Retime the boxed-in middle unit (window < 30ms) — the reported crash path.
+                // Retime the boxed-in middle unit (window < 30ms); the reported crash path.
                 TypeBeatEditorOperations.SetUnitTiming(editorBeatmap, lineAt(editorBeatmap, 1), 1, 1700, 1900);
                 // Tap-stamp the same boxed-in unit.
                 TypeBeatEditorOperations.StampUnitStart(editorBeatmap, lineAt(editorBeatmap, 1), 1, 1805);

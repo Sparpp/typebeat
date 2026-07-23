@@ -22,7 +22,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// <summary>
     /// The 3-line monkeytype stack (previous faded / active centre / next dimmed) with
     /// eased scroll on line change. Owns both carets and subscribes to engine events.
-    /// Reads the inherited gameplay clock directly via <c>Time.Current</c> — in gameplay it
+    /// Reads the inherited gameplay clock directly via <c>Time.Current</c>; in gameplay it
     /// must be mounted under the playfield's lyric-offset clock container so its notion of
     /// time matches the engine feed. It never calls <c>engine.Update</c>.
     /// </summary>
@@ -35,10 +35,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         // The "get ready" cue: two depleting bars under the upcoming line's first char. A solid
         // bar lands on the line BOUNDARY (StartTime) and a 50%-opaque bar lands on the FIRST
-        // WORD — a mapper may set the boundary earlier than the first word, so the two can be
+        // WORD; a mapper may set the boundary earlier than the first word, so the two can be
         // distinct signals (when the boundary sits at the first word they coincide as one solid
         // bar). Each spans its final lead-in (TypingEngine.CUE_LEAD_MS). Sized/positioned by
-        // direct per-frame sets (no transforms — must behave under frozen/scrubbed clocks).
+        // direct per-frame sets (no transforms; must behave under frozen/scrubbed clocks).
         private const double approach_lead_ms = TypingEngine.CUE_LEAD_MS;
         private const float approach_bar_max_width = 140;
         private const float approach_bar_height = 4;
@@ -62,7 +62,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         // int.MinValue = nothing laid out; int.MaxValue = finished; >= 0 = active line k;
         // -(k + 2) = focused on UPCOMING line k (pre-roll or the dead zone after a seal but
-        // before the next line's cue) — distinct from the active encoding so the moment line k
+        // before the next line's cue), distinct from the active encoding so the moment line k
         // activates, the layout re-runs to undim it.
         private int laidOutFocus = int.MinValue;
         private bool pendingSnap;
@@ -157,7 +157,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>
         /// Resolves the configured gameplay font family to a value safe to hand the lyric displays.
         /// Returns null (built-in font) for the default sentinel, when the font manager is absent, or
-        /// when the chosen family cannot be registered — never throwing, so gameplay text always renders.
+        /// when the chosen family cannot be registered; never throwing, so gameplay text always renders.
         /// </summary>
         private static string? resolveLyricFont(TypeBeatRulesetConfigManager? config, LyricFontManager? fontManager)
         {
@@ -182,7 +182,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
-        /// A rejected wrong key never enters the line — instead the offending letter pops up
+        /// A rejected wrong key never enters the line; instead the offending letter pops up
         /// beside the caret (alternating sides), falls away and fades. Purely cosmetic juice;
         /// transforms run on the gameplay clock like every other stage animation.
         /// </summary>
@@ -283,8 +283,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             else if (!engine.IsFinished)
             {
                 // Pre-roll, or the dead zone between a boundary seal and the next line's cue:
-                // focus the upcoming line, dimmed. The stack scroll happens HERE — the moment a
-                // line seals (the boundary, or grace-end for overrunning vocals) — not when the
+                // focus the upcoming line, dimmed. The stack scroll happens HERE: the moment a
+                // line seals (the boundary, or grace-end for overrunning vocals), not when the
                 // next line activates.
                 int upcoming = Math.Max(0, engine.NextUnsealedLineIndex);
                 int encoded = -(upcoming + 2);
@@ -342,7 +342,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>
         /// Shows two depleting bars under the upcoming line's first typeable char: a solid one
         /// that lands on the line BOUNDARY (StartTime) and a 50%-opaque one that lands on the
-        /// FIRST WORD — the "get ready" signals after pre-roll and between lines. When the mapper
+        /// FIRST WORD: the "get ready" signals after pre-roll and between lines. When the mapper
         /// set the boundary earlier than the first word the two are distinct; when the boundary
         /// sits at the first word they coincide as one solid bar. Each is hidden outside its own
         /// final <see cref="approach_lead_ms"/> window (a past instant is behind the clock, so
@@ -360,7 +360,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // cue-open, TypingEngine.CUE_LEAD_MS). In continuous maps the PREVIOUS line is
                 // still active through that window and carries the cue via ActiveLineIndex + 1;
                 // but after a gap (previous line ended early) the line self-activates with
-                // nobody before it — so while the active line's own first word is still ahead,
+                // nobody before it, so while the active line's own first word is still ahead,
                 // the cue belongs to the active line itself. Unconditionally targeting
                 // ActiveLineIndex + 1 skipped the cue entirely for every line after a gap.
                 var active = engine.Lines[engine.ActiveLineIndex];
@@ -382,7 +382,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     var barPos = new Vector2(point.X, point.Y + d.LineHeight + 6);
 
                     // First-word cue (50% opaque) lands on the first word; boundary cue (solid)
-                    // lands on the line's StartTime — which a mapper may set earlier than the word.
+                    // lands on the line's StartTime, which a mapper may set earlier than the word.
                     bool wordShown = updateCueBar(approachBar, barPos, line.Cells[firstCell].TargetTime - Time.Current, 0.5f);
                     bool boundaryShown = updateCueBar(boundaryBar, barPos, line.StartTime - Time.Current, 1f);
 
@@ -487,8 +487,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private void relayoutUpcoming(int upcoming)
         {
-            // Positions match relayout(upcoming) — the just-sealed line slides up, the upcoming
-            // line takes the centre — but the centre line stays dimmed until it activates.
+            // Positions match relayout(upcoming): the just-sealed line slides up, the upcoming
+            // line takes the centre, but the centre line stays dimmed until it activates.
             // Same first-layout rule as relayout(): the gameplay clock may be frozen or not yet
             // running, so the initial state must not depend on transforms.
             double dur = laidOutFocus == int.MinValue ? 0 : TypeBeatStyle.LINE_SCROLL_DURATION;
@@ -597,12 +597,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public Vector2 SungCaretPosition => sungCaret.IsNotNull() ? sungCaret.Position : Vector2.Zero;
         public bool PlayerCaretVisible => playerCaret.IsNotNull() && playerCaret.Alpha > 0.5f;
 
-        /// <summary>Screen-space centre of the typing caret — the point the Flashlight mod reveals around.</summary>
+        /// <summary>Screen-space centre of the typing caret: the point the Flashlight mod reveals around.</summary>
         public Vector2 PlayerCaretScreenPosition => playerCaret.IsNotNull() ? playerCaret.ScreenSpaceDrawQuad.Centre : Vector2.Zero;
 
         /// <summary>
         /// While a boundary/first-word cue is counting a not-yet-active line in, the screen-space
-        /// point where that line's typing caret will first appear — so the Flashlight mod can snap
+        /// point where that line's typing caret will first appear, so the Flashlight mod can snap
         /// ahead to the new line before the caret arrives. False when no such cue is showing, or it
         /// targets the already-active line (use its live caret position instead).
         /// </summary>

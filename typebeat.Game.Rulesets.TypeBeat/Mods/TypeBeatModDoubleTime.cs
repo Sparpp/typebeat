@@ -7,7 +7,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
     /// <summary>
     /// Speeds up the track. The engine judges in beatmap-time (delta = time - cell.TargetTime),
-    /// so the fixed sync windows narrow in real time — exactly osu's intended difficulty effect,
+    /// so the fixed sync windows narrow in real time, exactly osu's intended difficulty effect,
     /// no ruleset-specific code needed.
     /// </summary>
     public class TypeBeatModDoubleTime : ModDoubleTime

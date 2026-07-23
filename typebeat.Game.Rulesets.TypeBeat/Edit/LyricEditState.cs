@@ -159,7 +159,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         private int interactionLocks;
 
-        /// <summary>True while a drag or text edit is live — playhead-follow is frozen.</summary>
+        /// <summary>True while a drag or text edit is live; playhead-follow is frozen.</summary>
         public bool InteractionPinned => interactionLocks > 0;
 
         public void BeginInteraction() => interactionLocks++;

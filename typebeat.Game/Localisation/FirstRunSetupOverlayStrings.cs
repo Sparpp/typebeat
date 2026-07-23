@@ -65,7 +65,7 @@ type!beat is a very configurable game, and diving straight into the settings can
         public static LocalisableString LocalAlignerDescription => new TranslatableString(getKey(@"local_aligner_description"),
             @"When you create a map, type!beat uses an AI aligner to time the song's lyrics word-by-word against the audio.
 
-By default that runs on the type!beat server — it works everywhere, but jobs queue up and can take a few minutes per song.
+By default that runs on the type!beat server; it works everywhere, but jobs queue up and can take a few minutes per song.
 
 If your machine has a decent graphics card (or a fast CPU), you can install the aligner locally instead: your imports run on your own hardware with no queue and nothing uploaded. This is a one-time download of roughly 2 GB (about 2.5 GB for the GPU build) and can always be installed later from Settings.");
 

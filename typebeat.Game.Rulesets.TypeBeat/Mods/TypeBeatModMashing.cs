@@ -18,7 +18,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     {
         public override string Name => "Mashing";
 
-        public override LocalisableString Description => "Any key is the right key — just keep the rhythm.";
+        public override LocalisableString Description => "Any key is the right key, just keep the rhythm.";
 
         public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset) =>
             ((DrawableTypeBeatRuleset)drawableRuleset).Engine.MashingEnabled = true;

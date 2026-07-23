@@ -6,7 +6,7 @@ using typebeat.Game.Rulesets.Mods;
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
     /// <summary>
-    /// Double-time with constant pitch. The non-generic base is used deliberately — the generic
+    /// Double-time with constant pitch. The non-generic base is used deliberately; the generic
     /// ModNightcore&lt;T&gt; injects a drum-beat overlay keyed off circle-game timing control points,
     /// which is meaningless for a lyric ruleset.
     /// </summary>

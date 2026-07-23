@@ -9,7 +9,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// <summary>
     /// Covers the endpoint-host trust logic shared by <see cref="Game.Online.Chat.ExternalLinkOpener"/>
     /// (external link warning suppression) and <see cref="TrustedDomainOnlineStore"/> (online resource lookups).
-    /// Notably pins that trust is decided on the parsed host, not a raw string prefix —
+    /// Notably pins that trust is decided on the parsed host, not a raw string prefix:
     /// "https://typebeat.mingda.sh.evil.com" must not pass as trusted.
     /// </summary>
     [TestFixture]

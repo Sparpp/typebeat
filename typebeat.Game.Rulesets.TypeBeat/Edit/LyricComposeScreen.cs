@@ -20,11 +20,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
     /// <summary>
     /// type!beat's compose mode: the top waveform timeline (solid waveform, half-strength beat
-    /// ticks) sits directly above a thin minimal boundaries band (<see cref="LineBoundariesBand"/>
-    /// — line boundaries + word-block ticks, window-mirrored from the waveform); the main area
+    /// ticks) sits directly above a thin minimal boundaries band (<see cref="LineBoundariesBand"/>:
+    /// line boundaries + word-block ticks, window-mirrored from the waveform); the main area
     /// below is a line list (sweeping text edits) beside the active line's detail/action panel,
     /// which hosts the interactive word-block strip (<see cref="LyricTimeline"/>).
-    /// The whole screen is organised around the mapper's loop — listen, nudge, listen:
+    /// The whole screen is organised around the mapper's loop (listen, nudge, listen):
     /// the active line follows the playhead unless a line is explicitly selected, R replays the
     /// active line with pre-roll and auto-pause, T stamps the focused word's start at the
     /// playhead, Enter stamps the active line's start.
@@ -32,7 +32,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// Clipboard (Ctrl+C/V via the editor's platform-action plumbing) carries TIMING patterns:
     /// with two or more lines multi-selected, copy takes their internal line timings; otherwise a
     /// word-unit selection copies its unit-run pattern; otherwise the active line's timings.
-    /// Paste dispatches on the payload — line timings apply to the current line selection
+    /// Paste dispatches on the payload: line timings apply to the current line selection
     /// (broadcast/zip, rebased per target), a unit run applies at the focused word.
     /// </summary>
     [Cached]
@@ -56,11 +56,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private LineListPanel lineList = null!;
         private TypeBeatHitObject? lastAutoScrolled;
 
-        /// <summary>Volume of the per-word editor tick — audible over the track without masking it.</summary>
+        /// <summary>Volume of the per-word editor tick, audible over the track without masking it.</summary>
         private const double tick_volume = 0.6;
 
         /// <summary>
-        /// Volume of the syllable-boundary sub-tick — clearly subordinate to the word tick, so the
+        /// Volume of the syllable-boundary sub-tick, clearly subordinate to the word tick, so the
         /// word starts stay the dominant rhythm and the dotted-line subdivisions read as grace notes.
         /// </summary>
         private const double syllable_tick_volume = 0.35;
@@ -83,7 +83,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private void load(AudioManager audio)
         {
             // Short editor metronome click for word starts, and the lighter UI notch click for
-            // syllable boundaries — a distinct, softer timbre so the two never blur together.
+            // syllable boundaries, a distinct, softer timbre so the two never blur together.
             // Both ship in typebeat.Game.Resources under Samples/UI.
             tickSample = audio.Samples.Get(@"UI/metronome-tick");
             syllableTickSample = audio.Samples.Get(@"UI/notch-tick");
@@ -94,7 +94,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             RelativeSizeAxes = Axes.Both,
             Children = new Drawable[]
             {
-                // No per-line bars here any more — the word-block strip directly beneath the
+                // No per-line bars here any more. The word-block strip directly beneath the
                 // waveform carries the lines (select, add, drag); the waveform stays clean.
                 new BeatdropMarkerPart(),
             },
@@ -325,7 +325,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 if (editorClock.IsRunning && active != null && active != playheadLine)
                 {
                     state.SelectedLine.Value = null;
-                    state.ClearMultiLineSelection(); // playback moved on — the whole selection is stale.
+                    state.ClearMultiLineSelection(); // playback moved on; the whole selection is stale.
                 }
 
                 active = playheadLine;

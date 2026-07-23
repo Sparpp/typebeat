@@ -28,7 +28,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// read as one surface. The strip owns its view window (initial zoom snapshotted from the
     /// waveform timeline): the wheel zooms it anchored at the time under the cursor, dragging
     /// empty space pans it, and it re-centres on the playhead whenever playback starts.
-    /// Adjacent lines share ONE boundary — the handle at a line's start
+    /// Adjacent lines share ONE boundary: the handle at a line's start
     /// is also the previous line's end (<see cref="TypeBeatEditorOperations.SetLineStart"/>
     /// moves both sides together).
     ///
@@ -62,7 +62,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         // Video-editor semantics: this strip owns its horizontal view offset. Panning moves the
         // view WITHOUT seeking, and the playhead is a moving marker. `following` re-centres the
-        // view on the playhead — armed at load and re-armed whenever playback starts (so pressing
+        // view on the playhead; armed at load and re-armed whenever playback starts (so pressing
         // play snaps the view back and then tracks it); any manual pan or seek disengages it.
         private double viewStart;
         private bool following = true;
@@ -130,7 +130,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (timeline == null || !timeline.IsLoaded)
                 return;
 
-            // The view is owned locally — the strip no longer drives (or reads, beyond the initial
+            // The view is owned locally; the strip no longer drives (or reads, beyond the initial
             // zoom snapshot) the shared waveform timeline, so neither panning nor zooming seeks the
             // clock. A rising edge of playback re-arms follow so the view snaps back to the playhead
             // and tracks it each frame; a manual pan/seek has cleared `following`.
@@ -195,7 +195,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             return false;
         }
 
-        /// <summary>Total subdivision boundaries across a line's words — a rebuild trigger (add/remove of a dotted line).</summary>
+        /// <summary>Total subdivision boundaries across a line's words: a rebuild trigger (add/remove of a dotted line).</summary>
         private static int totalSyllableBoundaries(LyricLine line)
         {
             int count = 0;
@@ -267,7 +267,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         protected override bool OnDragStart(DragStartEvent e)
         {
-            // Grab-and-pan the VIEW only — no seek, no clock stop. The playhead keeps its time and
+            // Grab-and-pan the VIEW only: no seek, no clock stop. The playhead keeps its time and
             // simply slides within the view. Word/line blocks and handles consume their own drags
             // before this fires, so this is only a drag over empty strip space.
             dragStartViewStart = viewStart;
@@ -302,7 +302,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         protected override bool OnDoubleClick(DoubleClickEvent e)
         {
-            // Double click on empty space (outside every line band — before the first line or
+            // Double click on empty space (outside every line band, before the first line or
             // after the last) authors a new line there; bands/blocks consume their own clicks.
             double time = TimeAt(ToLocalSpace(e.ScreenSpaceMousePosition).X);
             var added = TypeBeatEditorOperations.AddLine(editorBeatmap, time);
@@ -329,7 +329,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>
-        /// The background band spanning one line's window — shows line extents (alternating
+        /// The background band spanning one line's window: shows line extents (alternating
         /// tint), highlights the active line. Its grey area is treated as empty space: clicking it
         /// seeks the playhead there (and selects the line); word blocks sit above and take priority.
         /// </summary>
@@ -465,7 +465,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 progress.Width = fill;
             }
 
-            /// <summary>Which part of the block a local X hits — window-style edge zones.</summary>
+            /// <summary>Which part of the block a local X hits: window-style edge zones.</summary>
             private Grab grabAt(float localX)
             {
                 float zone = Math.Min(edge_px, DrawWidth * 0.4f);
@@ -598,7 +598,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         break;
 
                     default:
-                        // Rigid move — keeps the word's width and just stops at a neighbour.
+                        // Rigid move: keeps the word's width and just stops at a neighbour.
                         TypeBeatEditorOperations.MoveUnit(editorBeatmap, hitObject, index, grabStart + delta);
                         break;
                 }
@@ -636,7 +636,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Anchor = Anchor.CentreLeft;
                 Origin = Anchor.Centre;
                 RelativeSizeAxes = Axes.Y;
-                // Wide hit box (grabbable), thin visual line — the boundary is only 3px on screen
+                // Wide hit box (grabbable), thin visual line; the boundary is only 3px on screen
                 // but the click target is 22px so it is easy to hit.
                 Width = 22;
 
@@ -774,7 +774,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 double? time = boundaryTime();
 
-                // Stale handle (an undo/edit dropped this boundary before the next rebuild) — hide it.
+                // Stale handle (an undo/edit dropped this boundary before the next rebuild); hide it.
                 Alpha = time.HasValue ? 1 : 0;
 
                 if (time.HasValue)

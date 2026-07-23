@@ -55,8 +55,8 @@ namespace typebeat.Desktop.Updater
 
             try
             {
-                // type!beat's own velopack feed (the vpk pack output — RELEASES manifest + full
-                // packages — hosted by typebeat-web). MUST never point at upstream osu releases:
+                // type!beat's own velopack feed (the vpk pack output: RELEASES manifest + full
+                // packages, hosted by typebeat-web). MUST never point at upstream osu releases:
                 // an installed build would otherwise "update" itself into osu!lazer.
                 IUpdateSource updateSource = new SimpleWebSource(@"https://typebeat.mingda.sh/releases");
                 Velopack.UpdateManager updateManager = new Velopack.UpdateManager(updateSource, new UpdateOptions

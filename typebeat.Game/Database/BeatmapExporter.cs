@@ -7,7 +7,7 @@ using typebeat.Game.Beatmaps;
 namespace typebeat.Game.Database
 {
     /// <summary>
-    /// Exporter for native beatmap archives (.typb — "type!beat" package: the same zip layout
+    /// Exporter for native beatmap archives (.typb, the "type!beat" package: the same zip layout
     /// as .osz, but with files copied verbatim so the [Lyrics] section survives).
     /// </summary>
     public class BeatmapExporter : LegacyArchiveExporter<BeatmapSetInfo>

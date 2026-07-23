@@ -91,7 +91,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // The defining property: a superset can never rate below its subset.
             Assert.GreaterOrEqual(extendedSr, baseSr);
-            // Length counts, but only logarithmically — doubling must not double the rating.
+            // Length counts, but only logarithmically; doubling must not double the rating.
             Assert.Less(extendedSr, baseSr * 2);
         }
 
@@ -130,7 +130,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             double peakEndMs = 4 * 1200;
 
             var easyTail = buildMap(lineCount: 10, wordsPerLine: 2, lineMs: 2400, startAt: peakEndMs);
-            // Same density as the chorus — like an Insane diff keeping backing-vocal lines a Hard
+            // Same density as the chorus, like an Insane diff keeping backing-vocal lines a Hard
             // diff drops, so the ending stays just as dense as the peak instead of going quiet.
             var hardTail = buildMap(lineCount: 10, wordsPerLine: 4, lineMs: 1200, startAt: peakEndMs);
 
@@ -142,7 +142,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             TestContext.WriteLine($"matching-peak, easy tail -> {easierSr:0.00}; matching-peak, hard tail -> {harderSr:0.00}");
 
-            // Same peak, but the sustained-hard version must clearly separate from the easy one —
+            // Same peak, but the sustained-hard version must clearly separate from the easy one;
             // this is exactly what a single-bucket/D_max-only formula cannot see.
             Assert.That(harderSr - easierSr, Is.GreaterThan(0.15));
         }
