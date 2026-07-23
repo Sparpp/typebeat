@@ -41,7 +41,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         //
         // Balance targets (verified in TypeBeatHealthTest):
         //   * Full AFK on the real ~905-cell map empties the bar within the first few line seals
-        //     (~17s in) — clearly "sustained not typing", well before the map ends.
+        //     (well under half the map) - clearly "sustained not typing", well before the map ends.
         //   * Perfect play stays pinned at full (recovery caps at 1).
         //   * ~12% misses spread through otherwise-correct play never approaches 0 (Great recovery
         //     refills to the cap between misses, so the bar only ever dips one miss deep).
@@ -56,7 +56,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         public const double MEH_HEALTH_INCREASE = 0.02;
 
         /// <summary>HP drained by one untyped cell sealing as a miss (also mistimed/wrong-char misses).</summary>
-        public const double MISS_HEALTH_DRAIN = 0.02;
+        public const double MISS_HEALTH_DRAIN = 0.04;
 
         /// <summary>
         /// HP drained by a single rejected wrong key. Sized so an uninterrupted mash from full empties
