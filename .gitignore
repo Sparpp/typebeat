@@ -357,3 +357,4 @@ FodyWeavers.xsd
 # Bundled maps ship real audio that is NOT redistributable under this repo's licence.
 # The game imports whatever .typb files sit here at build time, but they must never be committed.
 typebeat.Desktop/Bundled/
+.claude/
