@@ -324,22 +324,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (e.ControlPressed || e.AltPressed)
                     return false;
 
-                // Once the player has reached the end of the current line the engine has no active
-                // line (pre-roll, the dead zone between a line's seal and the next line's cue, or
-                // after the final line). Typing is inert there anyway, so DON'T swallow the key —
-                // let it fall through to global key bindings so Space reaches GlobalAction.SkipCutscene
-                // and the intro / mid-song instrumental skip overlays can act. While a line IS active
-                // every typeable key (Space included) is consumed for typing, so a skip can never
-                // interrupt live gameplay.
+                // While the engine has no active line (pre-roll, a dead zone, or after the final
+                // line) typing is inert, so DON'T swallow the key — let it fall through to global
+                // key bindings so Space reaches GlobalAction.SkipCutscene and the intro / mid-song
+                // instrumental skip overlays can act.
                 if (!engine.LineIsActive)
                     return false;
 
                 if (e.Key == Key.BackSpace)
                 {
-                    // Repeat honoured: hold to erase, monkeytype-style.
+                    // Repeat honoured: hold to erase, monkeytype-style. Handled BEFORE the
+                    // line-complete fall-through: backspacing at line end must keep working (it is
+                    // how typed-through wrong chars get fixed in allow-wrong-input mode).
                     engine.ProcessBackspace();
                     return true;
                 }
+
+                // The active line is fully typed: the engine is inert for character keys
+                // (ProcessKey no-ops at line end), so let them fall through too. This is the state
+                // the player holds for the ENTIRE length of a real instrumental gap — the decoder
+                // keeps the previous line's window open (and thus active) until the next line
+                // starts, so without this fall-through Space could never reach the mid-song skip
+                // overlay on any real map. While the line is active and INCOMPLETE every typeable
+                // key (Space included) is still consumed for typing, so a skip can never eat a
+                // live keystroke.
+                if (engine.IsLineComplete)
+                    return false;
 
                 // Pass Shift through so held-Shift keys produce capitals — required for the
                 // Literate (case-sensitive) mod; folded away harmlessly in normal play.
