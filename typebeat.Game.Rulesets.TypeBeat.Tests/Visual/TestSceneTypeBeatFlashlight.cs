@@ -105,27 +105,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
-        public void TestWindowSpillsAcrossLineBoundary()
+        public void TestNextLineStaysDarkMidLineThenLightsOnEarlyFinish()
         {
             // The upcoming line starts fully dark.
             AddUntilStep("upcoming line hidden at start", () =>
                 Enumerable.Range(0, upcomingDisplay.CellCount).All(i => upcomingDisplay.CellAlpha(i) < 0.05f));
 
-            // Advance to near the end of the active line (18 of 20 chars). The right budget cannot fit
-            // in the remaining two chars, so it spills across the boundary into the NEXT line's head
-            // even though that line is not yet active.
+            // Advance to near the end of the active line (18 of 20 chars) but do NOT finish it. Proximity
+            // alone must no longer light the next line: while you are still typing the active line, its
+            // right budget is capped at the line end and the next line stays fully dark.
             AddRepeatStep("type a char", () => InputManager.Key(Key.J), 18);
-            AddAssert("caret near line end", () => engine.CaretIndex == 18);
+            AddAssert("caret near line end, line not complete", () => engine.CaretIndex == 18 && !engine.IsLineComplete);
 
-            AddUntilStep("next line first char lit by spill", () => upcomingDisplay.CellAlpha(0) > 0.5f);
-            AddUntilStep("next line second char lit by spill", () => upcomingDisplay.CellAlpha(1) > 0.5f);
+            AddUntilStep("next line still fully dark while typing near the end", () =>
+                Enumerable.Range(0, upcomingDisplay.CellCount).All(i => upcomingDisplay.CellAlpha(i) < 0.05f));
+
+            // The active line's own start is now dark (the window slid off it); its tail is lit.
+            AddUntilStep("active line start hidden", () => activeDisplay.CellAlpha(0) < 0.05f);
+            AddAssert("active line last char lit as a hard edge", () => activeDisplay.CellAlpha(activeDisplay.CellCount - 1) > 0.5f);
+
+            // Finish the line (type the last two chars). The instant the line is complete the cap lifts
+            // and the leftover budget spills into the next line's head as the early-finish reward.
+            AddRepeatStep("finish the line", () => InputManager.Key(Key.J), 2);
+            AddAssert("line complete", () => engine.CaretIndex == 20 && engine.IsLineComplete);
+
+            AddUntilStep("next line first char lit on early finish", () => upcomingDisplay.CellAlpha(0) > 0.5f);
+            AddUntilStep("next line second char lit on early finish", () => upcomingDisplay.CellAlpha(1) > 0.5f);
 
             // The far tail of the next line is still beyond the budget, so it stays dark.
             AddUntilStep("next line far char still hidden", () =>
                 upcomingDisplay.CellAlpha(upcomingDisplay.CellCount - 1) < 0.05f);
-
-            // The active line's own start is now dark (the window slid off it).
-            AddUntilStep("active line start hidden", () => activeDisplay.CellAlpha(0) < 0.05f);
         }
     }
 }

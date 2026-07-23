@@ -364,10 +364,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             int caretStreamSlot;
             bool haveWindow;
 
+            // Forward-spill cap. While a line is active AND still being typed, the window may not reach
+            // past that line's last countable slot, so the next line's head stays dark no matter how
+            // close the caret is to the end. The cap lifts (int.MaxValue) the instant the line is
+            // complete, so the leftover right budget spills into the next line's head as an early-finish
+            // reward; and during a cue-in (no active line) there is no cap, so the cued line's head and
+            // the previous line's tail light unconditionally, independent of any spill proximity.
+            int maxRightSlot = int.MaxValue;
+
             if (active >= 0 && !engine.IsFinished)
             {
                 caretStreamSlot = streamSlotOf(active, engine.CaretIndex);
                 haveWindow = true;
+
+                if (!engine.IsLineComplete)
+                    maxRightSlot = countableBase[active] + lineCountableCounts[active] - 1;
             }
             else if (!engine.IsFinished && approachCueTargetLine >= 0 && approachCueTargetLine < displays.Length)
             {
@@ -389,7 +400,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 return;
             }
 
-            var windows = LyricLineDisplay.ComputeStreamWindows(lineCountableCounts, caretStreamSlot, radius);
+            var windows = LyricLineDisplay.ComputeStreamWindows(lineCountableCounts, caretStreamSlot, radius, maxRightSlot);
 
             for (int k = 0; k < displays.Length; k++)
             {
