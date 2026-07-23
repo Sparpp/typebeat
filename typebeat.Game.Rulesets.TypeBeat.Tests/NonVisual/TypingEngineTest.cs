@@ -1102,5 +1102,81 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsEmpty(rejected);
             Assert.AreEqual(1.0, engine.LiveAccuracy);
         }
+
+        #region Syllable subdivisions (piecewise per-char timing)
+
+        private static TimedUnit subdividedUnit(string text, double start, double end, params double[] boundaries)
+            => new TimedUnit { Text = text, StartTime = start, EndTime = end, SyllableBoundaries = boundaries };
+
+        [Test]
+        public void SyllableBoundaryWarpsPerCharTargetsNonUniformly()
+        {
+            // Word "abcd" over [1000, 2000], one boundary at 1200 (off-centre; the flat midpoint is 1500).
+            // k = 4 chars, 2 segments. Chars split evenly by index: a,b in seg1 [1000,1200], c,d in seg2 [1200,2000].
+            //   a (j0) = 1000                      (first char always at unit start)
+            //   b (j1) = 1000 + (1-0)/2 * (1200-1000) = 1100
+            //   c (j2) = 1200                      (lands exactly on the boundary)
+            //   d (j3) = 1200 + (3-2)/2 * (2000-1200) = 1600
+            var divided = TypingLine.FromLyricLine(
+                line("abcd", 1000, 3000, 2000, subdividedUnit("abcd", 1000, 2000, 1200)),
+                TimingGranularity.Syllable);
+
+            Assert.AreEqual(1000, divided.Cells[0].TargetTime);
+            Assert.AreEqual(1100, divided.Cells[1].TargetTime);
+            Assert.AreEqual(1200, divided.Cells[2].TargetTime);
+            Assert.AreEqual(1600, divided.Cells[3].TargetTime);
+
+            // Non-uniform: the first two chars are 100 ms apart, the last two 400 ms — the caret
+            // slows down in the longer second syllable instead of a constant 250 ms/char.
+            Assert.AreNotEqual(divided.Cells[1].TargetTime - divided.Cells[0].TargetTime,
+                divided.Cells[3].TargetTime - divided.Cells[2].TargetTime);
+
+            // The caret polyline follows the boundary: at the boundary time it sits on char c (index 2),
+            // and it advances faster through seg1 than seg2.
+            Assert.AreEqual(2, divided.SungPositionAt(1200));          // on the boundary => on char c
+            Assert.AreEqual(0.5, divided.SungPositionAt(1050));        // 50/100 through a->b (fast segment)
+            Assert.AreEqual(2.5, divided.SungPositionAt(1600 - 200));  // c(1200,2)->d(1600,3): 200/400 = 0.5
+        }
+
+        [Test]
+        public void UndividedWordKeepsFlatInterpolation()
+        {
+            // Identical word with NO boundary: unchanged flat ramp 1000/1250/1500/1750 — the fix must
+            // leave every existing (undivided) map byte-identical.
+            var flat = TypingLine.FromLyricLine(
+                line("abcd", 1000, 3000, 2000, unit("abcd", 1000, 2000)),
+                TimingGranularity.Syllable);
+
+            Assert.AreEqual(1000, flat.Cells[0].TargetTime);
+            Assert.AreEqual(1250, flat.Cells[1].TargetTime); // 1000 + 1*(2000-1000)/4
+            Assert.AreEqual(1500, flat.Cells[2].TargetTime); // 1000 + 2*(2000-1000)/4
+            Assert.AreEqual(1750, flat.Cells[3].TargetTime); // 1000 + 3*(2000-1000)/4
+        }
+
+        [Test]
+        public void MultipleBoundariesSplitEvenlyByCharIndex()
+        {
+            // Word "abcdef" over [0, 1200] with two boundaries -> 3 segments, k = 6, so 2 chars/segment.
+            // Boundaries 300, 900 (deliberately uneven durations 300/600/300).
+            //   seg0 [0,300]:   a (j0)=0,   b (j1)= 0 + (1-0)/2*300 = 150
+            //   seg1 [300,900]: c (j2)=300, d (j3)= 300 + (3-2)/2*600 = 600
+            //   seg2 [900,1200]:e (j4)=900, f (j5)= 900 + (5-4)/2*300 = 1050
+            var t = TypingLine.FromLyricLine(
+                line("abcdef", 0, 2000, 1200, subdividedUnit("abcdef", 0, 1200, 300, 900)),
+                TimingGranularity.Syllable);
+
+            Assert.AreEqual(0, t.Cells[0].TargetTime);
+            Assert.AreEqual(150, t.Cells[1].TargetTime);
+            Assert.AreEqual(300, t.Cells[2].TargetTime);
+            Assert.AreEqual(600, t.Cells[3].TargetTime);
+            Assert.AreEqual(900, t.Cells[4].TargetTime);
+            Assert.AreEqual(1050, t.Cells[5].TargetTime);
+
+            // Targets stay strictly non-decreasing across the whole word.
+            for (int i = 1; i < t.Cells.Count; i++)
+                Assert.LessOrEqual(t.Cells[i - 1].TargetTime, t.Cells[i].TargetTime);
+        }
+
+        #endregion
     }
 }

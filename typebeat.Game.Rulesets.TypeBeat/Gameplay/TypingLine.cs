@@ -237,6 +237,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                         k++;
                 }
 
+                // Syllable subdivisions warp the char-to-time mapping WITHIN the word: instead of
+                // one flat ramp across [unitStart, unitEnd], the boundaries split it into segments
+                // and the k chars are spread evenly across the segments in index-space, so the caret
+                // reaches each boundary time at that boundary's proportional char and moves linearly
+                // (but at a per-segment speed) between them. Empty boundaries => the flat ramp.
+                var boundaries = unit?.SyllableBoundaries ?? System.Array.Empty<double>();
+
                 int j = 0;
 
                 foreach (char ch in token)
@@ -247,8 +254,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     if (Typeability.IsTypeable(ch))
                     {
                         isTypeable[pos] = true;
-                        // Typeable char j of k in unit u: u.Start + j * (u.End - u.Start) / k — first char AT unit start.
-                        targets[pos] = unitStart + j * (unitEnd - unitStart) / k;
+                        // Typeable char j of k in unit u — first char AT unit start, piecewise across
+                        // syllable boundaries (degenerates to u.Start + j*(u.End-u.Start)/k when undivided).
+                        targets[pos] = syllableCharTarget(unitStart, unitEnd, boundaries, k, j);
                         j++;
                     }
                     // else: punctuation — resolved in the second pass.
@@ -317,6 +325,42 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             return new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms));
+        }
+
+        /// <summary>
+        /// Target time of typeable char <paramref name="j"/> (0-based, of <paramref name="k"/> in the
+        /// word) under piecewise-linear syllable timing. The word spans [unitStart, unitEnd]; each
+        /// entry of <paramref name="boundaries"/> (absolute ms, strictly inside, ascending) splits it
+        /// into one more segment. The k chars are distributed evenly by index across the segments, so
+        /// segment s covers char-index range [s*k/S, (s+1)*k/S] mapped linearly onto its time range,
+        /// where S = segment count. With no boundaries this is exactly unitStart + j*(unitEnd-unitStart)/k;
+        /// char j = 0 always lands on unitStart. Monotonic non-decreasing in j because boundaries are sorted.
+        /// </summary>
+        internal static double syllableCharTarget(double unitStart, double unitEnd, IReadOnlyList<double> boundaries, int k, int j)
+        {
+            if (k <= 0)
+                return unitStart;
+
+            if (boundaries.Count == 0)
+                return unitStart + (double)j * (unitEnd - unitStart) / k;
+
+            int segments = boundaries.Count + 1;
+
+            // Which segment holds char index j (floor of j scaled into segment-space), clamped to the last.
+            int s = (int)Math.Floor((double)j * segments / k);
+
+            if (s >= segments)
+                s = segments - 1;
+
+            double segIndexLo = (double)s * k / segments;
+            double segIndexHi = (double)(s + 1) * k / segments;
+            double timeLo = s == 0 ? unitStart : boundaries[s - 1];
+            double timeHi = s == segments - 1 ? unitEnd : boundaries[s];
+
+            if (segIndexHi <= segIndexLo)
+                return timeLo;
+
+            return timeLo + (j - segIndexLo) / (segIndexHi - segIndexLo) * (timeHi - timeLo);
         }
 
         private const double boundary_epsilon_ms = 30;
