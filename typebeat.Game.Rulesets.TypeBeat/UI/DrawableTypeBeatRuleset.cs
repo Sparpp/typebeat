@@ -33,6 +33,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         public TypingEngine Engine => engine ??= createEngine();
 
+        /// <summary>
+        /// Flashlight mod: when &gt; 0, only this many countable characters (typeable, non-space)
+        /// either side of the typing caret are lit on the active line, and the rest of the 3-line
+        /// stack is hidden. 0 = mod off. Set by <see cref="Mods.TypeBeatModFlashlight"/> during
+        /// <c>ApplyToDrawableRuleset</c> (before load); the <see cref="LyricStage"/> reads it each
+        /// frame. Purely visual, so judgement, scoring and replays are unaffected.
+        /// </summary>
+        public int FlashlightVisibleRadius { get; set; }
+
         private IReadOnlyList<InstrumentalSkipSection>? instrumentalSkipSections;
 
         /// <summary>

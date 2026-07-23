@@ -5,6 +5,7 @@
 // SpriteText -> OsuSpriteText (fork bans bare SpriteText); constant names restyled.
 
 using System;
+using System.Collections.Generic;
 using osu.Framework.Allocation;
 using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Extensions.ObjectExtensions;
@@ -43,6 +44,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private Box sweepGlow = null!;
         private OsuSpriteText[] cells = Array.Empty<OsuSpriteText>();
         private float[] advances = Array.Empty<float>();
+
+        /// <summary>Per-cell alpha driven purely by judgement state (Missed dims to 0.4, else 1);
+        /// the flashlight window multiplies on top of this so the two never clobber each other.</summary>
+        private float[] cellStateAlpha = Array.Empty<float>();
 
         /// <summary>Content-local left edge of each cell; length = Cells.Count + 1 (last entry = end of line).</summary>
         private float[] cellX = { 0f };
@@ -87,6 +92,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             int n = Line.Cells.Count;
             cells = new OsuSpriteText[n];
+            cellStateAlpha = new float[n];
+            Array.Fill(cellStateAlpha, 1f);
 
             content = new Container { AutoSizeAxes = Axes.Both };
 
@@ -238,25 +245,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 case CellState.Correct:
                     cell.Colour = TypeBeatStyle.TypedChar;
-                    cell.Alpha = 1f;
+                    cellStateAlpha[cellIndex] = 1f;
                     break;
 
                 case CellState.Wrong:
                     // Expected glyph shown in error red (not the typed char).
                     cell.Colour = TypeBeatStyle.ErrorChar;
-                    cell.Alpha = 1f;
+                    cellStateAlpha[cellIndex] = 1f;
                     break;
 
                 case CellState.Missed:
                     cell.Colour = TypeBeatStyle.UntypedChar;
-                    cell.Alpha = 0.4f;
+                    cellStateAlpha[cellIndex] = 0.4f;
                     break;
 
                 default: // Untyped, AutoSkipped
                     cell.Colour = TypeBeatStyle.UntypedChar;
-                    cell.Alpha = 1f;
+                    cellStateAlpha[cellIndex] = 1f;
                     break;
             }
+
+            // Compose the state alpha with the flashlight window (a no-op multiplier of 1 when the
+            // mod is off) so a state refresh can never undo the window's hiding, or vice versa.
+            applyCellAlpha(cellIndex, animate: false);
         }
 
         public void PlayJudgementFeedback(CharJudgement judgement)
@@ -299,5 +310,155 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             float alpha = Math.Clamp(1f - dimAmount, 0f, 1f);
             content.FadeTo(alpha, 150, Easing.OutQuint);
         }
+
+        // --- Flashlight mod: per-character visibility window ---
+        // The mod lights only a fixed run of COUNTABLE chars (typeable and not a space) either side
+        // of the caret head; spaces and punctuation inside that run stay lit but do not spend the
+        // budget, and everything past it (including the whole of the two inactive stack lines) is
+        // hidden. The stage drives this each frame off the engine caret, so it slides with both
+        // correct and wrong-advancing input and stays purely visual (judgement is untouched).
+
+        private const float flashlight_soft_alpha = 0.35f;
+        private const double flashlight_fade_ms = 90;
+
+        private bool flashlightEnabled;
+        private int flashlightCaret = -1;   // caret cell index the window is centred on; < 0 = hide the whole line
+        private int flashlightRadius = -1;
+        private float[] flashlightAlphas = Array.Empty<float>();
+
+        /// <summary>Light the window centred on the caret. Cheap to call every frame: it only
+        /// recomputes and re-fades when the caret or radius actually moves.</summary>
+        public void SetFlashlightWindow(int caretCellIndex, int radius)
+        {
+            if (flashlightEnabled && flashlightCaret == caretCellIndex && flashlightRadius == radius)
+                return;
+
+            flashlightEnabled = true;
+            flashlightCaret = caretCellIndex;
+            flashlightRadius = radius;
+            flashlightAlphas = ComputeWindowAlphas(Line.Cells, caretCellIndex, radius, flashlight_soft_alpha);
+
+            reapplyFlashlight();
+
+            // The active line keeps its sung sweep; restore it in case this line was hidden while upcoming.
+            if (sweepTrack.IsNotNull())
+            {
+                sweepTrack.FadeTo(1f, flashlight_fade_ms);
+                sweepFill.FadeTo(1f, flashlight_fade_ms);
+            }
+        }
+
+        /// <summary>Hide the whole line: the inactive stack lines, plus every line during pre-roll
+        /// and the dead zones between lines (you must not be able to read ahead of the caret).</summary>
+        public void HideForFlashlight()
+        {
+            if (flashlightEnabled && flashlightCaret < 0)
+                return;
+
+            flashlightEnabled = true;
+            flashlightCaret = -1;
+            flashlightRadius = -1;
+
+            reapplyFlashlight();
+
+            if (sweepTrack.IsNotNull())
+            {
+                sweepTrack.FadeTo(0f, flashlight_fade_ms);
+                sweepFill.FadeTo(0f, flashlight_fade_ms);
+                sweepGlow.FadeTo(0f, flashlight_fade_ms);
+            }
+        }
+
+        private void reapplyFlashlight()
+        {
+            for (int i = 0; i < cells.Length; i++)
+                applyCellAlpha(i, animate: true);
+        }
+
+        private void applyCellAlpha(int i, bool animate)
+        {
+            float target = cellStateAlpha[i] * flashlightFactor(i);
+
+            if (animate)
+                cells[i].FadeTo(target, flashlight_fade_ms, Easing.OutQuint);
+            else
+                cells[i].Alpha = target;
+        }
+
+        private float flashlightFactor(int i)
+        {
+            if (!flashlightEnabled)
+                return 1f;
+            if (flashlightCaret < 0)
+                return 0f;
+            return i < flashlightAlphas.Length ? flashlightAlphas[i] : 0f;
+        }
+
+        /// <summary>
+        /// Per-cell visibility multipliers for the flashlight window: 1 for a lit char, a soft value
+        /// for the outermost lit char on a side that has more hidden line beyond it, 0 for a hidden
+        /// char. The budget counts only COUNTABLE cells (typeable and not a space), so
+        /// <paramref name="radius"/> lit chars reach each side of the caret regardless of how many
+        /// spaces or punctuation marks sit between them; a space/punctuation cell strictly inside the
+        /// lit span stays lit, one at or past the edge is hidden. Pure (no drawable state) so the
+        /// window math is unit-testable.
+        /// </summary>
+        public static float[] ComputeWindowAlphas(IReadOnlyList<TypingCell> cells, int caretCellIndex, int radius, float softAlpha)
+        {
+            int n = cells.Count;
+            var result = new float[n];
+
+            if (n == 0 || radius <= 0)
+                return result;
+
+            // pref[i] = countable cells strictly before i; pref[n] = total countable in the line.
+            int[] pref = new int[n + 1];
+            for (int i = 0; i < n; i++)
+                pref[i + 1] = pref[i] + (isCountable(cells[i]) ? 1 : 0);
+
+            int total = pref[n];
+            int caret = Math.Clamp(caretCellIndex, 0, n);
+            int caretBudget = pref[caret];     // countable chars strictly left of the caret head
+            int lo = caretBudget - radius;     // leftmost lit countable slot (inclusive)
+            int hi = caretBudget + radius - 1; // rightmost lit countable slot (inclusive)
+
+            for (int i = 0; i < n; i++)
+            {
+                if (isCountable(cells[i]))
+                {
+                    int slot = pref[i];
+
+                    if (slot < lo || slot > hi)
+                        continue; // hidden
+
+                    // Soften the outermost lit char on a side only when a hidden char lies just
+                    // beyond it, so the window fades into darkness but a real line start/end (no
+                    // more line beyond) stays a hard, full-alpha edge.
+                    bool fadesLeft = slot == lo && slot - 1 >= 0;
+                    bool fadesRight = slot == hi && slot + 1 <= total - 1;
+                    result[i] = fadesLeft || fadesRight ? softAlpha : 1f;
+                }
+                else
+                {
+                    // Space / punctuation: lit only when it sits strictly between two lit countable
+                    // chars, so leading/trailing marks and the space just past the edge stay hidden.
+                    int leftSlot = pref[i] - 1;
+                    int rightSlot = pref[i];
+                    bool leftLit = leftSlot >= 0 && leftSlot >= lo && leftSlot <= hi;
+                    bool rightLit = rightSlot <= total - 1 && rightSlot >= lo && rightSlot <= hi;
+                    result[i] = leftLit && rightLit ? 1f : 0f;
+                }
+            }
+
+            return result;
+        }
+
+        private static bool isCountable(TypingCell cell) => cell.IsTypeable && cell.Expected != ' ';
+
+        // --- Test-support accessors (public so cross-assembly test scenes can assert) ---
+
+        public int CellCount => cells.Length;
+
+        public float CellAlpha(int index) => index >= 0 && index < cells.Length ? cells[index].Alpha : 0f;
     }
 }

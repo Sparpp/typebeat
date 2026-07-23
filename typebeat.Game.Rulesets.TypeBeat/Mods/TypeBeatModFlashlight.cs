@@ -1,106 +1,70 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-using osu.Framework.Allocation;
-using osu.Framework.Bindables;
-using osu.Framework.Graphics;
-using typebeat.Game.Configuration;
+using osu.Framework.Graphics.Sprites;
+using osu.Framework.Localisation;
+using typebeat.Game.Graphics;
 using typebeat.Game.Rulesets.Mods;
+using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
-using osuTK;
+using typebeat.Game.Rulesets.UI;
+using typebeat.Game.Scoring;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
     /// <summary>
-    /// Darkens the playfield except a soft-cornered rectangle that tracks the typing caret (the
-    /// "playhead"), so you can only read the lyric right around where you're typing. The effect
-    /// stays off until the first line's caret appears, then fades in; combo shrinks the reveal.
+    /// Flashlight, retuned for a typing game. The old implementation was osu's circular darkness
+    /// shader tracking the caret, which reads as an ugly grey blob over a lyric stack. This version
+    /// hides characters instead of dimming pixels: only a short run around the typing caret stays
+    /// lit, <see cref="visible_radius"/> COUNTABLE chars (typeable, non-space) reaching each side of
+    /// the caret head. Spaces and punctuation between lit chars stay lit but do not spend the budget,
+    /// and everything else, including the two inactive lines of the stack, is hidden so you cannot
+    /// read ahead. The window slides with the caret (correct and wrong-advancing input alike) and is
+    /// purely visual, so autoplay/replays light up identically and judgement is unaffected.
+    ///
+    /// It no longer subclasses <c>ModFlashlight</c> (that base drags in the size/combo shader knobs,
+    /// which are meaningless for a discrete character window). Acronym, type and ranked status are
+    /// unchanged, and the score multiplier stays the flat 1.2x the old flashlight used at its
+    /// default size (see <see cref="Scoring.TypeBeatScoreMultiplierCalculator"/>), so the server,
+    /// which only keys off the "FL" acronym, needs no change.
     /// </summary>
-    public partial class TypeBeatModFlashlight : ModFlashlight<TypeBeatHitObject>
+    public class TypeBeatModFlashlight : Mod, IApplicableToDrawableRuleset<TypeBeatHitObject>, IApplicableToScoreProcessor
     {
-        [SettingSource("Flashlight size", "Multiplier applied to the size of the reveal.")]
-        public override BindableFloat SizeMultiplier { get; } = new BindableFloat(1f)
+        public override string Name => "Flashlight";
+
+        public override string Acronym => "FL";
+
+        public override IconUsage? Icon => OsuIcon.ModFlashlight;
+
+        public override ModType Type => ModType.DifficultyIncrease;
+
+        public override LocalisableString Description => "Only a few characters around the caret stay lit.";
+
+        public override bool Ranked => true;
+
+        // Legacy self-report only; the authoritative multiplier lives in the non-obsolete
+        // TypeBeatScoreMultiplierCalculator (1.2x, unchanged from the old default-size flashlight).
+#pragma warning disable CS0672 // Member overrides obsolete member
+        public override double ScoreMultiplier => 1.2;
+#pragma warning restore CS0672
+
+        /// <summary>Countable characters lit either side of the caret head.</summary>
+        private const int visible_radius = 5;
+
+        public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset) =>
+            ((DrawableTypeBeatRuleset)drawableRuleset).FlashlightVisibleRadius = visible_radius;
+
+        public void ApplyToScoreProcessor(ScoreProcessor scoreProcessor)
         {
-            MinValue = 0.5f,
-            MaxValue = 2f,
-            Precision = 0.1f,
-        };
-
-        [SettingSource("Change size based on combo", "Reduce the reveal as your combo grows.")]
-        public override BindableBool ComboBasedSize { get; } = new BindableBool(true);
-
-        // The reveal's half-height (px, before the combo/size multipliers); the rectangle is much
-        // wider than tall so it frames the current line, not a big circle. 30% shorter than the
-        // original 58px (paired with a narrower aspect in width_to_height for a 40% smaller width).
-        public override float DefaultFlashlightSize => 58f * 0.7f;
-
-        protected override Flashlight CreateFlashlight() => new TypeBeatFlashlight(this);
-
-        private partial class TypeBeatFlashlight : Flashlight
-        {
-            // Reveal aspect after the size-down (see DefaultFlashlightSize): the height shrinks 30%
-            // via DefaultFlashlightSize, and this bumps the aspect so the width ends up 40% smaller
-            // overall (0.6 / 0.7 × the original 3.4).
-            private const float width_to_height = 3.4f * 0.6f / 0.7f;
-
-            [Resolved]
-            private DrawableTypeBeatRuleset drawableRuleset { get; set; } = null!;
-
-            private bool revealed;
-
-            public TypeBeatFlashlight(ModFlashlight modFlashlight)
-                : base(modFlashlight)
-            {
-            }
-
-            protected override string FragmentShader => "RectangularFlashlight";
-
-            protected override void LoadComplete()
-            {
-                base.LoadComplete();
-
-                FlashlightSmoothness = 1.6f; // softer edges + rounded corners
-
-                // Fade the darkening in from the start of gameplay. Previously it stayed fully
-                // transparent until TryGetCaretScreenPosition first returned true — but the caret is
-                // only "visible" (alpha > 0.5) mid-blink once a line is active, so on many maps that
-                // moment was missed and the mod had no visible effect at all. Revealing on load
-                // (centred until the caret is acquired) guarantees the effect while still following
-                // the caret once typing begins.
-                this.FadeInFromZero(FLASHLIGHT_FADE_DURATION, Easing.OutQuint);
-            }
-
-            protected override void UpdateFlashlightSize(float size) =>
-                this.TransformTo(nameof(FlashlightSize), new Vector2(size * width_to_height, size), FLASHLIGHT_FADE_DURATION, Easing.OutQuint);
-
-            protected override void Update()
-            {
-                base.Update();
-
-                var playfield = (TypeBeatPlayfield)drawableRuleset.Playfield;
-
-                if (playfield.TryGetCaretScreenPosition(out var caret))
-                {
-                    // Active line: follow the caret (this also recentres the reveal onto the new
-                    // line's caret the moment it appears, after the cue-in snap below).
-                    FlashlightPosition = ToLocalSpace(caret);
-                    revealed = true;
-                }
-                else if (playfield.TryGetUpcomingCaretScreenPosition(out var upcoming))
-                {
-                    // Between lines: the boundary cue is counting the next line in. Snap ahead to
-                    // where its caret will appear, instead of holding on the line just finished.
-                    FlashlightPosition = ToLocalSpace(upcoming);
-                    revealed = true;
-                }
-                else if (!revealed)
-                {
-                    // Before anything is acquired, centre the reveal rather than park it top-left.
-                    FlashlightPosition = ToLocalSpace(ScreenSpaceDrawQuad.Centre);
-                }
-                // else: hold the last position through the brief gap before the next cue opens.
-            }
         }
+
+        // Preserve the silver rank suffix the old flashlight applied (X -> XH, S -> SH).
+        public ScoreRank AdjustRank(ScoreRank rank, double accuracy) => rank switch
+        {
+            ScoreRank.X => ScoreRank.XH,
+            ScoreRank.S => ScoreRank.SH,
+            _ => rank,
+        };
     }
 }
