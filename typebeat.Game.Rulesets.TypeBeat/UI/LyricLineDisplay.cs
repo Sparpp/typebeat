@@ -33,6 +33,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private readonly float requestedFontSize;
 
+        /// <summary>Resolved gameplay-font family (null/empty = the built-in lyric font). Set at construction;
+        /// the owning stage decides the value and guarantees the family is registered before it is used.</summary>
+        private readonly string? fontFamily;
+
         private Container content = null!;
         private Box sweepTrack = null!;
         private Box sweepFill = null!;
@@ -70,10 +74,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             return advances[Math.Clamp(cellIndex, 0, advances.Length - 1)] * contentScale;
         }
 
-        public LyricLineDisplay(TypingLine line, float fontSize = TypeBeatStyle.LYRIC_FONT_SIZE)
+        public LyricLineDisplay(TypingLine line, float fontSize = TypeBeatStyle.LYRIC_FONT_SIZE, string? fontFamily = null)
         {
             Line = line;
             requestedFontSize = fontSize;
+            this.fontFamily = fontFamily;
             AutoSizeAxes = Axes.Both;
         }
 
@@ -113,7 +118,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 var cell = new OsuSpriteText
                 {
-                    Font = TypeBeatStyle.Lyric(requestedFontSize),
+                    Font = TypeBeatStyle.Lyric(requestedFontSize, fontFamily),
                     Text = Line.Cells[i].Expected.ToString(),
                     Colour = TypeBeatStyle.UntypedChar,
                     Anchor = Anchor.TopLeft,

@@ -11,6 +11,7 @@ using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
+using typebeat.Game.Graphics.Fonts;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
@@ -69,16 +70,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         [BackgroundDependencyLoader(true)]
-        private void load(TypeBeatRulesetConfigManager? config)
+        private void load(TypeBeatRulesetConfigManager? config, LyricFontManager? fontManager)
         {
             var lines = engine.Lines;
             displays = new LyricLineDisplay[lines.Count];
+
+            // The gameplay typing font is an accessibility pick (OpenDyslexic / a system font) applied
+            // only to the lyric stack. Resolved once here: an unset/unknown/failed font stays null so
+            // the displays fall back to the built-in lyric font.
+            string? lyricFont = resolveLyricFont(config, fontManager);
 
             lineContainer = new Container { RelativeSizeAxes = Axes.Both };
 
             for (int i = 0; i < lines.Count; i++)
             {
-                var d = new LyricLineDisplay(lines[i])
+                var d = new LyricLineDisplay(lines[i], fontFamily: lyricFont)
                 {
                     Anchor = Anchor.Centre,
                     Origin = Anchor.Centre,
@@ -141,6 +147,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // boundaryBar after approachBar → the solid boundary cue draws on top of the
             // translucent first-word cue where they overlap.
             InternalChildren = new Drawable[] { lineContainer, approachBar, boundaryBar, sungCaret, playerCaret, wrongKeyLayer };
+        }
+
+        /// <summary>
+        /// Resolves the configured gameplay font family to a value safe to hand the lyric displays.
+        /// Returns null (built-in font) for the default sentinel, when the font manager is absent, or
+        /// when the chosen family cannot be registered — never throwing, so gameplay text always renders.
+        /// </summary>
+        private static string? resolveLyricFont(TypeBeatRulesetConfigManager? config, LyricFontManager? fontManager)
+        {
+            if (config == null || fontManager == null)
+                return null;
+
+            string family = config.GetBindable<string>(TypeBeatRulesetSetting.LyricFont).Value;
+
+            if (string.IsNullOrWhiteSpace(family) || family.Equals(TypeBeatRulesetConfigManager.LYRIC_FONT_DEFAULT, StringComparison.Ordinal))
+                return null;
+
+            return fontManager.EnsureRegistered(family) ? family : null;
         }
 
         protected override void LoadComplete()
