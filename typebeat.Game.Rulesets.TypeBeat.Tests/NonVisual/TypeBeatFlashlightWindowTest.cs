@@ -140,11 +140,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void TestStreamSpillsIntoNextLine()
+        public void TestStreamSpillsIntoNextLineWhenUncapped()
         {
             // Two 5-letter lines. Caret near the end of line 0 (4 countable before it, i.e. before the
-            // 5th letter). Radius 5: the right budget cannot fit in line 0, so it spills into line 1's
-            // head. Left of the caret only 4 letters exist (hard start edge, no soften).
+            // 5th letter). Radius 5, no right cap (the cue-in / line-complete path): the right budget
+            // cannot fit in line 0, so it spills into line 1's head. Left of the caret only 4 letters
+            // exist (hard start edge, no soften).
             var win = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 4, radius: 5);
 
             // Line 0: all five lit, no soft edge either side (start is hard, right continues into line 1).
@@ -153,6 +154,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Line 1: first four letters lit; the fourth is the window's outer-right edge with a hidden
             // letter beyond, so it softens; the fifth letter stays dark.
             assertWin(win[1], lo: 0, hi: 3, softLeft: false, softRight: true);
+        }
+
+        [Test]
+        public void TestMidLineForwardSpillIsCappedToActiveLine()
+        {
+            // Same geometry and caret as above, but now the caret is mid-line on an INCOMPLETE active
+            // line 0, so the stage caps the forward reach at line 0's last countable slot (4). The right
+            // budget that would have spilled into line 1 is thrown away: line 1 stays fully dark, and
+            // line 0's own last char (the one you must still type) stays a HARD, full-alpha edge.
+            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 4, radius: 5, maxRightSlot: 4);
+
+            assertWin(win[0], lo: 0, hi: 4, softLeft: false, softRight: false);
+            Assert.That(win[1].IsHidden, Is.True, "next line stays dark while the active line is still being typed");
+        }
+
+        [Test]
+        public void TestEarlyFinishRewardLightsNextLineHeadImmediately()
+        {
+            // The moment the line is complete the cap lifts. Caret sits at the line boundary (line 0 fully
+            // typed, stream slot 5) with no cap, exactly as the stage now passes when IsLineComplete: the
+            // leftover right budget spills into line 1's head as the early-finish reward, while line 0's
+            // whole tail stays lit. Contrast with the mid-line case above, where the same nearness lit
+            // nothing in line 1.
+            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 5, radius: 5);
+
+            assertWin(win[0], lo: 0, hi: 4, softLeft: false, softRight: false);
+            assertWin(win[1], lo: 0, hi: 4, softLeft: false, softRight: false);
+        }
+
+        [Test]
+        public void TestCapNeverAffectsBackwardSpill()
+        {
+            // The cap only limits the FORWARD (right) budget; the left/backward tail spill is untouched.
+            // Caret one char into line 1 with the cap set at line 1's last slot (9): the window still
+            // reaches back into line 0's tail exactly as when uncapped.
+            var capped = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 6, radius: 5, maxRightSlot: 9);
+            var uncapped = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 6, radius: 5);
+
+            assertWin(capped[0], lo: uncapped[0].Lo, hi: uncapped[0].Hi, softLeft: uncapped[0].SoftLeft, softRight: uncapped[0].SoftRight);
+            assertWin(capped[0], lo: 1, hi: 4, softLeft: true, softRight: false);
         }
 
         [Test]

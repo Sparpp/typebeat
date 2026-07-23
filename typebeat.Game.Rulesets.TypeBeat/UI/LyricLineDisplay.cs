@@ -137,6 +137,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 Colour = TypeBeatStyle.SungAccent.Opacity(0.20f),
                 Height = 3,
+                // Always present for layout: the full-width track pins the content's size (and its
+                // lower vertical extent) even when the flashlight has faded it to alpha 0, so the
+                // auto-size container never collapses to whatever happens to be lit right now.
+                AlwaysPresent = true,
             };
             sweepFill = new Box
             {
@@ -166,6 +170,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     Colour = TypeBeatStyle.UntypedChar,
                     Anchor = Anchor.TopLeft,
                     Origin = Anchor.Centre,
+                    // Always present for layout: a cell the flashlight hides (alpha 0) must still
+                    // occupy its slot in the auto-size box, or the line would collapse and re-centre
+                    // onto whatever run is currently lit, snapping the whole line sideways when the
+                    // window slides or the line activates. Alpha 0 still draws nothing.
+                    AlwaysPresent = true,
                     // Drop shadow (OsuSpriteText enables Shadow by default, but faintly): darken it
                     // so glyphs stay legible over a beatmap video/image, not just the flat panel.
                     ShadowColour = TypeBeatStyle.TextShadow,
@@ -507,9 +516,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <see cref="LineWindow"/> slice for each line: <paramref name="radius"/> countable chars reach
         /// each side of the caret through the concatenated stream, so the budget spills from a line's
         /// tail into the next line's head (and symmetrically the other way). Only the outer edges of the
-        /// whole window soften; boundaries the window crosses stay hard. Pure and unit-testable.
+        /// whole window soften; boundaries the window crosses stay hard.
+        ///
+        /// <paramref name="maxRightSlot"/> caps the rightmost lit stream slot (inclusive). The stage
+        /// passes the active line's last countable slot while the player is still typing it, so the
+        /// forward budget cannot reach into the next line mid-line; once the line is complete (or during
+        /// a cue-in, where there is no active line) it passes <see cref="int.MaxValue"/> and the budget
+        /// spills forward as an early-finish reward. A clamped right edge is HARD (the clamped char is
+        /// the last one you must still type, so it stays full alpha and darkness begins right after).
+        /// The left/backward budget is never capped. Pure and unit-testable.
         /// </summary>
-        public static LineWindow[] ComputeStreamWindows(IReadOnlyList<int> lineCountableCounts, int caretStreamSlot, int radius)
+        public static LineWindow[] ComputeStreamWindows(IReadOnlyList<int> lineCountableCounts, int caretStreamSlot, int radius, int maxRightSlot = int.MaxValue)
         {
             int m = lineCountableCounts.Count;
             var result = new LineWindow[m];
@@ -524,17 +541,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             int segBase = 0;
             for (int k = 0; k < m; k++)
             {
-                result[k] = windowForSegment(segBase, lineCountableCounts[k], total, caretStreamSlot, radius);
+                result[k] = windowForSegment(segBase, lineCountableCounts[k], total, caretStreamSlot, radius, maxRightSlot);
                 segBase += lineCountableCounts[k];
             }
 
             return result;
         }
 
-        /// <summary>Slice the global lit range [caret-radius, caret+radius-1] (clamped to the stream)
-        /// down to the segment [segBase, segBase+segCount-1], reporting which side, if any, carries the
-        /// window's soft outer edge.</summary>
-        private static LineWindow windowForSegment(int segBase, int segCount, int totalCountable, int caretStreamSlot, int radius)
+        /// <summary>Slice the global lit range [caret-radius, caret+radius-1] (clamped to the stream,
+        /// and on the right to <paramref name="maxRightSlot"/>) down to the segment
+        /// [segBase, segBase+segCount-1], reporting which side, if any, carries the window's soft outer
+        /// edge.</summary>
+        private static LineWindow windowForSegment(int segBase, int segCount, int totalCountable, int caretStreamSlot, int radius, int maxRightSlot)
         {
             if (segCount <= 0 || radius <= 0 || totalCountable <= 0)
                 return LineWindow.Hidden;
@@ -543,13 +561,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             int gLo = Math.Max(0, caret - radius);          // leftmost lit stream slot (inclusive)
             int gHi = Math.Min(totalCountable - 1, caret + radius - 1); // rightmost lit stream slot
 
+            // Cap the forward reach: while the active line is still being typed the stage caps this at
+            // that line's last countable slot so nothing lights in the next line. A cap is a deliberate
+            // wall, not a stream end, so the capped edge stays HARD (its char is fully lit).
+            bool clampedRight = false;
+            if (gHi > maxRightSlot)
+            {
+                gHi = maxRightSlot;
+                clampedRight = true;
+            }
+
             if (gLo > gHi)
                 return LineWindow.Hidden;
 
             // Soft only where a hidden countable char actually lies beyond the window in the stream;
-            // a clamp to slot 0 / the last slot is a hard stream end.
+            // a clamp to slot 0 / the last slot is a hard stream end, and a right-cap is a hard wall.
             bool leftSoft = gLo > 0;
-            bool rightSoft = gHi < totalCountable - 1;
+            bool rightSoft = !clampedRight && gHi < totalCountable - 1;
 
             int segHi = segBase + segCount - 1;
             int litLo = Math.Max(gLo, segBase);
@@ -586,7 +614,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 total++;
             }
 
-            return windowForSegment(0, total, total, caretBudget, radius);
+            return windowForSegment(0, total, total, caretBudget, radius, int.MaxValue);
         }
 
         /// <summary>A COUNTABLE cell: typeable and not a space. Spaces and punctuation do not spend the
@@ -598,5 +626,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public int CellCount => cells.Length;
 
         public float CellAlpha(int index) => index >= 0 && index < cells.Length ? cells[index].Alpha : 0f;
+
+        /// <summary>The whole line's on-screen width with every cell occupying its slot (after the
+        /// auto-shrink scale). The display's own <c>DrawWidth</c> must equal this at all times, even
+        /// when the flashlight has hidden most cells; a smaller <c>DrawWidth</c> means the layout
+        /// collapsed to the lit run and the line would re-centre. Test support for the stability pin.</summary>
+        public float FullOnScreenWidth => FullSweepWidth * contentScale;
+
+        /// <summary>Screen-space centre of a cell's glyph; test support for asserting a char does not
+        /// move as the flashlight window changes.</summary>
+        public Vector2 CellScreenPosition(int index) =>
+            index >= 0 && index < cells.Length ? cells[index].ScreenSpaceDrawQuad.Centre : Vector2.Zero;
     }
 }

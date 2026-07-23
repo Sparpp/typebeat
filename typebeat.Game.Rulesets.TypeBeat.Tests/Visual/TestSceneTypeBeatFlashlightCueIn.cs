@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using osu.Framework.Testing;
+using osu.Framework.Utils;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.Mods;
@@ -97,6 +98,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // Once the line activates the head is still lit (caret sits at its first char).
             AddUntilStep("first line active", () => engine.ActiveLineIndex == 0);
             AddAssert("head still lit at activation", () => stage.DisplayAt(0)!.CellAlpha(0) > 0.5f);
+        }
+
+        /// <summary>
+        /// The layout-snap regression. During cue-in the flashlight lights only the head of line 0; the
+        /// rest of the line is hidden (alpha 0). Those hidden cells must still occupy their layout slots
+        /// so the line renders at its FULL width and does not re-centre onto the lit head, which would
+        /// snap the whole line sideways the moment it activates and the window slides. We pin this two
+        /// ways: the display's on-screen width equals its full-line width even while most cells are dark,
+        /// and cell 0 does not move between cue-in and activation.
+        /// </summary>
+        [Test]
+        public void TestLineLayoutStableDuringCueIn()
+        {
+            AddStep("load player with Flashlight", () => LoadPlayer(new Mod[] { new TypeBeatModFlashlight() }));
+            AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
+            AddUntilStep("gameplay started", () => Player.GameplayClockContainer.CurrentTime > 0);
+
+            float cueInCell0X = 0f;
+
+            AddUntilStep("cue-in shows line 0 head", () =>
+                engine.ActiveLineIndex == -1
+                && stage.ApproachCueTargetLine == 0
+                && stage.DisplayAt(0)!.CellAlpha(0) > 0.5f);
+
+            AddAssert("line 0 occupies full width during cue-in (hidden cells still present)", () =>
+            {
+                var d = stage.DisplayAt(0)!;
+                cueInCell0X = d.CellScreenPosition(0).X;
+
+                // A tail char is genuinely dark (proving most of the line is hidden)...
+                bool tailDark = d.CellAlpha(d.CellCount - 1) < 0.05f;
+                // ...yet the line still measures its full width (the hidden cells hold their slots).
+                bool fullWidth = Precision.AlmostEquals(d.DrawWidth, d.FullOnScreenWidth, 1f);
+                return tailDark && fullWidth;
+            });
+
+            AddUntilStep("first line active", () => engine.ActiveLineIndex == 0);
+
+            AddAssert("line 0 still full width after activation", () =>
+                Precision.AlmostEquals(stage.DisplayAt(0)!.DrawWidth, stage.DisplayAt(0)!.FullOnScreenWidth, 1f));
+
+            AddAssert("cell 0 did not snap sideways from cue-in to activation", () =>
+                Precision.AlmostEquals(stage.DisplayAt(0)!.CellScreenPosition(0).X, cueInCell0X, 1f));
         }
     }
 }
