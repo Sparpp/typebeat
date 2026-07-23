@@ -15,12 +15,14 @@ using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Rulesets.Configuration;
 using typebeat.Game.Rulesets.Difficulty;
 using typebeat.Game.Rulesets.Mods;
+using typebeat.Game.Rulesets.Replays.Types;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.Scoring.Legacy;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Mods;
+using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Scoring;
@@ -73,6 +75,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
             },
             ModType.Automation => new Mod[]
             {
+                new TypeBeatModAutoplay(),
                 new TypeBeatModMashing(),
             },
             ModType.Fun => new Mod[]
@@ -196,6 +199,12 @@ namespace typebeat.Game.Rulesets.TypeBeat
         public int LegacyID => 0;
 
         public ILegacyScoreSimulator CreateLegacyScoreSimulator() => new TypeBeatLegacyScoreSimulator();
+
+        /// <summary>
+        /// Required for decoding stored replays (.osr) back into typed frames; see
+        /// <see cref="TypeBeatReplayFrame"/> for the frame format and its legacy mapping.
+        /// </summary>
+        public override IConvertibleReplayFrame CreateConvertibleReplayFrame() => new TypeBeatReplayFrame();
 
         public override IEnumerable<KeyBinding> GetDefaultKeyBindings(int variant = 0) => new[]
         {
