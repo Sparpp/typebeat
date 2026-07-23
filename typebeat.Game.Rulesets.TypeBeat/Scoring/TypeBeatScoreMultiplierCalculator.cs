@@ -27,7 +27,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // Sudden Death (1.0x)
             Single<TypeBeatModDoubleTime>(hasMultiplier: doubleTime => doubleTimeMultiplier(doubleTime.SpeedChange.Value));
             Single<TypeBeatModNightcore>(hasMultiplier: nightcore => doubleTimeMultiplier(nightcore.SpeedChange.Value));
-            Single<TypeBeatModFlashlight>(hasMultiplier: flashlightMultiplier);
+            // Flashlight is now a fixed character-window reveal (no size setting), so it carries the
+            // flat 1.2x the old circular flashlight used at its default size.
+            Single<TypeBeatModFlashlight>(hasMultiplier: 1.2);
             Single<TypeBeatModLiterate>(hasMultiplier: 1.05);
 
             // Automation.
@@ -56,17 +58,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // Linear from 1.0 to 1.46, minus the penalty.
             // Default DT (1.5x) = 1.23
             return (value - 1) * 0.46 + 1 - penalty;
-        }
-
-        private static double flashlightMultiplier(ModFlashlight flashlight)
-        {
-            // Multiplier of 1.2x, reduced by 0.02 per 0.1 increase in flashlight size.
-            double value = Math.Max(1.02, Math.Min(1.2, 1.2 - 0.2 * (flashlight.SizeMultiplier.Value - 1)));
-
-            if (!flashlight.ComboBasedSize.Value)
-                value = 1 + (value - 1) / 5;
-
-            return value;
         }
 
         private static double timeRampMultiplier(ModTimeRamp timeRamp)

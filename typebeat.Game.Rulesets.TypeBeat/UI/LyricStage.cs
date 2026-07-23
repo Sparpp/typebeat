@@ -45,6 +45,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private readonly TypingEngine engine;
 
+        // Cached by DrawableTypeBeatRuleset for its subtree; absent in bare playfield test scenes.
+        // Carries the Flashlight mod's visible-char radius (0 = mod off), read live each frame.
+        [Resolved]
+        private DrawableTypeBeatRuleset? drawableRuleset { get; set; }
+
         private Container lineContainer = null!;
         private LyricLineDisplay[] displays = Array.Empty<LyricLineDisplay>();
         private Caret playerCaret = null!;
@@ -305,6 +310,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
 
             updateApproachCue();
+            updateFlashlight();
+        }
+
+        /// <summary>
+        /// Flashlight mod: light only a window of characters around the caret on the active line and
+        /// hide the rest of the stack. No-op when the mod is off (radius 0). During pre-roll and the
+        /// dead zones between lines no line is active, so every line hides, keeping with the mod's
+        /// spirit (you cannot read ahead through an instrumental); the approach cue still counts the
+        /// next line in, so the screen is never featureless. Purely visual, so replays and autoplay
+        /// (which advance the same caret) light up identically and judgement is unaffected.
+        /// </summary>
+        private void updateFlashlight()
+        {
+            int radius = drawableRuleset?.FlashlightVisibleRadius ?? 0;
+
+            if (radius <= 0)
+                return;
+
+            int active = engine.ActiveLineIndex;
+
+            for (int k = 0; k < displays.Length; k++)
+            {
+                if (k == active && !engine.IsFinished)
+                    displays[k].SetFlashlightWindow(engine.CaretIndex, radius);
+                else
+                    displays[k].HideForFlashlight();
+            }
         }
 
         /// <summary>

@@ -1,0 +1,107 @@
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// See the LICENCE file in the repository root for full licence text.
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using NUnit.Framework;
+using osu.Framework.Testing;
+using typebeat.Game.Beatmaps;
+using typebeat.Game.Rulesets.Mods;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Mods;
+using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Rulesets.TypeBeat.UI;
+using typebeat.Game.Tests.Visual;
+using osuTK.Input;
+
+namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
+{
+    /// <summary>
+    /// The reworked Flashlight mod hides characters instead of dimming pixels: only a window of
+    /// chars around the caret is lit on the active line, the other stack lines are hidden entirely,
+    /// and the window slides as the caret advances. Judgement is untouched (visibility is cosmetic),
+    /// so this drives the caret through the full input path and asserts on per-cell alpha.
+    /// </summary>
+    public partial class TestSceneTypeBeatFlashlight : OsuManualInputManagerTestScene
+    {
+        private const string active_text = "abcdefghijklmnopqrst"; // 20 single-word letters (no spaces)
+        private const int radius = 5;
+
+        private DrawableTypeBeatRuleset drawableRuleset = null!;
+
+        protected override Ruleset CreateRuleset() => new TypeBeatRuleset();
+
+        private TypeBeatPlayfield playfield => (TypeBeatPlayfield)drawableRuleset.Playfield;
+        private TypingEngine engine => playfield.Engine;
+        private LyricStage stage => drawableRuleset.ChildrenOfType<LyricStage>().Single();
+        private LyricLineDisplay activeDisplay => stage.DisplayAt(0)!;
+        private LyricLineDisplay upcomingDisplay => stage.DisplayAt(1)!;
+
+        [SetUpSteps]
+        public void SetUpSteps()
+        {
+            AddStep("create drawable ruleset with Flashlight", () =>
+            {
+                var ruleset = new TypeBeatRuleset();
+
+                var beatmap = new Beatmap { HitObjects = new List<Rulesets.Objects.HitObject>() };
+                beatmap.BeatmapInfo.Ruleset = ruleset.RulesetInfo;
+
+                addLine(beatmap, 0, active_text);
+                addLine(beatmap, 1, "secondline");
+
+                var playable = CreateWorkingBeatmap(beatmap).GetPlayableBeatmap(ruleset.RulesetInfo, Array.Empty<Mod>());
+                var mods = new Mod[] { new TypeBeatModFlashlight() };
+
+                Child = drawableRuleset = (DrawableTypeBeatRuleset)ruleset.CreateDrawableRulesetWith(playable, mods);
+            });
+
+            AddUntilStep("first line active", () => engine.ActiveLineIndex == 0);
+            AddStep("allow wrong input (so any key advances the caret)", () => engine.AllowWrongInput = true);
+        }
+
+        private static void addLine(Beatmap beatmap, int index, string text)
+        {
+            var line = new LyricLine
+            {
+                RawText = text,
+                StartTime = 0,
+                EndTime = 600000,
+                SingEndTime = 300000,
+                Units = new[] { new TimedUnit { Text = text, StartTime = 0, EndTime = 300000 } },
+            };
+
+            beatmap.HitObjects.Add(new TypeBeatHitObject
+            {
+                StartTime = line.StartTime,
+                LineIndex = index,
+                Line = line,
+                Granularity = TimingGranularity.Word,
+            });
+        }
+
+        [Test]
+        public void TestWindowLitAroundCaretAndSlidesWithInput()
+        {
+            // Caret at index 0: the first few chars are lit, chars well past the window are hidden.
+            AddUntilStep("caret-area char lit", () => activeDisplay.CellAlpha(0) > 0.5f);
+            AddUntilStep("far char hidden", () => activeDisplay.CellAlpha(radius + 6) < 0.05f);
+
+            // The whole upcoming line is hidden (you cannot read ahead).
+            AddUntilStep("upcoming line fully hidden", () =>
+                Enumerable.Range(0, upcomingDisplay.CellCount).All(i => upcomingDisplay.CellAlpha(i) < 0.05f));
+
+            // Advance the caret ten characters through the input path.
+            AddRepeatStep("type a char", () => InputManager.Key(Key.J), 10);
+            AddAssert("caret advanced ten cells", () => engine.CaretIndex == 10);
+
+            // The window slid: the start of the line is now dark, a char that was previously hidden
+            // ahead of the window is now lit.
+            AddUntilStep("line start now hidden", () => activeDisplay.CellAlpha(0) < 0.05f);
+            AddUntilStep("char at new caret lit", () => activeDisplay.CellAlpha(10) > 0.5f);
+            AddUntilStep("char two ahead of caret lit", () => activeDisplay.CellAlpha(12) > 0.5f);
+        }
+    }
+}
