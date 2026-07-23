@@ -39,7 +39,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         public override IReadOnlyList<InstrumentalSkipSection> InstrumentalSkipSections =>
             instrumentalSkipSections ??= InstrumentalGaps.Compute(Engine.Lines)
-                                                         .Select(g => new InstrumentalSkipSection(g.SealTime, g.SkipTarget))
+                                                         .Select(g => new InstrumentalSkipSection(g.GapStartTime, g.SkipTarget))
                                                          .ToArray();
 
         public DrawableTypeBeatRuleset(TypeBeatRuleset ruleset, IBeatmap beatmap, IReadOnlyList<Mod>? mods = null)

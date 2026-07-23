@@ -11,8 +11,11 @@ namespace typebeat.Game.Screens.Play
     public readonly struct InstrumentalSkipSection
     {
         /// <summary>
-        /// The time at which the skip button becomes available — the moment the previous content
-        /// has ended and input has gone inert (mirrors the intro overlay appearing at load).
+        /// The time at which the skip button becomes available — shortly after the previous
+        /// content's vocals have ended (mirrors the intro overlay appearing at load). Note the
+        /// ruleset may still be consuming typing input past this time if the player has not
+        /// finished the previous content; the ruleset's input gating decides when keys fall
+        /// through to the overlay.
         /// </summary>
         public readonly double GapStartTime;
 
