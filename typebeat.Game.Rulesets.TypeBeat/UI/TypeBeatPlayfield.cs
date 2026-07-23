@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
@@ -19,6 +20,7 @@ using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects.Drawables;
+using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.UI;
 using osuTK.Graphics;
@@ -87,6 +89,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         [Resolved]
         private HealthProcessor? healthProcessor { get; set; }
+
+        // Cached by DrawableTypeBeatRuleset for its subtree; absent when the playfield is
+        // constructed bare in tests. Carries the replay seams: ReplayScore (playback source)
+        // and RecordTypingInput (recording sink).
+        [Resolved]
+        private DrawableTypeBeatRuleset? drawableRuleset { get; set; }
 
         public TypeBeatPlayfield(TypingEngine engine)
         {
@@ -162,11 +170,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     Children = new Drawable[]
                     {
                         // Ticks the engine FIRST in this subtree so the stage and HUD read
-                        // fresh engine state for the same lyric-clock frame.
-                        new EngineTicker(Engine),
+                        // fresh engine state for the same lyric-clock frame. Doubles as the
+                        // replay feeder when a replay score is attached.
+                        new EngineTicker(Engine, drawableRuleset),
                         stage = new LyricStage(Engine),
                         new TypeBeatHudOverlay(Engine),
-                        new TypeBeatKeyHandler(Engine, keyboardLayout),
+                        new TypeBeatKeyHandler(Engine, keyboardLayout, drawableRuleset),
                     },
                 },
             });
@@ -274,20 +283,76 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// Ticks the <see cref="TypingEngine"/> from inside the lyric-offset clock subtree so it
         /// reads this frame's freshly-processed lyric time (via <c>Time.Current</c>). Placed
         /// before the visual children so they see fresh engine state the same frame.
+        ///
+        /// <para>Doubles as the REPLAY FEEDER: when the drawable ruleset has a replay score
+        /// attached (watching a replay, or the Autoplay mod), every due frame is fed straight into
+        /// the engine as <c>Update(frame.Time)</c> followed by the recorded keystroke at that exact
+        /// time, which is the identical call sequence live play makes (see
+        /// <see cref="TypeBeatKeyHandler"/>). Judgement therefore depends only on the recorded
+        /// (char, time) sequence, never on playback frame rate or the local lyric-offset setting.
+        /// The lyric clock only schedules WHEN due frames are applied and drives the visuals.</para>
         /// </summary>
         private partial class EngineTicker : Drawable
         {
             private readonly TypingEngine engine;
+            private readonly DrawableTypeBeatRuleset? drawableRuleset;
 
-            public EngineTicker(TypingEngine engine)
+            private Game.Replays.Replay? activeReplay;
+            private int nextFrameIndex;
+
+            public EngineTicker(TypingEngine engine, DrawableTypeBeatRuleset? drawableRuleset)
             {
                 this.engine = engine;
+                this.drawableRuleset = drawableRuleset;
             }
 
             protected override void Update()
             {
                 base.Update();
+
+                var replay = drawableRuleset?.ReplayScore?.Replay;
+
+                if (replay != null)
+                {
+                    // The replay can be swapped mid-play (editor autoplay toggle); restart feeding.
+                    if (!ReferenceEquals(replay, activeReplay))
+                    {
+                        activeReplay = replay;
+                        nextFrameIndex = 0;
+                    }
+
+                    var frames = replay.Frames;
+
+                    while (nextFrameIndex < frames.Count && frames[nextFrameIndex].Time <= Time.Current)
+                    {
+                        if (frames[nextFrameIndex] is TypeBeatReplayFrame frame)
+                            applyFrame(frame);
+
+                        nextFrameIndex++;
+                    }
+                }
+
                 engine.Update(Time.Current);
+            }
+
+            private void applyFrame(TypeBeatReplayFrame frame)
+            {
+                if (frame.IsConfig)
+                {
+                    // Recorded machine's judgement-relevant setting wins over local config.
+                    engine.AllowWrongInput = frame.AllowWrongInput;
+                    return;
+                }
+
+                // Exactly the live sequence: state advances to the keystroke's timestamp, then the
+                // keystroke applies. Update is monotonic/idempotent, so the ticker's own per-frame
+                // updates interleaving at other times cannot change any judgement outcome.
+                engine.Update(frame.Time);
+
+                if (frame.IsBackspace)
+                    engine.ProcessBackspace();
+                else
+                    engine.ProcessKey(frame.Character, frame.Time);
             }
         }
 
@@ -297,18 +362,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// children; children receive them before the key-binding container, so typing letters
         /// wins over the vestigial Z/X action bindings). Key-repeat is honoured ONLY for
         /// backspace (hold to erase); held character keys never machine-gun judgements.
-        /// Ctrl/Alt combos fall through to framework shortcuts. Raw input intentionally
-        /// bypasses frame-stable/replay input — accepted limitation: no replays/autoplay.
+        /// Ctrl/Alt combos fall through to framework shortcuts.
+        ///
+        /// <para>Replay determinism: every keystroke is stamped with the ROUNDED (integral ms)
+        /// lyric time, the engine is advanced to that exact time first, and every EFFECTIVE input
+        /// (one that mutated engine state) is forwarded to the active replay recorder as
+        /// (char, time). Replay playback repeats the identical <c>Update(t)</c> + keystroke call
+        /// sequence, and integral times survive the legacy .osr encoding losslessly, so a stored
+        /// replay reproduces the score bit-exactly. While a replay is attached the ruleset input
+        /// manager stops forwarding real input (<c>UseParentInput = false</c>), so this handler is
+        /// naturally inert during playback.</para>
         /// </summary>
         private partial class TypeBeatKeyHandler : Drawable
         {
             private readonly TypingEngine engine;
             private readonly IBindable<KeyboardLayout> keyboardLayout;
+            private readonly DrawableTypeBeatRuleset? drawableRuleset;
 
-            public TypeBeatKeyHandler(TypingEngine engine, IBindable<KeyboardLayout> keyboardLayout)
+            public TypeBeatKeyHandler(TypingEngine engine, IBindable<KeyboardLayout> keyboardLayout, DrawableTypeBeatRuleset? drawableRuleset)
             {
                 this.engine = engine;
                 this.keyboardLayout = keyboardLayout;
+                this.drawableRuleset = drawableRuleset;
                 RelativeSizeAxes = Axes.Both;
             }
 
@@ -324,6 +399,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (e.ControlPressed || e.AltPressed)
                     return false;
 
+                // Millisecond-quantised keystroke time: what the engine judges at, what gets
+                // recorded, and what the .osr format can store exactly. Sub-ms quantisation is far
+                // below input timing noise (Time.Current is already frame-quantised).
+                double time = Math.Round(Time.Current);
+
+                // Advance the engine to the keystroke's timestamp BEFORE gating/judging, so the
+                // outcome depends only on (char, time), not on where the last engine tick happened
+                // to fall. This is what lets replay playback reproduce the run exactly.
+                engine.Update(time);
+
                 // While the engine has no active line (pre-roll, a dead zone, or after the final
                 // line) typing is inert, so DON'T swallow the key — let it fall through to global
                 // key bindings so Space reaches GlobalAction.SkipCutscene and the intro / mid-song
@@ -335,8 +420,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 {
                     // Repeat honoured: hold to erase, monkeytype-style. Handled BEFORE the
                     // line-complete fall-through: backspacing at line end must keep working (it is
-                    // how typed-through wrong chars get fixed in allow-wrong-input mode).
-                    engine.ProcessBackspace();
+                    // how typed-through wrong chars get fixed in allow-wrong-input mode). Only an
+                    // erase that actually changed state is recorded.
+                    if (engine.ProcessBackspace())
+                        drawableRuleset?.RecordTypingInput(TypeBeatReplayFrame.BACKSPACE, time);
+
                     return true;
                 }
 
@@ -356,8 +444,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, out char c))
                 {
                     // Holding a character key must not machine-gun judgements.
-                    if (!e.Repeat)
-                        engine.ProcessKey(c, Time.Current);
+                    if (!e.Repeat && engine.ProcessKey(c, time))
+                        drawableRuleset?.RecordTypingInput(c, time);
 
                     return true;
                 }

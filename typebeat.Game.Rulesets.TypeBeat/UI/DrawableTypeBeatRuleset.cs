@@ -7,12 +7,16 @@ using osu.Framework.Allocation;
 using osu.Framework.Input;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Mods;
+using typebeat.Game.Input.Handlers;
+using typebeat.Game.Replays;
 using typebeat.Game.Rulesets.Objects.Drawables;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Objects.Drawables;
+using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.UI;
+using typebeat.Game.Scoring;
 using typebeat.Game.Screens.Play;
 
 namespace typebeat.Game.Rulesets.TypeBeat.UI
@@ -52,6 +56,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public override DrawableHitObject<TypeBeatHitObject> CreateDrawableRepresentation(TypeBeatHitObject h) => new DrawableTypeBeatHitObject(h);
 
         protected override PassThroughInputManager CreateInputManager() => new TypeBeatInputManager(Ruleset.RulesetInfo);
+
+        protected override ReplayInputHandler CreateReplayInputHandler(Replay replay) => new TypeBeatFramedReplayInputHandler(replay);
+
+        protected override ReplayRecorder CreateReplayRecorder(Score score) => new TypeBeatReplayRecorder(score, Engine);
+
+        /// <summary>
+        /// Recording seam for the playfield's key handler: forwards one EFFECTIVE typing input
+        /// (accepted char, rejected-wrong char, or erasing backspace) to the active recorder, if
+        /// any. No-op while not recording (e.g. watching a replay, where the feeder drives the
+        /// engine directly and must not be re-recorded).
+        /// </summary>
+        internal void RecordTypingInput(char character, double time) =>
+            ((KeyBindingInputManager as IHasRecordingHandler)?.Recorder as TypeBeatReplayRecorder)?.RecordInput(character, time);
 
         private TypingEngine createEngine()
         {
