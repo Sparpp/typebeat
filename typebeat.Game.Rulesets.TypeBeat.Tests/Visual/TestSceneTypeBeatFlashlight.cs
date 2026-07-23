@@ -103,5 +103,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("char at new caret lit", () => activeDisplay.CellAlpha(10) > 0.5f);
             AddUntilStep("char two ahead of caret lit", () => activeDisplay.CellAlpha(12) > 0.5f);
         }
+
+        [Test]
+        public void TestWindowSpillsAcrossLineBoundary()
+        {
+            // The upcoming line starts fully dark.
+            AddUntilStep("upcoming line hidden at start", () =>
+                Enumerable.Range(0, upcomingDisplay.CellCount).All(i => upcomingDisplay.CellAlpha(i) < 0.05f));
+
+            // Advance to near the end of the active line (18 of 20 chars). The right budget cannot fit
+            // in the remaining two chars, so it spills across the boundary into the NEXT line's head
+            // even though that line is not yet active.
+            AddRepeatStep("type a char", () => InputManager.Key(Key.J), 18);
+            AddAssert("caret near line end", () => engine.CaretIndex == 18);
+
+            AddUntilStep("next line first char lit by spill", () => upcomingDisplay.CellAlpha(0) > 0.5f);
+            AddUntilStep("next line second char lit by spill", () => upcomingDisplay.CellAlpha(1) > 0.5f);
+
+            // The far tail of the next line is still beyond the budget, so it stays dark.
+            AddUntilStep("next line far char still hidden", () =>
+                upcomingDisplay.CellAlpha(upcomingDisplay.CellCount - 1) < 0.05f);
+
+            // The active line's own start is now dark (the window slid off it).
+            AddUntilStep("active line start hidden", () => activeDisplay.CellAlpha(0) < 0.05f);
+        }
     }
 }

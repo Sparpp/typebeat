@@ -19,6 +19,42 @@ using osuTK;
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
     /// <summary>
+    /// One line's slice of the flashlight window: the inclusive range of that line's own COUNTABLE
+    /// slots (typeable, non-space) that are lit, plus whether the outermost lit char on each side
+    /// should soften because darkness lies beyond it in the stream. <see cref="Lo"/> &gt;
+    /// <see cref="Hi"/> means the line is fully hidden. A soft flag is only set on the side that
+    /// carries the WHOLE window's outer edge; an internal line-to-line boundary (the window
+    /// continues into the adjacent line) stays hard so the two lines join seamlessly.
+    /// </summary>
+    public readonly struct LineWindow : IEquatable<LineWindow>
+    {
+        public readonly int Lo;
+        public readonly int Hi;
+        public readonly bool SoftLeft;
+        public readonly bool SoftRight;
+
+        public LineWindow(int lo, int hi, bool softLeft, bool softRight)
+        {
+            Lo = lo;
+            Hi = hi;
+            SoftLeft = softLeft;
+            SoftRight = softRight;
+        }
+
+        /// <summary>No countable char of the line is lit.</summary>
+        public static LineWindow Hidden => new LineWindow(0, -1, false, false);
+
+        public bool IsHidden => Lo > Hi;
+
+        public bool Equals(LineWindow other) =>
+            Lo == other.Lo && Hi == other.Hi && SoftLeft == other.SoftLeft && SoftRight == other.SoftRight;
+
+        public override bool Equals(object? obj) => obj is LineWindow o && Equals(o);
+
+        public override int GetHashCode() => HashCode.Combine(Lo, Hi, SoftLeft, SoftRight);
+    }
+
+    /// <summary>
     /// Renders one <see cref="TypingLine"/> as per-cell <see cref="OsuSpriteText"/>s at the
     /// font's natural (proportional) advances; every glyph is measured individually, so the
     /// caret/sweep math never assumes a constant advance. Per-cell colouring, judgement
@@ -314,50 +350,58 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // --- Flashlight mod: per-character visibility window ---
         // The mod lights only a fixed run of COUNTABLE chars (typeable and not a space) either side
         // of the caret head; spaces and punctuation inside that run stay lit but do not spend the
-        // budget, and everything past it (including the whole of the two inactive stack lines) is
-        // hidden. The stage drives this each frame off the engine caret, so it slides with both
-        // correct and wrong-advancing input and stays purely visual (judgement is untouched).
+        // budget. The window is computed at the STREAM level (the whole lyric stack read as one
+        // continuous run of countable chars) by the stage, so its budget spills across line
+        // boundaries: the tail of one line and the head of the next can be lit at once. Each line
+        // gets its own slice as a LineWindow, applied here. Purely visual: judgement is untouched.
 
         private const float flashlight_soft_alpha = 0.35f;
         private const double flashlight_fade_ms = 90;
 
         private bool flashlightEnabled;
-        private int flashlightCaret = -1;   // caret cell index the window is centred on; < 0 = hide the whole line
-        private int flashlightRadius = -1;
+        private bool flashlightHidden = true;   // true = the whole line is hidden
+        private bool flashlightShowSweep;
+        private LineWindow flashlightWindow = LineWindow.Hidden;
         private float[] flashlightAlphas = Array.Empty<float>();
 
-        /// <summary>Light the window centred on the caret. Cheap to call every frame: it only
-        /// recomputes and re-fades when the caret or radius actually moves.</summary>
-        public void SetFlashlightWindow(int caretCellIndex, int radius)
+        /// <summary>Light this line's slice of the stream window. <paramref name="showSweep"/> keeps
+        /// the sung underline (only the active line wants it; a line lit purely by spill does not).
+        /// Cheap to call every frame: it only recomputes and re-fades when the slice actually
+        /// changes.</summary>
+        public void SetFlashlightWindow(LineWindow window, bool showSweep)
         {
-            if (flashlightEnabled && flashlightCaret == caretCellIndex && flashlightRadius == radius)
+            if (flashlightEnabled && !flashlightHidden && flashlightWindow.Equals(window) && flashlightShowSweep == showSweep)
                 return;
 
             flashlightEnabled = true;
-            flashlightCaret = caretCellIndex;
-            flashlightRadius = radius;
-            flashlightAlphas = ComputeWindowAlphas(Line.Cells, caretCellIndex, radius, flashlight_soft_alpha);
+            flashlightHidden = false;
+            flashlightWindow = window;
+            flashlightShowSweep = showSweep;
+            flashlightAlphas = ComputeWindowAlphas(Line.Cells, window, flashlight_soft_alpha);
 
             reapplyFlashlight();
 
-            // The active line keeps its sung sweep; restore it in case this line was hidden while upcoming.
             if (sweepTrack.IsNotNull())
             {
-                sweepTrack.FadeTo(1f, flashlight_fade_ms);
-                sweepFill.FadeTo(1f, flashlight_fade_ms);
+                float target = showSweep ? 1f : 0f;
+                sweepTrack.FadeTo(target, flashlight_fade_ms);
+                sweepFill.FadeTo(target, flashlight_fade_ms);
+
+                if (!showSweep)
+                    sweepGlow.FadeTo(0f, flashlight_fade_ms);
             }
         }
 
-        /// <summary>Hide the whole line: the inactive stack lines, plus every line during pre-roll
-        /// and the dead zones between lines (you must not be able to read ahead of the caret).</summary>
+        /// <summary>Hide the whole line: lines wholly outside the stream window, plus every line during
+        /// pre-cue dead zones and pre-roll (you must not be able to read ahead of the caret).</summary>
         public void HideForFlashlight()
         {
-            if (flashlightEnabled && flashlightCaret < 0)
+            if (flashlightEnabled && flashlightHidden)
                 return;
 
             flashlightEnabled = true;
-            flashlightCaret = -1;
-            flashlightRadius = -1;
+            flashlightHidden = true;
+            flashlightWindow = LineWindow.Hidden;
 
             reapplyFlashlight();
 
@@ -389,53 +433,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             if (!flashlightEnabled)
                 return 1f;
-            if (flashlightCaret < 0)
+            if (flashlightHidden)
                 return 0f;
             return i < flashlightAlphas.Length ? flashlightAlphas[i] : 0f;
         }
 
         /// <summary>
-        /// Per-cell visibility multipliers for the flashlight window: 1 for a lit char, a soft value
-        /// for the outermost lit char on a side that has more hidden line beyond it, 0 for a hidden
-        /// char. The budget counts only COUNTABLE cells (typeable and not a space), so
-        /// <paramref name="radius"/> lit chars reach each side of the caret regardless of how many
-        /// spaces or punctuation marks sit between them; a space/punctuation cell strictly inside the
-        /// lit span stays lit, one at or past the edge is hidden. Pure (no drawable state) so the
-        /// window math is unit-testable.
+        /// Per-cell visibility multipliers for a line given its <see cref="LineWindow"/> slice of the
+        /// stream window: 1 for a lit char, <paramref name="softAlpha"/> for the outermost lit char on
+        /// a side the window flagged soft (darkness beyond it in the stream), 0 for a hidden char. A
+        /// space/punctuation cell strictly between two lit countable chars stays lit (it spends no
+        /// budget); one at or past a lit edge is hidden. Pure (no drawable state) so it is unit-testable.
         /// </summary>
-        public static float[] ComputeWindowAlphas(IReadOnlyList<TypingCell> cells, int caretCellIndex, int radius, float softAlpha)
+        public static float[] ComputeWindowAlphas(IReadOnlyList<TypingCell> cells, LineWindow window, float softAlpha)
         {
             int n = cells.Count;
             var result = new float[n];
 
-            if (n == 0 || radius <= 0)
+            if (n == 0 || window.IsHidden)
                 return result;
 
             // pref[i] = countable cells strictly before i; pref[n] = total countable in the line.
             int[] pref = new int[n + 1];
             for (int i = 0; i < n; i++)
-                pref[i + 1] = pref[i] + (isCountable(cells[i]) ? 1 : 0);
+                pref[i + 1] = pref[i] + (IsCountable(cells[i]) ? 1 : 0);
 
-            int total = pref[n];
-            int caret = Math.Clamp(caretCellIndex, 0, n);
-            int caretBudget = pref[caret];     // countable chars strictly left of the caret head
-            int lo = caretBudget - radius;     // leftmost lit countable slot (inclusive)
-            int hi = caretBudget + radius - 1; // rightmost lit countable slot (inclusive)
+            int lo = window.Lo;
+            int hi = window.Hi;
 
             for (int i = 0; i < n; i++)
             {
-                if (isCountable(cells[i]))
+                if (IsCountable(cells[i]))
                 {
                     int slot = pref[i];
 
                     if (slot < lo || slot > hi)
                         continue; // hidden
 
-                    // Soften the outermost lit char on a side only when a hidden char lies just
-                    // beyond it, so the window fades into darkness but a real line start/end (no
-                    // more line beyond) stays a hard, full-alpha edge.
-                    bool fadesLeft = slot == lo && slot - 1 >= 0;
-                    bool fadesRight = slot == hi && slot + 1 <= total - 1;
+                    // Soften the outermost lit char only on a side the stream marked soft (a hidden
+                    // char lies beyond it). A real line start/end or a boundary the window crosses
+                    // into the next line stays a hard, full-alpha edge.
+                    bool fadesLeft = slot == lo && window.SoftLeft;
+                    bool fadesRight = slot == hi && window.SoftRight;
                     result[i] = fadesLeft || fadesRight ? softAlpha : 1f;
                 }
                 else
@@ -444,8 +483,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // chars, so leading/trailing marks and the space just past the edge stay hidden.
                     int leftSlot = pref[i] - 1;
                     int rightSlot = pref[i];
-                    bool leftLit = leftSlot >= 0 && leftSlot >= lo && leftSlot <= hi;
-                    bool rightLit = rightSlot <= total - 1 && rightSlot >= lo && rightSlot <= hi;
+                    bool leftLit = leftSlot >= lo && leftSlot <= hi;
+                    bool rightLit = rightSlot >= lo && rightSlot <= hi;
                     result[i] = leftLit && rightLit ? 1f : 0f;
                 }
             }
@@ -453,7 +492,106 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             return result;
         }
 
-        private static bool isCountable(TypingCell cell) => cell.IsTypeable && cell.Expected != ' ';
+        /// <summary>
+        /// Single-line convenience overload: treat <paramref name="cells"/> as the whole stream and
+        /// centre a <paramref name="radius"/>-countable window on the caret. The stream-level path
+        /// (<see cref="ComputeStreamWindows"/>) is what gameplay uses; this stays for isolated-line
+        /// unit tests and any caller with one line in hand.
+        /// </summary>
+        public static float[] ComputeWindowAlphas(IReadOnlyList<TypingCell> cells, int caretCellIndex, int radius, float softAlpha)
+            => ComputeWindowAlphas(cells, SingleLineWindow(cells, caretCellIndex, radius), softAlpha);
+
+        /// <summary>
+        /// Split a stream window across ordered lines. Given each line's countable-char count and the
+        /// caret's stream slot (countable chars before the caret across the whole stack), returns the
+        /// <see cref="LineWindow"/> slice for each line: <paramref name="radius"/> countable chars reach
+        /// each side of the caret through the concatenated stream, so the budget spills from a line's
+        /// tail into the next line's head (and symmetrically the other way). Only the outer edges of the
+        /// whole window soften; boundaries the window crosses stay hard. Pure and unit-testable.
+        /// </summary>
+        public static LineWindow[] ComputeStreamWindows(IReadOnlyList<int> lineCountableCounts, int caretStreamSlot, int radius)
+        {
+            int m = lineCountableCounts.Count;
+            var result = new LineWindow[m];
+
+            if (m == 0)
+                return result;
+
+            int total = 0;
+            for (int k = 0; k < m; k++)
+                total += lineCountableCounts[k];
+
+            int segBase = 0;
+            for (int k = 0; k < m; k++)
+            {
+                result[k] = windowForSegment(segBase, lineCountableCounts[k], total, caretStreamSlot, radius);
+                segBase += lineCountableCounts[k];
+            }
+
+            return result;
+        }
+
+        /// <summary>Slice the global lit range [caret-radius, caret+radius-1] (clamped to the stream)
+        /// down to the segment [segBase, segBase+segCount-1], reporting which side, if any, carries the
+        /// window's soft outer edge.</summary>
+        private static LineWindow windowForSegment(int segBase, int segCount, int totalCountable, int caretStreamSlot, int radius)
+        {
+            if (segCount <= 0 || radius <= 0 || totalCountable <= 0)
+                return LineWindow.Hidden;
+
+            int caret = Math.Clamp(caretStreamSlot, 0, totalCountable);
+            int gLo = Math.Max(0, caret - radius);          // leftmost lit stream slot (inclusive)
+            int gHi = Math.Min(totalCountable - 1, caret + radius - 1); // rightmost lit stream slot
+
+            if (gLo > gHi)
+                return LineWindow.Hidden;
+
+            // Soft only where a hidden countable char actually lies beyond the window in the stream;
+            // a clamp to slot 0 / the last slot is a hard stream end.
+            bool leftSoft = gLo > 0;
+            bool rightSoft = gHi < totalCountable - 1;
+
+            int segHi = segBase + segCount - 1;
+            int litLo = Math.Max(gLo, segBase);
+            int litHi = Math.Min(gHi, segHi);
+
+            if (litLo > litHi)
+                return LineWindow.Hidden;
+
+            // The soft edge belongs to whichever segment carries the window's outermost lit slot; a
+            // segment whose lit run merely abuts the next line's run keeps a hard join.
+            bool holdsGlobalLeft = litLo == gLo;
+            bool holdsGlobalRight = litHi == gHi;
+
+            return new LineWindow(litLo - segBase, litHi - segBase,
+                holdsGlobalLeft && leftSoft,
+                holdsGlobalRight && rightSoft);
+        }
+
+        private static LineWindow SingleLineWindow(IReadOnlyList<TypingCell> cells, int caretCellIndex, int radius)
+        {
+            int n = cells.Count;
+            int caret = Math.Clamp(caretCellIndex, 0, n);
+            int total = 0;
+            int caretBudget = 0; // countable chars strictly left of the caret head
+
+            for (int i = 0; i < n; i++)
+            {
+                if (!IsCountable(cells[i]))
+                    continue;
+
+                if (i < caret)
+                    caretBudget++;
+
+                total++;
+            }
+
+            return windowForSegment(0, total, total, caretBudget, radius);
+        }
+
+        /// <summary>A COUNTABLE cell: typeable and not a space. Spaces and punctuation do not spend the
+        /// flashlight budget; the stage uses this to size the stream too, so it is shared here.</summary>
+        public static bool IsCountable(TypingCell cell) => cell.IsTypeable && cell.Expected != ' ';
 
         // --- Test-support accessors (public so cross-assembly test scenes can assert) ---
 

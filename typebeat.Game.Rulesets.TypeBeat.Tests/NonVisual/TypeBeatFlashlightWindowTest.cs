@@ -11,9 +11,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
     /// Pure math for the Flashlight mod's character window (see
-    /// <see cref="LyricLineDisplay.ComputeWindowAlphas"/>): a fixed number of COUNTABLE chars
+    /// <see cref="LyricLineDisplay.ComputeWindowAlphas(System.Collections.Generic.IReadOnlyList{TypingCell}, int, int, float)"/>
+    /// and <see cref="LyricLineDisplay.ComputeStreamWindows"/>): a fixed number of COUNTABLE chars
     /// (typeable, non-space) reach each side of the caret head, spaces and punctuation do not spend
-    /// the budget, and the outermost lit char softens only when hidden line lies beyond it.
+    /// the budget, the outermost lit char softens only when hidden line lies beyond it, and the budget
+    /// spills across line boundaries when the stack is read as one continuous stream.
     /// </summary>
     [TestFixture]
     public class TypeBeatFlashlightWindowTest
@@ -125,6 +127,114 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // "quick" and more beyond, so exactly five light there.
             Assert.That(litLettersLeft, Is.EqualTo(3), "all letters left of caret lit (fewer than radius, hard start edge)");
             Assert.That(litLettersRight, Is.EqualTo(5), "exactly five letters lit to the right across the space");
+        }
+
+        // --- Stream-level window: the budget spills across line boundaries ---
+
+        private static void assertWin(LineWindow w, int lo, int hi, bool softLeft, bool softRight)
+        {
+            Assert.That(w.Lo, Is.EqualTo(lo), "Lo");
+            Assert.That(w.Hi, Is.EqualTo(hi), "Hi");
+            Assert.That(w.SoftLeft, Is.EqualTo(softLeft), "SoftLeft");
+            Assert.That(w.SoftRight, Is.EqualTo(softRight), "SoftRight");
+        }
+
+        [Test]
+        public void TestStreamSpillsIntoNextLine()
+        {
+            // Two 5-letter lines. Caret near the end of line 0 (4 countable before it, i.e. before the
+            // 5th letter). Radius 5: the right budget cannot fit in line 0, so it spills into line 1's
+            // head. Left of the caret only 4 letters exist (hard start edge, no soften).
+            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 4, radius: 5);
+
+            // Line 0: all five lit, no soft edge either side (start is hard, right continues into line 1).
+            assertWin(win[0], lo: 0, hi: 4, softLeft: false, softRight: false);
+
+            // Line 1: first four letters lit; the fourth is the window's outer-right edge with a hidden
+            // letter beyond, so it softens; the fifth letter stays dark.
+            assertWin(win[1], lo: 0, hi: 3, softLeft: false, softRight: true);
+        }
+
+        [Test]
+        public void TestStreamSpillsIntoPreviousLine()
+        {
+            // Caret near the start of line 1 (one countable before it). Stream slot = 5 (line 0) + 1.
+            // Radius 5: the left budget spills back into line 0's tail; the right fits inside line 1.
+            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 6, radius: 5);
+
+            // Line 0: last four letters lit (slots 1..4); slot 1 is the window's outer-left edge with a
+            // hidden letter (slot 0) beyond, so it softens; the tail continues into line 1 (hard).
+            assertWin(win[0], lo: 1, hi: 4, softLeft: true, softRight: false);
+
+            // Line 1: first six letters wanted but only five exist; slots 0..4 lit, outer-right at the
+            // stream end (nothing beyond) so it is a hard edge.
+            assertWin(win[1], lo: 0, hi: 4, softLeft: false, softRight: false);
+        }
+
+        [Test]
+        public void TestStreamExactLineBoundaryLightsBothTails()
+        {
+            // Caret exactly on the boundary between two lines (line 0 fully typed): stream slot 5.
+            // Radius 5 lights line 0's whole tail and line 1's whole head, joined hard at the boundary.
+            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 5, radius: 5);
+
+            assertWin(win[0], lo: 0, hi: 4, softLeft: false, softRight: false);
+            assertWin(win[1], lo: 0, hi: 4, softLeft: false, softRight: false);
+        }
+
+        [Test]
+        public void TestStreamFirstLineHeadIsHardStartEdge()
+        {
+            // Caret at the very start of the first line (cue-in anchor for line 0). Radius 5 lights the
+            // first five countable chars; left is the stream start (hard), a hidden char lies to the
+            // right so the outermost-right char softens.
+            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 10, 10 }, caretStreamSlot: 0, radius: 5);
+
+            assertWin(win[0], lo: 0, hi: 4, softLeft: false, softRight: true);
+            Assert.That(win[1].IsHidden, Is.True, "second line untouched when the caret is at the stream start");
+        }
+
+        [Test]
+        public void TestStreamLastLineTailIsHardEndEdge()
+        {
+            // Caret past the last char of the final line: stream slot = total (20). Radius 5 lights the
+            // final line's last five chars; the outer-right is the stream end (hard), a hidden char lies
+            // to the left so the outermost-left softens. The earlier line is untouched.
+            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 10, 10 }, caretStreamSlot: 20, radius: 5);
+
+            Assert.That(win[0].IsHidden, Is.True, "first line untouched when the caret is at the stream end");
+            assertWin(win[1], lo: 5, hi: 9, softLeft: true, softRight: false);
+        }
+
+        [Test]
+        public void TestStreamCueInAnchorLightsPrevTailAndNextHead()
+        {
+            // Three lines; the middle one is being cued in with the caret anchored at its first char
+            // (stream slot = 10). Radius 5 lights the previous line's last five and the cued line's
+            // first five, so the player reads the letters they are about to type. Line 2 is untouched.
+            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 10, 10, 10 }, caretStreamSlot: 10, radius: 5);
+
+            assertWin(win[0], lo: 5, hi: 9, softLeft: true, softRight: false);
+            assertWin(win[1], lo: 0, hi: 4, softLeft: false, softRight: true);
+            Assert.That(win[2].IsHidden, Is.True, "line after the cued line stays dark");
+        }
+
+        [Test]
+        public void TestStreamSpillCompletesToAlphasAcrossLines()
+        {
+            // End-to-end: feed each line's window slice back through the per-line alpha rule and confirm
+            // the letters light where expected across the boundary (line 0 "hello", line 1 "world").
+            var l0 = line("hello");
+            var l1 = line("world");
+            var win = LyricLineDisplay.ComputeStreamWindows(new[] { 5, 5 }, caretStreamSlot: 4, radius: 5);
+
+            // Line 0 all lit, no soft edge.
+            assertWindow(LyricLineDisplay.ComputeWindowAlphas(l0.Cells, win[0], soft),
+                1f, 1f, 1f, 1f, 1f);
+
+            // Line 1: w,o,r lit; l soft (outer-right edge, d hidden beyond); d dark.
+            assertWindow(LyricLineDisplay.ComputeWindowAlphas(l1.Cells, win[1], soft),
+                1f, 1f, 1f, soft, 0f);
         }
     }
 }
