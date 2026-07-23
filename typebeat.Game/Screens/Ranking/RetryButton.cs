@@ -48,7 +48,9 @@ namespace typebeat.Game.Screens.Ranking
             if (player != null)
             {
                 TooltipText = player is ReplayPlayer ? "replay" : "retry";
-                Action = () => player.Restart();
+                // Quick restart: skip the PlayerLoader interstitial and relaunch gameplay directly,
+                // matching the results-screen retry hotkey which already requests a quick restart.
+                Action = () => player.Restart(true);
             }
             else
             {
