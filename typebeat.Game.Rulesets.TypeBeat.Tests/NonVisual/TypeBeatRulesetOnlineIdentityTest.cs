@@ -10,7 +10,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// <summary>
     /// Pins type!beat's online ruleset identity. Without <see cref="ILegacyRuleset"/> the ruleset's
     /// <c>OnlineID</c> resolves to -1, which makes score submission (<c>SoloPlayer</c>) and global
-    /// leaderboard fetching (<c>LeaderboardManager</c>) silently no-op — no error, just nothing.
+    /// leaderboard fetching (<c>LeaderboardManager</c>) silently no-op: no error, just nothing.
     /// </summary>
     [TestFixture]
     public class TypeBeatRulesetOnlineIdentityTest
@@ -70,7 +70,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var ruleset = new TypeBeatRuleset();
 
-            // A lyric edit alongside the beatdrop is a genuine change — must still demote.
+            // A lyric edit alongside the beatdrop is a genuine change; must still demote.
             Assert.That(ruleset.NativeEncodingsEquivalentForStatus(with_drop, with_drop_and_content_change), Is.False);
             Assert.That(ruleset.NativeEncodingsEquivalentForStatus(no_drop, with_drop_and_content_change), Is.False);
         }

@@ -135,8 +135,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 return LyricImportResult.Fail($"aligner environment missing and no {SetupScriptName} to build it in {lyricLabDir}");
 
             progress(device == "cuda"
-                ? "setting up the aligner environment (GPU) — one-time download of packages (~2.5 GB), please wait..."
-                : "setting up the aligner environment — one-time download of packages (~2 GB), please wait...");
+                ? "setting up the aligner environment (GPU), one-time download of packages (~2.5 GB), please wait..."
+                : "setting up the aligner environment, one-time download of packages (~2 GB), please wait...");
 
             var psi = new ProcessStartInfo
             {
@@ -194,7 +194,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         }
 
         /// <summary>
-        /// True when every content line carries a leading [mm:ss.xx] stamp — the aligner's
+        /// True when every content line carries a leading [mm:ss.xx] stamp: the aligner's
         /// high-accuracy "ref" mode, and the precondition for the LRC-only fallback. Metadata tag
         /// lines ([ar:...], [Lyrics]) are neutral. Unstamped lyrics run with "--anchors auto".
         /// </summary>
@@ -220,7 +220,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                         if (LrcParser.TryParseTimestamp(line.Substring(1, close - 1), out _))
                             anyStamp = true;
 
-                        // Timestamped or metadata tag line — either way not a bare content line.
+                        // Timestamped or metadata tag line, either way not a bare content line.
                         continue;
                     }
                 }
@@ -293,7 +293,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
         /// <summary>
         /// Produces timing.json (v2) text from an audio file and raw lyrics WITHOUT packaging an
-        /// .osz — the headless path the in-editor "align to this audio" import uses. With
+        /// .osz: the headless path the in-editor "align to this audio" import uses. With
         /// <paramref name="useAutomaticAlignment"/> the preference order is: local aligner
         /// subprocess (word/syllable granularity) → server-side alignment via
         /// <paramref name="remoteAlign"/> (same granularity, needs a signed-in session) →
@@ -311,11 +311,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             if (!File.Exists(audioPath))
                 return (LyricImportResult.Fail($"audio file not found: {audioPath}"), null);
 
-            // Empty lyrics is its own outcome — before this it fell all the way through to the
+            // Empty lyrics is its own outcome; before this it fell all the way through to the
             // confusing "no aligner available" message.
             if (string.IsNullOrWhiteSpace(lyricsContent))
                 return (LyricImportResult.Fail(
-                    "the lyrics are empty — add the song's words (ideally with [mm:ss.xx] line "
+                    "the lyrics are empty, add the song's words (ideally with [mm:ss.xx] line "
                     + "timestamps) before importing."), null);
 
             // Automatic alignment (the aligner, local or server) is opt-in: off by default so an
@@ -323,7 +323,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             // straight to the LRC line-stamp path below.
             if (!useAutomaticAlignment)
             {
-                progress("automatic alignment off — using your line timestamps");
+                progress("automatic alignment off, using your line timestamps");
 
                 if (!HasLineStamps(lyricsContent))
                     return (LyricImportResult.Fail(
@@ -356,7 +356,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                     if (token.IsCancellationRequested)
                         return (alignerResult, null);
 
-                    progress($"aligner unavailable ({alignerResult.Error}) — trying next option");
+                    progress($"aligner unavailable ({alignerResult.Error}), trying next option");
                 }
                 finally
                 {
@@ -383,7 +383,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 }
 
                 token.ThrowIfCancellationRequested();
-                progress($"server alignment unavailable ({outcome.Error}) — trying line-timed fallback");
+                progress($"server alignment unavailable ({outcome.Error}), trying line-timed fallback");
             }
 
             // LRC-only fallback: line-granularity timing straight from the line stamps. The
@@ -448,7 +448,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             psi.ArgumentList.Add("-o");
             psi.ArgumentList.Add(outDir);
 
-            // Environments built with CUDA torch (device marker "cuda") align on the GPU —
+            // Environments built with CUDA torch (device marker "cuda") align on the GPU,
             // dramatically faster separation/emission on machines with a good NVIDIA card.
             string deviceMarker = Path.Combine(lyricLabDir, DEVICE_MARKER_FILE);
 
@@ -462,7 +462,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             {
                 psi.ArgumentList.Add("--anchors");
                 psi.ArgumentList.Add("auto");
-                progress("no line stamps found — using fully automatic alignment (less accurate)");
+                progress("no line stamps found, using fully automatic alignment (less accurate)");
             }
 
             (int exitCode, string tail) = await RunProcessAsync(psi, progress, token).ConfigureAwait(false);

@@ -24,7 +24,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
     /// <summary>
     /// The seam <see cref="LyricMapImporter.ProduceTimingJsonAsync"/> calls between the local
-    /// aligner and the LRC fallback — in the game it's <see cref="RemoteAlignClient.AlignAsync"/>,
+    /// aligner and the LRC fallback; in the game it's <see cref="RemoteAlignClient.AlignAsync"/>,
     /// in tests a stub.
     /// </summary>
     public delegate Task<RemoteAlignOutcome> RemoteAligner(
@@ -34,7 +34,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
     /// <summary>
     /// Client for the server-side alignment jobs API (typebeat-web /api/v2/typebeat/align):
     /// uploads the audio + lyrics, then polls the job until the worker produces timing.json.
-    /// Used when the local lyriclab environment is absent (every installed build — only dev
+    /// Used when the local lyriclab environment is absent (every installed build; only dev
     /// checkouts have Python/torch beside the game).
     /// </summary>
     public static class RemoteAlignClient
@@ -172,10 +172,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
     /// <summary>
     /// Uploads the audio + lyrics and returns the created job. Built on <see cref="APIUploadRequest"/>
     /// (a plain <c>OsuWebRequest</c> that carries a multipart body) rather than
-    /// <see cref="APIRequest{T}"/> — the latter's <c>OsuJsonWebRequest&lt;T&gt;</c> is built to POST a
+    /// <see cref="APIRequest{T}"/>; the latter's <c>OsuJsonWebRequest&lt;T&gt;</c> is built to POST a
     /// JSON body and cannot also carry a file, so its typed <c>Response</c> never populated and the
     /// client abandoned every job the instant it was created. The small JSON body is read and parsed
-    /// by hand in <see cref="PostProcess"/> — the codebase's convention for upload-with-response.
+    /// by hand in <see cref="PostProcess"/>: the codebase's convention for upload-with-response.
     /// </summary>
     public class CreateAlignJobRequest : APIUploadRequest
     {
@@ -204,7 +204,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             request.AddParameter(@"lyrics", lyricsContent);
             request.AddParameter(@"artist", artist);
             request.AddParameter(@"title", title);
-            // The multipart part carries no usable filename — the server keys the format off this.
+            // The multipart part carries no usable filename; the server keys the format off this.
             request.AddParameter(@"extension", Path.GetExtension(audioPath));
             request.Timeout = 600_000;
             return request;
@@ -234,7 +234,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
     }
 
     /// <summary>
-    /// Asks the server to drop an in-flight alignment job (DELETE) — sent when the client abandons
+    /// Asks the server to drop an in-flight alignment job (DELETE), sent when the client abandons
     /// the wait (the user left the import screen) so the worker stops aligning a result no one will
     /// collect. Response-less: success/failure is irrelevant to the caller (best-effort cleanup).
     /// </summary>

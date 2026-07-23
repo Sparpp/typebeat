@@ -9,7 +9,7 @@ using typebeat.Game.Rulesets.Scoring.Legacy;
 namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 {
     /// <summary>
-    /// type!beat has no osu!stable ancestry, so no legacy (score V1) scores exist to convert —
+    /// type!beat has no osu!stable ancestry, so no legacy (score V1) scores exist to convert;
     /// this simulator exists only because <see cref="ILegacyRuleset"/> requires one.
     /// The interface is implemented purely to claim online ruleset ID 0 (see
     /// <see cref="TypeBeatRuleset"/>); every call path into this class is gated on

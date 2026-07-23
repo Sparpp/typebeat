@@ -10,7 +10,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 {
     /// <summary>
     /// Score multipliers for type!beat mods. Values mirror osu!'s current (V2) multipliers so
-    /// modded scores read consistently with the rest of lazer — the rate helpers below are copied
+    /// modded scores read consistently with the rest of lazer; the rate helpers below are copied
     /// verbatim from <c>OsuScoreMultiplierCalculatorV2</c>. Mods not listed here stay at 1.0x
     /// (Sudden Death). Mashing is unranked, but still carries the Relax 0.1x for display parity.
     /// </summary>

@@ -23,14 +23,14 @@ namespace typebeat.Game.Screens.ImportLyrics
         /// <summary>"cuda" or "cpu" for an installed environment; null when not installed.</summary>
         string? InstalledDevice { get; }
 
-        /// <summary>Best-effort NVIDIA GPU detection (nvidia-smi) — picks the CUDA install flavour.</summary>
+        /// <summary>Best-effort NVIDIA GPU detection (nvidia-smi); picks the CUDA install flavour.</summary>
         bool GpuDetected { get; }
 
         /// <summary>
         /// Installs (or repairs) the local aligner: copies the shipped component into the game's
         /// data directory, builds its Python environment (a one-time multi-GB download; CUDA build
         /// when <see cref="GpuDetected"/>), and points the importer at it. Progress lines stream on
-        /// a background thread — marshal to the update thread yourself. Safe to call when already
+        /// a background thread; marshal to the update thread yourself. Safe to call when already
         /// installed (refreshes scripts, keeps the environment).
         /// </summary>
         Task<LyricImportResult> InstallAsync(Action<string> progress, CancellationToken token);

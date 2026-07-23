@@ -23,7 +23,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public async Task ProduceTimingJsonLrcFallbackParsesToLines()
         {
-            // A tiny temp file stands in for audio — the LRC fallback never reads it, only checks existence.
+            // A tiny temp file stands in for audio; the LRC fallback never reads it, only checks existence.
             string audio = Path.Combine(Path.GetTempPath(), $"tb_audio_{Guid.NewGuid():N}.mp3");
             await File.WriteAllBytesAsync(audio, new byte[16]).ConfigureAwait(false);
 
@@ -48,7 +48,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(lines[0].StartTime, Is.EqualTo(1000));
                 Assert.That(lines[1].StartTime, Is.EqualTo(3500));
 
-                // No word timing from LRC — one whole-line unit each => Line granularity.
+                // No word timing from LRC: one whole-line unit each => Line granularity.
                 Assert.That(TypeBeatEditorOperations.InferGranularity(lines), Is.EqualTo(TimingGranularity.Line));
             }
             finally
@@ -134,7 +134,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             try
             {
                 // A remote aligner IS supplied, but automatic alignment is off, so it must never be
-                // invoked — the failure directs the user to the toggle, not to the server.
+                // invoked; the failure directs the user to the toggle, not to the server.
                 bool remoteCalled = false;
                 RemoteAligner remote = (_, _, _, _, _, _) =>
                 {

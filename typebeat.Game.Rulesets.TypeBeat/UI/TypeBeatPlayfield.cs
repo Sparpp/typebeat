@@ -34,7 +34,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// mirror its judgements into osu's scoring pipeline.
     ///
     /// The LyricOffsetMs config value is applied at a single seam: an offset clock container
-    /// wrapping the engine ticker, the stage, the HUD extras AND the key handler — so
+    /// wrapping the engine ticker, the stage, the HUD extras AND the key handler, so
     /// judgement, sung sweep, approach cue and HUD shift together (gameplay time = audio - offset),
     /// exactly like the standalone game's clock-layer offset.
     /// </summary>
@@ -58,7 +58,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private LyricStage stage = null!;
 
-        /// <summary>Screen-space centre of the typing caret when it is visible — the Flashlight mod's
+        /// <summary>Screen-space centre of the typing caret when it is visible: the Flashlight mod's
         /// reveal point. Returns false while no line is active (caret hidden), so the mod can fade.</summary>
         public bool TryGetCaretScreenPosition(out osuTK.Vector2 position)
         {
@@ -73,7 +73,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>Screen-space point where the upcoming line's caret will appear while its boundary
-        /// cue counts in — the Flashlight mod snaps ahead to it before the caret arrives.</summary>
+        /// cue counts in; the Flashlight mod snaps ahead to it before the caret arrives.</summary>
         public bool TryGetUpcomingCaretScreenPosition(out osuTK.Vector2 position)
         {
             if (stage.IsNotNull() && stage.TryGetUpcomingCaretScreenPosition(out position))
@@ -112,7 +112,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 Engine.AllowWrongInput = config.Get<bool>(TypeBeatRulesetSetting.AllowWrongInput);
 
             // The Player already renders the beatmap background image (dimmed) and, when
-            // "beatmap storyboard/video" is on, the video — both BELOW the ruleset. Historically
+            // "beatmap storyboard/video" is on, the video, both BELOW the ruleset. Historically
             // this playfield painted an opaque serika-dark box over all of it (the monkeytype flat
             // look), which blacked the real background out. Only cover it when there is nothing to
             // show: reveal the image/video behind a readability scrim, else keep the flat panel.
@@ -153,7 +153,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // Positive offset = lyrics later relative to the music => lyric time runs behind audio.
             // The source set here is provisional: the playfield's Clock is swapped after load
             // (FrameStabilityContainer installs the frame-stable gameplay clock on itself), so a
-            // load-time capture can be a stale non-gameplay clock whose time is app uptime —
+            // load-time capture can be a stale non-gameplay clock whose time is app uptime,
             // which ran the engine seconds ahead of the audio. Update() re-points the source at
             // the current Clock every frame, before any child of the lyric subtree ticks.
             lyricClock = new FramedOffsetClock(Clock, processSource: false) { Offset = -lyricOffset.Value };
@@ -184,7 +184,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>
         /// Sits above the (already dimmed) beatmap image/video and below the lyrics: a light
         /// full-bleed tint so a bright video frame never blows out the text, plus a soft dark band
-        /// centred on the 3-line lyric stack that fades out top and bottom — keeping the words
+        /// centred on the 3-line lyric stack that fades out top and bottom, keeping the words
         /// legible on any footage while leaving most of the video visible.
         /// </summary>
         private static Drawable createReadabilityScrim() => new Container
@@ -250,7 +250,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             // The accepted char reaches the health processor as its own Great/Ok/Meh (or, for a
             // wrong char in allow-wrong-input mode, Miss) result via ApplyCharJudgement below, which
-            // is what recovers HP — no separate reset needed.
+            // is what recovers HP; no separate reset needed.
             if (lineDrawables.TryGetValue(judgement.LineIndex, out var line))
                 line.ApplyCharJudgement(judgement);
         }
@@ -410,7 +410,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 engine.Update(time);
 
                 // While the engine has no active line (pre-roll, a dead zone, or after the final
-                // line) typing is inert, so DON'T swallow the key — let it fall through to global
+                // line) typing is inert, so DON'T swallow the key; let it fall through to global
                 // key bindings so Space reaches GlobalAction.SkipCutscene and the intro / mid-song
                 // instrumental skip overlays can act.
                 if (!engine.LineIsActive)
@@ -430,7 +430,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 // The active line is fully typed: the engine is inert for character keys
                 // (ProcessKey no-ops at line end), so let them fall through too. This is the state
-                // the player holds for the ENTIRE length of a real instrumental gap — the decoder
+                // the player holds for the ENTIRE length of a real instrumental gap; the decoder
                 // keeps the previous line's window open (and thus active) until the next line
                 // starts, so without this fall-through Space could never reach the mid-song skip
                 // overlay on any real map. While the line is active and INCOMPLETE every typeable
@@ -439,7 +439,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (engine.IsLineComplete)
                     return false;
 
-                // Pass Shift through so held-Shift keys produce capitals — required for the
+                // Pass Shift through so held-Shift keys produce capitals, required for the
                 // Literate (case-sensitive) mod; folded away harmlessly in normal play.
                 if (KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, out char c))
                 {

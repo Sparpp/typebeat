@@ -10,7 +10,7 @@ using typebeat.Game.Online.Chat;
 namespace typebeat.Game.Overlays.Toolbar
 {
     /// <summary>
-    /// Opens the website's beatmap listing in the browser — the fork's replacement for the
+    /// Opens the website's beatmap listing in the browser; the fork's replacement for the
     /// in-game beatmap listing overlay (M3 posture: web content lives on the website).
     /// </summary>
     public partial class ToolbarWebsiteButton : ToolbarButton

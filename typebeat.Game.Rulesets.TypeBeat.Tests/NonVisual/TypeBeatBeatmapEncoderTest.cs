@@ -59,7 +59,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     EndTime = 3000,
                     SingEndTime = 2800,
                     // Overlapping-vocals grace: derived from raw overruns at import time, but the
-                    // editor model only holds clamped unit times — must persist explicitly.
+                    // editor model only holds clamped unit times; must persist explicitly.
                     SealGraceMs = 600,
                     Units = new[]
                     {
@@ -178,7 +178,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(encoded, Does.Contain("Tags:cover acoustic slow"));
             Assert.That(decode(encoded).Metadata.Tags, Is.EqualTo("cover acoustic slow"));
 
-            // Unset tags produce NO default tags — an empty Tags line, decoding to empty.
+            // Unset tags produce NO default tags: an empty Tags line, decoding to empty.
             var untagged = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
             string untaggedOsu = encode(untagged, null);
             Assert.That(untaggedOsu, Does.Not.Contain("typebeat lyrics typing"));
@@ -189,7 +189,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void OriginalTitleAndArtistSurviveRoundTrip()
         {
             // The editor's romanised (Title/Artist) and original (TitleUnicode/ArtistUnicode)
-            // fields are DISTINCT text boxes — the encoder was duplicating the romanised value
+            // fields are DISTINCT text boxes; the encoder was duplicating the romanised value
             // into both, so an author's entered original text never reached the website.
             var source = buildBeatmap(singleLine(), "Ultra Soul", "Neon Nights", "song.mp3");
             source.Metadata.ArtistUnicode = "ウルトラソウル";
@@ -215,7 +215,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(reloaded.Metadata.ArtistUnicode, Is.EqualTo("ウルトラソウル"));
             });
 
-            // No separate original set — TitleUnicode/ArtistUnicode fall back to the romanised
+            // No separate original set; TitleUnicode/ArtistUnicode fall back to the romanised
             // value rather than writing (and round-tripping) a blank line.
             var noOriginal = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
             string noOriginalOsu = encode(noOriginal, null);

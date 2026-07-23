@@ -9,7 +9,7 @@ using Assert = NUnit.Framework.Legacy.ClassicAssert;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
-    /// Pins activation when a line's vocals sit LATE in its window — the shape the editor
+    /// Pins activation when a line's vocals sit LATE in its window, the shape the editor
     /// produces when the previous line's vocals end early (shared boundaries: the next window
     /// starts at the early boundary, its vocals stay put). The line must self-activate at
     /// first target - CUE_LEAD_MS with nobody active before it. Also pins the contrasting

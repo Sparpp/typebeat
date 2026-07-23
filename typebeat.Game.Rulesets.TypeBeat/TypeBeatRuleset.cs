@@ -39,7 +39,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
     {
         static TypeBeatRuleset()
         {
-            // Runs when RulesetStore instantiates the ruleset at game startup — before any
+            // Runs when RulesetStore instantiates the ruleset at game startup, before any
             // beatmap import or load can request a decoder, covering both paths. Tests call
             // Register() directly.
             LyricBeatmapDecoder.Register();
@@ -100,7 +100,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
             TypeBeatBeatmapEncoder.Encode(beatmap, storyboard, writer);
 
         /// <summary>
-        /// The intro beatdrop (<c>beatdrop_ms</c>) only soundtracks the main-menu intro — it has no
+        /// The intro beatdrop (<c>beatdrop_ms</c>) only soundtracks the main-menu intro; it has no
         /// bearing on gameplay or scoring. So a save that changes only the beatdrop must not demote a
         /// ranked map to LocallyModified: compare with the beatdrop field normalised out.
         /// </summary>
@@ -113,7 +113,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// <summary>
         /// The editor setup screen for type!beat: song metadata, audio/background resources, and a
         /// type!beat section (global offset + in-editor auto-timing). The circle-game sections
-        /// (difficulty, combo colours, design) are dropped — they are meaningless for lyrics.
+        /// (difficulty, combo colours, design) are dropped; they are meaningless for lyrics.
         /// </summary>
         public override IEnumerable<Drawable> CreateEditorSetupSections() => new Drawable[]
         {
@@ -131,14 +131,14 @@ namespace typebeat.Game.Rulesets.TypeBeat
         public override HealthProcessor CreateHealthProcessor(double drainStartTime) => new TypeBeatHealthProcessor();
 
         /// <summary>
-        /// Rank comes from COMPLETION (% of the map typed), not accuracy — see
+        /// Rank comes from COMPLETION (% of the map typed), not accuracy; see
         /// <see cref="TypeBeatScoreProcessor"/>. Score, combo and accuracy stay standardised.
         /// </summary>
         public override ScoreProcessor CreateScoreProcessor() => new TypeBeatScoreProcessor(this);
 
         /// <summary>
         /// type!beat only ever awards Great/Ok/Meh (+ implicit Miss). Restricting the valid results
-        /// keeps the base ruleset from surfacing spurious rows on the results card — notably the
+        /// keeps the base ruleset from surfacing spurious rows on the results card, notably the
         /// obsolete <see cref="HitResult.LegacyComboIncrease"/>, which the base "all enum values"
         /// default would otherwise emit at count 0.
         /// </summary>
@@ -192,7 +192,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
 
         /// <summary>
         /// type!beat's server-side ruleset ID. Claiming a "legacy" ID is what gives the ruleset
-        /// an <c>OnlineID</c> (0) — without one, score submission (<c>SoloPlayer</c>) and global
+        /// an <c>OnlineID</c> (0); without one, score submission (<c>SoloPlayer</c>) and global
         /// leaderboards (<c>LeaderboardManager</c>) silently no-op. Our server owns all
         /// interpretation of ID 0; there is no osu!standard to collide with.
         /// </summary>
@@ -216,7 +216,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
 
         /// <summary>
         /// Rendered in the toolbar ruleset button and the intro's ruleset flow. Deliberately
-        /// glyphless — the label rendered poorly at toolbar size.
+        /// glyphless; the label rendered poorly at toolbar size.
         /// </summary>
         public partial class Icon : CompositeDrawable
         {

@@ -90,7 +90,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 installButton = new SettingsButton
                 {
                     Text = alignerManager?.IsInstalled == true ? "Reinstall local auto-aligner" : "Install local auto-aligner (~2 GB)",
-                    TooltipText = "One-time download of the AI that times lyrics word-by-word on your own machine — recommended if you have a good GPU. Installs the GPU build automatically when an NVIDIA card is detected.",
+                    TooltipText = "One-time download of the AI that times lyrics word-by-word on your own machine, recommended if you have a good GPU. Installs the GPU build automatically when an NVIDIA card is detected.",
                     Action = startInstall,
                 },
             };
@@ -131,7 +131,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             var notification = new ProgressNotification
             {
                 Text = "Installing the local auto-aligner...",
-                CompletionText = "Local auto-aligner ready — your imports now align on this machine.",
+                CompletionText = "Local auto-aligner ready. Your imports now align on this machine.",
                 State = ProgressNotificationState.Active,
             };
 
@@ -172,7 +172,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 catch (Exception e)
                 {
                     Logger.Error(e, "Local aligner install failed");
-                    notification.Text = "Local auto-aligner install failed unexpectedly — see logs.";
+                    notification.Text = "Local auto-aligner install failed unexpectedly, see logs.";
                     notification.State = ProgressNotificationState.Cancelled;
                     Schedule(() => installButton.Enabled.Value = true);
                 }

@@ -12,7 +12,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
     /// The playable typebeat beatmap: exposes typing-pace statistics (lines, boundary-window
-    /// WPM/CPM) which song select's statistics display computes live from the hit objects —
+    /// WPM/CPM) which song select's statistics display computes live from the hit objects,
     /// always correct, never stale realm data.
     /// </summary>
     public class TypeBeatBeatmap : Beatmap<TypeBeatHitObject>

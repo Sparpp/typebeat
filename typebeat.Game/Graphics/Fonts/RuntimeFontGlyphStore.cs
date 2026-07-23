@@ -24,7 +24,7 @@ namespace typebeat.Game.Graphics.Fonts
     /// An <see cref="IGlyphStore"/> that rasterises a TrueType/OpenType face at runtime with
     /// SixLabors.Fonts + ImageSharp.Drawing, instead of reading osu-framework's packaged BMFont
     /// sprite-sheet format. This is what lets the gameplay typing surface use OpenDyslexic or an
-    /// arbitrary installed system font — neither of which ships in the game's BMFont resources.
+    /// arbitrary installed system font, neither of which ships in the game's BMFont resources.
     /// </summary>
     /// <remarks>
     /// Glyphs are rasterised at <see cref="render_em"/> pixels-per-em so their metrics land in the

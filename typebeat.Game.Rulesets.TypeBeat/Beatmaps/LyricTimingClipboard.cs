@@ -8,13 +8,13 @@ using Newtonsoft.Json;
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
-    /// The lyric editor's clipboard payloads — TIMING patterns only, never text. Serialized as
+    /// The lyric editor's clipboard payloads: TIMING patterns only, never text. Serialized as
     /// JSON into the editor's string clipboard (<c>EditorClipboard.Content</c>), discriminated by
     /// <c>type</c> so paste can dispatch:
     ///
     ///  - <see cref="LineTimingsPayload"/>: one entry per copied line, each holding its units'
     ///    offsets and sung-end RELATIVE TO THE LINE START. Pasting rebases the pattern onto each
-    ///    target line's own start — line boundaries are never moved (so no cascade through the
+    ///    target line's own start; line boundaries are never moved (so no cascade through the
     ///    shared-boundary chain), which is exactly the repeated-chorus workflow: stamp the line
     ///    starts by ear, then paste chorus #1's internal timing onto #2/#3.
     ///  - <see cref="UnitTimingsPayload"/>: the selected word units' offsets relative to the FIRST
@@ -69,7 +69,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         /// <summary>
         /// Parses clipboard content into whichever payload it holds, or (null, null) for foreign /
-        /// malformed content. Never throws — the clipboard can hold arbitrary text.
+        /// malformed content. Never throws; the clipboard can hold arbitrary text.
         /// </summary>
         public static (LineTimingsPayload? lines, UnitTimingsPayload? units) TryParse(string? content)
         {

@@ -51,14 +51,14 @@ namespace typebeat.Game.Beatmaps
 
         private bool shouldFetchCache() =>
             // The upstream online.db cache is fetched from assets.ppy.sh and maps beatmap MD5s
-            // to *osu!* online IDs — actively wrong for type!beat. Disabled so that
+            // to *osu!* online IDs, actively wrong for type!beat. Disabled so that
             // APIBeatmapMetadataSource falls through to our /api/v2/beatmaps/lookup on import
             // (that lookup is what stamps OnlineIDs). If lookup volume ever matters,
             // typebeat-web can publish its own cache file and this can be re-enabled.
             false;
 
         public bool Available =>
-            // see shouldFetchCache — the upstream cache holds osu! IDs, never valid here.
+            // see shouldFetchCache; the upstream cache holds osu! IDs, never valid here.
             false;
 
         public bool TryLookup(BeatmapInfo beatmapInfo, [NotNullWhen(true)] out OnlineBeatmapMetadata? onlineMetadata)
@@ -154,7 +154,7 @@ namespace typebeat.Game.Beatmaps
             // backpopulation) already handle the "still unavailable afterwards" case.
             return Task.CompletedTask;
 
-#pragma warning disable CS0162 // unreachable — kept intact for a future typebeat-web cache file.
+#pragma warning disable CS0162 // unreachable, kept intact for a future typebeat-web cache file.
             bool isRefetch = storage.Exists(cache_database_name);
 
             string cacheFilePath = storage.GetFullPath(cache_database_name);

@@ -33,7 +33,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     public static class Typeability
     {
         // INVARIANT: the accepted set must be a subset of what KeyCharMap can produce
-        // (ASCII letters/digits/space after Fold) — anything else must classify as
+        // (ASCII letters/digits/space after Fold); anything else must classify as
         // non-typeable so it auto-skips instead of stranding the caret on an
         // unreachable cell. Normalize strips Latin diacritics first, so 'é' survives as 'e'.
         public static bool IsTypeable(char c)
@@ -45,7 +45,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         public static char Fold(char c) => char.ToLowerInvariant(c);
 
         /// <summary>
-        /// Removes bracketed backing-vocal spans — "(...)" and "[...]" — from lyric text; the
+        /// Removes bracketed backing-vocal spans, "(...)" and "[...]", from lyric text; the
         /// player never types them. A whole-line backing vocal therefore normalizes to empty and
         /// the line is dropped by both loaders (the previous line extends over its time span).
         /// An unclosed bracket strips to the end of the string. Call BEFORE <see cref="Normalize"/>.
@@ -84,7 +84,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// Latin diacritics stripped (FormD, combining marks dropped), curly
         /// quotes/apostrophes -> ASCII, en/em dash -> '-', NBSP -> space,
         /// then every char the player cannot type (apostrophes, commas, any other
-        /// punctuation) is REMOVED — never displayed, never a cell. Whitespace runs
+        /// punctuation) is REMOVED, never displayed, never a cell. Whitespace runs
         /// collapse to a single space, trimmed.
         /// </summary>
         public static string Normalize(string raw)
@@ -99,7 +99,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
             catch (ArgumentException)
             {
-                // Invalid Unicode (broken surrogates) — carry on undecomposed.
+                // Invalid Unicode (broken surrogates); carry on undecomposed.
             }
 
             var sb = new StringBuilder(raw.Length);
@@ -122,7 +122,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 // "You can't type it, so don't display it": untypeable non-whitespace chars
                 // (apostrophes, commas, all other punctuation) are dropped from the game text
-                // entirely — monkeytype-style bare words.
+                // entirely; monkeytype-style bare words.
                 if (!char.IsWhiteSpace(c) && !IsTypeable(c))
                     continue;
 
@@ -206,7 +206,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         /// <summary>
         /// Extra time past <see cref="EndTime"/> during which the line stays typeable before
-        /// sealing — granted when the source vocals genuinely overrun the line boundary
+        /// sealing, granted when the source vocals genuinely overrun the line boundary
         /// (backing vocals overlapping the next line). 0 for normal lines.
         /// </summary>
         public double SealGraceMs { get; init; }

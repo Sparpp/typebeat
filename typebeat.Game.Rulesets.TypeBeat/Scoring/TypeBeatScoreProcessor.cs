@@ -9,13 +9,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 {
     /// <summary>
     /// type!beat scoring. Total score, combo and ACCURACY are the standardised defaults, but the
-    /// RANK is derived from <b>completion</b> — the fraction of typeable cells the player actually
-    /// typed (any non-miss judgement) — instead of accuracy. Typing every character earns an SS
+    /// RANK is derived from <b>completion</b>: the fraction of typeable cells the player actually
+    /// typed (any non-miss judgement), instead of accuracy. Typing every character earns an SS
     /// even with wrong-key stumbles and sloppy timing along the way; timing quality still shows in
     /// accuracy, score and combo, it just no longer gates the grade. Cells that scroll past
     /// untyped (miss judgements) are the only thing that costs rank.
     ///
-    /// The server mirrors this exactly (typebeat-web ScoringContract.RankFromCompletion) — keep
+    /// The server mirrors this exactly (typebeat-web ScoringContract.RankFromCompletion); keep
     /// the cutoffs in the two files in sync.
     /// </summary>
     public partial class TypeBeatScoreProcessor : ScoreProcessor
@@ -50,7 +50,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             foreach ((var result, int count) in results)
             {
-                // Line containers judge as IgnoreHit and carry no accuracy weight — the same
+                // Line containers judge as IgnoreHit and carry no accuracy weight; the same
                 // filter keeps them (and any bonus results) out of completion.
                 if (!result.AffectsAccuracy())
                     continue;

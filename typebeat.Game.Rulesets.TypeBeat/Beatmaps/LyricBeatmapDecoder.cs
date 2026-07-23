@@ -16,13 +16,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// <summary>
     /// Decoder for the "type!beat file format v1" .osu variant (M6 format skeleton):
     /// [General]/[Metadata]/[Difficulty]/[TimingPoints] are handled by the inherited legacy
-    /// parsing; a [Lyrics] section carries one compact JSON object per line — an optional
+    /// parsing; a [Lyrics] section carries one compact JSON object per line: an optional
     /// header object (version/song_end_ms/granularity, no "text" key) followed by one
     /// timing.json v2 line object per lyric line, parsed by the regression-anchored
     /// <see cref="TimingJsonLoader"/> logic straight into <see cref="TypeBeatHitObject"/>s.
     ///
     /// Registration (<see cref="Register"/>) is invoked from <see cref="TypeBeatRuleset"/>'s
-    /// static constructor, which runs when RulesetStore instantiates the ruleset at startup —
+    /// static constructor, which runs when RulesetStore instantiates the ruleset at startup,
     /// before both the import path (BeatmapImporter) and the load path (WorkingBeatmapCache)
     /// can ever request a decoder. Tests call it directly.
     /// </summary>

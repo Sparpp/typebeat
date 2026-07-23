@@ -31,7 +31,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// typing surface: letters a-z (lower-case by default, upper-cased when <c>shift</c> is held),
     /// digits 0-9 (top row and keypad), and space. Everything else maps to nothing. This is the
     /// one-function seam for a future <c>TextInputSource</c> swap; the only modifier it interprets is
-    /// Shift (for letter case) — callers still filter Ctrl/Alt. Shift is applied AFTER the layout
+    /// Shift (for letter case); callers still filter Ctrl/Alt. Shift is applied AFTER the layout
     /// remap, so the produced capital always matches the keycap the player reads (e.g. AZERTY Q → 'A').
     /// Only letters carry case; digits and space ignore Shift. Case only matters to gameplay under the
     /// Literate mod (<see cref="TypingEngine.CaseSensitive"/>); otherwise the caret folds it away.
@@ -59,7 +59,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private static bool tryMapLower(Key key, KeyboardLayout layout, out char c)
         {
             // Keys arrive by PHYSICAL position, so on non-QWERTY layouts the keycap a player
-            // reads can differ from the position's QWERTY letter — remap so what they press
+            // reads can differ from the position's QWERTY letter; remap so what they press
             // matches what they see.
             switch (layout)
             {
@@ -104,7 +104,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                             return true;
 
                         case Key.M:
-                            // This position carries ',' on AZERTY — outside the typeable
+                            // This position carries ',' on AZERTY, outside the typeable
                             // surface, so the key is inert like other punctuation keys
                             // (never a wrong-key combo break for a habitual comma).
                             c = default;

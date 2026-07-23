@@ -63,7 +63,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
                 FlashlightSmoothness = 1.6f; // softer edges + rounded corners
 
                 // Fade the darkening in from the start of gameplay. Previously it stayed fully
-                // transparent until TryGetCaretScreenPosition first returned true — but the caret is
+                // transparent until TryGetCaretScreenPosition first returned true, but the caret is
                 // only "visible" (alpha > 0.5) mid-blink once a line is active, so on many maps that
                 // moment was missed and the mod had no visible effect at all. Revealing on load
                 // (centred until the caret is acquired) guarantees the effect while still following

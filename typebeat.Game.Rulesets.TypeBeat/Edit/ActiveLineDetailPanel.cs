@@ -171,7 +171,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             if (line == null || !editorBeatmap.HitObjects.Contains(line))
             {
-                header.Text = "no line — click one, or double-click a gap in the timeline to add";
+                header.Text = "no line, click one, or double-click a gap in the timeline to add";
                 timing.Text = string.Empty;
                 return;
             }

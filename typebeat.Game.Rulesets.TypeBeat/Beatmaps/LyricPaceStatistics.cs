@@ -8,8 +8,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
     /// Boundary-window typing-pace statistics for a lyric map. A line's typing window is the
-    /// time between its start and end boundaries — the time a player actually gets, however
-    /// leniently or strictly the map is bounded — not the perfect-play playhead. Counts are
+    /// time between its start and end boundaries, the time a player actually gets, however
+    /// leniently or strictly the map is bounded, not the perfect-play playhead. Counts are
     /// real: WPM uses the line's actual word count, CPM its actual typeable cell count
     /// (chars + inter-word spaces); there is no "1 word = 5 chars" estimate, so the CPM:WPM
     /// ratio reflects the map's true word length. Per-line rates are averaged unweighted

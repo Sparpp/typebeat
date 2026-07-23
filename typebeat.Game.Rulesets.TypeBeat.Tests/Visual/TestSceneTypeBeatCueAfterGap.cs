@@ -18,7 +18,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// Regression test for the missing approach cue after a gap. A line activates at the very
     /// moment its cue window opens (activation IS cue-open, <see cref="TypingEngine.CUE_LEAD_MS"/>).
     /// In continuous maps the previous line is still active through that window and carries the
-    /// cue via ActiveLineIndex + 1 — but when the previous line ENDS EARLY, the next line
+    /// cue via ActiveLineIndex + 1, but when the previous line ENDS EARLY, the next line
     /// self-activates with nobody before it, and the stage's unconditional ActiveLineIndex + 1
     /// targeting skipped its cue entirely: the bar never rendered a single frame.
     /// </summary>
@@ -42,7 +42,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             beatmap.BeatmapInfo.Metadata.Title = "CueAfterGap";
 
             // The editor's shared-boundary shape after "line 0's vocals end early": the 0/1
-            // boundary sits at 2000, while line 1's VOCALS start at 5000 — so line 1
+            // boundary sits at 2000, while line 1's VOCALS start at 5000, so line 1
             // self-activates at 3500 (first target - CUE_LEAD_MS) with no line active before
             // it. That is the path whose cue the stage used to skip. A continuous pair after
             // it guards the unchanged behavior.
@@ -85,8 +85,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 playfield.Engine.ActiveLineIndex == 1
                 && Player.GameplayClockContainer.CurrentTime < 4800);
 
-            // THE regression: the approach bar must render FOR LINE 1 — the line that just
-            // self-activated — during its lead-in. Pre-fix, targeting ActiveLineIndex + 1
+            // THE regression: the approach bar must render FOR LINE 1, the line that just
+            // self-activated, during its lead-in. Pre-fix, targeting ActiveLineIndex + 1
             // pointed the cue at line 2 instead (whose own window only opens at 4700), so the
             // player got no cue for the line they were about to type. Alpha alone cannot catch
             // that, hence the target-line assertion, bounded before line 2's window opens.

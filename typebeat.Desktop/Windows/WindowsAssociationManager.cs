@@ -254,7 +254,7 @@ namespace typebeat.Desktop.Windows
 
             /// <summary>
             /// When true, this extension's default ProgID is claimed as ours so Explorer shows our
-            /// icon for the file. Only safe for extensions type!beat owns outright (.typb) — for
+            /// icon for the file. Only safe for extensions type!beat owns outright (.typb); for
             /// shared formats (.osz/.osr/.osk that osu!stable may also handle) we must NOT hijack
             /// the user's default handler, so those stay open-with-only.
             /// </summary>

@@ -3,7 +3,7 @@
 
 // Ported from type!beat TypeBeat.Game/UI/HudOverlay.cs, slimmed for the type!beat fork:
 // score/combo/accuracy readouts dropped (type!beat's own HUD shows those from the
-// ScoreProcessor); the SyncBar and hit-error meters were removed by design — the only
+// ScoreProcessor); the SyncBar and hit-error meters were removed by design; the only
 // engine-authoritative extras left are the WPM / sync% readouts.
 
 using osu.Framework.Allocation;

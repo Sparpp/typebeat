@@ -20,7 +20,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// <summary>
     /// Minimal boundaries view: a thin band directly beneath the waveform timeline showing lyric
     /// LINE boundaries (full-height marks + subtle alternating extent shading) and WORD-block
-    /// boundaries (shorter, fainter ticks within each line). No text, no drag handles — the full
+    /// boundaries (shorter, fainter ticks within each line). No text, no drag handles; the full
     /// interactive word strip lives in <see cref="ActiveLineDetailPanel"/>; this band only keeps
     /// the whole-map structure readable against the audio.
     ///
@@ -89,12 +89,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (timeline == null || !timeline.IsLoaded)
                 return;
 
-            // Mirror the waveform timeline's visible window every frame — scroll, zoom and seek
+            // Mirror the waveform timeline's visible window every frame: scroll, zoom and seek
             // all stay in lockstep with the surface directly above.
             double windowCentre = timeline.TimeAtPosition(timeline.Current);
             double visibleRange = timeline.VisibleRange;
 
-            // Early frames (track/content not sized yet) yield NaN/Infinity — skip until sane.
+            // Early frames (track/content not sized yet) yield NaN/Infinity; skip until sane.
             if (!double.IsFinite(windowCentre) || !double.IsFinite(visibleRange))
                 return;
 
@@ -167,7 +167,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         protected override bool OnClick(ClickEvent e)
         {
             // Click a line's extent: select it and bring the playhead to its start (same as the
-            // old per-line overview bars in the waveform). Empty space just seeks to that time —
+            // old per-line overview bars in the waveform). Empty space just seeks to that time,
             // consistent with the word strip, and it also keeps the band the click-owner so a
             // double-click on empty space reaches OnDoubleClick below.
             double time = TimeAt(ToLocalSpace(e.ScreenSpaceMousePosition).X);
@@ -283,7 +283,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             public void UpdateLayout(LineBoundariesBand parent)
             {
-                // A retime may have dropped units since the last rebuild — hide until rebuilt.
+                // A retime may have dropped units since the last rebuild; hide until rebuilt.
                 if (index >= hitObject.Line.Units.Count)
                 {
                     Alpha = 0;

@@ -66,7 +66,7 @@ namespace typebeat.Desktop
 
             // type!beat ships as a plain zip (no Velopack install step), so the OnFirstRun
             // association hook never fires. Registering here instead keeps .typb/.osz icons and
-            // open-with entries fresh on every launch — all writes are per-user (HKCU),
+            // open-with entries fresh on every launch; all writes are per-user (HKCU),
             // idempotent, and cheap. Skipped when a package manager owns installation.
             if (OperatingSystem.IsWindows() && !OsuGameDesktop.IsPackageManaged)
             {

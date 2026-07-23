@@ -21,7 +21,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// and the streak fails the play outright at the threshold.</item>
     /// </list>
     ///
-    /// Health is HP only — it never touches score, accuracy or combo (those live in
+    /// Health is HP only; it never touches score, accuracy or combo (those live in
     /// <see cref="TypeBeatScoreProcessor"/> / the engine and are unchanged).
     /// </summary>
     public partial class TypeBeatHealthProcessor : HealthProcessor
@@ -37,7 +37,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         // magnitudes would let one fumbled line insta-kill from full. Instead each miss drains a
         // little and any correct key recovers, so death comes from SUSTAINED not-typing, never from
         // one bad line or from sloppy-but-complete timing (the completion-based grading philosophy:
-        // typing every cell — even all-Meh — should survive and score an SS).
+        // typing every cell, even all-Meh, should survive and score an SS).
         //
         // Balance targets (verified in TypeBeatHealthTest):
         //   * Full AFK on the real ~905-cell map empties the bar within the first few line seals
@@ -60,7 +60,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         /// <summary>
         /// HP drained by a single rejected wrong key. Sized so an uninterrupted mash from full empties
-        /// the bar exactly at <see cref="WRONG_KEY_FAIL_STREAK"/> — the bar IS the mash warning.
+        /// the bar exactly at <see cref="WRONG_KEY_FAIL_STREAK"/>; the bar IS the mash warning.
         /// </summary>
         public const double WRONG_KEY_HP_DRAIN = 1.0 / WRONG_KEY_FAIL_STREAK;
 

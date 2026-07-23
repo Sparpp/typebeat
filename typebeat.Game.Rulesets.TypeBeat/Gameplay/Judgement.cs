@@ -3,7 +3,7 @@
 
 // Ported verbatim from type!beat TypeBeat.Game/Gameplay/Judgement.cs (regression-anchored).
 // This file is the SINGLE tuning point for all judgement window constants.
-// Pure C# — no osu.Framework dependencies. All times are double milliseconds.
+// Pure C#: no osu.Framework dependencies. All times are double milliseconds.
 // Renames on entry: public constants restyled to ALL_UPPER per fork naming rules.
 // No type here collides with typebeat.Game.Rulesets.Judgements.Judgement (no type named "Judgement").
 
@@ -34,7 +34,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public const double LOW_CONFIDENCE_SCORE = 0.15;
 
-        // Base (Line-granularity) window constants — the one tuning point.
+        // Base (Line-granularity) window constants: the one tuning point.
         private const double base_perfect_early = 250;
         private const double base_perfect_late = 400;
         private const double base_good_early = 600;

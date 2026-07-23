@@ -16,7 +16,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 {
     /// <summary>
     /// Discriminating regression test for the "black playfield" bug: with a map whose first
-    /// line starts at 5s, early gameplay must be a live PRE-ROLL — engine not finished,
+    /// line starts at 5s, early gameplay must be a live PRE-ROLL: engine not finished,
     /// nothing sealed, and the upcoming line VISIBLY displayed. A mis-clocked lyric subtree
     /// (engine fed app-time instead of gameplay time) insta-seals every line and fades the
     /// stage out, which the completion-oriented player test cannot distinguish from success.

@@ -2,7 +2,7 @@
 
 Automatic **word- and syllable-level lyric timing** for type!beat. Given a song
 (mp3) and its lyrics, produces LRC/JSON timing files. Lives outside the game
-repo on purpose — nothing here touches the game build.
+repo on purpose: nothing here touches the game build.
 
 ## Quickstart
 
@@ -23,7 +23,7 @@ in `work/`). Re-runs take ~20 s. Everything is CPU-only.
 
 | file | contents |
 |---|---|
-| `<stem>.lrc` | line-level LRC — drop-in for the game's current `LrcParser` (incl. trailing end-marker) |
+| `<stem>.lrc` | line-level LRC: drop-in for the game's current `LrcParser` (incl. trailing end-marker) |
 | `<stem>.words.lrc` | enhanced LRC: `[line]<mm:ss.xx>word …` + trailing line-end tag |
 | `<stem>.syllables.lrc` | enhanced LRC with mid-word syllable tags (`<t>spec<t>ta<t>tor`), normalized text |
 | `<stem>.timing.json` | **richest**: lines → words → syllables with `start_ms`/`end_ms`, confidence `score` (0..1 acoustic margin), `prob`, `estimated` flags |
@@ -83,14 +83,14 @@ char spans → syllables (pyphen + vowel-group fallback) → words → lines
 
 - Median **signed** delta is ~+0.4 s in every mode: hand stamps lead the sung
   onset (mappers stamp on the beat / before the voice) while CTC fires on the
-  vowel. For gameplay you likely want line *display* slightly early anyway —
+  vowel. For gameplay you likely want line *display* slightly early anyway;
   use `--offset-ms` if desired; word-relative timing is unaffected.
 - 97 % of word onsets land in voiced audio (ref mode).
 - Root cause of all large errors: sections where the actual vocals are
   phonetically opaque (chorus-1 hook and outro here are effects-heavy; the
   16 s instrumental tail attracts desperate DP paths). Verified by greedy
   decode (`debug_decode.py`): those regions produce zero character evidence
-  on both the vocal stem *and* the raw mix — no aligner can hear what isn't
+  on both the vocal stem *and* the raw mix; no aligner can hear what isn't
   there. That is exactly what the `estimated` flag + stamps workflow solves.
 
 ## Practical recipe for type!beat maps
@@ -104,7 +104,7 @@ char spans → syllables (pyphen + vowel-group fallback) → words → lines
 
 Game-side integration: current `LrcParser` already reads the plain `.lrc`.
 For word timing, either parse `words.lrc` (extend the regex to capture
-`<mm:ss.xx>` tags) or — better — read `timing.json` directly; it carries
+`<mm:ss.xx>` tags) or, better, read `timing.json` directly; it carries
 syllables, confidences and `estimated` flags the game/editor can surface.
 
 ## Environment
@@ -127,12 +127,12 @@ MMS_FA aligner + htdemucs).
 ## Known limitations / future work
 
 - **English-first**: syllabification is pyphen `en_US` + naive fallback. For
-  Japanese maps, romanize first (pykakasi) and align romaji — MMS_FA is
+  Japanese maps, romanize first (pykakasi) and align romaji; MMS_FA is
   multilingual, and a typing game wants romaji anyway. Wire-up is ~30 lines.
 - `auto` mode can still misplace lines when near-identical hook lines repeat
-  over sparse evidence (Spectator outro: 3 lines ~9.5 s off, margins ≤ 0.17 —
+  over sparse evidence (Spectator outro: 3 lines ~9.5 s off, margins ≤ 0.17;
   low margin marks them for review). Stamps (`ref`) eliminate this class.
 - Word *end* times are heuristic (voiced-region extension capped by next word);
   starts are the reliable quantity.
-- `debug_decode.py <wav16k> [start_s] [end_s]` prints what the model hears —
+- `debug_decode.py <wav16k> [start_s] [end_s]` prints what the model hears;
   use it whenever a section refuses to align.

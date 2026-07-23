@@ -116,7 +116,7 @@ namespace typebeat.Game.Screens.ImportLyrics
                                 automaticAlignmentCheckbox = new OsuCheckbox
                                 {
                                     RelativeSizeAxes = Axes.X,
-                                    LabelText = "automatic alignment (time each word from the audio — slower, needs sign-in; off = use your [mm:ss.xx] line stamps)",
+                                    LabelText = "automatic alignment (time each word from the audio, slower, needs sign-in; off = use your [mm:ss.xx] line stamps)",
                                     Current = { Value = false },
                                 },
                                 importButton = new RoundedButton
@@ -221,7 +221,7 @@ namespace typebeat.Game.Screens.ImportLyrics
 
                 if (result.Success && result.OszPath != null)
                 {
-                    Schedule(() => setStatus("packaging done — importing beatmap..."));
+                    Schedule(() => setStatus("packaging done, importing beatmap..."));
                     await game.Import(result.OszPath).ConfigureAwait(false);
                     Schedule(finishSuccess);
                 }
@@ -260,7 +260,7 @@ namespace typebeat.Game.Screens.ImportLyrics
 
         public override bool OnExiting(ScreenExitEvent e)
         {
-            // An import in flight — especially a multi-minute server alignment — shouldn't be torn
+            // An import in flight, especially a multi-minute server alignment, shouldn't be torn
             // down by a stray Esc without asking. Nothing running -> leave freely.
             if (importing && !exitConfirmed && dialogOverlay != null)
             {

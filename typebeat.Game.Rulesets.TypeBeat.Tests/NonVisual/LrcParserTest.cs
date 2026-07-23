@@ -65,7 +65,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var lines = LrcParser.Parse(spectator_lyrics);
 
-            // 36 emitted lines — the trailing [02:45.39] terminator is consumed (not a 37th line)
+            // 36 emitted lines; the trailing [02:45.39] terminator is consumed (not a 37th line)
             // and the 4 bracketed backing-vocal lines are dropped (never typed).
             Assert.That(lines.Count, Is.EqualTo(36));
             Assert.That(lines[0].StartTime, Is.EqualTo(7480));

@@ -15,7 +15,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// <summary>
     /// Serialises an editor <see cref="IBeatmap"/> of <see cref="TypeBeatHitObject"/>s back into
     /// the "type!beat file format v1" (.osu with a [Lyrics] section). The editor's model is the
-    /// authority — the emitted timing.json is rebuilt from the current <see cref="Beatmaps.LyricLine"/>s
+    /// authority; the emitted timing.json is rebuilt from the current <see cref="Beatmaps.LyricLine"/>s
     /// (start_ms, end_ms == SingEndTime, and word units), then run through the same
     /// <see cref="LyricOsuFormat"/> writer the import path uses so the output round-trips through
     /// <see cref="LyricBeatmapDecoder"/> byte-for-byte identically.

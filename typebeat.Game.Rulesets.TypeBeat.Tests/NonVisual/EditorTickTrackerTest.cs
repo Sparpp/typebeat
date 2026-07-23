@@ -10,7 +10,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// <summary>
     /// The compose screen's per-note tick crossing detector: it reports the unit-start times the
     /// playhead swept through in a frame's (prev, now] window, and stays silent whenever motion is
-    /// not ordinary forward playback — the first frame, a paused gap, a rewind, or a seek-sized jump.
+    /// not ordinary forward playback: the first frame, a paused gap, a rewind, or a seek-sized jump.
     /// </summary>
     [TestFixture]
     public class EditorTickTrackerTest
@@ -26,7 +26,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var tracker = roomy();
 
-            // Nothing to compare the first frame against — it only anchors.
+            // Nothing to compare the first frame against; it only anchors.
             Assert.That(tracker.Advance(1200, ticks), Is.Empty);
 
             // Next forward frame reports crossings relative to the anchor (1200, 1600].
@@ -71,7 +71,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // e.g. playback paused here; the screen calls Reset each paused frame.
             tracker.Reset();
 
-            // Resuming at 2000: the 900..2000 gap must NOT burst-tick — this frame only re-anchors.
+            // Resuming at 2000: the 900..2000 gap must NOT burst-tick; this frame only re-anchors.
             Assert.That(tracker.Advance(2000, ticks), Is.Empty);
 
             // Playback continues from the new anchor: (2000, 2700] → 2600.
@@ -207,7 +207,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void CombinedStreams_CrossingDetection_TicksEachTimeOnce()
         {
             // The compose screen runs one tracker per stream over the same frame times. Sweep a
-            // frame across everything and check each stream reports exactly its own times — the
+            // frame across everything and check each stream reports exactly its own times: the
             // deduped 1400 fires once, as a word tick.
             var (wordStarts, syllables) = EditorTickTimes.Collect(new[]
             {

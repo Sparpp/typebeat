@@ -10,10 +10,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
     /// <see cref="TypingEngine.LineIsActive"/> is the seam the playfield's raw key handler gates on:
-    /// a typeable key (Space included — it is both a character and the default skip binding) is
+    /// a typeable key (Space included; it is both a character and the default skip binding) is
     /// consumed for typing only while a line is active, and otherwise falls through to global
     /// bindings so the skip overlay can act. This pins the predicate across the pre-roll, an active
-    /// line, a mid-song dead zone and re-activation — the transitions the key handler depends on.
+    /// line, a mid-song dead zone and re-activation: the transitions the key handler depends on.
     /// </summary>
     [TestFixture]
     public class TypingInputGateTest
@@ -35,12 +35,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void LineIsActiveMirrorsActiveLineIndex()
         {
             // Line 0 active [1000, 2000); line 1's first word is at 12000, so it self-activates at
-            // 10500 — a >8s dead zone in between where nothing is active.
+            // 10500, a >8s dead zone in between where nothing is active.
             var l0 = line("ab", 1000, 2000, 2000, unit("ab", 1000, 2000));
             var l1 = line("cd", 2000, 13000, 13000, unit("cd", 12000, 13000));
             var engine = new TypingEngine(map(l0, l1));
 
-            // Pre-roll: before the first line's cue nothing is active — Space must NOT be consumed.
+            // Pre-roll: before the first line's cue nothing is active; Space must NOT be consumed.
             engine.Update(0);
             Assert.AreEqual(-1, engine.ActiveLineIndex);
             Assert.AreEqual(false, engine.LineIsActive, "pre-roll: key falls through to global bindings");

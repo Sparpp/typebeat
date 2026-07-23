@@ -157,7 +157,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.IsTrue(bridge.Health.HasFailed, "sustained AFK on the real map must fail");
             Assert.Greater(failTime, 0);
-            // Dies well inside the first half of the ~165s map — clearly "sustained not typing",
+            // Dies well inside the first half of the ~165s map, clearly "sustained not typing",
             // not a last-second technicality.
             Assert.Less(failTime, beatmap.LastLineEnd * 0.5, "AFK must die partway through, not at the end");
             TestContext.WriteLine($"Full-AFK death lands at t={failTime:0}ms of {beatmap.LastLineEnd:0}ms.");
@@ -285,7 +285,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// Mirrors <see cref="UI.TypeBeatPlayfield"/>'s health wiring: a correct char reaches health
         /// as its Great/Ok/Meh result, every cell that seals untyped as a Miss, and a rejected wrong
-        /// key through the mash-streak drain — the same paths the drawable bridge takes in gameplay.
+        /// key through the mash-streak drain; the same paths the drawable bridge takes in gameplay.
         /// </summary>
         private sealed class HealthBridge
         {

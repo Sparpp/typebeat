@@ -43,7 +43,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public const float LYRIC_FONT_SIZE = 42;
 
         /// <summary>
-        /// type!beat's default font with a fixed per-glyph advance — used for readouts (HUD
+        /// type!beat's default font with a fixed per-glyph advance, used for readouts (HUD
         /// numbers, editor panels) where digits must not jitter as values change.
         /// </summary>
         public static FontUsage Mono(float size) => OsuFont.Default.With(size: size, fixedWidth: true);
