@@ -54,5 +54,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// advance (see <see cref="LyricLineDisplay"/>).
         /// </summary>
         public static FontUsage Lyric(float size) => OsuFont.Default.With(size: size);
+
+        /// <summary>
+        /// Lyric text in a specific font <paramref name="family"/> (an accessibility pick such as
+        /// OpenDyslexic or a system font registered via <c>LyricFontManager</c>). A null/empty family
+        /// keeps the built-in lyric font. The family is used with no weight suffix, matching how the
+        /// runtime glyph store registers itself.
+        /// </summary>
+        public static FontUsage Lyric(float size, string? family)
+            => string.IsNullOrEmpty(family) ? Lyric(size) : new FontUsage(family, size);
     }
 }

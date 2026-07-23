@@ -2,11 +2,13 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Localisation;
 using osu.Framework.Logging;
+using typebeat.Game.Graphics.Fonts;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Notifications;
 using typebeat.Game.Overlays.Settings;
@@ -31,6 +33,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         [Resolved(CanBeNull = true)]
         private INotificationOverlay? notifications { get; set; }
 
+        [Resolved(CanBeNull = true)]
+        private LyricFontManager? fontManager { get; set; }
+
         private SettingsButton installButton = null!;
 
         public TypeBeatSettingsSubsection(Ruleset ruleset)
@@ -42,6 +47,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private void load()
         {
             var config = (TypeBeatRulesetConfigManager)Config;
+
+            var lyricFont = config.GetBindable<string>(TypeBeatRulesetSetting.LyricFont);
 
             Children = new Drawable[]
             {
@@ -67,6 +74,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     Current = config.GetBindable<float>(TypeBeatRulesetSetting.LineSpacing),
                     KeyboardStep = 2f,
                 },
+                new SettingsDropdown<string>
+                {
+                    LabelText = "Typing font",
+                    TooltipText = "Font for the gameplay lyric text only (the rest of the UI is unchanged). OpenDyslexic is bundled; you can also pick any installed system font. Applies from the next play.",
+                    Items = buildFontItems(lyricFont.Value),
+                    Current = lyricFont,
+                },
                 new SettingsCheckbox
                 {
                     LabelText = "Use local auto-aligner",
@@ -83,6 +97,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             if (alignerManager == null)
                 installButton.Enabled.Value = false;
+        }
+
+        /// <summary>
+        /// The typing-font dropdown options: the default sentinel first, then the bundled OpenDyslexic
+        /// (only when its file is present), then the installed system fonts. The currently stored value
+        /// is always included so a previously chosen font that is no longer available still displays
+        /// rather than throwing.
+        /// </summary>
+        private List<string> buildFontItems(string currentValue)
+        {
+            var items = new List<string> { TypeBeatRulesetConfigManager.LYRIC_FONT_DEFAULT };
+
+            if (fontManager?.IsOpenDyslexicAvailable == true)
+                items.Add(LyricFontManager.OPEN_DYSLEXIC);
+
+            if (fontManager != null)
+                items.AddRange(fontManager.GetSystemFontFamilies());
+
+            if (!string.IsNullOrEmpty(currentValue) && !items.Contains(currentValue))
+                items.Add(currentValue);
+
+            return items;
         }
 
         private void startInstall()

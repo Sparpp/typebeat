@@ -43,6 +43,11 @@
     <PackageReference Include="typebeat.Game.Resources" Version="2026.718.1" />
     <PackageReference Include="Sentry" Version="6.6.0" />
     <PackageReference Include="SharpCompress" Version="0.49.1" />
+    <!-- Runtime rasterisation of OpenDyslexic / system fonts for the gameplay typing surface.
+         osu-framework's glyph store only reads its packaged BMFont format, so TTF/OTF faces are
+         drawn at runtime via SixLabors (Fonts 2.1.3 + Drawing 2.1.7 pin to the framework's ImageSharp 3.1.11). -->
+    <PackageReference Include="SixLabors.Fonts" Version="2.1.3" />
+    <PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.1.7" />
     <PackageReference Include="NUnit" Version="4.5.1" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
     <PackageReference Include="System.ComponentModel.Annotations" Version="5.0.0" />

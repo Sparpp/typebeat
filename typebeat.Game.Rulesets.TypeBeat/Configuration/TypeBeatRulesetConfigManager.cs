@@ -52,7 +52,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         AllowWrongInput,
 
         /// <summary>Vertical gap (px) between the three gameplay lyric lines.</summary>
-        LineSpacing
+        LineSpacing,
+
+        /// <summary>
+        /// Family name of the font used for the gameplay typing surface (the lyric stack and typed
+        /// characters). <see cref="TypeBeatRulesetConfigManager.LYRIC_FONT_DEFAULT"/> keeps the game's
+        /// built-in font; <c>"OpenDyslexic"</c> selects the bundled accessibility face; any other value
+        /// is treated as an installed system-font family. Unknown or failed fonts fall back to the
+        /// default. Only the typing surface is affected — the rest of the UI keeps its default fonts.
+        /// </summary>
+        LyricFont
     }
 
     /// <summary>Monkeytype's caret styles. <see cref="Line"/> is the classic 3px beam.</summary>
@@ -66,6 +75,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 
     public class TypeBeatRulesetConfigManager : RulesetConfigManager<TypeBeatRulesetSetting>
     {
+        /// <summary>Sentinel <see cref="TypeBeatRulesetSetting.LyricFont"/> value meaning "keep the game's built-in font".</summary>
+        public const string LYRIC_FONT_DEFAULT = "Default";
+
         public TypeBeatRulesetConfigManager(SettingsStore? settings, RulesetInfo ruleset, int? variant = null)
             : base(settings, ruleset, variant)
         {
@@ -82,6 +94,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.KeyboardLayout, Gameplay.KeyboardLayout.Qwerty);
             SetDefault(TypeBeatRulesetSetting.AllowWrongInput, false);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
+            SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
         }
     }
 }

@@ -510,6 +510,10 @@ namespace typebeat.Game
             AddFont(Resources, @"Fonts/Venera/Venera-Black");
 
             Fonts.AddStore(new OsuIcon.OsuIconStore(Textures));
+
+            // Accessibility fonts for the gameplay typing surface (OpenDyslexic + system-font picks).
+            // Rasterised on demand into the shared font store; see LyricFontManager.
+            dependencies.Cache(new Graphics.Fonts.LyricFontManager(Fonts, Storage));
         }
 
         protected override void LoadComplete()
