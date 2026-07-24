@@ -34,7 +34,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         [Resolved]
         private EditorClock editorClock { get; set; } = null!;
 
-        private OsuSpriteText header = null!;
+        private FreestyleTextFlow header = null!;
         private OsuSpriteText timing = null!;
 
         public ActiveLineDetailPanel()
@@ -93,11 +93,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 Padding = new MarginPadding { Vertical = 8 },
                                 Children = new Drawable[]
                                 {
-                                    header = new OsuSpriteText
-                                    {
-                                        Font = TypeBeatStyle.Mono(18),
-                                        Colour = TypeBeatStyle.TypedChar,
-                                    },
+                                    // Per-character flow rather than a plain label: the line preview
+                                    // is where a mapper checks their '&' authoring, so freestyle
+                                    // slots shimmer here in the freestyle colour exactly as they
+                                    // will in gameplay.
+                                    header = new FreestyleTextFlow(18, TypeBeatStyle.TypedChar),
                                     timing = new OsuSpriteText
                                     {
                                         Font = TypeBeatStyle.Mono(13),
@@ -178,8 +178,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             var l = line.Line;
             header.Text = $"line {line.LineIndex + 1}: {l.RawText}";
+
+            // Freestyle authoring feedback: the preview above shimmers the slots, this states the
+            // count outright so a stray '&' is impossible to miss.
+            int freestyle = l.RawText.Count(Typeability.IsFreestyle);
+
             timing.Text = $"start {l.StartTime:0}ms   sung end {l.SingEndTime:0}ms   window end {l.EndTime:0}ms   "
-                          + $"{line.Granularity} granularity{(l.Estimated ? "   [estimated]" : string.Empty)}{(l.SealGraceMs > 0 ? $"   grace {l.SealGraceMs:0}ms" : string.Empty)}";
+                          + $"{line.Granularity} granularity{(l.Estimated ? "   [estimated]" : string.Empty)}{(l.SealGraceMs > 0 ? $"   grace {l.SealGraceMs:0}ms" : string.Empty)}"
+                          + (freestyle > 0 ? $"   {freestyle} freestyle ('&' = any key)" : string.Empty);
         }
 
         private void addAtPlayhead()

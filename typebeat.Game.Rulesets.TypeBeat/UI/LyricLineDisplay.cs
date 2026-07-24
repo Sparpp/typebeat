@@ -10,6 +10,7 @@ using osu.Framework.Allocation;
 using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
+using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
 using typebeat.Game.Graphics.Sprites;
@@ -60,6 +61,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// caret/sweep math never assumes a constant advance. Per-cell colouring, judgement
     /// feedback (Perfect pop / Wrong shake), and the sung-position underline sweep. State is
     /// read pull-based via <see cref="RefreshCell"/>; no engine reference is held.
+    ///
+    /// <para>FREESTYLE cells (see <see cref="FreestyleGlyphs"/>) render in
+    /// <see cref="TypeBeatStyle.FreestyleChar"/> and, while still open, shimmer through
+    /// width-matched glyphs; once filled they freeze on the char the player pressed. Their advance
+    /// is measured from a pool glyph at load, so nothing about the effect can move the line.</para>
     /// </summary>
     public partial class LyricLineDisplay : CompositeDrawable
     {
@@ -80,6 +86,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private Box sweepGlow = null!;
         private OsuSpriteText[] cells = Array.Empty<OsuSpriteText>();
         private float[] advances = Array.Empty<float>();
+
+        // --- Freestyle cells (see FreestyleGlyphs) ---
+        // Display indices of this line's freestyle cells (empty for the overwhelming majority of
+        // lines, which then pay nothing per frame), the width-matched glyph pool their shimmer
+        // draws from, and the cell state each was last rendered for (so a state change with no
+        // engine event behind it, a backspace, still repaints).
+        private int[] freestyleCells = Array.Empty<int>();
+        private char[] shimmerPool = Array.Empty<char>();
+        private CellState[] freestyleRenderedState = Array.Empty<CellState>();
+        private OsuSpriteText[] widthProbes = Array.Empty<OsuSpriteText>();
+        private int shimmerTick = int.MinValue;
 
         /// <summary>Per-cell alpha driven purely by judgement state (Missed dims to 0.4, else 1);
         /// the flashlight window multiplies on top of this so the two never clobber each other.</summary>
@@ -161,6 +178,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             content.Add(sweepFill);
             content.Add(sweepGlow);
 
+            var freestyle = new List<int>();
+
+            for (int i = 0; i < n; i++)
+            {
+                if (Line.Cells[i].IsFreestyle)
+                    freestyle.Add(i);
+            }
+
+            freestyleCells = freestyle.ToArray();
+            freestyleRenderedState = new CellState[freestyleCells.Length];
+
+            if (freestyleCells.Length > 0)
+                addWidthProbes();
+
             for (int i = 0; i < n; i++)
             {
                 var cell = new OsuSpriteText
@@ -190,12 +221,94 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         protected override void LoadComplete()
         {
             base.LoadComplete();
+
+            // Before measuring: a freestyle cell must already carry a pool glyph, so the advance
+            // the layout records for it is the advance every substituted glyph will have.
+            resolveShimmerPool();
+
             measureAndLayout();
 
             for (int i = 0; i < cells.Length; i++)
                 RefreshCell(i);
 
             SetSungPosition(0);
+        }
+
+        /// <summary>
+        /// Hidden one-glyph sprites, one per shimmer candidate, added purely so their advance can be
+        /// measured in this display's real font at its real size. Alpha 0 without AlwaysPresent, so
+        /// they never count towards the auto-size box; removed the moment they have been read.
+        /// </summary>
+        private void addWidthProbes()
+        {
+            widthProbes = new OsuSpriteText[FreestyleGlyphs.CANDIDATES.Length];
+
+            for (int i = 0; i < FreestyleGlyphs.CANDIDATES.Length; i++)
+            {
+                var probe = new OsuSpriteText
+                {
+                    Font = TypeBeatStyle.Lyric(requestedFontSize, fontFamily),
+                    Text = FreestyleGlyphs.CANDIDATES[i].ToString(),
+                    Alpha = 0f,
+                };
+
+                widthProbes[i] = probe;
+                content.Add(probe);
+            }
+        }
+
+        private void resolveShimmerPool()
+        {
+            if (freestyleCells.Length == 0)
+                return;
+
+            var widths = new Dictionary<char, float>(widthProbes.Length);
+
+            for (int i = 0; i < widthProbes.Length; i++)
+                widths[FreestyleGlyphs.CANDIDATES[i]] = widthProbes[i].DrawWidth;
+
+            shimmerPool = FreestyleGlyphs.BuildPool(c => widths.TryGetValue(c, out float w) ? w : null);
+
+            foreach (var probe in widthProbes)
+                content.Remove(probe, disposeImmediately: true);
+
+            widthProbes = Array.Empty<OsuSpriteText>();
+
+            // Seed every freestyle cell with a pool glyph so the layout below measures the shimmer
+            // width, not the width of the authoring marker (which is never rendered).
+            shimmerTick = FreestyleGlyphs.TickFor(Time.Current);
+
+            foreach (int i in freestyleCells)
+                cells[i].Text = FreestyleGlyphs.Glyph(shimmerPool, shimmerTick, i).ToString();
+        }
+
+        protected override void Update()
+        {
+            base.Update();
+
+            if (freestyleCells.Length == 0)
+                return;
+
+            int tick = FreestyleGlyphs.TickFor(Time.Current);
+            bool advanced = tick != shimmerTick;
+            shimmerTick = tick;
+
+            for (int k = 0; k < freestyleCells.Length; k++)
+            {
+                int i = freestyleCells[k];
+                var source = Line.Cells[i];
+
+                // Pull-based repaint: backspace mutates cell state without an engine event, so the
+                // freestyle cells watch their own state rather than trusting RefreshCell to be called.
+                if (freestyleRenderedState[k] != source.State)
+                {
+                    RefreshCell(i);
+                    continue;
+                }
+
+                if (advanced && source.State == CellState.Untyped)
+                    cells[i].Text = FreestyleGlyphs.Glyph(shimmerPool, tick, i).ToString();
+            }
         }
 
         private void measureAndLayout()
@@ -285,8 +398,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 return;
 
             var cell = cells[cellIndex];
+            var source = Line.Cells[cellIndex];
 
-            switch (Line.Cells[cellIndex].State)
+            if (source.IsFreestyle)
+            {
+                refreshFreestyleCell(cellIndex, cell, source);
+                return;
+            }
+
+            switch (source.State)
             {
                 case CellState.Correct:
                     cell.Colour = TypeBeatStyle.TypedChar;
@@ -312,6 +432,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             // Compose the state alpha with the flashlight window (a no-op multiplier of 1 when the
             // mod is off) so a state refresh can never undo the window's hiding, or vice versa.
+            applyCellAlpha(cellIndex, animate: false);
+        }
+
+        /// <summary>
+        /// A FREESTYLE cell always wears <see cref="TypeBeatStyle.FreestyleChar"/>, shimmering while
+        /// it is still open and frozen on the char the player actually pressed once it is filled
+        /// (so a finished line still shows which slots were free). Backspace puts it back to
+        /// Untyped, which resumes the shimmer and lets a different char land.
+        /// </summary>
+        private void refreshFreestyleCell(int cellIndex, OsuSpriteText cell, TypingCell source)
+        {
+            cell.Colour = TypeBeatStyle.FreestyleChar;
+            cellStateAlpha[cellIndex] = source.State == CellState.Missed ? 0.4f : 1f;
+
+            if (source.State == CellState.Untyped)
+                cell.Text = FreestyleGlyphs.Glyph(shimmerPool, shimmerTick, cellIndex).ToString();
+            else if (source.TypedChar is char typed)
+                cell.Text = typed.ToString();
+
+            // else (Missed, never typed): keep whatever glyph the shimmer last left, dimmed.
+
+            for (int k = 0; k < freestyleCells.Length; k++)
+            {
+                if (freestyleCells[k] == cellIndex)
+                {
+                    freestyleRenderedState[k] = source.State;
+                    break;
+                }
+            }
+
             applyCellAlpha(cellIndex, animate: false);
         }
 
@@ -626,6 +776,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public int CellCount => cells.Length;
 
         public float CellAlpha(int index) => index >= 0 && index < cells.Length ? cells[index].Alpha : 0f;
+
+        /// <summary>The glyph currently rendered in a cell: the shimmer substitute for an open
+        /// freestyle slot, the pressed char once it is filled, the authored char otherwise.</summary>
+        public string CellText(int index) => index >= 0 && index < cells.Length ? cells[index].Text.ToString() : string.Empty;
+
+        /// <summary>The width-matched glyph pool this line's freestyle cells shimmer through.</summary>
+        public IReadOnlyList<char> ShimmerPool => shimmerPool;
+
+        /// <summary>The colour a cell is currently drawn in; test support for the freestyle tint.</summary>
+        public ColourInfo CellColour(int index) =>
+            index >= 0 && index < cells.Length ? cells[index].Colour : ColourInfo.SingleColour(osuTK.Graphics.Color4.White);
 
         /// <summary>The whole line's on-screen width with every cell occupying its slot (after the
         /// auto-shrink scale). The display's own <c>DrawWidth</c> must equal this at all times, even

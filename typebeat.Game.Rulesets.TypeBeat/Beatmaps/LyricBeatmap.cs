@@ -32,15 +32,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// </summary>
     public static class Typeability
     {
+        /// <summary>
+        /// Authoring marker for a FREESTYLE character: a cell the player may satisfy with ANY key
+        /// on the typeable surface, whose typed char is then displayed for the rest of the play.
+        /// The mapper types it straight into the lyric text in the editor; it is never a literal
+        /// glyph of the lyric (it is not <see cref="IsTypeable"/>, so <see cref="Normalize"/>
+        /// strips it unless the caller explicitly opts in).
+        /// </summary>
+        public const char FREESTYLE_MARKER = '&';
+
+        /// <summary>
+        /// The character an automated player presses on a freestyle cell (any key is accepted, so
+        /// this is arbitrary; a fixed letter keeps generated replays deterministic and inside the
+        /// normal a-z/0-9/space surface the .osr encoding is pinned on).
+        /// </summary>
+        public const char FREESTYLE_AUTO_CHAR = 'a';
+
         // INVARIANT: the accepted set must be a subset of what KeyCharMap can produce
         // (ASCII letters/digits/space after Fold); anything else must classify as
         // non-typeable so it auto-skips instead of stranding the caret on an
         // unreachable cell. Normalize strips Latin diacritics first, so 'é' survives as 'e'.
+        // Deliberately excludes FREESTYLE_MARKER: a freestyle cell matches every key rather than
+        // this one, and keeping the marker out of here is what makes it invisible to every
+        // legacy path (Normalize, LRC import, the aligner's raw text).
         public static bool IsTypeable(char c)
             => c == ' '
                || (c >= 'a' && c <= 'z')
                || (c >= 'A' && c <= 'Z')
                || (c >= '0' && c <= '9');
+
+        public static bool IsFreestyle(char c) => c == FREESTYLE_MARKER;
+
+        /// <summary>
+        /// A character that occupies a TYPEABLE CELL: a normal typeable char, or a freestyle slot.
+        /// This is what the line flattening (<see cref="Gameplay.TypingLine.FromLyricLine"/>) and
+        /// the text statistics count; <see cref="IsTypeable"/> stays the narrower "this exact glyph
+        /// must be typed" predicate the normalizer and the key map are built on.
+        /// </summary>
+        public static bool IsCell(char c) => IsTypeable(c) || IsFreestyle(c);
 
         public static char Fold(char c) => char.ToLowerInvariant(c);
 
@@ -86,8 +115,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// then every char the player cannot type (apostrophes, commas, any other
         /// punctuation) is REMOVED, never displayed, never a cell. Whitespace runs
         /// collapse to a single space, trimmed.
+        ///
+        /// <para><paramref name="keepFreestyleMarkers"/> additionally preserves
+        /// <see cref="FREESTYLE_MARKER"/>s, which are otherwise stripped like any other
+        /// untypeable punctuation. Only two callers opt in: the editor's line-text entry (where a
+        /// typed '&amp;' IS the authoring gesture) and the decoder for a line the map explicitly
+        /// flagged as carrying freestyle cells. Every legacy path keeps the default, so an
+        /// ampersand that merely occurs in a song's lyrics ("R&amp;B") still disappears exactly as
+        /// it always has.</para>
         /// </summary>
-        public static string Normalize(string raw)
+        public static string Normalize(string raw, bool keepFreestyleMarkers = false)
         {
             if (string.IsNullOrEmpty(raw))
                 return string.Empty;
@@ -122,8 +159,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 // "You can't type it, so don't display it": untypeable non-whitespace chars
                 // (apostrophes, commas, all other punctuation) are dropped from the game text
-                // entirely; monkeytype-style bare words.
-                if (!char.IsWhiteSpace(c) && !IsTypeable(c))
+                // entirely; monkeytype-style bare words. Freestyle markers survive only for the
+                // callers that asked for them.
+                if (!char.IsWhiteSpace(c) && !IsTypeable(c) && !(keepFreestyleMarkers && IsFreestyle(c)))
                     continue;
 
                 if (char.IsWhiteSpace(c))
@@ -148,6 +186,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Cells the player must type in <paramref name="text"/>: typeable chars plus freestyle
+        /// slots. Identical to the historical typeable-only count for every text that has been
+        /// through a default <see cref="Normalize"/> (which has no markers to count).
+        /// </summary>
         public static int TypeableCount(string text)
         {
             if (string.IsNullOrEmpty(text))
@@ -157,7 +200,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             foreach (char c in text)
             {
-                if (IsTypeable(c))
+                if (IsCell(c))
                     count++;
             }
 

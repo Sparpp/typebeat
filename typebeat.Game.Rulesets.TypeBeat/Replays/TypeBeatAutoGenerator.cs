@@ -64,7 +64,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                     time = Math.Round(Math.Max(time, lastTime));
                     lastTime = time;
 
-                    Frames.Add(new TypeBeatReplayFrame(time, cell.Expected));
+                    // A freestyle cell accepts any key, so the perfect play presses a fixed letter
+                    // rather than the authoring marker; the frame stays inside the a-z surface the
+                    // .osr mapping is pinned on, and the marker never reaches the display as a
+                    // "typed" char.
+                    Frames.Add(new TypeBeatReplayFrame(time, cell.IsFreestyle ? Typeability.FREESTYLE_AUTO_CHAR : cell.Expected));
                 }
             }
         }

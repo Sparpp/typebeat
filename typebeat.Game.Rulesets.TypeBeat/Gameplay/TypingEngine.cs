@@ -321,13 +321,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             var cell = line.Cells[caretIndex];
 
             // Mashing mod: any key is the right key; judge it as the caret cell's expected char.
-            if (MashingEnabled)
+            // A FREESTYLE cell is exempt: it already accepts any key, and rewriting c here would
+            // stamp the authoring marker over the char the player actually pressed (the one thing
+            // a freestyle cell must remember). No double effect, mashing simply has nothing to add.
+            if (MashingEnabled && !cell.IsFreestyle)
                 c = cell.Expected;
 
             double delta = time - cell.TargetTime;
+            // FREESTYLE cell: every char matches, in any case, under every mod (so the Literate
+            // mod's exact-case rule and the allow-wrong-input path are both bypassed for it). The
+            // press is then judged exactly like a correct char: same windows, points, combo,
+            // accuracy and completion, with the pressed char kept in TypedChar.
             // Literate mod folds nothing: the typed char must match the target's exact case.
             // Default gameplay is case-insensitive (both sides lower-cased through Fold).
-            bool matched = CaseSensitive ? c == cell.Expected : Typeability.Fold(c) == Typeability.Fold(cell.Expected);
+            bool matched = cell.IsFreestyle
+                           || (CaseSensitive ? c == cell.Expected : Typeability.Fold(c) == Typeability.Fold(cell.Expected));
 
             if (!matched)
             {

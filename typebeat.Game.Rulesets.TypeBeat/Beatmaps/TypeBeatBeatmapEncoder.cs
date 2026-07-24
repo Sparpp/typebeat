@@ -85,6 +85,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     if (line.Estimated)
                         json.WriteBoolean("estimated", true);
 
+                    // Freestyle authoring: the markers live in the text itself, but the decoder
+                    // only reads them as markers when the line opts in, so a stored ampersand can
+                    // never turn an old (non-editor) map's lyrics into freestyle cells. Written
+                    // only for lines that actually carry one.
+                    if (line.RawText.IndexOf(Typeability.FREESTYLE_MARKER) >= 0)
+                        json.WriteBoolean("freestyle", true);
+
                     // The derived-from-overrun grace can't be recomputed from clamped unit times,
                     // so persist it explicitly (the decoder honours it over the derivation).
                     if (line.SealGraceMs > 0)

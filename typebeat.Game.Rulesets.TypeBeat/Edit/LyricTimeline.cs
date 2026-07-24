@@ -444,7 +444,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 X = parent.PositionOf(unit.StartTime);
                 Width = Math.Max(4, parent.PositionOf(unit.EndTime) - parent.PositionOf(unit.StartTime));
-                label.Text = unit.Text;
+                // Freestyle slots shimmer in the word strip too (fixed-width label font, so the
+                // substitution cannot change the word's measured width). The block label is a
+                // single sprite, so unlike the line preview it cannot colour the slot separately.
+                label.Text = FreestyleGlyphs.Substitute(unit.Text, FreestyleGlyphs.FIXED_WIDTH_POOL, FreestyleGlyphs.TickFor(Time.Current));
                 label.MaxWidth = Math.Max(1, Width - 6);
                 label.Alpha = Width < 16 ? 0 : 1;
 
