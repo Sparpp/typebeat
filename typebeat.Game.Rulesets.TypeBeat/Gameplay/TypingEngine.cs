@@ -25,6 +25,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         private const int combo_cap = 50;
 
+        /// <summary>How many of the most recent correct keypresses <see cref="LiveRollingWpm"/> averages over.</summary>
+        private const int rolling_wpm_window = 30;
+
         public LyricBeatmap Beatmap { get; }
 
         public IReadOnlyList<TypingLine> Lines => lines;
@@ -76,6 +79,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     return 0;
 
                 return (countCorrectCells() / 5.0) / (activeTimeMs / 60000.0);
+            }
+        }
+
+        /// <summary>
+        /// Gross WPM over the last <see cref="rolling_wpm_window"/> correct keypresses: the HUD's live
+        /// readout, so the number tracks how fast the player is typing RIGHT NOW instead of averaging the
+        /// whole run flat. Display only; <see cref="LiveWpm"/> and <see cref="ResultsSummary.Wpm"/> keep
+        /// the whole-run figure.
+        /// Falls back to <see cref="LiveWpm"/> until the window holds at least two presses spread over a
+        /// non-zero span, so the readout is meaningful from the first seconds instead of flapping.
+        /// The clock is active time, exactly like <see cref="LiveWpm"/>: count-ins, instrumental gaps and
+        /// post-line-completion waits do not decay the value, they simply do not pass.
+        /// </summary>
+        public double LiveRollingWpm
+        {
+            get
+            {
+                if (rollingCount < 2)
+                    return LiveWpm;
+
+                // Once the ring is full, the next slot to write is also the oldest entry.
+                double oldest = rollingSamples[rollingCount < rolling_wpm_window ? 0 : rollingNext];
+                double newest = rollingSamples[(rollingNext + rolling_wpm_window - 1) % rolling_wpm_window];
+                double spanMs = newest - oldest;
+
+                // Every press in the window landed within a single frame, so active time never advanced
+                // between them: there is no span to divide by, defer to the whole-run figure.
+                if (spanMs <= 0)
+                    return LiveWpm;
+
+                // n presses bound n-1 inter-key gaps, so the span covers (n-1) chars' worth of typing,
+                // not n. Using n would inflate the readout by n/(n-1) (3.4% at a 30-press window, and
+                // badly more while the window is still filling).
+                return ((rollingCount - 1) / 5.0) / (spanMs / 60000.0);
             }
         }
 
@@ -149,6 +186,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private readonly bool[] lineSealed;
         private readonly Dictionary<JudgementType, int> counts = new Dictionary<JudgementType, int>();
         private readonly List<SyncSample> syncTimeline = new List<SyncSample>();
+
+        /// <summary>Ring buffer of the ACTIVE-TIME stamps of the last correct keypresses (see <see cref="LiveRollingWpm"/>).</summary>
+        private readonly double[] rollingSamples = new double[rolling_wpm_window];
+
         private readonly int totalTypeableCells;
 
         private int nextSealIndex; // first line not yet sealed; lines seal strictly in order
@@ -166,6 +207,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         private double activeTimeMs;
         private double? lastUpdateTime;
+
+        private int rollingCount; // entries held in rollingSamples, capped at rolling_wpm_window
+        private int rollingNext;  // next slot to write; also the oldest entry once the ring is full
 
         public TypingEngine(LyricBeatmap beatmap)
         {
@@ -435,6 +479,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 counts[type]++;
             }
 
+            // Log the press for the HUD's rolling WPM. Both branches above land the cell Correct, so a
+            // scoring-inert retype still counts here: this is a record of keystrokes, not of cell states.
+            pushRollingSample();
+
             int judgedCellIndex = caretIndex;
             caretIndex++;
             autoSkipForward();
@@ -553,6 +601,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             return count;
+        }
+
+        /// <summary>
+        /// Record one correct keypress at the current active time for <see cref="LiveRollingWpm"/>.
+        /// Nothing reads this back into judgement, so it can never move a score. <see cref="ProcessBackspace"/>
+        /// deliberately does NOT pop: the buffer is what the player typed, not what the cells currently
+        /// hold, so backspacing and retyping simply logs another (later) press.
+        /// </summary>
+        private void pushRollingSample()
+        {
+            rollingSamples[rollingNext] = activeTimeMs;
+            rollingNext = (rollingNext + 1) % rolling_wpm_window;
+
+            if (rollingCount < rolling_wpm_window)
+                rollingCount++;
         }
 
         /// <summary>Hop the caret forward over non-typeable cells, marking them AutoSkipped.</summary>

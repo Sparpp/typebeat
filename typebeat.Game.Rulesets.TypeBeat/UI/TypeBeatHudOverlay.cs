@@ -89,7 +89,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             base.Update();
 
-            wpmValue.Text = engine.LiveWpm.ToString("0");
+            // Rolling window over the last few dozen keypresses, not the whole-run average: the live
+            // readout should track current pace. The results screen still reports the whole-run figure.
+            wpmValue.Text = engine.LiveRollingWpm.ToString("0");
             syncValue.Text = engine.LiveSyncPercent.ToString("0.0") + "%";
         }
     }
