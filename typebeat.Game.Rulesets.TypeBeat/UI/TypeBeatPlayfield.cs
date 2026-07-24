@@ -253,6 +253,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // is what recovers HP; no separate reset needed.
             if (lineDrawables.TryGetValue(judgement.LineIndex, out var line))
                 line.ApplyCharJudgement(judgement);
+
+            // Fletcher's rush cap breaks combo on a press that is still judged Perfect/Good/Ok, so the
+            // hit result alone (a Great/Ok/Meh, which INCREMENTS osu's combo) cannot carry the break.
+            // Mirror the engine's own combo by hand, after the result has been applied, exactly as
+            // onWrongKeyRejected does for a rejected key. Gated on the mod so the default path, where
+            // every ComboAfter == 0 judgement already maps to a Miss, is untouched.
+            if (Engine.FletcherEnabled && judgement.ComboAfter == 0 && scoreProcessor != null)
+                scoreProcessor.Combo.Value = 0;
         }
 
         private void onWrongKeyRejected(char c)
@@ -419,6 +427,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // key bindings so Space reaches GlobalAction.SkipCutscene and the intro / mid-song
                 // instrumental skip overlays can act.
                 if (!engine.LineIsActive)
+                    return false;
+
+                // Fletcher parks the caret at the head of the next line the instant you finish one,
+                // so unlike default play a line stays "active" straight through an instrumental gap
+                // and Space would be eaten as a (wrong, combo-breaking) keystroke instead of reaching
+                // the mid-song skip overlay. Narrowly restore the fall-through: only Space, only while
+                // the SONG itself is in a dead zone, and only before the player has started the parked
+                // line. One keystroke into the line, or anywhere the song is actually playing a line,
+                // Space is a typing key again, so rushing into the next line is never blocked.
+                if (engine.FletcherEnabled && e.Key == Key.Space && !engine.SongWindowOpen && engine.ActiveLineUntouched)
                     return false;
 
                 if (e.Key == Key.BackSpace)
