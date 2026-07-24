@@ -28,6 +28,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public static Color4 SungAccent { get; } = new Color4((byte)126, (byte)200, (byte)227, (byte)255);  // #7ec8e3
         public static Color4 PanelBackground { get; } = new Color4((byte)44, (byte)46, (byte)49, (byte)255); // #2c2e31
 
+        /// <summary>
+        /// FREESTYLE characters (the mapper's '&amp;' slots, where any key is accepted): a bright
+        /// violet that reads clearly on the dark playfield and is unmistakable against every other
+        /// character state, untyped grey #646669, typed off-white #d1d0c5, error red #ca4754, the
+        /// yellow caret and the blue sung accent. Worn both while the glyph shimmers and after the
+        /// player has filled it in, so a finished line still shows which chars were free.
+        /// </summary>
+        public static Color4 FreestyleChar { get; } = new Color4((byte)199, (byte)146, (byte)234, (byte)255); // #c792ea
+
         /// <summary>Near-opaque black drop shadow applied to gameplay text so glyphs stay legible
         /// over a beatmap background image or video (not just the flat serika-dark panel).</summary>
         public static Color4 TextShadow { get; } = new Color4((byte)0, (byte)0, (byte)0, (byte)200);

@@ -55,7 +55,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                     foreach (char ch in token)
                     {
-                        if (Typeability.IsTypeable(ch))
+                        // Freestyle slots are keypresses too, so they count towards the pace.
+                        if (Typeability.IsCell(ch))
                             typeable++;
                     }
 

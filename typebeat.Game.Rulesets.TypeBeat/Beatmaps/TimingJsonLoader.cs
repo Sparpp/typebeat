@@ -111,6 +111,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// over their span, which also dissolves the overlapping-lines case at its source).
         /// A partial strip changes the token count, so the words[] alignment in
         /// <see cref="BuildLines"/> falls back to interpolation for that line, which is acceptable.
+        /// Besides the aligner's own fields, two type!beat editor extensions are honoured here:
+        /// <c>seal_grace_ms</c> and <c>freestyle</c> (both documented at their read sites below).
         /// </summary>
         public static bool TryParseRawLine(JsonElement lineElement, out RawLine rawLine)
         {
@@ -125,7 +127,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return false;
             }
 
-            string normalized = Typeability.Normalize(Typeability.StripBackingVocals(textElement.GetString() ?? string.Empty));
+            // Opt-in freestyle authoring (type!beat extension, written by the editor's encoder):
+            // "freestyle": true declares that the ampersands in this line's text are FREESTYLE
+            // CELL markers rather than lyric punctuation. Without the flag the text normalizes
+            // exactly as it always has (ampersands stripped), so every map produced before this
+            // feature, and every aligner line whose lyrics genuinely contain "&", decodes unchanged.
+            bool freestyle = lineElement.TryGetProperty("freestyle", out JsonElement freestyleElement)
+                             && freestyleElement.ValueKind == JsonValueKind.True;
+
+            string normalized = Typeability.Normalize(Typeability.StripBackingVocals(textElement.GetString() ?? string.Empty), keepFreestyleMarkers: freestyle);
             if (normalized.Length == 0)
                 return false;
 

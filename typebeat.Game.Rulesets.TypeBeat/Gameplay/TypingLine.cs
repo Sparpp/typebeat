@@ -21,10 +21,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
     public sealed class TypingCell
     {
-        /// <summary>Display char as authored (normalized).</summary>
+        /// <summary>Display char as authored (normalized). For a freestyle cell this is the
+        /// authoring marker (<see cref="Typeability.FREESTYLE_MARKER"/>), never a glyph the player
+        /// has to produce; the display substitutes it (see <see cref="IsFreestyle"/>).</summary>
         public char Expected { get; }
 
         public bool IsTypeable { get; }
+
+        /// <summary>
+        /// FREESTYLE cell: any key on the typeable surface satisfies it, and the char the player
+        /// actually pressed lands in <see cref="TypedChar"/> and stays on screen. Judgement is
+        /// otherwise a completely normal typeable cell (same windows, points, combo, completion).
+        /// </summary>
+        public bool IsFreestyle { get; }
 
         public double TargetTime { get; }
 
@@ -52,6 +61,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         {
             Expected = expected;
             IsTypeable = isTypeable;
+            IsFreestyle = isTypeable && Typeability.IsFreestyle(expected);
             TargetTime = targetTime;
             JudgeGranularity = judgeGranularity;
             State = CellState.Untyped;
@@ -228,12 +238,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     ? TimingGranularity.Line
                     : granularity;
 
-                // k = number of typeable chars in this token.
+                // k = number of typeable cells in this token (freestyle slots included: the player
+                // presses a key for them, so they take a share of the word's time like any letter).
                 int k = 0;
 
                 foreach (char ch in token)
                 {
-                    if (Typeability.IsTypeable(ch))
+                    if (Typeability.IsCell(ch))
                         k++;
                 }
 
@@ -251,7 +262,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     expected[pos] = ch;
                     judgeGrans[pos] = judgeGran;
 
-                    if (Typeability.IsTypeable(ch))
+                    if (Typeability.IsCell(ch))
                     {
                         isTypeable[pos] = true;
                         // Typeable char j of k in unit u: first char AT unit start, piecewise across

@@ -12,6 +12,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// The single source of truth for the [Lyrics] serialization, used by the map-conversion
     /// tool (tools/TypeBeatOszConverter) and the decoder round-trip tests, so what the tool
     /// produces is exactly what <see cref="LyricBeatmapDecoder"/> parses.
+    ///
+    /// <para><b>type!beat line-object extensions</b> (beyond the aligner's own schema; both are
+    /// optional, and a line without them decodes exactly as it always has):</para>
+    /// <list type="bullet">
+    /// <item><c>"seal_grace_ms"</c>: extra typeable time past the line boundary, persisted because
+    /// it cannot be re-derived from clamped word times.</item>
+    /// <item><c>"freestyle": true</c>: the ampersands in this line's <c>text</c> are FREESTYLE CELL
+    /// markers (<see cref="Typeability.FREESTYLE_MARKER"/>), cells the player may satisfy with any
+    /// key. The flag is what makes the marker unambiguous: without it an ampersand is ordinary
+    /// untypeable lyric punctuation and is stripped on decode, so lyrics that merely contain "&amp;"
+    /// (and every map written before the feature existed) are unaffected.</item>
+    /// </list>
     /// </summary>
     public static class LyricOsuFormat
     {
