@@ -23,6 +23,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public const double CUE_LEAD_MS = 1500;
 
+        /// <summary>
+        /// Fletcher mod: how many COUNTABLE characters (typeable and not a space, the same currency
+        /// the Flashlight window measures in) the player's caret may sit ahead of the playhead before
+        /// a keypress stops earning combo. The press still lands and still scores; it simply cannot
+        /// build a combo while the caret is out past the cap (see <see cref="FletcherEnabled"/>).
+        /// </summary>
+        public const int FLETCHER_MAX_CHARS_AHEAD = 5;
+
+        /// <summary>
+        /// Fletcher mod: extra time past a line's normal hard deadline
+        /// (<see cref="TypingLine.EndTime"/> + <see cref="TypingLine.SealGraceMs"/>) that the engine
+        /// holds the line open while the PLAYER is still on it, so a dragging player may finish the
+        /// line the song has already left. Deliberately the same magnitude as
+        /// <see cref="CUE_LEAD_MS"/>: the beat of grace the game gives you to get ready, granted at
+        /// the other end of the line as well. Bounded so a run always terminates: past it the line
+        /// force-seals, its untyped cells become misses, and the caret lands on the next line.
+        /// </summary>
+        public const double FLETCHER_DRAG_GRACE_MS = 1500;
+
         private const int combo_cap = 50;
 
         /// <summary>How many of the most recent correct keypresses <see cref="LiveRollingWpm"/> averages over.</summary>
@@ -46,6 +65,54 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// character, gating on an active line is what guarantees a skip can never eat a live keystroke.
         /// </summary>
         public bool LineIsActive => activeLineIndex != -1;
+
+        /// <summary>
+        /// Whether the PLAYHEAD is inside a typeable line window: the plain time rule
+        /// (ActivationTime &lt;= now &lt; EndTime + SealGraceMs on the first unsealed line), read
+        /// independently of where the player's caret has got to. Equal to <see cref="LineIsActive"/>
+        /// without <see cref="FletcherEnabled"/>; under Fletcher the two diverge, because the caret
+        /// can be parked on a line the song has not reached (rush) or still finishing one the song
+        /// has left (drag). The key handler uses it so Space still reaches the skip overlay during a
+        /// real instrumental gap.
+        /// </summary>
+        public bool SongWindowOpen
+        {
+            get
+            {
+                if (isFinished || nextSealIndex >= lines.Count || lastUpdateTime is not double time)
+                    return false;
+
+                var line = lines[nextSealIndex];
+
+                return time >= line.ActivationTime && time < line.EndTime + line.SealGraceMs;
+            }
+        }
+
+        /// <summary>
+        /// True while the player has put nothing into the active line yet (no cell behind the caret
+        /// is Correct or Wrong; leading auto-skipped punctuation does not count as progress). Used
+        /// by the key handler under <see cref="FletcherEnabled"/> to tell "parked on a line I have
+        /// not started" from "typing it".
+        /// </summary>
+        public bool ActiveLineUntouched
+        {
+            get
+            {
+                if (activeLineIndex == -1)
+                    return false;
+
+                var cells = lines[activeLineIndex].Cells;
+                int end = Math.Min(caretIndex, cells.Count);
+
+                for (int i = 0; i < end; i++)
+                {
+                    if (cells[i].State == CellState.Correct || cells[i].State == CellState.Wrong)
+                        return false;
+                }
+
+                return true;
+            }
+        }
 
         /// <summary>
         /// The first line that has not sealed yet; -1 once every line has sealed. While no line is
@@ -169,6 +236,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool AllowWrongInput { get; set; }
 
+        /// <summary>
+        /// Fletcher mod ("Were you Rushing or were you Dragging?!"): decouples the player's caret
+        /// from the song's playhead. Three behaviours, all confined to this flag so the default path
+        /// stays byte-identical:
+        /// <list type="bullet">
+        /// <item>RUSH FREEDOM: finishing a line moves the caret straight on to the next one instead
+        /// of waiting for its cue (<see cref="rollForwardIfFinishedEarly"/>). The finished line is
+        /// left unsealed and seals on its own normal deadline with nothing missed.</item>
+        /// <item>DRAG FREEDOM: a line the player is still typing is not force-sealed at its normal
+        /// deadline; the seal is deferred by <see cref="FLETCHER_DRAG_GRACE_MS"/> so the caret is
+        /// never yanked off a line mid-word (<see cref="sealPermitted"/>).</item>
+        /// <item>CHARACTER-DISTANCE RUSH CAP: a press that puts the caret more than
+        /// <see cref="FLETCHER_MAX_CHARS_AHEAD"/> countable chars ahead of the playhead lands and
+        /// scores as normal but earns no combo.</item>
+        /// </list>
+        /// Per-char judgement windows are untouched: rushing reads as early deltas and dragging as
+        /// late ones, so accuracy, sync% and the judgement counts report the drift honestly.
+        /// </summary>
+        public bool FletcherEnabled { get; set; }
+
         public event Action<CharJudgement>? CharJudged;
         public event Action<int>? LineActivated;
         public event Action<LineSealResult>? LineSealed;
@@ -191,6 +278,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private readonly double[] rollingSamples = new double[rolling_wpm_window];
 
         private readonly int totalTypeableCells;
+
+        // --- Countable-character stream (Fletcher). The whole map read as one run of COUNTABLE
+        // cells (typeable and not a space), which is the currency the rush cap measures in.
+        // countableTargets: every countable cell's target time, sorted ascending, so the playhead's
+        // position is a binary search. countableBase[k] / countablePrefix[k][i]: where line k, cell i
+        // sits in that stream, so the caret's position is a lookup. All immutable after construction.
+        private readonly double[] countableTargets;
+        private readonly int[] countableBase;
+        private readonly int[][] countablePrefix;
 
         private int nextSealIndex; // first line not yet sealed; lines seal strictly in order
         private int activeLineIndex = -1;
@@ -228,7 +324,87 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             foreach (JudgementType type in Enum.GetValues<JudgementType>())
                 counts[type] = 0;
+
+            countableBase = new int[lines.Count];
+            countablePrefix = new int[lines.Count][];
+            var targets = new List<double>();
+
+            for (int k = 0; k < lines.Count; k++)
+            {
+                var cells = lines[k].Cells;
+                countableBase[k] = targets.Count;
+                var prefix = new int[cells.Count + 1];
+
+                for (int i = 0; i < cells.Count; i++)
+                {
+                    prefix[i + 1] = prefix[i];
+
+                    if (!cells[i].IsCountable)
+                        continue;
+
+                    prefix[i + 1]++;
+                    targets.Add(cells[i].TargetTime);
+                }
+
+                countablePrefix[k] = prefix;
+            }
+
+            // Overlapping lines can interleave their targets across a boundary, so sort rather than
+            // assume the per-line order carries: the playhead lookup only needs "how many countable
+            // targets are at or before this time".
+            targets.Sort();
+            countableTargets = targets.ToArray();
         }
+
+        /// <summary>
+        /// How many COUNTABLE characters the song has reached by <paramref name="time"/>: the count
+        /// of countable cells across the whole map whose target time is at or before it. The
+        /// playhead's position in the countable stream, and the reference the Fletcher rush cap is
+        /// measured against. Monotonic in time and a pure function of the beatmap, so a replay
+        /// reproduces it exactly.
+        /// </summary>
+        public int PlayheadCountablePosition(double time)
+        {
+            int lo = 0;
+            int hi = countableTargets.Length;
+
+            while (lo < hi)
+            {
+                int mid = (lo + hi) / 2;
+
+                if (countableTargets[mid] <= time)
+                    lo = mid + 1;
+                else
+                    hi = mid;
+            }
+
+            return lo;
+        }
+
+        /// <summary>
+        /// The player caret's position in the same countable stream: every countable cell in the
+        /// lines before the active one, plus the countable cells behind the caret within it. 0 when
+        /// no line is active.
+        /// </summary>
+        public int CaretCountablePosition
+        {
+            get
+            {
+                if (activeLineIndex == -1)
+                    return 0;
+
+                var prefix = countablePrefix[activeLineIndex];
+
+                return countableBase[activeLineIndex] + prefix[Math.Clamp(caretIndex, 0, prefix.Length - 1)];
+            }
+        }
+
+        /// <summary>
+        /// Signed countable-character drift of the caret against the playhead at
+        /// <paramref name="time"/>: positive = rushing ahead, negative = dragging behind. The
+        /// quantity the Fletcher rush cap bounds (and the honest read-out of what the mod is about).
+        /// </summary>
+        public int CharsAheadOfPlayhead(double time) => CaretCountablePosition - PlayheadCountablePosition(time);
 
         /// <summary>
         /// Call once per frame BEFORE routing input for that frame.
@@ -243,17 +419,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             {
                 double dt = Math.Max(0, time - last);
 
-                if (activeLineIndex != -1 && !IsLineComplete && !isFinished)
+                if (activeLineIndex != -1 && !IsLineComplete && !isFinished && wpmClockRuns(last))
                     activeTimeMs += dt;
             }
 
             lastUpdateTime = time;
 
+            // Fletcher: a drag cutoff inside the seal loop below moves the caret straight on to the
+            // next line; the activation is announced once, after the loop, so a catch-up cascade
+            // through several stale lines still relayouts the stage exactly once.
+            bool pendingActivation = false;
+
             // (2) Seal, in order, every line whose deadline has passed. Normal lines seal AT
             //     EndTime; lines with a seal grace (vocals overrunning into the next line, or a
             //     boundary-pinned last target) stay typeable through the grace window and seal
             //     early the moment nothing is left to type, so the next line isn't held up.
-            while (nextSealIndex < lines.Count && canSeal(lines[nextSealIndex], time))
+            while (nextSealIndex < lines.Count && canSeal(lines[nextSealIndex], time) && sealPermitted(nextSealIndex, time))
             {
                 int index = nextSealIndex;
                 var line = lines[index];
@@ -283,8 +464,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 if (activeLineIndex == index)
                 {
-                    activeLineIndex = -1;
-                    caretIndex = 0;
+                    if (FletcherEnabled && index + 1 < lines.Count)
+                    {
+                        // Drag cutoff: the player ran out of borrowed time mid-line. Land them on the
+                        // next line immediately rather than in a dead zone. Setting the caret here,
+                        // inside the loop, is also what stops one cutoff cascading into the line the
+                        // player just landed on: the next sealPermitted call sees them on it and
+                        // grants it its own drag grace. A cascade still happens when that grace has
+                        // ALSO expired (an idle player), which is the intended catch-up to the song.
+                        activeLineIndex = index + 1;
+                        caretIndex = 0;
+                        pendingActivation = true;
+                    }
+                    else
+                    {
+                        activeLineIndex = -1;
+                        caretIndex = 0;
+                    }
                 }
 
                 if (broke)
@@ -320,6 +516,47 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     LineActivated?.Invoke(activeLineIndex);
                 }
             }
+            else if (pendingActivation)
+            {
+                // Fletcher drag cutoff (see the seal loop): the caret already moved, announce it once.
+                autoSkipForward();
+                LineActivated?.Invoke(activeLineIndex);
+            }
+        }
+
+        /// <summary>
+        /// Whether the WPM/sync active-time clock runs for the frame ending at <paramref name="previousTime"/>.
+        /// Always, by default. Under <see cref="FletcherEnabled"/> the caret can be parked at the head
+        /// of a line the song has not reached yet (rush freedom rolls it forward the instant a line is
+        /// finished), and a clock that ran through a 20-second instrumental would read the wait as
+        /// typing time; so the clock runs only from the point the playhead reaches that line's
+        /// ActivationTime, which is exactly when the line would have gone active without the mod.
+        /// </summary>
+        private bool wpmClockRuns(double previousTime)
+            => !FletcherEnabled || activeLineIndex == -1 || previousTime >= lines[activeLineIndex].ActivationTime;
+
+        /// <summary>
+        /// Fletcher DRAG FREEDOM: a line the player is still typing must not be force-sealed out from
+        /// under them at its normal deadline. The seal is deferred while the caret is on the line, up
+        /// to <see cref="FLETCHER_DRAG_GRACE_MS"/> past its hard deadline; past that the line seals as
+        /// usual (untyped cells become misses, one combo break) and the caret is moved on. Always true
+        /// without the mod, and true under it for any line the player is not currently on, so a
+        /// finished-early line still seals exactly on its own deadline.
+        /// </summary>
+        private bool sealPermitted(int index, double time)
+        {
+            if (!FletcherEnabled || activeLineIndex != index)
+                return true;
+
+            var line = lines[index];
+
+            // Nothing left untyped means there is no drag to protect: the line seals on its normal
+            // deadline, exactly as it would without the mod. (This is also what lets the FINAL line,
+            // which has no next line to roll on to, finish the run on time once it is fully typed.)
+            if (!hasUntypedTypeable(line))
+                return true;
+
+            return time >= line.EndTime + line.SealGraceMs + FLETCHER_DRAG_GRACE_MS;
         }
 
         /// <summary>
@@ -334,13 +571,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (time >= line.EndTime + line.SealGraceMs)
                 return true;
 
+            return !hasUntypedTypeable(line);
+        }
+
+        /// <summary>Whether the line still holds a typeable cell nobody has put anything into.</summary>
+        private static bool hasUntypedTypeable(TypingLine line)
+        {
             foreach (var cell in line.Cells)
             {
                 if (cell.IsTypeable && cell.State == CellState.Untyped)
-                    return false;
+                    return true;
             }
 
-            return true;
+            return false;
         }
 
         /// <summary>
@@ -405,6 +648,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     // Miss result (see DrawableTypeBeatHitObject.toHitResult) + red/shake feedback;
                     // a later backspace + correct retype re-judges the cell Correct for completion.
                     CharJudged?.Invoke(new CharJudgement(activeLineIndex, wrongCellIndex, JudgementType.WrongChar, delta, 0, combo));
+                    rollForwardIfFinishedEarly();
                     return true;
                 }
 
@@ -453,13 +697,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 type = windowsFor(cell).Classify(delta);
                 int basePoints = SyncWindows.BasePoints(type);
 
+                // Fletcher RUSH CAP, evaluated before the caret moves: does this press put the caret
+                // more than FLETCHER_MAX_CHARS_AHEAD countable chars past the playhead?
+                bool rushedPastCap = FletcherEnabled && rushesPastCap(cell, time);
+
                 if (basePoints > 0)
                 {
                     // Multiplier reads combo BEFORE the increment; capped at combo_cap => up to 2.0x.
                     points = (int)Math.Round(basePoints * (1 + Math.Min(combo, combo_cap) / (double)combo_cap));
                     score += points;
-                    combo++;
-                    maxCombo = Math.Max(maxCombo, combo);
+
+                    if (rushedPastCap)
+                    {
+                        // A combo penalty, not a block: the char lands and scores exactly as it would
+                        // without the mod, but no combo may accumulate while the caret is out past the
+                        // cap. ComboBroken therefore fires once, on the press that crosses the line,
+                        // and re-arms the moment a press lands back inside it (combo starts building
+                        // again, so the next excursion breaks it again).
+                        bool hadCombo = combo > 0;
+                        combo = 0;
+
+                        if (hadCombo)
+                            ComboBroken?.Invoke();
+                    }
+                    else
+                    {
+                        combo++;
+                        maxCombo = Math.Max(maxCombo, combo);
+                    }
                 }
                 else
                 {
@@ -488,7 +753,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             autoSkipForward();
 
             CharJudged?.Invoke(new CharJudgement(activeLineIndex, judgedCellIndex, type, delta, points, combo));
+            rollForwardIfFinishedEarly();
             return true;
+        }
+
+        /// <summary>
+        /// Fletcher rush cap: would accepting <paramref name="cell"/> at <paramref name="time"/> leave
+        /// the caret more than <see cref="FLETCHER_MAX_CHARS_AHEAD"/> countable chars past the
+        /// playhead? Measured on the caret position AFTER the press, so with a cap of 5 the fifth
+        /// char ahead is still fine and the sixth is not. A non-countable cell (a space) spends no
+        /// budget, so pressing it can never push the caret over the line by itself.
+        /// </summary>
+        private bool rushesPastCap(TypingCell cell, double time)
+        {
+            int after = CaretCountablePosition + (cell.IsCountable ? 1 : 0);
+
+            return after - PlayheadCountablePosition(time) > FLETCHER_MAX_CHARS_AHEAD;
+        }
+
+        /// <summary>
+        /// Fletcher RUSH FREEDOM: the moment a press finishes a line, the caret moves straight on to
+        /// the next one instead of waiting for its activation cue. The finished line is left UNSEALED
+        /// and seals on its own normal deadline (with nothing missed, since it is fully typed), so
+        /// nothing about the song's timeline moves; only the player's position does. No-op on the last
+        /// line, which keeps the default "line complete, wait for the song" behaviour that lets the
+        /// key handler pass Space through to the skip overlay.
+        /// </summary>
+        private void rollForwardIfFinishedEarly()
+        {
+            if (!FletcherEnabled || isFinished || activeLineIndex == -1)
+                return;
+
+            if (caretIndex < lines[activeLineIndex].Cells.Count)
+                return;
+
+            if (activeLineIndex + 1 >= lines.Count)
+                return;
+
+            // Lines seal in order and the player never leaves a line except by finishing it or by a
+            // drag cutoff (which advances nextSealIndex with them), so the next line is always unsealed.
+            activeLineIndex++;
+            caretIndex = 0;
+            autoSkipForward();
+            LineActivated?.Invoke(activeLineIndex);
         }
 
         /// <summary>Windows for a cell's judgement tier (Line for estimated/low-confidence timing).</summary>

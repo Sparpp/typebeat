@@ -768,8 +768,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>A COUNTABLE cell: typeable and not a space. Spaces and punctuation do not spend the
-        /// flashlight budget; the stage uses this to size the stream too, so it is shared here.</summary>
-        public static bool IsCountable(TypingCell cell) => cell.IsTypeable && cell.Expected != ' ';
+        /// flashlight budget; the stage uses this to size the stream too, so it is shared here.
+        /// Delegates to <see cref="TypingCell.IsCountable"/>, the single definition the engine's
+        /// Fletcher rush cap measures character distance with.</summary>
+        public static bool IsCountable(TypingCell cell) => cell.IsCountable;
 
         // --- Test-support accessors (public so cross-assembly test scenes can assert) ---
 

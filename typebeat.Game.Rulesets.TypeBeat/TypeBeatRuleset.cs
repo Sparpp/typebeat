@@ -73,6 +73,10 @@ namespace typebeat.Game.Rulesets.TypeBeat
                 new TypeBeatModFlashlight(),
                 new TypeBeatModLiterate(),
             },
+            ModType.Conversion => new Mod[]
+            {
+                new TypeBeatModFletcher(),
+            },
             ModType.Automation => new Mod[]
             {
                 new TypeBeatModAutoplay(),

@@ -73,7 +73,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // activates, the layout re-runs to undim it.
         private int laidOutFocus = int.MinValue;
         private bool pendingSnap;
-        private bool caretsVisible;
+        private bool playerCaretVisible;
+        private bool sungCaretVisible;
 
         public LyricStage(TypingEngine engine)
         {
@@ -297,15 +298,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     playerCaret.MoveToTarget(playerPoint);
                 }
 
-                // Sung caret + underline sweep follow the vocal position.
-                double sung = d.Line.SungPositionAt(Time.Current);
-                d.SetSungPosition(sung);
-                Vector2 sungPoint = d.ToSpaceOfOtherDrawable(d.SungPositionPoint(sung), this);
-                sungCaret.Height = d.LineHeight;
+                // Sung caret + underline sweep follow the vocal position, on the line the SONG is on.
+                // Normally that is the active line and this is exactly the old behaviour. Under
+                // Fletcher the two come apart, which is the entire point of the mod: the sweep is the
+                // song, the caret is the player, and you can watch yourself rush or drag away from it.
+                // Once the song is more than one line from the focused line it is off the visible
+                // stack, so the sung caret hides rather than parking at a phantom position.
+                int sungLine = sungLineFor(active);
+                var sd = displays[sungLine];
+                double sung = sd.Line.SungPositionAt(Time.Current);
+                sd.SetSungPosition(sung);
+                Vector2 sungPoint = sd.ToSpaceOfOtherDrawable(sd.SungPositionPoint(sung), this);
+                sungCaret.Height = sd.LineHeight;
                 sungCaret.MoveToTarget(sungPoint);
 
                 refreshVisible(active);
-                setCaretsVisible(!engine.IsLineComplete && !engine.IsFinished);
+
+                bool show = !engine.IsLineComplete && !engine.IsFinished;
+                setCaretsVisible(show, show && Math.Abs(sungLine - active) <= 1);
             }
             else if (!engine.IsFinished)
             {
@@ -322,7 +332,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     laidOutFocus = encoded;
                 }
 
-                setCaretsVisible(false);
+                setCaretsVisible(false, false);
             }
             else
             {
@@ -333,7 +343,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     laidOutFocus = int.MaxValue;
                 }
 
-                setCaretsVisible(false);
+                setCaretsVisible(false, false);
             }
 
             updateApproachCue();
@@ -645,15 +655,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 d.RefreshCell(c);
         }
 
-        private void setCaretsVisible(bool show)
+        /// <summary>
+        /// Which line's display carries the sung sweep and sung caret: the line the SONG is on. That
+        /// is the active line in default play (the engine keeps the two identical) and the first
+        /// unsealed line under Fletcher, where the player's caret may have rushed past it or be
+        /// dragging on it. Falls back to the focused line when everything has sealed.
+        /// </summary>
+        private int sungLineFor(int active)
         {
-            if (show == caretsVisible)
-                return;
+            if (!engine.FletcherEnabled)
+                return active;
 
-            caretsVisible = show;
-            float target = show ? 1f : 0f;
-            playerCaret.FadeTo(target, 120, Easing.OutQuint);
-            sungCaret.FadeTo(target, 120, Easing.OutQuint);
+            int songLine = engine.NextUnsealedLineIndex;
+
+            return songLine >= 0 && songLine < displays.Length ? songLine : active;
+        }
+
+        private void setCaretsVisible(bool showPlayer, bool showSung)
+        {
+            if (showPlayer != playerCaretVisible)
+            {
+                playerCaretVisible = showPlayer;
+                playerCaret.FadeTo(showPlayer ? 1f : 0f, 120, Easing.OutQuint);
+            }
+
+            if (showSung != sungCaretVisible)
+            {
+                sungCaretVisible = showSung;
+                sungCaret.FadeTo(showSung ? 1f : 0f, 120, Easing.OutQuint);
+            }
         }
 
         private static void fade(LyricLineDisplay d, float alpha, double dur)

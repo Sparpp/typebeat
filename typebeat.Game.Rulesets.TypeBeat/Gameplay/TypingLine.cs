@@ -35,6 +35,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool IsFreestyle { get; }
 
+        /// <summary>
+        /// A COUNTABLE character: typeable and not a space. The unit of character DISTANCE in this
+        /// game, shared by the Flashlight mod's visible window and the Fletcher mod's rush cap:
+        /// spaces and punctuation ride along inside a run without spending its budget. A freestyle
+        /// slot is countable like any other letter (the player presses a key for it).
+        /// </summary>
+        public bool IsCountable => IsTypeable && Expected != ' ';
+
         public double TargetTime { get; }
 
         /// <summary>

@@ -32,6 +32,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             Single<TypeBeatModFlashlight>(hasMultiplier: 1.2);
             Single<TypeBeatModLiterate>(hasMultiplier: 1.05);
 
+            // Conversion.
+            // Fletcher unpins the caret from the playhead: still ranked, and only a shade easier than
+            // a cue-locked run (every char is still typed and still judged against its own target),
+            // so it takes a small trim rather than a penalty.
+            Single<TypeBeatModFletcher>(hasMultiplier: 0.98);
+
             // Automation.
             Single<TypeBeatModMashing>(hasMultiplier: 0.1);
 
