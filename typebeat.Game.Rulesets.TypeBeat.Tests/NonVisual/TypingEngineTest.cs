@@ -1178,5 +1178,223 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         #endregion
+
+        #region Rolling live WPM (HUD readout)
+
+        /// <summary>
+        /// 36 letters, no spaces and no punctuation, so press i is simply <c>long_chars[i]</c> with no
+        /// auto-skip in between. One unit over [1000, 37000] with k = 36 puts cell i at 1000 + i*1000,
+        /// and the line window runs to 200000 so it never seals mid-test. The line activates at 1000
+        /// (max(StartTime, firstTarget - CUE_LEAD_MS)), and accrual starts the frame after, so through
+        /// every test below activeTime == time - 1000 while the line is active and incomplete.
+        /// </summary>
+        private const string long_chars = "abcdefghijklmnopqrstuvwxyzabcdefghij";
+
+        private static LyricBeatmap longMap() => map(TimingGranularity.Line,
+            line(long_chars, 1000, 200000, 37000, unit(long_chars, 1000, 37000)));
+
+        [Test]
+        public void RollingWpmFallsBackToWholeRunUntilTwoSpreadPresses()
+        {
+            var engine = new TypingEngine(map(TimingGranularity.Line, abcdLine()));
+
+            engine.Update(0);
+            Assert.AreEqual(0, engine.LiveWpm);
+            Assert.AreEqual(0, engine.LiveRollingWpm); // no presses at all: the whole-run 0
+
+            engine.Update(1000); // activation frame: accrual runs before activation, activeTime = 0
+            Assert.IsTrue(engine.ProcessKey('a', 1000)); // stamp @ 0
+            engine.Update(2000);                         // active & incomplete: activeTime = 1000
+
+            // ONE press: no span to measure, so the readout is the whole-run figure, (1/5)/(1000/60000).
+            Assert.AreEqual(12.0, engine.LiveWpm, 1e-9);
+            Assert.AreEqual(12.0, engine.LiveRollingWpm, 1e-9);
+
+            Assert.IsTrue(engine.ProcessKey('b', 2000)); // stamp @ 1000
+
+            // Two presses 1000 ms apart: the window takes over. n-1 = 1 char over 1000 ms => 12 WPM,
+            // while the whole-run figure counts both chars over the same 1000 ms => 24.
+            Assert.AreEqual(24.0, engine.LiveWpm, 1e-9);
+            Assert.AreEqual(12.0, engine.LiveRollingWpm, 1e-9);
+        }
+
+        [Test]
+        public void RollingWpmFallsBackWhenEveryPressLandsInOneFrame()
+        {
+            var engine = new TypingEngine(map(TimingGranularity.Line, abcdLine()));
+
+            engine.Update(0);
+            engine.Update(1000);
+
+            // Active time only advances in Update, so both presses stamp 0: a zero-span window.
+            Assert.IsTrue(engine.ProcessKey('a', 1000));
+            Assert.IsTrue(engine.ProcessKey('b', 1500));
+
+            engine.Update(2000); // activeTime = 1000
+
+            // Zero span => whole-run fallback, (2/5)/(1000/60000), not a divide by zero.
+            Assert.AreEqual(24.0, engine.LiveWpm, 1e-9);
+            Assert.AreEqual(24.0, engine.LiveRollingWpm, 1e-9);
+        }
+
+        [Test]
+        public void RollingWpmTracksSteadyCadence()
+        {
+            var engine = new TypingEngine(longMap());
+
+            engine.Update(0);
+
+            // Ten presses one second of active time apart: stamps 0, 1000, ..., 9000.
+            for (int i = 0; i < 10; i++)
+            {
+                double t = 1000 + i * 1000;
+                engine.Update(t);
+                Assert.IsTrue(engine.ProcessKey(long_chars[i], t));
+            }
+
+            // 1 char/s = 60 chars/min = 12 WPM; the n-1 convention reproduces the cadence exactly:
+            // ((10-1)/5)/(9000/60000) = 1.8/0.15 = 12.
+            Assert.AreEqual(12.0, engine.LiveRollingWpm, 1e-9);
+
+            // The whole-run figure divides 10 chars by the same 9000 ms and reads 11% high.
+            Assert.AreEqual(120000.0 / 9000.0, engine.LiveWpm, 1e-9);
+        }
+
+        [Test]
+        public void RollingWpmBurstAfterSlowStartExceedsWholeRun()
+        {
+            var engine = new TypingEngine(longMap());
+
+            engine.Update(0);
+
+            // Six presses one per 5 s: stamps 0, 5000, ..., 25000.
+            for (int i = 0; i < 6; i++)
+            {
+                double t = 1000 + i * 5000;
+                engine.Update(t);
+                Assert.IsTrue(engine.ProcessKey(long_chars[i], t));
+            }
+
+            // Then 30 presses one per 100 ms: stamps 25100, 25200, ..., 28000. Being exactly a full
+            // window, these evict every slow press.
+            for (int i = 6; i < 36; i++)
+            {
+                double t = 26000 + (i - 5) * 100;
+                engine.Update(t);
+                Assert.IsTrue(engine.ProcessKey(long_chars[i], t));
+            }
+
+            // ((30-1)/5)/(2900/60000) = 5.8/0.0483... = 120: 10 chars/s, the burst and nothing else.
+            Assert.AreEqual(120.0, engine.LiveRollingWpm, 1e-9);
+
+            // Whole-run: 36 chars over 28000 ms of active time = 15.43, dragged down by the slow start.
+            Assert.AreEqual(432000.0 / 28000.0, engine.LiveWpm, 1e-9);
+            Assert.Greater(engine.LiveRollingWpm, engine.LiveWpm);
+
+            // The results screen keeps the whole-run number: the rolling window is display-only.
+            Assert.AreEqual(engine.LiveWpm, engine.BuildResults().Wpm, 1e-9);
+        }
+
+        [Test]
+        public void RollingWpmWindowCapsAtThirtyPresses()
+        {
+            var engine = new TypingEngine(longMap());
+
+            engine.Update(0);
+            engine.Update(1000);
+            Assert.IsTrue(engine.ProcessKey(long_chars[0], 1000)); // press 1, stamp @ 0
+
+            // Presses 2..30, one per second, starting 30 s of active time after the first:
+            // stamps 30000, 31000, ..., 58000.
+            for (int i = 1; i <= 29; i++)
+            {
+                double t = 31000 + (i - 1) * 1000;
+                engine.Update(t);
+                Assert.IsTrue(engine.ProcessKey(long_chars[i], t));
+            }
+
+            // Window exactly full (30): the ancient first press still anchors it.
+            // ((30-1)/5)/(58000/60000) = 5.8/0.9666... = 6.
+            Assert.AreEqual(6.0, engine.LiveRollingWpm, 1e-9);
+
+            engine.Update(60000);
+            Assert.IsTrue(engine.ProcessKey(long_chars[30], 60000)); // press 31, stamp @ 59000
+
+            // The 31st press evicts the oldest, so the window is now 30000..59000:
+            // ((30-1)/5)/(29000/60000) = 12, the true recent cadence. Without the cap it would be
+            // ((31-1)/5)/(59000/60000) = 6.10, still anchored to a press half a minute old.
+            Assert.AreEqual(12.0, engine.LiveRollingWpm, 1e-9);
+        }
+
+        [Test]
+        public void RollingWpmDoesNotDecayAcrossInactiveTime()
+        {
+            // L0 "abc" [1000, 5000): a = 1000, b = 2000, c = 3000.
+            // L1 "def" [20000, 24000): d = 20000, e = 21000, f = 22000, after a 15 s dead gap.
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("abc", 1000, 5000, 4000, unit("abc", 1000, 4000)),
+                line("def", 20000, 24000, 23000, unit("def", 20000, 23000))));
+
+            engine.Update(0);
+            engine.Update(1000); // activate L0, activeTime = 0
+            Assert.IsTrue(engine.ProcessKey('a', 1000)); // stamp @ 0
+            engine.Update(2000);
+            Assert.IsTrue(engine.ProcessKey('b', 2000)); // stamp @ 1000
+            engine.Update(3000);
+            Assert.IsTrue(engine.ProcessKey('c', 3000)); // stamp @ 2000, L0 complete
+
+            // ((3-1)/5)/(2000/60000) = 12.
+            Assert.AreEqual(12.0, engine.LiveRollingWpm, 1e-9);
+
+            engine.Update(5000);  // L0 was complete: no accrual, then it seals
+            engine.Update(12000); // dead gap: nothing active, no accrual
+            engine.Update(19000);
+
+            // 16 s of song went by with nothing to type: the readout must not have decayed.
+            Assert.AreEqual(12.0, engine.LiveRollingWpm, 1e-9);
+
+            engine.Update(20000);                        // activate L1; still no accrual this frame
+            Assert.IsTrue(engine.ProcessKey('d', 20000)); // stamp @ 2000: the gap bought no active time
+
+            // ((4-1)/5)/(2000/60000) = 18: typing resumes exactly where it left off.
+            Assert.AreEqual(18.0, engine.LiveRollingWpm, 1e-9);
+
+            engine.Update(21000); // activeTime = 3000
+            Assert.IsTrue(engine.ProcessKey('e', 21000)); // stamp @ 3000
+
+            // ((5-1)/5)/(3000/60000) = 16. On a wall clock the span would be 20000 ms (t=1000 to
+            // t=21000) and this would read 2.4: active time is what keeps the gap out of it.
+            Assert.AreEqual(16.0, engine.LiveRollingWpm, 1e-9);
+        }
+
+        [Test]
+        public void RollingWpmKeepsHistoryAcrossBackspaceRetype()
+        {
+            var engine = new TypingEngine(map(TimingGranularity.Line, abcdLine()));
+
+            engine.Update(0);
+            engine.Update(1000);
+            Assert.IsTrue(engine.ProcessKey('a', 1000)); // stamp @ 0
+            engine.Update(2000);
+            Assert.IsTrue(engine.ProcessKey('b', 2000)); // stamp @ 1000
+            Assert.AreEqual(12.0, engine.LiveRollingWpm, 1e-9);
+
+            long scoreBeforeRetype = engine.Score;
+
+            // Backspace does NOT pop: the window is a log of keystrokes, not of cell states.
+            Assert.IsTrue(engine.ProcessBackspace());
+            Assert.AreEqual(12.0, engine.LiveRollingWpm, 1e-9);
+
+            engine.Update(2500);                         // activeTime = 1500
+            Assert.IsTrue(engine.ProcessKey('b', 2500)); // scoring-inert retype, but a real keystroke
+
+            // The retype is still inert everywhere it was before, only the keystroke log grew.
+            Assert.AreEqual(scoreBeforeRetype, engine.Score);
+
+            // Stamps 0 / 1000 / 1500 => ((3-1)/5)/(1500/60000) = 16.
+            Assert.AreEqual(16.0, engine.LiveRollingWpm, 1e-9);
+        }
+
+        #endregion
     }
 }
