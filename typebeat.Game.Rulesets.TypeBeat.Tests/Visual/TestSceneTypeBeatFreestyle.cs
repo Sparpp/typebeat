@@ -125,6 +125,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddWaitStep("let the shimmer clock run", 10);
             AddAssert("filled slot no longer shimmers", () => display.CellText(slot) == "x");
 
+            // Backspace is gated on allow-wrong-input (backlog 24); this scene is about the
+            // rendering of a reopened slot, so switch the gate on to reach that state.
+            AddStep("allow wrong input (backspace gate)", () => engine.AllowWrongInput = true);
             AddStep("backspace", () => InputManager.Key(Key.BackSpace));
             AddAssert("slot reopened", () => engine.Lines[0].Cells[slot].State == CellState.Untyped
                                              && engine.Lines[0].Cells[slot].TypedChar == null);

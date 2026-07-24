@@ -48,6 +48,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// Legacy typing model. Off (default) = strict: a wrong key is rejected and 13 in a row fail
         /// the play. On = a wrong character is typed through (shown red) and can be backspaced; only
         /// the space key stays strict, and the mash-fail streak does not apply.
+        ///
+        /// <para>Doubles as the BACKSPACE gate (see <c>TypeBeatPlayfield</c>'s key handler): strict
+        /// play never writes an erasable char, so backspace is ignored outright while this is off.</para>
         /// </summary>
         AllowWrongInput,
 

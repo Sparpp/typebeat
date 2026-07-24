@@ -12,8 +12,10 @@ using typebeat.Game.Replays;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
+using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Scoring;
 using typebeat.Game.Scoring.Legacy;
 using typebeat.Game.Screens.Play;
@@ -117,6 +119,58 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("accuracy identical", () => currentPlayer.GameplayState.ScoreProcessor.Accuracy.Value, () => Is.EqualTo(firstAccuracy));
             AddAssert("max combo identical", () => currentPlayer.GameplayState.ScoreProcessor.HighestCombo.Value, () => Is.EqualTo(firstMaxCombo));
         }
+
+        /// <summary>
+        /// The backspace gate (backlog 24) is a LIVE-INPUT gate only: a replay is a recorded fact,
+        /// so its 0x08 frames must still apply on playback even when the run's allow-wrong-input
+        /// value is OFF, which is the shape of every replay recorded before the gate existed.
+        /// Scripted: 'a' on time, erase it, retype it (inert), 'b', then line 1 in full. If the
+        /// erase were dropped the retyped 'a' would fall on cell 'b' and be rejected, which the
+        /// accuracy assert below catches.
+        /// </summary>
+        [Test]
+        public void TestRecordedBackspaceAppliesEvenWithWrongInputDisallowed()
+        {
+            IBeatmap beatmap = createBeatmap();
+
+            var replay = new Replay
+            {
+                Frames = new List<Rulesets.Replays.ReplayFrame>
+                {
+                    TypeBeatReplayFrame.CreateConfigFrame(500, false),
+                    new TypeBeatReplayFrame(500, 'a'),
+                    new TypeBeatReplayFrame(600, TypeBeatReplayFrame.BACKSPACE),
+                    new TypeBeatReplayFrame(700, 'a'),
+                    new TypeBeatReplayFrame(1000, 'b'),
+                    new TypeBeatReplayFrame(2500, 'c'),
+                    new TypeBeatReplayFrame(3000, 'd'),
+                },
+            };
+
+            AddStep("set beatmap", () => Beatmap.Value = CreateWorkingBeatmap(beatmap));
+            AddStep("set ruleset", () => Ruleset.Value = beatmap.BeatmapInfo.Ruleset);
+            AddStep("push player", () => pushNewPlayer(new Score { Replay = replay, ScoreInfo = new ScoreInfo() }));
+
+            AddUntilStep("wait until player is loaded", () => currentPlayer.IsCurrentScreen());
+            skipIntroIfPresent();
+            AddUntilStep("wait for completion", () => currentPlayer.GameplayState.HasCompleted);
+
+            AddAssert("the run was judged in strict mode", () => !playbackEngine.AllowWrongInput);
+
+            AddAssert("the recorded erase applied and the retype was inert", () =>
+                playbackEngine.Lines[0].Cells[0].State == CellState.Correct
+                && playbackEngine.Lines[0].Cells[0].TypedChar == 'a'
+                && playbackEngine.Lines[0].Cells[0].JudgedDelta == 0);
+
+            // 4 typeable cells, 4 keypresses: the erase + retype cost nothing, and no key was ever
+            // rejected. A dropped backspace frame makes this 4/5.
+            AddAssert("no keypress was rejected", () => playbackEngine.LiveAccuracy == 1 && playbackEngine.ConsecutiveWrongKeys == 0);
+
+            AddStep("exit player", () => currentPlayer.Exit());
+            AddUntilStep("player exited", () => !currentPlayer.IsCurrentScreen());
+        }
+
+        private TypingEngine playbackEngine => currentPlayer.ChildrenOfType<TypeBeatPlayfield>().Single().Engine;
 
         private static IBeatmap createBeatmap()
         {
