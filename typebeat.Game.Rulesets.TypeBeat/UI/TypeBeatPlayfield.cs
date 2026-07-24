@@ -364,6 +364,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// backspace (hold to erase); held character keys never machine-gun judgements.
         /// Ctrl/Alt combos fall through to framework shortcuts.
         ///
+        /// <para>Backspace is live ONLY in allow-wrong-input mode, the only model where a wrong char
+        /// lands in a cell and is thus worth erasing; in strict (default) play the key is swallowed
+        /// and does nothing at all. Replay playback is unaffected: recorded backspace frames go
+        /// straight to the engine (see <see cref="EngineTicker"/>).</para>
+        ///
         /// <para>Replay determinism: every keystroke is stamped with the ROUNDED (integral ms)
         /// lyric time, the engine is advanced to that exact time first, and every EFFECTIVE input
         /// (one that mutated engine state) is forwarded to the active replay recorder as
@@ -418,6 +423,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 if (e.Key == Key.BackSpace)
                 {
+                    // Erasing only ever has something to undo in ALLOW-WRONG-INPUT mode: that is the
+                    // one model where a wrong char lands in a cell. In strict (default) play a wrong
+                    // key is rejected outright, so nothing erasable is ever written, and re-typing an
+                    // already-correct cell (freestyle cells included, whose press is a CORRECT hit) is
+                    // scoring-inert. Backspace is therefore inert-by-design in strict play, and is
+                    // gated off entirely: no engine call, nothing recorded. Gated at the INPUT layer,
+                    // not in the engine, so the JS port of TypingEngine stays byte-compatible.
+                    //
+                    // The gate reads the ENGINE flag, the same value the replay CONFIG frame carries,
+                    // so it can never disagree with the model the play is judged under. It applies to
+                    // LIVE input only: replay playback feeds recorded backspace frames straight into
+                    // the engine (see EngineTicker.applyFrame), so an old replay still plays back
+                    // exactly as recorded.
+                    //
+                    // The key is still swallowed rather than passed on: backspace carries a global
+                    // binding (GlobalAction.DeselectAllMods) and editor semantics that gameplay must
+                    // not start triggering just because the setting is off.
+                    if (!engine.AllowWrongInput)
+                        return true;
+
                     // Repeat honoured: hold to erase, monkeytype-style. Handled BEFORE the
                     // line-complete fall-through: backspacing at line end must keep working (it is
                     // how typed-through wrong chars get fixed in allow-wrong-input mode). Only an

@@ -65,7 +65,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsCheckbox
                 {
                     LabelText = "Allow wrong keypresses",
-                    TooltipText = "Type wrong characters through (shown red, backspace to fix) instead of rejecting them. The space key stays strict.",
+                    TooltipText = "Type wrong characters through (shown red) instead of rejecting them, and enable backspace to fix them. The space key stays strict. Backspace does nothing while this is off, since no wrong character can land.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.AllowWrongInput),
                 },
                 new SettingsSlider<float>

@@ -74,11 +74,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             AddUntilStep("line 0 active", () => playfield.Engine.ActiveLineIndex == 0);
 
+            AddAssert("strict mode by default", () => !playfield.Engine.AllowWrongInput);
+
             AddStep("press Z (correct)", () => InputManager.Key(Key.Z));
             AddStep("press X (wrong, rejected)", () => InputManager.Key(Key.X));
             AddStep("press A (correct)", () => InputManager.Key(Key.A));
-            AddStep("press Backspace (erases 'a')", () => InputManager.Key(Key.BackSpace));
-            AddStep("press A (inert retype)", () => InputManager.Key(Key.A));
+
+            // Strict play never writes an erasable char, so backspace is gated off at the key
+            // handler: no engine call, and nothing reaches the recorder.
+            int framesBeforeBackspace = 0;
+            AddStep("capture frame count", () => framesBeforeBackspace = frames.Count);
+            AddStep("press Backspace (gated off)", () => InputManager.Key(Key.BackSpace));
+            AddAssert("backspace recorded nothing", () => frames.Count == framesBeforeBackspace);
+            AddAssert("backspace changed no engine state", () =>
+                playfield.Engine.CaretIndex == 2
+                && playfield.Engine.Lines[0].Cells[1].State == CellState.Correct
+                && playfield.Engine.Lines[0].Cells[1].TypedChar == 'a');
+
             AddStep("press Space (correct)", () => InputManager.Key(Key.Space));
             AddStep("press B (correct)", () => InputManager.Key(Key.B));
 
@@ -86,8 +98,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             // One config header + one frame per effective input, in press order.
             AddAssert("frame sequence recorded", () =>
-                string.Concat(frames.Select(f => f.Character)) == "\0zxa\ba b");
+                string.Concat(frames.Select(f => f.Character)) == "\0zxa b");
 
+            assertCommonRecordingInvariants();
+        }
+
+        /// <summary>
+        /// With allow-wrong-input on, a wrong char lands in the cell and backspace is live again:
+        /// the erase must reach the engine AND be recorded as a 0x08 frame, so the replay still
+        /// reproduces the run exactly.
+        /// </summary>
+        [Test]
+        public void TestBackspaceIsRecordedWhenWrongInputIsAllowed()
+        {
+            AddUntilStep("line 0 active", () => playfield.Engine.ActiveLineIndex == 0);
+
+            AddStep("allow wrong input", () => playfield.Engine.AllowWrongInput = true);
+
+            AddStep("press Z (correct)", () => InputManager.Key(Key.Z));
+            AddStep("press Q (wrong, typed through)", () => InputManager.Key(Key.Q));
+            AddAssert("wrong char landed in the cell", () =>
+                playfield.Engine.Lines[0].Cells[1].State == CellState.Wrong
+                && playfield.Engine.Lines[0].Cells[1].TypedChar == 'q');
+
+            AddStep("press Backspace (erases 'q')", () => InputManager.Key(Key.BackSpace));
+            AddAssert("cell reopened", () =>
+                playfield.Engine.Lines[0].Cells[1].State == CellState.Untyped
+                && playfield.Engine.CaretIndex == 1);
+
+            AddStep("press A (correct)", () => InputManager.Key(Key.A));
+            AddStep("press Space (correct)", () => InputManager.Key(Key.Space));
+            AddStep("press B (correct)", () => InputManager.Key(Key.B));
+
+            AddAssert("line complete", () => playfield.Engine.IsLineComplete);
+
+            AddAssert("frame sequence records the erase", () =>
+                string.Concat(frames.Select(f => f.Character)) == "\0zq\ba b");
+
+            AddAssert("config frame carries allow-wrong-input on", () => frames[0].IsConfig && frames[0].AllowWrongInput);
+
+            assertCommonRecordingInvariants();
+        }
+
+        private void assertCommonRecordingInvariants()
+        {
             AddAssert("config frame leads and captures allow-wrong-input", () =>
                 frames[0].IsConfig && frames[0].AllowWrongInput == playfield.Engine.AllowWrongInput);
 
