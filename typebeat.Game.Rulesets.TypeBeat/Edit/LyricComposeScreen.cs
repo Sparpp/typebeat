@@ -295,38 +295,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (state.SelectedLine.Value is TypeBeatHitObject selected && !EditorBeatmap.HitObjects.Contains(selected))
                 state.SelectedLine.Value = ordered.FirstOrDefault(o => o.LineIndex == selected.LineIndex);
 
-            // Same rebind for the multi-selection: map stale instances by index, drop vanished lines.
-            if (state.MultiSelectedLines.Count > 0 && state.MultiSelectedLines.Any(o => !EditorBeatmap.HitObjects.Contains(o)))
-            {
-                var rebound = state.MultiSelectedLines
-                                   .Select(o => EditorBeatmap.HitObjects.Contains(o) ? o : ordered.FirstOrDefault(n => n.LineIndex == o.LineIndex))
-                                   .Where(o => o != null)
-                                   .Select(o => o!)
-                                   .ToList();
-
-                state.MultiSelectedLines.Clear();
-
-                foreach (var o in rebound)
-                    state.MultiSelectedLines.Add(o);
-            }
+            // Same rebind for the multi-selection and its range anchor: map stale instances by
+            // index, drop vanished lines.
+            state.RebindMultiSelection(ordered, o => EditorBeatmap.HitObjects.Contains(o));
 
             var active = state.SelectedLine.Value;
 
             // Playback drives the surface: while the song is running the active line tracks the
             // playhead so the word blocks advance with the music, even if a line was selected.
-            // A lingering selection is dropped once the song moves onto a different line, so
-            // pausing keeps the line you just heard instead of snapping back. While paused, an
-            // explicit selection wins; with none, the playhead line is shown.
+            // A lingering PRIMARY selection is dropped once the song moves onto a different line,
+            // so pausing keeps the line you just heard instead of snapping back. A multi-line
+            // SECTION survives playback: the mapper marks a section then listens to it before
+            // acting on it, and Escape (or any plain click) is the way to drop it. While paused,
+            // an explicit selection wins; with none, the playhead line is shown.
             if (ordered.Count > 0 && (active == null || editorClock.IsRunning))
             {
                 double now = editorClock.CurrentTime;
                 var playheadLine = ordered.LastOrDefault(o => o.Line.StartTime <= now) ?? ordered[0];
 
                 if (editorClock.IsRunning && active != null && active != playheadLine)
-                {
                     state.SelectedLine.Value = null;
-                    state.ClearMultiLineSelection(); // playback moved on; the whole selection is stale.
-                }
 
                 active = playheadLine;
             }

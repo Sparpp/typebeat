@@ -227,8 +227,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 bool active = state.ActiveLine.Value == hitObject;
 
-                body.Colour = TypeBeatStyle.PanelBackground.Lighten(active ? 0.6f : lineIndex % 2 == 0 ? 0.15f : 0f);
-                body.Alpha = active ? 0.9f : 0.7f;
+                // A multi-line SECTION reads on the band too, so the mapper can see the run they
+                // ctrl/shift-picked in the line list against the audio before acting on it.
+                bool sectioned = state.MultiSelectedLines.Contains(hitObject);
+
+                body.Colour = TypeBeatStyle.PanelBackground.Lighten(active ? 0.6f : sectioned ? 0.35f : lineIndex % 2 == 0 ? 0.15f : 0f);
+                body.Alpha = active || sectioned ? 0.9f : 0.7f;
             }
         }
 

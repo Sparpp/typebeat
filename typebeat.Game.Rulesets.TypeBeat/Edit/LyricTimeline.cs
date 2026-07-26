@@ -360,8 +360,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 bool active = state.ActiveLine.Value == hitObject;
 
-                body.Colour = TypeBeatStyle.PanelBackground.Lighten(active ? 0.6f : lineIndex % 2 == 0 ? 0.15f : 0f);
-                body.Alpha = active ? 0.9f : 0.7f;
+                // Same section tint as the boundaries band: a ctrl/shift-picked run of lines stays
+                // visible on the fine-timing strip while the mapper works on it.
+                bool sectioned = state.MultiSelectedLines.Contains(hitObject);
+
+                body.Colour = TypeBeatStyle.PanelBackground.Lighten(active ? 0.6f : sectioned ? 0.35f : lineIndex % 2 == 0 ? 0.15f : 0f);
+                body.Alpha = active || sectioned ? 0.9f : 0.7f;
             }
 
             protected override bool OnClick(ClickEvent e)

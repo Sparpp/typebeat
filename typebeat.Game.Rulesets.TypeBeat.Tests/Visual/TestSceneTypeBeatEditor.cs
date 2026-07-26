@@ -356,6 +356,89 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
+        public void TestLineListCtrlAndShiftClickBuildASection()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            // A third line gives a range with an interior member, so a shift+click run is
+            // distinguishable from "both endpoints".
+            AddStep("add a third line", () => TypeBeatEditorOperations.AddLine(EditorBeatmap, 5500, "third line"));
+            AddUntilStep("three rows", () => rows().Count == 3);
+
+            AddStep("click row 1", () => clickRow(0));
+            AddUntilStep("row 1 is the single selection", () =>
+                state().SelectedLine.Value == rows()[0].HitObject && state().MultiSelectedLines.Count == 0);
+
+            AddStep("shift+click row 3", () => clickRow(2, shift: true));
+            AddUntilStep("whole run selected", () => state().MultiSelectedLines.Count == 3);
+            AddAssert("clicked line is primary", () => state().SelectedLine.Value == rows()[2].HitObject);
+
+            // Shift+click again ranges from the SAME anchor (row 1), so the run shrinks.
+            AddStep("shift+click row 2", () => clickRow(1, shift: true));
+            AddUntilStep("run shrank to rows 1-2", () =>
+                state().MultiSelectedLines.Count == 2 && !state().MultiSelectedLines.Contains(rows()[2].HitObject));
+
+            AddStep("ctrl+click row 3", () => clickRow(2, ctrl: true));
+            AddUntilStep("ctrl added row 3 back", () => state().MultiSelectedLines.Count == 3);
+
+            AddStep("ctrl+click row 1", () => clickRow(0, ctrl: true));
+            AddUntilStep("ctrl removed row 1", () =>
+                state().MultiSelectedLines.Count == 2 && !state().MultiSelectedLines.Contains(rows()[0].HitObject));
+
+            AddStep("plain click row 2", () => clickRow(1));
+            AddUntilStep("section collapsed", () => state().MultiSelectedLines.Count == 0);
+        }
+
+        [Test]
+        public void TestSectionSurvivesPlayback()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("select both lines", () =>
+            {
+                clickRow(0);
+                clickRow(1, shift: true);
+            });
+            AddUntilStep("two lines sectioned", () => state().MultiSelectedLines.Count == 2);
+
+            // A section is a deliberate mark; playback moving the active line must not erase it
+            // (the mapper listens to the section before timing it).
+            AddStep("play from the top", () =>
+            {
+                EditorClock.Seek(0);
+                EditorClock.Start();
+            });
+            AddUntilStep("playhead reached line 2", () => EditorClock.CurrentTime > 3200);
+            AddStep("stop", () => EditorClock.Stop());
+            AddAssert("section still marked", () => state().MultiSelectedLines.Count == 2);
+        }
+
+        private LyricEditState state() => Editor.ChildrenOfType<LyricComposeScreen>().Single().EditState;
+
+        private List<LineListPanel.LineRow> rows()
+            => Editor.ChildrenOfType<LineListPanel>().Single().ChildrenOfType<LineListPanel.LineRow>()
+                     .OrderBy(r => r.HitObject.LineIndex).ToList();
+
+        /// <summary>Clicks a row on its index column (the text box owns the rest of the row).</summary>
+        private void clickRow(int index, bool ctrl = false, bool shift = false)
+        {
+            var q = rows()[index].ScreenSpaceDrawQuad;
+            InputManager.MoveMouseTo(q.TopLeft + new Vector2(17, q.Height * 0.5f));
+
+            if (ctrl)
+                InputManager.PressKey(Key.ControlLeft);
+            if (shift)
+                InputManager.PressKey(Key.ShiftLeft);
+
+            InputManager.Click(MouseButton.Left);
+
+            if (shift)
+                InputManager.ReleaseKey(Key.ShiftLeft);
+            if (ctrl)
+                InputManager.ReleaseKey(Key.ControlLeft);
+        }
+
+        [Test]
         public void TestZoomDoesNotMovePlayhead()
         {
             LyricTimeline timeline = null!;
