@@ -40,6 +40,20 @@ namespace typebeat.Game.Online.API.Requests.Responses
         [JsonProperty(@"nsfw")]
         public bool HasExplicitContent { get; set; }
 
+        /// <summary>
+        /// Helper property to accept the explicit content flag under the key the type!beat submission
+        /// wire contract uses (<c>explicit</c>), in addition to the legacy osu-web <c>nsfw</c> key.
+        /// </summary>
+        /// <remarks>
+        /// Write-only, so it is never serialised back out; only ever raises the flag, so the order the
+        /// two keys arrive in cannot make a flagged set read as unflagged.
+        /// </remarks>
+        [JsonProperty(@"explicit")]
+        private bool explicitContent
+        {
+            set => HasExplicitContent |= value;
+        }
+
         [JsonProperty(@"spotlight")]
         public bool FeaturedInSpotlight { get; set; }
 

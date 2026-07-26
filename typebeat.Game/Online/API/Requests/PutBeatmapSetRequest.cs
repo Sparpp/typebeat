@@ -45,6 +45,16 @@ namespace typebeat.Game.Online.API.Requests
         [JsonProperty("notify_on_discussion_replies")]
         public bool NotifyOnDiscussionReplies { get; init; }
 
+        /// <summary>
+        /// Whether the mapset is flagged as containing explicit content.
+        /// </summary>
+        /// <remarks>
+        /// Optional on the wire: a server that predates the flag ignores the unknown member, and a
+        /// client that predates it sends nothing, which the server reads as false.
+        /// </remarks>
+        [JsonProperty("explicit")]
+        public bool ExplicitContent { get; init; }
+
         private PutBeatmapSetRequest()
         {
         }
@@ -54,6 +64,7 @@ namespace typebeat.Game.Online.API.Requests
             BeatmapsToCreate = beatmapCount,
             SubmissionTarget = settings.Target.Value,
             NotifyOnDiscussionReplies = settings.NotifyOnDiscussionReplies.Value,
+            ExplicitContent = settings.ExplicitContent.Value,
         };
 
         public static PutBeatmapSetRequest UpdateExisting(uint beatmapSetId, IEnumerable<uint> beatmapsToKeep, uint beatmapsToCreate, BeatmapSubmissionSettings settings) => new PutBeatmapSetRequest
@@ -63,6 +74,7 @@ namespace typebeat.Game.Online.API.Requests
             BeatmapsToCreate = beatmapsToCreate,
             SubmissionTarget = settings.Target.Value,
             NotifyOnDiscussionReplies = settings.NotifyOnDiscussionReplies.Value,
+            ExplicitContent = settings.ExplicitContent.Value,
         };
 
         protected override WebRequest CreateWebRequest()

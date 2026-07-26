@@ -50,6 +50,12 @@ namespace typebeat.Game.Screens.Edit.Submission
                     },
                     new FormCheckBox
                     {
+                        Caption = BeatmapSubmissionStrings.ExplicitContent,
+                        HintText = BeatmapSubmissionStrings.ExplicitContentHint,
+                        Current = settings.ExplicitContent,
+                    },
+                    new FormCheckBox
+                    {
                         Caption = BeatmapSubmissionStrings.NotifyOnDiscussionReplies,
                         Current = settings.NotifyOnDiscussionReplies,
                     },
@@ -64,20 +70,30 @@ namespace typebeat.Game.Screens.Edit.Submission
             switch (settings.LatestOnlineStateRequest?.CompletionState)
             {
                 case APIRequestCompletionState.Completed:
-                    setSubmissionTargetFromLatestOnlineState();
+                    applyLatestOnlineState();
                     break;
 
                 case APIRequestCompletionState.Waiting:
-                    settings.Target.Disabled = true;
-                    settings.LatestOnlineStateRequest.Success += _ => setSubmissionTargetFromLatestOnlineState();
+                    // both controls are prefilled from the set's online state, so they stay locked
+                    // until it arrives rather than letting a late response overwrite a user's choice.
+                    setPrefilledControlsDisabled(true);
+                    settings.LatestOnlineStateRequest.Success += _ => applyLatestOnlineState();
+                    // without this a failed lookup would leave the controls locked for good.
+                    settings.LatestOnlineStateRequest.Failure += _ => setPrefilledControlsDisabled(false);
                     break;
             }
         }
 
-        private void setSubmissionTargetFromLatestOnlineState()
+        private void setPrefilledControlsDisabled(bool disabled)
+        {
+            settings.Target.Disabled = disabled;
+            settings.ExplicitContent.Disabled = disabled;
+        }
+
+        private void applyLatestOnlineState()
         {
             Debug.Assert(settings.LatestOnlineStateRequest != null);
-            settings.Target.Disabled = false;
+            setPrefilledControlsDisabled(false);
 
             settings.Target.Value = settings.LatestOnlineStateRequest.Response?.Status switch
             {
@@ -86,6 +102,10 @@ namespace typebeat.Game.Screens.Edit.Submission
                 >= BeatmapOnlineStatus.Pending => BeatmapSubmissionTarget.Pending,
                 _ => BeatmapSubmissionTarget.WIP,
             };
+
+            // Carry the existing explicit flag over a re-submission. Servers that do not report the
+            // flag on a beatmapset simply leave this false, i.e. unchecked, as for a brand new set.
+            settings.ExplicitContent.Value = settings.LatestOnlineStateRequest.Response?.HasExplicitContent == true;
         }
     }
 }
