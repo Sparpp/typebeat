@@ -12,7 +12,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// Score multipliers for type!beat mods. Values mirror osu!'s current (V2) multipliers so
     /// modded scores read consistently with the rest of lazer; the rate helpers below are copied
     /// verbatim from <c>OsuScoreMultiplierCalculatorV2</c>. Mods not listed here stay at 1.0x
-    /// (Sudden Death). Mashing is unranked, but still carries the Relax 0.1x for display parity.
+    /// (Sudden Death, Muted). Mashing is unranked, but still carries the Relax 0.1x for display parity.
     /// </summary>
     public class TypeBeatScoreMultiplierCalculator : ScoreMultiplierCalculator
     {
@@ -42,6 +42,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             Single<TypeBeatModMashing>(hasMultiplier: 0.1);
 
             // Fun.
+            // Muted (1.0x) is deliberately absent: it is a flex, not a difficulty adjustment, so it is
+            // ranked and carries no bonus and no penalty. Pinned by TypeBeatModMutedTest.
             Single<ModWindUp>(hasMultiplier: timeRampMultiplier);
             Single<ModWindDown>(hasMultiplier: timeRampMultiplier);
         }
