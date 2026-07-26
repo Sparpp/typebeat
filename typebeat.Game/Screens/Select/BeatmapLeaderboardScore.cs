@@ -24,6 +24,7 @@ using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Localisation;
+using typebeat.Game.Online;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests.Responses;
 using typebeat.Game.Online.Chat;
@@ -642,19 +643,105 @@ namespace typebeat.Game.Screens.Select
                 if (Score.OnlineID > 0)
                     items.Add(new OsuMenuItem(CommonStrings.CopyLink, MenuItemType.Standard, () => game?.CopyToClipboard($@"{api.Endpoints.WebsiteUrl}/scores/{Score.OnlineID}")));
 
-                if (Score.Files.Count <= 0) return items.ToArray();
+                // Only a locally imported score owns files; export and delete stay bound to that.
+                bool isLocalRow = Score.Files.Count > 0;
+
+                // An online row carries no files, but it may still be watchable: either the server holds
+                // a replay for it, or (typically for the local user's own scores) the bit-exact local
+                // replay is sitting in realm under the same online id.
+                var replaySource = ReplayAvailabilityResolver.Resolve(isLocalRow || hasMatchingLocalReplay(), Score.HasOnlineReplay);
+
+                bool canWatch = ShowReplay != null && replaySource != ReplaySource.NotAvailable;
+
+                if (!canWatch && !isLocalRow) return items.ToArray();
 
                 if (items.Count > 0)
                     items.Add(new OsuMenuItemSpacer());
 
-                if (ShowReplay != null)
-                    items.Add(new OsuMenuItem(SongSelectStrings.WatchReplay, MenuItemType.Standard, () => ShowReplay.Invoke(Score)));
-                items.Add(new OsuMenuItem(CommonStrings.Export, MenuItemType.Standard, () => scoreManager.Export(Score)));
-                items.Add(new OsuMenuItem(typebeat.Game.Resources.Localisation.Web.CommonStrings.ButtonsDelete, MenuItemType.Destructive, () => dialogOverlay?.Push(new LocalScoreDeleteDialog(Score))));
+                if (canWatch)
+                    items.Add(new OsuMenuItem(SongSelectStrings.WatchReplay, MenuItemType.Standard, () => watchReplay(replaySource)));
+
+                if (isLocalRow)
+                {
+                    items.Add(new OsuMenuItem(CommonStrings.Export, MenuItemType.Standard, () => scoreManager.Export(Score)));
+                    items.Add(new OsuMenuItem(typebeat.Game.Resources.Localisation.Web.CommonStrings.ButtonsDelete, MenuItemType.Destructive, () => dialogOverlay?.Push(new LocalScoreDeleteDialog(Score))));
+                }
 
                 return items.ToArray();
             }
         }
+
+        #region Replay watching
+
+        [Resolved(CanBeNull = true)]
+        private ScoreModelDownloader? scoreDownloader { get; set; }
+
+        private readonly Bindable<DownloadState> downloadState = new Bindable<DownloadState>();
+
+        private ScoreDownloadTracker? downloadTracker;
+
+        private bool watchOnceDownloaded;
+
+        /// <summary>
+        /// Whether the local score store holds a replay for this row.
+        /// </summary>
+        /// <remarks>
+        /// This is a realm read, so it is deliberately confined to the context menu being opened rather
+        /// than run for every row on every leaderboard refresh. A local row never needs it (its own
+        /// files answer the question), and a row with no online id has nothing to match on.
+        /// </remarks>
+        private bool hasMatchingLocalReplay()
+            => (Score.OnlineID > 0 || Score.LegacyOnlineID > 0) && scoreManager.HasLocalReplay(Score);
+
+        /// <summary>
+        /// Watch this score's replay, fetching it from the server first when that is the only copy.
+        /// </summary>
+        /// <remarks>
+        /// The download path mirrors <c>ReplayDownloadButton</c>: hand the score to the downloader, and
+        /// let a <see cref="ScoreDownloadTracker"/> tell us when the import has landed in realm. Once it
+        /// has, the ordinary local presentation path takes over, so playback is identical either way.
+        /// </remarks>
+        private void watchReplay(ReplaySource source)
+        {
+            if (source == ReplaySource.Local)
+            {
+                ShowReplay?.Invoke(Score);
+                return;
+            }
+
+            if (source != ReplaySource.Online || scoreDownloader == null)
+                return;
+
+            watchOnceDownloaded = true;
+
+            if (downloadTracker == null)
+            {
+                AddInternal(downloadTracker = new ScoreDownloadTracker(Score)
+                {
+                    State = { BindTarget = downloadState }
+                });
+
+                downloadState.BindValueChanged(state =>
+                {
+                    if (state.NewValue != DownloadState.LocallyAvailable || !watchOnceDownloaded)
+                        return;
+
+                    watchOnceDownloaded = false;
+                    ShowReplay?.Invoke(Score);
+                });
+            }
+
+            if (downloadState.Value == DownloadState.LocallyAvailable)
+            {
+                watchOnceDownloaded = false;
+                ShowReplay?.Invoke(Score);
+                return;
+            }
+
+            scoreDownloader.Download(Score);
+        }
+
+        #endregion
 
         private enum DisplayMode
         {

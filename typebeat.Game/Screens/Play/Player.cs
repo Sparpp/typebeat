@@ -1319,7 +1319,11 @@ namespace typebeat.Game.Screens.Play
                 using (var stream = new MemoryStream())
                 {
                     new LegacyScoreEncoder(score, GameplayState.Beatmap).Encode(stream);
-                    replayReader = new ByteArrayArchiveReader(stream.ToArray(), "replay.osr");
+
+                    byte[] replayData = stream.ToArray();
+
+                    replayReader = new ByteArrayArchiveReader(replayData, "replay.osr");
+                    OnReplayEncoded(score, replayData);
                 }
             }
 
@@ -1338,6 +1342,22 @@ namespace typebeat.Game.Screens.Play
             });
 
             return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Invoked with the encoded legacy replay (.osr) payload of a freshly played score, immediately
+        /// before that payload is imported into the local score store.
+        /// </summary>
+        /// <remarks>
+        /// This is the one place the bytes exist in memory, so anything that needs them (currently the
+        /// online replay upload in <see cref="SubmittingPlayer"/>) hooks here rather than re-encoding.
+        /// It runs on the import task, off the update thread, and is never reached during replay
+        /// playback because <see cref="ImportScore"/> bails early there.
+        /// </remarks>
+        /// <param name="score">The score the payload belongs to. Its online id is already populated if submission succeeded.</param>
+        /// <param name="replayData">The encoded .osr payload.</param>
+        protected virtual void OnReplayEncoded(Score score, byte[] replayData)
+        {
         }
 
         /// <summary>

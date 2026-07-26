@@ -46,6 +46,9 @@ namespace typebeat.Game.Online.Leaderboards
         [Resolved]
         private RulesetStore rulesets { get; set; } = null!;
 
+        [Resolved(canBeNull: true)]
+        private ReplayUploader? replayUploader { get; set; }
+
         /// <summary>
         /// Fetch leaderboard content with the new criteria specified in the background.
         /// On completion, <see cref="Scores"/> will be updated with the results from this call (unless a more recent call with a different criteria has completed).
@@ -134,22 +137,31 @@ namespace typebeat.Game.Online.Leaderboards
                         if (inFlightOnlineRequest != null && !newRequest.Equals(inFlightOnlineRequest))
                             return;
 
+                        var onlineScores = response.Scores.Select(s => s.ToScoreInfo(rulesets, newCriteria.Beatmap))
+                                                   .OrderByTotalScore()
+                                                   .Select((s, idx) =>
+                                                   {
+                                                       s.Position = idx + 1;
+                                                       return s;
+                                                   })
+                                                   .ToArray();
+
+                        var userScore = response.UserScore?.CreateScoreInfo(rulesets, newCriteria.Beatmap);
+
                         var result = LeaderboardScores.Success
                         (
-                            response.Scores.Select(s => s.ToScoreInfo(rulesets, newCriteria.Beatmap))
-                                    .OrderByTotalScore()
-                                    .Select((s, idx) =>
-                                    {
-                                        s.Position = idx + 1;
-                                        return s;
-                                    })
-                                    .ToArray(),
+                            onlineScores,
                             scoresRequested: newRequest.ScoresRequested,
                             totalScores: response.ScoresCount,
-                            response.UserScore?.CreateScoreInfo(rulesets, newCriteria.Beatmap)
+                            userScore
                         );
                         inFlightOnlineRequest = null;
                         scores.Value = result;
+
+                        // Opportunistic healing for scores submitted before replay upload existed: any of
+                        // the local user's own rows the server has no replay for gets its local replay
+                        // pushed up in the background. Limited to the leaderboard actually being viewed.
+                        replayUploader?.Backfill(userScore != null ? onlineScores.Append(userScore) : onlineScores);
                     };
                     newRequest.Failure += ex =>
                     {
