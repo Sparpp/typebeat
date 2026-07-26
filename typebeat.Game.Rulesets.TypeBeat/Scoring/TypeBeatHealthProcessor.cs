@@ -56,7 +56,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         public const double MEH_HEALTH_INCREASE = 0.02;
 
         /// <summary>HP drained by one untyped cell sealing as a miss (also mistimed/wrong-char misses).</summary>
-        public const double MISS_HEALTH_DRAIN = 0.04;
+        public const double MISS_HEALTH_DRAIN = 0.03;
 
         /// <summary>
         /// HP drained by a single rejected wrong key. Sized so an uninterrupted mash from full empties
