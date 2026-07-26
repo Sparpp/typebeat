@@ -30,19 +30,18 @@ namespace typebeat.Game.Screens.Ranking
         [Resolved]
         private ScoreManager scoreManager { get; set; } = null!;
 
-        private ReplayAvailability replayAvailability
-        {
-            get
-            {
-                if (State.Value == DownloadState.LocallyAvailable)
-                    return ReplayAvailability.Local;
-
-                if (Score.Value?.HasOnlineReplay == true)
-                    return ReplayAvailability.Online;
-
-                return ReplayAvailability.NotAvailable;
-            }
-        }
+        /// <summary>
+        /// Where a replay for the displayed score can be served from.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="DownloadState.LocallyAvailable"/> is reported by the <see cref="ScoreDownloadTracker"/>,
+        /// which matches realm on hash, online id or legacy online id. That match is the local fallback
+        /// for an online leaderboard row: the local user's own score carries the online id that was
+        /// written back at submission time, so their bit-exact local replay is offered even when the
+        /// server holds nothing.
+        /// </remarks>
+        private ReplaySource replayAvailability
+            => ReplayAvailabilityResolver.Resolve(State.Value == DownloadState.LocallyAvailable, Score.Value?.HasOnlineReplay == true);
 
         public ReplayDownloadButton(ScoreInfo? score)
         {
@@ -160,12 +159,12 @@ namespace typebeat.Game.Screens.Ranking
         {
             switch (replayAvailability)
             {
-                case ReplayAvailability.Local:
+                case ReplaySource.Local:
                     button.TooltipText = @"watch replay";
                     button.Enabled.Value = true;
                     break;
 
-                case ReplayAvailability.Online:
+                case ReplaySource.Online:
                     button.TooltipText = @"download replay";
                     button.Enabled.Value = true;
                     break;
@@ -175,13 +174,6 @@ namespace typebeat.Game.Screens.Ranking
                     button.Enabled.Value = false;
                     break;
             }
-        }
-
-        private enum ReplayAvailability
-        {
-            Local,
-            Online,
-            NotAvailable,
         }
     }
 }

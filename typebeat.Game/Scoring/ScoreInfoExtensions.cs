@@ -21,6 +21,17 @@ namespace typebeat.Game.Scoring
         public static string GetDisplayTitle(this IScoreInfo scoreInfo) => $"{scoreInfo.User.Username} playing {scoreInfo.Beatmap?.GetDisplayTitle() ?? "unknown"}";
 
         /// <summary>
+        /// The filename extension every stored replay uses.
+        /// </summary>
+        public const string REPLAY_FILE_EXTENSION = @".osr";
+
+        /// <summary>
+        /// Whether a file attached to a local score is its replay.
+        /// </summary>
+        public static bool IsReplayFile(RealmNamedFileUsage file)
+            => file.Filename.EndsWith(REPLAY_FILE_EXTENSION, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
         /// Orders an array of <see cref="ScoreInfo"/>s by total score.
         /// </summary>
         /// <param name="scores">The array of <see cref="ScoreInfo"/>s to reorder.</param>

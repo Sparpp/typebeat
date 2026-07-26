@@ -54,6 +54,10 @@ namespace typebeat.Game.Screens.Play
         [CanBeNull]
         private INotificationOverlay notifications { get; set; }
 
+        [Resolved(canBeNull: true)]
+        [CanBeNull]
+        private ReplayUploader replayUploader { get; set; }
+
         private readonly object scoreSubmissionLock = new object();
         private TaskCompletionSource<bool> scoreSubmissionSource;
 
@@ -359,6 +363,35 @@ namespace typebeat.Game.Screens.Play
                 default:
                     return exception.Message;
             }
+        }
+
+        /// <summary>
+        /// Once a score has an online id, hand the replay that was just encoded for local import to
+        /// the server as well, so the score can be watched back from a leaderboard by anyone.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Ordering is what makes this work: the player's score preparation task awaits
+        /// <see cref="PrepareScoreForResultsAsync"/> (which awaits the whole submission, populating
+        /// <c>OnlineID</c>) before it calls <see cref="Player.ImportScore"/>, which is what raises this.
+        /// </para>
+        /// <para>
+        /// Everything downstream is fire and forget. A score with no online id (submission skipped or
+        /// failed, or the fail/quit path where the id landed on a throwaway clone) and a play that
+        /// recorded no frames are both simply skipped.
+        /// </para>
+        /// </remarks>
+        protected override void OnReplayEncoded(Score score, byte[] replayData)
+        {
+            base.OnReplayEncoded(score, replayData);
+
+            if (score.ScoreInfo.OnlineID <= 0)
+                return;
+
+            if (score.Replay == null || score.Replay.Frames.Count == 0)
+                return;
+
+            replayUploader?.Upload(score.ScoreInfo.OnlineID, replayData);
         }
 
         protected override ResultsScreen CreateResults(ScoreInfo score) => new SoloResultsScreen(score)

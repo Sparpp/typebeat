@@ -169,6 +169,8 @@ namespace typebeat.Game
 
         protected ScoreModelDownloader ScoreDownloader { get; private set; }
 
+        protected ReplayUploader ReplayUploader { get; private set; }
+
         protected SkinManager SkinManager { get; private set; }
 
         protected RealmRulesetStore RulesetStore { get; private set; }
@@ -339,6 +341,7 @@ namespace typebeat.Game
 
             dependencies.Cache(BeatmapDownloader = new BeatmapModelDownloader(BeatmapManager, API));
             dependencies.Cache(ScoreDownloader = new ScoreModelDownloader(ScoreManager, API));
+            dependencies.Cache(ReplayUploader = new ReplayUploader(API, ScoreManager));
 
             // Add after all the above cache operations as it depends on them.
             base.Content.Add(difficultyCache);

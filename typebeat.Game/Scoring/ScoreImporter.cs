@@ -11,6 +11,7 @@ using osu.Framework.Logging;
 using osu.Framework.Platform;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Database;
+using typebeat.Game.Extensions;
 using typebeat.Game.IO.Archives;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Scoring.Legacy;
@@ -74,6 +75,22 @@ namespace typebeat.Game.Scoring
         }
 
         public Score GetScore(ScoreInfo score) => new LegacyDatabasedScore(score, rulesets, beatmaps(), Files.Store);
+
+        /// <summary>
+        /// Read the stored .osr for a local score straight out of the file store, without decoding it.
+        /// </summary>
+        /// <remarks>
+        /// Used to re-upload an existing local replay to the server; going through
+        /// <see cref="GetScore"/> would decode and then need re-encoding, which is both wasteful and
+        /// no longer guaranteed to be byte-identical to what was originally stored.
+        /// </remarks>
+        /// <returns>The raw payload, or null when the score has no replay file or it is missing on disk.</returns>
+        public byte[]? GetRawReplayBytes(ScoreInfo score)
+        {
+            string? storagePath = score.Files.FirstOrDefault(ScoreInfoExtensions.IsReplayFile)?.File.GetStoragePath();
+
+            return storagePath == null ? null : Files.Store.Get(storagePath);
+        }
 
         protected override void Populate(ScoreInfo model, ArchiveReader? archive, Realm realm, CancellationToken cancellationToken = default)
         {
