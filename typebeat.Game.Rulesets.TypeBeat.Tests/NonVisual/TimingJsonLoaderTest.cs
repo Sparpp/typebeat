@@ -132,6 +132,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(lines, Is.Empty);
         }
 
+        /// <summary>
+        /// The contract the aligner's syllabification owes the game, as fixture data.
+        ///
+        /// <para>lyriclab used to fall back to raw vowel-group splitting whenever pyphen had no
+        /// hyphenation pattern for a word, which cut the silent final e off "life" and "breathe"
+        /// as if it were a syllable of its own, while "remember" (which pyphen does know) came out
+        /// correct. This pins the shape a fixed aligner emits, and pins what it costs downstream:
+        /// a spurious subdivision is a spurious TAP in the editor's timing pass and a caret that
+        /// changes speed mid-word for no reason.</para>
+        /// </summary>
+        [Test]
+        public void AlignerSyllableContractOneSegmentPerRealSyllable()
+        {
+            // "life" and "breathe" are one syllable each, so one segment and NO internal boundary;
+            // "remember" is three, so three segments and two boundaries.
+            string path = writeTemp("{\"version\":2.0,\"song_end_ms\":10000,\"lines\":[{"
+                                    + "\"text\":\"life breathe remember\",\"start_ms\":0,\"end_ms\":3000,\"words\":["
+                                    + "{\"text\":\"life\",\"start_ms\":0,\"end_ms\":600,"
+                                    + "\"syllables\":[{\"text\":\"life\",\"start_ms\":0,\"end_ms\":600}]},"
+                                    + "{\"text\":\"breathe\",\"start_ms\":600,\"end_ms\":1200,"
+                                    + "\"syllables\":[{\"text\":\"breathe\",\"start_ms\":600,\"end_ms\":1200}]},"
+                                    + "{\"text\":\"remember\",\"start_ms\":1200,\"end_ms\":3000,"
+                                    + "\"syllables\":[{\"text\":\"re\",\"start_ms\":1200,\"end_ms\":1600},"
+                                    + "{\"text\":\"mem\",\"start_ms\":1600,\"end_ms\":2200},"
+                                    + "{\"text\":\"ber\",\"start_ms\":2200,\"end_ms\":3000}]}"
+                                    + "]}]}");
+
+            Assert.That(TimingJsonLoader.TryLoad(path, out var lines), Is.True);
+
+            var units = lines[0].Units;
+            Assert.That(units.Select(u => u.Text), Is.EqualTo(new[] { "life", "breathe", "remember" }));
+
+            Assert.That(units[0].SyllableBoundaries, Is.Empty, "life is one syllable");
+            Assert.That(units[1].SyllableBoundaries, Is.Empty, "breathe is one syllable");
+            Assert.That(units[2].SyllableBoundaries, Is.EqualTo(new[] { 1600d, 2200d }), "remember is three");
+
+            // What that means for the mapper: this line is FIVE taps (1 + 1 + 3). Under the old
+            // vowel-group fallback it would have asked for seven, two of them for syllables that
+            // do not exist.
+            Assert.That(TapTimingBuilder.BuildQueue(lines), Has.Count.EqualTo(5));
+            Assert.That(units.Sum(TapTimingBuilder.SyllableCount), Is.EqualTo(5));
+        }
+
         [Test]
         public void MalformedJsonReturnsFalse()
         {

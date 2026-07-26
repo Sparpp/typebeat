@@ -47,7 +47,7 @@ audio there. Words with dotted red underline = low confidence.
 mp3 ─ffmpeg→ wav ─Demucs htdemucs→ vocals ─16 kHz→ wav2vec2 (MMS_FA) CTC emissions
 lyrics ─normalize (lowercase, num2words, dict chars)→ char targets
         └────────── torchaudio forced_align (char level) ──────────┘
-char spans → syllables (pyphen + vowel-group fallback) → words → lines
+char spans → syllables (spelling-rule count, pyphen placement) → words → lines
            → end-times extended through voiced audio (RMS gate) → LRC/JSON
 ```
 
@@ -126,7 +126,17 @@ MMS_FA aligner + htdemucs).
 
 ## Known limitations / future work
 
-- **English-first**: syllabification is pyphen `en_US` + naive fallback. For
+- **English-first**: `syllable_count` decides how many syllables a word has from
+  its spelling (vowel-group counting with silent final e / `-ed` / `-es`, the
+  consonant + `-le` exception, `y` as a glide or a nucleus, and syllabic `-sm` /
+  `-thm`); pyphen `en_US` only decides *where* the boundaries fall, falling back
+  to vowel-group splitting capped at that count. The count is authoritative
+  because pyphen returns a single part both for a real monosyllable and for any
+  word it has no pattern for. Check it with
+  `python align_lyrics.py --self-test-syllables`. Spelling cannot settle every
+  word: `every` counts 3 (often sung as 2), `fire`/`hour` count 1 (often sung as
+  2), and `rhythm` counts 2 but has no vowel to split on so it stays undivided.
+  For
   Japanese maps, romanize first (pykakasi) and align romaji; MMS_FA is
   multilingual, and a typing game wants romaji anyway. Wire-up is ~30 lines.
 - `auto` mode can still misplace lines when near-identical hook lines repeat
