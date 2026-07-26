@@ -135,6 +135,17 @@ namespace typebeat.Game.Localisation
         public static LocalisableString BeatmapSubmissionTargetUnranked => new TranslatableString(getKey(@"beatmap_submission_target_unranked"), @"Unranked (complete, not intended for ranking)");
 
         /// <summary>
+        /// "This beatmap contains explicit content"
+        /// </summary>
+        public static LocalisableString ExplicitContent => new TranslatableString(getKey(@"explicit_content"), @"This beatmap contains explicit content");
+
+        /// <summary>
+        /// "Explicit lyrics, themes or imagery. Flagged beatmaps show an "explicit" badge on the website and in-game."
+        /// </summary>
+        public static LocalisableString ExplicitContentHint => new TranslatableString(getKey(@"explicit_content_hint"),
+            @"Explicit lyrics, themes or imagery. Flagged beatmaps show an ""explicit"" badge on the website and in-game.");
+
+        /// <summary>
         /// "Receive notifications for discussion replies"
         /// </summary>
         public static LocalisableString NotifyOnDiscussionReplies => new TranslatableString(getKey(@"notify_for_discussion_replies"), @"Receive notifications for discussion replies");
