@@ -9,10 +9,16 @@ using typebeat.Game.Rulesets.TypeBeat.Mods;
 namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 {
     /// <summary>
-    /// Score multipliers for type!beat mods. Values mirror osu!'s current (V2) multipliers so
-    /// modded scores read consistently with the rest of lazer; the rate helpers below are copied
-    /// verbatim from <c>OsuScoreMultiplierCalculatorV2</c>. Mods not listed here stay at 1.0x
+    /// Score multipliers for type!beat mods. The flat values mirror osu!'s current (V2) multipliers
+    /// so modded scores read consistently with the rest of lazer. Mods not listed here stay at 1.0x
     /// (Sudden Death, Muted). Mashing is unranked, but still carries the Relax 0.1x for display parity.
+    ///
+    /// <para>
+    /// The rate mods are the exception: type!beat ranks them at every speed, so they are paid by
+    /// <see cref="TypeBeatRateMultiplier"/> (a continuous, strictly monotonic function of the rate)
+    /// rather than by osu's bucketed V2 curve. It agrees with the old curve exactly at the default
+    /// speeds, so no default-speed score changes value.
+    /// </para>
     /// </summary>
     public class TypeBeatScoreMultiplierCalculator : ScoreMultiplierCalculator
     {
@@ -21,12 +27,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         {
             // Difficulty reduction.
             Single<TypeBeatModNoFail>(hasMultiplier: 0.5);
-            Single<TypeBeatModHalfTime>(hasMultiplier: halfTime => halfTimeMultiplier(halfTime.SpeedChange.Value));
+            Single<TypeBeatModHalfTime>(hasMultiplier: halfTime => TypeBeatRateMultiplier.For(halfTime.SpeedChange.Value));
 
             // Difficulty increase.
             // Sudden Death (1.0x)
-            Single<TypeBeatModDoubleTime>(hasMultiplier: doubleTime => doubleTimeMultiplier(doubleTime.SpeedChange.Value));
-            Single<TypeBeatModNightcore>(hasMultiplier: nightcore => doubleTimeMultiplier(nightcore.SpeedChange.Value));
+            Single<TypeBeatModDoubleTime>(hasMultiplier: doubleTime => TypeBeatRateMultiplier.For(doubleTime.SpeedChange.Value));
+            Single<TypeBeatModNightcore>(hasMultiplier: nightcore => TypeBeatRateMultiplier.For(nightcore.SpeedChange.Value));
             // Flashlight is now a fixed character-window reveal (no size setting), so it carries the
             // flat 1.2x the old circular flashlight used at its default size.
             Single<TypeBeatModFlashlight>(hasMultiplier: 1.2);
@@ -48,35 +54,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             Single<ModWindDown>(hasMultiplier: timeRampMultiplier);
         }
 
-        private static double halfTimeMultiplier(double speedChange)
-        {
-            // 0.2x at 0.5x speed, +0.07x per 0.05x speed increment.
-            // Default HT (0.75x) = 0.55
-            return (int)(speedChange * 20) / 20.0 * 1.4 - 0.5;
-        }
-
-        private static double doubleTimeMultiplier(double speedChange)
-        {
-            // Floor to the nearest multiple of 0.1.
-            double value = (int)(speedChange * 10) / 10.0;
-
-            // 0.01 penalty for non-default rates.
-            double penalty = value != 1.5 && value != 1.0 ? 0.01 : 0.0;
-
-            // Linear from 1.0 to 1.46, minus the penalty.
-            // Default DT (1.5x) = 1.23
-            return (value - 1) * 0.46 + 1 - penalty;
-        }
-
+        /// <summary>
+        /// A ramp is paid mostly for the rate it spends the most map at (osu weights 80/20 toward
+        /// the slower end). Both ends go through the same rate curve as the static rate mods, so a
+        /// ramp that starts or ends at a rate a rate mod could have been set to is priced the same
+        /// way. Wind Up / Wind Down stay unranked regardless; this is display-only.
+        /// </summary>
         private static double timeRampMultiplier(ModTimeRamp timeRamp)
         {
             double minSpeed = Math.Min(timeRamp.InitialRate.Value, timeRamp.FinalRate.Value);
             double maxSpeed = Math.Max(timeRamp.InitialRate.Value, timeRamp.FinalRate.Value);
 
-            double minMultiplier = minSpeed < 1 ? halfTimeMultiplier(minSpeed) : doubleTimeMultiplier(minSpeed);
-            double maxMultiplier = maxSpeed < 1 ? halfTimeMultiplier(maxSpeed) : doubleTimeMultiplier(maxSpeed);
-
-            return 0.8 * minMultiplier + 0.2 * maxMultiplier;
+            return 0.8 * TypeBeatRateMultiplier.For(minSpeed) + 0.2 * TypeBeatRateMultiplier.For(maxSpeed);
         }
     }
 }

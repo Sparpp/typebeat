@@ -65,6 +65,20 @@ namespace typebeat.Game.Rulesets.Mods
         }
 
         /// <summary>
+        /// Whether the named setting must be written to the wire (see
+        /// <c>typebeat.Game.Online.API.APIMod</c>) even while it holds its default value.
+        /// </summary>
+        /// <remarks>
+        /// By default only non-default settings are serialised, which makes an absent setting mean
+        /// "whatever the sending client's default happens to be". That is fine for cosmetics, but
+        /// not for a setting a receiver has to price a score by: it silently couples the server to
+        /// this client's defaults, and changing a default would then re-interpret every score
+        /// already submitted. Mods whose settings are score-affecting opt out of the omission here.
+        /// </remarks>
+        /// <param name="propertyName">The CLR property name of the setting, e.g. <c>SpeedChange</c>.</param>
+        public virtual bool AlwaysSerializeSetting(string propertyName) => false;
+
+        /// <summary>
         /// Gets the tooltip text for a specific mod setting.
         /// Can be overridden to provide custom formatting for specific settings.
         /// </summary>
