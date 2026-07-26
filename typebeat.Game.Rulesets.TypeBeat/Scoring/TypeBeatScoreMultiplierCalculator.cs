@@ -33,9 +33,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // Sudden Death (1.0x)
             Single<TypeBeatModDoubleTime>(hasMultiplier: doubleTime => TypeBeatRateMultiplier.For(doubleTime.SpeedChange.Value));
             Single<TypeBeatModNightcore>(hasMultiplier: nightcore => TypeBeatRateMultiplier.For(nightcore.SpeedChange.Value));
-            // Flashlight is now a fixed character-window reveal (no size setting), so it carries the
-            // flat 1.2x the old circular flashlight used at its default size.
-            Single<TypeBeatModFlashlight>(hasMultiplier: 1.2);
+            // Flashlight is a fixed character-window reveal (no size setting). 1.05x, trimmed from
+            // the old circular flashlight's 1.2x: the character window is a far milder handicap.
+            // Mirrored by the mod's own ScoreMultiplier self-report and the server's ModMultiplier.
+            Single<TypeBeatModFlashlight>(hasMultiplier: 1.05);
             Single<TypeBeatModLiterate>(hasMultiplier: 1.05);
 
             // Conversion.

@@ -25,9 +25,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     ///
     /// It no longer subclasses <c>ModFlashlight</c> (that base drags in the size/combo shader knobs,
     /// which are meaningless for a discrete character window). Acronym, type and ranked status are
-    /// unchanged, and the score multiplier stays the flat 1.2x the old flashlight used at its
-    /// default size (see <see cref="Scoring.TypeBeatScoreMultiplierCalculator"/>), so the server,
-    /// which only keys off the "FL" acronym, needs no change.
+    /// unchanged; the score multiplier is a flat 1.05x (see
+    /// <see cref="Scoring.TypeBeatScoreMultiplierCalculator"/>), trimmed from the old flashlight's
+    /// 1.2x because the character window is a far milder handicap than the circular shader was.
     /// </summary>
     public class TypeBeatModFlashlight : Mod, IApplicableToDrawableRuleset<TypeBeatHitObject>, IApplicableToScoreProcessor
     {
@@ -44,9 +44,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         public override bool Ranked => true;
 
         // Legacy self-report only; the authoritative multiplier lives in the non-obsolete
-        // TypeBeatScoreMultiplierCalculator (1.2x, unchanged from the old default-size flashlight).
+        // TypeBeatScoreMultiplierCalculator. Both say 1.05x and must move together.
 #pragma warning disable CS0672 // Member overrides obsolete member
-        public override double ScoreMultiplier => 1.2;
+        public override double ScoreMultiplier => 1.05;
 #pragma warning restore CS0672
 
         /// <summary>Countable characters lit either side of the caret head.</summary>

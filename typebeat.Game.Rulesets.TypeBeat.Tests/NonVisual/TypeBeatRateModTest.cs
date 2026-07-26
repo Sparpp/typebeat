@@ -214,7 +214,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 new TypeBeatModLiterate(),
             });
 
-            Assert.AreEqual(1.46 * 1.2 * 1.05, stacked, 1e-9);
+            Assert.AreEqual(1.46 * 1.05 * 1.05, stacked, 1e-9);
 
             // The server bounds a submitted total by TotalScoreWithoutMods * 2.0. The richest legal
             // ranked stack must stay under that or honest maximum-rate plays get clamped.
@@ -403,7 +403,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 { new TypeBeatModNoFail(), 0.5 },
                 { new TypeBeatModSuddenDeath(), 1.0 },
-                { new TypeBeatModFlashlight(), 1.2 },
+                { new TypeBeatModFlashlight(), 1.05 },
                 { new TypeBeatModLiterate(), 1.05 },
                 { new TypeBeatModFletcher(), 0.98 },
                 { new TypeBeatModMashing(), 0.1 },
