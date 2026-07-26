@@ -210,13 +210,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 return true;
             };
 
+            // The pipeline streams its own internals (model names, chunk counters, temp paths); the
+            // notification shows the same short stage summaries the import screen does, and feeds
+            // any fraction it emits to the notification's own bar.
+            ImportStage? reportedStage = null;
+
+            void reportProgress(string line)
+            {
+                var update = ImportProgressParser.Parse(line);
+                reportedStage = update.Stage ?? reportedStage;
+
+                string label = ImportProgressParser.LabelFor(reportedStage ?? ImportStage.Preparing);
+                progressNotification.Text = char.ToUpperInvariant(label[0]) + label.Substring(1);
+
+                if (update.Progress is float fraction)
+                    progressNotification.Progress = fraction;
+            }
+
             Task.Run(async () =>
             {
                 try
                 {
                     var (result, timingJson) = await importer.ProduceTimingJsonAsync(
                         tempAudio, lyricsContent, artist, title,
-                        line => progressNotification.Text = line,
+                        reportProgress,
                         token).ConfigureAwait(false);
 
                     if (!result.Success || timingJson == null)

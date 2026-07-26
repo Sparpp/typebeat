@@ -11,6 +11,7 @@ using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
+using osu.Framework.Logging;
 using osu.Framework.Screens;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
@@ -57,6 +58,7 @@ namespace typebeat.Game.Screens.ImportLyrics
         private OsuCheckbox automaticAlignmentCheckbox = null!;
         private RoundedButton importButton = null!;
         private OsuSpriteText statusText = null!;
+        private ImportProgressDisplay progressDisplay = null!;
         private Container contentContainer = null!;
 
         private CancellationTokenSource? importCancellation;
@@ -133,6 +135,7 @@ namespace typebeat.Game.Screens.ImportLyrics
                                     Colour = colourProvider.Content2,
                                     Font = OsuFont.Default.With(size: 15),
                                 },
+                                progressDisplay = new ImportProgressDisplay { Alpha = 0 },
                             }
                         }
                     }
@@ -203,7 +206,11 @@ namespace typebeat.Game.Screens.ImportLyrics
             bool useAutomaticAlignment = automaticAlignmentCheckbox.Current.Value;
 
             var cancellation = importCancellation = new CancellationTokenSource();
-            setStatus("starting import...");
+
+            statusText.Text = string.Empty;
+            progressDisplay.Reset();
+            progressDisplay.FadeIn(200, Easing.OutQuint);
+            report("starting import");
 
             Task.Factory.StartNew(async () =>
             {
@@ -212,7 +219,7 @@ namespace typebeat.Game.Screens.ImportLyrics
                 try
                 {
                     result = await importer.BuildOszAsync(audioPath, lyricsPath, artist, title,
-                        line => Schedule(() => setStatus(line)), cancellation.Token, useAutomaticAlignment).ConfigureAwait(false);
+                        line => Schedule(() => report(line)), cancellation.Token, useAutomaticAlignment).ConfigureAwait(false);
                 }
                 catch (Exception e)
                 {
@@ -221,7 +228,7 @@ namespace typebeat.Game.Screens.ImportLyrics
 
                 if (result.Success && result.OszPath != null)
                 {
-                    Schedule(() => setStatus("packaging done, importing beatmap..."));
+                    Schedule(() => report("importing beatmap"));
                     await game.Import(result.OszPath).ConfigureAwait(false);
                     Schedule(finishSuccess);
                 }
@@ -232,23 +239,42 @@ namespace typebeat.Game.Screens.ImportLyrics
             }, cancellation.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         }
 
+        /// <summary>
+        /// Routes one raw pipeline line to the progress panel (which summarises it to a stage label
+        /// and a bar). The verbatim line still goes to the log: the display deliberately drops
+        /// filenames, model names and chunk counters, and those are what a failed import is debugged
+        /// with. Lines carrying only a counter are skipped to keep the log readable.
+        /// </summary>
+        private void report(string? line)
+        {
+            if (!string.IsNullOrWhiteSpace(line) && ImportProgressParser.ParseProgress(line) == null)
+                Logger.Log($@"[import] {line.Trim()}");
+
+            progressDisplay.Report(line);
+        }
+
         private void finishSuccess()
         {
             importing = false;
-            setStatus("imported!");
+            progressDisplay.Complete();
 
-            if (this.IsCurrentScreen())
-                this.Exit();
+            // Give the final tick and its sample a moment to land before the screen slides away.
+            Scheduler.AddDelayed(() =>
+            {
+                if (this.IsCurrentScreen())
+                    this.Exit();
+            }, 700);
         }
 
         private void finishFailure(string? error)
         {
             importing = false;
-            setStatus($"import failed: {error}");
+            // Deliberately not LogLevel.Important: that would raise a toast on top of the error the
+            // failed stage row is already showing.
+            Logger.Log($@"[import] failed: {error}");
+            progressDisplay.Fail(error);
             updateImportButton();
         }
-
-        private void setStatus(string text) => statusText.Text = text;
 
         public override void OnEntering(ScreenTransitionEvent e)
         {
