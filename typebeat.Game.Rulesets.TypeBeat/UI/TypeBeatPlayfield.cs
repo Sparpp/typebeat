@@ -158,6 +158,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // the current Clock every frame, before any child of the lyric subtree ticks.
             lyricClock = new FramedOffsetClock(Clock, processSource: false) { Offset = -lyricOffset.Value };
 
+            // Song-paced held-key repeat (see HeldKeyRepeater). The key handler owns the hold
+            // state; the engine ticker pumps it, so due repeats are applied BEFORE the frame's own
+            // engine tick and the engine is never handed a timestamp it has already passed.
+            var repeater = new HeldKeyRepeater(Engine, (c, t) => drawableRuleset?.RecordTypingInput(c, t));
+
             AddRangeInternal(new Drawable[]
             {
                 backdrop,
@@ -172,10 +177,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         // Ticks the engine FIRST in this subtree so the stage and HUD read
                         // fresh engine state for the same lyric-clock frame. Doubles as the
                         // replay feeder when a replay score is attached.
-                        new EngineTicker(Engine, drawableRuleset),
+                        new EngineTicker(Engine, drawableRuleset, repeater),
                         stage = new LyricStage(Engine),
                         new TypeBeatHudOverlay(Engine),
-                        new TypeBeatKeyHandler(Engine, keyboardLayout, drawableRuleset),
+                        new TypeBeatKeyHandler(Engine, keyboardLayout, drawableRuleset, repeater),
                     },
                 },
             });
@@ -304,14 +309,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             private readonly TypingEngine engine;
             private readonly DrawableTypeBeatRuleset? drawableRuleset;
+            private readonly HeldKeyRepeater repeater;
 
             private Game.Replays.Replay? activeReplay;
             private int nextFrameIndex;
 
-            public EngineTicker(TypingEngine engine, DrawableTypeBeatRuleset? drawableRuleset)
+            public EngineTicker(TypingEngine engine, DrawableTypeBeatRuleset? drawableRuleset, HeldKeyRepeater repeater)
             {
                 this.engine = engine;
                 this.drawableRuleset = drawableRuleset;
+                this.repeater = repeater;
             }
 
             protected override void Update()
@@ -322,6 +329,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 if (replay != null)
                 {
+                    // Playback owns the engine: the recorded frames already CONTAIN whatever repeats
+                    // the run held, so a live hold must never overlay them.
+                    repeater.Cancel();
+
                     // The replay can be swapped mid-play (editor autoplay toggle); restart feeding.
                     if (!ReferenceEquals(replay, activeReplay))
                     {
@@ -338,6 +349,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                         nextFrameIndex++;
                     }
+                }
+                else
+                {
+                    // Held-key repeats due this frame, applied before the tick below so the engine is
+                    // only ever advanced forwards (an Update at an already-passed time would
+                    // re-accrue that stretch of active time into the WPM clock).
+                    repeater.Pump(Time.Current);
                 }
 
                 engine.Update(Time.Current);
@@ -368,9 +386,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// Full-keyboard typing input, taken via raw <see cref="OnKeyDown"/> inside the ruleset
         /// input manager's subtree (raw key events pass through RulesetInputManager to its
         /// children; children receive them before the key-binding container, so typing letters
-        /// wins over the vestigial Z/X action bindings). Key-repeat is honoured ONLY for
-        /// backspace (hold to erase); held character keys never machine-gun judgements.
-        /// Ctrl/Alt combos fall through to framework shortcuts.
+        /// wins over the vestigial Z/X action bindings). OS/framework key-repeat is honoured ONLY
+        /// for backspace (hold to erase); a held character key never machine-guns judgements at the
+        /// keyboard's own repeat rate. Ctrl/Alt combos fall through to framework shortcuts.
+        ///
+        /// <para>A held character key instead re-fires at the SONG's cadence, one press per
+        /// upcoming cell target, via <see cref="HeldKeyRepeater"/> (pumped by the
+        /// <see cref="EngineTicker"/>): the handler's job is only to capture the hold, drop it on
+        /// key-up/focus-loss/backspace, and keep the framework's own repeat out.</para>
         ///
         /// <para>Backspace is live ONLY in allow-wrong-input mode, the only model where a wrong char
         /// lands in a cell and is thus worth erasing; in strict (default) play the key is swallowed
@@ -391,12 +414,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             private readonly TypingEngine engine;
             private readonly IBindable<KeyboardLayout> keyboardLayout;
             private readonly DrawableTypeBeatRuleset? drawableRuleset;
+            private readonly HeldKeyRepeater repeater;
 
-            public TypeBeatKeyHandler(TypingEngine engine, IBindable<KeyboardLayout> keyboardLayout, DrawableTypeBeatRuleset? drawableRuleset)
+            public TypeBeatKeyHandler(TypingEngine engine, IBindable<KeyboardLayout> keyboardLayout, DrawableTypeBeatRuleset? drawableRuleset, HeldKeyRepeater repeater)
             {
                 this.engine = engine;
                 this.keyboardLayout = keyboardLayout;
                 this.drawableRuleset = drawableRuleset;
+                this.repeater = repeater;
                 RelativeSizeAxes = Axes.Both;
             }
 
@@ -441,6 +466,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 if (e.Key == Key.BackSpace)
                 {
+                    // Correcting, not sustaining: end any hold rather than let it keep typing over
+                    // the erase. (Backspace's own OS repeat is untouched, see below.)
+                    repeater.Cancel();
+
                     // Erasing only ever has something to undo in ALLOW-WRONG-INPUT mode: that is the
                     // one model where a wrong char lands in a cell. In strict (default) play a wrong
                     // key is rejected outright, so nothing erasable is ever written, and re-typing an
@@ -486,14 +515,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // Literate (case-sensitive) mod; folded away harmlessly in normal play.
                 if (KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, out char c))
                 {
-                    // Holding a character key must not machine-gun judgements.
-                    if (!e.Repeat && engine.ProcessKey(c, time))
-                        drawableRuleset?.RecordTypingInput(c, time);
+                    // The framework's own auto-repeat is discarded outright: a held character key is
+                    // re-fired by the SONG, not by the keyboard's repeat rate.
+                    if (!e.Repeat)
+                    {
+                        if (engine.ProcessKey(c, time))
+                            drawableRuleset?.RecordTypingInput(c, time);
+
+                        // Arm the song-paced repeat from the post-press caret. The captured char is
+                        // the EFFECTIVE one (layout-mapped, Shift applied), so a Literate-mod
+                        // Shift+A hold repeats 'A' even if Shift is let go mid-hold.
+                        repeater.BeginHold(e.Key, c, time);
+                    }
 
                     return true;
                 }
 
                 return false;
+            }
+
+            protected override void OnKeyUp(KeyUpEvent e)
+            {
+                repeater.Release(e.Key);
+                base.OnKeyUp(e);
+            }
+
+            protected override void OnFocusLost(FocusLostEvent e)
+            {
+                // Pause overlay, alt-tab, anything that steals focus: the matching key-up may never
+                // arrive, so drop the hold instead of letting it type on unattended.
+                repeater.Cancel();
+                base.OnFocusLost(e);
             }
         }
     }
