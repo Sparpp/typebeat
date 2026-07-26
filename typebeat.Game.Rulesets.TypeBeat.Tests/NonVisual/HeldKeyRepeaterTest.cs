@@ -80,10 +80,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The schedule IS the song's: every cell past the engage window is pressed exactly on its
-        /// own target time, which is where <see cref="Replays.TypeBeatAutoGenerator"/> presses, so a
-        /// sustained run judges Perfect (delta 0) all the way down. The two cells whose targets fall
-        /// inside the engage window are not dropped, they are clamped to the end of it.
+        /// The schedule IS the song's: with no engage delay, every scheduled cell is pressed exactly
+        /// on its own target time (no clamping, whatever the cadence), which is where
+        /// <see cref="Replays.TypeBeatAutoGenerator"/> presses, so a sustained run judges Perfect
+        /// (delta 0) all the way down, even on a line this dense.
         /// </summary>
         [Test]
         public void HeldKeyFiresOnSuccessiveCellTargets()
@@ -95,21 +95,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             run(repeater, engine, 1000, 2100);
 
-            // Cells 1..10 scheduled; targets 1100 and 1200 sit inside [1000, 1250) so both clamp to
-            // 1250, everything after fires on its own target.
+            // Cells 1..10 scheduled, every one fires on its own target, no clamping.
             Assert.AreEqual(
-                new double[] { 1000, 1250, 1250, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000 },
+                new double[] { 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000 },
                 recorded.Select(r => r.time).ToArray());
 
             Assert.IsTrue(recorded.All(r => r.c == 'a'), "every repeat fires the char captured at the initial press");
 
-            // The clamped pair lands late but well inside the Word-granularity Perfect window; every
-            // later cell is dead on its target.
             var cells = engine.Lines[0].Cells;
-            Assert.AreEqual(150, cells[1].JudgedDelta);
-            Assert.AreEqual(50, cells[2].JudgedDelta);
 
-            for (int i = 3; i <= 9; i++)
+            for (int i = 0; i <= 9; i++)
                 Assert.AreEqual(0, cells[i].JudgedDelta, $"cell {i} pressed exactly on its target");
 
             Assert.IsTrue(Enumerable.Range(0, 10).All(i => cells[i].State == CellState.Correct && cells[i].TypedChar == 'a'));
@@ -159,46 +154,77 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The engage delay is what keeps ordinary typing safe: a key held for a normal keystroke's
-        /// dwell (well under <see cref="HeldKeyRepeater.ENGAGE_DELAY_MS"/>) fires nothing at all,
-        /// even on a line dense enough that two cell targets pass while the key is down.
+        /// With no engage delay, release is now the ONLY thing that stops a repeat: releasing before
+        /// the next cell's target arrives, exactly like a normal keystroke's release, fires nothing
+        /// at all, even on a line dense enough that the target is close behind.
         /// </summary>
         [Test]
-        public void ADiscretePressNeverRepeats()
+        public void ReleasedBeforeTheNextTargetFiresNothing()
         {
             var (engine, repeater, recorded) = start(denseRun());
 
             press(engine, repeater, recorded, Key.A, 'a', 1000);
 
-            // 240ms of dwell, spanning the 1100 and 1200 targets: still one keystroke.
-            run(repeater, engine, 1000, 1240);
+            // 80ms of dwell, a normal keystroke's release, well before the 1100 target.
+            run(repeater, engine, 1000, 1080);
             repeater.Release(Key.A);
 
             Assert.AreEqual(1, engine.CaretIndex);
             Assert.AreEqual(1, recorded.Count);
             Assert.IsFalse(repeater.IsHolding);
 
-            // Nothing fires after the release either.
-            run(repeater, engine, 1240, 2100);
+            // Nothing fires after the release either, even once the song reaches the target the
+            // hold would otherwise have caught.
+            run(repeater, engine, 1080, 2100);
             Assert.AreEqual(1, engine.CaretIndex);
         }
 
-        /// <summary>The other side of the same boundary: 10ms more dwell and the hold engages.</summary>
+        /// <summary>
+        /// The other side of the same boundary: still physically held when the next cell's target
+        /// arrives, the repeat fires right there, no minimum dwell required and nothing clamped late.
+        /// This is the accepted tradeoff: an ordinarily-typed key that is not released crisply on a
+        /// dense line will double-fire exactly like this.
+        /// </summary>
         [Test]
-        public void HoldingPastTheEngageDelayFires()
+        public void StillHeldAtTheNextTargetFires()
         {
             var (engine, repeater, recorded) = start(denseRun());
 
             press(engine, repeater, recorded, Key.A, 'a', 1000);
-            run(repeater, engine, 1000, 1250);
+            run(repeater, engine, 1000, 1100);
 
-            Assert.AreEqual(3, engine.CaretIndex, "both engage-window cells land the moment the hold engages");
-            Assert.AreEqual(3, recorded.Count);
+            Assert.AreEqual(2, engine.CaretIndex, "the repeat fired the moment its target arrived, no engage delay");
+            Assert.AreEqual(2, recorded.Count);
+            Assert.AreEqual(1100, recorded[^1].time);
+            Assert.AreEqual(0, engine.Lines[0].Cells[1].JudgedDelta, "pressed exactly on target, not clamped late");
         }
 
         /// <summary>
-        /// With a cadence wider than the engage delay there is no clamping at all: the first repeat
-        /// waits for the next cell's target and not a millisecond earlier.
+        /// The flow-in is seamless even when the very next target lands only a handful of
+        /// milliseconds after the press: there is no floor under how soon the first repeat can fire.
+        /// </summary>
+        [Test]
+        public void HoldFlowsStraightIntoTheNextTargetEvenAFewMsLater()
+        {
+            var tightRun = map(line("aa", 1000, 9000, 1008, unit("aa", 1000, 1008)));
+            var (engine, repeater, recorded) = start(tightRun);
+
+            press(engine, repeater, recorded, Key.A, 'a', 1000);
+            Assert.AreEqual(1004, engine.Lines[0].Cells[1].TargetTime, "the next cell's target sits only 4ms after the press");
+
+            // A frame landing right on the target; no OS-style engage delay stands in the way.
+            repeater.Pump(1004);
+            engine.Update(1004);
+
+            Assert.AreEqual(2, engine.CaretIndex, "the repeat fired the instant its target arrived");
+            Assert.AreEqual(2, recorded.Count);
+            Assert.AreEqual(1004, recorded[^1].time);
+            Assert.AreEqual(0, engine.Lines[0].Cells[1].JudgedDelta, "pressed exactly on target");
+        }
+
+        /// <summary>
+        /// The first repeat waits for the next cell's target and not a millisecond earlier; there is
+        /// no clamping at any cadence, wide or narrow.
         /// </summary>
         [Test]
         public void TheFirstRepeatWaitsForTheNextCellTarget()
@@ -368,9 +394,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             run(repeater, engine, 1500, 2100);
 
-            Assert.AreEqual(new double[] { 1500, 1750, 1750, 1750, 1800, 1900, 2000 }, recorded.Select(r => r.time).ToArray());
+            Assert.AreEqual(new double[] { 1500, 1500, 1600, 1700, 1800, 1900, 2000 }, recorded.Select(r => r.time).ToArray());
             Assert.AreEqual(7, engine.CaretIndex, "the caret still trails the playhead by four cells");
-            Assert.AreEqual(650, engine.Lines[0].Cells[1].JudgedDelta, "the repeat lands on the cell the player is behind on");
+            Assert.AreEqual(400, engine.Lines[0].Cells[1].JudgedDelta, "the repeat lands on the cell the player is behind on, no clamp to soften it");
         }
 
         /// <summary>
@@ -414,9 +440,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The feature cannot touch anyone who types normally: an identical discrete-press run with
-        /// the repeater armed on every keystroke produces byte-identical engine state to the same
-        /// run without it.
+        /// With no engage delay, discrete typing is only untouched when the release beats the next
+        /// cell's target (see StillHeldAtTheNextTargetFires for the other side of that boundary): an
+        /// identical discrete-press run, released crisply well inside the gap to whatever cell comes
+        /// next, produces byte-identical engine state to the same run without the repeater armed.
         /// </summary>
         [Test]
         public void ADiscretePressRunIsUnchangedByTheFeature()
@@ -430,10 +457,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             bare.Update(cursor);
             armed.Update(cursor);
 
+            // 20ms of dwell: comfortably shorter than every gap this script leaves to the next cell
+            // target (the tightest is 40ms), so the release always lands before a repeat could fire.
+            const int dwell_ms = 20;
+
             foreach (var (c, time) in script)
             {
                 // Frames up to the keystroke, then the keystroke itself; the armed run additionally
-                // holds each key for 80ms of dwell before releasing it.
+                // holds each key for a normal keystroke's dwell before releasing it.
                 for (int t = cursor + frame_step_ms; t <= time; t += frame_step_ms)
                 {
                     bare.Update(t);
@@ -446,7 +477,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 press(armed, repeater, recorded, c == 'h' ? Key.H : Key.A, c, time);
 
-                for (int t = time + frame_step_ms; t <= time + 80; t += frame_step_ms)
+                for (int t = time + frame_step_ms; t <= time + dwell_ms; t += frame_step_ms)
                 {
                     bare.Update(t);
                     repeater.Pump(t);
@@ -454,7 +485,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 }
 
                 repeater.Release(c == 'h' ? Key.H : Key.A);
-                cursor = time + 80;
+                cursor = time + dwell_ms;
             }
 
             bare.Update(9000);

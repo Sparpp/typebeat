@@ -30,20 +30,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// player who was already lagging keeps lagging (their presses land on cells they are behind on)
     /// and a player who rushed ahead keeps rushing. The repeat never catches the player up: cells the
     /// song had already sung past when the hold began are not scheduled at all.</para>
+    ///
+    /// <para>NO ENGAGE DELAY. There used to be an OS-autorepeat-style pause before the first repeat
+    /// could fire (250ms, the shortest Windows offers). Playtesting (backlog task 39) called that
+    /// pause out as feeling wrong for a rhythm game: the hold should flow straight into the song's
+    /// cadence the instant the key goes down, however soon the next cell target lands. The schedule
+    /// now fires every upcoming cell at its own target time starting immediately after the initial
+    /// press, with no minimum hold duration and no clamping.</para>
+    ///
+    /// <para>TRADEOFF: releasing the key is now the ONLY thing that stops a repeat from firing.
+    /// Ordinary typing dwells on a key for roughly 60-100ms, so on a densely timed line (cell targets
+    /// closer together than that dwell) a normally-typed key that is still physically down when the
+    /// next cell's target arrives WILL fire a repeat, double-hitting that cell for a player who does
+    /// not release crisply. This is accepted behavior: the song's own pacing is the intended feel,
+    /// and the old engage delay traded that feel away to buy safety this design no longer wants.</para>
     /// </summary>
     public sealed class HeldKeyRepeater
     {
-        /// <summary>
-        /// How long a character key must stay down before the first repeat may fire. Normal typing
-        /// dwells on a key for roughly 60-100ms (well under 200ms even for slow typists), and this
-        /// matches the SHORTEST auto-repeat delay Windows offers, so a discrete keystroke can never
-        /// turn into a repeat no matter how densely the line is timed. Repeats whose cell target
-        /// falls inside this window are not dropped, they are clamped to the end of it (see
-        /// <see cref="BeginHold"/>), so engaging a hold costs at most this much lateness on the one
-        /// or two characters it covers instead of missing them outright.
-        /// </summary>
-        public const double ENGAGE_DELAY_MS = 250;
-
         /// <summary>
         /// Largest clock advance between two pumps that a hold survives. A pause/resume, a skip
         /// seek or a long stall would otherwise leave a backlog of due repeats and dump them into
@@ -104,8 +107,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             int lineIndex = engine.ActiveLineIndex;
             var cells = engine.Lines[lineIndex].Cells;
 
-            double engageTime = time + ENGAGE_DELAY_MS;
-
             for (int i = engine.CaretIndex; i < cells.Count; i++)
             {
                 if (!cells[i].IsTypeable)
@@ -122,7 +123,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 if (target < time)
                     continue;
 
-                schedule.Add(Math.Max(target, engageTime));
+                // No engage delay, no clamp: the cell fires at its own target, however soon that is
+                // after the press. See the class doc's TRADEOFF note.
+                schedule.Add(target);
             }
 
             if (schedule.Count == 0)
