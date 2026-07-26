@@ -32,7 +32,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// whole list through <see cref="TapTimingBuilder"/> once and lands it via
     /// <see cref="TypeBeatEditorOperations.ReplaceLines"/>: exactly one undo step.</para>
     ///
-    /// <para>KEYS. Space, Enter or the keypad Enter tap the next word. P pauses and resumes.
+    /// <para>KEYS. Space, Enter or the keypad Enter tap the next syllable. P pauses and resumes.
     /// Backspace drops the last tap. Escape cancels the whole pass. The overlay takes keyboard
     /// FOCUS while recording, which is what lets it claim Space ahead of the bottom bar's
     /// play/pause. Seeking backwards (drag the waveform, click a timeline) drops every tap at or
@@ -113,7 +113,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         {
                             Font = TypeBeatStyle.Mono(11),
                             Colour = TypeBeatStyle.UntypedChar,
-                            Text = "space / enter = tap the next word    p = pause or resume    backspace = undo a tap    "
+                            Text = "space / enter = tap the next syllable    p = pause or resume    backspace = undo a tap    "
                                    + "seek back = drop the taps after that point    esc = cancel    Finish = commit (one undo step)",
                         },
                     },
@@ -230,8 +230,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             var target = session.NextTarget;
 
             status.Text = session.QueueComplete
-                ? $"tap timing: {done}/{total} words, queue complete, press Finish to commit"
-                : $"tap timing: {done}/{total} words, line {(target?.LineIndex ?? 0) + 1}"
+                ? $"tap timing: {done}/{total} taps, queue complete, press Finish to commit"
+                : $"tap timing: {done}/{total} taps, line {(target?.LineIndex ?? 0) + 1}"
                   + (editorClock.IsRunning ? string.Empty : ", PAUSED");
 
             for (int i = 0; i < chips.Count; i++)
@@ -347,7 +347,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 bool done = index < tapped;
                 bool current = index == tapped;
 
-                text.Text = (session.StartsLine(index) ? "/ " : string.Empty) + session.WordAt(index);
+                // Hyphen-split chips: a subdivided word appears as one chip per syllable, carrying
+                // the exact char run that syllable drives, and every chip after the word's first is
+                // prefixed with the hyphen that says "still the same word". So "remember me" with
+                // remember split three ways reads  / rem  -emb  -er  me : four chips, four taps,
+                // and the mapper can see the word continuing rather than a new word arriving.
+                bool wordStart = session.StartsWord(index);
+
+                text.Text = (session.StartsLine(index) ? "/ " : string.Empty)
+                            + (wordStart ? string.Empty : "-")
+                            + session.SyllableTextAt(index);
+
                 text.Colour = current ? TypeBeatStyle.Caret : done ? TypeBeatStyle.SungAccent : TypeBeatStyle.TypedChar;
 
                 // The tap time IS the snap: a word that has been tapped shows exactly where it landed.

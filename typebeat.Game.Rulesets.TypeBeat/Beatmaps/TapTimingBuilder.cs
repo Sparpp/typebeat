@@ -7,8 +7,14 @@ using System.Linq;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
-    /// <summary>One word slot in a tap-timing queue: which line, which word inside it.</summary>
-    public readonly record struct TapTarget(int LineIndex, int UnitIndex);
+    /// <summary>
+    /// One tap slot in a tap-timing queue: which line, which word inside it, and which SYLLABLE of
+    /// that word. A word with no subdivisions contributes exactly one slot
+    /// (<see cref="SyllableIndex"/> 0); a word carrying N <see cref="TimedUnit.SyllableBoundaries"/>
+    /// contributes N+1 slots, so "remember me" with remember split three ways is four taps.
+    /// Syllable 0 is the word's START; syllable s > 0 is the word's s'th subdivision boundary.
+    /// </summary>
+    public readonly record struct TapTarget(int LineIndex, int UnitIndex, int SyllableIndex = 0);
 
     /// <summary>
     /// The pure heart of tap timing (the editor's "Time" button): turns a recorded list of song
@@ -24,8 +30,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     ///
     /// <para>Rules, all pinned by tests:</para>
     /// <list type="bullet">
-    /// <item>A tap is a word START. The queue is contiguous in sheet order, so tap i starts queue
-    /// word i.</item>
+    /// <item>A tap is a SYLLABLE start. The queue is contiguous in sheet order, so tap i lands on
+    /// queue slot i. An undivided word is one slot, so its tap is its start, exactly as before; a
+    /// subdivided word is one slot per syllable, where syllable 0 sets the word's start and each
+    /// later syllable sets one of the word's subdivision boundary times.</item>
     /// <item>A word's END is the next word's start when that next word is in the SAME line (words in
     /// a phrase run together). A line's LAST word ends at
     /// min(next line's start, start + the line's mean tapped word duration), so an instrumental gap
@@ -45,9 +53,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// between consecutive word starts. Content BEFORE the queue is never moved (the first tap is
     /// clamped to sit after it); content AFTER the queue is pushed later only as far as ordering
     /// requires.</item>
-    /// <item>Retimed words become <see cref="TimingSource.Explicit"/> hand timing and lose any
-    /// syllable subdivisions (the word moved wholesale, so the old sub-word marks are meaningless);
-    /// words the pass did not touch keep their source, confidence and subdivisions.</item>
+    /// <item>Retimed words become <see cref="TimingSource.Explicit"/> hand timing; words the pass
+    /// did not touch keep their source, confidence and subdivisions.</item>
+    /// <item>SUBDIVISIONS follow the taps. A word whose every syllable slot got a tap has its
+    /// boundaries SET to those taps (clamped to sit strictly inside the final word span, at least
+    /// <see cref="TypeBeatEditorOperations.MIN_SYLLABLE_MS"/> apart). A retimed word whose syllables
+    /// the taps could NOT cover drops its subdivisions instead: that is the mapper finishing early
+    /// mid-word, seeking back into the middle of a word, or a word paced on in the untapped tail,
+    /// and in every one of those the word moved wholesale so its old sub-word marks are meaningless.
+    /// A word so narrow after collision clamping that its syllables cannot fit also drops them.</item>
     /// </list>
     /// </summary>
     public static class TapTimingBuilder
@@ -79,10 +93,63 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 int to = l == lastLine ? Math.Min(lastUnit, lines[l].Units.Count - 1) : lines[l].Units.Count - 1;
 
                 for (int u = from; u <= to; u++)
-                    queue.Add(new TapTarget(l, u));
+                {
+                    // One slot per syllable: an undivided word is still exactly one tap.
+                    int syllables = SyllableCount(lines[l].Units[u]);
+
+                    for (int s = 0; s < syllables; s++)
+                        queue.Add(new TapTarget(l, u, s));
+                }
             }
 
             return queue;
+        }
+
+        /// <summary>How many taps a word asks for: its subdivision count plus one.</summary>
+        public static int SyllableCount(TimedUnit unit) => unit.SyllableBoundaries.Count + 1;
+
+        /// <summary>
+        /// The characters of <paramref name="text"/> that belong to syllable segment
+        /// <paramref name="syllableIndex"/> of <paramref name="syllableCount"/>, under exactly the
+        /// split the engine judges by: <see cref="Gameplay.TypingLine"/> spreads a word's k typeable
+        /// chars evenly across the segments in index space, so typeable char j sits in segment
+        /// floor(j * count / k). Non-typeable characters (punctuation) ride along with the typeable
+        /// char before them. Concatenating every index reproduces <paramref name="text"/>, so the
+        /// recording surface can show the mapper the exact char run each tap will drive.
+        /// </summary>
+        public static string SyllableTextOf(string text, int syllableIndex, int syllableCount)
+        {
+            if (syllableCount <= 1 || string.IsNullOrEmpty(text))
+                return syllableIndex == 0 ? text : string.Empty;
+
+            int k = 0;
+
+            foreach (char c in text)
+            {
+                if (Typeability.IsCell(c))
+                    k++;
+            }
+
+            if (k == 0)
+                return syllableIndex == 0 ? text : string.Empty;
+
+            var slice = new System.Text.StringBuilder();
+            int j = 0;
+            int segment = 0;
+
+            foreach (char c in text)
+            {
+                if (Typeability.IsCell(c))
+                {
+                    segment = Math.Min((int)Math.Floor((double)j * syllableCount / k), syllableCount - 1);
+                    j++;
+                }
+
+                if (segment == syllableIndex)
+                    slice.Append(c);
+            }
+
+            return slice.ToString();
         }
 
         /// <summary>The whole sheet as one flat run of word slots, in sheet order.</summary>
@@ -124,11 +191,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             bool[] retimed = new bool[n];
             bool[] paced = new bool[n];
 
+            // Per word: the syllable taps recorded inside it (syllable 1..N, absolute ms), how many
+            // of its slots got a tap, and how many it asked for. A word only keeps subdivisions when
+            // every one of its slots was tapped.
+            var syllableTaps = new List<double>?[n];
+            int[] syllablesTapped = new int[n];
+            int[] syllablesWanted = new int[n];
+
             for (int p = 0; p < n; p++)
             {
                 var unit = lines[slots[p].line].Units[slots[p].unit];
                 start[p] = unit.StartTime;
                 end[p] = unit.EndTime;
+                syllablesWanted[p] = SyllableCount(unit);
             }
 
             int tapped = Math.Min(taps.Count, queue.Count);
@@ -137,7 +212,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (tapped == 0)
                 return lines.ToList();
 
-            double pace = meanGap(taps, tapped);
+            // Pacing is a WORD rhythm, so it is measured from the word-start taps only. On a sheet
+            // with no subdivisions every tap is a word start and this is the old mean exactly.
+            double pace = meanWordGap(queue, taps, tapped);
 
             // Desired starts. Taps win outright; the untapped tail of the queue keeps its own time
             // when that time still makes sense, and is paced on otherwise.
@@ -148,11 +225,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 if (!slotIndex.TryGetValue((queue[i].LineIndex, queue[i].UnitIndex), out int p))
                     continue;
 
+                bool wordStart = queue[i].SyllableIndex == 0;
+
                 if (i < tapped)
                 {
-                    start[p] = Math.Max(0, taps[i]);
-                    retimed[p] = true;
-                    lastTap = start[p];
+                    double time = Math.Max(0, taps[i]);
+
+                    if (wordStart)
+                    {
+                        start[p] = time;
+                        retimed[p] = true;
+                    }
+                    else
+                    {
+                        (syllableTaps[p] ??= new List<double>()).Add(time);
+                    }
+
+                    syllablesTapped[p]++;
+                    lastTap = time;
+                }
+                else if (!wordStart)
+                {
+                    // An untapped syllable slot decides nothing on its own: the word's fate was
+                    // already settled by its syllable-0 slot, and the missing tap simply means the
+                    // word cannot keep its subdivisions.
                 }
                 else if (start[p] <= lastTap)
                 {
@@ -266,8 +362,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         // says so, exactly as the aligner's interpolated words do.
                         Source = retimed[p] ? (paced[p] ? TimingSource.Interpolated : TimingSource.Explicit) : source.Source,
                         Confidence = retimed[p] ? (paced[p] ? 0.5 : 1) : source.Confidence,
-                        // The word moved wholesale, so its old sub-word marks mean nothing.
-                        SyllableBoundaries = retimed[p] ? Array.Empty<double>() : source.SyllableBoundaries,
+                        SyllableBoundaries = boundariesFor(source, retimed[p], syllableTaps[p],
+                            syllablesTapped[p] >= syllablesWanted[p], s, e),
                     };
                 }
 
@@ -298,6 +394,74 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// The subdivision boundaries a rebuilt word ends up with.
+        ///
+        /// <para>An untouched word keeps exactly what it had. A retimed word whose every syllable
+        /// slot was tapped takes those taps, fitted into its final span. Anything else (a partly
+        /// tapped word, a paced word, a word left too narrow to hold its syllables) drops its
+        /// subdivisions: the word moved as a block and the old marks no longer describe it.</para>
+        /// </summary>
+        private static IReadOnlyList<double> boundariesFor(TimedUnit source, bool retimed, List<double>? marks,
+                                                           bool complete, double start, double end)
+        {
+            if (!retimed)
+                return source.SyllableBoundaries;
+
+            if (!complete || marks == null || marks.Count == 0)
+                return Array.Empty<double>();
+
+            return fitBoundaries(marks, start, end);
+        }
+
+        /// <summary>
+        /// Places <paramref name="marks"/> strictly inside (<paramref name="start"/>,
+        /// <paramref name="end"/>), ascending, at least <see cref="TypeBeatEditorOperations.MIN_SYLLABLE_MS"/>
+        /// apart, which is the invariant <see cref="TimedUnit.SyllableBoundaries"/> promises and the
+        /// encoder round-trips. Taps that already sit comfortably inside the word pass through
+        /// untouched, so a clean pass saves and decodes to the exact numbers the mapper tapped. A
+        /// span with no room for every syllable keeps none of them.
+        /// </summary>
+        private static IReadOnlyList<double> fitBoundaries(List<double> marks, double start, double end)
+        {
+            int count = marks.Count;
+            double min = TypeBeatEditorOperations.MIN_SYLLABLE_MS;
+
+            if (end - start < (count + 1) * min)
+                return Array.Empty<double>();
+
+            double[] fitted = new double[count];
+            double low = start;
+
+            for (int i = 0; i < count; i++)
+            {
+                // Leave room for the syllables still to come, so the last one still clears the end.
+                double ceiling = end - (count - i) * min;
+                fitted[i] = Math.Clamp(marks[i], low + min, ceiling);
+                low = fitted[i];
+            }
+
+            return fitted;
+        }
+
+        /// <summary>
+        /// Mean interval between the WORD-START taps of the pass: how long a word takes, which is
+        /// what the untapped tail is paced at. Syllable taps are deliberately excluded, or a
+        /// subdivided pass would pace the remainder at a syllable's length.
+        /// </summary>
+        private static double meanWordGap(IReadOnlyList<TapTarget> queue, IReadOnlyList<double> taps, int tapped)
+        {
+            var wordStarts = new List<double>();
+
+            for (int i = 0; i < tapped; i++)
+            {
+                if (queue[i].SyllableIndex == 0)
+                    wordStarts.Add(taps[i]);
+            }
+
+            return meanGap(wordStarts, wordStarts.Count);
         }
 
         /// <summary>Mean interval between the first <paramref name="count"/> taps; the default when there is only one.</summary>

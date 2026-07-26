@@ -26,7 +26,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>The lines the session was started against (the commit is built from these).</summary>
         public IReadOnlyList<LyricLine> Lines { get; }
 
-        /// <summary>The word slots being timed, contiguous in sheet order.</summary>
+        /// <summary>
+        /// The tap slots being timed, contiguous in sheet order. One slot per SYLLABLE: an undivided
+        /// word is a single slot, a word carrying subdivisions is one slot per syllable.
+        /// </summary>
         public IReadOnlyList<TapTarget> Queue { get; }
 
         private readonly List<double> taps = new List<double>();
@@ -40,10 +43,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             Queue = queue;
         }
 
-        /// <summary>How many words have been timed so far.</summary>
+        /// <summary>How many slots have been timed so far.</summary>
         public int TappedCount => taps.Count;
 
-        /// <summary>Whether every queued word has a tap (the pass is finished, nothing left to time).</summary>
+        /// <summary>Whether every queued slot has a tap (the pass is finished, nothing left to time).</summary>
         public bool QueueComplete => taps.Count >= Queue.Count;
 
         /// <summary>The most recent tap, or null before the first one.</summary>
@@ -67,7 +70,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             return target.UnitIndex >= 0 && target.UnitIndex < units.Count ? units[target.UnitIndex].Text : string.Empty;
         }
 
-        /// <summary>Whether the queued word at <paramref name="index"/> opens a new lyric line.</summary>
+        /// <summary>
+        /// The text of the SYLLABLE at <paramref name="index"/>: the whole word for an undivided
+        /// one, otherwise the run of characters that syllable drives (see
+        /// <see cref="TapTimingBuilder.SyllableTextOf"/>). Empty when out of range.
+        /// </summary>
+        public string SyllableTextAt(int index)
+        {
+            if (index < 0 || index >= Queue.Count)
+                return string.Empty;
+
+            var target = Queue[index];
+
+            if (target.LineIndex < 0 || target.LineIndex >= Lines.Count)
+                return string.Empty;
+
+            var units = Lines[target.LineIndex].Units;
+
+            if (target.UnitIndex < 0 || target.UnitIndex >= units.Count)
+                return string.Empty;
+
+            var unit = units[target.UnitIndex];
+            return TapTimingBuilder.SyllableTextOf(unit.Text, target.SyllableIndex, TapTimingBuilder.SyllableCount(unit));
+        }
+
+        /// <summary>Whether the slot at <paramref name="index"/> is a word's first syllable (its start).</summary>
+        public bool StartsWord(int index) => index >= 0 && index < Queue.Count && Queue[index].SyllableIndex == 0;
+
+        /// <summary>Whether the queued slot at <paramref name="index"/> opens a new lyric line.</summary>
         public bool StartsLine(int index)
             => index >= 0 && index < Queue.Count && (index == 0 || Queue[index - 1].LineIndex != Queue[index].LineIndex);
 
