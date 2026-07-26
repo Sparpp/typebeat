@@ -204,6 +204,13 @@ namespace typebeat.Game.Screens.Edit
         [Cached]
         public readonly EditorClipboard Clipboard = new EditorClipboard();
 
+        /// <summary>
+        /// The bottom bar's one ruleset-owned action slot (left of the Test button). Empty unless
+        /// the active ruleset's compose screen publishes into it; see <see cref="EditorRulesetAction"/>.
+        /// </summary>
+        [Cached]
+        public readonly EditorRulesetAction RulesetAction = new EditorRulesetAction();
+
         [Cached]
         private readonly OverlayColourProvider colourProvider = new OverlayColourProvider(OverlayColourScheme.Aquamarine);
 

@@ -12,6 +12,7 @@ using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.Edit;
+using typebeat.Game.Screens.Edit.Components.Timelines.Summary;
 using typebeat.Game.Screens.Edit.Compose;
 using typebeat.Game.Screens.Edit.Setup;
 using typebeat.Game.Tests.Visual;
@@ -353,6 +354,212 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("line 1 selected", () =>
                 Editor.ChildrenOfType<LyricComposeScreen>().Single().EditState.SelectedLine.Value?.Line.RawText == "hello world");
             AddUntilStep("seeked to line 1 start", () => Math.Abs(EditorClock.CurrentTime - 1000) < 50);
+        }
+
+        [Test]
+        public void TestLineListCtrlAndShiftClickBuildASection()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            // A third line gives a range with an interior member, so a shift+click run is
+            // distinguishable from "both endpoints".
+            AddStep("add a third line", () => TypeBeatEditorOperations.AddLine(EditorBeatmap, 5500, "third line"));
+            AddUntilStep("three rows", () => rows().Count == 3);
+
+            AddStep("click row 1", () => clickRow(0));
+            AddUntilStep("row 1 is the single selection", () =>
+                state().SelectedLine.Value == rows()[0].HitObject && state().MultiSelectedLines.Count == 0);
+
+            AddStep("shift+click row 3", () => clickRow(2, shift: true));
+            AddUntilStep("whole run selected", () => state().MultiSelectedLines.Count == 3);
+            AddAssert("clicked line is primary", () => state().SelectedLine.Value == rows()[2].HitObject);
+
+            // Shift+click again ranges from the SAME anchor (row 1), so the run shrinks.
+            AddStep("shift+click row 2", () => clickRow(1, shift: true));
+            AddUntilStep("run shrank to rows 1-2", () =>
+                state().MultiSelectedLines.Count == 2 && !state().MultiSelectedLines.Contains(rows()[2].HitObject));
+
+            AddStep("ctrl+click row 3", () => clickRow(2, ctrl: true));
+            AddUntilStep("ctrl added row 3 back", () => state().MultiSelectedLines.Count == 3);
+
+            AddStep("ctrl+click row 1", () => clickRow(0, ctrl: true));
+            AddUntilStep("ctrl removed row 1", () =>
+                state().MultiSelectedLines.Count == 2 && !state().MultiSelectedLines.Contains(rows()[0].HitObject));
+
+            AddStep("plain click row 2", () => clickRow(1));
+            AddUntilStep("section collapsed", () => state().MultiSelectedLines.Count == 0);
+        }
+
+        [Test]
+        public void TestSectionSurvivesPlayback()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("select both lines", () =>
+            {
+                clickRow(0);
+                clickRow(1, shift: true);
+            });
+            AddUntilStep("two lines sectioned", () => state().MultiSelectedLines.Count == 2);
+
+            // A section is a deliberate mark; playback moving the active line must not erase it
+            // (the mapper listens to the section before timing it).
+            AddStep("play from the top", () =>
+            {
+                EditorClock.Seek(0);
+                EditorClock.Start();
+            });
+            AddUntilStep("playhead reached line 2", () => EditorClock.CurrentTime > 3200);
+            AddStep("stop", () => EditorClock.Stop());
+            AddAssert("section still marked", () => state().MultiSelectedLines.Count == 2);
+        }
+
+        [Test]
+        public void TestTimeButtonSitsLeftOfTest()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddUntilStep("Time button published", () =>
+                Editor.ChildrenOfType<RulesetActionButton>().SingleOrDefault() is RulesetActionButton b
+                && b.Alpha == 1 && b.Text.ToString() == "Time");
+
+            AddAssert("it sits left of Test", () =>
+                Editor.ChildrenOfType<RulesetActionButton>().Single().ScreenSpaceDrawQuad.TopLeft.X
+                < Editor.ChildrenOfType<TestGameplayButton>().Single().ScreenSpaceDrawQuad.TopLeft.X);
+        }
+
+        [Test]
+        public void TestTapTimingRecordsThenCommitsAsOneUndoStep()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("start a pass over the whole sheet", () =>
+            {
+                state().SelectedLine.Value = null;
+                state().ClearMultiLineSelection();
+                compose().ToggleTapTiming();
+            });
+
+            AddUntilStep("recording", () => compose().TapTiming.Active);
+            AddAssert("entering tap mode mutated nothing", () => firstLine().Line.StartTime == 1000);
+            AddUntilStep("song running", () => EditorClock.IsRunning);
+
+            tapAfterTheClockAdvances();
+            AddUntilStep("first word timed", () => compose().TapTiming.Session?.TappedCount == 1);
+
+            // The overlay holds focus, so Space is a tap, NOT the bottom bar's play/pause.
+            AddAssert("space did not toggle playback", () => EditorClock.IsRunning);
+            AddAssert("still nothing committed", () => firstLine().Line.StartTime == 1000);
+
+            tapAfterTheClockAdvances();
+            AddUntilStep("second word timed", () => compose().TapTiming.Session?.TappedCount == 2);
+            AddUntilStep("queue complete stops the song", () => !EditorClock.IsRunning);
+
+            double[] recorded = null!;
+
+            AddStep("finish (commit)", () =>
+            {
+                recorded = compose().TapTiming.Session!.Taps.ToArray();
+                compose().ToggleTapTiming();
+            });
+            AddUntilStep("no longer recording", () => !compose().TapTiming.Active);
+            AddAssert("both lines landed on their taps", () =>
+                lineAt(0).Line.StartTime == recorded[0] && lineAt(1).Line.StartTime == recorded[1]);
+            AddAssert("still two lines, ordered", () =>
+                EditorBeatmap.HitObjects.OfType<TypeBeatHitObject>().Count() == 2
+                && lineAt(0).Line.EndTime == lineAt(1).Line.StartTime);
+
+            // Record-then-commit means the whole pass is a SINGLE undo step.
+            AddStep("undo once", () => Editor.Undo());
+            AddUntilStep("one undo restored the original timing", () => firstLine().Line.StartTime == 1000);
+        }
+
+        [Test]
+        public void TestTapTimingCancelLeavesNoTrace()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("start a pass", () =>
+            {
+                state().SelectedLine.Value = null;
+                state().ClearMultiLineSelection();
+                compose().ToggleTapTiming();
+            });
+            AddUntilStep("recording", () => compose().TapTiming.Active);
+
+            tapAfterTheClockAdvances();
+            AddUntilStep("a tap was recorded", () => compose().TapTiming.Session?.TappedCount == 1);
+
+            AddStep("escape", () => InputManager.Key(Key.Escape));
+            AddUntilStep("no longer recording", () => !compose().TapTiming.Active);
+
+            AddAssert("the beatmap never moved", () =>
+                EditorBeatmap.HitObjects.OfType<TypeBeatHitObject>().Count() == 2
+                && lineAt(0).Line.StartTime == 1000
+                && lineAt(1).Line.StartTime == 3000);
+        }
+
+        [Test]
+        public void TestTapTimingScopesToTheSelectedSection()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("select only line 2", () => clickRow(1));
+            AddUntilStep("line 2 selected", () => state().SelectedLine.Value == rows()[1].HitObject);
+
+            AddStep("start a pass", () => compose().ToggleTapTiming());
+            AddUntilStep("recording", () => compose().TapTiming.Active);
+
+            AddAssert("queue covers only the selected line", () =>
+                compose().TapTiming.Session!.Queue.All(t => t.LineIndex == 1));
+
+            AddStep("cancel", () => compose().TapTiming.Cancel());
+            AddUntilStep("no longer recording", () => !compose().TapTiming.Active);
+        }
+
+        /// <summary>
+        /// Taps Space once the clock has moved far enough that the tap cannot be mistaken for a
+        /// double fire (the session refuses taps closer than MIN_TAP_GAP_MS apart).
+        /// </summary>
+        private void tapAfterTheClockAdvances()
+        {
+            double from = 0;
+
+            AddStep("note the clock", () => from = EditorClock.CurrentTime);
+            AddUntilStep("clock advanced past the double-fire guard", () =>
+                EditorClock.CurrentTime > from + TapTimingSession.MIN_TAP_GAP_MS * 3);
+            AddStep("tap space", () => InputManager.Key(Key.Space));
+        }
+
+        private LyricComposeScreen compose() => Editor.ChildrenOfType<LyricComposeScreen>().Single();
+
+        private TypeBeatHitObject firstLine() => lineAt(0);
+
+        private TypeBeatHitObject lineAt(int index) => TypeBeatEditorOperations.OrderedLines(EditorBeatmap)[index];
+
+        private LyricEditState state() => Editor.ChildrenOfType<LyricComposeScreen>().Single().EditState;
+
+        private List<LineListPanel.LineRow> rows()
+            => Editor.ChildrenOfType<LineListPanel>().Single().ChildrenOfType<LineListPanel.LineRow>()
+                     .OrderBy(r => r.HitObject.LineIndex).ToList();
+
+        /// <summary>Clicks a row on its index column (the text box owns the rest of the row).</summary>
+        private void clickRow(int index, bool ctrl = false, bool shift = false)
+        {
+            var q = rows()[index].ScreenSpaceDrawQuad;
+            InputManager.MoveMouseTo(q.TopLeft + new Vector2(17, q.Height * 0.5f));
+
+            if (ctrl)
+                InputManager.PressKey(Key.ControlLeft);
+            if (shift)
+                InputManager.PressKey(Key.ShiftLeft);
+
+            InputManager.Click(MouseButton.Left);
+
+            if (shift)
+                InputManager.ReleaseKey(Key.ShiftLeft);
+            if (ctrl)
+                InputManager.ReleaseKey(Key.ControlLeft);
         }
 
         [Test]

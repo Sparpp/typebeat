@@ -1,0 +1,342 @@
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// See the LICENCE file in the repository root for full licence text.
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
+{
+    /// <summary>One word slot in a tap-timing queue: which line, which word inside it.</summary>
+    public readonly record struct TapTarget(int LineIndex, int UnitIndex);
+
+    /// <summary>
+    /// The pure heart of tap timing (the editor's "Time" button): turns a recorded list of song
+    /// times into a complete new <see cref="LyricLine"/> sheet, in one shot, with no mutation of
+    /// anything along the way.
+    ///
+    /// <para>The recording surface never touches the beatmap: it only appends song times to a plain
+    /// list. When the mapper finishes, <see cref="Build"/> is handed the CURRENT lines, the queue of
+    /// word slots the session was timing, and the taps, and returns the whole sheet. The caller
+    /// commits that through <see cref="TypeBeatEditorOperations.ReplaceLines"/>, so the entire pass
+    /// is exactly ONE undo step and there are no mid-pass clamp fights: every clamp happens here,
+    /// once, against the final numbers.</para>
+    ///
+    /// <para>Rules, all pinned by tests:</para>
+    /// <list type="bullet">
+    /// <item>A tap is a word START. The queue is contiguous in sheet order, so tap i starts queue
+    /// word i.</item>
+    /// <item>A word's END is the next word's start when that next word is in the SAME line (words in
+    /// a phrase run together). A line's LAST word ends at
+    /// min(next line's start, start + the line's mean tapped word duration), so an instrumental gap
+    /// after a line survives as a gap instead of being sung through. The very last word of all uses
+    /// the same mean duration with no cap.</item>
+    /// <item>A line's StartTime is its first word's start whenever that word was (re)timed; its
+    /// SingEndTime is its last word's end; its EndTime is the next line's start (last line:
+    /// SingEndTime + <see cref="TypeBeatEditorOperations.LAST_LINE_TAIL_MS"/>), preserving the
+    /// format's EndTime_i == StartTime_(i+1) boundary invariant.</item>
+    /// <item>FINISHING EARLY commits only what was tapped. Each remaining queued word keeps its
+    /// existing time if that time still sits after the last tap; otherwise (the usual case on a
+    /// fresh, untimed sheet) it is PACED on at the mean tapped word duration. Lines carrying paced
+    /// words are flagged <see cref="LyricLine.Estimated"/>, which is exactly what that flag means:
+    /// timing derived from hand stamps rather than acoustic evidence.</item>
+    /// <item>COLLISIONS are resolved at commit time by one forward pass: everything is kept
+    /// monotonically ordered with at least <see cref="TypeBeatEditorOperations.MIN_SPAN_MS"/>
+    /// between consecutive word starts. Content BEFORE the queue is never moved (the first tap is
+    /// clamped to sit after it); content AFTER the queue is pushed later only as far as ordering
+    /// requires.</item>
+    /// <item>Retimed words become <see cref="TimingSource.Explicit"/> hand timing and lose any
+    /// syllable subdivisions (the word moved wholesale, so the old sub-word marks are meaningless);
+    /// words the pass did not touch keep their source, confidence and subdivisions.</item>
+    /// </list>
+    /// </summary>
+    public static class TapTimingBuilder
+    {
+        /// <summary>Word duration assumed when there is nothing to measure one from (single tap, empty line).</summary>
+        public const double DEFAULT_WORD_MS = 400;
+
+        /// <summary>
+        /// The contiguous run of word slots from (<paramref name="firstLine"/>,
+        /// <paramref name="firstUnit"/>) to (<paramref name="lastLine"/>, <paramref name="lastUnit"/>)
+        /// inclusive, in sheet order. Empty when the range is degenerate.
+        /// </summary>
+        public static List<TapTarget> BuildQueue(IReadOnlyList<LyricLine> lines, int firstLine, int firstUnit, int lastLine, int lastUnit)
+        {
+            var queue = new List<TapTarget>();
+
+            if (lines.Count == 0)
+                return queue;
+
+            firstLine = Math.Clamp(firstLine, 0, lines.Count - 1);
+            lastLine = Math.Clamp(lastLine, 0, lines.Count - 1);
+
+            if (lastLine < firstLine)
+                return queue;
+
+            for (int l = firstLine; l <= lastLine; l++)
+            {
+                int from = l == firstLine ? Math.Max(0, firstUnit) : 0;
+                int to = l == lastLine ? Math.Min(lastUnit, lines[l].Units.Count - 1) : lines[l].Units.Count - 1;
+
+                for (int u = from; u <= to; u++)
+                    queue.Add(new TapTarget(l, u));
+            }
+
+            return queue;
+        }
+
+        /// <summary>The whole sheet as one flat run of word slots, in sheet order.</summary>
+        public static List<TapTarget> BuildQueue(IReadOnlyList<LyricLine> lines)
+            => lines.Count == 0 ? new List<TapTarget>() : BuildQueue(lines, 0, 0, lines.Count - 1, lines[^1].Units.Count - 1);
+
+        /// <summary>
+        /// Builds the complete new sheet from <paramref name="taps"/> applied to
+        /// <paramref name="queue"/>. Pure: <paramref name="lines"/> is never mutated. Returns a new
+        /// list covering EVERY line, so the result can be handed straight to
+        /// <see cref="TypeBeatEditorOperations.ReplaceLines"/>.
+        /// </summary>
+        public static IReadOnlyList<LyricLine> Build(IReadOnlyList<LyricLine> lines, IReadOnlyList<TapTarget> queue, IReadOnlyList<double> taps)
+        {
+            if (lines.Count == 0)
+                return Array.Empty<LyricLine>();
+
+            // Flatten the sheet into one ordered run of word slots, so "the next word" is a single
+            // index step whether or not it crosses a line boundary.
+            var slots = new List<(int line, int unit)>();
+            var slotIndex = new Dictionary<(int, int), int>();
+
+            for (int l = 0; l < lines.Count; l++)
+            {
+                for (int u = 0; u < lines[l].Units.Count; u++)
+                {
+                    slotIndex[(l, u)] = slots.Count;
+                    slots.Add((l, u));
+                }
+            }
+
+            int n = slots.Count;
+
+            if (n == 0)
+                return lines.ToList();
+
+            double[] start = new double[n];
+            double[] end = new double[n];
+            bool[] retimed = new bool[n];
+            bool[] paced = new bool[n];
+
+            for (int p = 0; p < n; p++)
+            {
+                var unit = lines[slots[p].line].Units[slots[p].unit];
+                start[p] = unit.StartTime;
+                end[p] = unit.EndTime;
+            }
+
+            int tapped = Math.Min(taps.Count, queue.Count);
+
+            // Nothing recorded: hand the sheet back untouched (the caller skips the commit).
+            if (tapped == 0)
+                return lines.ToList();
+
+            double pace = meanGap(taps, tapped);
+
+            // Desired starts. Taps win outright; the untapped tail of the queue keeps its own time
+            // when that time still makes sense, and is paced on otherwise.
+            double lastTap = double.NegativeInfinity;
+
+            for (int i = 0; i < queue.Count; i++)
+            {
+                if (!slotIndex.TryGetValue((queue[i].LineIndex, queue[i].UnitIndex), out int p))
+                    continue;
+
+                if (i < tapped)
+                {
+                    start[p] = Math.Max(0, taps[i]);
+                    retimed[p] = true;
+                    lastTap = start[p];
+                }
+                else if (start[p] <= lastTap)
+                {
+                    start[p] = lastTap + pace;
+                    retimed[p] = true;
+                    paced[p] = true;
+                    lastTap = start[p];
+                }
+                else
+                {
+                    // Existing timing still sits after everything we recorded; leave it alone.
+                    lastTap = start[p];
+                }
+            }
+
+            // ONE forward pass fixes every ordering collision, against the final numbers. Slots
+            // before the queue are already monotonic and untouched, so this only ever bites where a
+            // tap crowded its predecessor or where content after the queue would now overlap.
+            double previous = double.NegativeInfinity;
+
+            for (int p = 0; p < n; p++)
+            {
+                start[p] = Math.Max(start[p], previous + TypeBeatEditorOperations.MIN_SPAN_MS);
+                previous = start[p];
+            }
+
+            // Per-line mean word duration, measured from the retimed words of that line, so a line's
+            // last word gets a plausible sung length instead of running to the next line's start.
+            double[] linePace = new double[lines.Count];
+
+            for (int l = 0; l < lines.Count; l++)
+                linePace[l] = linePaceOf(lines, slotIndex, start, retimed, l, pace);
+
+            // Word ends. Inside a line a word runs to the next word; the last word of a line is
+            // capped so a gap before the next line survives.
+            for (int p = 0; p < n; p++)
+            {
+                var (l, u) = slots[p];
+                bool lastOfLine = u == lines[l].Units.Count - 1;
+                double ceiling = p + 1 < n ? start[p + 1] : double.MaxValue;
+
+                if (retimed[p])
+                {
+                    end[p] = lastOfLine
+                        ? Math.Min(ceiling, start[p] + linePace[l])
+                        : ceiling;
+                }
+
+                end[p] = Math.Clamp(end[p], start[p], ceiling);
+            }
+
+            // Line boundaries. A tapped first word IS the line boundary (hand-placed, no guessing).
+            // Otherwise the line keeps its lead-in, the gap it already had between its start and its
+            // first word, so a line that merely got pushed out of a collision moves as a whole and a
+            // line nothing touched reproduces its old start exactly.
+            double[] lineStart = new double[lines.Count];
+            double previousLineStart = double.NegativeInfinity;
+
+            for (int l = 0; l < lines.Count; l++)
+            {
+                int first = slotIndex.TryGetValue((l, 0), out int p0) ? p0 : -1;
+                double s;
+
+                if (first < 0)
+                    s = lines[l].StartTime;
+                else if (retimed[first])
+                    s = start[first];
+                else
+                    s = Math.Min(start[first], start[first] + (lines[l].StartTime - lines[l].Units[0].StartTime));
+
+                lineStart[l] = Math.Max(s, previousLineStart + TypeBeatEditorOperations.MIN_SPAN_MS);
+                previousLineStart = lineStart[l];
+            }
+
+            // Assemble. Every line is rebuilt (the model is init-only), but only retimed words
+            // change source/confidence or lose subdivisions.
+            var result = new List<LyricLine>(lines.Count);
+
+            for (int l = 0; l < lines.Count; l++)
+            {
+                var line = lines[l];
+                int count = line.Units.Count;
+
+                // Interior lines end exactly where the next one starts (EndTime_i == StartTime_(i+1));
+                // no word may spill past that, so the boundary invariant holds by construction.
+                double ceiling = l + 1 < lines.Count ? lineStart[l + 1] : double.MaxValue;
+
+                var units = new TimedUnit[count];
+                bool anyPaced = false;
+                bool anyRetimed = false;
+                double cursor = lineStart[l];
+
+                for (int u = 0; u < count; u++)
+                {
+                    int p = slotIndex[(l, u)];
+                    var source = line.Units[u];
+
+                    anyPaced |= paced[p];
+                    anyRetimed |= retimed[p];
+
+                    double s = Math.Clamp(start[p], cursor, ceiling);
+                    double e = Math.Clamp(end[p], s, ceiling);
+                    cursor = e;
+
+                    units[u] = new TimedUnit
+                    {
+                        Text = source.Text,
+                        StartTime = s,
+                        EndTime = e,
+                        // A tapped word is hand timing and fully trusted; a paced one is a guess and
+                        // says so, exactly as the aligner's interpolated words do.
+                        Source = retimed[p] ? (paced[p] ? TimingSource.Interpolated : TimingSource.Explicit) : source.Source,
+                        Confidence = retimed[p] ? (paced[p] ? 0.5 : 1) : source.Confidence,
+                        // The word moved wholesale, so its old sub-word marks mean nothing.
+                        SyllableBoundaries = retimed[p] ? Array.Empty<double>() : source.SyllableBoundaries,
+                    };
+                }
+
+                double singEnd = count > 0 ? units[^1].EndTime : lineStart[l];
+
+                // Interior lines: the boundary invariant. The LAST line's typeable window is
+                // reload-derived from its sung end, so a retimed one takes the full tail; an
+                // untouched one keeps the window it already had.
+                double lineEnd = l + 1 < lines.Count
+                    ? lineStart[l + 1]
+                    : anyRetimed
+                        ? singEnd + TypeBeatEditorOperations.LAST_LINE_TAIL_MS
+                        : Math.Max(line.EndTime, singEnd);
+
+                result.Add(new LyricLine
+                {
+                    RawText = line.RawText,
+                    StartTime = lineStart[l],
+                    EndTime = lineEnd,
+                    SingEndTime = singEnd,
+                    Units = units,
+                    // A hand-placed boundary needs no overrun grace; leave untouched lines alone.
+                    SealGraceMs = anyRetimed ? 0 : line.SealGraceMs,
+                    // Paced words are guesses => judge the line at the wider Line-granularity
+                    // windows. A fully tapped line is real evidence and clears the flag.
+                    Estimated = anyPaced || (!anyRetimed && line.Estimated),
+                });
+            }
+
+            return result;
+        }
+
+        /// <summary>Mean interval between the first <paramref name="count"/> taps; the default when there is only one.</summary>
+        private static double meanGap(IReadOnlyList<double> taps, int count)
+        {
+            if (count < 2)
+                return DEFAULT_WORD_MS;
+
+            double span = taps[count - 1] - taps[0];
+            double mean = span / (count - 1);
+
+            return mean >= TypeBeatEditorOperations.MIN_SPAN_MS ? mean : DEFAULT_WORD_MS;
+        }
+
+        /// <summary>
+        /// Mean gap between consecutive RETIMED words of one line, which is how long a word of that
+        /// line takes; falls back to the whole pass's mean when the line has fewer than two.
+        /// </summary>
+        private static double linePaceOf(IReadOnlyList<LyricLine> lines, Dictionary<(int, int), int> slotIndex,
+                                         double[] start, bool[] retimed, int line, double fallback)
+        {
+            double total = 0;
+            int gaps = 0;
+            int count = lines[line].Units.Count;
+
+            for (int u = 1; u < count; u++)
+            {
+                int p = slotIndex[(line, u)];
+                int previous = slotIndex[(line, u - 1)];
+
+                if (!retimed[p] || !retimed[previous])
+                    continue;
+
+                total += start[p] - start[previous];
+                gaps++;
+            }
+
+            double pace = gaps > 0 ? total / gaps : fallback;
+            return Math.Max(pace, TypeBeatEditorOperations.MIN_SPAN_MS);
+        }
+    }
+}

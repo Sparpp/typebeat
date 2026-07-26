@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Bindables;
@@ -27,10 +28,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// </summary>
         public readonly HashSet<TypeBeatHitObject> MultiSelectedLines = new HashSet<TypeBeatHitObject>();
 
-        /// <summary>Plain click: single selection, replacing any multi-selection.</summary>
+        /// <summary>
+        /// The range anchor: the line a plain or Ctrl+click last landed on. Shift+click always
+        /// ranges FROM here, so repeated shift+clicks grow and shrink one run around a fixed
+        /// anchor instead of walking it forward one click at a time (standard list semantics).
+        /// </summary>
+        private TypeBeatHitObject? rangeAnchor;
+
+        /// <summary>The line Shift+click ranges from; null until something has been clicked.</summary>
+        public TypeBeatHitObject? RangeAnchor => rangeAnchor;
+
+        /// <summary>Plain click: single selection, replacing any multi-selection, and a fresh anchor.</summary>
         public void SelectLine(TypeBeatHitObject line)
         {
             MultiSelectedLines.Clear();
+            rangeAnchor = line;
             SelectedLine.Value = line;
         }
 
@@ -38,11 +50,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// Ctrl+click: toggles a line's membership. The first toggle seeds the set with the
         /// current primary selection (so ctrl+click ADDS to what is visibly selected); removing
         /// the primary promotes another member; an emptied set returns to playhead follow.
+        /// The clicked line becomes the new range anchor either way, so a following Shift+click
+        /// ranges from where the user last pointed.
         /// </summary>
         public void ToggleLine(TypeBeatHitObject line)
         {
             if (MultiSelectedLines.Count == 0 && SelectedLine.Value is TypeBeatHitObject primary && primary != line)
                 MultiSelectedLines.Add(primary);
+
+            rangeAnchor = line;
 
             if (!MultiSelectedLines.Add(line))
                 MultiSelectedLines.Remove(line);
@@ -58,11 +74,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>
         /// Shift+click: selects the contiguous run of <paramref name="ordered"/> between the
-        /// current primary (anchor) and <paramref name="line"/>, inclusive.
+        /// ANCHOR (<see cref="RangeAnchor"/>, the last plain/Ctrl-clicked line) and
+        /// <paramref name="line"/>, inclusive. The anchor deliberately does not move, so
+        /// shift-clicking again re-ranges from the same place; the clicked line still becomes the
+        /// primary (what the detail panel edits).
         /// </summary>
         public void SelectLineRange(IReadOnlyList<TypeBeatHitObject> ordered, TypeBeatHitObject line)
         {
-            var anchor = SelectedLine.Value ?? line;
+            var anchor = rangeAnchor ?? SelectedLine.Value ?? line;
 
             int a = indexOf(ordered, anchor);
             int b = indexOf(ordered, line);
@@ -75,14 +94,60 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             MultiSelectedLines.Clear();
 
-            for (int i = System.Math.Min(a, b); i <= System.Math.Max(a, b); i++)
+            for (int i = Math.Min(a, b); i <= Math.Max(a, b); i++)
                 MultiSelectedLines.Add(ordered[i]);
 
+            rangeAnchor = anchor;
             SelectedLine.Value = line;
         }
 
-        /// <summary>Drops the multi-selection (the primary selection is the callers' concern).</summary>
-        public void ClearMultiLineSelection() => MultiSelectedLines.Clear();
+        /// <summary>Drops the multi-selection and its anchor (the primary selection is the callers' concern).</summary>
+        public void ClearMultiLineSelection()
+        {
+            MultiSelectedLines.Clear();
+            rangeAnchor = null;
+        }
+
+        /// <summary>
+        /// The lines a SECTION-level operation should act on, in typing order: the multi-selection
+        /// when there is one, else the single primary selection, else empty (the caller decides
+        /// what "nothing selected" means for it).
+        /// </summary>
+        public List<TypeBeatHitObject> SelectedLinesInOrder(IReadOnlyList<TypeBeatHitObject> ordered)
+        {
+            if (MultiSelectedLines.Count > 0)
+                return ordered.Where(MultiSelectedLines.Contains).ToList();
+
+            if (SelectedLine.Value is TypeBeatHitObject single && ordered.Contains(single))
+                return new List<TypeBeatHitObject> { single };
+
+            return new List<TypeBeatHitObject>();
+        }
+
+        /// <summary>
+        /// Re-points the multi-selection and the range anchor at live hit objects after an
+        /// undo/redo (which replaces every instance): stale entries are matched by
+        /// <see cref="TypeBeatHitObject.LineIndex"/>, vanished lines are dropped.
+        /// </summary>
+        public void RebindMultiSelection(IReadOnlyList<TypeBeatHitObject> ordered, Func<TypeBeatHitObject, bool> stillAlive)
+        {
+            if (rangeAnchor != null && !stillAlive(rangeAnchor))
+                rangeAnchor = ordered.FirstOrDefault(o => o.LineIndex == rangeAnchor.LineIndex);
+
+            if (MultiSelectedLines.Count == 0 || MultiSelectedLines.All(stillAlive))
+                return;
+
+            var rebound = MultiSelectedLines
+                          .Select(o => stillAlive(o) ? o : ordered.FirstOrDefault(n => n.LineIndex == o.LineIndex))
+                          .Where(o => o != null)
+                          .Select(o => o!)
+                          .ToList();
+
+            MultiSelectedLines.Clear();
+
+            foreach (var o in rebound)
+                MultiSelectedLines.Add(o);
+        }
 
         private static int indexOf(IReadOnlyList<TypeBeatHitObject> list, TypeBeatHitObject item)
         {
@@ -168,5 +233,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>When set, playback auto-pauses at this time (A/B line replay).</summary>
         public double? ReplayStopTime;
+
+        /// <summary>
+        /// The live tap-timing recording, or null when not recording. Set by
+        /// <see cref="TapTimingOverlay"/>; read by the timeline surfaces so they can draw the pass's
+        /// ghost markers. Nothing in it has been committed to the beatmap.
+        /// </summary>
+        public TapTimingSession? TapSession;
     }
 }

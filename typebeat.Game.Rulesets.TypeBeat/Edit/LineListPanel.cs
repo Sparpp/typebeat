@@ -25,6 +25,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// the fastest surface for sweeping text edits ("yeah" → "yeaaaaaaaah") across a whole song.
     /// Clicking a row selects the line and seeks to it. Poll-synced: rows rebuild only when the
     /// line set changes identity; labels refresh in place; a focused text box is never stomped.
+    ///
+    /// This is also where a SECTION is picked: Ctrl+click toggles a line in or out of the
+    /// selection and Shift+click takes the contiguous run from the anchor (the last plain or
+    /// Ctrl-clicked row) to the clicked row. Every selected row is tinted, the last-clicked row
+    /// stays the ACTIVE line the detail panel edits, and section-level operations (timing
+    /// copy/paste, tap timing) consume the whole set. Escape drops it.
     /// </summary>
     public partial class LineListPanel : CompositeDrawable
     {
@@ -93,7 +99,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 scroll.ScrollIntoView(row);
         }
 
-        private partial class LineRow : CompositeDrawable
+        /// <summary>One list row. Public so scene tests can address a specific line's row.</summary>
+        public partial class LineRow : CompositeDrawable
         {
             public readonly TypeBeatHitObject HitObject;
 
@@ -221,8 +228,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnClick(ClickEvent e)
             {
-                // Ctrl/Shift build a multi-selection (for timing copy/paste) without seeking;
-                // yanking the playhead mid-selection would fight the user.
+                // Ctrl/Shift build a multi-selection (a section, for timing copy/paste and tap
+                // timing) without seeking; yanking the playhead mid-selection would fight the user.
                 if (e.ControlPressed)
                 {
                     state.ToggleLine(HitObject);
