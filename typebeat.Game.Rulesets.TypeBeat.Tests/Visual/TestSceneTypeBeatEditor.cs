@@ -6,8 +6,10 @@ using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using osu.Framework.Testing;
+using osu.Framework.Utils;
 using osuTK;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
@@ -426,6 +428,42 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("it sits left of Test", () =>
                 Editor.ChildrenOfType<RulesetActionButton>().Single().ScreenSpaceDrawQuad.TopLeft.X
                 < Editor.ChildrenOfType<TestGameplayButton>().Single().ScreenSpaceDrawQuad.TopLeft.X);
+
+            // Pin the DRAWN text, not just the model string: a real text drawable with non-zero size,
+            // sitting inside the bottom bar's own row. This regressed once when the button's Height
+            // carried over OsuButton's absolute Height = 40 as a 4000% relative fraction instead of
+            // resetting it to 100%, ballooning the button to 40x the bar's height and pushing the
+            // centred label thousands of pixels below the visible, masked strip: the model string
+            // and Alpha were both still correct, nothing was ever actually seen on screen.
+            AddAssert("Time button is the same height as Test (not blown out by a bad relative size)", () =>
+            {
+                float timeHeight = Editor.ChildrenOfType<RulesetActionButton>().Single().ScreenSpaceDrawQuad.Height;
+                float testHeight = Editor.ChildrenOfType<TestGameplayButton>().Single().ScreenSpaceDrawQuad.Height;
+                return Precision.AlmostEquals(timeHeight, testHeight, 1f);
+            });
+
+            AddAssert("Time label is drawn, sized, and inside the bottom bar row", () => labelIsVisibleWithText("Time"));
+
+            AddStep("start a tap-timing pass", () => compose().ToggleTapTiming());
+            AddUntilStep("armed", () => compose().TapTiming.Active);
+            AddAssert("Finish label is drawn, sized, and inside the bottom bar row", () => labelIsVisibleWithText("Finish"));
+
+            AddStep("cancel the pass", () => InputManager.Key(Key.Escape));
+            AddUntilStep("idle again", () => !compose().TapTiming.Active);
+            AddAssert("Time label is drawn again after cancelling", () => labelIsVisibleWithText("Time"));
+
+            bool labelIsVisibleWithText(string expected)
+            {
+                var label = Editor.ChildrenOfType<RulesetActionButton>().Single().ChildrenOfType<OsuSpriteText>().Single();
+                var barRow = Editor.ChildrenOfType<TestGameplayButton>().Single().ScreenSpaceDrawQuad;
+
+                return label.Text.ToString() == expected
+                       && label.DrawWidth > 0
+                       && label.DrawHeight > 0
+                       && label.Alpha > 0
+                       && label.ScreenSpaceDrawQuad.TopLeft.Y >= barRow.TopLeft.Y - 1
+                       && label.ScreenSpaceDrawQuad.BottomLeft.Y <= barRow.BottomLeft.Y + 1;
+            }
         }
 
         [Test]
