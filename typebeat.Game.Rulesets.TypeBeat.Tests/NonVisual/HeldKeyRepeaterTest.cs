@@ -95,9 +95,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             run(repeater, engine, 1000, 2100);
 
-            // Cells 1..10 scheduled, every one fires on its own target, no clamping.
+            // Cells 1..9 (the rest of the a-run) each fire on their own target, no clamping. The
+            // 'h' at 2000 is where the run ends, so the match gate stops there.
             Assert.AreEqual(
-                new double[] { 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000 },
+                new double[] { 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900 },
                 recorded.Select(r => r.time).ToArray());
 
             Assert.IsTrue(recorded.All(r => r.c == 'a'), "every repeat fires the char captured at the initial press");
@@ -111,14 +112,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// NO BOUNDARY DETECTION: the repeat does not look at what the next cell expects. Holding
-        /// 'a' through "aaaaaaaaaah" fires an 'a' at the 'h' cell's target and takes the ordinary
-        /// strict-mode punishment (rejected, combo broken, wrong-key streak).
+        /// MATCH GATE: a hold sustains a RUN and stops where the run does. Holding 'a' through
+        /// "aaaaaaaaaah" types the ten a's and sends nothing at all at the 'h': no press, no
+        /// rejection, no combo break, no wrong-key streak, and the hold itself ends there.
         /// </summary>
         [Test]
-        public void HoldingPastTheRunIsPunishedAtTheNextCell()
+        public void HoldingPastTheRunFiresNothingFurther()
         {
             var (engine, repeater, recorded) = start(denseRun());
+            var rejected = new List<char>();
+            engine.WrongKeyRejected += rejected.Add;
 
             press(engine, repeater, recorded, Key.A, 'a', 1000);
             run(repeater, engine, 1000, 2100);
@@ -126,18 +129,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var h = engine.Lines[0].Cells[10];
 
             Assert.AreEqual('h', h.Expected);
-            Assert.AreEqual(CellState.Untyped, h.State, "strict play rejects the wrong char rather than landing it");
-            Assert.AreEqual(10, engine.CaretIndex, "a rejected repeat does not advance the caret");
-            Assert.AreEqual(1, engine.ConsecutiveWrongKeys);
-            Assert.AreEqual(0, engine.Combo, "the overrun breaks combo like any other wrong key");
+            Assert.AreEqual(CellState.Untyped, h.State, "the repeat is never sent, so nothing lands on the h");
+            Assert.AreEqual(10, engine.CaretIndex, "the caret stops at the end of the run");
+            Assert.IsEmpty(rejected, "a synthesized press can never be a wrong key");
+            Assert.AreEqual(0, engine.ConsecutiveWrongKeys);
+            Assert.AreEqual(10, engine.Combo, "the run's combo is intact; nothing broke it");
+            Assert.IsFalse(repeater.IsHolding, "the gate ends the hold where the run ends");
 
-            // The rejected repeat is still an EFFECTIVE input, so it is recorded like a live one.
-            Assert.AreEqual(2000, recorded[^1].time);
+            // The last thing recorded is the last real cell of the run, not an overrun.
+            Assert.AreEqual(1900, recorded[^1].time);
         }
 
-        /// <summary>Allow-wrong-input is the mode where the punishment is literally "the h gets an a".</summary>
+        /// <summary>
+        /// Allow-wrong-input is the mode where an overrun used to be literally "the h gets an a".
+        /// The gate is mode-independent: a repeat that would not be judged correct is never sent, so
+        /// this mode gets no red Wrong fills out of a hold either.
+        /// </summary>
         [Test]
-        public void HoldingPastTheRunFillsTheNextCellWhenWrongInputIsAllowed()
+        public void HoldingPastTheRunFillsNothingEvenWhenWrongInputIsAllowed()
         {
             var (engine, repeater, recorded) = start(denseRun());
             engine.AllowWrongInput = true;
@@ -147,10 +156,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var h = engine.Lines[0].Cells[10];
 
-            Assert.AreEqual(CellState.Wrong, h.State);
-            Assert.AreEqual('a', h.TypedChar, "the h is filled with an a");
-            Assert.IsTrue(engine.IsLineComplete);
-            Assert.IsFalse(repeater.IsHolding, "completing the line ends the hold");
+            Assert.AreEqual(CellState.Untyped, h.State, "no red fill: the press was never sent");
+            Assert.IsNull(h.TypedChar);
+            Assert.IsFalse(engine.IsLineComplete, "the line is left one cell short, for the player to type");
+            Assert.IsFalse(repeater.IsHolding, "the gate ends the hold where the run ends");
+            Assert.AreEqual(10, recorded.Count, "the initial press plus nine matching repeats");
         }
 
         /// <summary>
@@ -260,9 +270,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, engine.ConsecutiveWrongKeys);
         }
 
-        /// <summary>Under Literate the lower-case hold is wrong every single time, repeats included.</summary>
+        /// <summary>
+        /// The gate applies the Literate mod's exact-case rule too, so a wrong-case hold costs
+        /// exactly the ONE real keystroke the player physically made. The repeats that would each
+        /// have been another wrong key are never sent.
+        /// </summary>
         [Test]
-        public void LiterateHoldOfTheWrongCaseIsRejectedThroughout()
+        public void LiterateHoldOfTheWrongCaseCostsOnlyTheInitialPress()
         {
             var (engine, repeater, recorded) = start(slowRun("AAAA"));
             engine.CaseSensitive = true;
@@ -272,11 +286,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.IsTrue(engine.Lines[0].Cells.All(c => c.State == CellState.Untyped));
             Assert.AreEqual(0, engine.CaretIndex);
+            Assert.IsFalse(repeater.IsHolding);
 
-            // The initial press plus one repeat per cell BEHIND the caret cell: the rejected press
-            // consumed nothing, so the caret cell is the drift anchor and its own repeat would fall
-            // on the press itself, which no repeat may ever do.
-            Assert.AreEqual(4, engine.ConsecutiveWrongKeys);
+            // Only the physical press the player made; the mash-fail streak is not fed by synthesis.
+            Assert.AreEqual(1, engine.ConsecutiveWrongKeys);
         }
 
         /// <summary>Mashing rewrites a repeat exactly like a real press: the hold types the whole word.</summary>
@@ -374,24 +387,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// REGRESSION (backlog 43): a CORRECT keystroke must not answer itself with an error letter
-        /// just because the player is behind the song. Scheduling repeats at raw absolute cell
-        /// targets put the first one on a cell the caret had not reached yet, which for a lagging
-        /// player lands INSIDE an ordinary keystroke's 60-100ms dwell: the correct press was accepted
-        /// and a duplicate of it was rejected against the next cell a few ms later, breaking combo
-        /// and popping the wrong-key letter out beside the caret. The first repeat is now a whole
-        /// song cadence away whatever the drift, so a normally-typed key is one keystroke.
+        /// REGRESSION (backlog 43, first half): a lagging player's ordinary keystroke must stay ONE
+        /// keystroke. Scheduling repeats at raw absolute cell targets put the first one on a cell the
+        /// caret had not reached yet, which for a lagging player falls INSIDE an ordinary keystroke's
+        /// 60-100ms dwell, so a duplicate press was synthesized a few ms behind the real one. The
+        /// first repeat is now a whole song cadence away whatever the drift.
+        ///
+        /// <para>Deliberately a run of the SAME letter, where the duplicate would be a perfectly
+        /// correct press: the match gate cannot mask this one, so it pins the drift-shifted schedule
+        /// on its own.</para>
         /// </summary>
         [Test]
         public void ALaggingCorrectPressFiresNoRepeatInsideTheKeyDwell()
         {
-            // Distinct chars, so any duplicate press lands on a cell expecting something else.
-            var (engine, repeater, recorded) = start(denseRun("abcdefghijk"));
-            var rejected = new List<char>();
-            engine.WrongKeyRejected += rejected.Add;
+            var (engine, repeater, recorded) = start(denseRun());
 
             // 250ms behind the song: cell 0's target was 1000 and the player gets there at 1250.
-            // Cells 1..3 (targets 1100, 1200, 1300) are the ones the old schedule fired at.
+            // Cells 1 and 2 (targets 1100, 1200) are behind the press; cell 3's 1300 is what the
+            // absolute schedule fired at, comfortably inside the dwell below.
             engine.Update(1250);
             press(engine, repeater, recorded, Key.A, 'a', 1250);
 
@@ -402,12 +415,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             run(repeater, engine, 1250, 1330);
             repeater.Release(Key.A);
 
-            Assert.IsEmpty(rejected, "a correct keystroke must not be answered by a rejected wrong key");
             Assert.AreEqual(1, engine.CaretIndex);
             Assert.AreEqual(1, recorded.Count, "one physical press, one input");
-            Assert.AreEqual(0, engine.ConsecutiveWrongKeys);
             Assert.AreEqual(1, engine.Combo, "nothing broke the combo the correct press just started");
-            Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[1].State, "the next cell is untouched");
+            Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[1].State, "the hold did not type ahead of the player");
+        }
+
+        /// <summary>
+        /// REGRESSION (backlog 43, residue): the drift-shifted schedule alone was not enough. It only
+        /// guarantees the first repeat is one SONG CADENCE after the press, and a cadence can be
+        /// shorter than a keystroke's dwell: on dense timing a still-held key is legitimately due
+        /// again while it is physically down. Where the run of the held char ends, that firing landed
+        /// on a cell wanting a different letter and popped the error letter out of a keystroke the
+        /// player had typed correctly.
+        ///
+        /// <para>"aab" at a 30ms cadence puts BOTH remaining cell targets inside one 80ms dwell: the
+        /// first repeat is a real 'a' and still fires, the second would be an 'a' at the 'b' and must
+        /// not be sent at all.</para>
+        /// </summary>
+        [Test]
+        public void ARepeatIsNeverSentToACellExpectingAnotherChar()
+        {
+            var (engine, repeater, recorded) = start(map(line("aab", 1000, 9000, 1090, unit("aab", 1000, 1090))));
+            var rejected = new List<char>();
+            engine.WrongKeyRejected += rejected.Add;
+
+            press(engine, repeater, recorded, Key.A, 'a', 1000);
+
+            Assert.AreEqual(new double[] { 1000, 1030, 1060 }, engine.Lines[0].Cells.Select(c => c.TargetTime).ToArray(),
+                "a 30ms cadence, well inside an ordinary keystroke's dwell");
+
+            // 80ms of dwell, the same ordinary keystroke every other test here releases on.
+            run(repeater, engine, 1000, 1080);
+            repeater.Release(Key.A);
+
+            Assert.AreEqual(new double[] { 1000, 1030 }, recorded.Select(r => r.time).ToArray(),
+                "the matching repeat is sent, the diverging one never is");
+            Assert.AreEqual(2, engine.CaretIndex);
+            Assert.IsEmpty(rejected, "no error letter out of a keystroke the player typed correctly");
+            Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[2].State, "no fill on the b, in any mode");
+            Assert.AreEqual(0, engine.ConsecutiveWrongKeys);
+            Assert.AreEqual(2, engine.Combo, "the combo the player earned survives");
+            Assert.IsFalse(repeater.IsHolding, "the gated repeat ended the hold rather than skipping one firing");
         }
 
         /// <summary>
