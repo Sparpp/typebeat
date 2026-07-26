@@ -42,6 +42,12 @@ namespace typebeat.Game.Screens.Edit.Components.Timelines.Summary
         public RulesetActionButton()
         {
             RelativeSizeAxes = Axes.Y;
+            // OsuButton's own constructor sets Height = 40 as an absolute pixel value (its usual,
+            // non-relative sizing mode). Switching to RelativeSizeAxes.Y here reinterprets that same
+            // stored value as a fraction of the parent's height instead, so it must be reset to a
+            // proper 100% or the button balloons to 40x its parent's height, pushing the label text
+            // far outside the bottom bar's masked/clipped area (invisible, but never zero-sized).
+            Height = 1;
             Width = 0;
         }
 
