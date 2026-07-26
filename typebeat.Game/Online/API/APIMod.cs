@@ -41,7 +41,9 @@ namespace typebeat.Game.Online.API
             {
                 var bindable = (IBindable)property.GetValue(mod)!;
 
-                if (!bindable.IsDefault)
+                // Defaults are normally omitted to keep the payload small; a mod can pin a
+                // score-affecting setting so a receiver never has to infer it from our defaults.
+                if (!bindable.IsDefault || mod.AlwaysSerializeSetting(property.Name))
                     Settings.Add(property.Name.ToSnakeCase(), bindable.GetUnderlyingSettingValue());
             }
         }
