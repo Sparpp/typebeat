@@ -84,6 +84,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
             },
             ModType.Fun => new Mod[]
             {
+                new TypeBeatModMuted(),
                 new ModWindUp(),
                 new ModWindDown(),
             },
