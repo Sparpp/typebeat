@@ -12,6 +12,7 @@ using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.Edit;
+using typebeat.Game.Screens.Edit.Components.Timelines.Summary;
 using typebeat.Game.Screens.Edit.Compose;
 using typebeat.Game.Screens.Edit.Setup;
 using typebeat.Game.Tests.Visual;
@@ -412,6 +413,129 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("stop", () => EditorClock.Stop());
             AddAssert("section still marked", () => state().MultiSelectedLines.Count == 2);
         }
+
+        [Test]
+        public void TestTimeButtonSitsLeftOfTest()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddUntilStep("Time button published", () =>
+                Editor.ChildrenOfType<RulesetActionButton>().SingleOrDefault() is RulesetActionButton b
+                && b.Alpha == 1 && b.Text.ToString() == "Time");
+
+            AddAssert("it sits left of Test", () =>
+                Editor.ChildrenOfType<RulesetActionButton>().Single().ScreenSpaceDrawQuad.TopLeft.X
+                < Editor.ChildrenOfType<TestGameplayButton>().Single().ScreenSpaceDrawQuad.TopLeft.X);
+        }
+
+        [Test]
+        public void TestTapTimingRecordsThenCommitsAsOneUndoStep()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("start a pass over the whole sheet", () =>
+            {
+                state().SelectedLine.Value = null;
+                state().ClearMultiLineSelection();
+                compose().ToggleTapTiming();
+            });
+
+            AddUntilStep("recording", () => compose().TapTiming.Active);
+            AddAssert("entering tap mode mutated nothing", () => firstLine().Line.StartTime == 1000);
+            AddUntilStep("song running", () => EditorClock.IsRunning);
+
+            tapAfterTheClockAdvances();
+            AddUntilStep("first word timed", () => compose().TapTiming.Session?.TappedCount == 1);
+
+            // The overlay holds focus, so Space is a tap, NOT the bottom bar's play/pause.
+            AddAssert("space did not toggle playback", () => EditorClock.IsRunning);
+            AddAssert("still nothing committed", () => firstLine().Line.StartTime == 1000);
+
+            tapAfterTheClockAdvances();
+            AddUntilStep("second word timed", () => compose().TapTiming.Session?.TappedCount == 2);
+            AddUntilStep("queue complete stops the song", () => !EditorClock.IsRunning);
+
+            double[] recorded = null!;
+
+            AddStep("finish (commit)", () =>
+            {
+                recorded = compose().TapTiming.Session!.Taps.ToArray();
+                compose().ToggleTapTiming();
+            });
+            AddUntilStep("no longer recording", () => !compose().TapTiming.Active);
+            AddAssert("both lines landed on their taps", () =>
+                lineAt(0).Line.StartTime == recorded[0] && lineAt(1).Line.StartTime == recorded[1]);
+            AddAssert("still two lines, ordered", () =>
+                EditorBeatmap.HitObjects.OfType<TypeBeatHitObject>().Count() == 2
+                && lineAt(0).Line.EndTime == lineAt(1).Line.StartTime);
+
+            // Record-then-commit means the whole pass is a SINGLE undo step.
+            AddStep("undo once", () => Editor.Undo());
+            AddUntilStep("one undo restored the original timing", () => firstLine().Line.StartTime == 1000);
+        }
+
+        [Test]
+        public void TestTapTimingCancelLeavesNoTrace()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("start a pass", () =>
+            {
+                state().SelectedLine.Value = null;
+                state().ClearMultiLineSelection();
+                compose().ToggleTapTiming();
+            });
+            AddUntilStep("recording", () => compose().TapTiming.Active);
+
+            tapAfterTheClockAdvances();
+            AddUntilStep("a tap was recorded", () => compose().TapTiming.Session?.TappedCount == 1);
+
+            AddStep("escape", () => InputManager.Key(Key.Escape));
+            AddUntilStep("no longer recording", () => !compose().TapTiming.Active);
+
+            AddAssert("the beatmap never moved", () =>
+                EditorBeatmap.HitObjects.OfType<TypeBeatHitObject>().Count() == 2
+                && lineAt(0).Line.StartTime == 1000
+                && lineAt(1).Line.StartTime == 3000);
+        }
+
+        [Test]
+        public void TestTapTimingScopesToTheSelectedSection()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("select only line 2", () => clickRow(1));
+            AddUntilStep("line 2 selected", () => state().SelectedLine.Value == rows()[1].HitObject);
+
+            AddStep("start a pass", () => compose().ToggleTapTiming());
+            AddUntilStep("recording", () => compose().TapTiming.Active);
+
+            AddAssert("queue covers only the selected line", () =>
+                compose().TapTiming.Session!.Queue.All(t => t.LineIndex == 1));
+
+            AddStep("cancel", () => compose().TapTiming.Cancel());
+            AddUntilStep("no longer recording", () => !compose().TapTiming.Active);
+        }
+
+        /// <summary>
+        /// Taps Space once the clock has moved far enough that the tap cannot be mistaken for a
+        /// double fire (the session refuses taps closer than MIN_TAP_GAP_MS apart).
+        /// </summary>
+        private void tapAfterTheClockAdvances()
+        {
+            double from = 0;
+
+            AddStep("note the clock", () => from = EditorClock.CurrentTime);
+            AddUntilStep("clock advanced past the double-fire guard", () =>
+                EditorClock.CurrentTime > from + TapTimingSession.MIN_TAP_GAP_MS * 3);
+            AddStep("tap space", () => InputManager.Key(Key.Space));
+        }
+
+        private LyricComposeScreen compose() => Editor.ChildrenOfType<LyricComposeScreen>().Single();
+
+        private TypeBeatHitObject firstLine() => lineAt(0);
+
+        private TypeBeatHitObject lineAt(int index) => TypeBeatEditorOperations.OrderedLines(EditorBeatmap)[index];
 
         private LyricEditState state() => Editor.ChildrenOfType<LyricComposeScreen>().Single().EditState;
 

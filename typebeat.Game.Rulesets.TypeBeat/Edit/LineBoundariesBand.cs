@@ -48,6 +48,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         private readonly Container shadeLayer;
         private readonly Container markLayer;
+        private readonly TapGhostLayer ghostLayer;
         private readonly Box playhead;
 
         private double windowStart, windowLength = 1;
@@ -70,6 +71,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 },
                 shadeLayer = new Container { RelativeSizeAxes = Axes.Both },
                 markLayer = new Container { RelativeSizeAxes = Axes.Both },
+                ghostLayer = new TapGhostLayer(),
                 playhead = new Box
                 {
                     RelativeSizeAxes = Axes.Y,
@@ -114,6 +116,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             foreach (var tick in markLayer.OfType<WordTick>())
                 tick.UpdateLayout(this);
+
+            // Ghost markers of a live tap-timing pass (nothing committed yet).
+            ghostLayer.UpdateGhosts(state.TapSession?.Taps, PositionOf);
 
             double now = editorClock.CurrentTime;
             bool playheadVisible = now >= windowStart && now <= windowStart + windowLength;

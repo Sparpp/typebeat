@@ -55,6 +55,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private readonly Container bandLayer;
         private readonly Container blockLayer;
         private readonly Container handleLayer;
+        private readonly TapGhostLayer ghostLayer;
         private readonly Box playhead;
         private readonly ResizeCursorContainer resizeCursor;
 
@@ -100,6 +101,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         bandLayer = new Container { RelativeSizeAxes = Axes.Both },
                         blockLayer = new Container { RelativeSizeAxes = Axes.Both },
                         handleLayer = new Container { RelativeSizeAxes = Axes.Both },
+                        ghostLayer = new TapGhostLayer(),
                         playhead = new Box
                         {
                             RelativeSizeAxes = Axes.Y,
@@ -168,6 +170,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             foreach (var flag in handleLayer.OfType<SingEndFlag>())
                 flag.UpdateLayout(this);
+
+            // A live tap-timing pass has committed nothing yet; its taps show as ghosts on top.
+            ghostLayer.UpdateGhosts(state.TapSession?.Taps, PositionOf);
 
             double now = editorClock.CurrentTime;
             bool playheadVisible = now >= windowStart && now <= windowStart + windowLength;

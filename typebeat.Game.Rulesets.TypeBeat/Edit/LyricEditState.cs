@@ -233,5 +233,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>When set, playback auto-pauses at this time (A/B line replay).</summary>
         public double? ReplayStopTime;
+
+        /// <summary>
+        /// The live tap-timing recording, or null when not recording. Set by
+        /// <see cref="TapTimingOverlay"/>; read by the timeline surfaces so they can draw the pass's
+        /// ghost markers. Nothing in it has been committed to the beatmap.
+        /// </summary>
+        public TapTimingSession? TapSession;
     }
 }

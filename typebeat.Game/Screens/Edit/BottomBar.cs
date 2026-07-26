@@ -51,6 +51,10 @@ namespace typebeat.Game.Screens.Edit
                         new Dimension(GridSizeMode.Absolute, 150),
                         new Dimension(),
                         new Dimension(GridSizeMode.Absolute, 220),
+                        // The ruleset slot: zero width unless the active ruleset's compose screen
+                        // publishes an action, so the summary timeline only gives up space when
+                        // there is actually a button there.
+                        new Dimension(GridSizeMode.AutoSize),
                         new Dimension(GridSizeMode.Absolute, 120f),
                     },
                     Content = new[]
@@ -60,6 +64,12 @@ namespace typebeat.Game.Screens.Edit
                             new TimeInfoContainer { RelativeSizeAxes = Axes.Both },
                             new SummaryTimeline { RelativeSizeAxes = Axes.Both },
                             new PlaybackControl { RelativeSizeAxes = Axes.Both },
+                            new Container
+                            {
+                                AutoSizeAxes = Axes.X,
+                                RelativeSizeAxes = Axes.Y,
+                                Child = new RulesetActionButton(),
+                            },
                             TestGameplayButton = new TestGameplayButton
                             {
                                 RelativeSizeAxes = Axes.Both,

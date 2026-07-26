@@ -44,6 +44,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>The shared active/selected-line interaction state (exposed for tests).</summary>
         public LyricEditState EditState => state;
 
+        /// <summary>The tap-timing recording surface (exposed for tests).</summary>
+        public TapTimingOverlay TapTiming => tapOverlay;
+
+        /// <summary>Starts or finishes a tap-timing pass, as the bottom bar's Time button does (exposed for tests).</summary>
+        public void ToggleTapTiming() => toggleTapTiming();
+
         [Resolved]
         private EditorClock editorClock { get; set; } = null!;
 
@@ -53,7 +59,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private LyricTimingClipboard.LineTimingsPayload? clipboardLines;
         private LyricTimingClipboard.UnitTimingsPayload? clipboardUnits;
 
+        [Resolved]
+        private EditorRulesetAction rulesetAction { get; set; } = null!;
+
         private LineListPanel lineList = null!;
+        private TapTimingOverlay tapOverlay = null!;
         private TypeBeatHitObject? lastAutoScrolled;
 
         /// <summary>Volume of the per-word editor tick, audible over the track without masking it.</summary>
@@ -121,6 +131,81 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 (clipboardLines, clipboardUnits) = LyricTimingClipboard.TryParse(content.NewValue);
                 CanPaste.Value = clipboardLines != null || clipboardUnits != null;
             }, true);
+
+            // The bottom bar's ruleset slot, immediately left of Test: tap timing. The editor owns
+            // the button, so this screen only publishes a label + callback and withdraws on dispose.
+            rulesetAction.Publish("Time", toggleTapTiming);
+            tapOverlay.StateChanged += updateTapButton;
+        }
+
+        private void updateTapButton()
+        {
+            rulesetAction.Text.Value = tapOverlay.Active ? "Finish" : "Time";
+            rulesetAction.Armed.Value = tapOverlay.Active;
+        }
+
+        /// <summary>
+        /// The "Time" button: starts a tap-timing pass, or finishes (commits) the running one.
+        ///
+        /// <para>SCOPE. The pass times the mapper's selection: a multi-line section from the line
+        /// list, or the single selected line, and within a single selected line a word-block
+        /// selection narrows it to that run of words. A ctrl-picked selection with gaps is filled in
+        /// (the pass covers the contiguous span from its first line to its last), because taps are
+        /// inherently continuous in time. With NOTHING selected the scope is the WHOLE SHEET, which
+        /// is the fresh-paste case: paste lyrics, press Time, tap the song through.</para>
+        /// </summary>
+        private void toggleTapTiming()
+        {
+            // The main content loads asynchronously while the bottom bar is already up; a click in
+            // that window has nothing to record into.
+            if (!tapOverlay.IsLoaded)
+                return;
+
+            if (tapOverlay.Active)
+            {
+                tapOverlay.Commit();
+                return;
+            }
+
+            var ordered = TypeBeatEditorOperations.OrderedLines(EditorBeatmap);
+
+            if (ordered.Count == 0)
+                return;
+
+            var lines = ordered.Select(o => o.Line).ToList();
+            var section = state.SelectedLinesInOrder(ordered);
+
+            int firstLine = 0;
+            int lastLine = ordered.Count - 1;
+            int firstUnit = 0;
+            int lastUnit = lines[^1].Units.Count - 1;
+
+            if (section.Count > 0)
+            {
+                firstLine = ordered.IndexOf(section[0]);
+                lastLine = ordered.IndexOf(section[^1]);
+                lastUnit = lines[lastLine].Units.Count - 1;
+
+                // A word-block selection inside one line narrows the pass to that run of words.
+                if (firstLine == lastLine && state.ActiveLine.Value == section[0] && state.SelectedUnitIndices.Count > 0)
+                {
+                    firstUnit = state.SelectedUnitIndices.Min();
+                    lastUnit = state.SelectedUnitIndices.Max();
+                }
+            }
+
+            var queue = TapTimingBuilder.BuildQueue(lines, firstLine, firstUnit, lastLine, lastUnit);
+
+            if (queue.Count == 0)
+                return;
+
+            // Start from the first queued WORD, not the line, so a mid-line word run pre-rolls to
+            // the right place on a sheet that already carries timing.
+            double startFrom = lines[firstLine].Units.Count > firstUnit
+                ? lines[firstLine].Units[firstUnit].StartTime
+                : lines[firstLine].StartTime;
+
+            tapOverlay.Begin(lines, queue, startFrom);
         }
 
         public override void Copy()
@@ -172,7 +257,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// </summary>
         private const float timeline_right_inset = 245;
 
-        protected override Drawable CreateMainContent() => new GridContainer
+        protected override Drawable CreateMainContent() => new Container
+        {
+            RelativeSizeAxes = Axes.Both,
+            Children = new Drawable[]
+            {
+                createComposeGrid(),
+                // Recording surface for the "Time" button; hidden (and inert) until a pass starts.
+                tapOverlay = new TapTimingOverlay(),
+            },
+        };
+
+        private Drawable createComposeGrid() => new GridContainer
         {
             RelativeSizeAxes = Axes.Both,
             RowDimensions = new[]
@@ -247,6 +343,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// </summary>
         private void updateNoteTicks()
         {
+            // During a tap-timing pass the map still holds the OLD timing; clicking it over the
+            // mapper's taps would fight the ear they are timing by. The overlay clicks each tap instead.
+            if (tapOverlay.Active)
+            {
+                tickTracker.Reset();
+                syllableTickTracker.Reset();
+                return;
+            }
+
             if (!editorClock.IsRunning)
             {
                 // Paused/stopped: forget the frame time so resuming (or a scrub target) never bursts.
@@ -336,6 +441,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         protected override bool OnKeyDown(KeyDownEvent e)
         {
+            // Record-then-commit: no stamping hotkey may mutate the beatmap mid-pass. The overlay
+            // holds focus and normally eats these first; this is the belt-and-braces guard.
+            if (tapOverlay.Active)
+                return base.OnKeyDown(e);
+
             if (e.Repeat || e.ControlPressed || e.AltPressed || e.SuperPressed)
                 return base.OnKeyDown(e);
 
@@ -413,6 +523,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 TypeBeatEditorOperations.AddSyllableBoundary(EditorBeatmap, line, i);
 
             EditorBeatmap.EndChange();
+        }
+
+        protected override void Dispose(bool isDisposing)
+        {
+            // The bottom-bar button belongs to the editor, not to this screen: leaving compose just
+            // empties the slot. Nothing has to be removed from the game's drawable tree.
+            rulesetAction.Withdraw();
+
+            base.Dispose(isDisposing);
         }
     }
 }
