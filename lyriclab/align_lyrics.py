@@ -151,20 +151,109 @@ def normalize_word(display: str, dict_chars: set, num2words_fn) -> list:
 # Syllabification
 # --------------------------------------------------------------------------
 
-def naive_syllables(tok: str) -> list:
-    """Vowel-group splitter fallback. Keeps concat(parts) == tok."""
-    letters = tok
-    groups = []  # (start, end) of vowel runs
+# A final "-es" is pronounced (rather than silent) when the stem already ends in a sibilant,
+# because there is no way to say the plural without it: "wishes", "faces", "boxes" are two,
+# while "makes" and "hopes" are one.
+SIBILANT_ES = ("ses", "zes", "xes", "ches", "shes", "ges", "ces")
+
+
+def vowel_groups(word: str) -> list:
+    """
+    Runs of vowel letters in `word`, as (start, end) index pairs: one group is one syllable
+    nucleus before the silent-ending corrections.
+
+    Two refinements around 'y', which is the only letter that is a vowel some of the time:
+
+    * A word-initial 'y' before another vowel is a CONSONANT glide, so "yes" and "you" are one
+      nucleus, not two.
+    * Elsewhere a 'y' directly before another vowel ENDS its run rather than merging with it,
+      because that pair spans a real syllable break: "cry|ing", "play|er", "dy|ing". A 'y' after
+      a vowel still merges, which is right for the diphthongs: "day", "they", "boy".
+    """
+    groups = []
     i = 0
-    while i < len(letters):
-        if letters[i] in VOWELS:
+    while i < len(word):
+        if word[i] == "y" and i == 0 and i + 1 < len(word) and word[i + 1] in VOWELS:
+            i += 1                        # glide, not a nucleus
+            continue
+        if word[i] in VOWELS:
             j = i
-            while j < len(letters) and letters[j] in VOWELS:
+            while j < len(word) and word[j] in VOWELS:
                 j += 1
+                if word[j - 1] == "y" and j < len(word) and word[j] in VOWELS:
+                    break                 # "y" + vowel is a break, not a diphthong
             groups.append((i, j))
             i = j
         else:
             i += 1
+    return groups
+
+
+def syllable_count(tok: str) -> int:
+    """
+    How many syllables `tok` has, from its spelling. Always at least 1.
+
+    This is vowel-group counting with the refinements English actually needs, and it exists
+    because the alignment underneath is CHARACTER level (the MMS_FA dictionary is a-z plus
+    apostrophe), so there are no phonemes to read a syllable count off: spelling is the only
+    evidence available, and the alignment only supplies the times once the split is decided.
+
+    Corrections applied to the raw nucleus count, each firing only when the final 'e' opened a
+    nucleus of its OWN (in "value", "cities" and "played" it merely extends the run before it,
+    so it never added a count to cancel):
+
+    * silent final 'e': "life", "breathe" and "fire" are one, not two. The exception is a
+      consonant plus "-le", where the l becomes syllabic and the group stands: "table",
+      "little", "people" are two, while "while" and "smile" are one.
+    * silent final "-ed", unless the stem ends in t or d, which forces the vowel to be said:
+      "breathed" is one, "wanted" and "needed" are two.
+    * silent final "-es", unless the stem ends in a sibilant (see SIBILANT_ES).
+    * a final syllabic consonant, which carries a syllable with no vowel letter to show for it:
+      "rhythm" and "prism" are two. Kept narrow (-sm and -thm only), where it is unambiguous.
+
+    Known imperfect, because spelling alone cannot settle it: "every" counts 3 (dictionaries
+    list both 2 and 3, and it is usually sung as 2), "fire" and "hour" count 1 though they are
+    often sung as 2, and any word whose vowel letters lie about its pronunciation. The count is
+    only ever used to decide HOW MANY parts a word may split into, never where they fall, so an
+    error costs a subdivision rather than a wrong time.
+    """
+    w = "".join(ch for ch in tok.lower() if ch.isalpha())
+    if not w:
+        return 1
+
+    groups = vowel_groups(w)
+    n = len(groups)
+    if n == 0:
+        return 1
+
+    starts = {g[0] for g in groups}
+
+    if w.endswith("e") and len(w) - 1 in starts:
+        # Consonant + "-le" keeps its group: the e is silent but the l is syllabic.
+        if not (len(w) >= 3 and w.endswith("le") and w[-3] not in VOWELS):
+            n -= 1
+    elif w.endswith("ed") and len(w) >= 3 and len(w) - 2 in starts:
+        if w[-3] not in "td":
+            n -= 1
+    elif w.endswith("es") and len(w) >= 3 and len(w) - 2 in starts:
+        if not w.endswith(SIBILANT_ES):
+            n -= 1
+
+    if w.endswith("sm") or w.endswith("thm"):
+        n += 1
+
+    return max(1, n)
+
+
+def naive_syllables(tok: str, limit: int = 0) -> list:
+    """
+    Vowel-group splitter fallback. Keeps concat(parts) == tok.
+
+    `limit` caps the number of parts at the true syllable count. The nuclei the counting rules
+    discount are always TRAILING ones (a silent final e, -ed or -es), so the surplus is folded
+    into the last part rather than dropped.
+    """
+    groups = vowel_groups(tok)
     if len(groups) <= 1:
         return [tok]
     bounds = []
@@ -184,21 +273,80 @@ def naive_syllables(tok: str) -> list:
         parts.append(tok[prev:b])
         prev = b
     parts.append(tok[prev:])
-    return [p for p in parts if p] or [tok]
+    parts = [p for p in parts if p] or [tok]
+    if limit and len(parts) > limit:
+        parts = parts[:limit - 1] + ["".join(parts[limit - 1:])]
+    return parts
 
 
 def syllabify_token(tok: str, pyphen_dic) -> list:
-    parts = None
+    """
+    Split `tok` into syllable text parts, with concat(parts) == tok always.
+
+    syllable_count decides HOW MANY parts; pyphen only decides WHERE they fall. That division
+    matters: pyphen is a Liang hyphenation dictionary, so it is good at boundaries but returns a
+    single part both for a genuine monosyllable AND for any word it has no pattern for, and the
+    two are indistinguishable. Treating "no hyphen" as "fall back to splitting on vowel groups"
+    is what used to cut "life" into "li|fe" and "breathe" into "breat|he", while "remember" came
+    back correctly subdivided because pyphen did have a pattern for it.
+    """
+    if syllable_count(tok) <= 1:
+        return [tok]
+
     if pyphen_dic is not None:
-        cand = pyphen_dic.inserted(tok).split("-")
-        cand = [p for p in cand if p]
-        if cand and "".join(cand) == tok and len(cand) > 1:
-            parts = cand
-    if parts is None:
-        parts = naive_syllables(tok)
-    if "".join(parts) != tok:
-        parts = [tok]
-    return parts
+        cand = [p for p in pyphen_dic.inserted(tok).split("-") if p]
+        if len(cand) > 1 and "".join(cand) == tok:
+            return cand
+
+    parts = naive_syllables(tok, syllable_count(tok))
+    return parts if "".join(parts) == tok else [tok]
+
+
+# Pinned by `python align_lyrics.py --self-test-syllables`, which needs nothing but the standard
+# library (every heavy import in this file lives inside main), so it runs without the venv.
+SYLLABLE_CASES = {
+    # The reported bug: a silent final e is not a syllable of its own.
+    "life": 1, "breathe": 1, "fire": 1, "love": 1, "one": 1, "alone": 2, "the": 1,
+    # ... but a consonant plus "-le" is, because the l becomes syllabic.
+    "table": 2, "little": 2, "people": 2, "while": 1, "smile": 1,
+    # The case that was already right, and stays right.
+    "remember": 3, "beautiful": 3,
+    # Silent "-ed" unless the stem ends in t or d.
+    "breathed": 1, "played": 1, "wanted": 2, "needed": 2,
+    # Silent "-es" unless the stem ends in a sibilant.
+    "makes": 1, "goes": 1, "wishes": 2, "faces": 2, "cities": 2,
+    # 'y': a glide at the front of a word, a nucleus in the middle, a diphthong after a vowel.
+    "yes": 1, "you": 1, "yellow": 2, "day": 1, "they": 1, "always": 2, "eye": 1,
+    "crying": 2, "trying": 2, "player": 2,
+    # Syllabic consonants, which have no vowel letter at all to be counted.
+    "rhythm": 2, "prism": 2,
+    # Vowel runs that are one nucleus however long they look.
+    "see": 1, "hour": 1, "value": 2, "a": 1,
+}
+
+
+def self_test_syllables() -> int:
+    """Checks syllable_count against SYLLABLE_CASES; prints failures and returns an exit code."""
+    failed = [(w, syllable_count(w), want) for w, want in SYLLABLE_CASES.items()
+              if syllable_count(w) != want]
+
+    # Whatever the count says, a split must never lose or invent characters.
+    lossy = []
+    for w in SYLLABLE_CASES:
+        parts = syllabify_token(w, None)
+        if "".join(parts) != w or len(parts) > syllable_count(w):
+            lossy.append((w, parts))
+
+    for w, got, want in failed:
+        print(f"FAIL {w}: counted {got}, expected {want}")
+    for w, parts in lossy:
+        print(f"FAIL {w}: bad split {parts}")
+
+    total = len(SYLLABLE_CASES)
+    bad = len(failed) + len(lossy)
+    print(f"syllable self-test: {total - len(failed)}/{total} counts, "
+          f"{total - len(lossy)}/{total} splits")
+    return 1 if bad else 0
 
 
 # --------------------------------------------------------------------------
@@ -858,4 +1006,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--self-test-syllables" in sys.argv:
+        sys.exit(self_test_syllables())
     main()

@@ -556,6 +556,59 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
+        /// A pass shows ONLY the section it is recording: the lyric surfaces hide everything outside
+        /// the scope for its duration, so the mapper is not reading past lines they are not timing,
+        /// and the sheet comes back whole the moment the pass ends.
+        /// </summary>
+        [Test]
+        public void TestTapTimingHidesLyricsOutsideTheScope()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("select only line 2", () => clickRow(1));
+            AddUntilStep("line 2 selected", () => state().SelectedLine.Value == rows()[1].HitObject);
+
+            AddStep("start a pass", () => compose().ToggleTapTiming());
+            AddUntilStep("recording", () => compose().TapTiming.Active);
+            AddAssert("the scope is not the whole sheet", () => state().TapScope?.CoversEverything == false);
+
+            // Alpha 0 makes the row non-present, so the list collapses to the scope instead of
+            // leaving a hole: hidden outright, never merely dimmed.
+            AddUntilStep("line 1's row is gone", () => !rows()[0].IsPresent);
+            AddAssert("line 2's row is still there", () => rows()[1].IsPresent);
+
+            AddStep("cancel", () => compose().TapTiming.Cancel());
+            AddUntilStep("no longer recording", () => !compose().TapTiming.Active);
+
+            // Cancel is the harshest exit path (no commit, no undo entry); the sheet still returns.
+            AddUntilStep("every row is back", () => rows().All(r => r.IsPresent));
+            AddAssert("the scope is cleared", () => state().TapScope == null);
+        }
+
+        [Test]
+        public void TestWholeSheetTapPassHidesNothing()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            // Nothing selected is the fresh-paste case: the pass covers the whole sheet, which is
+            // exactly when hiding would be wrong.
+            AddStep("clear any selection", () =>
+            {
+                state().ClearMultiLineSelection();
+                state().SelectedLine.Value = null;
+            });
+
+            AddStep("start a pass", () => compose().ToggleTapTiming());
+            AddUntilStep("recording", () => compose().TapTiming.Active);
+
+            AddAssert("the scope covers everything", () => state().TapScope?.CoversEverything == true);
+            AddAssert("every row is still visible", () => rows().All(r => r.IsPresent));
+
+            AddStep("cancel", () => compose().TapTiming.Cancel());
+            AddUntilStep("no longer recording", () => !compose().TapTiming.Active);
+        }
+
+        /// <summary>
         /// Taps Space once the clock has moved far enough that the tap cannot be mistaken for a
         /// double fire (the session refuses taps closer than MIN_TAP_GAP_MS apart).
         /// </summary>

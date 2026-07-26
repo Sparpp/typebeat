@@ -176,6 +176,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 return;
             }
 
+            // A tap-timing pass shows only the section it is recording, and the preview is the one
+            // place a whole line's text is spelled out. If the pinned active line happens to sit
+            // outside the pass, its lyric goes away with the rest until the pass ends.
+            if (state.HiddenByTapScope(line))
+            {
+                header.Text = "tap timing: timing another section";
+                timing.Text = string.Empty;
+                return;
+            }
+
             var l = line.Line;
             header.Text = $"line {line.LineIndex + 1}: {l.RawText}";
 

@@ -240,5 +240,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// ghost markers. Nothing in it has been committed to the beatmap.
         /// </summary>
         public TapTimingSession? TapSession;
+
+        /// <summary>
+        /// The section the live pass is timing, or null when not recording. Set and cleared by
+        /// <see cref="TapTimingOverlay"/> alongside <see cref="TapSession"/>; read by every surface
+        /// that renders lyric content, which hides everything outside it for the duration of the
+        /// pass so the mapper sees only the lines they are timing.
+        /// </summary>
+        public TapScope? TapScope;
+
+        /// <summary>
+        /// Whether <paramref name="line"/> should be HIDDEN right now: a pass is running and this
+        /// line is outside it. False whenever no pass is running, and false for every line when the
+        /// pass took the whole-sheet default.
+        /// </summary>
+        public bool HiddenByTapScope(TypeBeatHitObject line) => TapScope != null && !TapScope.Covers(line);
+
+        /// <summary>Whether word <paramref name="unitIndex"/> of <paramref name="line"/> should be hidden right now.</summary>
+        public bool HiddenByTapScope(TypeBeatHitObject line, int unitIndex)
+            => TapScope != null && !TapScope.Covers(line, unitIndex);
     }
 }

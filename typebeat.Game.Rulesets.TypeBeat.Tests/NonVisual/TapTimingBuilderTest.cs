@@ -40,6 +40,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             };
         }
 
+        /// <summary>Copy of <paramref name="source"/> with word <paramref name="unitIndex"/> subdivided at <paramref name="boundaries"/>.</summary>
+        private static LyricLine subdivide(LyricLine source, int unitIndex, params double[] boundaries)
+        {
+            var units = source.Units.Select((u, i) => i != unitIndex
+                ? u
+                : new TimedUnit
+                {
+                    Text = u.Text,
+                    StartTime = u.StartTime,
+                    EndTime = u.EndTime,
+                    Source = u.Source,
+                    Confidence = u.Confidence,
+                    SyllableBoundaries = boundaries,
+                }).ToArray();
+
+            return new LyricLine
+            {
+                RawText = source.RawText,
+                StartTime = source.StartTime,
+                EndTime = source.EndTime,
+                SingEndTime = source.SingEndTime,
+                Units = units,
+                SealGraceMs = source.SealGraceMs,
+                Estimated = source.Estimated,
+            };
+        }
+
+        /// <summary>
+        /// The user's own example: "remember me", where remember carries two subdivisions and so
+        /// asks for THREE taps, making four for the line. Followed by an ordinary undivided line.
+        /// </summary>
+        private static List<LyricLine> subdividedSheet() => new List<LyricLine>
+        {
+            subdivide(line("remember me", 1000, 3000, 2800, (1000, 1800), (1900, 2800)), 0, 1300, 1550),
+            line("hold on", 3000, 6000, 5500, (3000, 4200), (4300, 5500)),
+        };
+
         /// <summary>Three fully timed lines of two words each: [1000..3000], [3000..6000], [6000..8000].</summary>
         private static List<LyricLine> timedSheet() => new List<LyricLine>
         {
@@ -235,7 +272,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void TestRetimedWordsLoseSyllableSubdivisions()
+        public void TestRetimedWordKeepsSubdivisionsOnlyWhenTapsCoveredThem()
         {
             var lines = timedSheet();
 
@@ -258,13 +295,165 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Units = withBoundary,
             };
 
-            var built = TapTimingBuilder.Build(lines, TapTimingBuilder.BuildQueue(lines, 1, 0, 1, 1), new[] { 3500d, 4200 });
+            // The subdivided word now asks for TWO taps, so this queue is three slots, not two.
+            var queue = TapTimingBuilder.BuildQueue(lines, 1, 0, 1, 1);
+            Assert.That(queue, Is.EqualTo(new[] { new TapTarget(1, 0, 0), new TapTarget(1, 0, 1), new TapTarget(1, 1) }));
 
-            Assert.That(built[1].Units[0].SyllableBoundaries, Is.Empty, "the word moved wholesale");
+            // BOTH of the word's syllables were tapped, so the taps SET the subdivision: the old
+            // 3600 mark is replaced by the 4200 the mapper actually sang.
+            var covered = TapTimingBuilder.Build(lines, queue, new[] { 3500d, 4200 });
+            Assert.That(covered[1].Units[0].StartTime, Is.EqualTo(3500));
+            Assert.That(covered[1].Units[0].SyllableBoundaries, Is.EqualTo(new[] { 4200d }));
+
+            // The mapper finished after the word's FIRST syllable: the word moved wholesale but its
+            // second syllable never got a time, so the old mark is meaningless and goes.
+            var partial = TapTimingBuilder.Build(lines, queue, new[] { 3500d });
+            Assert.That(partial[1].Units[0].StartTime, Is.EqualTo(3500));
+            Assert.That(partial[1].Units[0].SyllableBoundaries, Is.Empty, "the second syllable was never tapped");
+            Assert.That(partial[1].Units[1].StartTime, Is.EqualTo(4300), "the untapped word kept its still-valid time");
 
             // A word the pass never touched keeps everything about it.
             var untouched = TapTimingBuilder.Build(lines, TapTimingBuilder.BuildQueue(lines, 0, 0, 0, 1), new[] { 1000d, 1900 });
             Assert.That(untouched[1].Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3600d }));
+        }
+
+        [Test]
+        public void TestSubdividedWordsExpandIntoOneTapPerSyllable()
+        {
+            var lines = subdividedSheet();
+
+            // "remember me" with remember split three ways is FOUR taps, exactly as the mapper
+            // sings it; the undivided line behind it is still one tap per word.
+            Assert.That(TapTimingBuilder.BuildQueue(lines), Is.EqualTo(new[]
+            {
+                new TapTarget(0, 0, 0), new TapTarget(0, 0, 1), new TapTarget(0, 0, 2), new TapTarget(0, 1),
+                new TapTarget(1, 0), new TapTarget(1, 1),
+            }));
+
+            Assert.That(TapTimingBuilder.SyllableCount(lines[0].Units[0]), Is.EqualTo(3));
+            Assert.That(TapTimingBuilder.SyllableCount(lines[0].Units[1]), Is.EqualTo(1));
+        }
+
+        [Test]
+        public void TestSyllableTapsSetTheWordsSubdivisionTimes()
+        {
+            var lines = subdividedSheet();
+            var queue = TapTimingBuilder.BuildQueue(lines, 0, 0, 0, 1);
+
+            // remember start / -emb / -er, then "me". The old boundaries (1300, 1550) are replaced
+            // outright by what was tapped, so the caret sweeps at the speed the mapper sang.
+            var built = TapTimingBuilder.Build(lines, queue, new[] { 1000d, 1250, 1600, 2000 });
+
+            Assert.That(built[0].Units[0].StartTime, Is.EqualTo(1000));
+            Assert.That(built[0].Units[0].EndTime, Is.EqualTo(2000), "the word runs to the next word's start");
+
+            // Taps comfortably inside the word pass through untouched: segments of 250, 350 and
+            // 400ms, which is what save/decode must reproduce exactly.
+            Assert.That(built[0].Units[0].SyllableBoundaries, Is.EqualTo(new[] { 1250d, 1600d }));
+
+            // The undivided word alongside it takes no boundaries at all.
+            Assert.That(built[0].Units[1].StartTime, Is.EqualTo(2000));
+            Assert.That(built[0].Units[1].SyllableBoundaries, Is.Empty);
+
+            // Nothing outside the pass moved.
+            Assert.That(built[1].Units[0].StartTime, Is.EqualTo(3000));
+            assertMonotonic(built);
+        }
+
+        [Test]
+        public void TestPacedWordDropsTheSubdivisionsItsTapsNeverCovered()
+        {
+            var lines = new List<LyricLine>
+            {
+                line("one two", 0, 1000, 900, (0, 450), (450, 900)),
+                subdivide(line("remember me", 1000, 2000, 1900, (1000, 1450), (1450, 1900)), 0, 1150, 1300),
+            };
+
+            // Only the first line was tapped; the rest is paced on and never got a syllable time.
+            var built = TapTimingBuilder.Build(lines, TapTimingBuilder.BuildQueue(lines), new[] { 5000d, 5400 });
+
+            Assert.That(built[1].Units[0].StartTime, Is.EqualTo(5800), "paced on at the mean tapped word duration");
+            Assert.That(built[1].Units[0].SyllableBoundaries, Is.Empty, "a paced word's old sub-word marks mean nothing");
+            Assert.That(built[1].Units[0].Source, Is.EqualTo(TimingSource.Interpolated));
+            Assert.That(built[1].Estimated, Is.True);
+        }
+
+        [Test]
+        public void TestPacingMeasuresWordsNotSyllables()
+        {
+            var lines = subdividedSheet();
+
+            // Four taps for line 1, but only two of them are WORD starts (4000 and 4500), so the
+            // untapped tail is paced at 500ms per word. Measuring the mean over all four taps would
+            // give 167ms and cram the rest of the sheet into a third of the time.
+            var built = TapTimingBuilder.Build(lines, TapTimingBuilder.BuildQueue(lines), new[] { 4000d, 4100, 4200, 4500 });
+
+            Assert.That(built[1].Units[0].StartTime, Is.EqualTo(5000));
+            Assert.That(built[1].Units[1].StartTime, Is.EqualTo(5500));
+        }
+
+        [Test]
+        public void TestSyllableTapsAreFittedInsideTheFinalWordSpan()
+        {
+            var lines = subdividedSheet();
+            var queue = TapTimingBuilder.BuildQueue(lines, 0, 0, 0, 1);
+
+            // Defensive: syllable taps handed in past the word's own end (a caller that did not
+            // order them) still come out strictly inside it, ascending and spaced, because that is
+            // what TimedUnit.SyllableBoundaries promises and what the encoder round-trips.
+            var built = TapTimingBuilder.Build(lines, queue, new[] { 1000d, 1700, 1750, 1100 });
+
+            var unit = built[0].Units[0];
+            Assert.That(unit.StartTime, Is.EqualTo(1000));
+            Assert.That(unit.EndTime, Is.EqualTo(1100));
+            Assert.That(unit.SyllableBoundaries, Is.EqualTo(new[] { 1060d, 1080d }));
+
+            foreach (double boundary in unit.SyllableBoundaries)
+            {
+                Assert.That(boundary, Is.GreaterThan(unit.StartTime));
+                Assert.That(boundary, Is.LessThan(unit.EndTime));
+            }
+        }
+
+        [Test]
+        public void TestWordLeftTooNarrowForItsSyllablesKeepsNone()
+        {
+            var lines = subdividedSheet();
+            var queue = TapTimingBuilder.BuildQueue(lines, 0, 0, 0, 1);
+
+            // Every tap crammed into 15ms: after collision clamping the word is MIN_SPAN_MS wide,
+            // which cannot hold three syllables of MIN_SYLLABLE_MS each, so it holds none.
+            var built = TapTimingBuilder.Build(lines, queue, new[] { 1000d, 1005, 1010, 1015 });
+
+            Assert.That(built[0].Units[0].EndTime - built[0].Units[0].StartTime,
+                Is.EqualTo(TypeBeatEditorOperations.MIN_SPAN_MS));
+            Assert.That(built[0].Units[0].SyllableBoundaries, Is.Empty, "no room for three syllables");
+            assertMonotonic(built);
+        }
+
+        [Test]
+        public void TestSyllableTextMatchesTheEngineCharSplit()
+        {
+            // The chips the recording surface shows are the exact char runs TypingLine judges by:
+            // k typeable chars spread evenly across the segments in index space.
+            Assert.That(TapTimingBuilder.SyllableTextOf("remember", 0, 3), Is.EqualTo("rem"));
+            Assert.That(TapTimingBuilder.SyllableTextOf("remember", 1, 3), Is.EqualTo("emb"));
+            Assert.That(TapTimingBuilder.SyllableTextOf("remember", 2, 3), Is.EqualTo("er"));
+
+            // An undivided word is its whole self.
+            Assert.That(TapTimingBuilder.SyllableTextOf("me", 0, 1), Is.EqualTo("me"));
+
+            // Punctuation rides with the typeable char before it, and the split is always lossless:
+            // the chips spell the word back exactly, however many ways it is cut.
+            foreach (string word in new[] { "remember", "hey!", "don't", "a", "rhythm", "fire" })
+            {
+                for (int count = 1; count <= 4; count++)
+                {
+                    string joined = string.Concat(Enumerable.Range(0, count)
+                                                             .Select(i => TapTimingBuilder.SyllableTextOf(word, i, count)));
+                    Assert.That(joined, Is.EqualTo(word), $"{word} split {count} ways");
+                }
+            }
         }
 
         [Test]

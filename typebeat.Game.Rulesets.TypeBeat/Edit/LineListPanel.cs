@@ -88,6 +88,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 foreach (var hitObject in current)
                     rows.Add(new LineRow(hitObject));
             }
+
+            // A tap-timing pass shows only the section it is recording. Alpha 0 makes a row
+            // non-present, so the FillFlowContainer drops it out of the flow entirely and the list
+            // COLLAPSES to the scope rather than leaving holes.
+            //
+            // Driven from HERE rather than from the row's own Update: a non-present drawable stops
+            // being updated, so a row that hid itself could never bring itself back when the pass
+            // ended. The panel is always present, so this restores every row the frame the scope
+            // clears, whichever way the pass exited.
+            foreach (var row in rows)
+                row.Alpha = state.HiddenByTapScope(row.HitObject) ? 0 : 1;
         }
 
         /// <summary>Brings the active line's row into view (called by the screen on line change).</summary>

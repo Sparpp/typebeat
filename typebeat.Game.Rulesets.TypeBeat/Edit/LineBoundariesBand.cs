@@ -227,6 +227,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             public void UpdateLayout(LineBoundariesBand parent)
             {
+                // During a tap-timing pass the band keeps its time axis (it is the mapper's place in
+                // the song) but every line outside the pass is hidden outright rather than dimmed.
+                if (state.HiddenByTapScope(hitObject))
+                {
+                    Alpha = 0;
+                    return;
+                }
+
+                Alpha = 1;
                 X = parent.PositionOf(hitObject.Line.StartTime);
                 Width = Math.Max(0, parent.PositionOf(hitObject.Line.EndTime) - X);
 
@@ -246,6 +255,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             private readonly TypeBeatHitObject hitObject;
 
+            [Resolved]
+            private LyricEditState state { get; set; } = null!;
+
             public LineMark(TypeBeatHitObject hitObject)
             {
                 this.hitObject = hitObject;
@@ -262,7 +274,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 };
             }
 
-            public void UpdateLayout(LineBoundariesBand parent) => X = parent.PositionOf(hitObject.Line.StartTime);
+            public void UpdateLayout(LineBoundariesBand parent)
+            {
+                Alpha = state.HiddenByTapScope(hitObject) ? 0 : 1;
+
+                if (Alpha > 0)
+                    X = parent.PositionOf(hitObject.Line.StartTime);
+            }
         }
 
         /// <summary>Fainter, shorter tick at a word-unit start within a line.</summary>
@@ -270,6 +288,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             private readonly TypeBeatHitObject hitObject;
             private readonly int index;
+
+            [Resolved]
+            private LyricEditState state { get; set; } = null!;
 
             public WordTick(TypeBeatHitObject hitObject, int index)
             {
@@ -292,8 +313,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             public void UpdateLayout(LineBoundariesBand parent)
             {
-                // A retime may have dropped units since the last rebuild; hide until rebuilt.
-                if (index >= hitObject.Line.Units.Count)
+                // A retime may have dropped units since the last rebuild; hide until rebuilt. A word
+                // outside a live pass's scope hides for the duration of the pass.
+                if (index >= hitObject.Line.Units.Count || state.HiddenByTapScope(hitObject, index))
                 {
                     Alpha = 0;
                     return;

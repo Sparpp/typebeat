@@ -213,7 +213,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 ? lines[firstLine].Units[firstUnit].StartTime
                 : lines[firstLine].StartTime;
 
-            tapOverlay.Begin(lines, queue, startFrom);
+            // The same span the queue was built from, in hit-object terms: while the pass runs every
+            // surface hides the lines outside it, so the mapper reads only the section they are
+            // timing. A whole-sheet pass (the fresh-paste default) hides nothing.
+            tapOverlay.Begin(lines, queue, startFrom, new TapScope(ordered, firstLine, firstUnit, lastLine, lastUnit));
         }
 
         public override void Copy()
