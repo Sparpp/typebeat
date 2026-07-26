@@ -273,9 +273,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(engine.Lines[0].Cells.All(c => c.State == CellState.Untyped));
             Assert.AreEqual(0, engine.CaretIndex);
 
-            // The initial press plus one repeat per scheduled cell (the caret never advanced, so the
-            // caret cell's own target was still ahead of the press and got scheduled too).
-            Assert.AreEqual(5, engine.ConsecutiveWrongKeys);
+            // The initial press plus one repeat per cell BEHIND the caret cell: the rejected press
+            // consumed nothing, so the caret cell is the drift anchor and its own repeat would fall
+            // on the press itself, which no repeat may ever do.
+            Assert.AreEqual(4, engine.ConsecutiveWrongKeys);
         }
 
         /// <summary>Mashing rewrites a repeat exactly like a real press: the hold types the whole word.</summary>
@@ -373,9 +374,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The player's drift is preserved, never corrected: a hold started late does not
-        /// retroactively type the cells the song has already sung past, and the repeats that do fire
-        /// land on the cells the caret is behind on, judged honestly late.
+        /// REGRESSION (backlog 43): a CORRECT keystroke must not answer itself with an error letter
+        /// just because the player is behind the song. Scheduling repeats at raw absolute cell
+        /// targets put the first one on a cell the caret had not reached yet, which for a lagging
+        /// player lands INSIDE an ordinary keystroke's 60-100ms dwell: the correct press was accepted
+        /// and a duplicate of it was rejected against the next cell a few ms later, breaking combo
+        /// and popping the wrong-key letter out beside the caret. The first repeat is now a whole
+        /// song cadence away whatever the drift, so a normally-typed key is one keystroke.
+        /// </summary>
+        [Test]
+        public void ALaggingCorrectPressFiresNoRepeatInsideTheKeyDwell()
+        {
+            // Distinct chars, so any duplicate press lands on a cell expecting something else.
+            var (engine, repeater, recorded) = start(denseRun("abcdefghijk"));
+            var rejected = new List<char>();
+            engine.WrongKeyRejected += rejected.Add;
+
+            // 250ms behind the song: cell 0's target was 1000 and the player gets there at 1250.
+            // Cells 1..3 (targets 1100, 1200, 1300) are the ones the old schedule fired at.
+            engine.Update(1250);
+            press(engine, repeater, recorded, Key.A, 'a', 1250);
+
+            Assert.AreEqual(CellState.Correct, engine.Lines[0].Cells[0].State, "the press itself is correct and accepted");
+
+            // 80ms of dwell then release, exactly the ordinary keystroke of
+            // ReleasedBeforeTheNextTargetFiresNothing, which fires nothing for a player in time.
+            run(repeater, engine, 1250, 1330);
+            repeater.Release(Key.A);
+
+            Assert.IsEmpty(rejected, "a correct keystroke must not be answered by a rejected wrong key");
+            Assert.AreEqual(1, engine.CaretIndex);
+            Assert.AreEqual(1, recorded.Count, "one physical press, one input");
+            Assert.AreEqual(0, engine.ConsecutiveWrongKeys);
+            Assert.AreEqual(1, engine.Combo, "nothing broke the combo the correct press just started");
+            Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[1].State, "the next cell is untouched");
+        }
+
+        /// <summary>
+        /// The player's drift is preserved exactly, neither corrected nor deepened: a hold started
+        /// late carries the lag of the press that armed it, so every repeat lands on the cell the
+        /// caret is behind on at the SONG'S cadence and is judged honestly late by that same lag.
+        /// It never retroactively types the cells the song has already sung past, and (the bug this
+        /// pins, backlog 43) it never squeezes a repeat in right behind the arming press.
         /// </summary>
         [Test]
         public void AHoldStartedLateStaysLate()
@@ -388,15 +428,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual(500, engine.Lines[0].Cells[0].JudgedDelta);
 
-            // Only cells 5..10 (targets 1500..2000) are scheduled; cells 1..4 are already behind the
-            // song and are never typed for free.
-            Assert.AreEqual(6, repeater.PendingRepeats);
+            // Cells 1..10 are all still to be typed, so all ten are scheduled, each shifted by the
+            // 500ms the arming press was late. Nothing is due before 1600, a full cadence away.
+            Assert.AreEqual(10, repeater.PendingRepeats);
 
             run(repeater, engine, 1500, 2100);
 
-            Assert.AreEqual(new double[] { 1500, 1500, 1600, 1700, 1800, 1900, 2000 }, recorded.Select(r => r.time).ToArray());
+            Assert.AreEqual(new double[] { 1500, 1600, 1700, 1800, 1900, 2000, 2100 }, recorded.Select(r => r.time).ToArray());
             Assert.AreEqual(7, engine.CaretIndex, "the caret still trails the playhead by four cells");
-            Assert.AreEqual(400, engine.Lines[0].Cells[1].JudgedDelta, "the repeat lands on the cell the player is behind on, no clamp to soften it");
+
+            for (int i = 0; i <= 6; i++)
+                Assert.AreEqual(500, engine.Lines[0].Cells[i].JudgedDelta, $"cell {i} lands on the same 500ms lag, no clamp to soften it");
         }
 
         /// <summary>
