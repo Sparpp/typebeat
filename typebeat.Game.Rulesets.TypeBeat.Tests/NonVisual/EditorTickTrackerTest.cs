@@ -232,5 +232,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(wordStarts, Is.Empty);
             Assert.That(syllables, Is.Empty);
         }
+
+        [Test]
+        public void SyllableStreamUsesTheSameSampleAsTheWordStream()
+        {
+            // The two streams used to play different samples (a metronome click for words, a
+            // lighter UI notch for syllables). That split is gone, pin it so it stays gone: both
+            // the compose screen's word tick and syllable sub-tick load LyricComposeScreen.TickSampleName,
+            // told apart only by volume.
+            Assert.That(LyricComposeScreen.TickSampleName, Is.EqualTo(@"UI/metronome-tick"));
+        }
     }
 }

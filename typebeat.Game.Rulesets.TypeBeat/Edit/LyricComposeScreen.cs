@@ -66,6 +66,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private TapTimingOverlay tapOverlay = null!;
         private TypeBeatHitObject? lastAutoScrolled;
 
+        /// <summary>
+        /// The sample both the word tick and the syllable sub-tick play (exposed for tests). The two
+        /// streams used to play different samples (a metronome click for words, a lighter UI notch
+        /// for syllables); that timbre split is gone, both streams now share this one sample and are
+        /// told apart only by volume.
+        /// </summary>
+        public const string TickSampleName = @"UI/metronome-tick";
+
         /// <summary>Volume of the per-word editor tick, audible over the track without masking it.</summary>
         private const double tick_volume = 0.6;
 
@@ -92,11 +100,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         [BackgroundDependencyLoader]
         private void load(AudioManager audio)
         {
-            // Short editor metronome click for word starts, and the lighter UI notch click for
-            // syllable boundaries, a distinct, softer timbre so the two never blur together.
-            // Both ship in typebeat.Game.Resources under Samples/UI.
-            tickSample = audio.Samples.Get(@"UI/metronome-tick");
-            syllableTickSample = audio.Samples.Get(@"UI/notch-tick");
+            // Word starts and syllable boundaries share the same editor metronome click; only the
+            // volume tells them apart (see tick_volume / syllable_tick_volume above). Ships in
+            // typebeat.Game.Resources under Samples/UI.
+            tickSample = audio.Samples.Get(TickSampleName);
+            syllableTickSample = audio.Samples.Get(TickSampleName);
         }
 
         protected override Drawable CreateTimelineContent() => new Container
