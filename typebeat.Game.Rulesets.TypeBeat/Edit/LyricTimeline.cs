@@ -360,6 +360,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             public void UpdateLayout(LyricTimeline parent)
             {
+                // During a tap-timing pass the strip shows ONLY the section being timed. The time
+                // axis and playhead stay (the mapper is listening along it), but every band, block
+                // and handle belonging to another line is fully hidden, not dimmed.
+                if (state.HiddenByTapScope(hitObject))
+                {
+                    Alpha = 0;
+                    return;
+                }
+
+                Alpha = 1;
                 X = parent.PositionOf(hitObject.Line.StartTime);
                 Width = Math.Max(0, parent.PositionOf(hitObject.Line.EndTime) - X);
 
@@ -450,6 +460,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 if (index >= hitObject.Line.Units.Count)
                     return;
+
+                // Out of the live pass's scope: hidden outright, including the word's label, so the
+                // strip carries no lyric the mapper is not currently timing.
+                if (state.HiddenByTapScope(hitObject, index))
+                {
+                    Alpha = 0;
+                    return;
+                }
 
                 X = parent.PositionOf(unit.StartTime);
                 Width = Math.Max(4, parent.PositionOf(unit.EndTime) - parent.PositionOf(unit.StartTime));
@@ -662,7 +680,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 };
             }
 
-            public void UpdateLayout(LyricTimeline parent) => X = parent.PositionOf(hitObject.Line.StartTime);
+            public void UpdateLayout(LyricTimeline parent)
+            {
+                Alpha = state.HiddenByTapScope(hitObject) ? 0 : 1;
+
+                if (Alpha > 0)
+                    X = parent.PositionOf(hitObject.Line.StartTime);
+            }
 
             public override bool HandlePositionalInput => true;
 
@@ -786,8 +810,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 double? time = boundaryTime();
 
-                // Stale handle (an undo/edit dropped this boundary before the next rebuild); hide it.
-                Alpha = time.HasValue ? 1 : 0;
+                // Stale handle (an undo/edit dropped this boundary before the next rebuild), or a
+                // word outside the live pass's scope; hide it either way.
+                Alpha = time.HasValue && !state.HiddenByTapScope(hitObject, unitIndex) ? 1 : 0;
 
                 if (time.HasValue)
                     X = parent.PositionOf(time.Value);
@@ -888,7 +913,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 };
             }
 
-            public void UpdateLayout(LyricTimeline parent) => X = parent.PositionOf(hitObject.Line.SingEndTime);
+            public void UpdateLayout(LyricTimeline parent)
+            {
+                Alpha = state.HiddenByTapScope(hitObject) ? 0 : 1;
+
+                if (Alpha > 0)
+                    X = parent.PositionOf(hitObject.Line.SingEndTime);
+            }
 
             public override bool HandlePositionalInput => true;
 

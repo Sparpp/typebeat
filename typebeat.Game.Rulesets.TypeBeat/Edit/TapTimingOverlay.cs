@@ -136,13 +136,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <paramref name="lines"/>. Parks the playhead a pre-roll before the first queued word and
         /// starts the song. Nothing is written to the beatmap.
         /// </summary>
-        public void Begin(IReadOnlyList<LyricLine> lines, IReadOnlyList<TapTarget> queue, double startFrom)
+        public void Begin(IReadOnlyList<LyricLine> lines, IReadOnlyList<TapTarget> queue, double startFrom, TapScope scope)
         {
             if (queue.Count == 0)
                 return;
 
             Session = new TapTimingSession(lines, queue);
             state.TapSession = Session;
+
+            // Every surface that renders lyric content hides what this scope does not cover, for as
+            // long as the pass runs. Cleared in end(), which every exit path goes through.
+            state.TapScope = scope;
 
             // Pin the surface: playhead-follow must not reshuffle the active line or drop the
             // section the mapper is timing while the song runs under the pass.
@@ -196,6 +200,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             Session = null;
             state.TapSession = null;
+            // The hidden lines come back exactly here, so Finish, Escape and every other exit path
+            // restore the sheet identically.
+            state.TapScope = null;
             state.EndInteraction();
 
             this.FadeOut(120, Easing.OutQuint);
