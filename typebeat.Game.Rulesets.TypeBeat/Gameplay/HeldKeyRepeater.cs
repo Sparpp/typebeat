@@ -11,8 +11,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// SONG-PACED HELD-KEY REPEAT. Holding a character key down re-fires that character at the
     /// cadence the SONG sings the line at, which is exactly the cadence
     /// <see cref="Replays.TypeBeatAutoGenerator"/> plays at: one press per upcoming typeable cell,
-    /// scheduled on that cell's <see cref="TypingCell.TargetTime"/>. Runs of the same letter
-    /// ("aaaaaaaa") can therefore be sustained instead of hammered, in time with the vocal.
+    /// scheduled on that cell's <see cref="TypingCell.TargetTime"/> (carrying the player's own drift,
+    /// see PACING below). Runs of the same letter ("aaaaaaaa") can therefore be sustained instead of
+    /// hammered, in time with the vocal.
     ///
     /// <para>This is an INPUT-LAYER device only. Every repeat is synthesized as an ordinary
     /// <see cref="TypingEngine.ProcessKey"/> call preceded by <see cref="TypingEngine.Update"/> at
@@ -26,10 +27,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// "aaaaaaaaaah" fires an 'a' at the 'h' cell's target time and takes the ordinary punishment
     /// (rejection plus combo break in strict play, a red Wrong fill under allow-wrong-input).</para>
     ///
-    /// <para>PACING IS THE SONG'S, NOT THE PLAYER'S. Repeat times are absolute cell targets, so a
-    /// player who was already lagging keeps lagging (their presses land on cells they are behind on)
-    /// and a player who rushed ahead keeps rushing. The repeat never catches the player up: cells the
-    /// song had already sung past when the hold began are not scheduled at all.</para>
+    /// <para>PACING IS THE SONG'S, NOT THE PLAYER'S. Repeat times are the song's cell targets carrying
+    /// the player's own DRIFT (the lag of the press that armed the hold, see
+    /// <see cref="BeginHold"/>): the cadence between repeats is exactly the song's, and a player who
+    /// was already lagging keeps lagging by the same amount, their presses landing on the cells they
+    /// are behind on and judged honestly late. The repeat never catches the player up and never
+    /// overtakes them: it cannot fire at or before the press that armed it.</para>
     ///
     /// <para>NO ENGAGE DELAY. There used to be an OS-autorepeat-style pause before the first repeat
     /// could fire (250ms, the shortest Windows offers). Playtesting (backlog task 39) called that
@@ -43,7 +46,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// closer together than that dwell) a normally-typed key that is still physically down when the
     /// next cell's target arrives WILL fire a repeat, double-hitting that cell for a player who does
     /// not release crisply. This is accepted behavior: the song's own pacing is the intended feel,
-    /// and the old engage delay traded that feel away to buy safety this design no longer wants.</para>
+    /// and the old engage delay traded that feel away to buy safety this design no longer wants. It
+    /// is bounded by the SONG'S cadence and nothing else, so it bites a lagging player exactly as
+    /// hard as a player in time, never harder.</para>
     /// </summary>
     public sealed class HeldKeyRepeater
     {
@@ -107,6 +112,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             int lineIndex = engine.ActiveLineIndex;
             var cells = engine.Lines[lineIndex].Cells;
 
+            // The player's own DRIFT, carried by every repeat this hold fires: how far the arming
+            // press landed after the target of the cell it was judged against. Shifting the whole
+            // schedule by it is what keeps the repeats at the SONG'S cadence measured from where the
+            // player actually is. Firing them at raw absolute targets instead (dropping the ones the
+            // song had already sung past) decoupled the schedule from the caret: a player a few cells
+            // behind got their first repeat at the target of a cell they had not reached, which can
+            // fall a millisecond after their press, so an ordinary keystroke's dwell squeezed a
+            // duplicate press into a cell expecting a different char, and a correct keystroke was
+            // answered with a rejected wrong key. Nothing is caught up here: the lag is carried
+            // forward unchanged, the repeats still land on the cells the player is behind on, and
+            // they are still judged honestly late.
+            double lag = Math.Max(0, time - driftAnchorTarget(cells, engine.CaretIndex));
+
             for (int i = engine.CaretIndex; i < cells.Count; i++)
             {
                 if (!cells[i].IsTypeable)
@@ -114,17 +132,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 // Integral like every other judged keystroke: lossless through .osr encoding, and
                 // identical whatever frame rate the repeat happens to be noticed on.
-                double target = Math.Round(cells[i].TargetTime);
+                double target = Math.Round(cells[i].TargetTime + lag);
 
-                // Cells the song had already sung past when the hold began belong to the player's
-                // own drift; a hold reproduces what autoplay would do FROM HERE ON, it never types
-                // backlog. This is what keeps the repeat rate the song's rate rather than a
-                // catch-up burst for anyone who is behind.
-                if (target < time)
+                // A repeat may never fire at or before the press that armed it: the first one is a
+                // whole song cadence away, and only the cells whose own targets coincide with the
+                // anchor's (degenerate timing) can land on the wrong side of that.
+                if (target <= time)
                     continue;
 
-                // No engage delay, no clamp: the cell fires at its own target, however soon that is
-                // after the press. See the class doc's TRADEOFF note.
+                // No engage delay, no clamp beyond that: the cell fires at its own drifted target,
+                // however soon that is. See the class doc's TRADEOFF note.
                 schedule.Add(target);
             }
 
@@ -136,6 +153,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             heldChar = character;
             heldLineIndex = lineIndex;
             lastPumpTime = time;
+        }
+
+        /// <summary>
+        /// The target a hold's drift is measured against: the cell the arming press consumed (the
+        /// last typeable cell behind the caret), or the caret's own cell when the press was rejected
+        /// and nothing was consumed. Lines with no typeable cell schedule nothing, so the value
+        /// returned for them is never used.
+        /// </summary>
+        private static double driftAnchorTarget(IReadOnlyList<TypingCell> cells, int caretIndex)
+        {
+            for (int i = Math.Min(caretIndex, cells.Count) - 1; i >= 0; i--)
+            {
+                if (cells[i].IsTypeable)
+                    return cells[i].TargetTime;
+            }
+
+            for (int i = Math.Max(caretIndex, 0); i < cells.Count; i++)
+            {
+                if (cells[i].IsTypeable)
+                    return cells[i].TargetTime;
+            }
+
+            return 0;
         }
 
         /// <summary>Key-up. Ends the hold only if it is the held key that was released.</summary>
