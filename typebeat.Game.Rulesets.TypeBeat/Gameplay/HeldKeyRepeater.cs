@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using osuTK.Input;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
@@ -22,10 +23,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// (and its JS mirror) is untouched, and a replay of a run with held repeats plays back
     /// bit-exactly through the ordinary frame feeder.</para>
     ///
-    /// <para>NO BOUNDARY DETECTION. The schedule is made of cell TIMES; nothing checks whether the
-    /// cell a repeat will land on actually expects the held character. Holding 'a' through
-    /// "aaaaaaaaaah" fires an 'a' at the 'h' cell's target time and takes the ordinary punishment
-    /// (rejection plus combo break in strict play, a red Wrong fill under allow-wrong-input).</para>
+    /// <para>MATCH GATE: A REPEAT MAY ONLY EVER LAND AS A CORRECT CHAR. Before each firing the cell
+    /// the press would actually be judged against (the caret's cell RIGHT THEN, not the one the
+    /// schedule was built from) is checked against the held char under exactly the rules
+    /// <see cref="TypingEngine.ProcessKey"/> judges by; if it would not be accepted, nothing is
+    /// fired, nothing is punished and nothing is recorded. A hold sustains a RUN of the held char
+    /// and the run ends where the lyric stops wanting it: holding 'a' through "aaaaaaaaaah" types
+    /// the ten a's and simply STOPS at the 'h', in every mode. The player is only ever judged on
+    /// characters they aimed at; a synthesized press can never cost combo, accuracy, the wrong-key
+    /// streak or a red Wrong fill.</para>
+    ///
+    /// <para>A gated repeat ENDS THE HOLD rather than skipping one firing. Nothing but a keystroke
+    /// moves the caret, and any keystroke cancels the hold anyway (a new key re-arms, backspace and
+    /// focus loss drop it), so once the caret wants a different char no later repeat of this hold
+    /// could ever match either. Ending it there is the same outcome with no schedule left running,
+    /// which is what keeps a stale hold from firing across a caret the engine moved on its own (a
+    /// seal, a Fletcher roll-forward or drag cutoff).</para>
     ///
     /// <para>PACING IS THE SONG'S, NOT THE PLAYER'S. Repeat times are the song's cell targets carrying
     /// the player's own DRIFT (the lag of the press that armed the hold, see
@@ -41,14 +54,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// now fires every upcoming cell at its own target time starting immediately after the initial
     /// press, with no minimum hold duration and no clamping.</para>
     ///
-    /// <para>TRADEOFF: releasing the key is now the ONLY thing that stops a repeat from firing.
+    /// <para>TRADEOFF: release and the match gate are the only things that stop a repeat from firing.
     /// Ordinary typing dwells on a key for roughly 60-100ms, so on a densely timed line (cell targets
     /// closer together than that dwell) a normally-typed key that is still physically down when the
-    /// next cell's target arrives WILL fire a repeat, double-hitting that cell for a player who does
-    /// not release crisply. This is accepted behavior: the song's own pacing is the intended feel,
-    /// and the old engage delay traded that feel away to buy safety this design no longer wants. It
-    /// is bounded by the SONG'S cadence and nothing else, so it bites a lagging player exactly as
-    /// hard as a player in time, never harder.</para>
+    /// next cell's target arrives WILL fire a repeat. What survives of that is bounded: the next cell
+    /// has to want the very char being held, so the only thing a sloppy release can now do is type
+    /// ahead of you INSIDE a run of the same letter, correctly and on the beat. On ordinary text the
+    /// next cell wants a different letter and the gate stops the hold dead. The dwell can no longer
+    /// produce a wrong key, which is what it used to do to anyone whose typing lagged the vocal
+    /// (backlog task 43).</para>
     /// </summary>
     public sealed class HeldKeyRepeater
     {
@@ -234,6 +248,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // real keystroke to the engine and to the recorder.
                 engine.Update(time);
 
+                // THE MATCH GATE, read after the Update so it sees precisely the state ProcessKey
+                // would judge in. The run this hold is sustaining has ended, so the hold has too.
+                if (!heldCharWouldBeAccepted())
+                {
+                    Cancel();
+                    break;
+                }
+
                 if (engine.ProcessKey(heldChar, time))
                 {
                     recordInput?.Invoke(heldChar, time);
@@ -259,5 +281,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>The hold is scoped to the line it began on, and to that line being unfinished.</summary>
         private bool stillEligible()
             => !engine.IsFinished && engine.ActiveLineIndex == heldLineIndex && !engine.IsLineComplete;
+
+        /// <summary>
+        /// Whether <see cref="HeldChar"/> would be judged CORRECT at the caret as it stands right
+        /// now: the gate every synthesized repeat must pass before it may be sent (see the class
+        /// doc's MATCH GATE). Reads engine state only, exactly the way the lyric display reads cells.
+        ///
+        /// <para>The three acceptance rules are the ones <see cref="TypingEngine.ProcessKey"/>
+        /// judges a press by and must stay identical to them: a freestyle cell takes any key, the
+        /// Mashing mod rewrites any key into the expected one, and otherwise the char must match,
+        /// exactly under the Literate mod (<see cref="TypingEngine.CaseSensitive"/>) and through the
+        /// shared <see cref="Typeability.Fold"/> otherwise. Nothing is duplicated but the shape of
+        /// the test; the case-folding rule itself lives in one place.</para>
+        /// </summary>
+        private bool heldCharWouldBeAccepted()
+        {
+            if (engine.IsFinished || engine.ActiveLineIndex == -1)
+                return false;
+
+            var cells = engine.Lines[engine.ActiveLineIndex].Cells;
+            int i = engine.CaretIndex;
+
+            // ProcessKey auto-skips non-typeable cells before matching; find the same cell it would
+            // land on without mutating anything (the press itself does the actual skipping).
+            while (i < cells.Count && !cells[i].IsTypeable)
+                i++;
+
+            if (i >= cells.Count)
+                return false; // line complete: ProcessKey would be inert anyway.
+
+            var cell = cells[i];
+
+            if (cell.IsFreestyle || engine.MashingEnabled)
+                return true;
+
+            return engine.CaseSensitive
+                ? heldChar == cell.Expected
+                : Typeability.Fold(heldChar) == Typeability.Fold(cell.Expected);
+        }
     }
 }
