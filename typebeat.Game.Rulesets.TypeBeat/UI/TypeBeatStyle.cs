@@ -29,7 +29,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public static Color4 PanelBackground { get; } = new Color4((byte)44, (byte)46, (byte)49, (byte)255); // #2c2e31
 
         /// <summary>
-        /// FREESTYLE characters (the mapper's '&amp;' slots, where any key is accepted): a bright
+        /// FREESTYLE characters (the mapper's '&amp;' slots, where any key but space is accepted): a bright
         /// violet that reads clearly on the dark playfield and is unmistakable against every other
         /// character state, untyped grey #646669, typed off-white #d1d0c5, error red #ca4754, the
         /// yellow caret and the blue sung accent. Worn both while the glyph shimmers and after the

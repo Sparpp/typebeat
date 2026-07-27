@@ -482,7 +482,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// Replaces a line's typed text ("yeah" -> "yeaaaaaaaah"). The raw input is normalized
         /// through the game's typeability rules, except that each '&amp;'
         /// (<see cref="Typeability.FREESTYLE_MARKER"/>) survives as a FREESTYLE cell: a slot the
-        /// player may fill with any key. When the token count is unchanged, each word
+        /// player may fill with any key but space. When the token count is unchanged, each word
         /// keeps its timing; otherwise timings are redistributed (char-weighted) across the sung
         /// window. Returns false (no change) when the text normalizes to empty; an empty line
         /// cannot exist in the format; delete the line instead.
@@ -490,7 +490,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         public static bool SetLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText)
         {
             // The one authoring seam for FREESTYLE cells: an ampersand the mapper types is kept
-            // (every other untypeable char is still stripped) and becomes a cell any key satisfies.
+            // (every other untypeable char is still stripped) and becomes a cell any key but space
+            // satisfies.
             string normalized = Typeability.Normalize(Typeability.StripBackingVocals(rawUserText), keepFreestyleMarkers: true);
 
             if (normalized.Length == 0)

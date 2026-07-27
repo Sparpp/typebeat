@@ -611,17 +611,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // A FREESTYLE cell is exempt: it already accepts any key, and rewriting c here would
             // stamp the authoring marker over the char the player actually pressed (the one thing
             // a freestyle cell must remember). No double effect, mashing simply has nothing to add.
-            if (MashingEnabled && !cell.IsFreestyle)
-                c = cell.Expected;
+            // Space is the single exception to that exemption: a freestyle cell REJECTS space (see
+            // the match below), so mashing's "any key is the right key" promise needs a substitute
+            // to hand it, and the char an automated player presses into a freestyle slot is the
+            // canonical one. Nothing else about the exemption changes, the pressed char still
+            // survives on every other key.
+            if (MashingEnabled)
+            {
+                if (!cell.IsFreestyle)
+                    c = cell.Expected;
+                else if (c == ' ')
+                    c = Typeability.FREESTYLE_AUTO_CHAR;
+            }
 
             double delta = time - cell.TargetTime;
-            // FREESTYLE cell: every char matches, in any case, under every mod (so the Literate
-            // mod's exact-case rule and the allow-wrong-input path are both bypassed for it). The
-            // press is then judged exactly like a correct char: same windows, points, combo,
-            // accuracy and completion, with the pressed char kept in TypedChar.
+            // FREESTYLE cell: every char EXCEPT SPACE matches, in any case, under every mod (so the
+            // Literate mod's exact-case rule and the allow-wrong-input path are both bypassed for
+            // it). The press is then judged exactly like a correct char: same windows, points,
+            // combo, accuracy and completion, with the pressed char kept in TypedChar.
+            // SPACE is carved out (backlog 50): it is the word-advance key, not a glyph a player
+            // means to leave sitting in a lyric, so it falls through to the ordinary non-match path
+            // below and is judged exactly as a wrong key on any other cell would be. The strict
+            // rejection is the only outcome available to it, because the allow-wrong-input path
+            // already refuses to type a space through (c != ' ').
             // Literate mod folds nothing: the typed char must match the target's exact case.
             // Default gameplay is case-insensitive (both sides lower-cased through Fold).
-            bool matched = cell.IsFreestyle
+            bool matched = (cell.IsFreestyle && c != ' ')
                            || (CaseSensitive ? c == cell.Expected : Typeability.Fold(c) == Typeability.Fold(cell.Expected));
 
             if (!matched)

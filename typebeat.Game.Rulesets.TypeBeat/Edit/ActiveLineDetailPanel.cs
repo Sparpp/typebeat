@@ -214,7 +214,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             timing.Text = $"start {l.StartTime:0}ms   sung end {l.SingEndTime:0}ms   window end {l.EndTime:0}ms   "
                           + $"{line.Granularity} granularity{(l.Estimated ? "   [estimated]" : string.Empty)}{(l.SealGraceMs > 0 ? $"   grace {l.SealGraceMs:0}ms" : string.Empty)}"
-                          + (freestyle > 0 ? $"   {freestyle} freestyle ('&' = any key)" : string.Empty);
+                          + (freestyle > 0 ? $"   {freestyle} freestyle ('&' = any key but space)" : string.Empty);
         }
 
         private void addAtPlayhead()

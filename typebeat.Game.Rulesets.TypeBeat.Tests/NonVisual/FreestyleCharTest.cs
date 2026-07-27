@@ -28,8 +28,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// <item>STORAGE: '&amp;' is a marker only for lines that opted in (<c>"freestyle": true</c>), so
     /// no map written before this feature can change meaning, and the editor's save round-trips it.</item>
     /// <item>JUDGEMENT: a freestyle cell is a completely normal typeable cell except that every char
-    /// matches it, including under the Literate, Mashing and allow-wrong-input rules, and the
-    /// pressed char survives backspace/retype and replay playback.</item>
+    /// but SPACE matches it, including under the Literate, Mashing and allow-wrong-input rules, and
+    /// the pressed char survives backspace/retype and replay playback.</item>
     /// <item>SHIMMER: the obfuscated-glyph pool is width-grouped and deterministic.</item>
     /// </list>
     /// </summary>
@@ -136,7 +136,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [TestCase('q')]
         [TestCase('Z')]
         [TestCase('7')]
-        [TestCase(' ')] // "any key" really is any key on the typeable surface.
+        // "any key" is every key on the typeable surface but space (see the space cases below).
         public void AnyKeyFillsAFreestyleCellAndTheTypedCharIsKept(char pressed)
         {
             var engine = activeEngine();
@@ -154,6 +154,107 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(2, engine.Combo);
             Assert.AreEqual(0, engine.ConsecutiveWrongKeys);
             Assert.AreEqual(1.0, engine.LiveAccuracy); // no error was recorded
+        }
+
+        [Test]
+        public void SpaceIsRejectedOnAFreestyleCellExactlyLikeAnyWrongKey()
+        {
+            // Backlog 50: space is the word-advance key, not a glyph a player means to leave sitting
+            // in a lyric, so it is the one key a freestyle cell does NOT take. It then falls through
+            // the ordinary non-match path, so the consequences must be indistinguishable from a
+            // space pressed on an ordinary letter cell: that control run is the assertion.
+            var free = activeEngine();
+            var control = new TypingEngine(map(line("axb", 1000, 5000, 4000, unit("axb", 1000, 4000))));
+            control.Update(1000);
+
+            foreach (var engine in new[] { free, control })
+            {
+                int judged = 0;
+                var rejected = new List<char>();
+                engine.CharJudged += _ => judged++;
+                engine.WrongKeyRejected += rejected.Add;
+
+                Assert.IsTrue(engine.ProcessKey('a', 1000));
+                judged = 0; // the correct 'a' judged; count only what the space does.
+                engine.Update(2000);
+
+                // Handled (the press was not inert) but REJECTED: nothing lands in the cell.
+                Assert.IsTrue(engine.ProcessKey(' ', 2000));
+
+                var cell = engine.Lines[0].Cells[1];
+                Assert.AreEqual(CellState.Untyped, cell.State);
+                Assert.IsNull(cell.TypedChar);
+                Assert.IsNull(cell.JudgedDelta);
+                Assert.AreEqual(1, engine.CaretIndex); // caret unmoved: the slot is still open
+                Assert.AreEqual(0, engine.Combo);
+                Assert.AreEqual(1, engine.ConsecutiveWrongKeys);
+                Assert.AreEqual(0.5, engine.LiveAccuracy); // one correct of two keypresses
+                Assert.AreEqual(0, judged); // no CharJudged for a rejected key
+                Assert.AreEqual(1, rejected.Count);
+                Assert.AreEqual(' ', rejected[0]);
+
+                // The slot is still fillable afterwards; the space cost combo, not the cell.
+                engine.Update(2400);
+                Assert.IsTrue(engine.ProcessKey(engine == free ? '7' : 'x', 2400));
+                Assert.AreEqual(CellState.Correct, engine.Lines[0].Cells[1].State);
+                Assert.AreEqual(0, engine.ConsecutiveWrongKeys);
+            }
+
+            Assert.AreEqual(control.Score, free.Score);
+            Assert.AreEqual(control.MaxCombo, free.MaxCombo);
+            Assert.AreEqual(control.LiveAccuracy, free.LiveAccuracy);
+        }
+
+        [Test]
+        public void AllowWrongInputStillRejectsSpaceOnAFreestyleCell()
+        {
+            // The allow-wrong-input path types a wrong LETTER through as a red, backspaceable cell,
+            // but has always refused to do that with a space. A freestyle cell inherits that: the
+            // only outcome a space has there is the strict rejection.
+            var engine = activeEngine();
+            engine.AllowWrongInput = true;
+
+            engine.ProcessKey('a', 1000);
+            engine.Update(2000);
+            Assert.IsTrue(engine.ProcessKey(' ', 2000));
+
+            var cell = engine.Lines[0].Cells[1];
+            Assert.AreEqual(CellState.Untyped, cell.State); // NOT CellState.Wrong
+            Assert.IsNull(cell.TypedChar);
+            Assert.AreEqual(1, engine.CaretIndex);
+            Assert.AreEqual(1, engine.ConsecutiveWrongKeys); // the strict path feeds the mash streak
+        }
+
+        [Test]
+        public void MashingSubstitutesTheAutoCharForASpaceOnAFreestyleCell()
+        {
+            // Mashing promises any key is the right key on every cell; on an ordinary cell it keeps
+            // that promise by rewriting the press to the expected char. A freestyle cell is exempt
+            // from the rewrite (it must remember the pressed char), so space is the one press that
+            // would otherwise be rejected under the mod: it is substituted with the char autoplay
+            // uses, which keeps both the mod's promise and the "no space in a freestyle slot" rule.
+            var engine = activeEngine();
+            engine.MashingEnabled = true;
+
+            engine.ProcessKey('a', 1000);
+            engine.Update(2000);
+            Assert.IsTrue(engine.ProcessKey(' ', 2000));
+
+            var cell = engine.Lines[0].Cells[1];
+            Assert.AreEqual(CellState.Correct, cell.State);
+            Assert.AreEqual(Typeability.FREESTYLE_AUTO_CHAR, cell.TypedChar);
+            Assert.AreNotEqual(' ', cell.TypedChar);
+            Assert.AreNotEqual(marker, cell.TypedChar);
+            Assert.AreEqual(2, engine.Combo);
+            Assert.AreEqual(1.0, engine.LiveAccuracy);
+
+            // Control: mashing on an ORDINARY cell still takes a space, judged as its expected char.
+            var control = new TypingEngine(map(line("axb", 1000, 5000, 4000, unit("axb", 1000, 4000))));
+            control.MashingEnabled = true;
+            control.Update(1000);
+            Assert.IsTrue(control.ProcessKey(' ', 1000));
+            Assert.AreEqual(CellState.Correct, control.Lines[0].Cells[0].State);
+            Assert.AreEqual('a', control.Lines[0].Cells[0].TypedChar);
         }
 
         [Test]

@@ -310,11 +310,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// doc's MATCH GATE). Reads engine state only, exactly the way the lyric display reads cells.
         ///
         /// <para>The three acceptance rules are the ones <see cref="TypingEngine.ProcessKey"/>
-        /// judges a press by and must stay identical to them: a freestyle cell takes any key, the
-        /// Mashing mod rewrites any key into the expected one, and otherwise the char must match,
-        /// exactly under the Literate mod (<see cref="TypingEngine.CaseSensitive"/>) and through the
-        /// shared <see cref="Typeability.Fold"/> otherwise. Nothing is duplicated but the shape of
-        /// the test; the case-folding rule itself lives in one place.</para>
+        /// judges a press by and must stay identical to them: the Mashing mod accepts any key on any
+        /// cell, a freestyle cell takes any key but space, and otherwise the char must match, exactly
+        /// under the Literate mod (<see cref="TypingEngine.CaseSensitive"/>) and through the shared
+        /// <see cref="Typeability.Fold"/> otherwise. Nothing is duplicated but the shape of the test;
+        /// the case-folding rule itself lives in one place.</para>
         /// </summary>
         private bool heldCharWouldBeAccepted()
         {
@@ -334,8 +334,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             var cell = cells[i];
 
-            if (cell.IsFreestyle || engine.MashingEnabled)
+            if (engine.MashingEnabled)
                 return true;
+
+            // A freestyle cell takes any key but space (backlog 50). heldChar can never BE a space
+            // today (space never arms a hold, see the class doc's SPACE EXCLUSION), so this test is
+            // dead weight in practice; it is written out anyway so the gate stays a literal mirror
+            // of ProcessKey rather than one that happens to agree with it.
+            if (cell.IsFreestyle)
+                return heldChar != ' ';
 
             return engine.CaseSensitive
                 ? heldChar == cell.Expected
