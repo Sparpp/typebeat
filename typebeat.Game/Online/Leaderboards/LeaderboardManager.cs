@@ -102,7 +102,12 @@ namespace typebeat.Game.Online.Leaderboards
                         return;
                     }
 
-                    if (newCriteria.Beatmap.OnlineID <= 0 || newCriteria.Beatmap.Status <= BeatmapOnlineStatus.Pending)
+                    // A published-but-not-ranked map (pending, or creator-marked unranked) now has a
+                    // board of its own: the server serves the website's Unranked board for it. Only
+                    // maps with no online identity at all, or whose set is not published, are blocked.
+                    var boardKind = GlobalLeaderboardAvailability.Resolve(newCriteria.Beatmap.OnlineID, newCriteria.Beatmap.Status);
+
+                    if (boardKind == GlobalLeaderboardKind.None)
                     {
                         scores.Value = LeaderboardScores.Failure(LeaderboardFailState.BeatmapUnavailable);
                         return;
@@ -153,7 +158,8 @@ namespace typebeat.Game.Online.Leaderboards
                             onlineScores,
                             scoresRequested: newRequest.ScoresRequested,
                             totalScores: response.ScoresCount,
-                            userScore
+                            userScore,
+                            unrankedBoard: boardKind == GlobalLeaderboardKind.Unranked
                         );
                         inFlightOnlineRequest = null;
                         scores.Value = result;
@@ -257,6 +263,13 @@ namespace typebeat.Game.Online.Leaderboards
         /// </summary>
         public LeaderboardFailState? FailState { get; }
 
+        /// <summary>
+        /// Whether these scores came from a map's UNRANKED board (the map is published and playable,
+        /// but not ranked, so nothing set on it counts). Display surfaces cue this so an unranked
+        /// board is never mistaken for a ranked one. Always false for local scores and failures.
+        /// </summary>
+        public bool UnrankedBoard { get; }
+
         public IEnumerable<ScoreInfo> AllScores
         {
             get
@@ -269,20 +282,21 @@ namespace typebeat.Game.Online.Leaderboards
             }
         }
 
-        private LeaderboardScores(ICollection<ScoreInfo> topScores, int scoresRequested, int totalScores, ScoreInfo? userScore, LeaderboardFailState? failState)
+        private LeaderboardScores(ICollection<ScoreInfo> topScores, int scoresRequested, int totalScores, ScoreInfo? userScore, LeaderboardFailState? failState, bool unrankedBoard)
         {
             TopScores = topScores;
             ScoresRequested = scoresRequested;
             TotalScores = totalScores;
             UserScore = userScore;
             FailState = failState;
+            UnrankedBoard = unrankedBoard;
         }
 
-        public static LeaderboardScores Success(ICollection<ScoreInfo> topScores, int scoresRequested, int totalScores, ScoreInfo? userScore)
-            => new LeaderboardScores(topScores, scoresRequested, totalScores, userScore, null);
+        public static LeaderboardScores Success(ICollection<ScoreInfo> topScores, int scoresRequested, int totalScores, ScoreInfo? userScore, bool unrankedBoard = false)
+            => new LeaderboardScores(topScores, scoresRequested, totalScores, userScore, null, unrankedBoard);
 
         public static LeaderboardScores Failure(LeaderboardFailState failState)
-            => new LeaderboardScores([], scoresRequested: 0, totalScores: 0, null, failState);
+            => new LeaderboardScores([], scoresRequested: 0, totalScores: 0, null, failState, unrankedBoard: false);
     }
 
     public enum LeaderboardFailState

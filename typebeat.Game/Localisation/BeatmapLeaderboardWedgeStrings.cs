@@ -70,6 +70,11 @@ namespace typebeat.Game.Localisation
         public static LocalisableString Date => new TranslatableString(getKey(@"date"), @"Date");
 
         /// <summary>
+        /// "Unranked map, these scores don't count"
+        /// </summary>
+        public static LocalisableString UnrankedBoard => new TranslatableString(getKey(@"unranked_board"), @"Unranked map, these scores don't count");
+
+        /// <summary>
         /// "Personal Best"
         /// </summary>
         public static LocalisableString PersonalBest => new TranslatableString(getKey(@"personal_best"), @"Personal Best");
