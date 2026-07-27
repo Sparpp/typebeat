@@ -18,7 +18,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <code>
     /// r = round(rate, 2)                                   // the sliders step by 0.01
     /// raw = r >= 1 ? 1 + 0.46 * (r - 1)                    // speeding up
-    ///              : 1 - 1.80 * (1 - r)                    // slowing down
+    ///              : 1 - 3.00 * (1 - r)                    // slowing down
     /// multiplier = round(max(0.10, raw), 4)
     /// </code>
     ///
@@ -28,12 +28,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <item>CONTINUOUS AND EQUAL TO 1.0 AT r = 1. A rate mod dialled all the way back toward
     /// no-mod pays exactly what no-mod pays, from both sides. osu's own V2 curve jumps (Half Time
     /// at 0.99x pays 0.886x there), which is indefensible once the setting is ranked.</item>
-    /// <item>STRICTLY MONOTONIC over the whole reachable domain [0.50, 2.00]. Faster always pays
-    /// strictly more, slower always pays strictly less; there is never a rate you can pick for free.
-    /// osu's V2 curve floors the rate to 0.1 / 0.05 buckets, so 1.50x and 1.59x pay the same.</item>
+    /// <item>MONOTONIC ABOVE THE FLOOR. Faster always pays strictly more; slower pays strictly less
+    /// down to r = 0.70, below which the 0.10 floor clamps the whole [0.50, 0.70] tail flat (the
+    /// increase side, [1.00, 2.00], stays strictly monotonic throughout). osu's V2 curve floors the
+    /// rate to 0.1 / 0.05 buckets over its whole domain instead, so 1.50x and 1.59x pay the same.</item>
     /// <item>EXACT AT THE DEFAULTS. Default Double Time / Nightcore (1.50x) is 1.23x and default
-    /// Half Time (0.75x) is 0.55x, the same numbers the flat-default policy paid, so every existing
-    /// default-speed score keeps its value and no leaderboard is re-based by this change.</item>
+    /// Half Time (0.75x) is 0.25x; both defaults are still exact anchor points of the curve, they
+    /// just no longer match the pre-nerf flat-default HT payout of 0.55x.</item>
     /// <item>DETERMINISTIC AND CHEAP TO MIRROR. Two rounding steps with fixed decimal counts, so an
     /// independent implementation (the web backend) lands on the same double, and the contract can
     /// be stated as exact decimal values rather than "within some epsilon".</item>
@@ -41,8 +42,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// </para>
     ///
     /// <para>
-    /// The slopes are chosen by the defaults, not by taste: 0.46 is (1.23 - 1) / (1.50 - 1) and 1.80
-    /// is (1 - 0.55) / (1 - 0.75). The reward side is deliberately shallower than the penalty side,
+    /// The slopes are chosen by the defaults, not by taste: 0.46 is (1.23 - 1) / (1.50 - 1) and 3.00
+    /// is (1 - 0.25) / (1 - 0.75). The reward side is deliberately shallower than the penalty side,
     /// which is the same asymmetry osu ships; slowing a lyric down is worth far more to a typist
     /// than speeding it up costs.
     /// </para>
@@ -52,13 +53,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <summary>Multiplier gained per +1.0x of rate above 1.0x. Fixed by the 1.50x → 1.23x anchor.</summary>
         public const double INCREASE_SLOPE = 0.46;
 
-        /// <summary>Multiplier lost per -1.0x of rate below 1.0x. Fixed by the 0.75x → 0.55x anchor.</summary>
-        public const double DECREASE_SLOPE = 1.8;
+        /// <summary>Multiplier lost per -1.0x of rate below 1.0x. Fixed by the 0.75x → 0.25x anchor.</summary>
+        public const double DECREASE_SLOPE = 3.0;
 
         /// <summary>
-        /// Floor on the returned multiplier. The reachable rate floor is 0.50x (both the Half Time
-        /// slider and the Wind Down ramp stop there), which lands exactly on 0.10; the clamp only
-        /// exists so a future lower bound can never produce a zero or negative multiplier.
+        /// Floor on the returned multiplier. Reached at r = 0.70 and clamped flat the rest of the way
+        /// down to the reachable rate floor of 0.50x (both the Half Time slider and the Wind Down ramp
+        /// stop there), so every rate in [0.50, 0.70] pays the same 0.10.
         /// </summary>
         public const double MINIMUM = 0.1;
 
