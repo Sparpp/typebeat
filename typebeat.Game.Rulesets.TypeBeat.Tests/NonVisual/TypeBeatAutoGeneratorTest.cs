@@ -20,6 +20,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     [TestFixture]
     public class TypeBeatAutoGeneratorTest
     {
+        /// <summary>
+        /// Drives an engine with a generated replay exactly the way the playfield's engine ticker
+        /// does (Update to the frame's timestamp, then the keystroke), asserting every single press
+        /// is ACCEPTED. A press the engine answers with false is not a rejection, it is a press that
+        /// never happened (no active line, or a line already complete), and it silently shifts every
+        /// later press on that line onto the wrong cell.
+        /// </summary>
+        private static TypingEngine playPerfectly(TypeBeatBeatmap map)
+        {
+            var replay = new TypeBeatAutoGenerator(map).Generate();
+            var engine = new TypingEngine(lyricBeatmap(map));
+
+            foreach (var frame in replay.Frames.Cast<TypeBeatReplayFrame>())
+            {
+                engine.Update(frame.Time);
+                Assert.IsTrue(engine.ProcessKey(frame.Character, frame.Time),
+                    $"'{frame.Character}' @ {frame.Time} must reach a live cell (line {engine.ActiveLineIndex}, caret {engine.CaretIndex})");
+                Assert.AreEqual(0, engine.ConsecutiveWrongKeys, $"'{frame.Character}' @ {frame.Time} must not be rejected");
+            }
+
+            engine.Update(1_000_000);
+
+            Assert.IsTrue(engine.IsFinished);
+            Assert.AreEqual(1.0, engine.LiveAccuracy, "no wrong keys");
+
+            foreach (var l in engine.Lines)
+            {
+                foreach (var cell in l.Cells)
+                {
+                    if (cell.IsTypeable)
+                        Assert.AreEqual(CellState.Correct, cell.State, $"cell '{cell.Expected}' @ {cell.TargetTime} in \"{l.DisplayText}\"");
+                }
+            }
+
+            return engine;
+        }
+
         private static LyricLine line(string text, double start, double end, double singEnd, params TimedUnit[] units)
             => new LyricLine { RawText = text, StartTime = start, EndTime = end, SingEndTime = singEnd, Units = units };
 
@@ -90,32 +127,73 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void GeneratedReplayPlaysPerfectly()
         {
             var map = createTwoLineMap();
-            var replay = new TypeBeatAutoGenerator(map).Generate();
-            var engine = new TypingEngine(lyricBeatmap(map));
-
-            // Same call sequence the playfield's replay feeder makes.
-            foreach (var frame in replay.Frames.Cast<TypeBeatReplayFrame>())
-            {
-                engine.Update(frame.Time);
-                Assert.IsTrue(engine.ProcessKey(frame.Character, frame.Time), $"'{frame.Character}' @ {frame.Time} must be accepted");
-            }
-
-            engine.Update(100000);
-
-            Assert.IsTrue(engine.IsFinished);
-            Assert.AreEqual(1.0, engine.LiveAccuracy, "no wrong keys");
+            var engine = playPerfectly(map);
 
             foreach (var l in engine.Lines)
             {
                 foreach (var cell in l.Cells)
                 {
                     if (cell.IsTypeable)
-                    {
-                        Assert.AreEqual(CellState.Correct, cell.State);
                         Assert.AreEqual(0, cell.JudgedDelta!.Value, 1.0, "pressed at target (within rounding)");
-                    }
                 }
             }
+        }
+
+        /// <summary>
+        /// Backlog 51 regression, distilled from "Busta Rhymes Goes To The Wii Shop Channel".
+        ///
+        /// <para>Real maps carry FRACTIONAL times, and the decoder makes line windows contiguous
+        /// (a line's EndTime IS the next line's StartTime), so the next line's first cell target is
+        /// routinely that exact fractional boundary. Rounding the frame to integral milliseconds
+        /// used to round it DOWN, landing the press a fraction of a millisecond BEFORE the previous
+        /// line's seal deadline: the previous line was still the active one, it was already fully
+        /// typed, and a complete line makes ProcessKey inert. The press vanished, and every later
+        /// press on the new line landed one cell early.</para>
+        ///
+        /// <para>An all-freestyle line hides that drift completely (every key matches a freestyle
+        /// cell) until the first SPACE cell, at which point autoplay's space lands on a freestyle
+        /// cell (which rejects space, backlog 50) and its letters land on the space cell, rejected
+        /// again and again: 13 consecutive rejections fail the play outright.</para>
+        /// </summary>
+        [Test]
+        public void FractionalLineBoundaryDoesNotSwallowTheFirstPress()
+        {
+            // The boundary the previous line seals on, and the next line's first cell target.
+            const double boundary = 1000.3856;
+
+            var map = beatmap(
+                line("ab", 0, boundary, 900, unit("ab", 100, 900)),
+                line("&&& &&&", boundary, 4000, 3000,
+                    unit("&&&", boundary, 2000),
+                    unit("&&&", 2000, 3000)));
+
+            var frames = new TypeBeatAutoGenerator(map).Generate().Frames.Cast<TypeBeatReplayFrame>().ToList();
+
+            // The first press of the second line must be at or after the boundary, never rounded
+            // back across it (1001, not 1000).
+            var firstOnSecondLine = frames.First(f => f.Time >= 1000);
+            Assert.GreaterOrEqual(firstOnSecondLine.Time, boundary, "a press must never precede its line's activation");
+
+            playPerfectly(map);
+        }
+
+        /// <summary>
+        /// The same swallow with the drift left visible: a fractional boundary in front of an
+        /// ordinary lyric line. Pre-fix the first press was eaten and every later press landed on
+        /// the previous cell, so the line's last cell was never typed and sealed as a miss.
+        /// </summary>
+        [Test]
+        public void FractionalLineBoundaryKeepsOrdinaryLinesInStep()
+        {
+            const double boundary = 2000.25;
+
+            var map = beatmap(
+                line("hi", 0, boundary, 1800, unit("hi", 100, 1800)),
+                line("cd ef", boundary, 6000, 5000,
+                    unit("cd", boundary, 3500),
+                    unit("ef", 3500, 5000)));
+
+            playPerfectly(map);
         }
     }
 }
