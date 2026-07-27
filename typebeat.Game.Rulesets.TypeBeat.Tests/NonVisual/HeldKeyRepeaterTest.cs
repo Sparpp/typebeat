@@ -595,5 +595,101 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                                         && p.First.TypedChar == p.Second.TypedChar
                                         && Nullable.Equals(p.First.JudgedDelta, p.Second.JudgedDelta)));
         }
+
+        /// <summary>Mirrors denseRun's shape but with a run of SPACE cells instead of 'a's: ten spaces
+        /// then a non-space cell where the run ends.</summary>
+        private static LyricBeatmap denseSpaceRun(string text = "          x")
+            => map(line(text, 1000, 9000, 2100, unit(text, 1000, 2100)));
+
+        /// <summary>
+        /// SPACE EXCLUSION (backlog 49): holding space never synthesizes a repeat, however long the
+        /// run of space cells ahead of it. The initial physical press is still judged completely
+        /// normally, exactly like any other keystroke; it is only the hold that is inert for space.
+        /// </summary>
+        [Test]
+        public void HoldingSpaceFiresNothingBeyondTheInitialPress()
+        {
+            var (engine, repeater, recorded) = start(denseSpaceRun());
+
+            press(engine, repeater, recorded, Key.Space, ' ', 1000);
+
+            Assert.IsFalse(repeater.IsHolding, "space never arms a hold, unlike every other key");
+            Assert.AreEqual(0, repeater.PendingRepeats);
+
+            var cell0 = engine.Lines[0].Cells[0];
+            Assert.AreEqual(CellState.Correct, cell0.State, "the initial press is judged the ordinary way");
+            Assert.AreEqual(' ', cell0.TypedChar);
+            Assert.AreEqual(1, engine.CaretIndex);
+
+            // Pump the whole run's worth of frames: with nothing armed, nothing more can fire.
+            run(repeater, engine, 1000, 2100);
+
+            Assert.AreEqual(1, recorded.Count, "no repeats synthesized for the other nine space cells");
+            Assert.AreEqual(1, engine.CaretIndex, "the caret never moved past the single physical press");
+            Assert.IsTrue(engine.Lines[0].Cells.Skip(1).Take(9).All(c => c.State == CellState.Untyped),
+                "the rest of the space run sits untyped, exactly as if no hold feature existed");
+        }
+
+        /// <summary>
+        /// Holding space is a genuine no-op for the hold machinery, not a special "armed but inert"
+        /// state: a letter pressed while space is still physically down arms its own hold completely
+        /// normally, from the caret the space press left behind.
+        /// </summary>
+        [Test]
+        public void HoldingSpaceThenPressingALetterArmsTheLettersHoldNormally()
+        {
+            var mixed = map(line(" aaaa", 1000, 9000, 1500, unit(" aaaa", 1000, 1500)));
+            var (engine, repeater, recorded) = start(mixed);
+
+            press(engine, repeater, recorded, Key.Space, ' ', 1000);
+            Assert.IsFalse(repeater.IsHolding, "space still never arms");
+
+            // The letter key going down while space is (physically) still held: a distinct key, so
+            // it is a fresh OnKeyDown, not the discarded OS auto-repeat.
+            press(engine, repeater, recorded, Key.A, 'a', 1100);
+            Assert.IsTrue(repeater.IsHolding, "an ordinary key arms its hold exactly as if space had never been pressed");
+            Assert.AreEqual('a', repeater.HeldChar);
+
+            run(repeater, engine, 1100, 1500);
+
+            Assert.AreEqual(5, recorded.Count, "the space press, the 'a' press, and three synthesized repeats");
+            Assert.AreEqual(5, engine.CaretIndex, "the whole line typed");
+            Assert.IsTrue(engine.Lines[0].Cells.Skip(1).All(c => c.State == CellState.Correct && c.TypedChar == 'a'));
+        }
+
+        /// <summary>
+        /// The other direction: space pressed while a letter's hold is active. Space is a real
+        /// keystroke like any other, so it still ENDS the existing hold (the class doc's "a new key
+        /// always ends the previous hold" rule is untouched); what changes is only that space then
+        /// does not start a hold of its own in its place, per the exclusion.
+        /// </summary>
+        [Test]
+        public void PressingSpaceWhileHoldingALetterCancelsTheHoldWithoutRearming()
+        {
+            var (engine, repeater, recorded) = start(denseRun());
+            var rejected = new List<char>();
+            engine.WrongKeyRejected += rejected.Add;
+
+            press(engine, repeater, recorded, Key.A, 'a', 1000);
+            Assert.IsTrue(repeater.IsHolding);
+            Assert.AreEqual(10, repeater.PendingRepeats);
+
+            // Space physically goes down before the first 'a' repeat is due (target 1100). The next
+            // cell wants 'a', so this space is a wrong key, exactly like it would be without any hold
+            // in play; the hold ending is a separate effect from that judgement.
+            press(engine, repeater, recorded, Key.Space, ' ', 1050);
+
+            Assert.AreEqual(1, rejected.Count, "the space itself is judged as an ordinary wrong key");
+            Assert.IsFalse(repeater.IsHolding, "the letter's hold ends, same as pressing any other key would");
+            Assert.AreEqual(0, repeater.PendingRepeats);
+
+            // Run the rest of the run's window: nothing from the cancelled 'a' hold survives, and
+            // space armed nothing to replace it.
+            run(repeater, engine, 1050, 2100);
+
+            Assert.AreEqual(2, recorded.Count, "the initial 'a' press and the rejected space, nothing else");
+            Assert.AreEqual(1, engine.CaretIndex, "no phantom 'a' repeats crept in after the cancel");
+            Assert.IsTrue(engine.Lines[0].Cells.Skip(1).All(c => c.State == CellState.Untyped));
+        }
     }
 }

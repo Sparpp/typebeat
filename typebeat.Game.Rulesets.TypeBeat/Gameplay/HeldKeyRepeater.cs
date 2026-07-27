@@ -63,6 +63,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// next cell wants a different letter and the gate stops the hold dead. The dwell can no longer
     /// produce a wrong key, which is what it used to do to anyone whose typing lagged the vocal
     /// (backlog task 43).</para>
+    ///
+    /// <para>SPACE EXCLUSION: holding SPACE never arms a repeat, full stop (backlog task 49). Every
+    /// other char keeps the full contract above; only space is carved out. Space is the word-advance
+    /// key, not a typed letter: hammering it is free forward progress with no typing skill behind it,
+    /// so it must always be a deliberate press, never something a held key hands out for free. The
+    /// initial physical press is completely unaffected, it is judged the ordinary way in
+    /// <see cref="TypingEngine.ProcessKey"/> regardless; only the SYNTHESIZED repeats that a hold
+    /// would otherwise schedule for it are suppressed, at <see cref="BeginHold"/> (checked on the
+    /// character, not the key, since the character is what the schedule would fire and nothing in
+    /// this game's input path maps any other physical key to a space char, see
+    /// <see cref="KeyCharMap"/>). Pressing space while another hold is active still ends that hold,
+    /// the same as any other keystroke, it just never starts one of its own in space's place.</para>
     /// </summary>
     public sealed class HeldKeyRepeater
     {
@@ -119,6 +131,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // A new key always ends the previous hold: rolling from one letter to the next while
             // the first is still physically down must not leave two repeaters running.
             Cancel();
+
+            // SPACE NEVER ARMS. See the class doc's SPACE EXCLUSION note: space is the word-advance
+            // key, so a held space must never synthesize a repeat, only the initial physical press
+            // judges. The Cancel() above still runs, so pressing space while another hold is active
+            // still ends that hold like any real keystroke; it simply never starts a new one of its
+            // own. Tested on the character, not the key: the repeater schedules and fires by
+            // <paramref name="character"/>, and that is what must never be ' ' in a live schedule,
+            // whatever physical key (or future text-input source) produced it.
+            if (character == ' ')
+                return;
 
             if (engine.IsFinished || !engine.LineIsActive || engine.IsLineComplete)
                 return;
