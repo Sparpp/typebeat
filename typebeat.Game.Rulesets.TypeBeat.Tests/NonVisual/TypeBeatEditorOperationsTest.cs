@@ -532,6 +532,268 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             assertReloadStable(editorBeatmap);
         }
 
+        #region Word insertion / removal
+
+        [Test]
+        public void AddWordTakesTheGapAfterTheSelectedWordAndRemoveGivesItBack()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 0); // "alpha beta": alpha [1000,1800], beta [1900,2800]
+
+            Assert.That(TypeBeatEditorOperations.AddWord(editorBeatmap, line, 0), Is.True);
+
+            Assert.That(line.Line.RawText, Is.EqualTo("alpha word beta"));
+            Assert.That(line.Line.Units.Count, Is.EqualTo(3));
+            Assert.That(line.Line.Units.Select(u => u.Text), Is.EqualTo(new[] { "alpha", "word", "beta" }));
+
+            // The free gap between alpha and beta, so neither neighbour moved.
+            Assert.That(line.Line.Units[1].StartTime, Is.EqualTo(1800));
+            Assert.That(line.Line.Units[1].EndTime, Is.EqualTo(1900));
+            Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(1800));
+            Assert.That(line.Line.Units[2].StartTime, Is.EqualTo(1900));
+            Assert.That(line.Line.Units[1].Source, Is.EqualTo(TimingSource.Explicit));
+            Assert.That(line.Line.Units.Select(u => u.StartTime), Is.Ordered);
+
+            assertReloadStable(editorBeatmap);
+
+            // Removing it again restores the line exactly (the word only ever held free space).
+            Assert.That(TypeBeatEditorOperations.RemoveWord(editorBeatmap, line, 1), Is.True);
+            Assert.That(line.Line.RawText, Is.EqualTo("alpha beta"));
+            Assert.That(line.Line.Units.Select(u => u.StartTime), Is.EqualTo(new[] { 1000d, 1900d }));
+            Assert.That(line.Line.Units.Select(u => u.EndTime), Is.EqualTo(new[] { 1800d, 2800d }));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void AddWordAppendsAtTheLineEndWhenNothingIsSelected()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 1); // "gamma delta": delta [4300,5500], line ends 6000
+
+            // -1 == no word focused: the word lands at the end of the line.
+            Assert.That(TypeBeatEditorOperations.AddWord(editorBeatmap, line, -1), Is.True);
+
+            Assert.That(line.Line.RawText, Is.EqualTo("gamma delta word"));
+            Assert.That(line.Line.Units[2].StartTime, Is.EqualTo(5500));
+            Assert.That(line.Line.Units[2].EndTime, Is.EqualTo(6000)); // the free tail, 500ms < delta's 1200
+            Assert.That(line.Line.Units.Select(u => u.StartTime), Is.Ordered);
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void AddWordCapsAnAppendAtTheAnchorsOwnDuration()
+        {
+            // A short last word with a long typeable tail: taking the WHOLE gap would hand the new
+            // word a multi-second span, so it is capped at the anchor's own duration.
+            var beatmap = new Beatmap();
+            beatmap.BeatmapInfo.Ruleset = new TypeBeatRuleset().RulesetInfo;
+            beatmap.Metadata.Artist = "Op";
+            beatmap.Metadata.Title = "Tail";
+            beatmap.Metadata.AudioFile = "audio.mp3";
+
+            addLine(beatmap, 0, "alpha", 1000, 5000, 2000, (1000, 1500));
+
+            var editorBeatmap = new EditorBeatmap(beatmap);
+            var line = lineAt(editorBeatmap, 0);
+
+            Assert.That(TypeBeatEditorOperations.AddWord(editorBeatmap, line, -1), Is.True);
+            Assert.That(line.Line.Units[1].StartTime, Is.EqualTo(1500));
+            Assert.That(line.Line.Units[1].EndTime, Is.EqualTo(2000)); // 500ms == alpha's duration, not the 3500ms tail
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void AddWordBisectsTheAnchorWhenWordsArePackedEdgeToEdge()
+        {
+            var beatmap = new Beatmap();
+            beatmap.BeatmapInfo.Ruleset = new TypeBeatRuleset().RulesetInfo;
+            beatmap.Metadata.Artist = "Op";
+            beatmap.Metadata.Title = "Packed";
+            beatmap.Metadata.AudioFile = "audio.mp3";
+
+            addLine(beatmap, 0, "alpha beta", 1000, 3000, 2800, (1000, 1900), (1900, 2800));
+
+            var editorBeatmap = new EditorBeatmap(beatmap);
+            var line = lineAt(editorBeatmap, 0);
+
+            // Give alpha a subdivision in its SECOND half, which the bisection carves away.
+            Assert.That(TypeBeatEditorOperations.AddSyllableBoundary(editorBeatmap, line, 0), Is.Not.Null);
+            TypeBeatEditorOperations.SetSyllableBoundary(editorBeatmap, line, 0, 0, 1700);
+            Assert.That(line.Granularity, Is.EqualTo(TimingGranularity.Syllable));
+
+            Assert.That(TypeBeatEditorOperations.AddWord(editorBeatmap, line, 0), Is.True);
+
+            Assert.That(line.Line.RawText, Is.EqualTo("alpha word beta"));
+            Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(1450)); // anchor halved
+            Assert.That(line.Line.Units[1].StartTime, Is.EqualTo(1450));
+            Assert.That(line.Line.Units[1].EndTime, Is.EqualTo(1900));
+            Assert.That(line.Line.Units[2].StartTime, Is.EqualTo(1900)); // beta untouched
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.Empty, "the boundary fell outside the shortened anchor");
+            Assert.That(line.Granularity, Is.EqualTo(TimingGranularity.Word), "no subdivision left anywhere");
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void AddWordRefusesWhenThereIsNoRoom()
+        {
+            var beatmap = new Beatmap();
+            beatmap.BeatmapInfo.Ruleset = new TypeBeatRuleset().RulesetInfo;
+            beatmap.Metadata.Artist = "Op";
+            beatmap.Metadata.Title = "Tight";
+            beatmap.Metadata.AudioFile = "audio.mp3";
+
+            // Words packed edge to edge AND too short to halve into two MIN_SPAN words.
+            addLine(beatmap, 0, "a b", 1000, 1100, 1080, (1000, 1040), (1040, 1080));
+
+            var editorBeatmap = new EditorBeatmap(beatmap);
+            var line = lineAt(editorBeatmap, 0);
+
+            Assert.That(TypeBeatEditorOperations.AddWord(editorBeatmap, line, 0), Is.False, "no gap and an unsplittable anchor");
+            Assert.That(TypeBeatEditorOperations.AddWord(editorBeatmap, line, -1), Is.False, "20ms of tail is under MIN_SPAN_MS");
+            Assert.That(line.Line.RawText, Is.EqualTo("a b"));
+            Assert.That(line.Line.Units.Count, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void AddWordRejectsTextThatIsNotASingleToken()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            Assert.That(TypeBeatEditorOperations.AddWord(editorBeatmap, line, 0, "(backing only)"), Is.False);
+            Assert.That(TypeBeatEditorOperations.AddWord(editorBeatmap, line, 0, "two words"), Is.False);
+            Assert.That(line.Line.RawText, Is.EqualTo("alpha beta"));
+        }
+
+        [Test]
+        public void RemoveWordDropsItsTimingAndSubdivisionsAndLeavesAGap()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 1); // "gamma delta": gamma [3000,4200], delta [4300,5500]
+
+            Assert.That(TypeBeatEditorOperations.AddSyllableBoundary(editorBeatmap, line, 1), Is.Not.Null);
+            Assert.That(line.Granularity, Is.EqualTo(TimingGranularity.Syllable));
+
+            Assert.That(TypeBeatEditorOperations.RemoveWord(editorBeatmap, line, 1), Is.True);
+
+            Assert.That(line.Line.RawText, Is.EqualTo("gamma"));
+            Assert.That(line.Line.Units.Count, Is.EqualTo(1));
+            Assert.That(line.Line.Units[0].StartTime, Is.EqualTo(3000)); // survivor untouched
+            Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(4200));
+            Assert.That(line.Line.SingEndTime, Is.EqualTo(5500), "the freed span stays a gap, the window does not shrink");
+            Assert.That(line.Line.EndTime, Is.EqualTo(6000));
+            Assert.That(TypeBeatEditorOperations.OrderedLines(editorBeatmap).Select(o => o.Granularity),
+                Is.All.EqualTo(TimingGranularity.Word), "the map's last subdivision went with the word");
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void RemoveFirstWordKeepsTheLineBoundary()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            Assert.That(TypeBeatEditorOperations.RemoveWord(editorBeatmap, line, 0), Is.True);
+
+            Assert.That(line.Line.RawText, Is.EqualTo("beta"));
+            Assert.That(line.Line.StartTime, Is.EqualTo(1000), "the line boundary is a separate degree of freedom");
+            Assert.That(line.Line.Units[0].StartTime, Is.EqualTo(1900));
+            Assert.That(lineAt(editorBeatmap, 1).Line.StartTime, Is.EqualTo(3000)); // neighbours untouched
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void RemoveWordRefusesTheOnlyWordOfALine()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 2); // "omega", a single word
+
+            // An empty line cannot exist in the format; the line delete is the way out.
+            Assert.That(TypeBeatEditorOperations.RemoveWord(editorBeatmap, line, 0), Is.False);
+            Assert.That(line.Line.RawText, Is.EqualTo("omega"));
+            Assert.That(TypeBeatEditorOperations.OrderedLines(editorBeatmap), Has.Count.EqualTo(3));
+
+            // Out of range is a no-op too.
+            Assert.That(TypeBeatEditorOperations.RemoveWord(editorBeatmap, lineAt(editorBeatmap, 0), 5), Is.False);
+            Assert.That(TypeBeatEditorOperations.RemoveWord(editorBeatmap, lineAt(editorBeatmap, 0), -1), Is.False);
+        }
+
+        [Test]
+        public void RemoveWordNeverDemotesAnAuthoredMapBelowWordGranularity()
+        {
+            // A Word map whose ONLY hand-timed unit is the one being removed. Demoting to Line
+            // would make the encoder omit words[] and silently discard the rest of the timing.
+            var beatmap = new Beatmap();
+            beatmap.BeatmapInfo.Ruleset = new TypeBeatRuleset().RulesetInfo;
+            beatmap.Metadata.Artist = "Op";
+            beatmap.Metadata.Title = "Mixed";
+            beatmap.Metadata.AudioFile = "audio.mp3";
+
+            beatmap.HitObjects.Add(new TypeBeatHitObject
+            {
+                StartTime = 1000,
+                LineIndex = 0,
+                Line = new LyricLine
+                {
+                    RawText = "alpha beta",
+                    StartTime = 1000,
+                    EndTime = 4000,
+                    SingEndTime = 2800,
+                    Units = new[]
+                    {
+                        new TimedUnit { Text = "alpha", StartTime = 1000, EndTime = 1800, Source = TimingSource.Explicit },
+                        new TimedUnit { Text = "beta", StartTime = 1900, EndTime = 2800, Source = TimingSource.Interpolated },
+                    },
+                },
+                Granularity = TimingGranularity.Word,
+            });
+
+            var editorBeatmap = new EditorBeatmap(beatmap);
+            var line = lineAt(editorBeatmap, 0);
+
+            Assert.That(TypeBeatEditorOperations.RemoveWord(editorBeatmap, line, 0), Is.True);
+
+            Assert.That(line.Granularity, Is.EqualTo(TimingGranularity.Word));
+            Assert.That(line.Line.Units[0].StartTime, Is.EqualTo(1900), "the surviving word keeps its authored span");
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void WordOpsOnALineGranularityMapReInterpolateAndStayReloadStable()
+        {
+            var editorBeatmap = createLineGranularityBeatmap();
+            var line = lineAt(editorBeatmap, 0); // "hello world"
+
+            Assert.That(TypeBeatEditorOperations.AddWord(editorBeatmap, line, 0), Is.True);
+
+            Assert.That(line.Line.RawText, Is.EqualTo("hello word world"));
+            Assert.That(line.Line.Units.Count, Is.EqualTo(3));
+            Assert.That(line.Line.Units[0].StartTime, Is.EqualTo(line.Line.StartTime));
+            Assert.That(line.Line.Units[^1].EndTime, Is.EqualTo(line.Line.SingEndTime).Within(1e-6));
+            Assert.That(line.Line.Units.Select(u => u.StartTime), Is.Ordered);
+            Assert.That(line.Line.Units.Select(u => u.Source), Is.All.EqualTo(TimingSource.Interpolated));
+            Assert.That(line.Granularity, Is.EqualTo(TimingGranularity.Line), "no word timing was authored");
+
+            assertReloadStable(editorBeatmap);
+
+            Assert.That(TypeBeatEditorOperations.RemoveWord(editorBeatmap, line, 1), Is.True);
+
+            Assert.That(line.Line.RawText, Is.EqualTo("hello world"));
+            Assert.That(line.Line.Units.Count, Is.EqualTo(2));
+            Assert.That(line.Granularity, Is.EqualTo(TimingGranularity.Line));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        #endregion
+
         [Test]
         public void EverySequencedEditRemainsReloadStable()
         {
@@ -542,6 +804,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             TypeBeatEditorOperations.SetLineText(editorBeatmap, lineAt(editorBeatmap, 0), "yeaaaaaaaah beta");
             TypeBeatEditorOperations.SplitLine(editorBeatmap, lineAt(editorBeatmap, 1), 1);
             TypeBeatEditorOperations.SetSingEnd(editorBeatmap, lineAt(editorBeatmap, 3), 6800);
+            TypeBeatEditorOperations.AddWord(editorBeatmap, lineAt(editorBeatmap, 0), 0);
+            TypeBeatEditorOperations.RemoveWord(editorBeatmap, lineAt(editorBeatmap, 3), 0);
             TypeBeatEditorOperations.ShiftAllTimes(editorBeatmap, 120);
             TypeBeatEditorOperations.MergeWithNext(editorBeatmap, lineAt(editorBeatmap, 1));
 

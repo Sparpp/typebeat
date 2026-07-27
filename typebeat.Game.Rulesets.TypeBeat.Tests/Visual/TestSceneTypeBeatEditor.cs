@@ -10,6 +10,7 @@ using osu.Framework.Utils;
 using osuTK;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.Sprites;
+using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
@@ -651,6 +652,65 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 InputManager.ReleaseKey(Key.ShiftLeft);
             if (ctrl)
                 InputManager.ReleaseKey(Key.ControlLeft);
+        }
+
+        /// <summary>
+        /// The word row of the detail panel: "add word" and "remove word" sit immediately left of
+        /// "subdivide", act on the active line's word selection, grey out when their action is
+        /// impossible, and land a multi-word removal as a SINGLE undo step.
+        /// </summary>
+        [Test]
+        public void TestAddAndRemoveWordButtons()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddUntilStep("word buttons present", () =>
+                Editor.ChildrenOfType<ActiveLineDetailPanel>().Any()
+                && wordButton("add word").DrawWidth > 0);
+
+            AddAssert("add word, then remove word, then subdivide", () =>
+                left("add word") < left("remove word") && left("remove word") < left("subdivide (D)"));
+
+            AddAssert("same size as subdivide (one family)", () =>
+                Precision.AlmostEquals(size("add word"), size("subdivide (D)"), 0.5f)
+                && Precision.AlmostEquals(size("remove word"), size("subdivide (D)"), 0.5f));
+
+            AddStep("select line 1", () => clickRow(0));
+            AddUntilStep("line 1 active", () => state().ActiveLine.Value == lineAt(0));
+            AddAssert("both enabled on a live multi-word line", () =>
+                wordButton("add word").Enabled.Value && wordButton("remove word").Enabled.Value);
+
+            // Nothing focused: the word is appended at the end of the line.
+            AddStep("click add word", () => clickWordButton("add word"));
+            AddUntilStep("a word was appended", () => lineAt(0).Line.RawText == "hello world word");
+            AddAssert("one unit per token", () => lineAt(0).Line.Units.Count == 3);
+
+            AddStep("select the last two words", () => state().SelectUnitRange(1, 2));
+            AddStep("click remove word", () => clickWordButton("remove word"));
+            AddUntilStep("both selected words went", () => lineAt(0).Line.RawText == "hello");
+
+            AddAssert("remove is greyed out on a one-word line", () => !wordButton("remove word").Enabled.Value);
+            AddAssert("add is still available", () => wordButton("add word").Enabled.Value);
+
+            // The two removals were one transaction, so ONE undo brings both words back.
+            AddStep("undo once", () => Editor.Undo());
+            AddUntilStep("both words restored by a single undo", () => lineAt(0).Line.RawText == "hello world word");
+
+            AddStep("undo again", () => Editor.Undo());
+            AddUntilStep("the insertion is undone too", () => lineAt(0).Line.RawText == "hello world");
+        }
+
+        private RoundedButton wordButton(string text)
+            => Editor.ChildrenOfType<ActiveLineDetailPanel>().Single()
+                     .ChildrenOfType<RoundedButton>().Single(b => b.Text.ToString() == text);
+
+        private float left(string text) => wordButton(text).ScreenSpaceDrawQuad.TopLeft.X;
+
+        private Vector2 size(string text) => wordButton(text).ScreenSpaceDrawQuad.Size;
+
+        private void clickWordButton(string text)
+        {
+            InputManager.MoveMouseTo(wordButton(text));
+            InputManager.Click(MouseButton.Left);
         }
 
         [Test]

@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
@@ -21,7 +22,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// LINE-level actions on top (add at playhead, split before word, merge, delete), then the
     /// line view (index, text, start / sung end / window end, granularity, estimated badge),
     /// then the interactive fine-timing surface (<see cref="LyricTimeline"/>), and WORD-level
-    /// actions on the bottom (subdivide) right beside the word blocks they act on.
+    /// actions on the bottom (add word, remove word, subdivide) right beside the word blocks they
+    /// act on.
     /// </summary>
     public partial class ActiveLineDetailPanel : CompositeDrawable
     {
@@ -36,6 +38,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         private FreestyleTextFlow header = null!;
         private OsuSpriteText timing = null!;
+        private RoundedButton addWordButton = null!;
+        private RoundedButton removeWordButton = null!;
 
         public ActiveLineDetailPanel()
         {
@@ -117,8 +121,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         },
                         new Drawable[]
                         {
-                            actionRow("word", new[]
+                            actionRow("word", new Drawable[]
                             {
+                                addWordButton = actionButton("add word", addWord),
+                                removeWordButton = actionButton("remove word", removeWord),
                                 actionButton("subdivide (D)", subdivideSelectedWords),
                             }),
                         },
@@ -127,7 +133,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             };
         }
 
-        private static Drawable actionButton(string text, System.Action action) => new RoundedButton
+        private static RoundedButton actionButton(string text, System.Action action) => new RoundedButton
         {
             Text = text,
             Action = action,
@@ -168,8 +174,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             base.Update();
 
             var line = state.ActiveLine.Value;
+            bool live = line != null && editorBeatmap.HitObjects.Contains(line);
 
-            if (line == null || !editorBeatmap.HitObjects.Contains(line))
+            // Word mutation needs a live line, and never runs mid tap-pass: a pass is
+            // record-then-commit, so the sheet it is timing must not change under it.
+            bool editable = live && state.TapSession == null;
+
+            addWordButton.Enabled.Value = editable;
+            removeWordButton.Enabled.Value = editable && line != null && removalTargets(line).Length > 0;
+
+            if (line == null || !live)
             {
                 // A BLANK map (an audio-only import) has no lines at all, so "click one" would be
                 // advice about something that does not exist: point at the two ways to author the
@@ -217,6 +231,81 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 TypeBeatEditorOperations.SplitLine(editorBeatmap, line, state.SelectedUnitIndex.Value);
         }
 
+        /// <summary>
+        /// The words a word-level action addresses: the multi-selection when there is one, else the
+        /// primary focused word, else none (each action decides what "nothing selected" means for
+        /// it). Ascending, and never past the end of the line's word list.
+        /// </summary>
+        private int[] selectedWords(TypeBeatHitObject line)
+        {
+            int words = wordCount(line);
+
+            IEnumerable<int> selected = state.SelectedUnitIndices.Count > 0
+                ? state.SelectedUnitIndices
+                : state.SelectedUnitIndex.Value >= 0
+                    ? new[] { state.SelectedUnitIndex.Value }
+                    : System.Array.Empty<int>();
+
+            return selected.Where(i => i >= 0 && i < words).OrderBy(i => i).ToArray();
+        }
+
+        /// <summary>
+        /// The words "remove word" would delete: the selection, or the LAST word when nothing is
+        /// selected. EMPTY when the deletion would leave the line wordless (the format has no such
+        /// line), which is exactly what greys the button out.
+        /// </summary>
+        private int[] removalTargets(TypeBeatHitObject line)
+        {
+            int words = wordCount(line);
+            int[] targets = selectedWords(line);
+
+            if (targets.Length == 0 && words > 0)
+                targets = new[] { words - 1 };
+
+            return targets.Length < words ? targets : System.Array.Empty<int>();
+        }
+
+        /// <summary>Words in a line: one per whitespace token (the unit list mirrors them).</summary>
+        private static int wordCount(TypeBeatHitObject line) => line.Line.RawText.Split(' ').Length;
+
+        private void addWord()
+        {
+            if (state.ActiveLine.Value is not TypeBeatHitObject line)
+                return;
+
+            // Inserted after the PRIMARY selected word (the anchor of any multi-selection);
+            // nothing selected appends at the line's end.
+            int after = state.SelectedUnitIndex.Value;
+            int inserted = after >= 0 ? after + 1 : line.Line.Units.Count;
+
+            if (TypeBeatEditorOperations.AddWord(editorBeatmap, line, after))
+                state.SelectUnit(System.Math.Min(inserted, line.Line.Units.Count - 1));
+        }
+
+        private void removeWord()
+        {
+            if (state.ActiveLine.Value is not TypeBeatHitObject line)
+                return;
+
+            int[] targets = removalTargets(line);
+
+            if (targets.Length == 0)
+                return;
+
+            // Every selected word goes as ONE undo (same idiom as subdivide), highest index first
+            // so the pending ones stay addressable as the list shrinks.
+            editorBeatmap.BeginChange();
+
+            foreach (int i in targets.OrderByDescending(i => i))
+                TypeBeatEditorOperations.RemoveWord(editorBeatmap, line, i);
+
+            editorBeatmap.EndChange();
+
+            // Keep the focus where the deletion happened: whatever shifted into the lowest removed
+            // slot, clamped to the line's new end.
+            state.SelectUnit(System.Math.Min(targets[0], line.Line.Units.Count - 1));
+        }
+
         private void subdivideSelectedWords()
         {
             if (state.ActiveLine.Value is not TypeBeatHitObject line)
@@ -225,11 +314,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // Every selected word gets a subdivision (the primary alone when nothing is multi-selected),
             // as one undo. Each press bisects the widest remaining segment, so pressing again keeps
             // splitting. The draggable dotted lines appear in the timeline.
-            int[] targets = state.SelectedUnitIndices.Count > 0
-                ? state.SelectedUnitIndices.OrderBy(i => i).ToArray()
-                : state.SelectedUnitIndex.Value >= 0
-                    ? new[] { state.SelectedUnitIndex.Value }
-                    : System.Array.Empty<int>();
+            int[] targets = selectedWords(line);
 
             if (targets.Length == 0)
                 return;

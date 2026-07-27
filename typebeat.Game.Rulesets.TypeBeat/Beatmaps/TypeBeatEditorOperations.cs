@@ -536,6 +536,162 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return true;
         }
 
+        /// <summary>Placeholder text a freshly inserted word carries until the mapper types over it.</summary>
+        public const string NEW_WORD_TEXT = "word";
+
+        /// <summary>
+        /// Inserts one word into a line, immediately AFTER <paramref name="afterUnitIndex"/>
+        /// (a negative or out-of-range index appends at the line's end). The word is a single
+        /// token: the mapper renames it by retyping the line text, which keeps every word's timing
+        /// while the token count is unchanged (see <see cref="SetLineText"/>).
+        ///
+        /// Timing is carved so no existing word moves where possible: the new word takes the free
+        /// gap after its anchor (the word it was inserted after), capped at the anchor's own
+        /// duration so an append at the end of a line does not swallow the whole tail. When the
+        /// words are packed edge to edge the anchor is BISECTED and the new word takes its second
+        /// half (the same "split the space you have" idiom as <see cref="AddSyllableBoundary"/>);
+        /// any of the anchor's syllable subdivisions that fall outside its shortened span go with
+        /// the halved segment. Returns false when there is no room at all, or when the text
+        /// normalizes to something other than a single token.
+        ///
+        /// Line-granularity maps persist no word data (the loader re-interpolates units from the
+        /// text on every load), so there the edit IS the text edit and the units are re-derived.
+        /// Single undo step.
+        /// </summary>
+        public static bool AddWord(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int afterUnitIndex, string text = NEW_WORD_TEXT)
+        {
+            // Same authoring seam as SetLineText: '&' survives as a FREESTYLE cell, everything
+            // else untypeable is stripped.
+            string normalized = Typeability.Normalize(Typeability.StripBackingVocals(text), keepFreestyleMarkers: true);
+
+            if (normalized.Length == 0 || normalized.Contains(' '))
+                return false;
+
+            var line = hitObject.Line;
+            string[] tokens = line.RawText.Split(' ');
+            int n = line.Units.Count;
+            int insertAt;
+            IReadOnlyList<TimedUnit> units;
+
+            if (hitObject.Granularity == TimingGranularity.Line)
+            {
+                // No persisted word timing: the words ARE the tokens, and unitsFor re-interpolates
+                // the whole line below, so nothing has to be carved here.
+                insertAt = afterUnitIndex >= 0 ? Math.Min(afterUnitIndex + 1, tokens.Length) : tokens.Length;
+                units = line.Units;
+            }
+            else
+            {
+                // Word/Syllable maps persist units verbatim, so the token/unit pairing is the
+                // invariant every word op rests on. A line that has drifted out of it is left
+                // alone rather than corrupted further.
+                if (n == 0 || tokens.Length != n)
+                    return false;
+
+                insertAt = afterUnitIndex >= 0 && afterUnitIndex < n ? afterUnitIndex + 1 : n;
+
+                var anchor = line.Units[insertAt - 1];
+                double anchorSpan = anchor.EndTime - anchor.StartTime;
+                double lo = anchor.EndTime;
+                double hi = insertAt < n ? line.Units[insertAt].StartTime : line.EndTime;
+
+                var rebuilt = line.Units.ToList();
+                double start, end;
+
+                if (hi - lo >= MIN_SPAN_MS)
+                {
+                    start = lo;
+                    end = lo + Math.Min(hi - lo, Math.Max(MIN_SPAN_MS, anchorSpan));
+                }
+                else if (anchorSpan >= MIN_SPAN_MS * 2)
+                {
+                    double mid = (anchor.StartTime + anchor.EndTime) / 2;
+                    start = mid;
+                    end = anchor.EndTime;
+                    rebuilt[insertAt - 1] = retime(anchor, anchor.StartTime, mid);
+                }
+                else
+                {
+                    // Neither a gap nor an anchor wide enough to halve: nowhere to put a word.
+                    return false;
+                }
+
+                rebuilt.Insert(insertAt, new TimedUnit
+                {
+                    Text = normalized,
+                    StartTime = start,
+                    EndTime = end,
+                    // Editor-authored placement is hand timing: it must persist in words[] verbatim.
+                    Source = TimingSource.Explicit,
+                    Confidence = 1,
+                });
+
+                units = rebuilt;
+            }
+
+            var newTokens = tokens.ToList();
+            newTokens.Insert(insertAt, normalized);
+            string rawText = string.Join(' ', newTokens);
+
+            editorBeatmap.BeginChange();
+            hitObject.Line = rebuild(line,
+                rawText: rawText,
+                units: unitsFor(hitObject, rawText, units, line.StartTime, line.SingEndTime, line.EndTime));
+            editorBeatmap.Update(hitObject);
+            // Bisecting the anchor can strip subdivisions that no longer fit inside its half.
+            syncGranularity(editorBeatmap, keepAuthoredWords: true);
+            editorBeatmap.EndChange();
+            return true;
+        }
+
+        /// <summary>
+        /// Removes one word from a line: its token, its unit and its syllable subdivisions all go,
+        /// and the span it held is left as a gap (no neighbour is stretched over it, so nothing the
+        /// mapper already timed shifts under them). The LAST remaining word is never removed: an
+        /// empty line cannot exist in the format (the decoder drops a line whose text normalizes to
+        /// nothing), so delete the line instead. Returns false when nothing was removed.
+        /// Single undo step.
+        /// </summary>
+        public static bool RemoveWord(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex)
+        {
+            var line = hitObject.Line;
+            string[] tokens = line.RawText.Split(' ');
+            int n = line.Units.Count;
+
+            if (unitIndex < 0)
+                return false;
+
+            IReadOnlyList<TimedUnit> units;
+
+            if (hitObject.Granularity == TimingGranularity.Line)
+            {
+                // Words are the tokens here (units are re-interpolated on every load).
+                if (unitIndex >= tokens.Length || tokens.Length <= 1)
+                    return false;
+
+                units = line.Units;
+            }
+            else
+            {
+                if (unitIndex >= n || tokens.Length != n || n <= 1)
+                    return false;
+
+                units = line.Units.Where((_, i) => i != unitIndex).ToArray();
+            }
+
+            string rawText = string.Join(' ', tokens.Where((_, i) => i != unitIndex));
+
+            editorBeatmap.BeginChange();
+            hitObject.Line = rebuild(line,
+                rawText: rawText,
+                units: unitsFor(hitObject, rawText, units, line.StartTime, line.SingEndTime, line.EndTime));
+            editorBeatmap.Update(hitObject);
+            // The removed word may have carried the map's last syllable subdivisions.
+            syncGranularity(editorBeatmap, keepAuthoredWords: true);
+            editorBeatmap.EndChange();
+            return true;
+        }
+
         /// <summary>
         /// Splits a line before the given unit index: words [0, index) stay, words [index, n)
         /// become a new line starting at that word's start time. No-op for edge indices.
@@ -1106,8 +1262,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// last boundary is removed. Never falls below Word while any hand timing remains (removing a
         /// boundary leaves the word Explicit). Idempotent; used by the syllable ops, which can move
         /// granularity in either direction, unlike <see cref="promoteToWordGranularity"/>.
+        ///
+        /// <paramref name="keepAuthoredWords"/> floors an already-authored map at Word: removing a
+        /// WORD can strip the map's last Explicit unit, and demoting to Line there would make the
+        /// encoder omit words[] and silently discard every remaining hand timing on save.
         /// </summary>
-        private static void syncGranularity(EditorBeatmap editorBeatmap)
+        private static void syncGranularity(EditorBeatmap editorBeatmap, bool keepAuthoredWords = false)
         {
             var objects = editorBeatmap.HitObjects.OfType<TypeBeatHitObject>().ToList();
 
@@ -1115,6 +1275,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return;
 
             var target = InferGranularity(objects.Select(o => o.Line).ToList());
+
+            if (keepAuthoredWords && target == TimingGranularity.Line && objects[0].Granularity != TimingGranularity.Line)
+                target = TimingGranularity.Word;
 
             foreach (var o in objects)
             {
