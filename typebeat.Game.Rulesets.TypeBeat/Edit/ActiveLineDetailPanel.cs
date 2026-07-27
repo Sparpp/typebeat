@@ -171,7 +171,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             if (line == null || !editorBeatmap.HitObjects.Contains(line))
             {
-                header.Text = "no line, click one, or double-click a gap in the timeline to add";
+                // A BLANK map (an audio-only import) has no lines at all, so "click one" would be
+                // advice about something that does not exist: point at the two ways to author the
+                // very first line instead.
+                header.Text = editorBeatmap.HitObjects.Count == 0
+                    ? "no lyrics yet, press \"add @ playhead\" above (or double-click the timeline) to write the first line"
+                    : "no line, click one, or double-click a gap in the timeline to add";
                 timing.Text = string.Empty;
                 return;
             }

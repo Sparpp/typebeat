@@ -56,7 +56,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         public (string Artist, string Title) GuessArtistTitle(string audioPath) => LyricMapImporter.GuessArtistTitle(audioPath);
 
         public Task<LyricImportResult> BuildOszAsync(
-            string audioPath, string lyricsPath, string artist, string title,
+            string audioPath, string? lyricsPath, string artist, string title,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = false)
             => LyricMapImporter.BuildOszAsync(audioPath, lyricsPath, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token, remoteAligner(), useAutomaticAlignment);
 

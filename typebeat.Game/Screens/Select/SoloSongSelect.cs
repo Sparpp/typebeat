@@ -99,6 +99,16 @@ namespace typebeat.Game.Screens.Select
         {
             if (playerLoader != null) return;
 
+            // A blank map (an audio-only import, no lyric lines yet) has no typeable cells at all:
+            // starting it would push a Player that immediately bails with the generic "contains no
+            // hit objects" log and leaves the user on an empty screen. Say what is actually wrong
+            // and where to fix it instead. See BlankBeatmap for why this is never allowed to play.
+            if (BlankBeatmap.IsBlank(Beatmap.Value))
+            {
+                notifications?.Post(new SimpleNotification { Text = SongSelectStrings.BlankBeatmapCannotBePlayed });
+                return;
+            }
+
             modsAtGameplayStart = Mods.Value.Select(m => m.DeepClone()).ToArray();
 
             // Ctrl+Enter should start map with autoplay enabled.
