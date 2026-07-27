@@ -58,7 +58,7 @@ namespace typebeat.Game.Screens.Menu
         private double? beatdropTime;
 
         /// <summary>
-        /// Whether a beatdrop-flagged beatmap was selected to soundtrack the intro.
+        /// Whether a beatmap from the intro pool was selected to soundtrack the intro.
         /// When false, the intro runs silent.
         /// </summary>
         protected bool HasBeatdropTrack => beatdropTime != null;
@@ -119,9 +119,10 @@ namespace typebeat.Game.Screens.Menu
             else
                 seeya = audio.Samples.Get(SeeyaSampleName);
 
-            // The intro is soundtracked by a random user beatmap that declares an intro beatdrop
-            // (see IBeatmap.IntroBeatdropTime): subclasses start the track so the drop lands
-            // exactly on the menu reveal. No candidates (or menu music disabled) -> silent intro.
+            // The intro is soundtracked by a random user beatmap from the intro pool (by default the
+            // maps that declare an intro beatdrop, see IntroBeatdropPool): subclasses start the track
+            // so the drop lands exactly on the menu reveal. No candidates (or menu music disabled)
+            // -> silent intro.
             if (MenuMusic.Value)
             {
                 var recentlyPlayed = readBeatdropHistory();
@@ -135,8 +136,8 @@ namespace typebeat.Game.Screens.Menu
                     // happily repeats the same map two launches running — we bias away from what was
                     // recently played. Unplayed maps come first in a fresh random order; recently-played
                     // ones are pushed to the back, oldest-first, so the most recent map is dead last and
-                    // only resurfaces when nothing else is flagged. Taking the first flagged map in this
-                    // order therefore avoids repeats whenever the library allows it, and unflagged maps
+                    // only resurfaces when nothing else is in the pool. Taking the first pool member in
+                    // this order therefore avoids repeats whenever the library allows it, and non-members
                     // only cost a decode along the way.
                     int recencyOf(BeatmapSetInfo s) => recentlyPlayed.IndexOf(s.ID.ToString());
 
@@ -147,27 +148,35 @@ namespace typebeat.Game.Screens.Menu
 
                     foreach (var setInfo in ordered)
                     {
-                        var beatmapInfo = setInfo.Beatmaps.FirstOrDefault();
-
-                        if (beatmapInfo == null)
-                            continue;
-
-                        try
+                        foreach (var beatmapInfo in setInfo.Beatmaps)
                         {
-                            var working = beatmaps.GetWorkingBeatmap(beatmapInfo);
+                            bool? inclusion = beatmapInfo.UserSettings.IntroPoolInclusion;
 
-                            if (working.Beatmap.IntroBeatdropTime is double drop)
+                            // A map the user has explicitly kept out of the pool costs nothing: no decode.
+                            if (inclusion == false)
+                                continue;
+
+                            try
                             {
+                                var working = beatmaps.GetWorkingBeatmap(beatmapInfo);
+                                double? drop = working.Beatmap.IntroBeatdropTime;
+
+                                if (!IntroBeatdropPool.IsCandidate(inclusion, drop.HasValue))
+                                    continue;
+
                                 initialBeatmap = working;
-                                beatdropTime = drop;
+                                beatdropTime = IntroBeatdropPool.ResolveDropTime(drop, beatmapInfo.Metadata.PreviewTime);
                                 selectedSetId = setInfo.ID;
                                 break;
                             }
+                            catch
+                            {
+                                // an unreadable/corrupt map shouldn't block startup, try the next one.
+                            }
                         }
-                        catch
-                        {
-                            // an unreadable/corrupt map shouldn't block startup — try the next one.
-                        }
+
+                        if (initialBeatmap != null)
+                            break;
                     }
                 });
 
@@ -177,7 +186,7 @@ namespace typebeat.Game.Screens.Menu
                     Logger.Log($"Intro beatdrop track: {initialBeatmap.Metadata.Artist} - {initialBeatmap.Metadata.Title} (drop at {beatdropTime:0}ms)");
                 }
                 else
-                    Logger.Log("No beatdrop-flagged beatmaps; intro will run silent.");
+                    Logger.Log("No intro pool candidates; intro will run silent.");
             }
 
             AddInternal(new GlobalScrollAdjustsVolume());
@@ -394,7 +403,7 @@ namespace typebeat.Game.Screens.Menu
 
             if (!resuming)
             {
-                // Null when no beatdrop-flagged map exists (or menu music is disabled): the intro
+                // Null when the intro pool is empty (or menu music is disabled): the intro
                 // then runs on the default (silent) beatmap.
                 if (initialBeatmap != null)
                     beatmap.Value = initialBeatmap;

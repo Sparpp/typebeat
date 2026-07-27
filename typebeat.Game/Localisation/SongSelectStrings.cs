@@ -285,6 +285,11 @@ namespace typebeat.Game.Localisation
         public static LocalisableString BlankBeatmapCannotBePlayed => new TranslatableString(getKey(@"blank_beatmap_cannot_be_played"),
             @"This map has no lyrics yet, so there is nothing to type. Open it in the editor to write them.");
 
+        /// <summary>
+        /// "Use on game intro"
+        /// </summary>
+        public static LocalisableString UseOnGameIntro => new TranslatableString(getKey(@"use_on_game_intro"), @"Use on game intro");
+
         private static string getKey(string key) => $@"{prefix}:{key}";
     }
 }

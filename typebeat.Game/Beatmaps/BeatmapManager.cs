@@ -661,6 +661,31 @@ namespace typebeat.Game.Beatmaps
             transaction.Commit();
         });
 
+        /// <summary>
+        /// The stored intro pool override for a beatmap (see <see cref="BeatmapUserSettings.IntroPoolInclusion"/>).
+        /// Read through realm rather than off the passed instance, which is usually a detached copy that may
+        /// predate a toggle made earlier in this session.
+        /// </summary>
+        public bool? GetIntroPoolInclusion(BeatmapInfo beatmapInfo) => Realm.Run(r => r.Find<BeatmapInfo>(beatmapInfo.ID)?.UserSettings.IntroPoolInclusion);
+
+        /// <summary>
+        /// Stores the intro pool override for a beatmap. <c>null</c> clears it (membership then follows the
+        /// beatmap's intro beatdrop again). Never touches the beatdrop timestamp itself.
+        /// </summary>
+        public void SetIntroPoolInclusion(BeatmapInfo beatmapInfo, bool? inclusion) => Realm.Run(r =>
+        {
+            var beatmap = r.Find<BeatmapInfo>(beatmapInfo.ID);
+
+            if (beatmap == null)
+                return;
+
+            using var transaction = r.BeginWrite();
+
+            beatmap.UserSettings.IntroPoolInclusion = inclusion;
+
+            transaction.Commit();
+        });
+
         #region Implementation of ICanAcceptFiles
 
         public Task Import(params string[] paths) => beatmapImporter.Import(paths);

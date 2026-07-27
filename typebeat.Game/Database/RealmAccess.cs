@@ -102,8 +102,9 @@ namespace typebeat.Game.Database
         /// 50   2025-07-11    Add UserTags to BeatmapMetadata.
         /// 51   2025-07-22    Add ScoreInfo.Pauses.
         /// 52   2026-07-15    type!beat ruleset claimed online ruleset ID 0 (ILegacyRuleset); update rows cached with OnlineID -1.
+        /// 53   2026-07-27    Added IntroPoolInclusion to BeatmapUserSettings (song select's "Use on game intro" toggle).
         /// </summary>
-        private const int schema_version = 52;
+        private const int schema_version = 53;
 
         /// <summary>
         /// Lock object which is held during <see cref="BlockAllOperations"/> sections, blocking realm retrieval during blocking periods.

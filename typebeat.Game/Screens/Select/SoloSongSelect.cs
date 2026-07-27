@@ -18,6 +18,7 @@ using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Notifications;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Screens.Edit;
+using typebeat.Game.Screens.Menu;
 using typebeat.Game.Screens.Play;
 using typebeat.Game.Users;
 using typebeat.Game.Utils;
@@ -78,6 +79,15 @@ namespace typebeat.Game.Screens.Select
                 yield return new OsuMenuItemSpacer();
             }
 
+            // Sits directly under "Details..." (and outside the online-only block above: locally created
+            // maps, which have no online ID, are exactly the ones a user is most likely to want on the intro).
+            yield return IntroBeatdropPool.CreateMenuItem(
+                beatmaps.GetIntroPoolInclusion(beatmap),
+                hasIntroBeatdrop(beatmap),
+                inclusion => beatmaps.SetIntroPoolInclusion(beatmap, inclusion));
+
+            yield return new OsuMenuItemSpacer();
+
             foreach (var i in CreateCollectionMenuActions(beatmap))
                 yield return i;
 
@@ -93,6 +103,25 @@ namespace typebeat.Game.Screens.Select
 
             if (beatmaps.CanHide(beatmap))
                 yield return new OsuMenuItem(WebCommonStrings.ButtonsHide.ToSentence(), MenuItemType.Destructive, () => beatmaps.Hide(beatmap));
+        }
+
+        /// <summary>
+        /// Whether the beatmap declares an intro beatdrop, which is what the "Use on game intro" toggle
+        /// defaults to. Requires a decode (the timestamp lives in the beatmap file, not realm), so this is
+        /// read once as the context menu is built rather than bound live; the menu is rebuilt on every open,
+        /// and the beatdrop can only change from the editor in the meantime.
+        /// </summary>
+        private bool hasIntroBeatdrop(BeatmapInfo beatmap)
+        {
+            try
+            {
+                return beatmaps.GetWorkingBeatmap(beatmap).Beatmap.IntroBeatdropTime != null;
+            }
+            catch
+            {
+                // an unreadable map is not intro material; the toggle simply shows unticked.
+                return false;
+            }
         }
 
         protected override void OnStart()
