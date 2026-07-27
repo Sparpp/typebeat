@@ -95,12 +95,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// score on every leaderboard and must be mirrored in the web backend.
         /// </summary>
         [TestCase(0.50, 0.1000)]
-        [TestCase(0.60, 0.2800)]
-        [TestCase(0.70, 0.4600)]
-        [TestCase(0.75, 0.5500)] // Half Time default.
-        [TestCase(0.80, 0.6400)]
-        [TestCase(0.90, 0.8200)]
-        [TestCase(0.99, 0.9820)]
+        [TestCase(0.60, 0.1000)] // Below the r = 0.70 floor point; clamped flat.
+        [TestCase(0.70, 0.1000)] // Exactly the floor point.
+        [TestCase(0.75, 0.2500)] // Half Time default.
+        [TestCase(0.80, 0.4000)]
+        [TestCase(0.90, 0.7000)]
+        [TestCase(0.99, 0.9700)]
+        [TestCase(0.71, 0.1300)] // Just above the floor point; the plateau has already ended.
         [TestCase(1.00, 1.0000)]
         [TestCase(1.01, 1.0046)]
         [TestCase(1.10, 1.0460)]
@@ -115,15 +116,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void DefaultSpeedsPayExactlyWhatTheOldFlatValuesPaid()
+        public void DefaultSpeedsPayExactlyWhatTheCurveAnchorsThemTo()
         {
             var calc = calculator();
 
-            // These three numbers are the pre-task values. They must not move, or every existing
-            // default-speed DT/NC/HT score on the boards is silently re-valued.
+            // DT/NC are untouched by the Half Time nerf, so these two are still the pre-task values.
+            // HT default was renerfed from 0.55 to 0.25 (DECREASE_SLOPE 1.80 -> 3.00); this is the
+            // new pinned value, and it must not move again without a matching backlog item.
             Assert.AreEqual(1.23, calc.CalculateFor(new Mod[] { new TypeBeatModDoubleTime() }), 1e-9);
             Assert.AreEqual(1.23, calc.CalculateFor(new Mod[] { new TypeBeatModNightcore() }), 1e-9);
-            Assert.AreEqual(0.55, calc.CalculateFor(new Mod[] { new TypeBeatModHalfTime() }), 1e-9);
+            Assert.AreEqual(0.25, calc.CalculateFor(new Mod[] { new TypeBeatModHalfTime() }), 1e-9);
         }
 
         [Test]
@@ -132,15 +134,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(1.0, TypeBeatRateMultiplier.For(1.0), 1e-12,
                 "a rate of 1.0x must pay exactly what no rate mod pays");
 
-            // Approaching 1.0x from either side converges on 1.0; there is no cliff at the seam.
-            Assert.Less(Math.Abs(TypeBeatRateMultiplier.For(0.99) - 1.0), 0.02);
-            Assert.Less(Math.Abs(TypeBeatRateMultiplier.For(1.01) - 1.0), 0.02);
+            // Approaching 1.0x from either side converges on 1.0; there is no cliff at the seam like
+            // osu's own V2 curve has (Half Time at 0.99x pays 0.886x there, an 0.114 jump). The
+            // steeper post-nerf DECREASE_SLOPE widens the down-side step at 0.99x from 0.018 to 0.03,
+            // still nowhere near a cliff, so the tolerance only needs to stay comfortably under 0.114.
+            Assert.Less(Math.Abs(TypeBeatRateMultiplier.For(0.99) - 1.0), 0.05);
+            Assert.Less(Math.Abs(TypeBeatRateMultiplier.For(1.01) - 1.0), 0.05);
         }
 
         [Test]
-        public void CurveIsStrictlyMonotonicOverEveryReachableRate()
+        public void CurveIsStrictlyMonotonicAboveTheFloorPlateau()
         {
             // 0.50x is the Wind Down / Half Time floor, 2.00x the Double Time / Wind Up ceiling.
+            // r = 0.70 is where the curve first reaches the 0.10 floor; at and below it the curve is
+            // clamped flat, so the strict-increase check only applies strictly above 0.70x.
             double previous = double.NegativeInfinity;
 
             for (int step = 50; step <= 200; step++)
@@ -148,9 +155,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 double rate = step / 100.0;
                 double multiplier = TypeBeatRateMultiplier.For(rate);
 
-                Assert.Greater(multiplier, previous,
-                    $"the multiplier must strictly increase with rate; it did not at {rate:N2}x");
                 Assert.Greater(multiplier, 0, $"the multiplier must stay positive at {rate:N2}x");
+
+                if (rate <= 0.70)
+                    Assert.AreEqual(TypeBeatRateMultiplier.MINIMUM, multiplier, 1e-12,
+                        $"the multiplier must sit on the floor at or below r = 0.70x; it did not at {rate:N2}x");
+                else
+                    Assert.Greater(multiplier, previous,
+                        $"the multiplier must strictly increase with rate above r = 0.70x; it did not at {rate:N2}x");
 
                 previous = multiplier;
             }
@@ -228,8 +240,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // 0.8 * For(1.00) + 0.2 * For(1.50)
             Assert.AreEqual(1.046, calc.CalculateFor(new Mod[] { new ModWindUp() }), 1e-9);
-            // 0.8 * For(0.75) + 0.2 * For(1.00)
-            Assert.AreEqual(0.64, calc.CalculateFor(new Mod[] { new ModWindDown() }), 1e-9);
+            // 0.8 * For(0.75) + 0.2 * For(1.00), For(0.75) renerfed from 0.55 to 0.25
+            Assert.AreEqual(0.4, calc.CalculateFor(new Mod[] { new ModWindDown() }), 1e-9);
 
             // ...and they are still unranked, so none of this reaches a leaderboard.
             Assert.IsFalse(new ModWindUp().Ranked);
