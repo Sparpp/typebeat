@@ -82,6 +82,17 @@ namespace typebeat.Game.Screens.Select
         private OsuSpriteText personalBestText = null!;
         private LoadingLayer loading = null!;
 
+        /// <summary>
+        /// The cue that the board on show is a map's UNRANKED board (published but not ranked, so
+        /// nothing set on it counts). Hidden for ranked boards and for local scores.
+        /// </summary>
+        private OsuSpriteText unrankedNotice = null!;
+
+        private bool unrankedNoticeVisible;
+
+        private const float unranked_notice_height = 22f;
+        private const float scores_padding_top = 5f;
+
         private CancellationTokenSource? cancellationTokenSource;
 
         private readonly IBindable<LeaderboardScores?> fetchedScores = new Bindable<LeaderboardScores?>();
@@ -100,7 +111,7 @@ namespace typebeat.Game.Screens.Select
         private readonly List<ScheduledDelegate> scoreSfxDelegates = new List<ScheduledDelegate>();
 
         [BackgroundDependencyLoader]
-        private void load(AudioManager audio)
+        private void load(AudioManager audio, OsuColour colours)
         {
             RelativeSizeAxes = Axes.Both;
 
@@ -120,7 +131,7 @@ namespace typebeat.Game.Screens.Select
                             AutoSizeAxes = Axes.Y,
                             Padding = new MarginPadding
                             {
-                                Top = 5,
+                                Top = scores_padding_top,
                                 // Left padding offsets the shear to create a visually appealing list display.
                                 Left = 80f,
                                 // Bottom padding ensures the last entry's full width is displayed
@@ -128,6 +139,18 @@ namespace typebeat.Game.Screens.Select
                                 Bottom = BeatmapLeaderboardScore.HEIGHT * 3
                             },
                         },
+                    },
+                    // Sits outside the sheared scroll so the text itself reads upright; the scores
+                    // below are pushed down by exactly its height while it is showing.
+                    unrankedNotice = new OsuSpriteText
+                    {
+                        Anchor = Anchor.TopLeft,
+                        Origin = Anchor.TopLeft,
+                        Margin = new MarginPadding { Left = 90f, Top = 6f },
+                        Colour = colours.Orange1,
+                        Font = OsuFont.Style.Caption1.With(weight: FontWeight.SemiBold),
+                        Text = BeatmapLeaderboardWedgeStrings.UnrankedBoard,
+                        Alpha = 0f,
                     },
                     personalBestDisplay = new Container
                     {
@@ -228,6 +251,7 @@ namespace typebeat.Game.Screens.Select
         public void RefetchScores()
         {
             SetScores(Array.Empty<ScoreInfo>());
+            setUnrankedNoticeVisible(false);
 
             if (beatmap.IsDefault)
             {
@@ -276,10 +300,33 @@ namespace typebeat.Game.Screens.Select
             if (leaderboardManager.CurrentCriteria?.Beatmap?.Equals(beatmap.Value.BeatmapInfo) != true)
                 return;
 
-            if (scores.FailState != null)
-                SetState((LeaderboardState)scores.FailState);
-            else
+            // An unranked map's board is shown like any other, just cued. The cue rides on the
+            // fetch result rather than on the beatmap so it can never disagree with the rows below.
+            setUnrankedNoticeVisible(scores.UnrankedBoard && scores.FailState == null);
+
+            // A completed fetch always resolves to a rendered board or a placeholder, never back to
+            // the loading layer: a failure (or an empty board from a server that serves none for
+            // this map) reads as "no scores", it does not spin.
+            var state = LeaderboardStateResolver.Resolve(scores);
+
+            if (state == LeaderboardState.Success)
                 SetScores(scores.TopScores, scores.UserScore, scores.TotalScores);
+            else
+                SetState(state);
+        }
+
+        private void setUnrankedNoticeVisible(bool visible)
+        {
+            if (unrankedNoticeVisible == visible)
+                return;
+
+            unrankedNoticeVisible = visible;
+
+            unrankedNotice.FadeTo(visible ? 1 : 0, 300, Easing.OutQuint);
+
+            var padding = scoresContainer.Padding;
+            padding.Top = visible ? scores_padding_top + unranked_notice_height : scores_padding_top;
+            scoresContainer.Padding = padding;
         }
 
         protected void SetScores(IEnumerable<ScoreInfo> scores, ScoreInfo? userScore = null, int? totalCount = null)
