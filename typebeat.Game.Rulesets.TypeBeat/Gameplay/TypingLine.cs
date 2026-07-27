@@ -29,9 +29,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool IsTypeable { get; }
 
         /// <summary>
-        /// FREESTYLE cell: any key on the typeable surface satisfies it, and the char the player
-        /// actually pressed lands in <see cref="TypedChar"/> and stays on screen. Judgement is
-        /// otherwise a completely normal typeable cell (same windows, points, combo, completion).
+        /// FREESTYLE cell: any key on the typeable surface EXCEPT SPACE satisfies it, and the char
+        /// the player actually pressed lands in <see cref="TypedChar"/> and stays on screen.
+        /// Judgement is otherwise a completely normal typeable cell (same windows, points, combo,
+        /// completion), and a space is rejected exactly as a wrong key on any other cell is.
         /// </summary>
         public bool IsFreestyle { get; }
 

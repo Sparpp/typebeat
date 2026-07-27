@@ -20,7 +20,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// it cannot be re-derived from clamped word times.</item>
     /// <item><c>"freestyle": true</c>: the ampersands in this line's <c>text</c> are FREESTYLE CELL
     /// markers (<see cref="Typeability.FREESTYLE_MARKER"/>), cells the player may satisfy with any
-    /// key. The flag is what makes the marker unambiguous: without it an ampersand is ordinary
+    /// key but space. The flag is what makes the marker unambiguous: without it an ampersand is ordinary
     /// untypeable lyric punctuation and is stripped on decode, so lyrics that merely contain "&amp;"
     /// (and every map written before the feature existed) are unaffected.</item>
     /// </list>

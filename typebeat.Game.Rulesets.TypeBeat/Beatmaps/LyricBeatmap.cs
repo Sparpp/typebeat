@@ -34,17 +34,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     {
         /// <summary>
         /// Authoring marker for a FREESTYLE character: a cell the player may satisfy with ANY key
-        /// on the typeable surface, whose typed char is then displayed for the rest of the play.
-        /// The mapper types it straight into the lyric text in the editor; it is never a literal
-        /// glyph of the lyric (it is not <see cref="IsTypeable"/>, so <see cref="Normalize"/>
+        /// on the typeable surface except space, whose typed char is then displayed for the rest of
+        /// the play. The mapper types it straight into the lyric text in the editor; it is never a
+        /// literal glyph of the lyric (it is not <see cref="IsTypeable"/>, so <see cref="Normalize"/>
         /// strips it unless the caller explicitly opts in).
         /// </summary>
         public const char FREESTYLE_MARKER = '&';
 
         /// <summary>
-        /// The character an automated player presses on a freestyle cell (any key is accepted, so
-        /// this is arbitrary; a fixed letter keeps generated replays deterministic and inside the
-        /// normal a-z/0-9/space surface the .osr encoding is pinned on).
+        /// The character an automated player presses on a freestyle cell (any key but space is
+        /// accepted, so this is arbitrary; a fixed letter keeps generated replays deterministic and
+        /// inside the normal a-z/0-9/space surface the .osr encoding is pinned on). It doubles as
+        /// the char the Mashing mod substitutes when a space lands on a freestyle cell.
         /// </summary>
         public const char FREESTYLE_AUTO_CHAR = 'a';
 
