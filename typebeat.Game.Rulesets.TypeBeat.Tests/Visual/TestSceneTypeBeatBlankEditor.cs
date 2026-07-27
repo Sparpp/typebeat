@@ -104,6 +104,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
+        public void TestWordButtonsAreGreyedOutWithNoActiveLine()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddAssert("no active line", () => state().ActiveLine.Value == null);
+
+            // There is no line to add a word to, let alone remove one from.
+            AddUntilStep("add word greyed out", () => !panelButton("add word").Enabled.Value);
+            AddAssert("remove word greyed out", () => !panelButton("remove word").Enabled.Value);
+
+            AddStep("park the playhead", () => EditorClock.Seek(1500));
+            AddStep("press \"add @ playhead\"", () => addAtPlayheadButton().TriggerClick());
+            AddUntilStep("a first line exists", () => EditorBeatmap.HitObjects.Count == 1);
+
+            // "new line" is two words, so both actions become possible.
+            AddUntilStep("add word live", () => panelButton("add word").Enabled.Value);
+            AddAssert("remove word live", () => panelButton("remove word").Enabled.Value);
+        }
+
+        [Test]
         public void TestTapTimingOnABlankMapIsANoOp()
         {
             AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
@@ -147,8 +166,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private string detailHeader()
             => Editor.ChildrenOfType<ActiveLineDetailPanel>().Single().ChildrenOfType<FreestyleTextFlow>().First().Text;
 
-        private RoundedButton addAtPlayheadButton()
+        private RoundedButton addAtPlayheadButton() => panelButton("add @ playhead");
+
+        private RoundedButton panelButton(string text)
             => Editor.ChildrenOfType<ActiveLineDetailPanel>().Single().ChildrenOfType<RoundedButton>()
-                     .Single(b => b.Text.ToString() == "add @ playhead");
+                     .Single(b => b.Text.ToString() == text);
     }
 }
