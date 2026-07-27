@@ -309,6 +309,12 @@ namespace typebeat.Game.Localisation
         /// </summary>
         public static LocalisableString SampleSet => new TranslatableString(getKey(@"sample_set"), @"Sample set");
 
+        /// <summary>
+        /// "There is nothing to play yet: add a lyric line before testing gameplay."
+        /// </summary>
+        public static LocalisableString BlankBeatmapCannotBeTested => new TranslatableString(getKey(@"blank_beatmap_cannot_be_tested"),
+            @"There is nothing to play yet: add a lyric line before testing gameplay.");
+
         private static string getKey(string key) => $@"{prefix}:{key}";
     }
 }

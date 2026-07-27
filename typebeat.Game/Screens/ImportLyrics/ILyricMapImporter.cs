@@ -26,9 +26,13 @@ namespace typebeat.Game.Screens.ImportLyrics
         /// subprocess or server) provides word-level timing; without it only the line-stamp LRC
         /// path is used. Progress lines stream through <paramref name="progress"/> on a background
         /// thread; marshal to the update thread yourself. Cancelling kills any spawned process tree.
+        ///
+        /// <para><paramref name="lyricsPath"/> is optional: null (or a file holding only whitespace)
+        /// skips alignment entirely and packages a BLANK map, audio + metadata with zero lyric
+        /// lines, to be written and timed in the editor.</para>
         /// </summary>
         Task<LyricImportResult> BuildOszAsync(
-            string audioPath, string lyricsPath, string artist, string title,
+            string audioPath, string? lyricsPath, string artist, string title,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = false);
 
         /// <summary>

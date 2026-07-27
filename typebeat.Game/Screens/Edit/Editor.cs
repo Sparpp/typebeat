@@ -504,6 +504,18 @@ namespace typebeat.Game.Screens.Edit
         {
             clock.Stop();
 
+            // Nothing authored yet (a blank map straight out of an audio-only import): the same
+            // refusal the submit path already gives an empty beatmap. Testing it would push a
+            // Player with zero hit objects, which loads nothing and shows an empty screen.
+            if (BlankBeatmap.IsBlank(editorBeatmap))
+            {
+                notifications?.Post(new SimpleNotification
+                {
+                    Text = EditorStrings.BlankBeatmapCannotBeTested,
+                });
+                return;
+            }
+
             if (HasUnsavedChanges)
             {
                 dialogOverlay.Push(new SaveRequiredPopupDialog(() => attemptMutationOperation(() =>

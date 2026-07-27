@@ -29,6 +29,10 @@ namespace typebeat.Game.Screens.ImportLyrics
     /// and the ruleset's <see cref="ILyricMapImporter"/> aligns + packages an .osz which is then
     /// imported. Files arrive via <see cref="AddFiles"/> (routed by <see cref="LyricImportManager"/>
     /// from global file drops). Esc cancels an in-flight import, killing the aligner process tree.
+    ///
+    /// <para>The LYRICS slot is optional. With audio alone the import skips the aligner and produces
+    /// a BLANK map (audio + metadata, no lyric lines) whose words and timing are then authored in
+    /// the editor; the button says so before it is pressed.</para>
     /// </summary>
     public partial class ImportLyricsScreen : OsuScreen
     {
@@ -107,12 +111,13 @@ namespace typebeat.Game.Screens.ImportLyrics
                                 },
                                 new OsuSpriteText
                                 {
-                                    Text = "drop an audio file (.mp3/.ogg/.wav) or video (.mp4) and a lyrics file (.txt/.lrc) anywhere in the window.",
+                                    Text = "drop an audio file (.mp3/.ogg/.wav) or video (.mp4) anywhere in the window, "
+                                           + "plus a lyrics file (.txt/.lrc) if you have one.",
                                     Colour = colourProvider.Content2,
                                     Font = OsuFont.Default.With(size: 16),
                                 },
                                 audioSlot = new FileSlot("audio", "drop .mp3 / .ogg / .wav / .mp4"),
-                                lyricsSlot = new FileSlot("lyrics", "drop .txt / .lrc"),
+                                lyricsSlot = new FileSlot("lyrics (optional)", "drop .txt / .lrc, or import without for a blank map"),
                                 artistBox = new LabelledTextBox { Label = "artist" },
                                 titleBox = new LabelledTextBox { Label = "title" },
                                 automaticAlignmentCheckbox = new OsuCheckbox
@@ -185,17 +190,35 @@ namespace typebeat.Game.Screens.ImportLyrics
             lyricsSlot.SetFile(System.IO.Path.GetFileName(path));
         }
 
+        /// <summary>
+        /// Audio alone is enough to import: without lyrics the result is a blank map. The button
+        /// and the status line both say which of the two is about to happen, so "no lyrics" is a
+        /// deliberate choice rather than something the user discovers afterwards.
+        /// </summary>
         private void updateImportButton()
         {
+            bool blank = string.IsNullOrEmpty(lyricsPath);
+
             importButton.Enabled.Value = !importing
                                          && importer != null
-                                         && !string.IsNullOrEmpty(audioPath)
-                                         && !string.IsNullOrEmpty(lyricsPath);
+                                         && !string.IsNullOrEmpty(audioPath);
+
+            importButton.Text = blank ? "import (blank map, no lyrics)" : "import";
+
+            if (importing)
+                return;
+
+            if (importer == null)
+                statusText.Text = "lyric import is unavailable in this build.";
+            else if (blank && !string.IsNullOrEmpty(audioPath))
+                statusText.Text = "no lyrics file: this creates a blank map (song + metadata only) to write and time in the editor.";
+            else
+                statusText.Text = string.Empty;
         }
 
         private void startImport()
         {
-            if (importing || importer == null || string.IsNullOrEmpty(audioPath) || string.IsNullOrEmpty(lyricsPath))
+            if (importing || importer == null || string.IsNullOrEmpty(audioPath))
                 return;
 
             importing = true;
@@ -210,7 +233,7 @@ namespace typebeat.Game.Screens.ImportLyrics
             statusText.Text = string.Empty;
             progressDisplay.Reset();
             progressDisplay.FadeIn(200, Easing.OutQuint);
-            report("starting import");
+            report(string.IsNullOrEmpty(lyricsPath) ? "starting import (blank map)" : "starting import");
 
             Task.Factory.StartNew(async () =>
             {

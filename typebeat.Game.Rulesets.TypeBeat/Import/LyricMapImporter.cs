@@ -55,6 +55,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         public const string CREATOR = "typebeat-lyriclab";
 
         /// <summary>
+        /// The timing.json (v2) of a map with NO lyrics: a valid document with an empty lines[].
+        /// Everything downstream already treats "no lines" as a legitimate state (the .osu writer
+        /// emits a header and nothing else, <see cref="Beatmaps.LyricBeatmapDecoder"/> produces zero
+        /// hit objects, the editor loads and can author the first line), so an audio-only import
+        /// needs no format of its own, just this document in place of the aligner's output.
+        /// </summary>
+        public const string BLANK_TIMING_JSON = "{\"version\":2,\"lines\":[]}";
+
+        /// <summary>
         /// Locates the aligner component. An explicitly configured valid path always wins. Otherwise
         /// walk up from each start directory collecting "lyriclab" (vendored, sits at the fork's repo
         /// root) and "typebeat-lyriclab" (sibling checkout) candidates, preferring one whose venv is
@@ -263,23 +272,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// otherwise a line-granularity LRC fallback when the lyrics are line-stamped. Produces a
         /// self-contained .osz (generated .osu + audio + provenance timing.json + lyrics.txt) under a
         /// unique temp directory and returns its path. Never auto-triggers the multi-GB bootstrap.
+        ///
+        /// <para>BLANK IMPORT. <paramref name="lyricsPath"/> is optional: with no lyrics file (or a
+        /// file that holds only whitespace) the aligner is skipped entirely and the packaged map is
+        /// BLANK, audio + metadata with zero lyric lines, for authoring in the editor from scratch.</para>
         /// </summary>
         public static async Task<LyricImportResult> BuildOszAsync(
-            string audioPath, string lyricsPath, string artist, string title,
+            string audioPath, string? lyricsPath, string artist, string title,
             string? configuredLyricLabPath, IEnumerable<string> startDirectories,
             Action<string> progress, CancellationToken token, RemoteAligner? remoteAlign = null,
             bool useAutomaticAlignment = true)
         {
             if (!File.Exists(audioPath))
                 return LyricImportResult.Fail($"audio file not found: {audioPath}");
-            if (!File.Exists(lyricsPath))
+
+            bool lyricsRequested = !string.IsNullOrWhiteSpace(lyricsPath);
+
+            // A path that was given but does not exist is still an error: only the ABSENCE of a
+            // lyrics file means "blank map", never a typo'd or vanished one.
+            if (lyricsRequested && !File.Exists(lyricsPath))
                 return LyricImportResult.Fail($"lyrics file not found: {lyricsPath}");
 
             string oszDir = Path.Combine(Path.GetTempPath(), "typebeat_import", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(oszDir);
             string oszPath = Path.Combine(oszDir, SanitizeFolderName($"{artist} - {title}") + ".osz");
 
-            string lyricsContent = await File.ReadAllTextAsync(lyricsPath, token).ConfigureAwait(false);
+            string lyricsContent = lyricsRequested
+                ? await File.ReadAllTextAsync(lyricsPath!, token).ConfigureAwait(false)
+                : string.Empty;
+
+            // No words to time (no file at all, or an empty one): package the blank map straight
+            // away. Deliberately NOT an error here, unlike ProduceTimingJsonAsync, where the caller
+            // explicitly asked for lyrics to be aligned and empty input can only be a mistake.
+            if (string.IsNullOrWhiteSpace(lyricsContent))
+            {
+                progress("no lyrics, creating a blank map");
+                progress("packaging map");
+                return PackageOsz(oszPath, artist, title, audioPath, BLANK_TIMING_JSON, string.Empty);
+            }
 
             (LyricImportResult result, string? timing) = await ProduceTimingJsonAsync(
                 audioPath, lyricsContent, artist, title, configuredLyricLabPath, startDirectories, progress, token, remoteAlign, useAutomaticAlignment).ConfigureAwait(false);
@@ -566,12 +596,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// <summary>
         /// Preview point (~40% through the song, else the first line) and a lead-in when the first
         /// line starts within 2s. Parses the timing.json defensively; any problem -> sane defaults.
+        /// A map with no lines at all (a blank import) gets no preview point and no lead-in: there
+        /// is no first line to lead into, and -1 is the format's "unset" preview.
         /// </summary>
         private static (double PreviewTime, double AudioLeadIn) computePolish(string timingJson)
         {
             const double lead_in_threshold_ms = 2000;
 
             double firstLineStart = 0;
+            bool anyLine = false;
             double? songEndMs = null;
 
             try
@@ -591,6 +624,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                             && start.ValueKind == JsonValueKind.Number)
                         {
                             firstLineStart = start.GetDouble();
+                            anyLine = true;
                             break;
                         }
                     }
@@ -600,6 +634,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             {
                 // Defaults below.
             }
+
+            if (!anyLine)
+                return (-1, 0);
 
             double previewTime = songEndMs is > 0 ? songEndMs.Value * 0.4 : firstLineStart;
             double audioLeadIn = firstLineStart < lead_in_threshold_ms ? lead_in_threshold_ms : 0;
