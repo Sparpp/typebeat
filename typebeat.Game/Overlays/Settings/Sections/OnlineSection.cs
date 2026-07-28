@@ -24,7 +24,7 @@ namespace typebeat.Game.Overlays.Settings.Sections
         {
             Children = new Drawable[]
             {
-                new WebSettings(),
+                new ContentDownloadSettings(),
                 new AlertsAndPrivacySettings(),
             };
 
