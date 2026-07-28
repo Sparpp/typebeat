@@ -1073,7 +1073,12 @@ namespace typebeat.Game
             // Importantly, this should be run after binding PostNotification to the import handlers so they can present the import after game startup.
             handleStartupImport();
 
-            importBundledBeatmaps();
+            // Bundled maps are a FRESH-INSTALL payload, so only import them while the first-run
+            // setup is still pending. An app update re-lays Bundled/ next to the exe, so without
+            // this gate every update would re-import the whole set — resurrecting maps the player
+            // had deleted, on a launch they never asked for.
+            if (LocalConfig.Get<bool>(OsuSetting.ShowFirstRunSetup))
+                importBundledBeatmaps();
 
             applyConfigMigrations();
 
@@ -1206,8 +1211,9 @@ namespace typebeat.Game
 
                 // Import silently: no boot-time "Imported ... Click to view" toast and no jump to
                 // the map. Driving the importer with a notification we never post skips both — the
-                // toast text and its click-to-present action live on that notification. Delete the
-                // packages afterwards so this stays one-shot; a re-run would dedup harmlessly anyway.
+                // toast text and its click-to-present action live on that notification. The
+                // packages are deleted afterwards as cleanup; the caller's first-run gate is what
+                // actually keeps this one-shot (an update re-lays them next to the exe).
                 var tasks = packages.Select(p => new ImportTask(p)).ToArray();
 
                 Task.Run(async () =>
