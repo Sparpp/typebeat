@@ -9,6 +9,7 @@ using osu.Framework.Testing;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
@@ -37,9 +38,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         private TypingEngine engine => ((TypeBeatPlayfield)drawableRuleset.Playfield).Engine;
 
+        // The same cached-per-ShortName manager instance the playfield resolves through the
+        // drawable ruleset's dependencies, so SetValue here drives the live gameplay binding.
+        private TypeBeatRulesetConfigManager config => (TypeBeatRulesetConfigManager)RulesetConfigs.GetConfigFor(new TypeBeatRuleset())!;
+
         [SetUpSteps]
         public void SetUpSteps()
         {
+            // The feature ships OFF by default (backlog 57); this scene pins the ENABLED wiring, so
+            // turn it on up front. The off-by-default path has its own test below.
+            AddStep("enable held-key repeat", () => config.SetValue(TypeBeatRulesetSetting.HeldKeyRepeat, true));
+
             AddStep("create drawable ruleset", () =>
             {
                 var ruleset = new TypeBeatRuleset();
@@ -115,6 +124,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("let two cadences pass", () => Clock.CurrentTime - tappedAt > 2 * cadence_ms);
 
             AddAssert("exactly one cell typed", () => engine.CaretIndex == 1);
+        }
+
+        /// <summary>
+        /// The setting gates the feature through the live config binding: turned off (the shipped
+        /// default), physically holding a key produces exactly the one keystroke of its initial
+        /// press, as if the repeater did not exist.
+        /// </summary>
+        [Test]
+        public void TestSettingOffMeansHoldingStaysOneKeystroke()
+        {
+            AddStep("turn held-key repeat off", () => config.SetValue(TypeBeatRulesetSetting.HeldKeyRepeat, false));
+
+            double pressedAt = 0;
+
+            AddStep("press and hold A", () =>
+            {
+                InputManager.PressKey(Key.A);
+                pressedAt = Clock.CurrentTime;
+            });
+
+            AddUntilStep("let two cadences pass", () => Clock.CurrentTime - pressedAt > 2 * cadence_ms);
+
+            AddAssert("exactly one cell typed", () => engine.CaretIndex == 1);
+            AddAssert("the initial press judged normally", () =>
+                engine.Lines[0].Cells[0].State == CellState.Correct && engine.Lines[0].Cells[0].TypedChar == 'a');
+
+            AddStep("release A", () => InputManager.ReleaseKey(Key.A));
         }
     }
 }
