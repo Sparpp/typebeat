@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using osu.Framework.Bindables;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using osuTK.Input;
 
@@ -75,6 +76,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// this game's input path maps any other physical key to a space char, see
     /// <see cref="KeyCharMap"/>). Pressing space while another hold is active still ends that hold,
     /// the same as any other keystroke, it just never starts one of its own in space's place.</para>
+    ///
+    /// <para>OPT-IN: the whole feature sits behind <see cref="Enabled"/> (backlog 57), which the
+    /// playfield binds to the <c>TypeBeatRulesetSetting.HeldKeyRepeat</c> config entry, OFF by
+    /// default in the shipped game. While disabled, <see cref="BeginHold"/> never arms, so holding
+    /// a key is indistinguishable from the feature not existing; only the initial physical press
+    /// judges. Disabling mid-hold cancels the active hold on the spot, so a settings toggle can
+    /// never strand a hold that keeps typing.</para>
     /// </summary>
     public sealed class HeldKeyRepeater
     {
@@ -99,12 +107,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private int heldLineIndex;
         private double lastPumpTime;
 
+        /// <summary>
+        /// Whether the feature is armed at all (see the class doc's OPT-IN note). Consulted at
+        /// <see cref="BeginHold"/>, so while false no hold can ever start; flipping it to false
+        /// additionally cancels any hold armed at that moment, so a mid-hold settings toggle cannot
+        /// leave a hold running with no way to have prevented it. Defaults to true so a bare
+        /// repeater (tests, direct construction) behaves as before; the playfield binds this to the
+        /// <c>HeldKeyRepeat</c> config entry, whose shipped default is false.
+        /// </summary>
+        public readonly BindableBool Enabled = new BindableBool(true);
+
         /// <param name="engine">The judged model. Repeats go through its ordinary public entry points.</param>
         /// <param name="recordInput">Replay recording sink for effective repeats; null when not recording.</param>
         public HeldKeyRepeater(TypingEngine engine, Action<char, double>? recordInput = null)
         {
             this.engine = engine ?? throw new ArgumentNullException(nameof(engine));
             this.recordInput = recordInput;
+
+            Enabled.BindValueChanged(e =>
+            {
+                // Disable mid-hold must not strand the hold: it would otherwise keep firing until
+                // release. Cancel it here, the same drop every other hold-ending event uses.
+                if (!e.NewValue)
+                    Cancel();
+            });
         }
 
         /// <summary>Whether a character key is currently held with repeats still to come.</summary>
@@ -131,6 +157,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // A new key always ends the previous hold: rolling from one letter to the next while
             // the first is still physically down must not leave two repeaters running.
             Cancel();
+
+            // FEATURE OFF: nothing ever arms (see the class doc's OPT-IN note), so holding a key
+            // is exactly the feature not existing. The Cancel() above is a no-op here (disabling
+            // already cancelled any hold), kept unconditional for uniformity.
+            if (!Enabled.Value)
+                return;
 
             // SPACE NEVER ARMS. See the class doc's SPACE EXCLUSION note: space is the word-advance
             // key, so a held space must never synthesize a repeat, only the initial physical press

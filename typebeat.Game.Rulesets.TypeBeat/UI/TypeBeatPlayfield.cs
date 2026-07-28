@@ -163,6 +163,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // engine tick and the engine is never handed a timestamp it has already passed.
             var repeater = new HeldKeyRepeater(Engine, (c, t) => drawableRuleset?.RecordTypingInput(c, t));
 
+            // Opt-in (off by default, backlog 57), bound live like the other gameplay toggles:
+            // flipping the setting applies immediately, and the repeater cancels its own hold on
+            // disable, so a mid-hold toggle cannot strand one. With no config (bare test
+            // construction) the repeater's own default keeps it enabled.
+            config?.BindWith(TypeBeatRulesetSetting.HeldKeyRepeat, repeater.Enabled);
+
             AddRangeInternal(new Drawable[]
             {
                 backdrop,

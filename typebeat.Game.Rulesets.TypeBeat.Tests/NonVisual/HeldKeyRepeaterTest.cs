@@ -7,6 +7,7 @@ using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using osuTK.Input;
 
@@ -690,6 +691,104 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(2, recorded.Count, "the initial 'a' press and the rejected space, nothing else");
             Assert.AreEqual(1, engine.CaretIndex, "no phantom 'a' repeats crept in after the cancel");
             Assert.IsTrue(engine.Lines[0].Cells.Skip(1).All(c => c.State == CellState.Untyped));
+        }
+
+        /// <summary>
+        /// OPT-IN (backlog 57): the shipped config default for the feature is OFF. The repeater's
+        /// own <see cref="HeldKeyRepeater.Enabled"/> defaults to true only so bare constructions
+        /// (this fixture) behave as before; the playfield always binds it to this config entry.
+        /// </summary>
+        [Test]
+        public void TheShippedConfigDefaultsTheFeatureOff()
+        {
+            var config = (TypeBeatRulesetConfigManager)new TypeBeatRuleset().CreateConfig(null);
+
+            Assert.IsFalse(config.Get<bool>(TypeBeatRulesetSetting.HeldKeyRepeat), "the game ships with held-key repeat off");
+        }
+
+        /// <summary>
+        /// Feature off means the repeater might as well not exist: a press never arms a hold, no
+        /// repeat ever fires however long the key stays down, and the initial physical press is
+        /// judged completely normally (mirroring the space-exclusion contract, but for every key).
+        /// </summary>
+        [Test]
+        public void DisabledMeansNoHoldEverArms()
+        {
+            var (engine, repeater, recorded) = start(denseRun());
+            repeater.Enabled.Value = false;
+
+            press(engine, repeater, recorded, Key.A, 'a', 1000);
+
+            Assert.IsFalse(repeater.IsHolding, "a press never arms while the feature is off");
+            Assert.AreEqual(0, repeater.PendingRepeats);
+
+            var cell0 = engine.Lines[0].Cells[0];
+            Assert.AreEqual(CellState.Correct, cell0.State, "the initial press is judged the ordinary way");
+            Assert.AreEqual('a', cell0.TypedChar);
+
+            // Pump the whole run's worth of frames with the key notionally still down: nothing armed,
+            // so nothing can ever fire.
+            run(repeater, engine, 1000, 2100);
+
+            Assert.AreEqual(1, recorded.Count, "only the physical press is ever recorded");
+            Assert.AreEqual(1, engine.CaretIndex, "the caret never moved past the single physical press");
+            Assert.IsTrue(engine.Lines[0].Cells.Skip(1).All(c => c.State == CellState.Untyped),
+                "the rest of the run sits untyped, exactly as if no hold feature existed");
+        }
+
+        /// <summary>
+        /// A settings toggle mid-hold cannot strand the hold: flipping
+        /// <see cref="HeldKeyRepeater.Enabled"/> to false cancels an armed hold on the spot, and
+        /// re-enabling later does not resurrect it (the cancel dropped its schedule; only a fresh
+        /// press can arm again).
+        /// </summary>
+        [Test]
+        public void DisablingMidHoldCancelsIt()
+        {
+            var (engine, repeater, recorded) = start(denseRun());
+
+            press(engine, repeater, recorded, Key.A, 'a', 1000);
+            Assert.IsTrue(repeater.IsHolding);
+            Assert.AreEqual(10, repeater.PendingRepeats);
+
+            repeater.Enabled.Value = false;
+
+            Assert.IsFalse(repeater.IsHolding, "disabling cancels the armed hold immediately");
+            Assert.AreEqual(0, repeater.PendingRepeats);
+
+            run(repeater, engine, 1000, 1200);
+            Assert.AreEqual(1, recorded.Count, "no repeat survives the disable, even ones already due");
+
+            // Re-enabling mid-dwell resurrects nothing: the hold was cancelled, not suspended.
+            repeater.Enabled.Value = true;
+            run(repeater, engine, 1200, 2100);
+
+            Assert.AreEqual(1, recorded.Count);
+            Assert.AreEqual(1, engine.CaretIndex);
+            Assert.IsTrue(engine.Lines[0].Cells.Skip(1).All(c => c.State == CellState.Untyped));
+        }
+
+        /// <summary>Re-enabling restores the full contract for the NEXT press, with nothing carried over.</summary>
+        [Test]
+        public void ReEnablingLetsTheNextPressArmNormally()
+        {
+            var (engine, repeater, recorded) = start(denseRun());
+            repeater.Enabled.Value = false;
+
+            press(engine, repeater, recorded, Key.A, 'a', 1000);
+            Assert.IsFalse(repeater.IsHolding);
+
+            repeater.Enabled.Value = true;
+
+            press(engine, repeater, recorded, Key.A, 'a', 1100);
+            Assert.IsTrue(repeater.IsHolding, "the first press after re-enabling arms exactly as normal");
+
+            run(repeater, engine, 1100, 2100);
+
+            // Both physical presses plus the repeats sustaining the rest of the a-run; the match
+            // gate still stops the hold at the 'h'.
+            Assert.AreEqual(10, recorded.Count);
+            Assert.AreEqual(10, engine.CaretIndex);
         }
     }
 }
