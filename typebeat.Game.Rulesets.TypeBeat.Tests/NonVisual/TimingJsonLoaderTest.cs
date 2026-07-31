@@ -119,7 +119,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // The gap line "I'm exactly where you want me to be" before the 81200 instrumental
             // (index 17: two bracketed backing-vocal lines precede it and are dropped).
             var gap = lines[17];
-            Assert.That(gap.RawText, Is.EqualTo("Im exactly where you want me to be"));
+            Assert.That(gap.RawText, Is.EqualTo("I'm exactly where you want me to be"));
             Assert.That(gap.SingEndTime, Is.EqualTo(74580), "aligner vocal end drives SingEndTime");
             Assert.That(gap.EndTime, Is.EqualTo(81200), "hard seal at the next line's start");
         }

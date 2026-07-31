@@ -81,7 +81,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     {
         public LyricLine Source { get; }
 
-        /// <summary>== Source.RawText.</summary>
+        /// <summary>
+        /// The line exactly as it is shown and exactly as it must be typed: the concatenated cell
+        /// chars. Equal to <c>Source.RawText</c> under the Literate mod and to
+        /// <see cref="Typeability.ToDefaultStream"/> of it otherwise. Never re-derived anywhere
+        /// else: the stage renders the same cells this is built from.
+        /// </summary>
         public string DisplayText { get; }
 
         public IReadOnlyList<TypingCell> Cells { get; }
@@ -128,7 +133,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private TypingLine(LyricLine source, IReadOnlyList<TypingCell> cells, double sealGraceMs)
         {
             Source = source;
-            DisplayText = source.RawText;
+
+            var display = new System.Text.StringBuilder(cells.Count);
+
+            foreach (var cell in cells)
+                display.Append(cell.Expected);
+
+            DisplayText = display.ToString();
             Cells = cells;
             StartTime = source.StartTime;
             EndTime = source.EndTime;
@@ -213,7 +224,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             return v0 + (v1 - v0) * (time - t0) / (t1 - t0);
         }
 
-        public static TypingLine FromLyricLine(LyricLine line, TimingGranularity granularity = TimingGranularity.Line)
+        /// <summary>
+        /// Flattens an authored line into the cell list gameplay judges and the stage renders.
+        ///
+        /// <para><paramref name="literate"/> selects WHICH STREAM the cells carry. Off (default):
+        /// the cells are <see cref="Typeability.ToDefaultStream"/> of the authored text, so
+        /// capitals fold to lower case, a hyphen becomes a typed space and every other supported
+        /// mark is gone; that is what the player types AND what the display shows, because both
+        /// read these same cells. On: one cell per authored char, punctuation and capitals
+        /// included, every one of them typeable.</para>
+        ///
+        /// <para>Letter timings are IDENTICAL in both modes: the per-word char spread below counts
+        /// only <see cref="Typeability.IsCell"/> chars (never punctuation), so turning the mod on
+        /// adds cells without moving any of the existing ones.</para>
+        /// </summary>
+        public static TypingLine FromLyricLine(LyricLine line, TimingGranularity granularity = TimingGranularity.Line, bool literate = false)
         {
             string text = line.RawText;
             var units = line.Units;
@@ -295,26 +320,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 }
             }
 
-            // Second pass (a): non-typeable cells copy the NEXT typeable cell's TargetTime.
-            double? next = null;
-
-            for (int i = n - 1; i >= 0; i--)
-            {
-                if (targets[i].HasValue)
-                    next = targets[i];
-                else if (next.HasValue)
-                    targets[i] = next;
-            }
-
-            // Second pass (b): trailing punctuation (no next typeable) copies the PREVIOUS target.
-            double? prev = null;
-
+            // Second pass: time the chars pass one left untimed. After Typeability.Normalize the
+            // only such chars are supported PUNCTUATION (letters, digits, spaces and freestyle
+            // slots were all timed above, punctuation is excluded from the per-word char spread on
+            // purpose so adding a mark never moves a letter).
+            //
+            // A run of marks between two timed chars is spread EVENLY across the gap: mark m of a
+            // run of len takes prev + (m+1)*(next-prev)/(len+1). Under the Literate mod that gives
+            // every mark its own slot in the sweep instead of colliding with the letter beside it,
+            // and it is the same "distribute evenly across the span you have" rule the per-word
+            // char spread itself uses. A run with nothing after it (trailing punctuation, the '.'
+            // of "sat.") attaches to the PRECEDING char's target; one with nothing before it (a
+            // line opening on a quote) attaches to the FOLLOWING char's.
             for (int i = 0; i < n; i++)
             {
                 if (targets[i].HasValue)
-                    prev = targets[i];
-                else
-                    targets[i] = prev ?? line.StartTime;
+                    continue;
+
+                int end = i;
+
+                while (end + 1 < n && !targets[end + 1].HasValue)
+                    end++;
+
+                double? before = i > 0 ? targets[i - 1] : null;
+                double? after = end + 1 < n ? targets[end + 1] : null;
+                int len = end - i + 1;
+
+                for (int m = 0; m < len; m++)
+                {
+                    targets[i + m] = before is double p
+                        ? (after is double q ? p + (m + 1) * (q - p) / (len + 1) : p)
+                        : after ?? line.StartTime;
+                }
+
+                i = end;
             }
 
             // Guard: targets non-decreasing (clamp to previous if data is inverted).
@@ -324,21 +363,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     targets[i] = targets[i - 1];
             }
 
-            var cells = new TypingCell[n];
+            TypingCell[] cells;
 
-            for (int i = 0; i < n; i++)
-                cells[i] = new TypingCell(expected[i], isTypeable[i], targets[i]!.Value, judgeGrans[i]);
+            if (literate)
+            {
+                // One cell per authored char, all of them typed. A supported mark is a first-class
+                // typeable cell here (and therefore COUNTABLE too: it costs a real keypress, so it
+                // spends the Flashlight/Fletcher character budget like any other non-space char).
+                cells = new TypingCell[n];
+
+                for (int i = 0; i < n; i++)
+                    cells[i] = new TypingCell(expected[i], isTypeable[i] || Typeability.IsPunctuation(expected[i]), targets[i]!.Value, judgeGrans[i]);
+            }
+            else
+            {
+                // The default stream. Each surviving char keeps the timing and judge tier of the
+                // authored char it came from, so a hyphen-turned-space lands on the interpolated
+                // slot the hyphen held between the two letters it separated.
+                var sb = new System.Text.StringBuilder(n);
+                var sources = new List<int>(n);
+                Typeability.ProjectDefault(text, sb, sources);
+
+                cells = new TypingCell[sources.Count];
+
+                for (int i = 0; i < sources.Count; i++)
+                {
+                    int src = sources[i];
+                    cells[i] = new TypingCell(sb[i], Typeability.IsCell(sb[i]), targets[src]!.Value, judgeGrans[src]);
+                }
+            }
 
             // A last typeable cell whose target sits on the seal boundary loses the target-vs-seal
             // race every frame; grant a minimum finish window on top of any data-driven grace.
             double sealGrace = line.SealGraceMs;
 
-            for (int i = n - 1; i >= 0; i--)
+            for (int i = cells.Length - 1; i >= 0; i--)
             {
-                if (!isTypeable[i])
+                if (!cells[i].IsTypeable)
                     continue;
 
-                if (targets[i]!.Value >= line.EndTime - boundary_epsilon_ms)
+                if (cells[i].TargetTime >= line.EndTime - boundary_epsilon_ms)
                     sealGrace = Math.Max(sealGrace, min_boundary_grace_ms);
 
                 break;

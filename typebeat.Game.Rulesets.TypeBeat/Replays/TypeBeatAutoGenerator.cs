@@ -15,8 +15,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// Generates a perfect play: every typeable cell's expected character pressed exactly at its
     /// target time (delta 0 = Perfect), using the same <see cref="TypingLine.FromLyricLine"/>
     /// flattening the engine itself is built from, so the frames line up with the engine's cells by
-    /// construction. Case is emitted exactly as authored, which stays perfect under the Literate mod
-    /// and is folded away otherwise.
+    /// construction. The literate flag must match the play's mods, because Literate changes which
+    /// cells exist at all (punctuation becomes typed) and the case they are typed in; without it
+    /// case is emitted as authored anyway and simply folded away.
     ///
     /// Times are clamped into each line's typeable window (never before its activation, never past
     /// its seal deadline) and kept monotonic, then rounded to integral milliseconds like recorded
@@ -29,9 +30,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <summary>Safety margin kept before a line's force-seal deadline for clamped presses.</summary>
         private const double seal_margin_ms = 10;
 
-        public TypeBeatAutoGenerator(IBeatmap beatmap)
+        private readonly bool literate;
+
+        public TypeBeatAutoGenerator(IBeatmap beatmap, bool literate = false)
             : base(beatmap)
         {
+            this.literate = literate;
         }
 
         protected override void GenerateFrames()
@@ -48,7 +52,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
 
             foreach (var lineObject in lineObjects)
             {
-                var line = TypingLine.FromLyricLine(lineObject.Line, granularity);
+                var line = TypingLine.FromLyricLine(lineObject.Line, granularity, literate);
 
                 // The line is typeable in [ActivationTime, EndTime + SealGraceMs); keep a margin
                 // before the deadline so a boundary-pinned target is still pressed while typeable.

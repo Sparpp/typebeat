@@ -1,29 +1,46 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System.Linq;
 using osu.Framework.Localisation;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
-using typebeat.Game.Rulesets.TypeBeat.UI;
-using typebeat.Game.Rulesets.UI;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
     /// <summary>
-    /// Literate: restores case sensitivity to gameplay. Normally typing is case-insensitive (the
-    /// caret folds both the key and the target to lower-case before matching); with this mod on, a
-    /// letter must be typed in the target's EXACT case; a right letter in the wrong case is judged
-    /// wrong, just like any other wrong char. Implemented by flipping a single engine flag
-    /// (<see cref="Gameplay.TypingEngine.CaseSensitive"/>); the key handler already forwards Shift so
-    /// held-Shift keys produce the capitals the target demands.
+    /// Literate: the lyric is typed EXACTLY as its author wrote it, capitals and punctuation
+    /// included.
+    ///
+    /// <list type="bullet">
+    /// <item>CASE. Normally typing is case-insensitive (the caret folds both the key and the target
+    /// to lower case before matching); with this mod on, a letter must be typed in the target's
+    /// exact case, and a right letter in the wrong case is judged wrong like any other wrong char.
+    /// The key handler already forwards Shift, so held-Shift keys produce the capitals the target
+    /// demands.</item>
+    /// <item>PUNCTUATION. A map stores the author's punctuated text; without the mod the game
+    /// derives the stripped, lower-case stream the player actually types (and shows exactly that,
+    /// see <see cref="Beatmaps.Typeability.ToDefaultStream"/>). With the mod on, the cells ARE the
+    /// authored chars, so every supported mark becomes a real typed cell with its own target time,
+    /// and a hyphen is a hyphen again rather than the word break the default stream turns it into
+    /// ("The bad-cat sat." instead of "the bad cat sat").</item>
+    /// </list>
+    ///
+    /// <para>Unlike the other mods this one cannot be a flag flipped on a built engine: it changes
+    /// the CELL LIST. It is applied in the one window where that is safe, after beatmap conversion
+    /// and before ApplyDefaults, by stamping every line object
+    /// (<see cref="TypeBeatHitObject.Literate"/>) so the nested per-cell scoring objects flatten
+    /// the same way the engine does; the engine itself reads the mod off the drawable ruleset's
+    /// mod list (see <c>DrawableTypeBeatRuleset.createEngine</c>).</para>
     /// </summary>
-    public class TypeBeatModLiterate : Mod, IApplicableToDrawableRuleset<TypeBeatHitObject>
+    public class TypeBeatModLiterate : Mod, IApplicableAfterBeatmapConversion
     {
         public override string Name => "Literate";
 
         public override string Acronym => "LT";
 
-        public override LocalisableString Description => "Case matters: type every letter in its exact case.";
+        public override LocalisableString Description => "Case and punctuation matter: type the lyric exactly as written.";
 
         public override ModType Type => ModType.DifficultyIncrease;
 
@@ -36,7 +53,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
         public override bool Ranked => true;
 
-        public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset) =>
-            ((DrawableTypeBeatRuleset)drawableRuleset).Engine.CaseSensitive = true;
+        public void ApplyToBeatmap(IBeatmap beatmap)
+        {
+            foreach (var line in beatmap.HitObjects.OfType<TypeBeatHitObject>())
+                line.Literate = true;
+        }
     }
 }

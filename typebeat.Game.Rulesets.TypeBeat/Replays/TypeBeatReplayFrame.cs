@@ -32,8 +32,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <see cref="typebeat.Game.Scoring.Legacy.LegacyScoreEncoder"/>/<c>Decoder</c> untouched:
     /// MouseX = character code, MouseY = config flags (bit 0 = allow-wrong-input; only meaningful on
     /// CONFIG frames), ButtonState = None, time = the integral frame time. All typeable characters
-    /// (a-z, A-Z, 0-9, space) and both sentinels are far below the decoder's coordinate parse limits
-    /// and its (256, -500) stable-header positions, so no stable fixup can mangle them.</para>
+    /// (a-z, A-Z, 0-9, space, plus the Literate mod's punctuation, whose highest code point is ']'
+    /// at 0x5D) and both sentinels are far below the decoder's coordinate parse limits and its
+    /// (256, -500) stable-header positions, so no stable fixup can mangle them. The sentinels sit
+    /// at 0x00 and 0x08, below every printable mark, so nothing collides.</para>
     ///
     /// <para>Only EFFECTIVE inputs are recorded (calls where the engine mutated state), which is what
     /// makes playback deterministic: replaying performs, per frame, <c>Update(Time)</c> then the
@@ -50,7 +52,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <summary>
         /// The character fed to the engine (layout-remapped, Shift-cased), or a sentinel
         /// (<see cref="BACKSPACE"/>/<see cref="CONFIG"/>). Never a sentinel value for real typing:
-        /// the typeable surface is a-z/A-Z/0-9/space only.
+        /// the typeable surface is a-z/A-Z/0-9/space, widened under the Literate mod by the
+        /// supported punctuation marks, all of them printable ASCII.
         /// </summary>
         public char Character;
 

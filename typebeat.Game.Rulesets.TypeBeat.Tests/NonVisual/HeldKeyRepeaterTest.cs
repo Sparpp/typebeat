@@ -60,9 +60,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             }
         }
 
-        private static (TypingEngine engine, HeldKeyRepeater repeater, List<(char c, double time)> recorded) start(LyricBeatmap beatmap)
+        private static (TypingEngine engine, HeldKeyRepeater repeater, List<(char c, double time)> recorded) start(LyricBeatmap beatmap, bool literate = false)
         {
-            var engine = new TypingEngine(beatmap);
+            var engine = new TypingEngine(beatmap, literate);
             var recorded = new List<(char, double)>();
             var repeater = new HeldKeyRepeater(engine, (c, t) => recorded.Add((c, t)));
 
@@ -260,8 +260,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void LiterateHoldRepeatsTheCapital()
         {
-            var (engine, repeater, recorded) = start(slowRun("AAAA"));
-            engine.CaseSensitive = true;
+            var (engine, repeater, recorded) = start(slowRun("AAAA"), literate: true);
 
             press(engine, repeater, recorded, Key.A, 'A', 1000);
             run(repeater, engine, 1000, 2300);
@@ -279,8 +278,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void LiterateHoldOfTheWrongCaseCostsOnlyTheInitialPress()
         {
-            var (engine, repeater, recorded) = start(slowRun("AAAA"));
-            engine.CaseSensitive = true;
+            var (engine, repeater, recorded) = start(slowRun("AAAA"), literate: true);
 
             press(engine, repeater, recorded, Key.A, 'a', 1000);
             run(repeater, engine, 1000, 2300);

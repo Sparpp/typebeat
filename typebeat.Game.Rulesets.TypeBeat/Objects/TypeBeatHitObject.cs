@@ -28,6 +28,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
         /// <summary>Beatmap-wide timing granularity, replicated per object so the beatmap round-trips it.</summary>
         public TimingGranularity Granularity { get; set; }
 
+        /// <summary>
+        /// Literate mod: flatten this line exactly as authored (punctuation + case) instead of into
+        /// the default stripped stream, so the nested per-cell scoring objects line up with the
+        /// engine's cells INDEX FOR INDEX (a <see cref="Gameplay.CharJudgement"/> is routed by cell
+        /// index; a mismatch would silently drop every judgement). Stamped by
+        /// <see cref="Mods.TypeBeatModLiterate"/> after conversion and before ApplyDefaults, the one
+        /// window in which nested objects have not been built yet. Play-time only, never persisted.
+        /// </summary>
+        public bool Literate { get; set; }
+
         /// <summary>The line remains typeable until EndTime + SealGraceMs; osu sees that as the object's end.</summary>
         public double EndTime => Line.EndTime + Line.SealGraceMs;
 
@@ -47,7 +57,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
 
             // The engine's flattening (TypingLine.FromLyricLine) is the single source of truth for
             // per-cell target times and judge tiers; the nested objects mirror its typeable cells.
-            var typingLine = TypingLine.FromLyricLine(Line, Granularity);
+            var typingLine = TypingLine.FromLyricLine(Line, Granularity, Literate);
 
             for (int i = 0; i < typingLine.Cells.Count; i++)
             {

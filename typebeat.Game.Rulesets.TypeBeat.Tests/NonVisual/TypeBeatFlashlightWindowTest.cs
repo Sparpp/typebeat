@@ -22,7 +22,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     {
         private const float soft = 0.35f;
 
-        private static TypingLine line(string text)
+        private static TypingLine line(string text, bool literate = false)
         {
             var source = new LyricLine
             {
@@ -33,11 +33,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Units = new[] { new TimedUnit { Text = text, StartTime = 0, EndTime = 10000 } },
             };
 
-            return TypingLine.FromLyricLine(source);
+            return TypingLine.FromLyricLine(source, literate: literate);
         }
 
-        private static float[] window(string text, int caretCellIndex, int radius)
-            => LyricLineDisplay.ComputeWindowAlphas(line(text).Cells, caretCellIndex, radius, soft);
+        private static float[] window(string text, int caretCellIndex, int radius, bool literate = false)
+            => LyricLineDisplay.ComputeWindowAlphas(line(text, literate).Cells, caretCellIndex, radius, soft);
 
         private static void assertWindow(float[] actual, params float[] expected)
         {
@@ -88,10 +88,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             assertWindow(window("abcdef", caretCellIndex: 3, radius: 2),
                 0f, soft, 1f, 1f, soft, 0f);
 
-            // With a comma between c and d it lights the SAME letters (comma spends no budget) and
-            // the comma itself, sitting strictly between the two lit chars c and d, stays lit.
-            assertWindow(window("abc,def", caretCellIndex: 4, radius: 2),
-                /* a */ 0f, /* b */ soft, /* c */ 1f, /* , */ 1f, /* d */ 1f, /* e */ soft, /* f */ 0f);
+            // A comma in the AUTHORED text is not a cell at all without Literate: the stream is
+            // "abcdef" and the window is byte-for-byte the one above.
+            assertWindow(window("abc,def", caretCellIndex: 3, radius: 2),
+                0f, soft, 1f, 1f, soft, 0f);
+
+            // A char outside the supported set survives as a non-typeable cell, and THAT is what
+            // still rides along inside a lit run without spending its budget: the same letters are
+            // lit and the mark, sitting strictly between two lit chars, stays lit with them.
+            assertWindow(window("abc*def", caretCellIndex: 4, radius: 2),
+                /* a */ 0f, /* b */ soft, /* c */ 1f, /* * */ 1f, /* d */ 1f, /* e */ soft, /* f */ 0f);
+        }
+
+        [Test]
+        public void TestLiteratePunctuationSpendsBudgetLikeAnyOtherKeypress()
+        {
+            // Under Literate a mark is a real cell the player must press, so it is COUNTABLE and
+            // spends the window budget: with the caret before 'd' (cell 4) and radius 2, the two
+            // slots to the left are the comma and 'c' (not 'b' and 'c'), and 'b' goes dark.
+            assertWindow(window("abc,def", caretCellIndex: 4, radius: 2, literate: true),
+                /* a */ 0f, /* b */ 0f, /* c */ soft, /* , */ 1f, /* d */ 1f, /* e */ soft, /* f */ 0f);
         }
 
         [Test]

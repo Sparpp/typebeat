@@ -260,7 +260,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.That(TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "Yeaaaah, Betaaa!"), Is.True);
 
-            // Normalized (punctuation stripped, lowered diacritics; case preserved by Normalize rules)
+            // Normalized: diacritics folded, case AND supported punctuation preserved (the stored
+            // line is the author's form; the marks are derived away from the typed stream, not here).
+            Assert.That(line.Line.RawText, Is.EqualTo("Yeaaaah, Betaaa!"));
             Assert.That(line.Line.RawText.Split(' ').Length, Is.EqualTo(2));
             Assert.That(line.Line.Units[0].StartTime, Is.EqualTo(1000)); // timings preserved
             Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(1800));
@@ -283,6 +285,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(line.Line.Units[3].EndTime, Is.EqualTo(2800).Within(1e-6)); // spans the sung window
             Assert.That(line.Line.Units.Select(u => u.StartTime), Is.Ordered);
 
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void TextEditRoundTripsPunctuationThroughSaveAndReload()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            // A hyphenated word is ONE authored token (so the line keeps its two-word timing) but
+            // TWO words in the stream the player types without the Literate mod.
+            Assert.That(TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "The bad-cat, sat!"), Is.True);
+
+            Assert.That(line.Line.RawText, Is.EqualTo("The bad-cat, sat!"));
+            Assert.That(line.Line.Units.Count, Is.EqualTo(3));
+            Assert.That(Typeability.ToDefaultStream(line.Line.RawText), Is.EqualTo("the bad cat sat"));
+
+            // Encode + decode must give the authored form straight back, marks and case included.
             assertReloadStable(editorBeatmap);
         }
 

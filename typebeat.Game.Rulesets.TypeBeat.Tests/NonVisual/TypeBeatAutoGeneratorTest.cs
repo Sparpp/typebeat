@@ -100,8 +100,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var frames = replay.Frames.Cast<TypeBeatReplayFrame>().ToList();
 
-            // Typeable surface: letters/digits/spaces; '!' is punctuation (auto-skipped, no frame).
-            Assert.AreEqual("ab cd" + "Ef 9", string.Concat(frames.Select(f => f.Character)));
+            // Without Literate the perfect play types the DEFAULT stream: lower-cased, and the '!'
+            // is not a cell at all, so there is no frame for it.
+            Assert.AreEqual("ab cd" + "ef 9", string.Concat(frames.Select(f => f.Character)));
 
             var engineLines = map.HitObjects.Select(h => TypingLine.FromLyricLine(h.Line, TimingGranularity.Word)).ToList();
 

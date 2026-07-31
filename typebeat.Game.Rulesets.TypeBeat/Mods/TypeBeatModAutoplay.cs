@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System.Collections.Generic;
+using System.Linq;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
@@ -17,6 +18,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     public class TypeBeatModAutoplay : ModAutoplay
     {
         public override ModReplayData CreateReplayData(IBeatmap beatmap, IReadOnlyList<Mod> mods)
-            => new ModReplayData(new TypeBeatAutoGenerator(beatmap).Generate(), new ModCreatedUser { Username = "typebot" });
+            // Literate must be carried through: it decides which cells exist (punctuation becomes
+            // typed) and the case each is pressed in, so a perfect play has to be generated against
+            // the same flattening the engine will judge against.
+            => new ModReplayData(new TypeBeatAutoGenerator(beatmap, mods.Any(m => m is TypeBeatModLiterate)).Generate(),
+                new ModCreatedUser { Username = "typebot" });
     }
 }
