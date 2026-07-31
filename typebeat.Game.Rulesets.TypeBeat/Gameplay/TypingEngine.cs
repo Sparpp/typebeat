@@ -227,8 +227,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// wrong: rejected/miss, exactly like any other wrong char. Off by default: gameplay is
         /// case-insensitive. Requires the input path to actually produce upper-case chars for
         /// Shift-held keys (see <see cref="KeyCharMap"/>), else capitals would be untypeable.
+        /// Set from <see cref="Literate"/> at construction; still settable so a test can exercise
+        /// exact-case matching on its own.
         /// </summary>
         public bool CaseSensitive { get; set; }
+
+        /// <summary>
+        /// Literate mod, the other half of what <see cref="CaseSensitive"/> does: the map's lines
+        /// are typed EXACTLY as authored, supported punctuation included. Unlike every other mod
+        /// flag this is fixed at construction, because it changes the CELL LIST itself (see
+        /// <see cref="TypingLine.FromLyricLine"/>) rather than only how a press is judged, and the
+        /// nested per-cell scoring objects have to be flattened the same way.
+        /// Requires the input path to be able to produce the marks (see <see cref="KeyCharMap"/>).
+        /// </summary>
+        public bool Literate { get; }
 
         /// <summary>
         /// Legacy "allow wrong input" setting: wrong (non-space) characters are typed through and
@@ -307,15 +319,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private int rollingCount; // entries held in rollingSamples, capped at rolling_wpm_window
         private int rollingNext;  // next slot to write; also the oldest entry once the ring is full
 
-        public TypingEngine(LyricBeatmap beatmap)
+        public TypingEngine(LyricBeatmap beatmap, bool literate = false)
         {
             Beatmap = beatmap ?? throw new ArgumentNullException(nameof(beatmap));
             Windows = SyncWindows.For(beatmap.Granularity);
 
+            Literate = literate;
+            CaseSensitive = literate;
+
             lines = new List<TypingLine>(beatmap.Lines.Count);
 
             foreach (var line in beatmap.Lines)
-                lines.Add(TypingLine.FromLyricLine(line, beatmap.Granularity));
+                lines.Add(TypingLine.FromLyricLine(line, beatmap.Granularity, literate));
 
             lineSealed = new bool[lines.Count];
 

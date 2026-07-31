@@ -44,7 +44,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             {
                 // Cell arithmetic mirrors TypingLine.FromLyricLine: every typeable char is a
                 // cell, plus one typeable space cell per token gap.
-                string[] tokens = line.RawText.Split(' ');
+                //
+                // Measured on the DEFAULT stream, never the authored text: a map's pace has to be
+                // the pace of the play everyone shares, not of the harder Literate variant, and it
+                // has to stay comparable with every figure computed before punctuation existed.
+                // ToDefaultStream is idempotent, so on an already-stripped line this is exactly the
+                // old arithmetic (lower-casing cannot change any count).
+                string[] tokens = Typeability.ToDefaultStream(line.RawText).Split(' ');
 
                 int cells = tokens.Length - 1;
                 int words = 0;

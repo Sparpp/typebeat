@@ -97,8 +97,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             Assert.AreEqual("R&B rock & roll", Typeability.Normalize("R&B rock & roll", keepFreestyleMarkers: true));
 
-            // Everything else normalizes exactly as before: punctuation dropped, whitespace collapsed.
-            Assert.AreEqual("hey &you", Typeability.Normalize("  hey,   &you!  ", keepFreestyleMarkers: true));
+            // Everything else normalizes as ever: whitespace collapsed, supported punctuation kept
+            // (it is stripped from the DEFAULT typed stream, not from the stored line).
+            Assert.AreEqual("hey, &you!", Typeability.Normalize("  hey,   &you!  ", keepFreestyleMarkers: true));
+            Assert.AreEqual("hey &you", Typeability.ToDefaultStream(Typeability.Normalize("  hey,   &you!  ", keepFreestyleMarkers: true)));
         }
 
         [Test]
@@ -525,11 +527,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var editorBeatmap = new EditorBeatmap(beatmap);
             var hitObject = TypeBeatEditorOperations.OrderedLines(editorBeatmap)[0];
 
-            // The authoring gesture: type '&' into the line's text box. Other punctuation still goes.
+            // The authoring gesture: type '&' into the line's text box. Supported punctuation is
+            // kept in the stored line now, and derived away from the default typed stream.
             Assert.IsTrue(TypeBeatEditorOperations.SetLineText(editorBeatmap, hitObject, "he&&o, wor&d!"));
-            Assert.AreEqual("he&&o wor&d", hitObject.Line.RawText);
+            Assert.AreEqual("he&&o, wor&d!", hitObject.Line.RawText);
 
             var authored = TypingLine.FromLyricLine(hitObject.Line, TimingGranularity.Word);
+            Assert.AreEqual("he&&o wor&d", authored.DisplayText);
             Assert.AreEqual(3, authored.Cells.Count(c => c.IsFreestyle));
 
             // Save (encode) and reload (decode): the slots survive, and so does everything else.
@@ -540,7 +544,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(sb.ToString().Contains("\"freestyle\":true"), "the opt-in flag must be persisted");
 
             var reloaded = decode(sb.ToString()).HitObjects.OfType<TypeBeatHitObject>().Single();
-            Assert.AreEqual("he&&o wor&d", reloaded.Line.RawText);
+            Assert.AreEqual("he&&o, wor&d!", reloaded.Line.RawText);
 
             var reloadedLine = TypingLine.FromLyricLine(reloaded.Line, TimingGranularity.Word);
             Assert.AreEqual(3, reloadedLine.Cells.Count(c => c.IsFreestyle));

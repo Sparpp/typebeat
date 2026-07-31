@@ -518,8 +518,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     return false;
 
                 // Pass Shift through so held-Shift keys produce capitals, required for the
-                // Literate (case-sensitive) mod; folded away harmlessly in normal play.
-                if (KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, out char c))
+                // Literate (case-sensitive) mod; folded away harmlessly in normal play. The
+                // punctuation surface opens for the same mod, and ONLY for it: without it a comma
+                // key stays inert (no wrong-key combo break for a habitual comma) and Shift+digit
+                // still produces the digit, exactly as before.
+                if (KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, engine.Literate, out char c))
                 {
                     // The framework's own auto-repeat is discarded outright: a held character key is
                     // re-fired by the SONG, not by the keyboard's repeat rate.

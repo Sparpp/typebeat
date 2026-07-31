@@ -494,7 +494,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // satisfies.
             string normalized = Typeability.Normalize(Typeability.StripBackingVocals(rawUserText), keepFreestyleMarkers: true);
 
-            if (normalized.Length == 0)
+            // Rejected when there is nothing to TYPE, measured on the default stream: text that is
+            // only punctuation ("...") normalizes non-empty but would give the player no cell, and
+            // an empty line cannot exist in the format.
+            if (Typeability.ToDefaultStream(normalized).Length == 0)
                 return false;
 
             var line = hitObject.Line;
@@ -565,7 +568,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // else untypeable is stripped.
             string normalized = Typeability.Normalize(Typeability.StripBackingVocals(text), keepFreestyleMarkers: true);
 
-            if (normalized.Length == 0 || normalized.Contains(' '))
+            if (Typeability.ToDefaultStream(normalized).Length == 0 || normalized.Contains(' '))
                 return false;
 
             var line = hitObject.Line;
@@ -786,7 +789,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         {
             string normalized = Typeability.Normalize(Typeability.StripBackingVocals(text));
 
-            if (normalized.Length == 0)
+            if (Typeability.ToDefaultStream(normalized).Length == 0)
                 return null;
 
             var ordered = orderedLines(editorBeatmap);

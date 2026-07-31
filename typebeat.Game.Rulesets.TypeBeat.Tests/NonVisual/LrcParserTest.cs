@@ -72,7 +72,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(lines[0].RawText, Is.EqualTo("If we take it from the top now"));
 
             // The terminator [02:45.39] = 165390 bounds the last line's EndTime.
-            Assert.That(lines[^1].RawText, Is.EqualTo("Yeah Im exactly where he wants me to be"));
+            Assert.That(lines[^1].RawText, Is.EqualTo("Yeah I'm exactly where he wants me to be"));
             Assert.That(lines[^1].EndTime, Is.EqualTo(165390));
         }
 
@@ -162,17 +162,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void NormalizationAndWeights()
         {
-            // Apostrophes (curly or ASCII) can't be typed, so they are removed outright.
+            // A curly apostrophe folds to the ASCII one and is KEPT: the stored line is the
+            // author's form. What the player types is the derived default stream.
             var curly = LrcParser.Parse("[00:01.00] don’t stop\n");
-            Assert.That(curly[0].RawText, Is.EqualTo("dont stop"));
+            Assert.That(curly[0].RawText, Is.EqualTo("don't stop"));
+            Assert.That(Typeability.ToDefaultStream(curly[0].RawText), Is.EqualTo("dont stop"));
 
-            // Commas and every other untypeable char vanish from the game text too.
-            var punct = LrcParser.Parse("[00:01.00] It's his voice, through my lips!\n");
-            Assert.That(punct[0].RawText, Is.EqualTo("Its his voice through my lips"));
+            // Every supported mark survives normalization; the default stream drops all of them
+            // except the hyphen, which becomes a word break.
+            var punct = LrcParser.Parse("[00:01.00] It's his half-cut voice, through my lips!\n");
+            Assert.That(punct[0].RawText, Is.EqualTo("It's his half-cut voice, through my lips!"));
+            Assert.That(Typeability.ToDefaultStream(punct[0].RawText), Is.EqualTo("its his half cut voice through my lips"));
 
-            // The real file carries no untypeable chars at all after normalization.
+            // Unsupported chars still vanish outright, before the derivation ever sees them.
+            var unsupported = LrcParser.Parse("[00:01.00] a*b #c\n");
+            Assert.That(unsupported[0].RawText, Is.EqualTo("ab c"));
+
+            // The real file carries nothing but typeable chars and supported marks.
             var real = LrcParser.Parse(spectator_lyrics);
-            Assert.That(real.All(l => Typeability.TypeableCount(l.RawText) == l.RawText.Length), Is.True);
+            Assert.That(real.All(l => l.RawText.All(c => Typeability.IsCell(c) || Typeability.IsPunctuation(c))), Is.True);
 
             // Token weight = typeableCount + 1: "a"(2) vs "bcd"(4) => bcd span is twice a's span.
             var weighted = LrcParser.Parse("[00:01.00] a bcd\n");

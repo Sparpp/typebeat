@@ -12,6 +12,7 @@ using typebeat.Game.Replays;
 using typebeat.Game.Rulesets.Objects.Drawables;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Objects.Drawables;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
@@ -103,7 +104,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 Granularity = granularity,
             };
 
-            return new TypingEngine(lyricBeatmap);
+            // Literate changes the cell list itself, so it must be known BEFORE the engine is built
+            // (see TypingLine.FromLyricLine). Read off the mod list rather than a drawable-ruleset
+            // flag, because ApplyToDrawableRuleset has no guaranteed order against the first Engine
+            // read; TypeBeatModLiterate stamps the same value onto the hit objects, so the engine's
+            // cells and the nested scoring objects are flattened identically by construction.
+            bool literate = Mods?.Any(m => m is TypeBeatModLiterate) == true;
+
+            return new TypingEngine(lyricBeatmap, literate);
         }
     }
 }

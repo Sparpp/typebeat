@@ -378,27 +378,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void AutoSkipPunctuationNeverRequiresKey()
+        public void SupportedPunctuationLeavesTheDefaultStreamEntirely()
         {
-            // "beggin' him": tokens "beggin'" (k=6 typeable) and "him" (k=3).
+            // "beggin' him": tokens "beggin'" (k=6 typeable, the apostrophe never counts) and "him".
             // Unit "beggin'" [1000, 2200], step (2200-1000)/6 = 200:
-            //   b=1000 e=1200 g=1400 g=1600 i=1800 n=2000; apostrophe (idx 6) copies the
-            //   NEXT typeable cell = the space (idx 7) whose target is unit0.EndTime = 2200.
-            // Unit "him" [2200, 2800], step 200: h=2200 i=2400 m=2600.
+            //   b=1000 e=1200 g=1400 g=1600 i=1800 n=2000. Unit "him" [2200, 2800]: h=2200 i=2400 m=2600.
+            // Without Literate the apostrophe is not a cell at all: the stream IS "beggin him", so
+            // what the player sees is exactly what they type.
             var engine = new TypingEngine(map(TimingGranularity.Line,
                 line("beggin' him", 1000, 10000, 2800,
                     unit("beggin'", 1000, 2200), unit("him", 2200, 2800))));
 
             var tl = engine.Lines[0];
-            Assert.AreEqual(11, tl.Cells.Count);
-            Assert.AreEqual(10, tl.TypeableCount); // everything except the apostrophe
-            Assert.IsFalse(tl.Cells[6].IsTypeable);
-            Assert.AreEqual(2200, tl.Cells[6].TargetTime); // apostrophe copies next typeable (space) target
-            Assert.AreEqual(2200, tl.Cells[7].TargetTime); // space = unit0.EndTime
+            Assert.AreEqual("beggin him", tl.DisplayText);
+            Assert.AreEqual(10, tl.Cells.Count);
+            Assert.AreEqual(10, tl.TypeableCount);
+            Assert.AreEqual(2200, tl.Cells[6].TargetTime); // space = unit0.EndTime, unmoved by the mark
+            Assert.AreEqual(2200, tl.Cells[7].TargetTime); // 'h'
 
             engine.Update(1000);
 
-            // Type b-e-g-g-i-n exactly on target; all Perfect.
+            // Type b-e-g-g-i-n exactly on target; all Perfect. The letter targets are untouched by
+            // the presence of the apostrophe in the authored text.
             engine.ProcessKey('b', 1000);
             engine.ProcessKey('e', 1200);
             engine.ProcessKey('g', 1400);
@@ -406,9 +407,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             engine.ProcessKey('i', 1800);
             engine.ProcessKey('n', 2000);
 
-            // The apostrophe was hopped automatically: caret sits on the space (idx 7).
-            Assert.AreEqual(7, engine.CaretIndex);
-            Assert.AreEqual(CellState.AutoSkipped, tl.Cells[6].State);
+            Assert.AreEqual(6, engine.CaretIndex); // straight on to the space
 
             engine.ProcessKey(' ', 2200);
             engine.ProcessKey('h', 2200);
@@ -417,41 +416,85 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(engine.IsLineComplete);
             Assert.AreEqual(10, engine.Combo); // 10 keypresses, zero required for punctuation
             Assert.AreEqual(1.0, engine.LiveAccuracy);
+        }
 
-            // Backspace transparently crosses the apostrophe: erase m, i, h, space...
-            Assert.IsTrue(engine.ProcessBackspace()); // m
-            Assert.IsTrue(engine.ProcessBackspace()); // i
-            Assert.IsTrue(engine.ProcessBackspace()); // h
-            Assert.IsTrue(engine.ProcessBackspace()); // space (caret now 7)
-            Assert.AreEqual(7, engine.CaretIndex);
-            // ...and the next one steps OVER the AutoSkipped apostrophe to erase 'n', un-skipping it.
-            Assert.IsTrue(engine.ProcessBackspace());
-            Assert.AreEqual(5, engine.CaretIndex);
-            Assert.AreEqual(CellState.Untyped, tl.Cells[6].State); // un-skipped
-            Assert.AreEqual(CellState.Untyped, tl.Cells[5].State);
+        [Test]
+        public void LiteratePunctuationIsATypedCellTimedBetweenItsNeighbours()
+        {
+            // The same line under Literate: 11 cells, the apostrophe among them. Its target is
+            // interpolated across the gap it sits in, prev + 1*(next-prev)/2 = 2000 + 100 = 2100,
+            // and every LETTER keeps the exact target it has without the mod.
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("beggin' him", 1000, 10000, 2800,
+                    unit("beggin'", 1000, 2200), unit("him", 2200, 2800))), literate: true);
 
-            // Retyping 'n' re-marks the apostrophe AutoSkipped and lands the caret on the space again.
+            var tl = engine.Lines[0];
+            Assert.AreEqual("beggin' him", tl.DisplayText);
+            Assert.AreEqual(11, tl.Cells.Count);
+            Assert.AreEqual(11, tl.TypeableCount); // the mark is typed now
+            Assert.IsTrue(tl.Cells[6].IsTypeable);
+            Assert.IsTrue(tl.Cells[6].IsCountable); // a real keypress, so it spends character budget
+            Assert.AreEqual(2100, tl.Cells[6].TargetTime);
+            Assert.AreEqual(2000, tl.Cells[5].TargetTime); // 'n', unmoved
+            Assert.AreEqual(2200, tl.Cells[7].TargetTime); // space, unmoved
+
+            engine.Update(1000);
+
+            engine.ProcessKey('b', 1000);
+            engine.ProcessKey('e', 1200);
+            engine.ProcessKey('g', 1400);
+            engine.ProcessKey('g', 1600);
+            engine.ProcessKey('i', 1800);
             engine.ProcessKey('n', 2000);
-            Assert.AreEqual(CellState.AutoSkipped, tl.Cells[6].State);
+
+            // No auto-skip: the caret waits on the apostrophe, and a letter there is rejected.
+            Assert.AreEqual(6, engine.CaretIndex);
+            Assert.IsTrue(engine.ProcessKey(' ', 2100));
+            Assert.AreEqual(CellState.Untyped, tl.Cells[6].State);
+            Assert.AreEqual(6, engine.CaretIndex);
+            Assert.AreEqual(1, engine.ConsecutiveWrongKeys);
+
+            // Pressed exactly on the interpolated target, so it is judged Perfect like any letter.
+            Assert.IsTrue(engine.ProcessKey('\'', 2100));
+            Assert.AreEqual(CellState.Correct, tl.Cells[6].State);
+            Assert.AreEqual(0, tl.Cells[6].JudgedDelta);
             Assert.AreEqual(7, engine.CaretIndex);
 
-            // Leading + trailing punctuation: "(ab)", unit [1000, 2000], k=2 => a=1000, b=1500.
-            // '(' copies next typeable ('a') = 1000; ')' has no next typeable => copies previous ('b') = 1500.
-            var engine2 = new TypingEngine(map(TimingGranularity.Line,
-                line("(ab)", 1000, 4000, 2000, unit("(ab)", 1000, 2000))));
+            engine.ProcessKey(' ', 2200);
+            engine.ProcessKey('h', 2200);
+            engine.ProcessKey('i', 2400);
+            engine.ProcessKey('m', 2600);
+            Assert.IsTrue(engine.IsLineComplete);
+        }
 
-            engine2.Update(1000);
-            // Leading '(' is auto-skipped at activation: caret starts on 'a' (idx 1).
-            Assert.AreEqual(1, engine2.CaretIndex);
-            Assert.AreEqual(CellState.AutoSkipped, engine2.Lines[0].Cells[0].State);
-            Assert.AreEqual(1000, engine2.Lines[0].Cells[0].TargetTime);
-            Assert.AreEqual(1500, engine2.Lines[0].Cells[3].TargetTime);
+        [Test]
+        public void AutoSkipUnsupportedCharsNeverRequiresAKey()
+        {
+            // A char outside both the typeable surface and the supported punctuation set (Normalize
+            // strips these, so this is the defensive path for hand-built or legacy data) is still a
+            // non-typeable cell the caret hops. "*ab*", unit [1000, 2000], k=2 => a=1000, b=1500.
+            // The leading '*' has nothing before it so it takes the FOLLOWING target (1000); the
+            // trailing '*' has nothing after it so it takes the PRECEDING one (1500).
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("*ab*", 1000, 4000, 2000, unit("*ab*", 1000, 2000))));
 
-            engine2.ProcessKey('a', 1000);
-            engine2.ProcessKey('b', 1500);
-            // Trailing ')' auto-skipped; line completes with just two keys.
-            Assert.IsTrue(engine2.IsLineComplete);
-            Assert.AreEqual(CellState.AutoSkipped, engine2.Lines[0].Cells[3].State);
+            engine.Update(1000);
+            // Leading '*' is auto-skipped at activation: caret starts on 'a' (idx 1).
+            Assert.AreEqual(1, engine.CaretIndex);
+            Assert.AreEqual(CellState.AutoSkipped, engine.Lines[0].Cells[0].State);
+            Assert.AreEqual(1000, engine.Lines[0].Cells[0].TargetTime);
+            Assert.AreEqual(1500, engine.Lines[0].Cells[3].TargetTime);
+
+            engine.ProcessKey('a', 1000);
+            engine.ProcessKey('b', 1500);
+            // Trailing '*' auto-skipped; line completes with just two keys.
+            Assert.IsTrue(engine.IsLineComplete);
+            Assert.AreEqual(CellState.AutoSkipped, engine.Lines[0].Cells[3].State);
+
+            // Backspace steps back OVER the auto-skipped cell and un-skips it.
+            Assert.IsTrue(engine.ProcessBackspace());
+            Assert.AreEqual(2, engine.CaretIndex);
+            Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[3].State);
         }
 
         [Test]
@@ -1033,12 +1076,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void CaseSensitiveRejectsWrongCaseLikeWrongChar()
         {
-            // "aB": 'a' lower-case target @1000, 'B' upper-case target @1500.
+            // "aB": 'a' lower-case target @1000, 'B' upper-case target @1500. Under Literate the
+            // cells carry the authored case (without it they would be flattened to "ab").
             var engine = new TypingEngine(map(TimingGranularity.Line,
-                line("aB", 1000, 3000, 2000, unit("aB", 1000, 2000))))
-            {
-                CaseSensitive = true, // Literate mod
-            };
+                line("aB", 1000, 3000, 2000, unit("aB", 1000, 2000))), literate: true);
+
+            Assert.IsTrue(engine.CaseSensitive);
+            Assert.AreEqual("aB", engine.Lines[0].DisplayText);
 
             var rejected = new List<char>();
             int comboBreaks = 0;

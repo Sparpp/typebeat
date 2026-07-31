@@ -56,6 +56,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         // Deliberately excludes FREESTYLE_MARKER: a freestyle cell matches every key rather than
         // this one, and keeping the marker out of here is what makes it invisible to every
         // legacy path (Normalize, LRC import, the aligner's raw text).
+        // Deliberately excludes PUNCTUATION too: a mark is only ever typed under the Literate
+        // mod, so it must not count as a plain typeable char for the difficulty model, the
+        // interpolation weights or the pace statistics (see <see cref="IsPunctuation"/>).
         public static bool IsTypeable(char c)
             => c == ' '
                || (c >= 'a' && c <= 'z')
@@ -63,6 +66,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                || (c >= '0' && c <= '9');
 
         public static bool IsFreestyle(char c) => c == FREESTYLE_MARKER;
+
+        /// <summary>
+        /// The punctuation type!beat supports inside an authored lyric line, defined ONCE here:
+        /// comma, period, apostrophe, hyphen, question mark, exclamation mark, semicolon, colon,
+        /// round brackets, square brackets, straight double quote. Nothing else may carry its own
+        /// list.
+        ///
+        /// <para>A map stores the AUTHOR'S form: punctuated and case-sensitive. What the player
+        /// actually types (and therefore sees) is derived from it: verbatim under the LITERATE mod,
+        /// and through <see cref="ToDefaultStream"/> otherwise. <see cref="Normalize"/> folds the
+        /// typographic variants (curly quotes/apostrophes, en/em dashes) into this set on the way
+        /// in, so only these ASCII forms ever reach a map.</para>
+        /// </summary>
+        public const string PUNCTUATION = ",.'-?!;:()[]\"";
+
+        /// <summary>
+        /// The one supported mark that reads as a WORD BREAK rather than as decoration: without
+        /// Literate, "bad-cat" is typed "bad cat", not "badcat". Every other mark simply
+        /// disappears from the default stream (see <see cref="DefaultChar"/>).
+        /// </summary>
+        public const char WORD_BREAK = '-';
+
+        /// <summary>A mark from the supported <see cref="PUNCTUATION"/> set.</summary>
+        public static bool IsPunctuation(char c) => PUNCTUATION.IndexOf(c) >= 0;
 
         /// <summary>
         /// A character that occupies a TYPEABLE CELL: a normal typeable char, or a freestyle slot.
@@ -112,10 +139,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         /// <summary>
         /// Latin diacritics stripped (FormD, combining marks dropped), curly
-        /// quotes/apostrophes -> ASCII, en/em dash -> '-', NBSP -> space,
-        /// then every char the player cannot type (apostrophes, commas, any other
-        /// punctuation) is REMOVED, never displayed, never a cell. Whitespace runs
-        /// collapse to a single space, trimmed.
+        /// quotes/apostrophes -> ASCII, en/em dash -> '-', NBSP -> space, then every char that is
+        /// neither typeable nor one of the supported <see cref="PUNCTUATION"/> marks is REMOVED.
+        /// Whitespace runs collapse to a single space, trimmed.
+        ///
+        /// <para>The result is the AUTHOR'S form of the line: original case, supported punctuation
+        /// intact. It is what a map stores. It is NOT what the player types without the Literate
+        /// mod; that is <see cref="ToDefaultStream"/>, derived from this.</para>
         ///
         /// <para><paramref name="keepFreestyleMarkers"/> additionally preserves
         /// <see cref="FREESTYLE_MARKER"/>s, which are otherwise stripped like any other
@@ -158,11 +188,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     _ => original
                 };
 
-                // "You can't type it, so don't display it": untypeable non-whitespace chars
-                // (apostrophes, commas, all other punctuation) are dropped from the game text
-                // entirely; monkeytype-style bare words. Freestyle markers survive only for the
-                // callers that asked for them.
-                if (!char.IsWhiteSpace(c) && !IsTypeable(c) && !(keepFreestyleMarkers && IsFreestyle(c)))
+                // Supported punctuation survives into the stored line (the author's form); every
+                // other untypeable non-whitespace char is dropped from the game text entirely.
+                // Freestyle markers survive only for the callers that asked for them.
+                if (!char.IsWhiteSpace(c) && !IsTypeable(c) && !IsPunctuation(c) && !(keepFreestyleMarkers && IsFreestyle(c)))
                     continue;
 
                 if (char.IsWhiteSpace(c))
@@ -188,9 +217,153 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
+        /// The DEFAULT (no-Literate) typed char for one authored char, or null when the default
+        /// stream deletes it outright:
+        /// <list type="bullet">
+        /// <item><see cref="WORD_BREAK"/> ('-') becomes a SPACE: "bad-cat" is typed "bad cat".</item>
+        /// <item>every other supported <see cref="PUNCTUATION"/> mark disappears.</item>
+        /// <item>everything else (letters, digits, spaces, freestyle markers) folds to lower case,
+        /// which is a no-op for all but letters.</item>
+        /// </list>
+        /// </summary>
+        public static char? DefaultChar(char c)
+        {
+            if (c == WORD_BREAK)
+                return ' ';
+
+            if (IsPunctuation(c))
+                return null;
+
+            return Fold(c);
+        }
+
+        /// <summary>
+        /// THE derivation: projects an authored line onto the DEFAULT (no-Literate) typed stream,
+        /// appending each surviving char to <paramref name="text"/> and, in lockstep, the index in
+        /// <paramref name="raw"/> it came from to <paramref name="sourceIndices"/>. Every char goes
+        /// through <see cref="DefaultChar"/>, so marks disappear, a hyphen turns into a space and
+        /// everything else folds to lower case.
+        ///
+        /// <para>Spaces are handled a RUN at a time (a run being consecutive space-producing chars,
+        /// authored spaces and hyphens alike, with deleted marks skipped over). A run that contains
+        /// NO hyphen is emitted verbatim, space for space; that is what makes the projection
+        /// provably byte-identical to the authored text for every hyphen-free line, which is every
+        /// line any map written before punctuation existed holds, so the default path cannot have
+        /// moved under them. A run that DOES contain a hyphen collapses to exactly one space
+        /// ("a - b" is "a b", not "a  b"), and to none at all at either end of the line ("-a-" is
+        /// "a"), where it would separate nothing.</para>
+        ///
+        /// <para>A collapsed run reports the index of its FIRST space-producing char, so the space
+        /// cell inherits the earliest of the candidate timing slots: for a bare "bad-cat" that is
+        /// the hyphen's own slot between the two letters it separated.</para>
+        ///
+        /// <para>The engine's cell flattening (<see cref="Gameplay.TypingLine.FromLyricLine"/>),
+        /// the on-screen lyric (which renders those same cells) and the string form
+        /// (<see cref="ToDefaultStream"/>) all go through this one function: what you see is
+        /// exactly what you type, by construction rather than by agreement.</para>
+        /// </summary>
+        public static void ProjectDefault(string raw, StringBuilder text, List<int>? sourceIndices = null)
+        {
+            if (string.IsNullOrEmpty(raw))
+                return;
+
+            bool wroteAny = false;
+            int i = 0;
+
+            while (i < raw.Length)
+            {
+                if (DefaultChar(raw[i]) is not char c)
+                {
+                    i++;
+                    continue;
+                }
+
+                if (c != ' ')
+                {
+                    text.Append(c);
+                    sourceIndices?.Add(i);
+                    wroteAny = true;
+                    i++;
+                    continue;
+                }
+
+                // Measure the space run: where it ends, whether a hyphen is in it, and the index of
+                // its first space-producing char.
+                bool hasBreak = false;
+                int firstSpace = -1;
+                int end = i;
+
+                while (end < raw.Length)
+                {
+                    if (DefaultChar(raw[end]) is not char d)
+                    {
+                        end++; // a deleted mark inside the run does not end it
+                        continue;
+                    }
+
+                    if (d != ' ')
+                        break;
+
+                    if (raw[end] == WORD_BREAK)
+                        hasBreak = true;
+
+                    if (firstSpace < 0)
+                        firstSpace = end;
+
+                    end++;
+                }
+
+                if (!hasBreak)
+                {
+                    // Authored spaces only: emitted exactly as authored, one cell each.
+                    for (int k = i; k < end; k++)
+                    {
+                        if (DefaultChar(raw[k]) is not ' ')
+                            continue;
+
+                        text.Append(' ');
+                        sourceIndices?.Add(k);
+                        wroteAny = true;
+                    }
+                }
+                else if (wroteAny && end < raw.Length)
+                {
+                    // One word break, unless the run leads or trails the line and so separates
+                    // nothing at all.
+                    text.Append(' ');
+                    sourceIndices?.Add(firstSpace);
+                }
+
+                i = end;
+            }
+        }
+
+        /// <summary>
+        /// The DEFAULT (no-Literate) typed stream of an authored line: lower-cased, hyphens turned
+        /// into word breaks, every other supported mark deleted.
+        /// "The bad-cat sat." becomes "the bad cat sat".
+        ///
+        /// <para>IDEMPOTENT, and stronger: the result equals <c>ToLowerInvariant</c> of the input
+        /// for ANY line without hyphens or marks, which is every line of every map authored before
+        /// punctuation existed (their text was stripped on the way in). Those maps therefore play,
+        /// score and count exactly as they always have.</para>
+        /// </summary>
+        public static string ToDefaultStream(string raw)
+        {
+            if (string.IsNullOrEmpty(raw))
+                return string.Empty;
+
+            var sb = new StringBuilder(raw.Length);
+            ProjectDefault(raw, sb);
+            return sb.ToString();
+        }
+
+        /// <summary>
         /// Cells the player must type in <paramref name="text"/>: typeable chars plus freestyle
-        /// slots. Identical to the historical typeable-only count for every text that has been
-        /// through a default <see cref="Normalize"/> (which has no markers to count).
+        /// slots. Punctuation is deliberately NOT counted: it is only a cell under the Literate
+        /// mod, and every weight this feeds (interpolation, pace, difficulty) is measured on the
+        /// default stream. Identical to the historical typeable-only count for every text that has
+        /// been through a default <see cref="Normalize"/> (which has no markers to count).
         /// </summary>
         public static int TypeableCount(string text)
         {
@@ -234,7 +407,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
     public sealed class LyricLine
     {
-        /// <summary>Already normalized via <see cref="Typeability.Normalize"/>.</summary>
+        /// <summary>
+        /// The AUTHOR'S form of the line, already normalized via <see cref="Typeability.Normalize"/>:
+        /// original case, supported punctuation intact. What the player types (and sees) is derived
+        /// from it: verbatim under the Literate mod, through
+        /// <see cref="Typeability.ToDefaultStream"/> otherwise.
+        /// </summary>
         public required string RawText { get; init; }
 
         public required double StartTime { get; init; }

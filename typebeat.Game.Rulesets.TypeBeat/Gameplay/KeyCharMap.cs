@@ -35,6 +35,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// remap, so the produced capital always matches the keycap the player reads (e.g. AZERTY Q → 'A').
     /// Only letters carry case; digits and space ignore Shift. Case only matters to gameplay under the
     /// Literate mod (<see cref="TypingEngine.CaseSensitive"/>); otherwise the caret folds it away.
+    ///
+    /// <para>The <c>punctuation</c> overload widens the surface to the supported
+    /// <see cref="Beatmaps.Typeability.PUNCTUATION"/> marks. It is opt-in and OFF everywhere except
+    /// under the Literate mod (<see cref="TypingEngine.Literate"/>), which is the only mode where a
+    /// mark is a cell the player must produce. Keeping it off by default is what preserves two
+    /// existing properties exactly: a habitual comma stays inert (never a wrong-key combo break),
+    /// and Shift+digit still yields the digit rather than '!' / '(' / ')'.</para>
     /// </summary>
     public static class KeyCharMap
     {
@@ -42,8 +49,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         public static bool TryMap(Key key, KeyboardLayout layout, out char c) => TryMap(key, layout, false, out c);
 
-        public static bool TryMap(Key key, KeyboardLayout layout, bool shift, out char c)
+        public static bool TryMap(Key key, KeyboardLayout layout, bool shift, out char c) => TryMap(key, layout, shift, false, out c);
+
+        public static bool TryMap(Key key, KeyboardLayout layout, bool shift, bool punctuation, out char c)
         {
+            // Checked FIRST so a shifted digit can produce its mark ('!' on 1, '(' on 9, ')' on 0);
+            // unshifted digits fall straight through to the digit below.
+            if (punctuation && tryMapPunctuation(key, layout, shift, out c))
+                return true;
+
             if (!tryMapLower(key, layout, out c))
                 return false;
 
@@ -54,6 +68,47 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 c = (char)(c - ('a' - 'A'));
 
             return true;
+        }
+
+        /// <summary>
+        /// The supported punctuation marks, by their US-QWERTY physical positions. Only the marks
+        /// in <see cref="Beatmaps.Typeability.PUNCTUATION"/> are produced: Slash unshifted would be
+        /// '/', which is not in the set, so it stays inert and only Shift+Slash ('?') is live.
+        ///
+        /// <para>KNOWN LIMIT: unlike the letter map above, this is not remapped per layout, because
+        /// punctuation positions differ far more widely across layouts than letters do. The one
+        /// correction made is AZERTY's, whose M keycap sits on the QWERTY semicolon position and
+        /// whose QWERTY-M position genuinely carries ',' (the case
+        /// <see cref="tryMapLower"/> already documents). Other non-US layouts will find some marks
+        /// on the wrong physical key under Literate; a per-layout punctuation table is the fix.</para>
+        /// </summary>
+        private static bool tryMapPunctuation(Key key, KeyboardLayout layout, bool shift, out char c)
+        {
+            if (layout == KeyboardLayout.Azerty && key == Key.M)
+            {
+                // This position carries ',' on AZERTY. Inert without the mod (see tryMapLower);
+                // with it, it is the comma key.
+                c = ',';
+                return !shift;
+            }
+
+            c = key switch
+            {
+                Key.Comma => shift ? default : ',',
+                Key.Period => shift ? default : '.',
+                Key.Quote => shift ? '"' : '\'',
+                Key.Minus => shift ? default : '-',
+                Key.Slash => shift ? '?' : default, // unshifted '/' is not a supported mark
+                Key.Semicolon => shift ? ':' : ';',
+                Key.BracketLeft => shift ? default : '[',
+                Key.BracketRight => shift ? default : ']',
+                Key.Number1 => shift ? '!' : default,
+                Key.Number9 => shift ? '(' : default,
+                Key.Number0 => shift ? ')' : default,
+                _ => default
+            };
+
+            return c != default;
         }
 
         private static bool tryMapLower(Key key, KeyboardLayout layout, out char c)
