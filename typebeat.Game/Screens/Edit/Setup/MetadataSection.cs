@@ -29,6 +29,7 @@ namespace typebeat.Game.Screens.Edit.Setup
         private FormTextBox difficultyTextBox = null!;
         private FormTextBox sourceTextBox = null!;
         private FormTextBox tagsTextBox = null!;
+        private FormEnumDropdown<BeatmapLanguage> languageDropdown = null!;
 
         private bool reloading;
         private bool dirty;
@@ -60,6 +61,16 @@ namespace typebeat.Game.Screens.Edit.Setup
                 difficultyTextBox = createTextBox<FormTextBox>(EditorSetupStrings.DifficultyName),
                 sourceTextBox = createTextBox<FormTextBox>(BeatmapsetsStrings.ShowInfoSource),
                 tagsTextBox = createTextBox<FormTextBox>(BeatmapsetsStrings.ShowInfoMapperTags),
+                // Every member INCLUDING Unspecified: it is the "not chosen yet" state a new map
+                // starts in, and the mapper has to be able to see that they are still on it. What
+                // stops it being submitted is the guard in Editor.submitBeatmap, not a hidden
+                // dropdown entry.
+                languageDropdown = new FormEnumDropdown<BeatmapLanguage>
+                {
+                    Caption = EditorSetupStrings.Language,
+                    HintText = EditorSetupStrings.LanguageDescription,
+                    Current = { Value = Beatmap.Metadata.Language },
+                },
                 new RoundedButton
                 {
                     RelativeSizeAxes = Axes.X,
@@ -99,6 +110,10 @@ namespace typebeat.Game.Screens.Edit.Setup
                 b.Metadata.Title = source.Title;
                 b.Metadata.Source = source.Source;
                 b.Metadata.Tags = source.Tags;
+                // Language is a property of the SONG, so it can never legitimately differ between
+                // difficulties of one set (and the website reads it off the primary difficulty
+                // only), which makes it a natural member of this sync.
+                b.Metadata.Language = source.Language;
 
                 try
                 {
@@ -147,6 +162,18 @@ namespace typebeat.Game.Screens.Edit.Setup
                 };
             }
 
+            // The loop above only reaches FormTextBoxes, so the dropdown needs its own hookup. It
+            // has no "commit" concept (picking an item IS the commit), so it saves state straight
+            // away rather than waiting for a return key.
+            languageDropdown.Current.BindValueChanged(_ =>
+            {
+                if (reloading)
+                    return;
+
+                applyMetadata();
+                Beatmap.SaveState();
+            });
+
             if (editor != null)
                 editor.Saved += () => dirty = false;
 
@@ -184,6 +211,7 @@ namespace typebeat.Game.Screens.Edit.Setup
             difficultyTextBox.Current.Value = Beatmap.BeatmapInfo.DifficultyName;
             sourceTextBox.Current.Value = metadata.Source;
             tagsTextBox.Current.Value = metadata.Tags;
+            languageDropdown.Current.Value = metadata.Language;
 
             updateReadOnlyState();
 
@@ -203,6 +231,7 @@ namespace typebeat.Game.Screens.Edit.Setup
             Beatmap.BeatmapInfo.DifficultyName = difficultyTextBox.Current.Value;
             Beatmap.Metadata.Source = sourceTextBox.Current.Value;
             Beatmap.Metadata.Tags = tagsTextBox.Current.Value;
+            Beatmap.Metadata.Language = languageDropdown.Current.Value;
 
             dirty = true;
         }

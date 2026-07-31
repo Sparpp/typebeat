@@ -387,6 +387,14 @@ namespace typebeat.Game.Beatmaps.Formats
                     metadata.Tags = pair.Value;
                     break;
 
+                case @"Language":
+                    // type!beat addition (task 58): the mapper's declared song language. Total by
+                    // construction, an unrecognised value decodes to Unspecified, so a file from a
+                    // newer client can never fail to load here. Absent (every file written before
+                    // this key existed) leaves the metadata's own Unspecified default in place.
+                    metadata.Language = BeatmapLanguageExtensions.FromCanonicalName(pair.Value);
+                    break;
+
                 case @"BeatmapID":
                     beatmap.BeatmapInfo.OnlineID = Parsing.ParseInt(pair.Value);
                     break;

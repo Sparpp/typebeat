@@ -54,12 +54,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// writes a blank TitleUnicode line.</param>
         /// <param name="artistUnicode">Original (non-romanised) [Metadata] ArtistUnicode; falls back
         /// to <paramref name="artist"/> when unset.</param>
+        /// <param name="language">Canonical lowercase song language
+        /// (<see cref="typebeat.Game.Beatmaps.BeatmapLanguageExtensions.ToCanonicalName"/>), chosen by
+        /// the mapper in song setup. Null/empty (an unspecified map) writes NO Language line at all,
+        /// which is what keeps every pre-task-58 map's encoding byte-identical, so adding this field
+        /// cannot demote a ranked map to locally-modified. Flows to the website's
+        /// beatmapsets.language on submission.</param>
         /// <exception cref="ArgumentException">When the timing.json is not a supported v2 document.</exception>
         public static string GenerateOsu(string artist, string title, string audioFilename, string creator, string timingJsonText,
                                          double previewTime = -1, double audioLeadIn = 0, double? beatdropMs = null,
                                          string? backgroundFilename = null, string? videoFilename = null,
                                          int beatmapId = -1, int beatmapSetId = -1, string difficultyName = "type!beat",
-                                         string tags = "", string? titleUnicode = null, string? artistUnicode = null)
+                                         string tags = "", string? titleUnicode = null, string? artistUnicode = null,
+                                         string? language = null)
         {
             using var doc = JsonDocument.Parse(timingJsonText);
             JsonElement root = doc.RootElement;
@@ -130,6 +137,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // tags; an unset field writes an empty Tags line.
             string sanitizedTags = (tags ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
             sb.AppendLine($"Tags:{sanitizedTags}");
+
+            // Song language (task 58). Emitted ONLY when the mapper has chosen one, so a map that
+            // has not been through the new setup field encodes exactly as it did before this key
+            // existed (TypeBeatRuleset.NativeEncodingsEquivalentForStatus compares encodings, and
+            // an unconditional line would re-hash every map in every install).
+            if (!string.IsNullOrWhiteSpace(language))
+                sb.AppendLine($"Language:{language.Trim()}");
 
             // Online IDs are stamped on submission; the server validates the embedded IDs
             // against the set being uploaded, and the inherited legacy [Metadata] parsing

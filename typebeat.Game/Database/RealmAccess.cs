@@ -103,8 +103,9 @@ namespace typebeat.Game.Database
         /// 51   2025-07-22    Add ScoreInfo.Pauses.
         /// 52   2026-07-15    type!beat ruleset claimed online ruleset ID 0 (ILegacyRuleset); update rows cached with OnlineID -1.
         /// 53   2026-07-27    Added IntroPoolInclusion to BeatmapUserSettings (song select's "Use on game intro" toggle).
+        /// 54   2026-07-31    Added Language to BeatmapMetadata (mapper-declared song language, required for submission).
         /// </summary>
-        private const int schema_version = 53;
+        private const int schema_version = 54;
 
         /// <summary>
         /// Lock object which is held during <see cref="BlockAllOperations"/> sections, blocking realm retrieval during blocking periods.
@@ -1293,6 +1294,13 @@ namespace typebeat.Game.Database
                     foreach (var ruleset in migration.NewRealm.All<RulesetInfo>().Where(r => r.ShortName == "typebeat" && r.OnlineID == -1))
                         ruleset.OnlineID = 0;
 
+                    break;
+
+                case 54:
+                    // Purely additive: BeatmapMetadata.Language is backed by an int that realm
+                    // fills with 0 on existing rows, and BeatmapLanguage.Unspecified is 0 by
+                    // construction (see BeatmapLanguage.cs), so every pre-existing beatmap already
+                    // reads as "language not chosen", which is exactly right. No fix-up needed.
                     break;
             }
 

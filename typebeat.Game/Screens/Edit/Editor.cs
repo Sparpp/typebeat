@@ -1299,6 +1299,21 @@ namespace typebeat.Game.Screens.Edit
                 return;
             }
 
+            // The song language is mandatory (task 58): the website searches and displays it, and
+            // the ONLY channel it reaches the server on is the [Metadata] Language: line inside the
+            // uploaded package, so a map submitted without one would arrive unclassified and stay
+            // that way until a heuristic backfill guessed at it. Blocked here rather than in the
+            // submission wizard so the mapper is stopped before any set is created server-side, and
+            // is told exactly which editor screen to fix it on.
+            if (editorBeatmap.Metadata.Language == BeatmapLanguage.Unspecified)
+            {
+                notifications?.Post(new SimpleNotification
+                {
+                    Text = BeatmapSubmissionStrings.LanguageMustBeSetBeforeSubmission,
+                });
+                return;
+            }
+
             if (HasUnsavedChanges)
             {
                 dialogOverlay.Push(new SaveRequiredPopupDialog(() => attemptMutationOperation(() =>

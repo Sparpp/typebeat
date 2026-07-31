@@ -144,6 +144,9 @@ namespace typebeat.Game.Beatmaps.Formats
             writer.WriteLine(FormattableString.Invariant($"Version: {beatmap.BeatmapInfo.DifficultyName}"));
             if (!string.IsNullOrEmpty(beatmap.Metadata.Source)) writer.WriteLine(FormattableString.Invariant($"Source: {beatmap.Metadata.Source}"));
             if (!string.IsNullOrEmpty(beatmap.Metadata.Tags)) writer.WriteLine(FormattableString.Invariant($"Tags: {beatmap.Metadata.Tags}"));
+            // type!beat addition (task 58). Written only when the mapper has actually chosen one:
+            // an unspecified map emits no line, so every existing beatmap's encoding is unchanged.
+            if (beatmap.Metadata.Language != BeatmapLanguage.Unspecified) writer.WriteLine(FormattableString.Invariant($"Language: {beatmap.Metadata.Language.ToCanonicalName()}"));
             if (beatmap.BeatmapInfo.OnlineID > 0) writer.WriteLine(FormattableString.Invariant($"BeatmapID: {beatmap.BeatmapInfo.OnlineID}"));
             if (beatmap.BeatmapInfo.BeatmapSet?.OnlineID > 0) writer.WriteLine(FormattableString.Invariant($"BeatmapSetID: {beatmap.BeatmapInfo.BeatmapSet.OnlineID}"));
         }

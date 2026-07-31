@@ -166,6 +166,12 @@ namespace typebeat.Game.Localisation
         public static LocalisableString EmptyBeatmapsCannotBeSubmitted => new TranslatableString(getKey(@"empty_beatmaps_cannot_be_submitted"), @"Empty beatmaps cannot be submitted.");
 
         /// <summary>
+        /// "Set the song's language in song setup before submitting. Open Setup and pick one from the Language dropdown."
+        /// </summary>
+        public static LocalisableString LanguageMustBeSetBeforeSubmission => new TranslatableString(getKey(@"language_must_be_set_before_submission"),
+            @"Set the song's language in song setup before submitting. Open Setup and pick one from the Language dropdown.");
+
+        /// <summary>
         /// "Update beatmap!"
         /// </summary>
         public static LocalisableString UpdateBeatmap => new TranslatableString(getKey(@"update_beatmap"), @"Update beatmap!");
