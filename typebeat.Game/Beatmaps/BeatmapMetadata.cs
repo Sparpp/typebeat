@@ -46,6 +46,30 @@ namespace typebeat.Game.Beatmaps
         public string Tags { get; set; } = string.Empty;
 
         /// <summary>
+        /// The language the song is sung in. Chosen in the editor's song setup, written into the
+        /// beatmap's <c>[Metadata] Language:</c> line, and required before the map can be
+        /// submitted (see <c>Editor.submitBeatmap</c>).
+        /// </summary>
+        /// <remarks>
+        /// Stored through <see cref="LanguageInt"/> the same way <see cref="BeatmapInfo.Status"/>
+        /// is: realm persists the int, code sees the enum. <see cref="BeatmapLanguage.Unspecified"/>
+        /// is 0 precisely so that realm's default for the newly added column means "not chosen".
+        /// Deliberately NOT added to <see cref="IBeatmapMetadataInfo"/>: that interface is the
+        /// display/search contract shared with the API response models, none of which carry a
+        /// per-difficulty language, and widening its default equality would change what counts as
+        /// a metadata difference across the whole game.
+        /// </remarks>
+        [Ignored]
+        public BeatmapLanguage Language
+        {
+            get => (BeatmapLanguage)LanguageInt;
+            set => LanguageInt = (int)value;
+        }
+
+        [MapTo(nameof(Language))]
+        public int LanguageInt { get; set; } = (int)BeatmapLanguage.Unspecified;
+
+        /// <summary>
         /// The list of user-voted tags applicable to this beatmap.
         /// This information is populated from online sources (<see cref="RealmPopulatingOnlineLookupSource"/>)
         /// and can meaningfully differ between beatmaps of a single set.
@@ -83,6 +107,7 @@ namespace typebeat.Game.Beatmaps
             ArtistUnicode = ArtistUnicode,
             Source = Source,
             Tags = Tags,
+            Language = Language,
             PreviewTime = PreviewTime,
             AudioFile = AudioFile,
             BackgroundFile = BackgroundFile

@@ -48,7 +48,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 difficultyName: beatmap.BeatmapInfo.DifficultyName,
                 tags: metadata.Tags,
                 titleUnicode: metadata.TitleUnicode,
-                artistUnicode: metadata.ArtistUnicode);
+                artistUnicode: metadata.ArtistUnicode,
+                language: metadata.Language.ToCanonicalName());
 
             writer.Write(osu);
         }

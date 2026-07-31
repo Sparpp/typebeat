@@ -170,6 +170,16 @@ namespace typebeat.Game.Localisation
         public static LocalisableString DifficultyName => new TranslatableString(getKey(@"difficulty_name"), @"Difficulty Name");
 
         /// <summary>
+        /// "Language"
+        /// </summary>
+        public static LocalisableString Language => new TranslatableString(getKey(@"language"), @"Language");
+
+        /// <summary>
+        /// "The language the song is sung in. Required before the beatmap can be submitted."
+        /// </summary>
+        public static LocalisableString LanguageDescription => new TranslatableString(getKey(@"language_description"), @"The language the song is sung in. Required before the beatmap can be submitted.");
+
+        /// <summary>
         /// "Resources"
         /// </summary>
         public static LocalisableString ResourcesHeader => new TranslatableString(getKey(@"resources_header"), @"Resources");
