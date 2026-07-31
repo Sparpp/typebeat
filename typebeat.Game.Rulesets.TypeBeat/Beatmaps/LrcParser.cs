@@ -282,10 +282,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             string rawText = rawLine.Substring(idx);
             string text = Typeability.Normalize(Typeability.StripBackingVocals(rawText));
 
-            // A backing-vocal-only line (all bracketed) vanishes entirely; it must NOT linger
-            // as an empty entry, or it would masquerade as a boundary/terminator marker. Genuine
-            // bare-timestamp terminators had no text to begin with and pass through unchanged.
-            if (text.Length == 0 && Typeability.Normalize(rawText).Length > 0)
+            // A line with nothing to TYPE (a backing-vocal-only line, all bracketed, or one that is
+            // nothing but punctuation) vanishes entirely; it must NOT linger as an empty entry, or
+            // it would masquerade as a boundary/terminator marker. Genuine bare-timestamp
+            // terminators had no text to begin with and pass through unchanged. Emptiness is
+            // measured on the DEFAULT stream, because punctuation now survives normalization while
+            // still being nothing the player types.
+            if (Typeability.ToDefaultStream(text).Length == 0 && Typeability.Normalize(rawText).Length > 0)
                 return;
 
             foreach (double t in times)

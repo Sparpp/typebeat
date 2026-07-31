@@ -136,7 +136,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                              && freestyleElement.ValueKind == JsonValueKind.True;
 
             string normalized = Typeability.Normalize(Typeability.StripBackingVocals(textElement.GetString() ?? string.Empty), keepFreestyleMarkers: freestyle);
-            if (normalized.Length == 0)
+
+            // A line with nothing to TYPE is dropped, and the previous line extends over its span.
+            // Tested on the DEFAULT stream, not on the normalized text, because a line that is
+            // nothing but punctuation ("...") now normalizes non-empty yet still gives the player
+            // no cell at all. The two conditions coincide exactly for every other input, so this is
+            // the same rule the loader has always applied.
+            if (Typeability.ToDefaultStream(normalized).Length == 0)
                 return false;
 
             if (!lineElement.TryGetProperty("start_ms", out JsonElement startElement)

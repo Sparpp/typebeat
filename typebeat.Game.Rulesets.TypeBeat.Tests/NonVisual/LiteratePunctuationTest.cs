@@ -525,6 +525,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void ALineWithNothingToTypeIsStillDropped()
+        {
+            // A line that is nothing but punctuation now normalizes NON-empty, but it gives the
+            // player no cell at all, so it must still vanish and let the previous line extend over
+            // its span, exactly as a whole-line backing vocal does. Every drop guard therefore
+            // measures the DEFAULT stream, not the normalized text.
+            var lines = LrcParser.Parse("[00:01.00] real one\n[00:02.00] ...\n[00:04.00] real two\n[00:06.00]\n");
+
+            Assert.AreEqual(2, lines.Count);
+            Assert.AreEqual("real one", lines[0].RawText);
+            Assert.AreEqual(4000, lines[0].EndTime); // extends over the dropped line
+            Assert.AreEqual("real two", lines[1].RawText);
+        }
+
+        [Test]
         public void PaceStatisticsMeasureTheDefaultStreamNotTheAuthoredLine()
         {
             // The authored line has 16 chars; the default stream has 15 cells across 4 words
