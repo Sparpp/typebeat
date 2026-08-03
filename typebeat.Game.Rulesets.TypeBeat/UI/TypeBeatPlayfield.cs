@@ -234,6 +234,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             Engine.CharJudged += onCharJudged;
             Engine.LineSealed += onLineSealed;
             Engine.WrongKeyRejected += onWrongKeyRejected;
+            Engine.Mistyped += onMistyped;
         }
 
         protected override void Update()
@@ -274,6 +275,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 scoreProcessor.Combo.Value = 0;
         }
 
+        /// <summary>
+        /// Every wrong KEYPRESS, in both input modes (see <see cref="TypingEngine.Mistyped"/>).
+        /// The count is the ONLY thing recorded here: the combo break is left exactly where it
+        /// already was in each mode, so gameplay and every derived number stay byte-identical.
+        /// </summary>
+        private void onMistyped() => (scoreProcessor as TypeBeatScoreProcessor)?.RecordMistype();
+
         private void onWrongKeyRejected(char c)
         {
             // A rejected key produces no hit result, so mirror the engine's combo break into
@@ -295,6 +303,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             Engine.CharJudged -= onCharJudged;
             Engine.LineSealed -= onLineSealed;
             Engine.WrongKeyRejected -= onWrongKeyRejected;
+            Engine.Mistyped -= onMistyped;
             base.Dispose(isDisposing);
         }
 

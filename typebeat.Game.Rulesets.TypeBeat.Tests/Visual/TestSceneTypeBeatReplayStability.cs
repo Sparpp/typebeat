@@ -62,6 +62,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             long firstTotalScore = 0;
             double firstAccuracy = 0;
             int firstMaxCombo = 0;
+            int firstMistypes = 0;
 
             AddStep("create replay score", () => originalScore = new Score
             {
@@ -82,7 +83,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 firstTotalScore = currentPlayer.GameplayState.ScoreProcessor.TotalScore.Value;
                 firstAccuracy = currentPlayer.GameplayState.ScoreProcessor.Accuracy.Value;
                 firstMaxCombo = currentPlayer.GameplayState.ScoreProcessor.HighestCombo.Value;
+                firstMistypes = currentPlayer.GameplayState.ScoreProcessor.Statistics.GetValueOrDefault(HitResult.ComboBreak);
             });
+
+            // Backlog 72: the scripted replay's rejected 'x' is a MISTYPE, and re-simulating the
+            // replay is the only way the count can ever be produced (it is not stored in the frame
+            // stream, which holds the keystrokes themselves). Note the consequence: replaying an
+            // OLD recording now grows a stat its original submission never carried, which is
+            // correct, the presses were always there, they just used to leave no trace.
+            AddAssert("the rejected key counted as one mistype", () => firstMistypes, () => Is.EqualTo(1));
 
             AddStep("exit player", () => currentPlayer.Exit());
             AddUntilStep("player exited", () => !currentPlayer.IsCurrentScreen());
@@ -120,6 +129,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("total score identical", () => currentPlayer.GameplayState.ScoreProcessor.TotalScore.Value, () => Is.EqualTo(firstTotalScore));
             AddAssert("accuracy identical", () => currentPlayer.GameplayState.ScoreProcessor.Accuracy.Value, () => Is.EqualTo(firstAccuracy));
             AddAssert("max combo identical", () => currentPlayer.GameplayState.ScoreProcessor.HighestCombo.Value, () => Is.EqualTo(firstMaxCombo));
+            AddAssert("mistype count identical", () => currentPlayer.GameplayState.ScoreProcessor.Statistics.GetValueOrDefault(HitResult.ComboBreak), () => Is.EqualTo(firstMistypes));
         }
 
         /// <summary>
