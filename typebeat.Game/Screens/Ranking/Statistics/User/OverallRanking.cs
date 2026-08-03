@@ -6,12 +6,27 @@ using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using typebeat.Game.Extensions;
+using typebeat.Game.Graphics;
+using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.UserInterface;
+using typebeat.Game.Localisation;
 using typebeat.Game.Online;
 using typebeat.Game.Scoring;
 
 namespace typebeat.Game.Screens.Ranking.Statistics.User
 {
+    /// <summary>
+    /// The results screen's "Overall Ranking" panel: how this score moved the local user's profile statistics.
+    ///
+    /// <para>
+    /// THREE STATES, and the third one is why this is not simply a grid behind a spinner. The delta can be on its way
+    /// (spinner), it can have arrived (grid), or it can be established that it is never arriving, and that last case is
+    /// reachable in ordinary play: the refetch after submission can fail, or it can succeed with no "before" snapshot to
+    /// compare against. Both of those used to leave the spinner up forever, so the panel promised a number that could not
+    /// come. It now says which of the two happened, in words. It does not fill the grid with zeroes to look resolved,
+    /// for the same reason the score panel's pp readout shows a dash rather than a 0 for an unpriced play.
+    /// </para>
+    /// </summary>
     public partial class OverallRanking : CompositeDrawable
     {
         private const float transition_duration = 300;
@@ -19,10 +34,14 @@ namespace typebeat.Game.Screens.Ranking.Statistics.User
         public Bindable<ScoreBasedUserStatisticsUpdate?> DisplayedUpdate { get; } = new Bindable<ScoreBasedUserStatisticsUpdate?>();
         private readonly IBindable<ScoreBasedUserStatisticsUpdate?> latestGlobalStatisticsUpdate = new Bindable<ScoreBasedUserStatisticsUpdate?>();
 
+        private readonly Bindable<UnavailableStatisticsUpdate?> displayedUnavailableUpdate = new Bindable<UnavailableStatisticsUpdate?>();
+        private readonly IBindable<UnavailableStatisticsUpdate?> latestGlobalUnavailableUpdate = new Bindable<UnavailableStatisticsUpdate?>();
+
         private readonly ScoreInfo scoreInfo;
 
         private LoadingLayer loadingLayer = null!;
         private GridContainer content = null!;
+        private OsuTextFlowContainer unavailableText = null!;
 
         public OverallRanking(ScoreInfo scoreInfo)
         {
@@ -84,7 +103,14 @@ namespace typebeat.Game.Screens.Ranking.Statistics.User
                             new TotalScoreChangeRow { StatisticsUpdate = { BindTarget = DisplayedUpdate } },
                         }
                     }
-                }
+                },
+                unavailableText = new OsuTextFlowContainer(t => t.Font = OsuFont.Default.With(size: StatisticItem.FONT_SIZE))
+                {
+                    RelativeSizeAxes = Axes.X,
+                    AutoSizeAxes = Axes.Y,
+                    TextAnchor = Anchor.TopCentre,
+                    Alpha = 0,
+                },
             };
 
             if (userStatisticsWatcher != null)
@@ -95,6 +121,20 @@ namespace typebeat.Game.Screens.Ranking.Statistics.User
                     if (update.NewValue?.Score.MatchesOnlineID(scoreInfo) == true)
                         DisplayedUpdate.Value = update.NewValue;
                 }, true);
+
+                latestGlobalUnavailableUpdate.BindTo(userStatisticsWatcher.LatestUnavailableUpdate);
+                latestGlobalUnavailableUpdate.BindValueChanged(unavailable =>
+                {
+                    if (unavailable.NewValue?.Score.MatchesOnlineID(scoreInfo) == true)
+                        displayedUnavailableUpdate.Value = unavailable.NewValue;
+                }, true);
+            }
+            else
+            {
+                // the watcher is resolved optionally, so it can genuinely be absent (a test scene, or a game that failed to
+                // cache it, which is what the whole feature did before task 76). Nothing would ever drive this panel then,
+                // so resolve it here instead of spinning on a promise that no component exists to keep.
+                displayedUnavailableUpdate.Value = new UnavailableStatisticsUpdate(scoreInfo, StatisticsUpdateUnavailableReason.FetchFailed);
             }
         }
 
@@ -102,22 +142,48 @@ namespace typebeat.Game.Screens.Ranking.Statistics.User
         {
             base.LoadComplete();
 
-            DisplayedUpdate.BindValueChanged(onUpdateReceived, true);
+            DisplayedUpdate.BindValueChanged(_ => updateState());
+            displayedUnavailableUpdate.BindValueChanged(_ => updateState());
+
+            updateState();
             FinishTransforms(true);
         }
 
-        private void onUpdateReceived(ValueChangedEvent<ScoreBasedUserStatisticsUpdate?> update)
+        /// <summary>
+        /// Settles the panel into exactly one of its three states. An arrived update always wins over an unavailability,
+        /// so a late-but-real delta can still replace the message rather than being locked out by it.
+        /// </summary>
+        private void updateState()
         {
-            if (update.NewValue == null)
-            {
-                loadingLayer.Show();
-                content.FadeOut(transition_duration, Easing.OutQuint);
-            }
-            else
+            if (DisplayedUpdate.Value != null)
             {
                 loadingLayer.Hide();
+                content.AlwaysPresent = true;
                 content.FadeIn(transition_duration, Easing.OutQuint);
+                unavailableText.FadeOut(transition_duration, Easing.OutQuint);
+                return;
             }
+
+            if (displayedUnavailableUpdate.Value != null)
+            {
+                unavailableText.Text = displayedUnavailableUpdate.Value.Reason == StatisticsUpdateUnavailableReason.NoPreviousStatistics
+                    ? ResultsScreenStrings.PreviousStatisticsUnavailable
+                    : ResultsScreenStrings.StatisticsUpdateUnavailable;
+
+                loadingLayer.Hide();
+
+                // drop the (invisible) grid out of layout so the panel collapses onto the message. Six blank rows around one
+                // line of text reads like the panel is still loading, which is the impression this whole change exists to end.
+                content.AlwaysPresent = false;
+                content.FadeOut(transition_duration, Easing.OutQuint);
+                unavailableText.FadeIn(transition_duration, Easing.OutQuint);
+                return;
+            }
+
+            loadingLayer.Show();
+            content.AlwaysPresent = true;
+            content.FadeOut(transition_duration, Easing.OutQuint);
+            unavailableText.FadeOut(transition_duration, Easing.OutQuint);
         }
     }
 }

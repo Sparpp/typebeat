@@ -33,6 +33,17 @@ namespace typebeat.Game.Online
         public IBindable<ScoreBasedUserStatisticsUpdate?> LatestUpdate => latestUpdate;
         private readonly Bindable<ScoreBasedUserStatisticsUpdate?> latestUpdate = new Bindable<ScoreBasedUserStatisticsUpdate?>();
 
+        /// <summary>
+        /// The most recent score that will NOT receive a statistics update, and why (see <see cref="UnavailableStatisticsUpdate"/>).
+        /// </summary>
+        /// <remarks>
+        /// A bindable rather than an event on purpose, for the same reason <see cref="LatestUpdate"/> is one: on this backend a
+        /// score resolves during submission, which is BEFORE the results screen that displays it has finished loading, so a
+        /// waiting surface has to be able to read the outcome that already happened rather than only hear about the next one.
+        /// </remarks>
+        public IBindable<UnavailableStatisticsUpdate?> LatestUnavailableUpdate => latestUnavailableUpdate;
+        private readonly Bindable<UnavailableStatisticsUpdate?> latestUnavailableUpdate = new Bindable<UnavailableStatisticsUpdate?>();
+
         [Resolved]
         private SpectatorClient spectatorClient { get; set; } = null!;
 
@@ -61,11 +72,17 @@ namespace typebeat.Game.Online
         {
             Schedule(() =>
             {
-                if (!api.IsLoggedIn)
-                    return;
-
                 if (!score.Ruleset.IsLegacyRuleset() || score.OnlineID <= 0)
                     return;
+
+                // an online id means the score really was submitted, so a results screen may be waiting on a delta for it.
+                // declining to watch it here without saying so is the same perpetual spinner as a failed refetch, just
+                // reached a different way (the login can drop between the submission returning and this frame).
+                if (!api.IsLoggedIn)
+                {
+                    latestUnavailableUpdate.Value = new UnavailableStatisticsUpdate(score, StatisticsUpdateUnavailableReason.FetchFailed);
+                    return;
+                }
 
                 watchedScores.Add(score.OnlineID, score);
             });
@@ -100,10 +117,25 @@ namespace typebeat.Game.Online
 
             statisticsProvider.RefetchStatistics(scoreInfo.Ruleset, u => Schedule(() =>
             {
+                // Every arm below publishes exactly one terminal value, and none of them fabricates a delta. A surface that
+                // shows the change from a score has to be told when there is no change to show, or it waits forever.
+
+                // A null update is the refetch itself failing (404/500/timeout/dropped connection).
+                if (u == null)
+                {
+                    latestUnavailableUpdate.Value = new UnavailableStatisticsUpdate(scoreInfo, StatisticsUpdateUnavailableReason.FetchFailed);
+                    return;
+                }
+
                 // No "before" means the local statistics had never been fetched successfully at all (login-time fetch still in
-                // flight, or failed). There is no delta to describe, so publish nothing rather than an invented one.
-                if (u.OldStatistics != null)
-                    latestUpdate.Value = new ScoreBasedUserStatisticsUpdate(scoreInfo, u.OldStatistics, u.NewStatistics);
+                // flight, or failed). There is no delta to describe, so say so rather than publishing an invented one.
+                if (u.OldStatistics == null)
+                {
+                    latestUnavailableUpdate.Value = new UnavailableStatisticsUpdate(scoreInfo, StatisticsUpdateUnavailableReason.NoPreviousStatistics);
+                    return;
+                }
+
+                latestUpdate.Value = new ScoreBasedUserStatisticsUpdate(scoreInfo, u.OldStatistics, u.NewStatistics);
             }));
         }
 
