@@ -8,7 +8,6 @@
 // (which is score-processor authoritative, not engine authoritative, see below).
 
 using System.Collections.Generic;
-using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
@@ -16,9 +15,7 @@ using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Scoring;
-using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
-using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 
 namespace typebeat.Game.Rulesets.TypeBeat.UI
@@ -34,8 +31,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// What the pp readout shows for a play that can never earn pp (see
         /// <see cref="starRating"/>). Deliberately not a number: a live "214" on a play the server
         /// will store at 0 pp would be a lie the player only discovers on the results screen.
+        /// Aliases <see cref="PerformancePointsDisplay.INELIGIBLE_TEXT"/> rather than re-stating it,
+        /// so this counter and the results screen render an ineligible play identically.
         /// </summary>
-        public const string INELIGIBLE_TEXT = "-";
+        public const string INELIGIBLE_TEXT = PerformancePointsDisplay.INELIGIBLE_TEXT;
 
         private readonly TypingEngine engine;
 
@@ -100,33 +99,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             mods = gameplayMods;
             starRating = StarRatingFor(playableBeatmap, gameplayMods);
-            ppValue.Text = starRating == null ? INELIGIBLE_TEXT : "0";
+            ppValue.Text = PerformancePointsDisplay.Format(starRating == null ? null : 0d);
         }
 
         /// <summary>
         /// The rating to price this play at, or null when it is ineligible (see
-        /// <see cref="starRating"/>). The rating itself comes from the map's own lyric lines at the
-        /// play's clock rate, i.e. the same <see cref="LyricDifficulty"/> pass that fills
-        /// <see cref="TypeBeatDifficultyCalculator"/> and, through the server's mirrored copy of it,
-        /// the stored <c>difficulty_rating</c> / <c>sr_dt</c> / <c>sr_ht</c> columns. Nothing is
-        /// fetched from the server.
+        /// <see cref="starRating"/>). Delegates to
+        /// <see cref="PerformancePointsDisplay.StarRatingFor"/>, which is where the gates and their
+        /// reasoning live, so this counter and the results screen apply exactly the same ones.
         ///
-        /// <para>Public rather than private so the headless tests can drive the exact gate the HUD
-        /// uses, instead of a paraphrase of it.</para>
+        /// <para>Kept here, and public, because the task 74 tests drive the gate the HUD uses
+        /// through this name rather than through a paraphrase of it.</para>
         /// </summary>
         public static double? StarRatingFor(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? mods)
-        {
-            if (playableBeatmap == null)
-                return null;
-
-            if (!playableBeatmap.BeatmapInfo.Status.GrantsPerformancePoints())
-                return null;
-
-            if (mods != null && mods.Any(m => !m.Ranked))
-                return null;
-
-            return PerformancePoints.StarsFor(playableBeatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), mods);
-        }
+            => PerformancePointsDisplay.StarRatingFor(playableBeatmap, mods);
 
         private Drawable stat(string caption, out OsuSpriteText value)
         {
@@ -205,7 +191,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             lastCounts = counts;
             lastMaxCombo = maxCombo;
 
-            ppValue.Text = PerformancePoints.ForPlay(stars, counts, scoreProcessor.Accuracy.Value, maxCombo, mods).ToString("0");
+            ppValue.Text = PerformancePointsDisplay.Format(PerformancePoints.ForPlay(stars, counts, scoreProcessor.Accuracy.Value, maxCombo, mods));
         }
     }
 }
