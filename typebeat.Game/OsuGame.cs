@@ -990,6 +990,12 @@ namespace typebeat.Game
             LocalUserStatisticsProvider statisticsProvider;
 
             loadComponentSingleFile(statisticsProvider = new LocalUserStatisticsProvider(), Add, true);
+
+            // Cached, and it must be: SubmittingPlayer, the toolbar's TransientUserStatisticsUpdateDisplay and the results
+            // screen's OverallRanking all resolve it optionally, so without this line every one of them silently gets null and
+            // the whole before/after statistics feature is inert (which it was until this was added).
+            loadComponentSingleFile(new UserStatisticsWatcher(statisticsProvider), Add, true);
+
             loadComponentSingleFile(difficultyRecommender = new DifficultyRecommender(statisticsProvider), Add, true);
             loadComponentSingleFile(Toolbar = new Toolbar
             {

@@ -201,7 +201,14 @@ namespace typebeat.Game.Screens.Play
 
             await submitScore(score).ConfigureAwait(false);
             spectatorClient.EndPlaying(GameplayState);
+
+            // Submission is what makes the play count, and on this backend it is also what PRICES it: the server computes the
+            // score's pp and commits the row inside the PUT that just returned above, so the profile statistics are already
+            // current by the time we ask for them. osu instead waits for the spectator server to announce that its scoring
+            // queue got round to the score; there is no spectator server here, so waiting would mean waiting forever and the
+            // toolbar delta plus the results screen's Overall Ranking panel would never appear.
             userStatisticsWatcher?.RegisterForStatisticsUpdateAfter(score.ScoreInfo);
+            userStatisticsWatcher?.MarkScoreProcessed(score.ScoreInfo);
         }
 
         [Resolved]

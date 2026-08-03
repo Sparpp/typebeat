@@ -8,6 +8,7 @@ using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Input.Events;
+using osu.Framework.Localisation;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Online;
 using typebeat.Game.Online.API.Requests.Responses;
@@ -19,16 +20,21 @@ using osuTK;
 namespace typebeat.Game.Users
 {
     /// <summary>
-    /// User card that shows user's global and country ranks in the bottom.
+    /// User card that shows the user's global rank and total pp in the bottom.
     /// Meant to be used in the toolbar login overlay.
     /// </summary>
+    /// <remarks>
+    /// The second slot is osu's country rank upstream. type!beat has no country leaderboard, so the server never sends
+    /// <c>country_rank</c> and that slot rendered a permanent dash; it shows total pp instead, which is the number this panel's
+    /// global rank is now ranking BY (the server's global_rank is the pp rank), so the two read as one statement.
+    /// </remarks>
     public partial class UserRankPanel : UserPanel
     {
         private const int padding = 10;
         private const int main_content_height = 80;
 
         private GlobalRankDisplay globalRankDisplay = null!;
-        private ProfileValueDisplay countryRankDisplay = null!;
+        private ProfileValueDisplay performanceDisplay = null!;
         private LoadingLayer loadingLayer = null!;
 
         public UserRankPanel(APIUser user)
@@ -77,7 +83,10 @@ namespace typebeat.Game.Users
             // maybe move to `UserStatistics` in api, so `UserStatisticsWatcher` can update the value
             globalRankDisplay.UserStatistics.Value = statistics;
 
-            countryRankDisplay.Content.Text = statistics?.CountryRank?.ToLocalisableString("\\##,##0") ?? "-";
+            // A dash only while the statistics themselves are missing (not fetched yet, or the fetch failed). Once they arrive,
+            // pp is always a number: the server sends 0 for a player who has never earned any, because a weighted sum over no
+            // plays IS zero, and printing a dash there would claim the value is unknown.
+            performanceDisplay.Content.Text = statistics?.PP?.ToLocalisableString("#,##0") ?? (LocalisableString)"-";
         }
 
         protected override Drawable CreateLayout()
@@ -193,9 +202,9 @@ namespace typebeat.Game.Users
                             new Drawable[]
                             {
                                 globalRankDisplay = new GlobalRankDisplay(),
-                                countryRankDisplay = new ProfileValueDisplay(true)
+                                performanceDisplay = new ProfileValueDisplay(true)
                                 {
-                                    Title = UsersStrings.ShowRankCountrySimple,
+                                    Title = RankingsStrings.StatPerformance,
                                 }
                             }
                         }
