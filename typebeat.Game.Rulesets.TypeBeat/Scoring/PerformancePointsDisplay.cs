@@ -22,10 +22,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// the WireCompat parity test; it prices a play and nothing else, and it re-derives no
     /// eligibility beyond the clock rate (exactly as the server does not, since the server inherits
     /// the rest from the score's stored <c>ranked</c> flag). The rules for what a CLIENT surface may
-    /// legitimately print are client-only, so they live here, in one place, shared by the two
-    /// surfaces that print them: the live counter in <see cref="UI.TypeBeatHudOverlay"/> and the
-    /// results screen's Completion table (<see cref="TypeBeatRuleset.CreateCompletionStatistics"/>).
-    /// The two therefore cannot disagree about a gate or about a rounding.
+    /// legitimately print are client-only, so they live here, in one place, shared by the surfaces
+    /// that print them: the live counter in <see cref="UI.TypeBeatHudOverlay"/> and the results
+    /// screen's Completion table (<see cref="TypeBeatRuleset.CreateCompletionStatistics"/>). The
+    /// results screen's OTHER pp readout, the one in the score panel, is a shared component that
+    /// cannot reference this assembly; it reaches the same eligibility rule through
+    /// <see cref="TypeBeatRuleset.ScoreEarnsPerformancePoints"/> and the same value through
+    /// <see cref="TypeBeatPerformanceCalculator"/>, which is what stops the two readings on one
+    /// screen from disagreeing.
     /// </para>
     ///
     /// <para>
@@ -37,10 +41,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <item><b>Ineligible</b> (<see cref="INELIGIBLE_TEXT"/>). The play can NEVER earn pp, so no
     /// number describes it. Rendering it as "0" would collapse it into the state above and make an
     /// unranked-mod run look like a worthless one.</item>
-    /// <item><b>Unknown to the server.</b> Not a rendering at all: a score that never reached the
-    /// server simply has no stored value, and the game prices it itself (see
-    /// <see cref="ForScore"/>). <see cref="ScoreInfo.PP"/> being <c>null</c> rather than 0 is what
-    /// keeps this separate from an ineligible submission, which the server DOES store as 0.</item>
+    /// <item><b>Not priced by the server.</b> Not a rendering at all: a score that never reached the
+    /// server, or that the server declined to price, carries no value, and the game decides for
+    /// itself (see <see cref="ForScore"/>). This rests on a wire contract the server holds up its
+    /// end of: <see cref="ScoreInfo.PP"/> carries a number ONLY for a play the server actually ran
+    /// the formula for, so a value that is present is proof the play was eligible, and one that is
+    /// absent is never a disguised zero.</item>
     /// </list>
     /// </para>
     /// </summary>
@@ -72,8 +78,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         ///
         /// <para>A FAILED play is NOT gated here, because failing is not knowable in advance and the
         /// live counter's contract is "what this play is worth if it ends right here". It IS gated
-        /// once the play is over; see <see cref="ForScore"/>, the one gate the results screen has
-        /// that the HUD cannot.</para>
+        /// once the play is over; see <see cref="Eligible"/>, which adds that one gate and is what
+        /// the results screen uses. The two overlap on the first three deliberately: a play cannot
+        /// be worth anything without a rating, and a rating exists only where those hold.</para>
         /// </summary>
         public static double? StarRatingFor(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? mods)
         {
@@ -93,22 +100,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// What a FINISHED score is worth, or null when it can never be worth anything (rendered as
         /// <see cref="INELIGIBLE_TEXT"/>).
         ///
-        /// <para>A STORED value is the authoritative one: it is what the leaderboards and the profile
-        /// actually count, it was priced against the server's own stored star ratings, and it can
-        /// encode refusals the client cannot see at all (the play-time gate, an out-of-bounds total,
-        /// a blocked build). But only a POSITIVE one may be trusted on sight, because the server
-        /// prices every ineligible play at a flat 0 (its <c>ForScore</c> short-circuits on the
-        /// <c>ranked</c> flag), which makes a stored 0 ambiguous between "worth nothing" and "could
-        /// never be worth anything". A positive value is self-certifying, and taking it ahead of the
-        /// local gates is what keeps a genuinely earned number on screen when the local copy of the
-        /// map has drifted from the ranked one the play was set on (an edit in progress marks it
-        /// LocallyModified, which the gates would otherwise read as earning nothing).</para>
+        /// <para>A STORED value wins outright, ahead of every local gate. The server sends a number
+        /// only for a play it actually ran the formula for, and null for everything else (an
+        /// ineligible play, or one it cannot price yet), so a stored value is proof of eligibility
+        /// by itself and needs no second opinion. It is also the authoritative number: it is what
+        /// the leaderboards and the profile count, it was priced against the server's own stored
+        /// star ratings, and it can encode refusals the client cannot see at all (the play-time
+        /// gate, an out-of-bounds total, a blocked build). Taking it ahead of the gates is what
+        /// keeps a genuinely earned number on screen when the local copy of the map has drifted from
+        /// the ranked one the play was set on: opening it in the editor marks it LocallyModified,
+        /// which the gates would otherwise read as earning nothing.</para>
         ///
-        /// <para>Everything else is gated locally first, and only then falls back to the stored 0 or
-        /// to a local calculation. The local calculation covers most plays there are: an offline
-        /// play, an imported <c>.osr</c>, a replay downloaded from the website, and any play whose
-        /// submission failed. Those price identically to a submitted one, because both sides run the
-        /// same formula over the same star rating.</para>
+        /// <para>With no stored value, <see cref="Eligible"/> decides between a dash and a local
+        /// calculation. The local calculation covers most plays there are: an offline play, an
+        /// imported <c>.osr</c>, a replay downloaded from the website, and any play whose submission
+        /// failed. Those price identically to a submitted one, because both sides run the same
+        /// formula over the same star rating.</para>
         ///
         /// <para>REPLAYS: watching a replay re-simulates it, and
         /// <see cref="ScoreProcessor.PopulateScore"/> drops the stored pp when it overwrites the
@@ -121,25 +128,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <param name="playableBeatmap">The beatmap the score was set on, converted with its mods.</param>
         public static double? ForScore(ScoreInfo score, IBeatmap? playableBeatmap)
         {
-            // A price the server actually paid. Only the server can know it, and only an eligible
-            // play can carry it.
-            if (score.PP is > 0)
-                return score.PP;
+            if (score.PP is double stored)
+                return stored;
 
-            // The one gate the results screen has and the live counter does not: a fail earns
-            // nothing, and after the fact that is knowable. Both flags are checked because they are
-            // set by different paths (ScoreProcessor.FailScore sets Rank; a decoded legacy score
-            // carries only what its file recorded).
-            if (!score.Passed || score.Rank == ScoreRank.F)
+            if (!Eligible(score) || StarRatingFor(playableBeatmap, score.Mods) is not double stars)
                 return null;
 
-            if (StarRatingFor(playableBeatmap, score.Mods) is not double stars)
-                return null;
-
-            // Past the gates the play is eligible, so a stored 0 is a real price and stands; only a
-            // play the server never priced at all is priced here.
-            return score.PP ?? PerformancePoints.ForPlay(stars, PerformancePoints.CountNotes(score), score.Accuracy, score.MaxCombo, score.Mods);
+            return PerformancePoints.ForPlay(stars, PerformancePoints.CountNotes(score), score.Accuracy, score.MaxCombo, score.Mods);
         }
+
+        /// <summary>
+        /// Whether a finished play COULD have earned pp: the gates of <see cref="StarRatingFor"/>
+        /// read off the score itself, plus the one the live counter cannot have, a FAIL. Failing is
+        /// unknowable while a play is running, which is why the HUD keeps counting through a run
+        /// that might still be recovered or no-failed; once the play is over it is settled, and a
+        /// failed run can never be worth anything.
+        ///
+        /// <para>Deliberately routed through <see cref="TypeBeatRuleset.ScoreEarnsPerformancePoints"/>
+        /// rather than re-stating the rule: that override is the single authority, and it is also
+        /// what the score panel's own pp readout asks (through
+        /// <c>score.Ruleset.CreateInstance()</c>, since a shared component cannot reference this
+        /// assembly). One implementation, two entry points, so the panel and the results table
+        /// cannot gate a play differently. A local instance is used rather than
+        /// <see cref="ScoreInfo.Ruleset"/> so this still answers for a score that carries no ruleset
+        /// reference at all.</para>
+        /// </summary>
+        public static bool Eligible(ScoreInfo score) => new TypeBeatRuleset().ScoreEarnsPerformancePoints(score);
 
         /// <summary>
         /// The one rendering of a pp value, shared by every surface so they cannot round differently:

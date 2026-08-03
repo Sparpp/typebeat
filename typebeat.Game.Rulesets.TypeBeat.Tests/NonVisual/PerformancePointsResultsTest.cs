@@ -24,6 +24,7 @@ using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Beatmaps.ControlPoints;
+using typebeat.Game.Rulesets.Difficulty;
 using typebeat.Game.Rulesets.Judgements;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Objects;
@@ -34,6 +35,7 @@ using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Scoring;
+using typebeat.Game.Screens.Ranking.Expanded.Statistics;
 using typebeat.Game.Screens.Ranking.Statistics;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
@@ -92,6 +94,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static IReadOnlyList<Mod> mods(params Mod[] stack) => stack;
 
         /// <summary>
+        /// An empty score carrying what a real results-screen score always carries: the map it was
+        /// set on (whose status is a pp gate) and the ruleset (which is how the shared score panel
+        /// reaches that gate, since it cannot reference this assembly).
+        /// </summary>
+        private static ScoreInfo scoreOn(Beatmap<TypeBeatHitObject> beatmap) => new ScoreInfo
+        {
+            BeatmapInfo = beatmap.BeatmapInfo,
+            Ruleset = new TypeBeatRuleset().RulesetInfo,
+        };
+
+        /// <summary>
         /// A messy but plausible finished play over <paramref name="beatmap"/>, produced by the REAL
         /// score processor rather than a hand-built statistics dictionary, so accuracy, combo, rank
         /// and the mistype count are all mutually consistent the way a submitted score's are.
@@ -126,7 +139,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 processor.ApplyResult(new JudgementResult(lineObject, lineObject.CreateJudgement()) { Type = HitResult.IgnoreHit });
             }
 
-            var score = new ScoreInfo();
+            var score = scoreOn(beatmap);
+
             processor.PopulateScore(score);
 
             if (withMods != null)
@@ -143,6 +157,42 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(rows[^1].Name, Is.EqualTo("pp"), "the pp row is the last row of the completion table");
 
             return ((SimpleStatisticItem<double?>)rows[^1]).Value;
+        }
+
+        /// <summary>
+        /// What the SCORE PANEL's pp readout would show for the same score: null where it renders
+        /// its ineligible dash, otherwise the number it prints. Built from the panel's own public
+        /// gate plus the same two value sources the panel uses in the same order (a server-supplied
+        /// price first, then the ruleset's performance calculator), so this is the panel's rule
+        /// rather than a paraphrase of it.
+        /// </summary>
+        private static double? panelValue(ScoreInfo score, Beatmap<TypeBeatHitObject>? beatmap)
+        {
+            if (!PerformanceStatistic.ScoreEarnsPerformancePoints(score))
+                return null;
+
+            if (score.PP is double stored)
+                return stored;
+
+            if (beatmap == null)
+                return null;
+
+            // BeatmapDifficultyCache hands the panel exactly these attributes: TypeBeatDifficultyCalculator
+            // rates the map at the play's own clock rate.
+            var attributes = new DifficultyAttributes(score.Mods, rateAdjustedStars(beatmap, score.Mods));
+
+            return new TypeBeatPerformanceCalculator(new TypeBeatRuleset()).Calculate(score, attributes).Total;
+        }
+
+        /// <summary>The star rating TypeBeatDifficultyCalculator produces for a play, rate and all.</summary>
+        private static double rateAdjustedStars(Beatmap<TypeBeatHitObject> beatmap, IReadOnlyList<Mod> withMods)
+        {
+            double rate = 1;
+
+            foreach (var mod in withMods.OfType<IApplicableToRate>())
+                rate = mod.ApplyToRate(0, rate);
+
+            return LyricDifficulty.Compute(beatmap.HitObjects.Select(h => h.Line), rate);
         }
 
         #endregion
@@ -252,13 +302,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void APositiveStoredValueSurvivesGatesTheLocalCopyOfTheMapWouldFail()
+        public void AStoredValueSurvivesGatesTheLocalCopyOfTheMapWouldFail()
         {
-            // The server prices every ineligible play at a flat 0, so a play it paid anything for is
-            // one it considered eligible. That makes a positive value self-certifying, which matters
-            // when the LOCAL copy of the map has drifted from the ranked one the play was set on:
-            // opening it in the editor marks it LocallyModified, and the local gates alone would
-            // then hide a number the player genuinely earned.
+            // A stored value is proof the server ran the formula, which it does only for a play it
+            // considers eligible (it sends null for every other kind). So a stored value is
+            // self-certifying, which matters when the LOCAL copy of the map has drifted from the
+            // ranked one the play was set on: opening it in the editor marks it LocallyModified, and
+            // the local gates alone would then hide a number the player genuinely earned.
             var (score, _) = play(playable());
             score.PP = 214;
 
@@ -266,11 +316,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void AStoredZeroOnAnEligiblePlayIsARealPriceNotAnAbsence()
+        public void AStoredZeroIsARealPriceAndPrintsAsZero()
         {
-            // The server-only gates (the play-time gate, an out-of-bounds total, a blocked build)
-            // land here: nothing the client can see says this play is ineligible, so the honest
-            // rendering of the server's answer is a plain 0, not a dash.
+            // A give-up run on a ranked map earns exactly 0, and the server says so with a 0 rather
+            // than a null. That is a price, so it prints, and it must not be confused with the dash
+            // an ineligible play gets.
             var beatmap = playable();
             var (score, _) = play(beatmap);
             score.PP = 0;
@@ -281,6 +331,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(value, Is.EqualTo(0d));
                 Assert.That(PerformancePointsDisplay.Format(value), Is.EqualTo("0"));
+                Assert.That(PerformancePointsDisplay.Format(null), Is.Not.EqualTo(PerformancePointsDisplay.Format(0d)));
             });
         }
 
@@ -302,16 +353,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
-        #region Ineligible reads as ineligible, whatever the server stored
+        #region Ineligible reads as ineligible
+
+        // NOTE ON THE PREMISE OF THIS WHOLE REGION: an ineligible play carries NO stored value. The
+        // server refuses to price one and sends null (pinned server-side by
+        // VariableRateScoreTest.PerformancePoints_AreWrittenAtSubmission_AndOnlyForBaseRatePlays and
+        // RankedApprovalTest.ScoreOnPendingSet_StoresUnranked_AndShowsOnTheUnrankedBoard), so the
+        // 0 sitting in its scores.pp column never reaches the client to be mistaken for a price.
 
         [Test]
-        public void AnUnrankedModPlayReadsAsIneligibleEvenCarryingTheServersZero()
+        public void AnUnrankedModPlayReadsAsIneligible()
         {
             var beatmap = playable();
             var (score, _) = play(beatmap, mods(new TypeBeatModMashing()));
-
-            // This is exactly what the server sends back for it: ranked = false, so a settled 0.
-            score.PP = 0;
 
             Assert.Multiple(() =>
             {
@@ -328,7 +382,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             doubleTime.SpeedChange.Value = 1.75;
 
             var (score, _) = play(beatmap, mods(doubleTime));
-            score.PP = 0;
 
             Assert.That(ppRow(score, beatmap), Is.Null);
         }
@@ -343,7 +396,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var beatmap = playable(status);
             var (score, _) = play(beatmap);
-            score.PP = 0;
 
             Assert.That(ppRow(score, beatmap), Is.Null);
         }
@@ -372,17 +424,131 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
-        [Test]
-        public void AFailedPlayStaysIneligibleEvenCarryingAServerValue()
-        {
-            // Order matters: the gates run ahead of the stored value, or a stored 0 (which is what
-            // a fail is stored at) would print as "0 pp earned" instead of "none was ever on offer".
-            var beatmap = playable();
-            var (score, _) = play(beatmap);
-            score.Passed = false;
-            score.PP = 0;
+        #endregion
 
-            Assert.That(ppRow(score, beatmap), Is.Null);
+        #region The score panel and the results table agree
+
+        /// <summary>
+        /// Every state a results screen can show a play in, as (name, score, map) rows. This is the
+        /// list the agreement tests below sweep, so a new state gets pinned on both surfaces at once.
+        /// </summary>
+        private static IEnumerable<TestCaseData> everyState()
+        {
+            var ranked = playable();
+
+            var priced = play(ranked).Score;
+            priced.PP = 214.4;
+            yield return new TestCaseData("priced by the server", priced, ranked);
+
+            var pricedAtZero = play(ranked).Score;
+            pricedAtZero.PP = 0;
+            yield return new TestCaseData("priced by the server at zero", pricedAtZero, ranked);
+
+            yield return new TestCaseData("never submitted, priced locally", play(ranked).Score, ranked);
+
+            var doubleTime = play(ranked, mods(new TypeBeatModDoubleTime())).Score;
+            yield return new TestCaseData("never submitted, base-rate Double Time", doubleTime, ranked);
+
+            var customRate = new TypeBeatModDoubleTime();
+            customRate.SpeedChange.Value = 1.75;
+            yield return new TestCaseData("ineligible: custom rate", play(ranked, mods(customRate)).Score, ranked);
+
+            yield return new TestCaseData("ineligible: unranked mod", play(ranked, mods(new TypeBeatModMashing())).Score, ranked);
+
+            var wip = playable(BeatmapOnlineStatus.WIP);
+            yield return new TestCaseData("ineligible: map grants no pp", play(wip).Score, wip);
+
+            var failed = play(ranked).Score;
+            failed.Passed = false;
+            failed.Rank = ScoreRank.F;
+            yield return new TestCaseData("ineligible: failed play", failed, ranked);
+        }
+
+        [TestCaseSource(nameof(everyState))]
+        public void ThePanelAndTheTableShowTheSameThing(string state, ScoreInfo score, Beatmap<TypeBeatHitObject> beatmap)
+        {
+            // THE POINT: the results screen shows pp TWICE, in the score panel and in the statistics
+            // table below it. Before backlog 75 the panel printed a hardcoded 0 for every type!beat
+            // play, because the ruleset had no performance calculator for it to reach. Two readings
+            // of the same play on the same screen must never disagree, and least of all about
+            // whether the play was in the running at all.
+            double? panel = panelValue(score, beatmap);
+            double? table = ppRow(score, beatmap);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(panel == null, Is.EqualTo(table == null),
+                    $"{state}: one surface shows a number and the other shows {PerformancePointsDisplay.INELIGIBLE_TEXT}");
+
+                if (table != null)
+                    Assert.That(panel, Is.EqualTo(table).Within(1e-9), $"{state}: the two surfaces priced the play differently");
+            });
+        }
+
+        [Test]
+        public void TheStatesSweptAreActuallyBothKinds()
+        {
+            // Guards the sweep above from passing vacuously (e.g. if every case became ineligible).
+            var states = everyState().ToList();
+            var values = states.Select(s => ppRow((ScoreInfo)s.Arguments[1]!, (Beatmap<TypeBeatHitObject>)s.Arguments[2]!)).ToList();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(values.Count(v => v != null), Is.EqualTo(4), "four priced states");
+                Assert.That(values.Count(v => v == null), Is.EqualTo(4), "four ineligible states");
+                Assert.That(values.Where(v => v != null).Distinct().Count(), Is.GreaterThan(1), "and the prices are not all the same number");
+            });
+        }
+
+        [Test]
+        public void TheRulesetSuppliesAPerformanceCalculatorAtAll()
+        {
+            // The actual regression this fixes: Ruleset.CreatePerformanceCalculator defaults to
+            // null, and the score panel silently renders 0 when it gets one.
+            Assert.That(new TypeBeatRuleset().CreatePerformanceCalculator(), Is.Not.Null);
+        }
+
+        [Test]
+        public void ThePanelsGateAndTheTablesGateAreOneImplementation()
+        {
+            // Not two rules that happen to agree: the panel reaches the ruleset override through
+            // score.Ruleset (a shared component cannot reference this assembly) and the table
+            // reaches the same override through PerformancePointsDisplay.Eligible.
+            var beatmap = playable();
+            var (eligible, _) = play(beatmap);
+            var (ineligible, _) = play(beatmap, mods(new TypeBeatModMashing()));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(PerformancePointsDisplay.Eligible(eligible), Is.True);
+                Assert.That(PerformancePointsDisplay.Eligible(ineligible), Is.False);
+
+                Assert.That(eligible.Ruleset.CreateInstance().ScoreEarnsPerformancePoints(eligible),
+                    Is.EqualTo(PerformancePointsDisplay.Eligible(eligible)));
+                Assert.That(ineligible.Ruleset.CreateInstance().ScoreEarnsPerformancePoints(ineligible),
+                    Is.EqualTo(PerformancePointsDisplay.Eligible(ineligible)));
+            });
+        }
+
+        [Test]
+        public void TheCalculatorRefusesACustomRateRatherThanPricingIt()
+        {
+            // The one place the calculator must not simply trust the attributes it is handed:
+            // BeatmapDifficultyCache rates a play at WHATEVER rate it ran at, including 1.75x, while
+            // docs/pp.md pays only the base rates. Pricing off that rating would invent pp for a
+            // play the server refuses to pay for.
+            var beatmap = playable();
+            var customRate = new TypeBeatModDoubleTime();
+            customRate.SpeedChange.Value = 1.75;
+
+            var (score, _) = play(beatmap, mods(customRate));
+            var attributes = new DifficultyAttributes(score.Mods, rateAdjustedStars(beatmap, score.Mods));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(attributes.StarRating, Is.GreaterThan(0), "the difficulty cache does rate the play");
+                Assert.That(new TypeBeatPerformanceCalculator(new TypeBeatRuleset()).Calculate(score, attributes).Total, Is.Zero);
+            });
         }
 
         #endregion
@@ -434,13 +600,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 }
             }
 
-            var atEnd = new ScoreInfo();
+            var atEnd = scoreOn(beatmap);
             processor.PopulateScore(atEnd);
 
             for (int i = results.Count - 1; i >= results.Count / 2; i--)
                 processor.RevertResult(results[i]);
 
-            var rewound = new ScoreInfo { PP = 999 };
+            var rewound = scoreOn(beatmap);
+            rewound.PP = 999;
             processor.PopulateScore(rewound);
 
             Assert.Multiple(() =>

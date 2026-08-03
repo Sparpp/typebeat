@@ -280,6 +280,43 @@ namespace typebeat.Game.Rulesets
         public virtual PerformanceCalculator? CreatePerformanceCalculator() => null;
 
         /// <summary>
+        /// Whether <paramref name="score"/> is a play that CAN earn performance points, i.e. whether
+        /// any number a <see cref="PerformanceCalculator"/> produces for it is one the player could
+        /// actually keep. Purely about eligibility; it says nothing about how much.
+        ///
+        /// <para>
+        /// The default is the universal rule set: the map must grant pp at all, the stack must
+        /// carry no unranked mod, and the play must not have failed. Rulesets whose server refuses
+        /// pp for reasons of their own (type!beat, for instance, pays only the BASE DT/HT rates and
+        /// nothing for a custom one, while still ranking every rate on the score leaderboards)
+        /// override this and narrow it further. Nothing widens it.
+        /// </para>
+        ///
+        /// <para>
+        /// Display surfaces use this to choose between printing a number and printing "no pp was
+        /// ever on offer here", which must not be confused with printing 0: 0 is a real price that
+        /// a real play can earn.
+        /// </para>
+        /// </summary>
+        public virtual bool ScoreEarnsPerformancePoints(ScoreInfo score)
+        {
+            if (score.BeatmapInfo?.Status.GrantsPerformancePoints() != true)
+                return false;
+
+            if (score.Rank == ScoreRank.F || !score.Passed)
+                return false;
+
+            IEnumerable<Mod> modsToCheck = score.Mods;
+
+            // A legacy score's Classic mod is an artefact of importing it, not a choice the player
+            // made, so it never disqualifies the play.
+            if (score.IsLegacyScore)
+                modsToCheck = modsToCheck.Where(m => m is not ModClassic);
+
+            return modsToCheck.All(m => m.Ranked);
+        }
+
+        /// <summary>
         /// Supplies a whole custom editor compose screen for the ruleset's editing surface
         /// (e.g. type!beat's lyric timeline).
         /// </summary>

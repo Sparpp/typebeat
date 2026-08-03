@@ -58,6 +58,26 @@ namespace typebeat.Game.Rulesets.TypeBeat
         public override DifficultyCalculator CreateDifficultyCalculator(IWorkingBeatmap beatmap) =>
             new TypeBeatDifficultyCalculator(RulesetInfo, beatmap);
 
+        /// <summary>
+        /// pp for a finished score, for the shared results-screen components that reach it this way
+        /// (the score panel's pp readout and the performance breakdown chart). Without it they fall
+        /// back to a hardcoded 0 for every type!beat play.
+        /// </summary>
+        public override PerformanceCalculator CreatePerformanceCalculator() => new TypeBeatPerformanceCalculator(this);
+
+        /// <summary>
+        /// type!beat narrows the base rule with one gate of its own: only the BASE rates earn pp
+        /// (DT/NC 1.50x, HT 0.75x, docs/pp.md). A custom rate still ranks on the score leaderboards
+        /// exactly as before, it simply earns nothing, and no number describes that.
+        ///
+        /// <para>THIS IS THE SINGLE AUTHORITY on whether a type!beat play can earn pp. The score
+        /// panel asks it through <c>score.Ruleset.CreateInstance()</c> and the results table asks it
+        /// through <see cref="PerformancePointsDisplay.Eligible"/>, so the two surfaces on the same
+        /// screen cannot disagree about whether a play was ever in the running.</para>
+        /// </summary>
+        public override bool ScoreEarnsPerformancePoints(ScoreInfo score)
+            => base.ScoreEarnsPerformancePoints(score) && PerformancePoints.EligibleRate(score.Mods) != null;
+
         public override IEnumerable<Mod> GetModsFor(ModType type) => type switch
         {
             ModType.DifficultyReduction => new Mod[]
