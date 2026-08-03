@@ -14,8 +14,18 @@ using typebeat.Game.Scoring;
 namespace typebeat.Game.Online
 {
     /// <summary>
-    /// A persistent component that binds to the spectator server and API in order to deliver updates about the logged in user's gameplay statistics.
+    /// A persistent component that binds to the score submission path (and, where one exists, the spectator server) in order to
+    /// deliver updates about the logged in user's gameplay statistics.
     /// </summary>
+    /// <remarks>
+    /// osu drives this purely from <see cref="SpectatorClient.OnUserScoreProcessed"/>, because there a submitted score is only
+    /// PRICED later, by an out-of-band queue that announces itself over the spectator hub. type!beat has no spectator server at
+    /// all, so that event never fires and nothing would ever be published; and it does not need one, because its server computes
+    /// and commits a play's pp inside the submission request itself. Submission IS processing here, so
+    /// <see cref="MarkScoreProcessed"/> lets the submitting player say so directly (see SubmittingPlayer). The spectator
+    /// subscription is kept anyway: it costs one event handler, and whichever path arrives first wins, since resolving a score
+    /// REMOVES it from <see cref="watchedScores"/>.
+    /// </remarks>
     public partial class UserStatisticsWatcher : Component
     {
         private readonly LocalUserStatisticsProvider statisticsProvider;
@@ -61,16 +71,37 @@ namespace typebeat.Game.Online
             });
         }
 
+        /// <summary>
+        /// Reports that a score registered via <see cref="RegisterForStatisticsUpdateAfter"/> has been processed server-side,
+        /// which on this backend means its submission request came back: the server prices the play and COMMITS the row before
+        /// it writes the response, so statistics fetched from here already include it.
+        /// </summary>
+        /// <remarks>
+        /// Safe to call more than once, and safe to race the spectator path: the first call resolves the score and removes it
+        /// from the watch list, and every later one finds nothing. That matters, because a second refetch for the same score
+        /// would publish an update whose "before" is the statistics the FIRST one just cached, i.e. a spurious zero delta over
+        /// the top of the real one.
+        /// </remarks>
+        /// <param name="score">The score whose submission has completed.</param>
+        public void MarkScoreProcessed(ScoreInfo score) => Schedule(() => processScore(score.OnlineID));
+
         private void userScoreProcessed(int userId, long scoreId)
         {
             if (userId != api.LocalUser.Value?.OnlineID)
                 return;
 
+            processScore(scoreId);
+        }
+
+        private void processScore(long scoreId)
+        {
             if (!watchedScores.Remove(scoreId, out var scoreInfo))
                 return;
 
             statisticsProvider.RefetchStatistics(scoreInfo.Ruleset, u => Schedule(() =>
             {
+                // No "before" means the local statistics had never been fetched successfully at all (login-time fetch still in
+                // flight, or failed). There is no delta to describe, so publish nothing rather than an invented one.
                 if (u.OldStatistics != null)
                     latestUpdate.Value = new ScoreBasedUserStatisticsUpdate(scoreInfo, u.OldStatistics, u.NewStatistics);
             }));
