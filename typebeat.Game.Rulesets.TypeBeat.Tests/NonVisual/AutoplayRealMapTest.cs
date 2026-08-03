@@ -128,6 +128,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(frames.Count, next, "every generated frame must be consumed before the map ends");
             Assert.IsTrue(engine.IsFinished);
             Assert.AreEqual(1.0, engine.LiveAccuracy, "no wrong keys");
+            Assert.AreEqual(0, engine.Mistypes, "autoplay must submit a zero mistype count (backlog 72)");
 
             int missed = engine.Lines.Sum(l => l.Cells.Count(c => c.State == CellState.Missed));
             Assert.AreEqual(0, missed, "autoplay must not miss a single cell");

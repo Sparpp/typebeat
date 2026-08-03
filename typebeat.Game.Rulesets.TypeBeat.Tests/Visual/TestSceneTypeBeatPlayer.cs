@@ -4,8 +4,10 @@
 using System.Collections.Generic;
 using NUnit.Framework;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Tests.Visual;
 
@@ -70,6 +72,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("all judgements flushed to score processor", () => Player.ScoreProcessor.HasCompleted.Value);
             AddAssert("health never failed", () => !Player.GameplayState.HasFailed);
             AddAssert("engine recorded 4 missed cells", () => playfield.Engine.BuildResults().Counts[Gameplay.JudgementType.Miss] == 4);
+        }
+
+        /// <summary>
+        /// Backlog 72, end to end through the real bridge: a rejected wrong key raises no cell
+        /// judgement, so the MISTYPE count is written straight onto the score processor. Two things
+        /// have to hold at once. It must reach <c>Statistics</c> (before this, a mistyped play was
+        /// indistinguishable from a clean one once submitted), and the play must still END: mistypes
+        /// deliberately do not travel through <c>ApplyResult</c>, because that increments
+        /// <c>JudgedHits</c>, which is compared for EQUALITY against the map's object count to
+        /// decide the run is over, and one extra applied result would hang the run forever.
+        /// </summary>
+        [Test]
+        public void TestMistypesPersistWithoutBlockingCompletion()
+        {
+            AddUntilStep("gameplay started", () => Player.GameplayClockContainer.CurrentTime > 0);
+            AddUntilStep("a line is active", () => playfield.Engine.LineIsActive);
+
+            AddStep("press three wrong keys", () =>
+            {
+                for (int i = 0; i < 3; i++)
+                    playfield.Engine.ProcessKey('z', Player.GameplayClockContainer.CurrentTime);
+            });
+
+            AddAssert("all three were rejected", () => playfield.Engine.Mistypes == 3 && playfield.Engine.ConsecutiveWrongKeys == 3);
+            AddAssert("combo broke", () => Player.ScoreProcessor.Combo.Value == 0);
+
+            AddUntilStep("engine finished (all lines sealed)", () => playfield.Engine.IsFinished);
+            AddUntilStep("all judgements flushed to score processor", () => Player.ScoreProcessor.HasCompleted.Value);
+
+            AddAssert("mistypes persisted on the score", () => Player.ScoreProcessor.Statistics.GetValueOrDefault(HitResult.ComboBreak) == 3);
+            AddAssert("maximum statistics untouched", () => Player.ScoreProcessor.MaximumStatistics.GetValueOrDefault(HitResult.ComboBreak) == 0);
+            AddAssert("completion still reads only the cells", () => TypeBeatScoreProcessor.ComputeCompletion(Player.ScoreProcessor.Statistics) == 0);
         }
     }
 }

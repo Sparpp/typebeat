@@ -157,18 +157,44 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// <summary>
         /// Results-screen statistics: completion (the number the rank is graded on) alongside the
         /// judgement counts. The accuracy shown in the expanded panel is unchanged.
+        ///
+        /// <para>MISTYPES sit beside the missed-character count, never folded into it: a miss is a
+        /// character the song left behind, a mistype is a wrong key the player pressed, and only
+        /// the first costs completion or rank. The row appears only for a score that actually
+        /// CARRIES the stat (<see cref="TypeBeatScoreProcessor.MistypesOf"/>); plays from before it
+        /// existed show no row at all rather than a fabricated 0.</para>
         /// </summary>
         public override StatisticItem[] CreateStatisticsForScore(ScoreInfo score, IBeatmap playableBeatmap) => new[]
         {
-            new StatisticItem("Completion", () => new SimpleStatisticTable(2, new SimpleStatisticItem[]
+            new StatisticItem("Completion", () => new SimpleStatisticTable(2, CreateCompletionStatistics(score))),
+        };
+
+        /// <summary>
+        /// The rows of the completion table. Public so a test can pin WHICH rows a score gets
+        /// (notably: none for mistypes on a play that carries no mistype stat) against the very
+        /// list the results screen renders, rather than a second copy of the rule.
+        /// </summary>
+        public static SimpleStatisticItem[] CreateCompletionStatistics(ScoreInfo score)
+        {
+            var items = new List<SimpleStatisticItem>
             {
                 new CompletionStatistic(TypeBeatScoreProcessor.ComputeCompletion(score)),
                 new SimpleStatisticItem<int>("Missed characters")
                 {
                     Value = score.Statistics.GetValueOrDefault(HitResult.Miss),
                 },
-            })),
-        };
+            };
+
+            if (TypeBeatScoreProcessor.MistypesOf(score) is int mistypes)
+            {
+                items.Add(new SimpleStatisticItem<int>("Mistypes")
+                {
+                    Value = mistypes,
+                });
+            }
+
+            return items.ToArray();
+        }
 
         /// <summary>"98.7%" formatting for the completion statistic.</summary>
         private partial class CompletionStatistic : SimpleStatisticItem<double>

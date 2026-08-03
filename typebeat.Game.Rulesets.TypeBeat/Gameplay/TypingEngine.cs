@@ -218,6 +218,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>Current run of consecutive rejected wrong keys; any accepted char resets it to 0.</summary>
         public int ConsecutiveWrongKeys => consecutiveWrongKeys;
 
+        /// <summary>
+        /// Wrong KEYPRESSES so far, in either input mode: the play's mistype stat (see
+        /// <see cref="Mistyped"/>). Identical to <c>Counts[JudgementType.WrongChar]</c>, named for
+        /// what it means outside the engine.
+        /// </summary>
+        public int Mistypes => counts[JudgementType.WrongChar];
+
         /// <summary>Mashing mod (Relax): every keypress is judged as the caret cell's expected char.</summary>
         public bool MashingEnabled { get; set; }
 
@@ -280,6 +287,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// incremented. Carries the offending char for feedback visuals.
         /// </summary>
         public event Action<char>? WrongKeyRejected;
+
+        /// <summary>
+        /// A WRONG KEYPRESS happened, in EITHER input mode (backlog 72). Accounting only: every
+        /// gameplay consequence still travels on its existing event, so nothing about how the game
+        /// feels depends on this one.
+        ///
+        /// <list type="bullet">
+        /// <item>Strict (default): the key is rejected, so no <see cref="CharJudged"/> exists to
+        /// carry it and the score processor would otherwise never learn the press happened.</item>
+        /// <item><see cref="AllowWrongInput"/>: the wrong char IS typed into the cell and the cell's
+        /// own judgement travels on <see cref="CharJudged"/> as before. That judgement is about the
+        /// CELL, not the keypress; this event is the keypress, so both modes account identically.</item>
+        /// </list>
+        ///
+        /// Raised BEFORE <see cref="ComboBroken"/> / <see cref="WrongKeyRejected"/> /
+        /// <see cref="CharJudged"/>, with <see cref="Mistypes"/> already incremented.
+        /// </summary>
+        public event Action? Mistyped;
 
         private readonly List<TypingLine> lines;
         private readonly bool[] lineSealed;
@@ -674,6 +699,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     caretIndex++;
                     autoSkipForward();
 
+                    // The keypress was wrong, so it is a mistype exactly as it would be in strict
+                    // mode. The CELL's fate (typed wrong here, rejected there) is a separate matter
+                    // and still travels on CharJudged below, unchanged.
+                    Mistyped?.Invoke();
                     ComboBroken?.Invoke();
                     // Miss result (see DrawableTypeBeatHitObject.toHitResult) + red/shake feedback;
                     // a later backspace + correct retype re-judges the cell Correct for completion.
@@ -684,12 +713,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 // Strict (default): wrong key REJECTED, no cell mutation, no caret advance, no
                 // CharJudged. It still costs the accuracy denominator, an error, a combo break, and
-                // the consecutive-wrong-key streak (the game fails the play when it hits 13).
+                // the consecutive-wrong-key streak (the game fails the play when it hits 13), and
+                // it is counted as a MISTYPE, which is the only route by which a rejected key
+                // reaches the score processor and the persisted statistics (see Mistyped).
                 totalKeypresses++;
                 errorCount++;
                 consecutiveWrongKeys++;
                 combo = 0;
                 counts[JudgementType.WrongChar]++;
+                Mistyped?.Invoke();
                 ComboBroken?.Invoke();
                 WrongKeyRejected?.Invoke(c);
                 return true;

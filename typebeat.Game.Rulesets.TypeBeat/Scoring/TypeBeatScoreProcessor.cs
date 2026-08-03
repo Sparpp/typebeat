@@ -17,6 +17,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     ///
     /// The server mirrors this exactly (typebeat-web ScoringContract.RankFromCompletion); keep
     /// the cutoffs in the two files in sync.
+    ///
+    /// <para>Wrong keypresses are counted SEPARATELY as MISTYPES (<see cref="MISTYPE_RESULT"/>,
+    /// <see cref="RecordMistype"/>) and change none of the above: accuracy stays the timing quality
+    /// of the cells that were typed, completion/rank stay cells-typed over total cells, so an old
+    /// score and a new one mean the same thing and an SS is still reachable after a stumble. The
+    /// count exists so mistyping is visible at all (it used to leave no trace but a broken combo)
+    /// and so the server can price it in pp.</para>
     /// </summary>
     public partial class TypeBeatScoreProcessor : ScoreProcessor
     {
@@ -28,10 +35,56 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         public const double COMPLETION_CUTOFF_B = 0.8;
         public const double COMPLETION_CUTOFF_C = 0.7;
 
+        /// <summary>
+        /// The result key the MISTYPE stat (wrong keypresses) is persisted under, in the ordinary
+        /// <c>statistics</c> dictionary and therefore on the wire as <c>"combo_break"</c>.
+        ///
+        /// <para><see cref="HitResult.ComboBreak"/> is the base game's purpose-built "breaks combo,
+        /// affects nothing else" result: <see cref="HitResultExtensions.AffectsAccuracy"/>,
+        /// <see cref="HitResultExtensions.IsBasic"/> and <see cref="HitResultExtensions.IsHit"/> are
+        /// all false for it, and <see cref="ScoreProcessor.GetBaseScoreForResult"/> gives it 0. That
+        /// is exactly a type!beat mistype: a combo break that must not move accuracy, completion or
+        /// rank. Counting it needs no new enum member, so no wire, MessagePack or realm shape
+        /// changes, and the server's ScoringContract already classifies <c>combo_break</c> as
+        /// non-accuracy-affecting, so it can never inflate or deflate a recomputed score.</para>
+        ///
+        /// <para>It is recorded through <see cref="RecordMistype"/> rather than
+        /// <see cref="JudgementProcessor.ApplyResult"/> on purpose: ApplyResult increments
+        /// <see cref="JudgementProcessor.JudgedHits"/>, which is compared for EQUALITY against the
+        /// map's hit-object count to decide the play is over, so one extra applied result would
+        /// leave <c>HasCompleted</c> false forever and the results screen would never show.
+        /// <see cref="ScoreProcessor.MaximumResultCounts"/> is likewise untouched: maximum_statistics
+        /// stays one great per cell.</para>
+        /// </summary>
+        public const HitResult MISTYPE_RESULT = HitResult.ComboBreak;
+
         public TypeBeatScoreProcessor(TypeBeatRuleset ruleset)
             : base(ruleset)
         {
         }
+
+        /// <summary>Wrong keypresses recorded so far (see <see cref="MISTYPE_RESULT"/>).</summary>
+        public int Mistypes => ScoreResultCounts.GetValueOrDefault(MISTYPE_RESULT);
+
+        /// <summary>
+        /// Records one wrong KEYPRESS. Counting is ALL this does: no score, no accuracy, no
+        /// completion, no rank, no health, no hit event, and deliberately not the combo break
+        /// either, which each input mode already carries its own way (a rejected key through
+        /// TypeBeatPlayfield's hand-written reset, a typed-through wrong char through the Miss
+        /// judgement its cell raises). Folding the reset in here would double-break the second
+        /// case and, worse, move its <c>ComboAtJudgement</c> to 0, which is the value a rewind
+        /// restores the combo from.
+        /// </summary>
+        public void RecordMistype()
+            => ScoreResultCounts[MISTYPE_RESULT] = ScoreResultCounts.GetValueOrDefault(MISTYPE_RESULT) + 1;
+
+        /// <summary>
+        /// The mistype count a finished score CARRIES, or null when it carries none. Null is not
+        /// zero: plays from before the stat existed have no key at all, and every display must show
+        /// nothing for those rather than inventing a clean run.
+        /// </summary>
+        public static int? MistypesOf(ScoreInfo score)
+            => score.Statistics.TryGetValue(MISTYPE_RESULT, out int mistypes) ? mistypes : null;
 
         public override ScoreRank RankFromScore(double accuracy, IReadOnlyDictionary<HitResult, int> results)
             => RankFromCompletion(ComputeCompletion(results));
