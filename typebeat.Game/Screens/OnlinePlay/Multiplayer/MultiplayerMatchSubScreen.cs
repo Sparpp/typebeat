@@ -206,7 +206,8 @@ namespace typebeat.Game.Screens.OnlinePlay.Multiplayer
                                         {
                                             new MultiplayerRoomPanel(room)
                                             {
-                                                OnEdit = () => settingsOverlay.Show()
+                                                OnEdit = () => settingsOverlay.Show(),
+                                                ShowDescription = true,
                                             }
                                         },
                                         null,

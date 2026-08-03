@@ -21,8 +21,10 @@ using osu.Framework.Screens;
 using typebeat.Game.Audio;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Database;
+using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Cursor;
+using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Localisation;
 using typebeat.Game.Online.API;
@@ -136,7 +138,7 @@ namespace typebeat.Game.Screens.OnlinePlay.DailyChallenge
                     {
                         RelativeSizeAxes = Axes.Both,
                     },
-                    new Header(ButtonSystemStrings.DailyChallenge.ToSentence(), null),
+                    createHeader(),
                     new PopoverContainer
                     {
                         RelativeSizeAxes = Axes.Both,
@@ -375,6 +377,68 @@ namespace typebeat.Game.Screens.OnlinePlay.DailyChallenge
                         Scheduler.AddOnce(() => leaderboard.RefetchScores());
                 });
             });
+        }
+
+        private Container createHeader()
+        {
+            var titleFlow = new FillFlowContainer
+            {
+                Anchor = Anchor.CentreLeft,
+                Origin = Anchor.CentreLeft,
+                AutoSizeAxes = Axes.Both,
+                Direction = FillDirection.Horizontal,
+                Spacing = new Vector2(6, 0),
+                Children = new Drawable[]
+                {
+                    new OsuHoverContainer
+                    {
+                        AutoSizeAxes = Axes.Both,
+                        Anchor = Anchor.BottomLeft,
+                        Origin = Anchor.BottomLeft,
+                        Action = () => game?.ShowWiki(@"Gameplay/Daily_challenge"),
+                        Child = new OsuSpriteText
+                        {
+                            Font = OsuFont.TorusAlternate.With(size: 24),
+                            Text = ButtonSystemStrings.DailyChallenge.ToSentence(),
+                        }
+                    }
+                }
+            };
+
+            if (!string.IsNullOrEmpty(room.Description))
+            {
+                var subtitleFont = OsuFont.TorusAlternate.With(size: 16);
+
+                titleFlow.AddRange(new Drawable[]
+                {
+                    new OsuSpriteText
+                    {
+                        Anchor = Anchor.BottomLeft,
+                        Origin = Anchor.BottomLeft,
+                        Font = subtitleFont,
+                        Text = "·",
+                        Colour = colourProvider.Content2,
+                        Margin = new MarginPadding { Bottom = 3 },
+                    },
+                    new TruncatingSpriteText
+                    {
+                        Anchor = Anchor.BottomLeft,
+                        Origin = Anchor.BottomLeft,
+                        Font = subtitleFont,
+                        Text = room.Description,
+                        Colour = colourProvider.Content2,
+                        Margin = new MarginPadding { Bottom = 3 },
+                    }
+                });
+            }
+
+            return new Container
+            {
+                RelativeSizeAxes = Axes.X,
+                Height = Header.HEIGHT,
+                Padding = new MarginPadding { Left = WaveOverlayContainer.WIDTH_PADDING },
+                Child = titleFlow,
+            };
         }
 
         protected override void LoadComplete()

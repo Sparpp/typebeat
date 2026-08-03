@@ -199,7 +199,8 @@ namespace typebeat.Game.Screens.OnlinePlay.Playlists
                                         {
                                             new PlaylistsRoomPanel(room)
                                             {
-                                                SelectedItem = SelectedItem
+                                                SelectedItem = SelectedItem,
+                                                ShowDescription = true,
                                             }
                                         },
                                         null,
