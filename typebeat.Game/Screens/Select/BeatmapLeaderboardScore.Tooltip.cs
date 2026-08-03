@@ -283,9 +283,20 @@ namespace typebeat.Game.Screens.Select
                 [BackgroundDependencyLoader]
                 private void load(BeatmapDifficultyCache difficultyCache, CancellationToken? cancellationToken)
                 {
+                    // Same rule as the results screen's readout (Ranking.Expanded.Statistics.PerformanceStatistic):
+                    // a play that can never earn pp shows no number, because 0 is a price a real play
+                    // can earn and this is not that. A server-supplied value is proof of eligibility
+                    // on its own, so it is what the shared gate checks first.
+                    if (!Ranking.Expanded.Statistics.PerformanceStatistic.ScoreEarnsPerformancePoints(score))
+                    {
+                        ValueText.Text = Ranking.Expanded.Statistics.PerformanceStatistic.INELIGIBLE_TEXT;
+                        Alpha = 0.5f;
+                        return;
+                    }
+
                     if (score.PP.HasValue)
                     {
-                        setPerformanceValue(score, score.PP.Value);
+                        setPerformanceValue(score.PP.Value);
                         return;
                     }
 
@@ -300,29 +311,15 @@ namespace typebeat.Game.Screens.Select
 
                         var result = await performanceCalculator.CalculateAsync(score, attributes.Value.DifficultyAttributes, cancellationToken ?? CancellationToken.None).ConfigureAwait(false);
 
-                        Schedule(() => setPerformanceValue(score, result.Total));
+                        Schedule(() => setPerformanceValue(result.Total));
                     }, cancellationToken ?? CancellationToken.None);
                 }
 
-                private void setPerformanceValue(ScoreInfo scoreInfo, double pp)
+                private void setPerformanceValue(double pp)
                 {
                     int ppValue = (int)Math.Round(pp, MidpointRounding.AwayFromZero);
                     ValueText.Text = LocalisableString.Interpolate(@$"{ppValue:N0}pp");
-
-                    if (!scoreInfo.BeatmapInfo!.Status.GrantsPerformancePoints() || hasUnrankedMods(scoreInfo))
-                        Alpha = 0.5f;
-                    else
-                        Alpha = 1f;
-                }
-
-                private static bool hasUnrankedMods(ScoreInfo scoreInfo)
-                {
-                    IEnumerable<Mod> modsToCheck = scoreInfo.Mods;
-
-                    if (scoreInfo.IsLegacyScore)
-                        modsToCheck = modsToCheck.Where(m => m is not ModClassic);
-
-                    return modsToCheck.Any(m => !m.Ranked);
+                    Alpha = 1f;
                 }
             }
 

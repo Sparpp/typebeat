@@ -484,6 +484,16 @@ namespace typebeat.Game.Rulesets.Scoring
             score.Accuracy = Accuracy.Value;
             score.Rank = Rank.Value;
             score.HitEvents = hitEvents;
+
+            // Any performance value this score was carrying described the numbers being overwritten
+            // right now, not the ones about to be written, so it is dropped rather than left to
+            // describe a play that no longer exists. This is what makes a REPLAY read as the pp of
+            // its simulation: watching a stored score re-derives its statistics through here (see
+            // Player's NewJudgement / OnResetFromReplayFrame hooks), and every other number on the
+            // results screen is then the simulation's, so the pp beside them must be too. Opening
+            // that same score's results WITHOUT replaying it never reaches this method, and keeps
+            // showing the recorded, server-authoritative value.
+            score.PP = null;
             score.Statistics.Clear();
             score.MaximumStatistics.Clear();
 

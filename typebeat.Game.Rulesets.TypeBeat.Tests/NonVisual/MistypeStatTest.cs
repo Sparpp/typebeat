@@ -290,10 +290,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 MaximumStatistics = new Dictionary<HitResult, int> { [HitResult.Great] = 100 },
             };
 
+            // The trailing "pp" row (backlog 75) is unconditional, unlike this one: an absent
+            // mistype count is unknowable and shows no row, whereas a pp reading always exists,
+            // either as a number or as "could never have earned any".
             Assert.Multiple(() =>
             {
-                Assert.That(rowsFor(old), Is.EqualTo(new[] { "Completion", "Missed characters" }));
-                Assert.That(rowsFor(messy), Is.EqualTo(new[] { "Completion", "Missed characters", "Mistypes" }));
+                Assert.That(rowsFor(old), Is.EqualTo(new[] { "Completion", "Missed characters", "pp" }));
+                Assert.That(rowsFor(messy), Is.EqualTo(new[] { "Completion", "Missed characters", "Mistypes", "pp" }));
             });
         }
 

@@ -329,6 +329,16 @@ namespace typebeat.Game.Screens.Play
                 score.ScoreInfo.OnlineID = s.ID;
                 score.ScoreInfo.Position = s.Position;
 
+                // The server's own price for this play, which outranks anything the client can work
+                // out for itself: it is the number the leaderboards and the profile actually count,
+                // and it can encode refusals the client cannot see (the play-time gate, an
+                // out-of-bounds total, a blocked build). A NUMBER here means the server ran the
+                // formula and this is the answer, 0 included; NULL means it did not run it, either
+                // because the play can never be priced or because it cannot be priced yet, and the
+                // results screen decides for itself rather than printing a zero the server never
+                // asserted.
+                score.ScoreInfo.PP = s.PP;
+
                 scoreSubmissionSource.SetResult(true);
                 Logger.Log($"Score submission completed! (token:{token.Value} id:{s.ID})");
             };

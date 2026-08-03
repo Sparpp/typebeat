@@ -58,6 +58,26 @@ namespace typebeat.Game.Rulesets.TypeBeat
         public override DifficultyCalculator CreateDifficultyCalculator(IWorkingBeatmap beatmap) =>
             new TypeBeatDifficultyCalculator(RulesetInfo, beatmap);
 
+        /// <summary>
+        /// pp for a finished score, for the shared results-screen components that reach it this way
+        /// (the score panel's pp readout and the performance breakdown chart). Without it they fall
+        /// back to a hardcoded 0 for every type!beat play.
+        /// </summary>
+        public override PerformanceCalculator CreatePerformanceCalculator() => new TypeBeatPerformanceCalculator(this);
+
+        /// <summary>
+        /// type!beat narrows the base rule with one gate of its own: only the BASE rates earn pp
+        /// (DT/NC 1.50x, HT 0.75x, docs/pp.md). A custom rate still ranks on the score leaderboards
+        /// exactly as before, it simply earns nothing, and no number describes that.
+        ///
+        /// <para>THIS IS THE SINGLE AUTHORITY on whether a type!beat play can earn pp. The score
+        /// panel asks it through <c>score.Ruleset.CreateInstance()</c> and the results table asks it
+        /// through <see cref="PerformancePointsDisplay.Eligible"/>, so the two surfaces on the same
+        /// screen cannot disagree about whether a play was ever in the running.</para>
+        /// </summary>
+        public override bool ScoreEarnsPerformancePoints(ScoreInfo score)
+            => base.ScoreEarnsPerformancePoints(score) && PerformancePoints.EligibleRate(score.Mods) != null;
+
         public override IEnumerable<Mod> GetModsFor(ModType type) => type switch
         {
             ModType.DifficultyReduction => new Mod[]
@@ -163,10 +183,18 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// the first costs completion or rank. The row appears only for a score that actually
         /// CARRIES the stat (<see cref="TypeBeatScoreProcessor.MistypesOf"/>); plays from before it
         /// existed show no row at all rather than a fabricated 0.</para>
+        ///
+        /// <para>PP closes the table, after the raw counts it is derived from: it is what the whole
+        /// play was worth. Unlike the mistype row it is unconditional, because a pp reading is
+        /// always knowable, either as a number or as "this could never have earned any"
+        /// (<see cref="PerformancePointsDisplay"/>, which also owns the gates and the rounding, so
+        /// this table and the live in-game counter can never disagree). No round trip is involved:
+        /// an offline play, an imported <c>.osr</c> and a replay downloaded from the website are all
+        /// priced here on the spot; a play the server DID price shows the server's number.</para>
         /// </summary>
         public override StatisticItem[] CreateStatisticsForScore(ScoreInfo score, IBeatmap playableBeatmap) => new[]
         {
-            new StatisticItem("Completion", () => new SimpleStatisticTable(2, CreateCompletionStatistics(score))),
+            new StatisticItem("Completion", () => new SimpleStatisticTable(2, CreateCompletionStatistics(score, playableBeatmap))),
         };
 
         /// <summary>
@@ -174,7 +202,12 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// (notably: none for mistypes on a play that carries no mistype stat) against the very
         /// list the results screen renders, rather than a second copy of the rule.
         /// </summary>
-        public static SimpleStatisticItem[] CreateCompletionStatistics(ScoreInfo score)
+        /// <param name="score">The score being shown.</param>
+        /// <param name="playableBeatmap">
+        /// The map it was set on, converted with its mods, which is what the pp row is priced from.
+        /// Null is the honest reading of "no map to price against", and shows pp as ineligible.
+        /// </param>
+        public static SimpleStatisticItem[] CreateCompletionStatistics(ScoreInfo score, IBeatmap? playableBeatmap = null)
         {
             var items = new List<SimpleStatisticItem>
             {
@@ -193,6 +226,8 @@ namespace typebeat.Game.Rulesets.TypeBeat
                 });
             }
 
+            items.Add(new PerformanceStatistic(PerformancePointsDisplay.ForScore(score, playableBeatmap)));
+
             return items.ToArray();
         }
 
@@ -206,6 +241,23 @@ namespace typebeat.Game.Rulesets.TypeBeat
             }
 
             protected override LocalisableString DisplayValue(double value) => value.ToString("0.0%", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// The play's performance points, or <see cref="PerformancePointsDisplay.INELIGIBLE_TEXT"/>
+        /// when it could never have earned any. Nullable rather than a plain double precisely so
+        /// those two stay apart: 0 is a real price (a give-up run is worth 0 and still counts),
+        /// while "ineligible" is the absence of a price.
+        /// </summary>
+        private partial class PerformanceStatistic : SimpleStatisticItem<double?>
+        {
+            public PerformanceStatistic(double? pp)
+                : base("pp")
+            {
+                Value = pp;
+            }
+
+            protected override LocalisableString DisplayValue(double? value) => PerformancePointsDisplay.Format(value);
         }
 
         /// <summary>
