@@ -7,6 +7,7 @@ using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
+using osu.Framework.Logging;
 using typebeat.Game.Extensions;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests;
@@ -72,17 +73,42 @@ namespace typebeat.Game.Online
                 RefetchStatistics(ruleset);
         }
 
-        public void RefetchStatistics(RulesetInfo ruleset, Action<UserStatisticsUpdate>? callback = null)
+        /// <summary>
+        /// Fetches the local user's latest statistics for the given ruleset and folds them into the cache.
+        /// </summary>
+        /// <param name="ruleset">The ruleset to fetch statistics for.</param>
+        /// <param name="callback">
+        /// Optional. Invoked EXACTLY ONCE when the attempt finishes, either way: with the resulting update, or with
+        /// <c>null</c> to say the fetch failed and no update is ever coming for it.
+        /// <para>
+        /// The nullable argument is the point of it. This request originally subscribed to the API request's success arm
+        /// only, so a 404, a 500, a timeout or a dropped connection resolved nothing at all and any caller showing a
+        /// placeholder while it waited (see OverallRanking) waited forever. Making the parameter nullable forces the one
+        /// kind of caller that can be hurt by that, a caller that passes a callback, to decide what a failure looks like;
+        /// callers that just want the cache warmed pass nothing and are unaffected.
+        /// </para>
+        /// </param>
+        public void RefetchStatistics(RulesetInfo ruleset, Action<UserStatisticsUpdate?>? callback = null)
         {
             if (!ruleset.IsLegacyRuleset())
                 throw new InvalidOperationException($@"Retrieving statistics is not supported for ruleset {ruleset.ShortName}");
 
             var request = new GetUserRequest(api.LocalUser.Value.Id, ruleset);
             request.Success += u => UpdateStatistics(u.Statistics, ruleset, callback);
+            request.Failure += exception =>
+            {
+                // deliberately not Logger.Error: a lost connection is ordinary, and an error entry would pop a
+                // "something went wrong" notification on top of the results screen after every failed submission.
+                Logger.Log($@"Failed to fetch local user statistics for ruleset {ruleset.ShortName}: {exception.Message}", LoggingTarget.Network);
+
+                // the cache is deliberately left alone. A failed fetch is not evidence that the statistics changed,
+                // and dropping the entry would turn the next successful fetch into a second "no previous statistics".
+                callback?.Invoke(null);
+            };
             api.Queue(request);
         }
 
-        protected void UpdateStatistics(UserStatistics newStatistics, RulesetInfo ruleset, Action<UserStatisticsUpdate>? callback = null)
+        protected void UpdateStatistics(UserStatistics newStatistics, RulesetInfo ruleset, Action<UserStatisticsUpdate?>? callback = null)
         {
             var oldStatistics = statisticsCache.GetValueOrDefault(ruleset.ShortName);
             statisticsCache[ruleset.ShortName] = newStatistics;

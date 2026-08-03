@@ -57,6 +57,12 @@ namespace typebeat.Game.Overlays.Toolbar
 
             LatestUpdate.BindValueChanged(val =>
             {
+                // Bound to the watcher's update channel ONLY, deliberately: it never carries a failed or undescribable
+                // refetch (see UserStatisticsWatcher.LatestUnavailableUpdate for those). This display exists to animate a
+                // rank/pp movement, and there is no honest animation for "we could not find out", so a failure must simply
+                // not play one. Do not bind the unavailable channel here to "handle" it: rolling a counter to a made-up
+                // zero, or flashing an empty pill in the toolbar, would both be worse than staying silent. The results
+                // screen is where a player is told why, in words.
                 if (val.NewValue == null)
                     return;
 

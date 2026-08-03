@@ -24,6 +24,18 @@ namespace typebeat.Game.Localisation
         /// </summary>
         public static LocalisableString NoPPForFailedScores => new TranslatableString(getKey(@"no_pp_for_failed_scores"), @"Performance points are not granted for failed scores.");
 
+        /// <summary>
+        /// "Your profile statistics could not be retrieved, so the change from this score cannot be shown."
+        /// </summary>
+        public static LocalisableString StatisticsUpdateUnavailable => new TranslatableString(getKey(@"statistics_update_unavailable"),
+            @"Your profile statistics could not be retrieved, so the change from this score cannot be shown.");
+
+        /// <summary>
+        /// "Your profile statistics from before this score are not known, so the change cannot be shown."
+        /// </summary>
+        public static LocalisableString PreviousStatisticsUnavailable => new TranslatableString(getKey(@"previous_statistics_unavailable"),
+            @"Your profile statistics from before this score are not known, so the change cannot be shown.");
+
         private static string getKey(string key) => $@"{prefix}:{key}";
     }
 }
