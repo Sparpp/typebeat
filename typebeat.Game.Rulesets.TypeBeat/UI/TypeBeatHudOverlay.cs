@@ -4,27 +4,74 @@
 // Ported from type!beat TypeBeat.Game/UI/HudOverlay.cs, slimmed for the type!beat fork:
 // score/combo/accuracy readouts dropped (type!beat's own HUD shows those from the
 // ScoreProcessor); the SyncBar and hit-error meters were removed by design; the only
-// engine-authoritative extras left are the WPM / sync% readouts.
+// engine-authoritative extras left are the WPM / sync% readouts, plus the live pp counter
+// (which is score-processor authoritative, not engine authoritative, see below).
 
+using System.Collections.Generic;
+using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.Sprites;
+using typebeat.Game.Rulesets.Mods;
+using typebeat.Game.Rulesets.Scoring;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Rulesets.TypeBeat.Scoring;
 
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
     /// <summary>
-    /// Playfield-level HUD extras: top-centre WPM / sync% readouts, polled from the engine
-    /// each frame. Mounted under the playfield's lyric-offset clock container so
-    /// <c>Time.Current</c> is lyric-gameplay time.
+    /// Playfield-level HUD extras: top-centre WPM / sync% / pp readouts, polled each frame.
+    /// Mounted under the playfield's lyric-offset clock container so <c>Time.Current</c> is
+    /// lyric-gameplay time.
     /// </summary>
     public partial class TypeBeatHudOverlay : CompositeDrawable
     {
+        /// <summary>
+        /// What the pp readout shows for a play that can never earn pp (see
+        /// <see cref="starRating"/>). Deliberately not a number: a live "214" on a play the server
+        /// will store at 0 pp would be a lie the player only discovers on the results screen.
+        /// </summary>
+        public const string INELIGIBLE_TEXT = "-";
+
         private readonly TypingEngine engine;
 
         private OsuSpriteText wpmValue = null!;
         private OsuSpriteText syncValue = null!;
+        private OsuSpriteText ppValue = null!;
+
+        // Both cached by Player; absent in bare drawable-ruleset test scenes.
+        [Resolved]
+        private ScoreProcessor? scoreProcessor { get; set; }
+
+        /// <summary>
+        /// The star rating this play is priced at, or null when it is pp-INELIGIBLE and the readout
+        /// is frozen at <see cref="INELIGIBLE_TEXT"/>. Computed once, at load: it is a full pass
+        /// over the map's words, and nothing that can move it changes during a play.
+        ///
+        /// <para>The three ways a play is ineligible are the three the server would refuse to pay
+        /// for, so the counter never promises pp that will not be awarded:</para>
+        /// <list type="number">
+        /// <item>a CUSTOM rate (only the DT/NC 1.50x and HT 0.75x base rates earn pp, docs/pp.md);</item>
+        /// <item>any UNRANKED mod in the stack (Mashing, Autoplay, ...), which makes the submission
+        /// path store the score <c>ranked = false</c>;</item>
+        /// <item>a map that grants no pp (anything not Ranked/Approved: a local map, an unsubmitted
+        /// map, a work-in-progress).</item>
+        /// </list>
+        /// A FAILED play is deliberately NOT in that list. Failing is not knowable in advance, the
+        /// counter's contract is "what this play is worth if it ends right here", and a run that
+        /// still might be no-failed or recovered should keep showing what it is building.
+        /// </summary>
+        private double? starRating;
+
+        private IReadOnlyList<Mod>? mods;
+
+        // Last state the readout was computed from, so a frame that judged nothing does no work.
+        private PerformancePoints.NoteCounts lastCounts = new PerformancePoints.NoteCounts(-1, -1, -1);
+        private int lastMaxCombo = -1;
 
         public TypeBeatHudOverlay(TypingEngine engine)
         {
@@ -32,8 +79,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             RelativeSizeAxes = Axes.Both;
         }
 
-        [BackgroundDependencyLoader]
-        private void load()
+        [BackgroundDependencyLoader(true)]
+        private void load(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? gameplayMods)
         {
             InternalChild = new FillFlowContainer
             {
@@ -47,8 +94,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 {
                     stat("wpm", out wpmValue),
                     stat("sync", out syncValue),
+                    stat("pp", out ppValue),
                 },
             };
+
+            mods = gameplayMods;
+            starRating = StarRatingFor(playableBeatmap, gameplayMods);
+            ppValue.Text = starRating == null ? INELIGIBLE_TEXT : "0";
+        }
+
+        /// <summary>
+        /// The rating to price this play at, or null when it is ineligible (see
+        /// <see cref="starRating"/>). The rating itself comes from the map's own lyric lines at the
+        /// play's clock rate, i.e. the same <see cref="LyricDifficulty"/> pass that fills
+        /// <see cref="TypeBeatDifficultyCalculator"/> and, through the server's mirrored copy of it,
+        /// the stored <c>difficulty_rating</c> / <c>sr_dt</c> / <c>sr_ht</c> columns. Nothing is
+        /// fetched from the server.
+        ///
+        /// <para>Public rather than private so the headless tests can drive the exact gate the HUD
+        /// uses, instead of a paraphrase of it.</para>
+        /// </summary>
+        public static double? StarRatingFor(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? mods)
+        {
+            if (playableBeatmap == null)
+                return null;
+
+            if (!playableBeatmap.BeatmapInfo.Status.GrantsPerformancePoints())
+                return null;
+
+            if (mods != null && mods.Any(m => !m.Ranked))
+                return null;
+
+            return PerformancePoints.StarsFor(playableBeatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), mods);
         }
 
         private Drawable stat(string caption, out OsuSpriteText value)
@@ -93,6 +170,42 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // readout should track current pace. The results screen still reports the whole-run figure.
             wpmValue.Text = engine.LiveRollingWpm.ToString("0");
             syncValue.Text = engine.LiveSyncPercent.ToString("0.0") + "%";
+
+            updatePerformancePoints();
+        }
+
+        /// <summary>
+        /// "What this play is worth if it ends right here". The formula's <c>notes</c> is the count
+        /// of JUDGED notes, so feeding it the live counts makes the readout land, on the play's last
+        /// judgement, on exactly the value the server will store for the submitted score (pinned by
+        /// <c>PerformancePointsHudTest.LiveCounterConvergesOnTheSubmittedScoresValue</c>).
+        ///
+        /// <para>Recomputed only when a judgement actually moved the counts or the combo, so a
+        /// typical frame costs one scan of a dictionary with a handful of entries and no
+        /// <c>Math.Pow</c> at all. Every input the formula takes moves with those: accuracy cannot
+        /// change without a note being judged, and a mistype shows up as its own count.</para>
+        ///
+        /// <para>The accuracy fed in is the score processor's RUNNING accuracy (denominator: what
+        /// has been judged so far), which is the only honest reading mid-play and is exactly equal
+        /// to the whole-map accuracy the server recomputes once every cell has been judged. The two
+        /// diverge only for a play that ends early, i.e. a FAIL, which is stored unranked and earns
+        /// nothing anyway.</para>
+        /// </summary>
+        private void updatePerformancePoints()
+        {
+            if (scoreProcessor == null || starRating is not double stars)
+                return;
+
+            var counts = PerformancePoints.CountNotes(scoreProcessor.Statistics);
+            int maxCombo = scoreProcessor.HighestCombo.Value;
+
+            if (counts == lastCounts && maxCombo == lastMaxCombo)
+                return;
+
+            lastCounts = counts;
+            lastMaxCombo = maxCombo;
+
+            ppValue.Text = PerformancePoints.ForPlay(stars, counts, scoreProcessor.Accuracy.Value, maxCombo, mods).ToString("0");
         }
     }
 }
