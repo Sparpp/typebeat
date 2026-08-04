@@ -55,6 +55,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsEnumDropdown<CaretStyle>
                 {
                     LabelText = "Caret style",
+                    TooltipText = "Shape of both heads on the lyric line: your typing caret and the song's playhead. The playhead stays the accent colour and never blinks, so the two are still easy to tell apart.",
                     Current = config.GetBindable<CaretStyle>(TypeBeatRulesetSetting.CaretStyle),
                 },
                 new SettingsEnumDropdown<KeyboardLayout>

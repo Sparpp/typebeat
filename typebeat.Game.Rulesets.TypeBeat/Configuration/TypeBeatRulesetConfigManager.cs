@@ -33,8 +33,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         LocalAlignerEnabled,
 
         /// <summary>
-        /// Player caret rendering style (monkeytype's caret options). Applies to the typing
-        /// caret only; the sung caret is a position marker and stays a beam.
+        /// Caret rendering style (monkeytype's caret options). Applies to BOTH heads on the lyric
+        /// stack: the typing caret and the sung playhead. They remain distinguishable by colour,
+        /// damping and blink, so this only picks the shape they share.
         /// </summary>
         CaretStyle,
 
