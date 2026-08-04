@@ -132,6 +132,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             return advances[Math.Clamp(cellIndex, 0, advances.Length - 1)] * contentScale;
         }
 
+        /// <summary>
+        /// The same on-screen advance at a FRACTIONAL (sung) cell index: what a cell-covering caret
+        /// style spans when it rides the continuous sung position rather than sitting on a discrete
+        /// cell. See <see cref="AdvanceAtFraction"/> for why it interpolates.
+        /// </summary>
+        public float CellWidthAtFraction(double fractionalCellIndex)
+        {
+            if (advances.Length == 0)
+                return CharWidth * contentScale;
+
+            return AdvanceAtFraction(advances, fractionalCellIndex) * contentScale;
+        }
+
+        /// <summary>
+        /// The advance covered at a fractional cell index: the two straddled cells' advances
+        /// interpolated exactly the way <see cref="SungPositionPoint"/> interpolates their left edges.
+        /// That pairing is the point: at every WHOLE index (each syllable's onset, where the eye
+        /// actually lands) the left edge is the cell's own left edge and the width is that cell's own
+        /// advance, so the shape covers precisely the character being sung; between two onsets it
+        /// slides and morphs together with the underline sweep instead of jumping a whole cell.
+        ///
+        /// <para>Out-of-range indices clamp to the end cells, and NaN (which no comparison would
+        /// catch) clamps to the first, matching <see cref="CellWidthAt"/>'s past-the-end rule: a
+        /// playhead parked past the last character keeps that character's width rather than
+        /// collapsing. Pure, so it is unit-testable.</para>
+        /// </summary>
+        public static float AdvanceAtFraction(IReadOnlyList<float> cellAdvances, double fractionalCellIndex)
+        {
+            int n = cellAdvances.Count;
+
+            if (n == 0)
+                return 0f;
+
+            double f = double.IsNaN(fractionalCellIndex) ? 0 : Math.Clamp(fractionalCellIndex, 0, n - 1);
+            int lo = (int)Math.Floor(f);
+            int hi = Math.Min(lo + 1, n - 1);
+
+            return cellAdvances[lo] + (cellAdvances[hi] - cellAdvances[lo]) * (float)(f - lo);
+        }
+
         public LyricLineDisplay(TypingLine line, float fontSize = TypeBeatStyle.LYRIC_FONT_SIZE, string? fontFamily = null)
         {
             Line = line;

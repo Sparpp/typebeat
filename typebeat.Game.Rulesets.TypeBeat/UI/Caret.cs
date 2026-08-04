@@ -20,11 +20,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// and blinks (530ms) only while idle. Renders in any of monkeytype's styles
     /// (<see cref="CaretStyle"/>): the classic 3px beam straddling the cell boundary, or a
     /// block/outline/underline covering the current cell. The same class is reused as the
-    /// sung caret (recoloured, slower damp, no blink, always a beam).
+    /// sung caret (recoloured, slower damp, no blink), which wears the same user-chosen style:
+    /// only its identity differs, not its shape.
     /// </summary>
     public partial class Caret : CompositeDrawable
     {
-        /// <summary>Rendering style; bind to config for the player caret, leave at Line for the sung caret.</summary>
+        /// <summary>Rendering style; both carets bind this to the user's CaretStyle setting.</summary>
         public readonly Bindable<CaretStyle> Style = new Bindable<CaretStyle>(CaretStyle.Line);
 
         private const float beam_width = 3;
@@ -39,7 +40,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>The style-built visual; blink/idle modulates its alpha.</summary>
         private readonly Container visual;
 
-        /// <summary>On-screen advance of the cell the caret sits on (cell-covering styles only).</summary>
+        /// <summary>On-screen advance of the cell the caret covers (cell-covering styles only).
+        /// The initialiser is only a placeholder for the window before the owner has measured
+        /// anything; every real value arrives through <see cref="SetCellWidth"/>.</summary>
         private float cellWidth = 14f;
 
         private Vector2 target;
@@ -68,15 +71,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             Style.BindValueChanged(_ => applyStyle());
         }
 
-        /// <summary>Sets the on-screen width of the current cell (block/outline/underline sizing).</summary>
+        /// <summary>
+        /// Sets the on-screen width of the covered cell (block/outline/underline sizing). The value
+        /// is recorded even while the style is <see cref="CaretStyle.Line"/>, which has no use for it,
+        /// so a later switch to a cell-covering style builds from a real measurement instead of the
+        /// placeholder initialiser.
+        ///
+        /// <para>The skip test is against what is DRAWN, not against the stored width. Those two part
+        /// company in <see cref="CaretStyle.Line"/> (the visual holds the beam width while the stored
+        /// width is a cell width), so skipping on "stored width unchanged" only holds because
+        /// <see cref="applyStyle"/> re-reads the stored width on every style change; comparing the
+        /// visual removes the dependence on that ordering entirely.</para>
+        /// </summary>
         public void SetCellWidth(float width)
         {
-            if (width <= 0 || Precision.AlmostEquals(width, cellWidth))
+            if (width <= 0)
                 return;
 
             cellWidth = width;
 
-            if (Style.Value != CaretStyle.Line)
+            // Line is the fixed 3px beam and never takes a cell width, which is what keeps it
+            // byte-identical to the pre-setting behaviour.
+            if (Style.Value != CaretStyle.Line && !Precision.AlmostEquals(visual.Width, width))
                 visual.Width = width;
         }
 
@@ -190,5 +206,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 visual.Alpha = (float)(0.5 + 0.5 * Math.Cos(phase * Math.PI * 2));
             }
         }
+
+        // --- Test-support accessors (public so cross-assembly test scenes can assert) ---
+
+        /// <summary>Width of the drawn shape: the 3px beam in <see cref="CaretStyle.Line"/>, the
+        /// covered cell's on-screen advance in every other style.</summary>
+        public float VisualWidth => visual.Width;
     }
 }

@@ -144,9 +144,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 Alpha = 0f,
             };
 
-            // Player caret style is the user's monkeytype-style choice; the sung caret is a
-            // position marker and always stays a beam.
+            // The monkeytype-style caret choice dresses BOTH heads: the typing caret and the map
+            // playhead. They stay told apart by everything else (colour, damp, blink), so the setting
+            // changes shape only. Both bind the same config bindable, so a live change applies to
+            // both without a restart.
             config?.BindWith(TypeBeatRulesetSetting.CaretStyle, playerCaret.Style);
+            config?.BindWith(TypeBeatRulesetSetting.CaretStyle, sungCaret.Style);
 
             // Line spacing is user-adjustable and applies live: a change invalidates the laid-out
             // focus so the next Update re-runs the layout with the new gap.
@@ -310,6 +313,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 sd.SetSungPosition(sung);
                 Vector2 sungPoint = sd.ToSpaceOfOtherDrawable(sd.SungPositionPoint(sung), this);
                 sungCaret.Height = sd.LineHeight;
+                // Unlike the player caret, the playhead sits at a FRACTIONAL cell index, so a
+                // cell-covering style takes the interpolated advance: exactly the sung character's
+                // width at each onset, morphing across the gap in step with the underline sweep the
+                // display draws from the same fractional position. Fed every frame regardless of
+                // style so switching to a cell style always has a live measurement to build on.
+                sungCaret.SetCellWidth(sd.CellWidthAtFraction(sung));
                 sungCaret.MoveToTarget(sungPoint);
 
                 refreshVisible(active);
@@ -716,6 +725,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public Vector2 PlayerCaretPosition => playerCaret.IsNotNull() ? playerCaret.Position : Vector2.Zero;
         public Vector2 SungCaretPosition => sungCaret.IsNotNull() ? sungCaret.Position : Vector2.Zero;
         public bool PlayerCaretVisible => playerCaret.IsNotNull() && playerCaret.Alpha > 0.5f;
+        public bool SungCaretVisible => sungCaret.IsNotNull() && sungCaret.Alpha > 0.5f;
+
+        /// <summary>Width of the shape each caret currently draws: the beam width in
+        /// <see cref="CaretStyle.Line"/>, the covered cell's on-screen advance otherwise.</summary>
+        public float PlayerCaretVisualWidth => playerCaret.IsNotNull() ? playerCaret.VisualWidth : 0f;
+
+        public float SungCaretVisualWidth => sungCaret.IsNotNull() ? sungCaret.VisualWidth : 0f;
+
+        /// <summary>The style the sung caret is currently rendering in; test support for the binding.</summary>
+        public CaretStyle SungCaretStyle => sungCaret.IsNotNull() ? sungCaret.Style.Value : CaretStyle.Line;
 
         /// <summary>Screen-space centre of the typing caret: the point the Flashlight mod reveals around.</summary>
         public Vector2 PlayerCaretScreenPosition => playerCaret.IsNotNull() ? playerCaret.ScreenSpaceDrawQuad.Centre : Vector2.Zero;
