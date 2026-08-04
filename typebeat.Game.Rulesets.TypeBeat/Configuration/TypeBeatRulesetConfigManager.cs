@@ -91,6 +91,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// <summary>Sentinel <see cref="TypeBeatRulesetSetting.LyricFont"/> value meaning "keep the game's built-in font".</summary>
         public const string LYRIC_FONT_DEFAULT = "Default";
 
+        /// <summary>
+        /// The caret style a NEW install starts on. Changing this cannot disturb an existing player, and the reason is
+        /// worth stating because the usual assumption about defaults is the opposite one: a default normally leaks to
+        /// everyone who never touched the setting.
+        ///
+        /// <para>
+        /// It does not here because <see cref="Rulesets.Configuration.RulesetConfigManager{TLookup}.AddBindable"/>
+        /// databases EVERY setting the first time the config is constructed, not just the ones a player later changes.
+        /// So anyone who has already launched the game owns an explicit <c>RealmRulesetSetting</c> row holding
+        /// whatever they were given at the time, and <c>PerformLoad</c> parses that row back over this default on every
+        /// subsequent boot. A player who has never opened the caret dropdown is therefore just as pinned as one who
+        /// has. Only an install with no row yet, which is to say a new player, reads this value at all.
+        /// </para>
+        /// </summary>
+        public const CaretStyle DEFAULT_CARET_STYLE = CaretStyle.Underline;
+
         public TypeBeatRulesetConfigManager(SettingsStore? settings, RulesetInfo ruleset, int? variant = null)
             : base(settings, ruleset, variant)
         {
@@ -103,7 +119,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.LyricOffsetMs, 0.0, -500.0, 500.0, 1.0);
             SetDefault(TypeBeatRulesetSetting.LyricLabPath, string.Empty);
             SetDefault(TypeBeatRulesetSetting.LocalAlignerEnabled, true);
-            SetDefault(TypeBeatRulesetSetting.CaretStyle, CaretStyle.Line);
+            SetDefault(TypeBeatRulesetSetting.CaretStyle, DEFAULT_CARET_STYLE);
             SetDefault(TypeBeatRulesetSetting.KeyboardLayout, Gameplay.KeyboardLayout.Qwerty);
             SetDefault(TypeBeatRulesetSetting.AllowWrongInput, false);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
