@@ -14,6 +14,11 @@ namespace typebeat.Game.Localisation
         /// </summary>
         public static LocalisableString CouldNotLoadProfile => new TranslatableString(getKey(@"could_not_load_profile"), @"Couldn't load this profile. Click to retry.");
 
+        /// <summary>
+        /// "Couldn't load this section. Click to retry."
+        /// </summary>
+        public static LocalisableString CouldNotLoadSection => new TranslatableString(getKey(@"could_not_load_section"), @"Couldn't load this section. Click to retry.");
+
         private static string getKey(string key) => $@"{prefix}:{key}";
     }
 }

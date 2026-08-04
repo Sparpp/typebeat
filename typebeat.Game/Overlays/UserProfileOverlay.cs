@@ -194,36 +194,21 @@ namespace typebeat.Game.Overlays
         }
 
         /// <summary>
-        /// The profile sections this client is currently willing to build, in declared display order.
+        /// The profile sections this client is willing to build, in declared display order.
         /// </summary>
         /// <remarks>
-        /// THIS IS DELIBERATELY EMPTY. Every section below is switched off, and the list is the whole record of why.
-        /// It is not the same emptiness as the bot case in <see cref="fetchAndSetContent"/>, which is about the user;
-        /// this is about the server, and the two will diverge again as soon as one of these comes back.
+        /// TWO OF THE FIVE ARE ON. A section is listed here only when BOTH of the blockers task 81 recorded are
+        /// cleared for it: the server serves every route its subsections fetch, AND the user payload carries the
+        /// count each subsection heading prints. Serving the endpoint alone is not enough, because
+        /// <c>PaginatedProfileSubsection.GetCount</c> reads <see cref="APIUser"/> counters straight off the user
+        /// payload, so a section switched on early renders a real list under a confident <c>0</c>, the fabricated
+        /// zero tasks 74, 75 and 80 removed elsewhere.
         ///
         /// <para>
-        /// FIRST BLOCKER, THE ENDPOINTS. Each section drives <see cref="PaginatedProfileSubsection{TModel}"/> fetches
-        /// against a route this server does not have: its table carries only <c>/api/v2/users/{lookup}</c> and
-        /// <c>/api/v2/users/{lookup}/{ruleset}</c>. Note that the two-segment ones (<c>kudosu</c>,
-        /// <c>recent_activity</c>) do not even 404 cleanly, they MIS-ROUTE into the second of those and come back as a
-        /// user object that cannot deserialise into a list. Switched on today, all five render as a heading over an
-        /// empty body.
-        /// </para>
-        ///
-        /// <para>
-        /// SECOND BLOCKER, THE COUNTERS, and the trap for whoever revives these: serving the endpoint is necessary but
-        /// NOT sufficient. <c>PaginatedProfileSubsection.GetCount</c> reads <see cref="APIUser"/> fields
-        /// (<c>ScoresBestCount</c>, <c>BeatmapPlayCountsCount</c>, and friends) that this wire never populates, so a
-        /// section turned on the day its endpoint lands would still print a confident <c>0</c> beside every subsection
-        /// heading of a player who has plenty. The user payload has to grow the matching count fields in the same
-        /// breath. Showing a zero for something merely unknown is exactly what tasks 74, 75 and 80 removed elsewhere,
-        /// and is why these are off rather than shipped half-fed.
-        /// </para>
-        ///
-        /// <para>
-        /// TO REVIVE ONE: uncomment its line, once BOTH blockers are cleared for that section. Nothing else in this
-        /// file has to change. <see cref="sectionsInDisplayOrder"/> already resolves the ordering, and the tab control
-        /// and the sections container are both built from whatever this returns.
+        /// THE OTHER THREE ARE OFF FOR GOOD, not pending. They are not waiting on an endpoint somebody should get
+        /// round to writing; the things they display do not exist in this game, so no endpoint would have anything
+        /// honest to return. Each is spelled out at its line below. This is a DIFFERENT emptiness from the bot case
+        /// in <see cref="fetchAndSetContent"/>, which is about the user rather than about what this game has.
         /// </para>
         ///
         /// <para>
@@ -239,15 +224,37 @@ namespace typebeat.Game.Overlays
             //   enabled.Add(new AboutSection());
             //   enabled.Add(new MedalsSection());
 
-            // Blocked on the server. Each line names the route that has to exist (plus the count fields, see above):
-            //   enabled.Add(new RecentSection());      GET /api/v2/users/{id}/recent_activity
-            //   enabled.Add(new RanksSection());       GET /api/v2/users/{id}/scores/{pinned,best,firsts}
-            //   enabled.Add(new HistoricalSection());  GET /api/v2/users/{id}/beatmapsets/most_played
-            //                                          GET /api/v2/users/{id}/scores/recent
-            //                                          (its two graph subsections additionally read
-            //                                           monthly_playcounts / replays_watched_counts off the user payload)
-            //   enabled.Add(new BeatmapsSection());    GET /api/v2/users/{id}/beatmapsets/{favourite,ranked,loved,guest,pending,graveyard,nominated}
-            //   enabled.Add(new KudosuSection());      GET /api/v2/users/{id}/kudosu
+            // Never served, and not a TODO. Deleting the section types themselves would only fork this tree away
+            // from upstream for no runtime gain (nothing else references them), so they stay; what matters is that
+            // these lines stop reading as work waiting to be done:
+            //
+            //   RecentSection    GET /api/v2/users/{id}/recent_activity
+            //     An EVENT FEED, and this server records no events. Worse, most of osu's event vocabulary
+            //     (medals, supporter, beatmap nomination, username change) has no counterpart here at all, so a
+            //     faithful implementation would be a feed of one event type wearing a five-type UI.
+            //
+            //   KudosuSection    GET /api/v2/users/{id}/kudosu
+            //     Kudosu is the reward currency of osu's MODDING QUEUE. There is no modding queue, no kudosu, and
+            //     no `kudosu` key on this user payload; note that KudosuInfo dereferences `User.Kudosu.Total`
+            //     unguarded, so enabling this line today is not an empty section, it is a null reference on every
+            //     profile that opens.
+            //
+            //   BeatmapsSection  GET /api/v2/users/{id}/beatmapsets/{favourite,ranked,loved,guest,pending,graveyard,nominated}
+            //     FOUR of its seven subsections can never hold a row on this server: there is no 'loved' status, no
+            //     guest difficulties (a set has one owner), no nomination process (an admin ranks a set outright)
+            //     and no graveyard. Serving the three that are real (favourite, ranked, pending) would ship a
+            //     section that is mostly permanently-empty headings, for a browsing job the website already does
+            //     better, at the cost of the largest wire surface of the five (the full APIBeatmapSet card payload).
+
+            // Served: GET /api/v2/users/{id}/scores/{pinned,best,firsts}, counted by
+            // scores_pinned_count / scores_best_count / scores_first_count on the user payload.
+            enabled.Add(new RanksSection());
+
+            // Served: GET /api/v2/users/{id}/beatmapsets/most_played and GET /api/v2/users/{id}/scores/recent,
+            // counted by beatmap_playcounts_count / scores_recent_count. Its two graph subsections read
+            // monthly_playcounts / replays_watched_counts off the user payload instead of fetching, and hide
+            // themselves when fewer than two months are present, so they are self-limiting rather than blank.
+            enabled.Add(new HistoricalSection());
 
             return enabled.ToArray();
         }
@@ -257,10 +264,18 @@ namespace typebeat.Game.Overlays
         /// </summary>
         /// <remarks>
         /// <c>profile_order</c> is the profile owner's own curation of their section order, and osu-web always sends
-        /// the complete list. This server does not send the key at all (nothing in the user payload emits it; the
-        /// website's stored order is a website-side feature and is not on this wire), so <paramref name="profileOrder"/>
-        /// being null is the ORDINARY case here, not an edge case. Reading it as "then show no sections" is how the
-        /// success path came to resolve into a header over an empty body.
+        /// the complete list. This server does not send the key at all, so <paramref name="profileOrder"/> being null
+        /// is the ORDINARY case here, not an edge case. Reading it as "then show no sections" is how the success path
+        /// came to resolve into a header over an empty body.
+        ///
+        /// <para>
+        /// It is deliberately not sent, and this is not an oversight to be fixed later. The website DOES store a
+        /// per-user section order, but over its OWN section vocabulary (<c>pinned</c>, <c>best-scores</c>,
+        /// <c>first-places</c>, <c>most-viewed-replays</c>, ...), which is a different and finer-grained set than the
+        /// two identifiers this client has (<c>top_ranks</c>, <c>historical</c>). Forwarding it would name only
+        /// identifiers this client does not have, which the rule below correctly reads as "no usable order was
+        /// stated" and resolves back to the declared order, so the wire would grow a key that changes nothing.
+        /// </para>
         ///
         /// <para>
         /// The rule is therefore: an order we can actually honour wins, anything else falls back to the declared order.
@@ -270,9 +285,9 @@ namespace typebeat.Game.Overlays
         /// </para>
         ///
         /// <para>
-        /// This resolves to nothing at present, because <see cref="createSections"/> is deliberately empty and there is
-        /// nothing to order. That is the point of keeping this correct rather than deleting it: reviving a section is
-        /// then one uncommented line there, with no ordering logic to rediscover or rebuild here.
+        /// With no key on the wire this is the declared order of <see cref="createSections"/> every time. It is kept
+        /// correct anyway: the moment the server has a section vocabulary worth forwarding, or a section is added
+        /// here, the ordering is already resolved and there is nothing to rediscover.
         /// </para>
         /// </remarks>
         private IEnumerable<ProfileSection> sectionsInDisplayOrder(string[]? profileOrder)
