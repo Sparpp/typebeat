@@ -1,17 +1,21 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
+using osu.Framework.Extensions.TypeExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Localisation;
+using osu.Framework.Logging;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
+using typebeat.Game.Localisation;
 using typebeat.Game.Online.API;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Online.API.Requests;
@@ -44,6 +48,7 @@ namespace typebeat.Game.Overlays.Profile.Sections
 
         private ShowMoreButton moreButton = null!;
         private OsuSpriteText missing = null!;
+        private OsuHoverContainer failed = null!;
         private readonly LocalisableString? missingText;
 
         protected PaginatedProfileSubsection(Bindable<UserProfileData?> user, LocalisableString? headerText = null, LocalisableString? missingText = null)
@@ -82,6 +87,21 @@ namespace typebeat.Game.Overlays.Profile.Sections
                     Font = OsuFont.GetFont(size: 15),
                     Text = missingText ?? string.Empty,
                     Alpha = 0,
+                },
+                // The outcome a failed fetch would otherwise never state. It is a SEPARATE drawable from
+                // `missing` on purpose: "this player has no records here" and "we could not find out" are
+                // different answers, and `missing` is additionally optional (most subsections pass no
+                // missingText at all), so folding the two together would leave most failures silent.
+                failed = new OsuHoverContainer
+                {
+                    AutoSizeAxes = Axes.Both,
+                    Alpha = 0,
+                    Action = retry,
+                    Child = new OsuSpriteText
+                    {
+                        Font = OsuFont.GetFont(size: 15),
+                        Text = UserProfileOverlayStrings.CouldNotLoadSection,
+                    }
                 }
             }
         };
@@ -95,10 +115,24 @@ namespace typebeat.Game.Overlays.Profile.Sections
         private void onUserChanged(ValueChangedEvent<UserProfileData?> e)
         {
             loadCancellation?.Cancel();
+
             retrievalRequest?.Cancel();
+
+            // the field only ever holds a request whose outcome is still wanted. Dropping the reference the
+            // instant it is cancelled is what lets the callbacks in showMore() discriminate: a cancelled
+            // request DOES reach its Failure arm in this framework (Cancel() is Fail(OperationCanceled),
+            // running the same TriggerFailure path as a 404), so without this, switching profiles would
+            // paint "couldn't load this section" over the healthy fetch that had just replaced it.
+            retrievalRequest = null;
 
             CurrentPage = null;
             ItemsContainer.Clear();
+
+            // both outcomes of the PREVIOUS user are stale now. Neither is cleared anywhere else on this
+            // path (UpdateItems only hides them once its async load lands), so without this the new user's
+            // section reads as empty, or as failed, for as long as their fetch is in flight.
+            missing.Hide();
+            failed.Hide();
 
             if (e.NewValue?.User != null)
             {
@@ -114,12 +148,71 @@ namespace typebeat.Game.Overlays.Profile.Sections
 
             loadCancellation = new CancellationTokenSource();
 
+            // the cursor as it stood BEFORE this page was claimed, so a failure can hand it back (see
+            // pageLoadFailed). Retrying otherwise asks for the page AFTER the one that never arrived,
+            // silently swallowing a page of the player's scores.
+            var pageBefore = CurrentPage;
+
             CurrentPage = CurrentPage?.TakeNext(ItemsPerPage) ?? new PaginationParameters(InitialItemsCount);
 
-            retrievalRequest = CreateRequest(User.Value, new PaginationParameters(CurrentPage.Value.Offset, CurrentPage.Value.Limit + 1));
-            retrievalRequest.Success += items => UpdateItems(items, loadCancellation);
+            var req = CreateRequest(User.Value, new PaginationParameters(CurrentPage.Value.Offset, CurrentPage.Value.Limit + 1));
 
-            api.Queue(retrievalRequest);
+            req.Success += items =>
+            {
+                if (retrievalRequest != req) return;
+
+                retrievalRequest = null;
+                UpdateItems(items, loadCancellation);
+            };
+
+            req.Failure += e =>
+            {
+                if (retrievalRequest != req) return;
+
+                retrievalRequest = null;
+                pageLoadFailed(pageBefore, e);
+            };
+
+            retrievalRequest = req;
+
+            api.Queue(req);
+        }
+
+        /// <summary>
+        /// Resolves a page that will never arrive into a stated outcome with a way out.
+        /// </summary>
+        /// <remarks>
+        /// Without this the section degrades quietly rather than loudly (<see cref="moreButton"/> starts at
+        /// <c>Alpha = 0</c>, so nothing is left spinning), but quietly is the problem: the "no records"
+        /// placeholder only ever renders from <see cref="UpdateItems"/>, which a failure never reaches, so a
+        /// dropped connection is indistinguishable from a player who genuinely has nothing here.
+        /// </remarks>
+        /// <param name="pageBefore">The pagination cursor to restore, so a retry re-asks for the failed page.</param>
+        /// <param name="exception">What the request failed with; logged, never shown.</param>
+        private void pageLoadFailed(PaginationParameters? pageBefore, Exception exception) => Schedule(() =>
+        {
+            CurrentPage = pageBefore;
+
+            // the network target rather than Logger.Error: a dropped connection is not a bug report, and an
+            // error would pop a notification on top of a surface that is already saying the same thing.
+            Logger.Log($@"Failed to load {GetType().ReadableName()} for user {User.Value?.User.Id}: {exception}", LoggingTarget.Network);
+
+            // a failure on page 2+ leaves the pages that DID arrive on screen; only the button that asks for
+            // more is replaced, because pressing it again is exactly what the retry does.
+            moreButton.IsLoading = false;
+            moreButton.Hide();
+
+            missing.Hide();
+            failed.Show();
+        });
+
+        private void retry()
+        {
+            failed.Hide();
+            moreButton.IsLoading = true;
+            moreButton.Show();
+
+            showMore();
         }
 
         protected virtual void UpdateItems(List<TModel> items, CancellationTokenSource cancellationTokenSource) => Schedule(() =>
