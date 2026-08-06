@@ -20,12 +20,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// and blinks (530ms) only while idle. Renders in any of monkeytype's styles
     /// (<see cref="CaretStyle"/>): the classic 3px beam straddling the cell boundary, or a
     /// block/outline/underline covering the current cell. The same class is reused as the
-    /// sung caret (recoloured, slower damp, no blink), which wears the same user-chosen style:
-    /// only its identity differs, not its shape.
+    /// sung caret (recoloured, slower damp, no blink); each instance carries its own
+    /// <see cref="Style"/>, and the two are fed from separate user settings, so the heads can
+    /// differ in shape as well as in identity.
     /// </summary>
     public partial class Caret : CompositeDrawable
     {
-        /// <summary>Rendering style; both carets bind this to the user's CaretStyle setting.</summary>
+        /// <summary>Rendering style, per instance. <c>LyricStage</c> binds the typing caret's to the
+        /// user's CaretStyle setting and the sung playhead's to SungCaretStyle, so the two are
+        /// independent; left unbound (bare test scenes) it stays on the initialiser below.</summary>
         public readonly Bindable<CaretStyle> Style = new Bindable<CaretStyle>(CaretStyle.Line);
 
         private const float beam_width = 3;
