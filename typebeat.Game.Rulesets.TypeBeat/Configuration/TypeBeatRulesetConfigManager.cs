@@ -33,11 +33,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         LocalAlignerEnabled,
 
         /// <summary>
-        /// Caret rendering style (monkeytype's caret options). Applies to BOTH heads on the lyric
-        /// stack: the typing caret and the sung playhead. They remain distinguishable by colour,
-        /// damping and blink, so this only picks the shape they share.
+        /// Rendering style (monkeytype's caret options) of the PLAYER's typing caret only. The sung
+        /// playhead has its own <see cref="SungCaretStyle"/>, so the two heads can be shaped apart.
+        ///
+        /// <para>DO NOT RENAME THIS MEMBER, however lopsided the pair looks next to
+        /// <see cref="SungCaretStyle"/>. Rows in <c>RealmRulesetSetting</c> are keyed by the enum
+        /// member's NAME (<c>RulesetConfigManager.AddBindable</c> matches <c>s.Key == lookup.ToString()</c>,
+        /// and <c>PerformSave</c> writes the same), not by its ordinal. Renaming it would leave every
+        /// existing player's stored row orphaned under the old key and silently reset their caret to
+        /// the default. Adding members anywhere in this enum is safe for the same reason: position
+        /// carries no meaning.</para>
         /// </summary>
         CaretStyle,
+
+        /// <summary>
+        /// Rendering style of the SUNG playhead: the second head on the lyric line, which tracks the
+        /// vocals rather than the player. Independent of the typing caret's <see cref="CaretStyle"/>,
+        /// so a player can shape the two apart (they are already told apart by colour, damping and
+        /// blink). Defaults to <see cref="TypeBeatRulesetConfigManager.DEFAULT_SUNG_CARET_STYLE"/>.
+        /// </summary>
+        SungCaretStyle,
 
         /// <summary>
         /// Physical keyboard layout the player types on. Keys arrive by physical position, so a
@@ -108,6 +123,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// </summary>
         public const CaretStyle DEFAULT_CARET_STYLE = CaretStyle.Underline;
 
+        /// <summary>
+        /// The sung playhead's style on a NEW key, which is to say on EVERY install, existing players included.
+        /// Read the reasoning in <see cref="DEFAULT_CARET_STYLE"/> and then note that it does NOT transfer here:
+        /// that argument turns on every install already owning a databased row for that key, and
+        /// <see cref="TypeBeatRulesetSetting.SungCaretStyle"/> is a brand-new key, so no install anywhere has a
+        /// row for it. Every player therefore reads this value once, and the row that gets written from it pins
+        /// them to whatever it said at that moment. Changing this constant later moves nobody who has already
+        /// booted, but changing it BEFORE the next ship moves everybody.
+        ///
+        /// <para>
+        /// <see cref="CaretStyle.Line"/> is chosen so that shipping the split costs zero visual change. The
+        /// client has not been reshipped since the playhead first started following the caret-style setting, so
+        /// no player has ever seen a non-Line playhead; Line is also what <c>Caret.Style</c>'s own field
+        /// initialiser holds, which makes the playhead byte-identical to its long-standing behaviour for anyone
+        /// who never opens the dropdown. It also sidesteps the one bad pairing: <see cref="CaretStyle.Underline"/>
+        /// (the typing caret's default) draws a 3px bar under the playhead roughly 6px above the 3px sung sweep
+        /// rail <c>LyricLineDisplay.SetSungPosition</c> already draws in the same accent colour, so an
+        /// Underline playhead reads as a double bar. The new shapes stay available, just opt-in.
+        /// </para>
+        /// </summary>
+        public const CaretStyle DEFAULT_SUNG_CARET_STYLE = CaretStyle.Line;
+
         public TypeBeatRulesetConfigManager(SettingsStore? settings, RulesetInfo ruleset, int? variant = null)
             : base(settings, ruleset, variant)
         {
@@ -121,6 +158,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.LyricLabPath, string.Empty);
             SetDefault(TypeBeatRulesetSetting.LocalAlignerEnabled, true);
             SetDefault(TypeBeatRulesetSetting.CaretStyle, DEFAULT_CARET_STYLE);
+            SetDefault(TypeBeatRulesetSetting.SungCaretStyle, DEFAULT_SUNG_CARET_STYLE);
             SetDefault(TypeBeatRulesetSetting.KeyboardLayout, Gameplay.KeyboardLayout.Qwerty);
             SetDefault(TypeBeatRulesetSetting.AllowWrongInput, false);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);

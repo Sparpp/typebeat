@@ -19,15 +19,22 @@ using typebeat.Game.Tests.Visual;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 {
     /// <summary>
-    /// The caret-style setting dresses BOTH heads on the lyric stack: the typing caret and the sung
-    /// playhead. The playhead is the interesting one, because it rides a CONTINUOUS fractional cell
-    /// index rather than sitting on a discrete cell, so a cell-covering style has to be handed an
-    /// interpolated advance; before that it rendered whatever placeholder width the caret happened
-    /// to be constructed with, which matches no character on screen.
+    /// The lyric stack carries two heads, and each is dressed from its OWN setting: the typing caret
+    /// from <see cref="TypeBeatRulesetSetting.CaretStyle"/>, the sung playhead from
+    /// <see cref="TypeBeatRulesetSetting.SungCaretStyle"/>. Two contracts are pinned here.
     ///
-    /// <para>The line here is a run of one repeated letter, so every cell has the same advance and
-    /// the expected covered width is the same wherever between two cells the playhead currently sits.
-    /// The interpolation itself is pinned by <c>CaretCellWidthTest</c>, which needs no font.</para>
+    /// <para>INDEPENDENCE: moving one setting must leave the other head untouched, in both
+    /// directions, both at construction and live. That is the whole point of the split, and nothing
+    /// about the rendering itself would notice if the two bindings were quietly collapsed back onto
+    /// one key, so it has to be asserted head by head rather than "both carets did the thing".</para>
+    ///
+    /// <para>CELL SIZING: the playhead is the interesting head, because it rides a CONTINUOUS
+    /// fractional cell index rather than sitting on a discrete cell, so a cell-covering style has to
+    /// be handed an interpolated advance; before that it rendered whatever placeholder width the
+    /// caret happened to be constructed with, which matches no character on screen. The line here is
+    /// a run of one repeated letter, so every cell has the same advance and the expected covered
+    /// width is the same wherever between two cells the playhead currently sits. The interpolation
+    /// itself is pinned by <c>CaretCellWidthTest</c>, which needs no font.</para>
     /// </summary>
     public partial class TestSceneTypeBeatCaretStyle : OsuTestScene
     {
@@ -45,12 +52,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private LyricLineDisplay activeDisplay => stage.DisplayAt(0)!;
 
         // The same cached-per-ShortName manager the playfield resolves, so SetValue here drives the
-        // live gameplay binding exactly as the settings dropdown does.
+        // live gameplay binding exactly as the settings dropdowns do. It is shared across the whole
+        // fixture, so createRuleset always writes BOTH keys rather than letting an earlier test's
+        // value leak in as an unstated precondition.
         private TypeBeatRulesetConfigManager config => (TypeBeatRulesetConfigManager)RulesetConfigs.GetConfigFor(new TypeBeatRuleset())!;
 
-        private void createRuleset(CaretStyle initialStyle)
+        private void createRuleset(CaretStyle typingStyle, CaretStyle playheadStyle)
         {
-            AddStep($"caret style = {initialStyle}", () => config.SetValue(TypeBeatRulesetSetting.CaretStyle, initialStyle));
+            AddStep($"typing caret = {typingStyle}, playhead = {playheadStyle}", () =>
+            {
+                config.SetValue(TypeBeatRulesetSetting.CaretStyle, typingStyle);
+                config.SetValue(TypeBeatRulesetSetting.SungCaretStyle, playheadStyle);
+            });
 
             AddStep("create drawable ruleset", () =>
             {
@@ -91,58 +104,91 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("sung caret shown", () => stage.SungCaretVisible);
         }
 
-        /// <summary>The on-screen advance of the cells the playhead is between; uniform for this line.</summary>
+        /// <summary>The on-screen advance of the cells the heads are on; uniform for this line.</summary>
         private float cellWidth => activeDisplay.CellWidthAt(0);
 
-        private bool bothCaretsCoverACell() =>
-            Precision.AlmostEquals(stage.SungCaretVisualWidth, cellWidth, 0.5f)
-            && Precision.AlmostEquals(stage.PlayerCaretVisualWidth, cellWidth, 0.5f);
+        private bool playheadCoversACell() => Precision.AlmostEquals(stage.SungCaretVisualWidth, cellWidth, 0.5f);
 
-        private bool bothCaretsAreBeams() =>
-            Precision.AlmostEquals(stage.SungCaretVisualWidth, beam_width, 0.01f)
-            && Precision.AlmostEquals(stage.PlayerCaretVisualWidth, beam_width, 0.01f);
+        private bool typingCaretCoversACell() => Precision.AlmostEquals(stage.PlayerCaretVisualWidth, cellWidth, 0.5f);
+
+        private bool playheadIsABeam() => Precision.AlmostEquals(stage.SungCaretVisualWidth, beam_width, 0.01f);
+
+        private bool typingCaretIsABeam() => Precision.AlmostEquals(stage.PlayerCaretVisualWidth, beam_width, 0.01f);
 
         [Test]
-        public void TestBeamStaysABeamForBothCarets()
+        public void TestBothHeadsOnLineStayBeams()
         {
-            createRuleset(CaretStyle.Line);
+            createRuleset(CaretStyle.Line, CaretStyle.Line);
 
-            // The untouched-setting path: nothing about either caret's shape may have moved.
-            AddAssert("both carets are the 3px beam", bothCaretsAreBeams);
-            AddAssert("sung caret is on the chosen style", () => stage.SungCaretStyle == CaretStyle.Line);
+            // The untouched-settings path (and the shipped default pairing for the playhead):
+            // nothing about either head's shape may have moved.
+            AddAssert("typing caret is the 3px beam", typingCaretIsABeam);
+            AddAssert("playhead is the 3px beam", playheadIsABeam);
+            AddAssert("both heads report Line", () => stage.PlayerCaretStyle == CaretStyle.Line && stage.SungCaretStyle == CaretStyle.Line);
         }
 
         [TestCase(CaretStyle.Block)]
         [TestCase(CaretStyle.Outline)]
         [TestCase(CaretStyle.Underline)]
-        public void TestCellStylesCoverARealCellOnBothCarets(CaretStyle style)
+        public void TestPlayheadCellStyleCoversARealCellAndLeavesTheTypingCaretAlone(CaretStyle style)
         {
-            createRuleset(style);
+            createRuleset(CaretStyle.Line, style);
 
-            // THE regression: the sung caret was never handed a cell width, so every cell-covering
-            // style drew the caret's placeholder width instead of the character actually being sung.
-            AddUntilStep("both carets cover a measured cell", bothCaretsCoverACell);
+            // THE original regression: the sung caret was never handed a cell width, so every
+            // cell-covering style drew the caret's placeholder width instead of the character
+            // actually being sung.
+            AddUntilStep("playhead covers a measured cell", playheadCoversACell);
             AddAssert("the covered width is not the beam", () => stage.SungCaretVisualWidth > beam_width + 1f);
-            AddAssert("sung caret is on the chosen style", () => stage.SungCaretStyle == style);
+            AddAssert("playhead is on the chosen style", () => stage.SungCaretStyle == style);
+
+            // The split: the typing caret's own setting was never touched, so it must not have moved.
+            AddAssert("typing caret stayed on Line", () => stage.PlayerCaretStyle == CaretStyle.Line);
+            AddAssert("typing caret is still the 3px beam", typingCaretIsABeam);
+        }
+
+        [TestCase(CaretStyle.Block)]
+        [TestCase(CaretStyle.Outline)]
+        [TestCase(CaretStyle.Underline)]
+        public void TestTypingCaretCellStyleCoversARealCellAndLeavesThePlayheadAlone(CaretStyle style)
+        {
+            createRuleset(style, CaretStyle.Line);
+
+            AddUntilStep("typing caret covers a measured cell", typingCaretCoversACell);
+            AddAssert("the covered width is not the beam", () => stage.PlayerCaretVisualWidth > beam_width + 1f);
+            AddAssert("typing caret is on the chosen style", () => stage.PlayerCaretStyle == style);
+
+            // The other direction of the split.
+            AddAssert("playhead stayed on Line", () => stage.SungCaretStyle == CaretStyle.Line);
+            AddAssert("playhead is still the 3px beam", playheadIsABeam);
         }
 
         [Test]
-        public void TestStyleChangeAppliesLiveToBothCarets()
+        public void TestEachHeadFollowsOnlyItsOwnSettingLive()
         {
-            createRuleset(CaretStyle.Line);
-            AddAssert("both carets are the 3px beam", bothCaretsAreBeams);
+            createRuleset(CaretStyle.Line, CaretStyle.Line);
+            AddAssert("both heads are the 3px beam", () => typingCaretIsABeam() && playheadIsABeam());
 
-            // Switching INTO a cell style with the caret already fed (so the stored cell width has
-            // not changed) is the ordering that can strand a beam-sized block on screen.
-            AddStep("switch to Block", () => config.SetValue(TypeBeatRulesetSetting.CaretStyle, CaretStyle.Block));
-            AddUntilStep("both carets cover a measured cell", bothCaretsCoverACell);
+            // Switching INTO a cell style with the head already fed (so its stored cell width has not
+            // changed) is the ordering that can strand a beam-sized block on screen.
+            AddStep("typing caret -> Block", () => config.SetValue(TypeBeatRulesetSetting.CaretStyle, CaretStyle.Block));
+            AddUntilStep("typing caret covers a measured cell", typingCaretCoversACell);
+            AddAssert("playhead did not follow", () => stage.SungCaretStyle == CaretStyle.Line && playheadIsABeam());
 
-            AddStep("switch to Underline", () => config.SetValue(TypeBeatRulesetSetting.CaretStyle, CaretStyle.Underline));
-            AddUntilStep("both carets still cover a measured cell", bothCaretsCoverACell);
+            // Now move the OTHER setting, and check the first head holds its (different) style: the
+            // two can be on two distinct cell styles at once.
+            AddStep("playhead -> Underline", () => config.SetValue(TypeBeatRulesetSetting.SungCaretStyle, CaretStyle.Underline));
+            AddUntilStep("playhead covers a measured cell", playheadCoversACell);
+            AddAssert("typing caret held Block", () => stage.PlayerCaretStyle == CaretStyle.Block && typingCaretCoversACell());
 
-            // And back: the beam must return to exactly its old fixed width, never a cell width.
-            AddStep("switch back to Line", () => config.SetValue(TypeBeatRulesetSetting.CaretStyle, CaretStyle.Line));
-            AddUntilStep("both carets are the 3px beam again", bothCaretsAreBeams);
+            // And back, one head at a time: the beam must return to exactly its old fixed width,
+            // never a cell width, and only for the head whose setting moved.
+            AddStep("typing caret -> Line", () => config.SetValue(TypeBeatRulesetSetting.CaretStyle, CaretStyle.Line));
+            AddUntilStep("typing caret is the 3px beam again", typingCaretIsABeam);
+            AddAssert("playhead still covers a measured cell", playheadCoversACell);
+
+            AddStep("playhead -> Line", () => config.SetValue(TypeBeatRulesetSetting.SungCaretStyle, CaretStyle.Line));
+            AddUntilStep("playhead is the 3px beam again", playheadIsABeam);
+            AddAssert("typing caret is still the 3px beam", typingCaretIsABeam);
         }
     }
 }

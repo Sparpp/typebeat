@@ -6,6 +6,7 @@ using System.IO;
 using NUnit.Framework;
 using osu.Framework.Platform;
 using typebeat.Game.Configuration;
+using typebeat.Game.Rulesets.TypeBeat.Configuration;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
@@ -60,5 +61,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void StoryboardAndVideoDefaultsToEnabled()
             => Assert.That(config.GetBindable<bool>(OsuSetting.ShowStoryboard).Default, Is.True);
+
+        /// <summary>
+        /// The two caret heads are dressed from two separate keys, and their defaults deliberately
+        /// disagree: the typing caret starts on Underline, the sung playhead on Line. Unlike the
+        /// settings above, the playhead's default is NOT harmless to change: its key is newer than
+        /// any shipped install, so nobody has a stored row for it yet and every player takes this
+        /// value on their next boot. Pinned here so a "make them symmetric" tidy-up has to be a
+        /// deliberate act.
+        /// </summary>
+        [Test]
+        public void TheTwoCaretHeadsHaveSeparateDefaults()
+        {
+            using (var rulesetConfig = new TypeBeatRulesetConfigManager(null, new TypeBeatRuleset().RulesetInfo))
+            {
+                Assert.That(rulesetConfig.GetBindable<CaretStyle>(TypeBeatRulesetSetting.CaretStyle).Default,
+                    Is.EqualTo(CaretStyle.Underline));
+                Assert.That(rulesetConfig.GetBindable<CaretStyle>(TypeBeatRulesetSetting.SungCaretStyle).Default,
+                    Is.EqualTo(CaretStyle.Line));
+            }
+        }
     }
 }

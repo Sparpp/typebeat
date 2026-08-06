@@ -144,12 +144,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 Alpha = 0f,
             };
 
-            // The monkeytype-style caret choice dresses BOTH heads: the typing caret and the map
-            // playhead. They stay told apart by everything else (colour, damp, blink), so the setting
-            // changes shape only. Both bind the same config bindable, so a live change applies to
-            // both without a restart.
+            // Each head is dressed from its OWN setting, so the typing caret and the map playhead can
+            // be shaped apart: the two sit on the same line and are otherwise told apart only by
+            // colour, damp and blink, and their best shapes are not the same shape (the playhead's
+            // Underline in particular runs near-parallel to the sung sweep rail the display draws just
+            // under the glyphs). Both bind live, so either dropdown applies without a restart.
             config?.BindWith(TypeBeatRulesetSetting.CaretStyle, playerCaret.Style);
-            config?.BindWith(TypeBeatRulesetSetting.CaretStyle, sungCaret.Style);
+            config?.BindWith(TypeBeatRulesetSetting.SungCaretStyle, sungCaret.Style);
 
             // Line spacing is user-adjustable and applies live: a change invalidates the laid-out
             // focus so the next Update re-runs the layout with the new gap.
@@ -733,7 +734,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         public float SungCaretVisualWidth => sungCaret.IsNotNull() ? sungCaret.VisualWidth : 0f;
 
-        /// <summary>The style the sung caret is currently rendering in; test support for the binding.</summary>
+        /// <summary>The style each head is currently rendering in; test support for the two separate
+        /// bindings (the pair is what lets a test assert one head moved and the other did not).</summary>
+        public CaretStyle PlayerCaretStyle => playerCaret.IsNotNull() ? playerCaret.Style.Value : CaretStyle.Line;
+
         public CaretStyle SungCaretStyle => sungCaret.IsNotNull() ? sungCaret.Style.Value : CaretStyle.Line;
 
         /// <summary>Screen-space centre of the typing caret: the point the Flashlight mod reveals around.</summary>

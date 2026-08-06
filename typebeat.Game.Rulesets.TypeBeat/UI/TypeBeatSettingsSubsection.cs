@@ -19,8 +19,9 @@ using typebeat.Game.Screens.ImportLyrics;
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
     /// <summary>
-    /// The ruleset's section in Settings > Rulesets: the monkeytype-style caret choice, the
-    /// physical keyboard layout, and the local auto-aligner install/enable controls.
+    /// The ruleset's section in Settings > Rulesets: the two monkeytype-style head choices (typing
+    /// caret and song playhead, kept adjacent so the pair reads as a pair), the physical keyboard
+    /// layout, and the local auto-aligner install/enable controls.
     /// (LyricOffsetMs/LyricLabPath surfacing remains deferred to M7.)
     /// </summary>
     public partial class TypeBeatSettingsSubsection : RulesetSettingsSubsection
@@ -54,9 +55,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 new SettingsEnumDropdown<CaretStyle>
                 {
-                    LabelText = "Caret style",
-                    TooltipText = "Shape of both heads on the lyric line: your typing caret and the song's playhead. The playhead stays the accent colour and never blinks, so the two are still easy to tell apart.",
+                    LabelText = "Typing caret style",
+                    TooltipText = "Shape of the head that follows YOUR typing along the lyric line. Cosmetic only: it never changes where a character is judged.",
                     Current = config.GetBindable<CaretStyle>(TypeBeatRulesetSetting.CaretStyle),
+                },
+                new SettingsEnumDropdown<CaretStyle>
+                {
+                    LabelText = "Song playhead style",
+                    TooltipText = "Shape of the second head on the same line: the song's playhead, which follows the VOCALS rather than you. It stays the accent colour and never blinks, so the two are easy to tell apart whatever shapes you pick.",
+                    Current = config.GetBindable<CaretStyle>(TypeBeatRulesetSetting.SungCaretStyle),
                 },
                 new SettingsEnumDropdown<KeyboardLayout>
                 {
