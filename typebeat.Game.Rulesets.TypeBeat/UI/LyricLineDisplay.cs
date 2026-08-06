@@ -13,9 +13,11 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
+using osu.Framework.Utils;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using osuTK;
+using osuTK.Graphics;
 
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
@@ -61,6 +63,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// caret/sweep math never assumes a constant advance. Per-cell colouring, judgement
     /// feedback (Perfect pop / Wrong shake), and the sung-position underline sweep. State is
     /// read pull-based via <see cref="RefreshCell"/>; no engine reference is held.
+    ///
+    /// <para>A correctly typed char is tinted by how in sync its keypress was, on a ramp between the
+    /// untyped grey and the full typed off-white (see <see cref="CorrectCharColour"/>), so the trail
+    /// behind the caret reads as brightness.</para>
     ///
     /// <para>FREESTYLE cells (see <see cref="FreestyleGlyphs"/>) render in
     /// <see cref="TypeBeatStyle.FreestyleChar"/> and, while still open, shimmer through
@@ -432,6 +438,57 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             return cellX[lo] + (cellX[hi] - cellX[lo]) * frac;
         }
 
+        /// <summary>
+        /// Floor of the grey-to-white ramp a CORRECT character is painted on: how far from
+        /// <see cref="TypeBeatStyle.UntypedChar"/> towards <see cref="TypeBeatStyle.TypedChar"/> the
+        /// very worst correct keypress still gets. It cannot be 0.
+        /// <see cref="SyncWindows.SyncQuality"/> returns exactly 0 at the Ok-window edges and stays
+        /// there beyond them, and a Premature/Lagging press still lands the cell
+        /// <see cref="CellState.Correct"/>, so an unfloored ramp would paint a character the player
+        /// DID type in precisely the untyped grey, making it indistinguishable from one they have not
+        /// reached yet. That is a legibility regression, not feedback.
+        ///
+        /// <para>0.35 puts the floor colour at roughly #969692 (the ramp is walked in LINEAR light,
+        /// which is where the framework interpolates colour, so the floor sits higher in sRGB terms
+        /// than a naive 35% of the hex range would suggest). That is about 1.95:1 against the untyped
+        /// grey and about 2.9:1 against a Missed cell (the untyped grey at alpha 0.4 over the
+        /// serika-dark panel). The tighter of those two, floor vs untyped, is a clearly wider step
+        /// than the ~1.5:1 separating untyped from Missed, a distinction the game already ships and
+        /// asks players to read, so the worst correct char is comfortably more separable from an
+        /// untyped one than two states already in use, while two thirds of the ramp are left to carry
+        /// the actual sync signal. Pinned by <c>SyncTintTest</c>.</para>
+        /// </summary>
+        public const double SYNC_TINT_FLOOR = 0.35;
+
+        /// <summary>
+        /// The fill a CORRECT character is painted in, given the sync quality of the keypress that
+        /// scored it (<see cref="SyncWindows.SyncQuality"/>, asymmetric, already in [0, 1]): a point
+        /// on the ramp from <see cref="TypeBeatStyle.UntypedChar"/> to
+        /// <see cref="TypeBeatStyle.TypedChar"/>, compressed onto [<see cref="SYNC_TINT_FLOOR"/>, 1]
+        /// of it. A player nailing the playhead leaves a bright white trail behind them; one dragging
+        /// or rushing leaves a dull one.
+        ///
+        /// <para>Purely cosmetic, and deliberately driven by the SAME quality
+        /// <c>TypingEngine.BuildResults</c> sums into the results screen's sync percent, so the trail
+        /// is a live preview of the number the play is graded on rather than a second opinion about
+        /// it (and it inherits the asymmetric early/late tolerance and the per-cell granularity
+        /// widening for free). A dead-on press returns <see cref="TypeBeatStyle.TypedChar"/> exactly,
+        /// so nothing about a perfectly timed line looks different from before this ramp existed.
+        /// Out-of-range and NaN qualities clamp. Pure, so it is unit-testable.</para>
+        /// </summary>
+        public static Color4 CorrectCharColour(double syncQuality)
+        {
+            double q = double.IsNaN(syncQuality) ? 0 : Math.Clamp(syncQuality, 0, 1);
+
+            // Exactness at the top of the ramp is a contract, not an optimisation: a componentwise
+            // lerp at t = 1 is only float-approximately the end colour.
+            if (q >= 1)
+                return TypeBeatStyle.TypedChar;
+
+            return Interpolation.ValueAt(SYNC_TINT_FLOOR + (1 - SYNC_TINT_FLOOR) * q,
+                TypeBeatStyle.UntypedChar, TypeBeatStyle.TypedChar, 0d, 1d);
+        }
+
         public void RefreshCell(int cellIndex)
         {
             if (cellIndex < 0 || cellIndex >= cells.Length)
@@ -449,7 +506,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             switch (source.State)
             {
                 case CellState.Correct:
-                    cell.Colour = TypeBeatStyle.TypedChar;
+                    // Tinted by how in sync the press was (see CorrectCharColour). Two properties of
+                    // the delta this reads are load-bearing:
+                    //
+                    // ORDERING: TypingEngine.ProcessKey writes JudgedDelta BEFORE it raises
+                    // CharJudged, and LyricStage's handler for that event is what calls RefreshCell,
+                    // so the delta is always present by the time the cell first repaints. Reversed,
+                    // every char would paint at the floor colour on the frame it was typed.
+                    //
+                    // ANTI-FARMING: JudgedDelta on a Correct cell is always the delta that actually
+                    // SCORED. A scoring-inert retype (backspace over a cell that was ever correct)
+                    // has the first correct delta written back into it, so a player cannot
+                    // backspace-retype to brighten a char beyond what it earned.
+                    //
+                    // A Correct cell with no delta cannot arise from the engine; if one ever does,
+                    // fall back to the flat typed colour rather than to the dull floor.
+                    cell.Colour = source.JudgedDelta is double delta
+                        ? CorrectCharColour(SyncWindows.For(source.JudgeGranularity).SyncQuality(delta))
+                        : TypeBeatStyle.TypedChar;
                     cellStateAlpha[cellIndex] = 1f;
                     break;
 
@@ -480,6 +554,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// it is still open and frozen on the char the player actually pressed once it is filled
         /// (so a finished line still shows which slots were free). Backspace puts it back to
         /// Untyped, which resumes the shimmer and lets a different char land.
+        ///
+        /// <para>DELIBERATELY no sync tint (see <see cref="CorrectCharColour"/>): the violet is an
+        /// IDENTITY signal, "this slot was free", not a state signal, and it has to keep saying that
+        /// for the rest of the play. Lerping it towards the untyped grey by how in sync the press was
+        /// would fight the one thing the colour exists to say. This is an exclusion, not an
+        /// oversight.</para>
         /// </summary>
         private void refreshFreestyleCell(int cellIndex, OsuSpriteText cell, TypingCell source)
         {
