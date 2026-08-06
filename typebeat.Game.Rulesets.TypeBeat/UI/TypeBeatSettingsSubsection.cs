@@ -62,7 +62,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsEnumDropdown<CaretStyle>
                 {
                     LabelText = "Song playhead style",
-                    TooltipText = "Shape of the second head on the same line: the song's playhead, which follows the VOCALS rather than you. It stays the accent colour and never blinks, so the two are easy to tell apart whatever shapes you pick. Underline draws a bar just above the sweep the line already paints under the sung words, which can read as a double bar.",
+                    TooltipText = "Shape of the second head on the same line: the song's playhead, which follows the VOCALS rather than you. It stays the accent colour and never blinks, so the two are easy to tell apart whatever shapes you pick.",
                     Current = config.GetBindable<CaretStyle>(TypeBeatRulesetSetting.SungCaretStyle),
                 },
                 new SettingsEnumDropdown<KeyboardLayout>
