@@ -137,6 +137,54 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void RateMultiplier_IsExactlyOneForEveryRateButBaseRateHalfTime()
+        {
+            // Backlog 90 prices only base-rate Half Time by anything other than its rating. A
+            // multiplier that was not exactly 1.0 anywhere else would silently reprice every other
+            // play in the game.
+            var beatmap = playable();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(PerformancePointsDisplay.RateMultiplierFor(beatmap, null), Is.EqualTo(1.0), "no mods");
+                Assert.That(PerformancePointsDisplay.RateMultiplierFor(beatmap, mods()), Is.EqualTo(1.0), "an empty stack");
+                Assert.That(PerformancePointsDisplay.RateMultiplierFor(beatmap, mods(new TypeBeatModLiterate(), new TypeBeatModNoFail())),
+                    Is.EqualTo(1.0), "non-rate mods");
+                Assert.That(PerformancePointsDisplay.RateMultiplierFor(beatmap, mods(new TypeBeatModDoubleTime())), Is.EqualTo(1.0), "Double Time");
+                Assert.That(PerformancePointsDisplay.RateMultiplierFor(beatmap, mods(new TypeBeatModNightcore())), Is.EqualTo(1.0), "Nightcore");
+
+                // A custom rate never reaches a price at all, so 1.0 is simply the neutral answer.
+                var custom = new TypeBeatModHalfTime();
+                custom.SpeedChange.Value = 0.62;
+                Assert.That(PerformancePointsDisplay.RateMultiplierFor(beatmap, mods(custom)), Is.EqualTo(1.0), "a custom Half Time rate");
+
+                Assert.That(PerformancePointsDisplay.RateMultiplierFor(null, mods(new TypeBeatModHalfTime())), Is.EqualTo(1.0), "no beatmap");
+            });
+        }
+
+        [Test]
+        public void RateMultiplier_ForHalfTimeIsTheMirrorOfTheMapsOwnThreeRatings()
+        {
+            // The client computes the same three ratings the server stores, so it reaches the same
+            // multiplier without fetching anything.
+            var beatmap = playable();
+            var source = beatmap.HitObjects.Select(h => h.Line).ToList();
+
+            double expected = PerformancePoints.HalfTimeMultiplier(
+                LyricDifficulty.Compute(source),
+                LyricDifficulty.Compute(source, 1.50),
+                LyricDifficulty.Compute(source, 0.75));
+
+            double actual = PerformancePointsDisplay.RateMultiplierFor(beatmap, mods(new TypeBeatModHalfTime()));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(actual, Is.EqualTo(expected).Within(1e-12));
+                Assert.That(actual, Is.GreaterThan(0).And.LessThanOrEqualTo(1.0), "it is a penalty, never a bonus");
+            });
+        }
+
+        [Test]
         public void ACustomRatePlayIsPricedAtNothingAtAll()
         {
             // Only the base rates earn pp (docs/pp.md). The play still ranks on the score

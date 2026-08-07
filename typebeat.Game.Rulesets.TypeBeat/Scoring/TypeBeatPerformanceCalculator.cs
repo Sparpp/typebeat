@@ -41,6 +41,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// 0 is what an unguarded consumer (the performance breakdown chart) gets, and it is the honest
     /// answer for one: this play earns nothing.
     /// </para>
+    ///
+    /// <para>
+    /// HALF TIME needs a second number out of the attributes, and it is the reason
+    /// <see cref="TypeBeatDifficultyAttributes"/> exists: backlog 90 prices a base-rate HT play by
+    /// <see cref="PerformancePoints.HalfTimeMultiplier"/> as well as by its rating, and that is a
+    /// function of the map at three rates while this method is handed exactly one. Left unapplied,
+    /// this calculator would over-pay every HT play and the score panel would print a bigger number
+    /// than the results table right beside it.
+    /// </para>
     /// </summary>
     public class TypeBeatPerformanceCalculator : PerformanceCalculator
     {
@@ -53,9 +62,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         {
             double stars = PerformancePoints.EligibleRate(score.Mods) == null ? 0 : attributes.StarRating;
 
+            // The Half Time multiplier (backlog 90) needs the map's rating at three rates, and this
+            // method is handed one number. TypeBeatDifficultyCalculator therefore ships it inside
+            // the attributes; anything else is 1, which is right for every rate but base-rate HT and
+            // is why an attributes object from some other source still prices every other play.
+            double rateMultiplier = attributes is TypeBeatDifficultyAttributes typeBeat ? typeBeat.RateMultiplier : 1;
+
             return new PerformanceAttributes
             {
-                Total = PerformancePoints.ForPlay(stars, PerformancePoints.CountNotes(score), score.Accuracy, score.MaxCombo, score.Mods),
+                Total = PerformancePoints.ForPlay(stars, PerformancePoints.CountNotes(score), score.Accuracy, score.MaxCombo, score.Mods, rateMultiplier),
             };
         }
     }
