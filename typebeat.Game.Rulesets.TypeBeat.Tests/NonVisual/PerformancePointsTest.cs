@@ -129,7 +129,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void Compute_MissesDominateAccuracyAndCombo()
         {
             // Same map, same length. A sloppy-but-complete play beats a high-accuracy play that
-            // dropped 10% of the map, which is the whole point of the 8.5 exponent.
+            // dropped 10% of the map, which is the whole point of the 10 exponent.
             double sloppyButClean = PerformancePoints.Compute(4, 500, misses: 0, accuracy: 0.60, maxCombo: 500, no_mods);
             double accurateButMissy = PerformancePoints.Compute(4, 500, misses: 50, accuracy: 0.93, maxCombo: 450, no_mods);
 
@@ -220,7 +220,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(absurd, Is.GreaterThan(0));
                 Assert.That(absurd, Is.LessThan(0.01));
-                Assert.That(absurd, Is.EqualTo(Math.Pow(500.0 / 5500.0, 3.5)).Within(1e-12));
+                Assert.That(absurd, Is.EqualTo(Math.Pow(500.0 / 5500.0, 6)).Within(1e-12));
             });
         }
 
@@ -335,12 +335,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
-        #region Mistype pricing (backlog 72, rebalanced by backlog 89)
+        #region Mistype pricing (backlog 72, rebalanced by backlog 89 and again by backlog 95)
 
         /// <summary>
         /// The two penalty terms in isolation. Nothing else in the formula reads misses or mistypes,
         /// so dividing a play's pp by the pp of the same play with neither is EXACTLY
-        /// <c>(1 - miss/notes)^8.5 * (1 - mistypes/(notes+mistypes))^3.5</c>, with every other factor
+        /// <c>(1 - miss/notes)^10 * (1 - mistypes/(notes+mistypes))^6</c>, with every other factor
         /// cancelling. Every expected number below is that product.
         /// </summary>
         private static double penaltyFactor(int notes, int misses, int mistypes)
@@ -353,19 +353,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void Compute_ReproducesTheDecidedRebalanceWorkedExamples()
         {
-            // The two cases the rebalance (backlog 89) was signed off on, stated as exact values.
-            // Both are WORTH MORE than under the old combined term, which is the deliberate
-            // consequence of splitting: pulling mistypes out of the miss ratio softens that term by
-            // more than the 7.5-to-8.5 rise tightens it. The old values are quoted so the direction
-            // is unmistakable. Deliberately the same literals the server's PerformancePointsTest
-            // uses.
+            // The two cases the rebalance was signed off on, stated as exact values. Backlog 89
+            // split the terms apart and thereby SOFTENED both cases; backlog 95 raised both
+            // exponents (8.5 to 10, 3.5 to 6) and took that back with interest. Every value in the
+            // chain is quoted so the direction is unmistakable, and these are deliberately the same
+            // literals the server's PerformancePointsTest uses.
             Assert.Multiple(() =>
             {
-                // 0.880^8.5 * 0.862^3.5, against 0.759^7.5 = 0.125946 before.
-                Assert.That(penaltyFactor(notes: 500, misses: 60, mistypes: 80), Is.EqualTo(0.200678).Within(1e-6));
+                // 0.880^10 * 0.862^6, against 0.880^8.5 * 0.862^3.5 = 0.200678 after the split and
+                // 0.759^7.5 = 0.125946 before it: now BELOW where the sloppy play started.
+                Assert.That(penaltyFactor(notes: 500, misses: 60, mistypes: 80), Is.EqualTo(0.114309).Within(1e-6));
 
-                // 0.980^8.5 * 0.962^3.5, against 0.942^7.5 = 0.640391 before.
-                Assert.That(penaltyFactor(notes: 500, misses: 10, mistypes: 20), Is.EqualTo(0.734184).Within(1e-6));
+                // 0.980^10 * 0.962^6, against 0.980^8.5 * 0.962^3.5 = 0.734184 after the split and
+                // 0.942^7.5 = 0.640391 before it: the near-clean play lands back where it started.
+                Assert.That(penaltyFactor(notes: 500, misses: 10, mistypes: 20), Is.EqualTo(0.645745).Within(1e-6));
             });
         }
 
@@ -373,15 +374,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void Compute_ZeroMistypesLeavesThePlayPricedByItsMissesAlone()
         {
             // The property that makes the split legible: at zero mistypes the mistyping term is
-            // EXACTLY 1.0, so the whole penalty is (1 - miss/notes)^8.5 and nothing else.
+            // EXACTLY 1.0, so the whole penalty is (1 - miss/notes)^10 and nothing else.
             foreach (int misses in new[] { 0, 1, 17, 250, 500 })
             {
                 double withArgument = PerformancePoints.Compute(4.2, 500, misses, 0.87, 400, no_mods, mistypes: 0);
                 double withoutArgument = PerformancePoints.Compute(4.2, 500, misses, 0.87, 400, no_mods);
 
                 Assert.That(withArgument, Is.EqualTo(withoutArgument), $"misses={misses}");
-                Assert.That(penaltyFactor(500, misses, 0), Is.EqualTo(Math.Pow(1.0 - misses / 500.0, 8.5)).Within(1e-12),
+                Assert.That(penaltyFactor(500, misses, 0), Is.EqualTo(Math.Pow(1.0 - misses / 500.0, 10)).Within(1e-12),
                     $"misses={misses}");
+            }
+        }
+
+        [Test]
+        public void Compute_APlayWithNeitherAMissNorAMistypeIsUntouchedByEitherExponent()
+        {
+            // The cheapest proof that a rebalance of the two exponents is CONFINED to their terms:
+            // both bases are exactly 1.0 at a count of zero, and 1.0 raised to any finite power is
+            // exactly 1.0. A spotless play must therefore be BIT-identical across any such change,
+            // not merely close, so it is asserted against the remaining factors spelled out rather
+            // than against a recorded number. If this ever moves, something leaked out of the two
+            // penalty terms.
+            foreach (int notes in new[] { 1, 100, 500, 2137 })
+            {
+                double spotless = PerformancePoints.Compute(4, notes, 0, 0.9, notes, no_mods, mistypes: 0);
+                double withoutEitherPenaltyTerm = 4.0 * Math.Pow(4, 2.70) * PerformancePoints.LengthBonus(notes) * Math.Pow(0.9, 1.30);
+
+                Assert.That(spotless, Is.EqualTo(withoutEitherPenaltyTerm), $"notes={notes}");
             }
         }
 
@@ -396,7 +415,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 double clean = penaltyFactor(500, 0, mistypes);
                 double missy = penaltyFactor(500, 60, mistypes);
 
-                Assert.That(missy / clean, Is.EqualTo(Math.Pow(1.0 - 60 / 500.0, 8.5)).Within(1e-12),
+                Assert.That(missy / clean, Is.EqualTo(Math.Pow(1.0 - 60 / 500.0, 10)).Within(1e-12),
                     $"the miss term must not be diluted by {mistypes} mistypes");
             }
 
@@ -518,7 +537,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(bare, Is.EqualTo(60.794187).Within(1e-5));
+                // Backlog 95 moved this from 60.794187, and ONLY through the miss term: the play
+                // carries no mistypes, so its mistyping term is exactly 1.0 at any exponent and the
+                // whole change is the factor (295/300)^1.5.
+                Assert.That(bare, Is.EqualTo(59.280683).Within(1e-5));
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModNoFail())),
                     Is.EqualTo(bare * 0.90).Within(1e-9));
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModFletcher())),
@@ -638,9 +660,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // Pinned so a client shipped against generation N cannot quietly price plays the server
             // stores at generation N+1. If this moves, the server's PerformancePoints.VERSION and
-            // docs/pp.md move with it. v3 = the backlog-90 Half Time mirror penalty, which had to
-            // bump because it reprices every stored Half Time row.
-            Assert.That(PerformancePoints.VERSION, Is.EqualTo(3));
+            // docs/pp.md move with it. v4 = the backlog-95 penalty rebalance (miss 8.5 to 10,
+            // mistype 3.5 to 6), which had to bump because it reprices every stored row carrying
+            // even one miss or one mistype.
+            Assert.That(PerformancePoints.VERSION, Is.EqualTo(4));
         }
 
         #endregion
