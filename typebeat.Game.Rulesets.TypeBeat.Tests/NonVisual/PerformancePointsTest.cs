@@ -129,7 +129,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void Compute_MissesDominateAccuracyAndCombo()
         {
             // Same map, same length. A sloppy-but-complete play beats a high-accuracy play that
-            // dropped 10% of the map, which is the whole point of the 7.5 exponent.
+            // dropped 10% of the map, which is the whole point of the 8.5 exponent.
             double sloppyButClean = PerformancePoints.Compute(4, 500, misses: 0, accuracy: 0.60, maxCombo: 500, no_mods);
             double accurateButMissy = PerformancePoints.Compute(4, 500, misses: 50, accuracy: 0.93, maxCombo: 450, no_mods);
 
@@ -192,21 +192,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void Compute_TheCleanlinessTermStaysInRangeForAnyMistypeCount()
+        public void Compute_TheMistypingTermStaysInRangeForAnyMistypeCount()
         {
-            // misses <= notes, so (miss+mistypes)/(notes+mistypes) can approach 1 but never pass it.
-            // An absurd mistype count must therefore decay pp towards zero, never produce a negative
-            // base, a NaN, or (with the 7.5 exponent on a negative base) an imaginary result.
+            // Mistypes sit on BOTH sides of the MISTYPING fraction, so its base approaches 0 but
+            // never goes negative, however absurd the keypress count. An absurd count must decay pp
+            // towards zero, never produce a negative base, a NaN, or (with a fractional exponent on
+            // a negative base) an imaginary result. int.MaxValue is in the sweep because
+            // notes + mistypes would OVERFLOW an int there and flip the ratio's sign, which is why
+            // the implementation takes that sum in double.
             foreach (int notes in new[] { 1, 10, 500 })
             foreach (int misses in new[] { 0, notes / 2, notes })
-            foreach (int mistypes in new[] { -1, 0, 1, notes * 1000, int.MaxValue })
+            foreach (int mistypes in new[] { -1, 0, 1, notes * 10, notes * 1000, int.MaxValue })
             {
                 double pp = PerformancePoints.Compute(6, notes, misses, 0.9, notes, no_mods, mistypes);
 
                 Assert.That(pp, Is.Not.NaN, $"notes={notes} miss={misses} mistypes={mistypes}");
                 Assert.That(double.IsFinite(pp), Is.True, $"notes={notes} miss={misses} mistypes={mistypes}");
                 Assert.That(pp, Is.GreaterThanOrEqualTo(0), $"notes={notes} miss={misses} mistypes={mistypes}");
+                Assert.That(pp, Is.LessThan(reference_pp * 10), $"notes={notes} miss={misses} mistypes={mistypes}");
             }
+
+            // Ten times the note count, spelled out: still a penalty, still a real number, and it
+            // must land strictly between "free" and "nothing".
+            double absurd = penaltyFactor(500, 0, 5000);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(absurd, Is.GreaterThan(0));
+                Assert.That(absurd, Is.LessThan(0.01));
+                Assert.That(absurd, Is.EqualTo(Math.Pow(500.0 / 5500.0, 3.5)).Within(1e-12));
+            });
         }
 
         #endregion
@@ -320,20 +335,74 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
-        #region Mistype pricing
+        #region Mistype pricing (backlog 72, rebalanced by backlog 89)
+
+        /// <summary>
+        /// The two penalty terms in isolation. Nothing else in the formula reads misses or mistypes,
+        /// so dividing a play's pp by the pp of the same play with neither is EXACTLY
+        /// <c>(1 - miss/notes)^8.5 * (1 - mistypes/(notes+mistypes))^3.5</c>, with every other factor
+        /// cancelling. Every expected number below is that product.
+        /// </summary>
+        private static double penaltyFactor(int notes, int misses, int mistypes)
+        {
+            double spotless = PerformancePoints.Compute(4, notes, 0, 0.9, notes, no_mods, mistypes: 0);
+
+            return PerformancePoints.Compute(4, notes, misses, 0.9, notes, no_mods, mistypes) / spotless;
+        }
 
         [Test]
-        public void Compute_ZeroMistypesIsExactlyTheOldFormula()
+        public void Compute_ReproducesTheDecidedRebalanceWorkedExamples()
         {
-            // With no mistypes the cleanliness term collapses to (1 - miss/notes)^7.5 EXACTLY, which
-            // is what lets the server leave VERSION alone: no stored row's value can move.
+            // The two cases the rebalance (backlog 89) was signed off on, stated as exact values.
+            // Both are WORTH MORE than under the old combined term, which is the deliberate
+            // consequence of splitting: pulling mistypes out of the miss ratio softens that term by
+            // more than the 7.5-to-8.5 rise tightens it. The old values are quoted so the direction
+            // is unmistakable. Deliberately the same literals the server's PerformancePointsTest
+            // uses.
+            Assert.Multiple(() =>
+            {
+                // 0.880^8.5 * 0.862^3.5, against 0.759^7.5 = 0.125946 before.
+                Assert.That(penaltyFactor(notes: 500, misses: 60, mistypes: 80), Is.EqualTo(0.200678).Within(1e-6));
+
+                // 0.980^8.5 * 0.962^3.5, against 0.942^7.5 = 0.640391 before.
+                Assert.That(penaltyFactor(notes: 500, misses: 10, mistypes: 20), Is.EqualTo(0.734184).Within(1e-6));
+            });
+        }
+
+        [Test]
+        public void Compute_ZeroMistypesLeavesThePlayPricedByItsMissesAlone()
+        {
+            // The property that makes the split legible: at zero mistypes the mistyping term is
+            // EXACTLY 1.0, so the whole penalty is (1 - miss/notes)^8.5 and nothing else.
             foreach (int misses in new[] { 0, 1, 17, 250, 500 })
             {
                 double withArgument = PerformancePoints.Compute(4.2, 500, misses, 0.87, 400, no_mods, mistypes: 0);
                 double withoutArgument = PerformancePoints.Compute(4.2, 500, misses, 0.87, 400, no_mods);
 
                 Assert.That(withArgument, Is.EqualTo(withoutArgument), $"misses={misses}");
+                Assert.That(penaltyFactor(500, misses, 0), Is.EqualTo(Math.Pow(1.0 - misses / 500.0, 8.5)).Within(1e-12),
+                    $"misses={misses}");
             }
+        }
+
+        [Test]
+        public void Compute_PricesMissesAndMistypesIndependently()
+        {
+            // The whole point of the split. What a miss costs must not depend on the keypress count
+            // and vice versa, so the penalty factorises: the RATIO between two miss counts is the
+            // same whatever mistype count both carry. Under the old combined term it was not.
+            foreach (int mistypes in new[] { 0, 20, 500, 5000 })
+            {
+                double clean = penaltyFactor(500, 0, mistypes);
+                double missy = penaltyFactor(500, 60, mistypes);
+
+                Assert.That(missy / clean, Is.EqualTo(Math.Pow(1.0 - 60 / 500.0, 8.5)).Within(1e-12),
+                    $"the miss term must not be diluted by {mistypes} mistypes");
+            }
+
+            // And the mistyping term likewise, read across two miss counts.
+            Assert.That(penaltyFactor(500, 60, 80) / penaltyFactor(500, 60, 0),
+                Is.EqualTo(penaltyFactor(500, 0, 80)).Within(1e-12));
         }
 
         [Test]
@@ -349,6 +418,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(many, Is.LessThan(few));
                 Assert.That(many, Is.GreaterThan(0));
             });
+        }
+
+        [Test]
+        public void Compute_EachPenaltyIsMonotonicWhileTheOtherIsHeldFixed()
+        {
+            // Raising either count, with the other pinned, must move pp strictly DOWN. Both
+            // directions, because the terms are now separate and either could be wired up backwards
+            // on its own.
+            foreach (int mistypes in new[] { 0, 137 })
+            {
+                double previous = double.MaxValue;
+
+                foreach (int misses in new[] { 0, 1, 25, 100, 250, 499 })
+                {
+                    double pp = PerformancePoints.Compute(4, 500, misses, 0.9, 500, no_mods, mistypes);
+
+                    Assert.That(pp, Is.LessThan(previous), $"misses={misses} at mistypes={mistypes}");
+                    previous = pp;
+                }
+            }
+
+            foreach (int misses in new[] { 0, 137 })
+            {
+                double previous = double.MaxValue;
+
+                foreach (int mistypes in new[] { 0, 1, 25, 100, 500, 5000 })
+                {
+                    double pp = PerformancePoints.Compute(4, 500, misses, 0.9, 500, no_mods, mistypes);
+
+                    Assert.That(pp, Is.LessThan(previous), $"mistypes={mistypes} at misses={misses}");
+                    previous = pp;
+                }
+            }
         }
 
         #endregion
@@ -416,7 +518,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(bare, Is.EqualTo(61.824597).Within(1e-5));
+                Assert.That(bare, Is.EqualTo(60.794187).Within(1e-5));
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModNoFail())),
                     Is.EqualTo(bare * 0.90).Within(1e-9));
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModFletcher())),
@@ -517,8 +619,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // Pinned so a client shipped against generation N cannot quietly price plays the server
             // stores at generation N+1. If this moves, the server's PerformancePoints.VERSION and
-            // docs/pp.md move with it.
-            Assert.That(PerformancePoints.VERSION, Is.EqualTo(1));
+            // docs/pp.md move with it. v2 = the backlog-89 rebalance, which had to bump because the
+            // steeper miss exponent reprices every stored row carrying even one miss.
+            Assert.That(PerformancePoints.VERSION, Is.EqualTo(2));
         }
 
         #endregion
