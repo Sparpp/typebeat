@@ -177,11 +177,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             if (beatmap == null)
                 return null;
 
-            // BeatmapDifficultyCache hands the panel exactly these attributes: TypeBeatDifficultyCalculator
-            // rates the map at the play's own clock rate.
-            var attributes = new DifficultyAttributes(score.Mods, rateAdjustedStars(beatmap, score.Mods));
+            return new TypeBeatPerformanceCalculator(new TypeBeatRuleset()).Calculate(score, cachedAttributes(beatmap, score.Mods)).Total;
+        }
 
-            return new TypeBeatPerformanceCalculator(new TypeBeatRuleset()).Calculate(score, attributes).Total;
+        /// <summary>
+        /// The attributes BeatmapDifficultyCache hands the panel, built exactly as
+        /// <see cref="TypeBeatDifficultyCalculator"/> builds them: the map rated at the play's own
+        /// clock rate, plus the pp rate multiplier the calculator cannot derive from a rating alone
+        /// (backlog 90).
+        /// </summary>
+        private static DifficultyAttributes cachedAttributes(Beatmap<TypeBeatHitObject> beatmap, IReadOnlyList<Mod> withMods)
+        {
+            var lines = beatmap.HitObjects.Select(h => h.Line).ToList();
+
+            return new TypeBeatDifficultyAttributes(
+                withMods.ToArray(),
+                rateAdjustedStars(beatmap, withMods),
+                PerformancePoints.RateMultiplier(lines, withMods));
         }
 
         /// <summary>The star rating TypeBeatDifficultyCalculator produces for a play, rate and all.</summary>
@@ -542,12 +554,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             customRate.SpeedChange.Value = 1.75;
 
             var (score, _) = play(beatmap, mods(customRate));
-            var attributes = new DifficultyAttributes(score.Mods, rateAdjustedStars(beatmap, score.Mods));
+            var attributes = cachedAttributes(beatmap, score.Mods);
 
             Assert.Multiple(() =>
             {
                 Assert.That(attributes.StarRating, Is.GreaterThan(0), "the difficulty cache does rate the play");
                 Assert.That(new TypeBeatPerformanceCalculator(new TypeBeatRuleset()).Calculate(score, attributes).Total, Is.Zero);
+            });
+        }
+
+        [Test]
+        public void TheScorePanelAndTheResultsRowPriceAHalfTimePlayIdentically()
+        {
+            // Backlog 90: the panel prices through TypeBeatPerformanceCalculator, which is handed
+            // difficulty attributes and no beatmap, while the row prices through
+            // PerformancePointsDisplay, which has the map. The Half Time multiplier needs the map's
+            // rating at three rates, so without it travelling in the attributes these two readings
+            // on ONE screen would disagree, the panel showing the bigger number.
+            var beatmap = playable();
+            var withMods = mods(new TypeBeatModHalfTime());
+            var (score, _) = play(beatmap, withMods);
+
+            Assert.That(score.PP, Is.Null, "the premise: nothing stored, so both sides compute");
+
+            double stars = PerformancePointsDisplay.StarRatingFor(beatmap, score.Mods)!.Value;
+            double unpenalised = PerformancePoints.ForPlay(stars, PerformancePoints.CountNotes(score), score.Accuracy, score.MaxCombo, score.Mods);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ppRow(score, beatmap), Is.EqualTo(panelValue(score, beatmap)));
+                Assert.That(ppRow(score, beatmap), Is.GreaterThan(0), "the fixture play must be worth something");
+                Assert.That(ppRow(score, beatmap), Is.LessThan(unpenalised), "and strictly less than sr_ht alone would pay");
             });
         }
 

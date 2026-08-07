@@ -97,6 +97,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         }
 
         /// <summary>
+        /// The rate multiplier that goes with <see cref="StarRatingFor"/>: 1.0 for everything
+        /// except a base-rate Half Time play, which is additionally priced by
+        /// <see cref="PerformancePoints.HalfTimeMultiplier"/> (backlog 90). Kept beside the rating
+        /// rather than folded into it because it is a multiplier on the PRICE, not on the
+        /// difficulty: the rating a surface shows for an HT play is still plain <c>sr_ht</c>.
+        ///
+        /// <para>No gates of its own. It answers 1.0 for a map that is null or ineligible, which is
+        /// harmless because those never reach a price at all (<see cref="StarRatingFor"/> returns
+        /// null and the caller stops there).</para>
+        /// </summary>
+        public static double RateMultiplierFor(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? mods)
+            => playableBeatmap == null
+                ? 1
+                : PerformancePoints.RateMultiplier(playableBeatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), mods);
+
+        /// <summary>
         /// What a FINISHED score is worth, or null when it can never be worth anything (rendered as
         /// <see cref="INELIGIBLE_TEXT"/>).
         ///
@@ -134,7 +150,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             if (!Eligible(score) || StarRatingFor(playableBeatmap, score.Mods) is not double stars)
                 return null;
 
-            return PerformancePoints.ForPlay(stars, PerformancePoints.CountNotes(score), score.Accuracy, score.MaxCombo, score.Mods);
+            return PerformancePoints.ForPlay(stars, PerformancePoints.CountNotes(score), score.Accuracy, score.MaxCombo, score.Mods,
+                RateMultiplierFor(playableBeatmap, score.Mods));
         }
 
         /// <summary>

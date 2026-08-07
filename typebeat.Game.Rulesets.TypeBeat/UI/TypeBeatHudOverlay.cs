@@ -66,6 +66,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         private double? starRating;
 
+        /// <summary>
+        /// The rate multiplier that goes with <see cref="starRating"/>, 1.0 for every play but a
+        /// base-rate Half Time one (backlog 90). Resolved once at load, like the rating, because
+        /// both are functions of the map and the mods and neither can move mid-play.
+        /// </summary>
+        private double rateMultiplier = 1;
+
         private IReadOnlyList<Mod>? mods;
 
         // Last state the readout was computed from, so a frame that judged nothing does no work.
@@ -99,6 +106,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             mods = gameplayMods;
             starRating = StarRatingFor(playableBeatmap, gameplayMods);
+            rateMultiplier = PerformancePointsDisplay.RateMultiplierFor(playableBeatmap, gameplayMods);
             ppValue.Text = PerformancePointsDisplay.Format(starRating == null ? null : 0d);
         }
 
@@ -191,7 +199,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             lastCounts = counts;
             lastMaxCombo = maxCombo;
 
-            ppValue.Text = PerformancePointsDisplay.Format(PerformancePoints.ForPlay(stars, counts, scoreProcessor.Accuracy.Value, maxCombo, mods));
+            ppValue.Text = PerformancePointsDisplay.Format(PerformancePoints.ForPlay(stars, counts, scoreProcessor.Accuracy.Value, maxCombo, mods, rateMultiplier));
         }
     }
 }
