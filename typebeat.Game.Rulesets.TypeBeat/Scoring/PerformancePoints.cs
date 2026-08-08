@@ -16,11 +16,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     ///
     /// <code>
     /// pp = 4.0 · SR_eff^2.70
-    ///      · (1 − (miss/notes)^2)^10                 cleanliness
-    ///      · (1 − (mistypes/(notes+mistypes))^2)^6   mistyping
-    ///      · max(0.1, 1 + 0.70·log10(notes/100))     length, floored
-    ///      · acc^1.30                                timing quality
-    ///      · (maxcombo/notes)^0.55                   combo
+    ///      · max(0, 1 − miss^2/notes)^10                 cleanliness
+    ///      · max(0, 1 − mistypes^2/(notes+mistypes))^6   mistyping
+    ///      · max(0.1, 1 + 0.70·log10(notes/100))         length, floored
+    ///      · acc^1.30                                    timing quality
+    ///      · (maxcombo/notes)^0.55                       combo
     ///      · modMult
     /// </code>
     ///
@@ -53,29 +53,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// </para>
     ///
     /// <para>
-    /// BOTH PENALTY RATIOS ARE SQUARED INSIDE THEIR OWN TERM (backlog 96), which is a large
-    /// SOFTENING and is meant to be: a ratio already in [0, 1] gets smaller when squared, so
-    /// <c>1 − r²</c> is larger than <c>1 − r</c>. It runs opposite to backlog 89 and 95 on purpose.
-    /// Squaring cannot leave [0, 1], so both bases and both terms are still bounded by [0, 1] for
-    /// any input, and both are still exactly 1.0 at a count of zero.
+    /// BOTH PENALTIES SQUARE THE RAW COUNT, NOT THE RATIO (backlog 97), which is a large
+    /// HARDENING and is meant to be. Cleanliness is <c>max(0, 1 − miss²/notes)</c> and mistyping
+    /// <c>max(0, 1 − mistypes²/(notes + mistypes))</c>. Backlog 96 squared the RATIO, which does the
+    /// opposite (a value already in [0, 1] gets SMALLER when squared, so <c>1 − r²</c> is LARGER
+    /// than <c>1 − r</c>) and was a misreading of the intent; this is the correction.
+    /// </para>
+    ///
+    /// <para>
+    /// THE <c>Math.Max</c> CLAMP IS LOAD-BEARING, NOT DEFENSIVE. A squared COUNT over an unsquared
+    /// denominator is not bounded by [0, 1] at all: the base crosses zero at
+    /// <c>miss = sqrt(notes)</c> (23 misses on a 500-note map) and runs NEGATIVE past it, and a
+    /// fractional exponent on a negative base is not merely wrong but non-real. Misses really can
+    /// equal <c>notes</c> and mistypes have no bound whatever, so this is the ordinary case and not a
+    /// hostile-input guard. Clamped, the term is a well-defined 0 beyond that point: a CLIFF, chosen
+    /// knowingly. At these exponents essentially every real play prices to 0; see the backlog-97
+    /// amendment in <c>docs/pp.md</c>, which states the figures.
+    /// </para>
+    ///
+    /// <para>
+    /// BOTH NUMERATORS ARE COMPUTED IN DOUBLE (<c>(double)x * x</c>, never <c>x * x</c>). Mistypes
+    /// are unbounded, so <c>mistypes * mistypes</c> as an <c>int</c> overflows catastrophically (at
+    /// <c>int.MaxValue</c> the true square is about 4.6e18), and a tamper-shaped note count could do
+    /// the same to <c>misses * misses</c>. In double, <c>int.MaxValue</c> mistypes give a ratio of
+    /// about 2.1e9, so the base clamps to a well-defined zero rather than wrapping to a NaN or,
+    /// worse, a bonus.
     /// </para>
     ///
     /// <para>
     /// Why the mistype term keeps mistypes on BOTH sides of its fraction while the miss term does
     /// not: misses are bounded by <c>notes</c> (a play cannot drop more cells than the map has), but
-    /// keypresses are UNBOUNDED, so a ratio of <c>mistypes/notes</c> would exceed 1, <c>1 − r²</c>
-    /// would run negative, and a fractional exponent on a negative base is not merely wrong but
-    /// non-real. Squaring does NOT rescue that, it only hides the sign one step further in. Putting
-    /// the count in the denominator too bounds the ratio to [0, 1] for any mistype count, however
-    /// absurd, and decays the term towards 0 rather than exploding. Do not "simplify" that
-    /// denominator away.
+    /// keypresses are UNBOUNDED, so a plain <c>mistypes²/notes</c> would grow without limit and make
+    /// the clamp the only thing standing between a masher and a non-real result at any count at all.
+    /// Keeping the count in the denominator too moves the zero out to the positive root of
+    /// <c>m² − m − notes = 0</c> (about 22.9, i.e. 23 mistypes, on a 500-note map) and keeps the sum
+    /// itself in <c>double</c>, since <c>notes + mistypes</c> as <c>int</c> overflows as readily as
+    /// the square does. Do not "simplify" that denominator away.
     /// </para>
     ///
     /// <para>
     /// Mistypes deliberately do NOT enter <c>notes</c>, which stays <c>great + ok + meh + miss</c>,
     /// the map's cell count. Letting keypresses inflate it would hand a masher a bigger LENGTH bonus
     /// and a smaller COMBO denominator, paying for the mashing twice over. At zero mistypes the
-    /// mistyping term is exactly 1.0, so such a play is priced by <c>(1 − (miss/notes)²)^10</c>
+    /// mistyping term is exactly 1.0, so such a play is priced by <c>max(0, 1 − miss²/notes)^10</c>
     /// alone.
     /// </para>
     ///
@@ -150,9 +170,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// exactly 1.0 at a count of zero, so a spotless play is priced bit-identically, while
         /// every stored row carrying even ONE miss or ONE mistype is repriced, upwards this time,
         /// which is what forces the bump.</item>
+        /// <item>v6 = the backlog-97 squaring of both penalty COUNTS: cleanliness becomes max(0, 1 -
+        /// miss^2/notes)^10 and mistyping max(0, 1 - mistypes^2/(notes + mistypes))^6, with the
+        /// exponents 10 and 6 unchanged. Backlog 96 squared the RATIO, which softened both terms;
+        /// squaring the raw COUNT hardens them instead, which is what was meant. The clamp is
+        /// required rather than decorative: the base runs NEGATIVE once the squared count passes
+        /// the denominator, and a fractional exponent on a negative base is non-real, so both terms
+        /// end in a CLIFF at sqrt(notes) misses and at the positive root of m^2 - m - notes = 0
+        /// mistypes. Both bases are still exactly 1.0 at a count of zero, so a spotless play is
+        /// priced bit-identically, while every stored row carrying even ONE miss or ONE mistype is
+        /// repriced downwards, most of them to zero, which is what forces the bump.</item>
         /// </list>
         /// </summary>
-        public const int VERSION = 5;
+        public const int VERSION = 6;
 
         // ---- formula constants (docs/pp.md) ----
 
@@ -544,25 +574,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             double difficulty = Math.Pow(starRating, sr_exponent);
 
-            // Dropped cells, and nothing else. misses <= notes after the clamp above, so missRatio
-            // sits in [0, 1]; SQUARING A VALUE IN [0, 1] KEEPS IT IN [0, 1], so 1 - missRatio^2 is
-            // in [0, 1] too and the term with it, for any input. What a miss costs does not depend
-            // on the keypresses. At zero misses the ratio is 0 and the term is exactly 1.0.
-            double missRatio = (double)misses / notes;
-            double cleanliness = Math.Pow(1.0 - missRatio * missRatio, miss_exponent);
+            // Dropped cells, and nothing else. The RAW COUNT is squared, not the ratio, so this
+            // base falls off far faster than misses/notes ever did: it reaches 0 at
+            // misses = sqrt(notes), i.e. 23 misses on a 500-note map, and would run NEGATIVE past
+            // that. Math.Max is what makes it a well-defined cliff instead, and it is load-bearing:
+            // misses can equal notes after the clamp above, so the unclamped base really does go
+            // negative, and a fractional exponent on a negative base is non-real. The numerator is
+            // taken in DOUBLE because misses * misses as ints would overflow for a tamper-shaped
+            // note count and flip the sign of the whole penalty. What a miss costs does not depend
+            // on the keypresses. At zero misses the base is exactly 1.0, and the term with it.
+            double missBase = Math.Max(0.0, 1.0 - (double)misses * misses / notes);
+            double cleanliness = Math.Pow(missBase, miss_exponent);
 
-            // Wrong keypresses, and nothing else. The count is UNBOUNDED, so it sits on both sides
-            // of the fraction: that is what keeps mistypeRatio in [0, 1], hence 1 - mistypeRatio^2
-            // in [0, 1] as well (squaring cannot leave that interval), decaying towards 0 rather
-            // than running negative under a fractional exponent. The sum is STILL taken in DOUBLE:
-            // notes + mistypes as ints overflows on a tamper-shaped count and drives the ratio
-            // below -1, and 1 - r^2 is then NEGATIVE, which under a fractional exponent is not
-            // merely wrong but non-real. Squaring changes what the overflow would cost (the old
-            // shape turned the penalty into a large BONUS; this one would turn it into a negative
-            // base) but not that it must be prevented. At zero mistypes this is exactly 1.0. notes
-            // is untouched by design (see the class docs): only this term prices mistypes.
-            double mistypeRatio = mistypes / ((double)notes + mistypes);
-            double mistyping = Math.Pow(1.0 - mistypeRatio * mistypeRatio, mistype_exponent);
+            // Wrong keypresses, and nothing else, squared the same way. The count is UNBOUNDED, so
+            // it still sits on BOTH sides of the fraction: that is what keeps the denominator
+            // growing with the count, putting the zero at the positive root of m^2 - m - notes = 0
+            // (about 22.9, i.e. 23 mistypes, on a 500-note map) rather than at sqrt(notes). BOTH the
+            // numerator and the sum are taken in DOUBLE, independently and for the same reason:
+            // mistypes * mistypes as ints overflows catastrophically (the true square at
+            // int.MaxValue is about 4.6e18) and notes + mistypes as ints overflows too. In double,
+            // int.MaxValue mistypes give a ratio of about 2.1e9, so the base clamps to a
+            // well-defined 0 rather than wrapping into a NaN or a bonus. At zero mistypes this is
+            // exactly 1.0. notes is untouched by design (see the class docs): only this term prices
+            // mistypes.
+            double mistypeBase = Math.Max(0.0, 1.0 - (double)mistypes * mistypes / ((double)notes + mistypes));
+            double mistyping = Math.Pow(mistypeBase, mistype_exponent);
 
             double length = LengthBonus(notes);
             double timing = Math.Pow(accuracy, accuracy_exponent);

@@ -129,14 +129,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void Compute_MissesDominateAccuracyAndCombo()
         {
             // Same map, same length. A sloppy-but-complete play beats a high-accuracy play that
-            // dropped 30% of the map, which is what the 10 exponent is for.
+            // dropped part of the map, which is what the 10 exponent is for.
             //
-            // SQUARING THE RATIO (backlog 96) MOVED THIS CROSSOVER a long way, and the case had to be
-            // restated where the claim is actually still true. Under (1 - miss/notes)^10 a 10% drop
-            // already cost 65% of a play's pp; under (1 - (miss/notes)^2)^10 it costs under 10%, so at
-            // 50 misses the accurate play now wins. At 150 the miss term is still decisive.
+            // THE MISS COUNT MOVED, TWICE, AND FOR OPPOSITE REASONS. Backlog 96 squared the RATIO,
+            // which softened the term so far that the case only held at 150 misses. Backlog 97
+            // squares the COUNT instead, which hardens it so far that 150 misses is now a flat ZERO
+            // and the comparison would be degenerate: any positive number beats it, so the test
+            // would assert nothing about the miss term at all. Restated at 10 misses, which is 2% of
+            // the map, well BELOW the 23-miss cliff (sqrt(500) = 22.36) and therefore a live
+            // comparison of two positive numbers: the accurate play keeps 0.107 of its pp and lands
+            // at ~20, the sloppy one at ~129. The crossover now sits between 4 and 5 misses.
             double sloppyButClean = PerformancePoints.Compute(4, 500, misses: 0, accuracy: 0.60, maxCombo: 500, no_mods);
-            double accurateButMissy = PerformancePoints.Compute(4, 500, misses: 150, accuracy: 0.93, maxCombo: 350, no_mods);
+            double accurateButMissy = PerformancePoints.Compute(4, 500, misses: 10, accuracy: 0.93, maxCombo: 350, no_mods);
 
             Assert.That(sloppyButClean, Is.GreaterThan(accurateButMissy));
         }
@@ -199,12 +203,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void Compute_TheMistypingTermStaysInRangeForAnyMistypeCount()
         {
-            // Mistypes sit on BOTH sides of the MISTYPING fraction, so its base approaches 0 but
-            // never goes negative, however absurd the keypress count. An absurd count must decay pp
-            // towards zero, never produce a negative base, a NaN, or (with a fractional exponent on
-            // a negative base) an imaginary result. int.MaxValue is in the sweep because
-            // notes + mistypes would OVERFLOW an int there and flip the ratio's sign, which is why
-            // the implementation takes that sum in double.
+            // Mistypes sit on BOTH sides of the MISTYPING fraction and the base is CLAMPED at 0, so
+            // however absurd the keypress count the result is a real number in [0, 1]. An absurd
+            // count must price to zero, never to a negative base, a NaN, or (with a fractional
+            // exponent on a negative base) an imaginary result. int.MaxValue is in the sweep for
+            // TWO reasons now: notes + mistypes would overflow an int there, and so would
+            // mistypes * mistypes, whose true square is about 4.6e18. Both are taken in double, so
+            // the ratio comes out at about 2.1e9 and the clamp turns it into a well-defined zero.
             foreach (int notes in new[] { 1, 10, 500 })
             foreach (int misses in new[] { 0, notes / 2, notes })
             foreach (int mistypes in new[] { -1, 0, 1, notes * 10, notes * 1000, int.MaxValue })
@@ -217,15 +222,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(pp, Is.LessThan(reference_pp * 10), $"notes={notes} miss={misses} mistypes={mistypes}");
             }
 
-            // Ten times the note count, spelled out: still a penalty, still a real number, and it
-            // must land strictly between "free" and "nothing".
+            // Ten times the note count, spelled out. Under the squared COUNT this is far past the
+            // cliff (5000^2 is 25 million against a denominator of 5500), so the base clamps and the
+            // play prices to EXACTLY zero rather than to something merely small. That is the clamp
+            // doing its job: unclamped the base would be about -4544, and a fractional exponent on
+            // it would not be a real number at all.
             double absurd = penaltyFactor(500, 0, 5000);
 
             Assert.Multiple(() =>
             {
-                Assert.That(absurd, Is.GreaterThan(0));
-                Assert.That(absurd, Is.LessThan(0.01));
-                Assert.That(absurd, Is.EqualTo(Math.Pow(1.0 - Math.Pow(5000.0 / 5500.0, 2), 6)).Within(1e-12)); // pp:const mistype_exponent=6 mistype_ratio_power=2
+                Assert.That(absurd, Is.Zero);
+                Assert.That(absurd, Is.EqualTo(Math.Pow(Math.Max(0.0, 1.0 - 5000.0 * 5000.0 / 5500.0), 6)).Within(1e-12)); // pp:const mistype_exponent=6
             });
         }
 
@@ -340,13 +347,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
-        #region Mistype pricing (backlog 72, rebalanced by backlog 89 and again by backlog 95)
+        #region Mistype pricing (backlog 72, rebalanced by backlog 89, 95, 96 and 97)
 
         /// <summary>
         /// The two penalty terms in isolation. Nothing else in the formula reads misses or mistypes,
         /// so dividing a play's pp by the pp of the same play with neither is EXACTLY
-        /// <c>(1 - miss/notes)^10 * (1 - mistypes/(notes+mistypes))^6</c>, with every other factor
-        /// cancelling. Every expected number below is that product.
+        /// <c>max(0, 1 - miss²/notes)^10 * max(0, 1 - mistypes²/(notes+mistypes))^6</c>, with every
+        /// other factor cancelling. Every expected number below is that product.
         /// </summary>
         private static double penaltyFactor(int notes, int misses, int mistypes)
         {
@@ -358,21 +365,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void Compute_ReproducesTheDecidedRebalanceWorkedExamples()
         {
-            // The two cases the rebalance was signed off on, stated as exact values. Backlog 89
-            // split the terms apart and thereby SOFTENED both cases; backlog 95 raised both
-            // exponents (8.5 to 10, 3.5 to 6) and took that back with interest. Every value in the
-            // chain is quoted so the direction is unmistakable, and these are deliberately the same
-            // literals the server's PerformancePointsTest uses.
+            // The two cases every rebalance since backlog 89 has been signed off on, stated as exact
+            // values. Backlog 89 split the terms apart and SOFTENED both; 95 raised both exponents
+            // and took that back; 96 squared the RATIO and softened them far past 89; 97 squares the
+            // raw COUNT instead, which hardens them past every earlier generation. Every value in
+            // the chain is quoted so the direction is unmistakable, and these are deliberately the
+            // same literals the server's PerformancePointsTest uses.
             Assert.Multiple(() =>
             {
-                // (1 - 0.120^2)^10 * (1 - 0.138^2)^6, against 0.880^10 * 0.862^6 = 0.114309 before the
-                // ratios were squared, 0.880^8.5 * 0.862^3.5 = 0.200678 after the backlog-89 split and
-                // 0.759^7.5 = 0.125946 before that: a sloppy play now keeps most of its pp.
-                Assert.That(penaltyFactor(notes: 500, misses: 60, mistypes: 80), Is.EqualTo(0.770823).Within(1e-6)); // pp[f.penalty(500, 60, 80)]
+                // BOTH bases clamp here: 60^2 = 3600 against 500 notes, and 80^2 = 6400 against a
+                // denominator of 580. So this play is worth EXACTLY nothing, against 0.770823 under
+                // the squared ratio, 0.114309 at the linear shape, 0.200678 after the backlog-89
+                // split and 0.125946 before it. A sloppy play now earns zero, and that is intended.
+                Assert.That(penaltyFactor(notes: 500, misses: 60, mistypes: 80), Is.EqualTo(0.000000).Within(1e-6)); // pp[f.penalty(500, 60, 80)]
 
-                // (1 - 0.020^2)^10 * (1 - 0.038^2)^6, against 0.980^10 * 0.962^6 = 0.645745 before the
-                // squaring: a near-clean play is now within 1.3% of a spotless one.
-                Assert.That(penaltyFactor(notes: 500, misses: 10, mistypes: 20), Is.EqualTo(0.987200).Within(1e-6)); // pp[f.penalty(500, 10, 20)]
+                // Both counts are under their cliffs here, so this one still prices: the bases are
+                // 1 - 100/500 = 0.8 and 1 - 400/520 = 0.2308, giving 0.8^10 = 0.107374 and
+                // 0.2308^6 = 1.5103e-4. Against 0.987200 under the squared ratio and 0.645745 at the
+                // linear shape, a play with ten misses and twenty mistypes now keeps 1.6e-5 of a
+                // spotless one, i.e. essentially nothing. THIS IS THE HEADLINE FIGURE OF THE CHANGE.
+                Assert.That(penaltyFactor(notes: 500, misses: 10, mistypes: 20), Is.EqualTo(0.000016).Within(1e-6)); // pp[f.penalty(500, 10, 20)]
             });
         }
 
@@ -380,14 +392,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void Compute_ZeroMistypesLeavesThePlayPricedByItsMissesAlone()
         {
             // The property that makes the split legible: at zero mistypes the mistyping term is
-            // EXACTLY 1.0, so the whole penalty is (1 - miss/notes)^10 and nothing else.
+            // EXACTLY 1.0, so the whole penalty is max(0, 1 - miss²/notes)^10 and nothing else. The
+            // sweep deliberately straddles the 23-miss cliff, so the restatement is checked both
+            // where it is a live number and where the clamp has taken over.
             foreach (int misses in new[] { 0, 1, 17, 250, 500 })
             {
                 double withArgument = PerformancePoints.Compute(4.2, 500, misses, 0.87, 400, no_mods, mistypes: 0);
                 double withoutArgument = PerformancePoints.Compute(4.2, 500, misses, 0.87, 400, no_mods);
 
                 Assert.That(withArgument, Is.EqualTo(withoutArgument), $"misses={misses}");
-                Assert.That(penaltyFactor(500, misses, 0), Is.EqualTo(Math.Pow(1.0 - Math.Pow(misses / 500.0, 2), 10)).Within(1e-12), // pp:const miss_exponent=10 miss_ratio_power=2
+                Assert.That(penaltyFactor(500, misses, 0), Is.EqualTo(Math.Pow(Math.Max(0.0, 1.0 - (double)misses * misses / 500.0), 10)).Within(1e-12), // pp:const miss_exponent=10
                     $"misses={misses}");
             }
         }
@@ -416,26 +430,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // The whole point of the split. What a miss costs must not depend on the keypress count
             // and vice versa, so the penalty factorises: the RATIO between two miss counts is the
             // same whatever mistype count both carry. Under the old combined term it was not.
-            foreach (int mistypes in new[] { 0, 20, 500, 5000 })
+            //
+            // Every count here is BELOW its cliff on purpose. Past the cliff both plays price to
+            // zero and the ratio is 0/0, which says nothing about factorisation either way, so the
+            // sweeps that used to run to 500 and 5000 mistypes at 60 misses have been pulled back to
+            // where the claim is testable.
+            foreach (int mistypes in new[] { 0, 5, 15, 20 })
             {
                 double clean = penaltyFactor(500, 0, mistypes);
-                double missy = penaltyFactor(500, 60, mistypes);
+                double missy = penaltyFactor(500, 10, mistypes);
 
-                Assert.That(missy / clean, Is.EqualTo(Math.Pow(1.0 - Math.Pow(60 / 500.0, 2), 10)).Within(1e-12), // pp:const miss_exponent=10 miss_ratio_power=2
+                Assert.That(missy / clean, Is.EqualTo(Math.Pow(Math.Max(0.0, 1.0 - 10.0 * 10.0 / 500.0), 10)).Within(1e-12), // pp:const miss_exponent=10
                     $"the miss term must not be diluted by {mistypes} mistypes");
             }
 
             // And the mistyping term likewise, read across two miss counts.
-            Assert.That(penaltyFactor(500, 60, 80) / penaltyFactor(500, 60, 0),
-                Is.EqualTo(penaltyFactor(500, 0, 80)).Within(1e-12));
+            Assert.That(penaltyFactor(500, 10, 20) / penaltyFactor(500, 10, 0),
+                Is.EqualTo(penaltyFactor(500, 0, 20)).Within(1e-12));
         }
 
         [Test]
         public void Compute_MistypesCostPpAndMonotonicallySo()
         {
+            // Both counts sit under the 23-mistype cliff, because "many" has to stay STRICTLY above
+            // zero for the last assertion to mean anything: 100 mistypes, which this used to use,
+            // is now a flat zero and would turn "still positive" into a claim about the clamp rather
+            // than about monotonicity.
             double clean = PerformancePoints.Compute(4, 500, 0, 0.9, 500, no_mods, mistypes: 0);
-            double few = PerformancePoints.Compute(4, 500, 0, 0.9, 500, no_mods, mistypes: 10);
-            double many = PerformancePoints.Compute(4, 500, 0, 0.9, 500, no_mods, mistypes: 100);
+            double few = PerformancePoints.Compute(4, 500, 0, 0.9, 500, no_mods, mistypes: 5);
+            double many = PerformancePoints.Compute(4, 500, 0, 0.9, 500, no_mods, mistypes: 15);
 
             Assert.Multiple(() =>
             {
@@ -449,13 +472,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void Compute_EachPenaltyIsMonotonicWhileTheOtherIsHeldFixed()
         {
             // Raising either count, with the other pinned, must move pp strictly DOWN. Both
-            // directions, because the terms are now separate and either could be wired up backwards
-            // on its own.
-            foreach (int mistypes in new[] { 0, 137 })
+            // directions, because the terms are separate and either could be wired up backwards on
+            // its own.
+            //
+            // STRICTLY is only true UNDER THE CLIFF, and that is a property of the clamp rather than
+            // a weakness of the test: past sqrt(notes) misses (or the mistype root) every count
+            // prices to exactly the same zero, so a sweep running to 499 misses would be asserting
+            // 0 < 0. Both sweeps and both held-fixed values therefore stay below their cliffs; the
+            // behaviour AT and past the cliff has tests of its own below.
+            foreach (int mistypes in new[] { 0, 15 })
             {
                 double previous = double.MaxValue;
 
-                foreach (int misses in new[] { 0, 1, 25, 100, 250, 499 })
+                foreach (int misses in new[] { 0, 1, 5, 10, 15, 22 })
                 {
                     double pp = PerformancePoints.Compute(4, 500, misses, 0.9, 500, no_mods, mistypes);
 
@@ -464,11 +493,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 }
             }
 
-            foreach (int misses in new[] { 0, 137 })
+            foreach (int misses in new[] { 0, 15 })
             {
                 double previous = double.MaxValue;
 
-                foreach (int mistypes in new[] { 0, 1, 25, 100, 500, 5000 })
+                foreach (int mistypes in new[] { 0, 1, 5, 10, 15, 22 })
                 {
                     double pp = PerformancePoints.Compute(4, 500, misses, 0.9, 500, no_mods, mistypes);
 
@@ -476,6 +505,68 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     previous = pp;
                 }
             }
+        }
+
+        [Test]
+        public void Compute_TheMissPenaltyFallsOffACliffAtTheSquareRootOfTheNoteCount()
+        {
+            // THE DEFINING BEHAVIOUR OF THE SQUARED COUNT. The base is 1 - miss²/notes, which
+            // reaches zero at miss = sqrt(notes) and would go NEGATIVE past it; Math.Max clamps it,
+            // so the term is a cliff rather than a curve. sqrt(500) is 22.36, so 22 misses still
+            // price and 23 do not.
+            Assert.Multiple(() =>
+            {
+                Assert.That(penaltyFactor(500, 22, 0), Is.GreaterThan(0), "one below the cliff still prices");
+                Assert.That(penaltyFactor(500, 23, 0), Is.Zero, "at the cliff the clamp takes over exactly");
+                Assert.That(penaltyFactor(500, 400, 0), Is.Zero, "and it stays there rather than turning around");
+
+                // THE CLIFF MOVES WITH sqrt(notes), which is what makes it a shape and not a
+                // constant: on a 2000-note map it sits at 44.72, so 44 prices and 45 does not, and
+                // on a 100-note map it sits at exactly 10.
+                Assert.That(penaltyFactor(2000, 44, 0), Is.GreaterThan(0));
+                Assert.That(penaltyFactor(2000, 45, 0), Is.Zero);
+                Assert.That(penaltyFactor(100, 9, 0), Is.GreaterThan(0));
+                Assert.That(penaltyFactor(100, 10, 0), Is.Zero);
+            });
+        }
+
+        [Test]
+        public void Compute_TheMistypePenaltyFallsOffACliffAtThePositiveRootOfItsOwnQuadratic()
+        {
+            // The mistype base is 1 - mistypes²/(notes + mistypes), so the count is in the
+            // denominator too and the zero moves out to the positive root of m² - m - notes = 0,
+            // i.e. (1 + sqrt(1 + 4·notes))/2. That is 22.87 at 500 notes, 45.22 at 2000 and 10.51 at
+            // 100: LATER than the miss cliff on every map, which is the mistype term staying the
+            // cheaper of the two failures.
+            Assert.Multiple(() =>
+            {
+                Assert.That(penaltyFactor(500, 0, 22), Is.GreaterThan(0), "one below the cliff still prices");
+                Assert.That(penaltyFactor(500, 0, 23), Is.Zero, "at the cliff the clamp takes over exactly");
+                Assert.That(penaltyFactor(500, 0, 5000), Is.Zero, "and it stays there however absurd the count");
+
+                Assert.That(penaltyFactor(2000, 0, 45), Is.GreaterThan(0));
+                Assert.That(penaltyFactor(2000, 0, 46), Is.Zero);
+                Assert.That(penaltyFactor(100, 0, 10), Is.GreaterThan(0));
+                Assert.That(penaltyFactor(100, 0, 11), Is.Zero);
+            });
+        }
+
+        [Test]
+        public void Compute_APlayPastEitherCliffEarnsExactlyZeroPp()
+        {
+            // Not merely a small factor: the whole play is worth nothing, whatever its difficulty,
+            // accuracy or combo. That is a deliberate consequence of the shape and not a rounding
+            // artefact, so it is asserted on Compute itself rather than on the penalty factor.
+            Assert.Multiple(() =>
+            {
+                Assert.That(PerformancePoints.Compute(6, 500, 23, 0.95, 477, no_mods), Is.Zero, "23 misses is the miss cliff");
+                Assert.That(PerformancePoints.Compute(6, 500, 0, 0.95, 500, no_mods, 23), Is.Zero, "23 mistypes is the mistype cliff");
+
+                // One below each, the same play is positive, so the zeros above are the clamp and
+                // not some unrelated guard swallowing the play.
+                Assert.That(PerformancePoints.Compute(6, 500, 22, 0.95, 478, no_mods), Is.GreaterThan(0));
+                Assert.That(PerformancePoints.Compute(6, 500, 0, 0.95, 500, no_mods, 22), Is.GreaterThan(0));
+            });
         }
 
         #endregion
@@ -543,10 +634,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                // Backlog 96 moved this from 59.280683, and ONLY through the miss term: the play
-                // carries no mistypes, so its mistyping term is exactly 1.0 whatever the shape, and
-                // the whole change is (1 - (5/300)^2)^10 replacing (1 - 5/300)^10.
-                Assert.That(bare, Is.EqualTo(69.935719).Within(1e-5)); // pp[f.compute(3, 300, 5, 0.8, 250)]
+                // Backlog 97 moves this from 69.935719 (and backlog 96 had moved it there from
+                // 59.280683), ONLY through the miss term: the play carries no mistypes, so its
+                // mistyping term is exactly 1.0 whatever the shape, and the whole change is
+                // max(0, 1 - 25/300)^10 = 0.9167^10 replacing (1 - (5/300)^2)^10. Five misses is
+                // well under the 17-miss cliff on a 300-note map, so this still prices.
+                Assert.That(bare, Is.EqualTo(29.377848).Within(1e-5)); // pp[f.compute(3, 300, 5, 0.8, 250)]
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModNoFail())),
                     Is.EqualTo(bare * 0.90).Within(1e-9)); // pp:const no_fail_multiplier=0.90
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModFletcher())),
@@ -666,10 +759,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // Pinned so a client shipped against generation N cannot quietly price plays the server
             // stores at generation N+1. If this moves, the server's PerformancePoints.VERSION and
-            // docs/pp.md move with it. v5 = the backlog-96 squaring of both penalty RATIOS, which
+            // docs/pp.md move with it. v6 = the backlog-97 squaring of both penalty COUNTS, which
             // had to bump because it reprices every stored row carrying even one miss or one
-            // mistype (upwards, this time).
-            Assert.That(PerformancePoints.VERSION, Is.EqualTo(5)); // pp:version
+            // mistype (downwards, and to zero for most of them).
+            Assert.That(PerformancePoints.VERSION, Is.EqualTo(6)); // pp:version
         }
 
         #endregion
