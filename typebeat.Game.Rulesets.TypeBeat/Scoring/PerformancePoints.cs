@@ -15,12 +15,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// website's <c>docs/pp.md</c>; every constant below is pinned there and must not drift.
     ///
     /// <code>
-    /// pp = 4.0 · SR_eff^2.70
-    ///      · max(0, 1 − miss^1.2/notes)^10                 cleanliness
-    ///      · max(0, 1 − mistypes^1.2/(notes+mistypes))^6   mistyping
-    ///      · max(0.1, 1 + 0.70·log10(notes/100))           length, floored
+    /// pp = 3.0 · SR_eff^2.60
+    ///      · max(0, 1 − miss^1.6/notes)^10                 cleanliness
+    ///      · max(0, 1 − mistypes^1.6/(notes+mistypes))^8   mistyping
+    ///      · max(0.1, 1 + 0.50·log10(notes/100))           length, floored
     ///      · acc^1.30                                      timing quality
-    ///      · (maxcombo/notes)^0.55                         combo
+    ///      · (maxcombo/notes)^0.75                         combo
     ///      · modMult
     /// </code>
     ///
@@ -197,16 +197,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// zero, so a spotless play is priced bit-identically, while every stored row carrying even
         /// ONE miss or ONE mistype is repriced, upwards this time and mostly away from zero, which
         /// is what forces the bump.</item>
+        /// <item>v8 = (no summary given)</item>
         /// </list>
         /// </summary>
-        public const int VERSION = 7;
+        public const int VERSION = 8;
 
         // ---- formula constants (docs/pp.md) ----
 
-        private const double scale = 4.0;              // C: global scale, does not affect ranking order
-        private const double sr_exponent = 2.70;
+        private const double scale = 3.0;              // C: global scale, does not affect ranking order
+        private const double sr_exponent = 2.60;
         private const double miss_exponent = 10.0;
-        private const double mistype_exponent = 6.0;
+        private const double mistype_exponent = 8.0;
 
         /// <summary>
         /// The power the RAW COUNT is raised to inside both penalty bases, before its denominator
@@ -223,12 +224,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// a 2000-note map (long maps drastically harsher, for no reason anyone chose), while at 1.2
         /// it moves only 46% to 35% to 28% across 100, 500 and 2000 notes.</para>
         /// </summary>
-        private const double count_power = 1.2;
+        private const double count_power = 1.6;
 
-        private const double length_weight = 0.70;
+        private const double length_weight = 0.50;
         private const double length_floor = 0.1;
         private const double accuracy_exponent = 1.30;
-        private const double combo_exponent = 0.55;
+        private const double combo_exponent = 0.75;
         private const double reference_notes = 100.0;  // the log bonus' pivot: 100 notes is the 1.0 point
 
         /// <summary>
