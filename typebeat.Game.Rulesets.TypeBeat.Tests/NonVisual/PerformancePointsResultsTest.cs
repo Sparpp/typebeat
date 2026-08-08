@@ -130,7 +130,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                     processor.ApplyResult(new JudgementResult(cell, cell.CreateJudgement()) { Type = type });
 
-                    if (cells % 7 == 0)
+                    // One mistype every 13 cells, not every 7. On this 56-cell fixture every 7 put
+                    // the count at exactly 8, which is exactly the backlog-97 mistype cliff
+                    // ((1 + sqrt(1 + 4·56))/2 = 8), so the whole play priced to 0 and every test
+                    // below that asserts "this fixture is worth something" became vacuous. These
+                    // are PLUMBING tests (which value the results row shows), not shape tests, so
+                    // the fixture has to stay on the priced side of the cliff.
+                    if (cells % 13 == 0)
                         processor.RecordMistype();
 
                     cells++;

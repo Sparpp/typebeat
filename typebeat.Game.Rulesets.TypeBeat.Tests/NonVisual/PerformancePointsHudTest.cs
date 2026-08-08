@@ -283,7 +283,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                     processor.ApplyResult(new JudgementResult(cell, cell.CreateJudgement()) { Type = type });
 
-                    if (cells % 7 == 0)
+                    // One mistype every 13 cells, not every 7. On this 56-cell fixture every 7 put
+                    // the count at exactly 8, which is exactly the backlog-97 mistype cliff
+                    // ((1 + sqrt(1 + 4·56))/2 = 8), so the whole play priced to 0 and the
+                    // convergence assertion below became vacuous. This is a PLUMBING test (the live
+                    // counter reaching the submitted value), not a shape test, so the fixture has
+                    // to stay on the priced side of the cliff.
+                    if (cells % 13 == 0)
                         processor.RecordMistype();
 
                     readings.Add(liveReading(processor, stars, withMods));
