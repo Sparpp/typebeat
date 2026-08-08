@@ -40,7 +40,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>A clean-ish reference play: 4 stars, 500 notes, no misses, 90% acc, full combo.</summary>
-        private const double reference_pp = 219.337706;
+        private const double reference_pp = 219.337706; // pp[f.compute(4, 500, 0, 0.9, 500)]
 
         [Test]
         public void Compute_MatchesAnIndependentlyEvaluatedReferencePlay()
@@ -62,16 +62,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [TestCase(5)]
         public void LengthBonus_ClampsToTheFloorWhereTheRawTermWouldSinkBelowIt(int notes)
         {
-            double raw = 1 + 0.70 * Math.Log10(Math.Max(notes, 1) / 100.0);
+            double raw = 1 + 0.70 * Math.Log10(Math.Max(notes, 1) / 100.0); // pp:const length_weight=0.70 reference_notes=100.0
 
-            Assert.That(PerformancePoints.LengthBonus(notes), Is.EqualTo(0.1).Within(1e-12),
+            Assert.That(PerformancePoints.LengthBonus(notes), Is.EqualTo(0.1).Within(1e-12), // pp[f.length_floor]
                 $"raw term at {notes} notes is {raw:0.####}");
         }
 
-        [TestCase(6, 0.144706)]
-        [TestCase(100, 1.0)]
-        [TestCase(500, 1.489279)]
-        [TestCase(1000, 1.7)]
+        [TestCase(6, 0.144706)] // pp[f.length_bonus(6)]
+        [TestCase(100, 1.0)] // pp[f.length_bonus(100)]
+        [TestCase(500, 1.489279)] // pp[f.length_bonus(500)]
+        [TestCase(1000, 1.7)] // pp[f.length_bonus(1000)]
         public void LengthBonus_IsTheLogBonusAboveTheFloor(int notes, double expected)
             => Assert.That(PerformancePoints.LengthBonus(notes), Is.EqualTo(expected).Within(1e-6));
 
@@ -88,18 +88,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [TestCase(46)]
         public void FlashlightMultiplier_ClampsToOneOnShortMaps(int notes)
         {
-            double raw = 1 + 0.02 + 0.06 * Math.Log10(notes / 100.0);
+            double raw = 1 + 0.02 + 0.06 * Math.Log10(notes / 100.0); // pp:const flashlight_offset=0.02 flashlight_weight=0.06 reference_notes=100.0
 
             Assert.Multiple(() =>
             {
                 Assert.That(raw, Is.LessThan(1.0), "the raw term is below 1 here, which is what the clamp is for");
-                Assert.That(PerformancePoints.FlashlightMultiplier(notes), Is.EqualTo(1.0).Within(1e-12));
+                Assert.That(PerformancePoints.FlashlightMultiplier(notes), Is.EqualTo(1.0).Within(1e-12)); // pp[f.flashlight_floor]
             });
         }
 
-        [TestCase(47, 1.000326)]
-        [TestCase(100, 1.02)]
-        [TestCase(500, 1.061938)]
+        [TestCase(47, 1.000326)] // pp[f.flashlight(47)]
+        [TestCase(100, 1.02)] // pp[f.flashlight(100)]
+        [TestCase(500, 1.061938)] // pp[f.flashlight(500)]
         public void FlashlightMultiplier_GrowsWithLengthOnceAboveTheFloor(int notes, double expected)
             => Assert.That(PerformancePoints.FlashlightMultiplier(notes), Is.EqualTo(expected).Within(1e-6));
 
@@ -129,9 +129,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void Compute_MissesDominateAccuracyAndCombo()
         {
             // Same map, same length. A sloppy-but-complete play beats a high-accuracy play that
-            // dropped 10% of the map, which is the whole point of the 10 exponent.
+            // dropped 30% of the map, which is what the 10 exponent is for.
+            //
+            // SQUARING THE RATIO (backlog 96) MOVED THIS CROSSOVER a long way, and the case had to be
+            // restated where the claim is actually still true. Under (1 - miss/notes)^10 a 10% drop
+            // already cost 65% of a play's pp; under (1 - (miss/notes)^2)^10 it costs under 10%, so at
+            // 50 misses the accurate play now wins. At 150 the miss term is still decisive.
             double sloppyButClean = PerformancePoints.Compute(4, 500, misses: 0, accuracy: 0.60, maxCombo: 500, no_mods);
-            double accurateButMissy = PerformancePoints.Compute(4, 500, misses: 50, accuracy: 0.93, maxCombo: 450, no_mods);
+            double accurateButMissy = PerformancePoints.Compute(4, 500, misses: 150, accuracy: 0.93, maxCombo: 350, no_mods);
 
             Assert.That(sloppyButClean, Is.GreaterThan(accurateButMissy));
         }
@@ -177,7 +182,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(pp, Is.EqualTo(30.851693).Within(1e-5));
+                Assert.That(pp, Is.EqualTo(30.851693).Within(1e-5)); // pp[f.compute(5, 1, 0, 1, 1)]
                 Assert.That(pp, Is.LessThan(reference_pp));
             });
         }
@@ -220,7 +225,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(absurd, Is.GreaterThan(0));
                 Assert.That(absurd, Is.LessThan(0.01));
-                Assert.That(absurd, Is.EqualTo(Math.Pow(500.0 / 5500.0, 6)).Within(1e-12));
+                Assert.That(absurd, Is.EqualTo(Math.Pow(1.0 - Math.Pow(5000.0 / 5500.0, 2), 6)).Within(1e-12)); // pp:const mistype_exponent=6 mistype_ratio_power=2
             });
         }
 
@@ -360,13 +365,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // literals the server's PerformancePointsTest uses.
             Assert.Multiple(() =>
             {
-                // 0.880^10 * 0.862^6, against 0.880^8.5 * 0.862^3.5 = 0.200678 after the split and
-                // 0.759^7.5 = 0.125946 before it: now BELOW where the sloppy play started.
-                Assert.That(penaltyFactor(notes: 500, misses: 60, mistypes: 80), Is.EqualTo(0.114309).Within(1e-6));
+                // (1 - 0.120^2)^10 * (1 - 0.138^2)^6, against 0.880^10 * 0.862^6 = 0.114309 before the
+                // ratios were squared, 0.880^8.5 * 0.862^3.5 = 0.200678 after the backlog-89 split and
+                // 0.759^7.5 = 0.125946 before that: a sloppy play now keeps most of its pp.
+                Assert.That(penaltyFactor(notes: 500, misses: 60, mistypes: 80), Is.EqualTo(0.770823).Within(1e-6)); // pp[f.penalty(500, 60, 80)]
 
-                // 0.980^10 * 0.962^6, against 0.980^8.5 * 0.962^3.5 = 0.734184 after the split and
-                // 0.942^7.5 = 0.640391 before it: the near-clean play lands back where it started.
-                Assert.That(penaltyFactor(notes: 500, misses: 10, mistypes: 20), Is.EqualTo(0.645745).Within(1e-6));
+                // (1 - 0.020^2)^10 * (1 - 0.038^2)^6, against 0.980^10 * 0.962^6 = 0.645745 before the
+                // squaring: a near-clean play is now within 1.3% of a spotless one.
+                Assert.That(penaltyFactor(notes: 500, misses: 10, mistypes: 20), Is.EqualTo(0.987200).Within(1e-6)); // pp[f.penalty(500, 10, 20)]
             });
         }
 
@@ -381,7 +387,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 double withoutArgument = PerformancePoints.Compute(4.2, 500, misses, 0.87, 400, no_mods);
 
                 Assert.That(withArgument, Is.EqualTo(withoutArgument), $"misses={misses}");
-                Assert.That(penaltyFactor(500, misses, 0), Is.EqualTo(Math.Pow(1.0 - misses / 500.0, 10)).Within(1e-12),
+                Assert.That(penaltyFactor(500, misses, 0), Is.EqualTo(Math.Pow(1.0 - Math.Pow(misses / 500.0, 2), 10)).Within(1e-12), // pp:const miss_exponent=10 miss_ratio_power=2
                     $"misses={misses}");
             }
         }
@@ -398,7 +404,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             foreach (int notes in new[] { 1, 100, 500, 2137 })
             {
                 double spotless = PerformancePoints.Compute(4, notes, 0, 0.9, notes, no_mods, mistypes: 0);
-                double withoutEitherPenaltyTerm = 4.0 * Math.Pow(4, 2.70) * PerformancePoints.LengthBonus(notes) * Math.Pow(0.9, 1.30);
+                double withoutEitherPenaltyTerm = 4.0 * Math.Pow(4, 2.70) * PerformancePoints.LengthBonus(notes) * Math.Pow(0.9, 1.30); // pp:const scale=4.0 sr_exponent=2.70 accuracy_exponent=1.30
 
                 Assert.That(spotless, Is.EqualTo(withoutEitherPenaltyTerm), $"notes={notes}");
             }
@@ -415,7 +421,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 double clean = penaltyFactor(500, 0, mistypes);
                 double missy = penaltyFactor(500, 60, mistypes);
 
-                Assert.That(missy / clean, Is.EqualTo(Math.Pow(1.0 - 60 / 500.0, 10)).Within(1e-12),
+                Assert.That(missy / clean, Is.EqualTo(Math.Pow(1.0 - Math.Pow(60 / 500.0, 2), 10)).Within(1e-12), // pp:const miss_exponent=10 miss_ratio_power=2
                     $"the miss term must not be diluted by {mistypes} mistypes");
             }
 
@@ -481,9 +487,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             Assert.Multiple(() =>
             {
-                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModNoFail()), 300), Is.EqualTo(0.90).Within(1e-12));
-                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModFletcher()), 300), Is.EqualTo(0.90).Within(1e-12));
-                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModLiterate()), 300), Is.EqualTo(1.06).Within(1e-12));
+                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModNoFail()), 300), Is.EqualTo(0.90).Within(1e-12)); // pp[f.no_fail_multiplier]
+                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModFletcher()), 300), Is.EqualTo(0.90).Within(1e-12)); // pp[f.fletcher_multiplier]
+                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModLiterate()), 300), Is.EqualTo(1.06).Within(1e-12)); // pp[f.literate_multiplier]
                 Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModFlashlight()), 300),
                     Is.EqualTo(PerformancePoints.FlashlightMultiplier(300)).Within(1e-12));
             });
@@ -522,11 +528,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(stacked, Is.EqualTo(1.06 * 0.90 * PerformancePoints.FlashlightMultiplier(500)).Within(1e-12));
+                Assert.That(stacked, Is.EqualTo(1.06 * 0.90 * PerformancePoints.FlashlightMultiplier(500)).Within(1e-12)); // pp:const literate_multiplier=1.06 no_fail_multiplier=0.90
 
                 // A duplicated acronym is tamper-shaped; it must be applied once, not squared.
                 Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModNoFail(), new TypeBeatModNoFail()), 300),
-                    Is.EqualTo(0.90).Within(1e-12));
+                    Is.EqualTo(0.90).Within(1e-12)); // pp[f.no_fail_multiplier]
             });
         }
 
@@ -537,16 +543,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                // Backlog 95 moved this from 60.794187, and ONLY through the miss term: the play
-                // carries no mistypes, so its mistyping term is exactly 1.0 at any exponent and the
-                // whole change is the factor (295/300)^1.5.
-                Assert.That(bare, Is.EqualTo(59.280683).Within(1e-5));
+                // Backlog 96 moved this from 59.280683, and ONLY through the miss term: the play
+                // carries no mistypes, so its mistyping term is exactly 1.0 whatever the shape, and
+                // the whole change is (1 - (5/300)^2)^10 replacing (1 - 5/300)^10.
+                Assert.That(bare, Is.EqualTo(69.935719).Within(1e-5)); // pp[f.compute(3, 300, 5, 0.8, 250)]
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModNoFail())),
-                    Is.EqualTo(bare * 0.90).Within(1e-9));
+                    Is.EqualTo(bare * 0.90).Within(1e-9)); // pp:const no_fail_multiplier=0.90
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModFletcher())),
-                    Is.EqualTo(bare * 0.90).Within(1e-9));
+                    Is.EqualTo(bare * 0.90).Within(1e-9)); // pp:const fletcher_multiplier=0.90
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModLiterate())),
-                    Is.EqualTo(bare * 1.06).Within(1e-9));
+                    Is.EqualTo(bare * 1.06).Within(1e-9)); // pp:const literate_multiplier=1.06
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModFlashlight())),
                     Is.EqualTo(bare * PerformancePoints.FlashlightMultiplier(300)).Within(1e-9));
             });
@@ -572,9 +578,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             Assert.Multiple(() =>
             {
-                Assert.That(PerformancePoints.EligibleRate(mods(new TypeBeatModDoubleTime())), Is.EqualTo(1.50));
-                Assert.That(PerformancePoints.EligibleRate(mods(new TypeBeatModNightcore())), Is.EqualTo(1.50));
-                Assert.That(PerformancePoints.EligibleRate(mods(new TypeBeatModHalfTime())), Is.EqualTo(0.75));
+                Assert.That(PerformancePoints.EligibleRate(mods(new TypeBeatModDoubleTime())), Is.EqualTo(1.50)); // pp[f.double_time_base_rate]
+                Assert.That(PerformancePoints.EligibleRate(mods(new TypeBeatModNightcore())), Is.EqualTo(1.50)); // pp[f.double_time_base_rate]
+                Assert.That(PerformancePoints.EligibleRate(mods(new TypeBeatModHalfTime())), Is.EqualTo(0.75)); // pp[f.half_time_base_rate]
 
                 // The pp-eligible rates are not a second copy of 1.50 / 0.75 living in the formula;
                 // they are the very defaults the sliders sit at.
@@ -610,11 +616,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(PerformancePoints.TryGetBaseRate("DT", out double dt), Is.True);
-                Assert.That(dt, Is.EqualTo(1.50));
+                Assert.That(dt, Is.EqualTo(1.50)); // pp[f.double_time_base_rate]
                 Assert.That(PerformancePoints.TryGetBaseRate("nc", out double nc), Is.True);
-                Assert.That(nc, Is.EqualTo(1.50));
+                Assert.That(nc, Is.EqualTo(1.50)); // pp[f.double_time_base_rate]
                 Assert.That(PerformancePoints.TryGetBaseRate("HT", out double ht), Is.True);
-                Assert.That(ht, Is.EqualTo(0.75));
+                Assert.That(ht, Is.EqualTo(0.75)); // pp[f.half_time_base_rate]
 
                 foreach (string other in new[] { "", " ", "LT", "FL", "NF", "WU", "WD", "DC", "ZZ" })
                     Assert.That(PerformancePoints.TryGetBaseRate(other, out _), Is.False, other);
@@ -660,10 +666,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // Pinned so a client shipped against generation N cannot quietly price plays the server
             // stores at generation N+1. If this moves, the server's PerformancePoints.VERSION and
-            // docs/pp.md move with it. v4 = the backlog-95 penalty rebalance (miss 8.5 to 10,
-            // mistype 3.5 to 6), which had to bump because it reprices every stored row carrying
-            // even one miss or one mistype.
-            Assert.That(PerformancePoints.VERSION, Is.EqualTo(4));
+            // docs/pp.md move with it. v5 = the backlog-96 squaring of both penalty RATIOS, which
+            // had to bump because it reprices every stored row carrying even one miss or one
+            // mistype (upwards, this time).
+            Assert.That(PerformancePoints.VERSION, Is.EqualTo(5)); // pp:version
         }
 
         #endregion
@@ -677,11 +683,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>What Double Time is emergently worth on a map, purely through SR^2.70.</summary>
         private static double doubleTimeFactor(double baseStars, double starsDoubleTime)
-            => Math.Pow(starsDoubleTime / baseStars, 2.70);
+            => Math.Pow(starsDoubleTime / baseStars, 2.70); // pp:const sr_exponent=2.70
 
         /// <summary>What Half Time is emergently worth on a map, before the mirror penalty.</summary>
         private static double halfTimeFactor(double baseStars, double starsHalfTime)
-            => Math.Pow(starsHalfTime / baseStars, 2.70);
+            => Math.Pow(starsHalfTime / baseStars, 2.70); // pp:const sr_exponent=2.70
 
         [Test]
         public void HalfTimeMultiplier_IsTheReciprocalOfTheDoubleTimeFactorOnTheDecidedSpread()
@@ -697,15 +703,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(d, Is.EqualTo(2.739160).Within(1e-6), "the premise: Double Time is +174% on this map");
-                Assert.That(h, Is.EqualTo(0.565223).Within(1e-6), "and Half Time is only -43% before this change");
+                Assert.That(d, Is.EqualTo(2.739160).Within(1e-6), "the premise: Double Time is +174% on this map"); // pp[f.rate_factor(4.2, 6.1)]
+                Assert.That(h, Is.EqualTo(0.565223).Within(1e-6), "and Half Time is only -43% before this change"); // pp[f.rate_factor(4.2, 3.4)]
 
                 Assert.That(m, Is.EqualTo(1.0 / (d * h)).Within(1e-12), "the mirror is used, not the clamp");
-                Assert.That(m, Is.EqualTo(0.645896).Within(1e-6));
+                Assert.That(m, Is.EqualTo(0.645896).Within(1e-6)); // pp[f.half_time_multiplier(4.2, 6.1, 3.4)]
 
                 // The whole point: HT's TOTAL rate factor is now exactly 1/D.
                 Assert.That(m * h, Is.EqualTo(1.0 / d).Within(1e-12));
-                Assert.That(m * h, Is.EqualTo(0.365075).Within(1e-6));
+                Assert.That(m * h, Is.EqualTo(0.365075).Within(1e-6)); // pp[f.half_time_multiplier(4.2, 6.1, 3.4) * f.rate_factor(4.2, 3.4)]
             });
         }
 
@@ -726,13 +732,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(dt * ht, Is.LessThan(base_stars * base_stars), "the premise of the concave case");
                 Assert.That(mirror, Is.GreaterThan(1), "the unguarded mirror is a buff here");
-                Assert.That(mirror * h, Is.EqualTo(0.830041).Within(1e-6), "and it would raise HT's factor six-fold");
+                Assert.That(mirror * h, Is.EqualTo(0.830041).Within(1e-6), "and it would raise HT's factor six-fold"); // pp[1 / f.rate_factor(4.2, 4.5)]
 
-                Assert.That(m, Is.EqualTo(0.70).Within(1e-12), "so the flat cut is used instead");
+                Assert.That(m, Is.EqualTo(0.70).Within(1e-12), "so the flat cut is used instead"); // pp[f.half_time_buff_clamp]
 
                 // And the outcome is a NERF against what this play is worth today, not a buff.
                 Assert.That(m * h, Is.LessThan(h));
-                Assert.That(m * h, Is.EqualTo(0.094429).Within(1e-6));
+                Assert.That(m * h, Is.EqualTo(0.094429).Within(1e-6)); // pp[f.half_time_buff_clamp * f.rate_factor(4.2, 2.0)]
             });
         }
 
@@ -750,10 +756,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(mirror, Is.GreaterThan(0.70).And.LessThan(1.0), "the premise: a mild nerf, not a buff");
-                Assert.That(mirror, Is.EqualTo(0.898060).Within(1e-6));
+                Assert.That(mirror, Is.EqualTo(0.898060).Within(1e-6)); // pp[f.half_time_multiplier(4.0, 4.5, 3.7)]
 
                 Assert.That(m, Is.EqualTo(mirror).Within(1e-12));
-                Assert.That(m, Is.Not.EqualTo(0.70).Within(1e-6), "a Math.Min would have collapsed this to the flat cut");
+                Assert.That(m, Is.Not.EqualTo(0.70).Within(1e-6), "a Math.Min would have collapsed this to the flat cut"); // pp[f.half_time_buff_clamp]
             });
         }
 
