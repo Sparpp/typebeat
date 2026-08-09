@@ -23,6 +23,7 @@ using typebeat.Game.Rulesets.TypeBeat.Objects.Drawables;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.UI;
+using typebeat.Game.Screens.Play;
 using osuTK.Graphics;
 using osuTK.Input;
 
@@ -308,6 +309,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
+        /// The speed-adjusting-mod rate to hand <see cref="TypingEngine.Update"/> so its WPM clock
+        /// counts REAL seconds rather than beatmap ones: without it Half Time overstates WPM by 1/0.75
+        /// and Double Time understates it by 1/1.5.
+        ///
+        /// <para><see cref="GameplayClockExtensions.GetTrueGameplayRate"/> is the right source because it
+        /// reads the aggregate frequency/tempo actually in force, so it covers DT/NC/HT at ANY custom
+        /// slider value, both ramp mods and any future rate mod without enumerating them. Deliberately
+        /// NOT <c>PerformancePoints.EligibleRate</c>: that answers a pp-eligibility question and returns
+        /// null for a custom rate, but a custom-rate play still has a real typing speed worth showing.</para>
+        ///
+        /// <para>MUST be sampled per frame, never cached at load: ModWindUp / ModWindDown ramp the rate
+        /// across the run. Null (no <see cref="IGameplayClock"/> in the hierarchy) means a bare
+        /// drawable-ruleset test scene with no <c>Player</c>, hence no rate mods, hence 1.</para>
+        /// </summary>
+        private static double wpmClockRate(IGameplayClock? clock) => clock?.GetTrueGameplayRate() ?? 1;
+
+        /// <summary>
         /// Ticks the <see cref="TypingEngine"/> from inside the lyric-offset clock subtree so it
         /// reads this frame's freshly-processed lyric time (via <c>Time.Current</c>). Placed
         /// before the visual children so they see fresh engine state the same frame.
@@ -328,6 +346,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             private Game.Replays.Replay? activeReplay;
             private int nextFrameIndex;
+
+            // Cached by Player (via GameplayClockContainer / FrameStabilityContainer); absent in bare
+            // drawable-ruleset test scenes, where there is no rate mod to report anyway.
+            [Resolved]
+            private IGameplayClock? gameplayClock { get; set; }
 
             public EngineTicker(TypingEngine engine, DrawableTypeBeatRuleset? drawableRuleset, HeldKeyRepeater repeater)
             {
@@ -370,10 +393,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // Held-key repeats due this frame, applied before the tick below so the engine is
                     // only ever advanced forwards (an Update at an already-passed time would
                     // re-accrue that stretch of active time into the WPM clock).
-                    repeater.Pump(Time.Current);
+                    repeater.Pump(Time.Current, wpmClockRate(gameplayClock));
                 }
 
-                engine.Update(Time.Current);
+                engine.Update(Time.Current, wpmClockRate(gameplayClock));
             }
 
             private void applyFrame(TypeBeatReplayFrame frame)
@@ -388,7 +411,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // Exactly the live sequence: state advances to the keystroke's timestamp, then the
                 // keystroke applies. Update is monotonic/idempotent, so the ticker's own per-frame
                 // updates interleaving at other times cannot change any judgement outcome.
-                engine.Update(frame.Time);
+                engine.Update(frame.Time, wpmClockRate(gameplayClock));
 
                 if (frame.IsBackspace)
                     engine.ProcessBackspace();
@@ -431,6 +454,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             private readonly DrawableTypeBeatRuleset? drawableRuleset;
             private readonly HeldKeyRepeater repeater;
 
+            // Cached by Player (via GameplayClockContainer / FrameStabilityContainer); absent in bare
+            // drawable-ruleset test scenes, where there is no rate mod to report anyway.
+            [Resolved]
+            private IGameplayClock? gameplayClock { get; set; }
+
             public TypeBeatKeyHandler(TypingEngine engine, IBindable<KeyboardLayout> keyboardLayout, DrawableTypeBeatRuleset? drawableRuleset, HeldKeyRepeater repeater)
             {
                 this.engine = engine;
@@ -460,7 +488,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // Advance the engine to the keystroke's timestamp BEFORE gating/judging, so the
                 // outcome depends only on (char, time), not on where the last engine tick happened
                 // to fall. This is what lets replay playback reproduce the run exactly.
-                engine.Update(time);
+                engine.Update(time, wpmClockRate(gameplayClock));
 
                 // While the engine has no active line (pre-roll, a dead zone, or after the final
                 // line) typing is inert, so DON'T swallow the key; let it fall through to global

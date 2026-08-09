@@ -137,15 +137,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>correctKeypresses / allCharKeypresses; 1.0 before any keypress.</summary>
         public double LiveAccuracy => totalKeypresses == 0 ? 1.0 : correctKeypresses / (double)totalKeypresses;
 
-        /// <summary>Gross WPM over active time only; 0 before any active time.</summary>
+        /// <summary>
+        /// Gross WPM over active time only; 0 before any active time. Active time is REAL elapsed
+        /// time (see <see cref="activeRealTimeMs"/>), not beatmap time, so the readout is the
+        /// player's actual typing speed under any speed-adjusting mod rather than 1/rate of it.
+        /// </summary>
         public double LiveWpm
         {
             get
             {
-                if (activeTimeMs <= 0)
+                if (activeRealTimeMs <= 0)
                     return 0;
 
-                return (countCorrectCells() / 5.0) / (activeTimeMs / 60000.0);
+                return (countCorrectCells() / 5.0) / (activeRealTimeMs / 60000.0);
             }
         }
 
@@ -157,7 +161,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// Falls back to <see cref="LiveWpm"/> until the window holds at least two presses spread over a
         /// non-zero span, so the readout is meaningful from the first seconds instead of flapping.
         /// The clock is active time, exactly like <see cref="LiveWpm"/>: count-ins, instrumental gaps and
-        /// post-line-completion waits do not decay the value, they simply do not pass.
+        /// post-line-completion waits do not decay the value, they simply do not pass. Being stamped in
+        /// that same REAL-time currency (see <see cref="activeRealTimeMs"/>), this inherits the
+        /// speed-adjusting-mod correction for free and must never be scaled by the rate a second time.
         /// </summary>
         public double LiveRollingWpm
         {
@@ -311,7 +317,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private readonly Dictionary<JudgementType, int> counts = new Dictionary<JudgementType, int>();
         private readonly List<SyncSample> syncTimeline = new List<SyncSample>();
 
-        /// <summary>Ring buffer of the ACTIVE-TIME stamps of the last correct keypresses (see <see cref="LiveRollingWpm"/>).</summary>
+        /// <summary>Ring buffer of the ACTIVE-REAL-TIME stamps of the last correct keypresses (see <see cref="LiveRollingWpm"/>).</summary>
         private readonly double[] rollingSamples = new double[rolling_wpm_window];
 
         private readonly int totalTypeableCells;
@@ -338,7 +344,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private int errorCount;
         private int consecutiveWrongKeys;
 
-        private double activeTimeMs;
+        /// <summary>
+        /// The WPM clock: REAL (wall-clock) milliseconds spent with a line active, incomplete and the
+        /// song actually singing it. Deliberately NOT beatmap milliseconds: <see cref="Update"/> is fed
+        /// beatmap times, so each segment is divided by the clock rate that applied over it. Under Half
+        /// Time (0.75x) 2000 ms of beatmap time is 2666.67 ms the player really had, and under Double
+        /// Time (1.5x) it is 1333.33 ms. Nothing in judgement reads this; it only feeds
+        /// <see cref="LiveWpm"/>, <see cref="LiveRollingWpm"/> and <see cref="ResultsSummary.Wpm"/>.
+        /// </summary>
+        private double activeRealTimeMs;
+
         private double? lastUpdateTime;
 
         private int rollingCount; // entries held in rollingSamples, capped at rolling_wpm_window
@@ -451,7 +466,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// Drives activation, sealing, active-time accrual, Finished.
         /// Never throws on out-of-order times (dt is clamped >= 0; lines never unseal).
         /// </summary>
-        public void Update(double time)
+        /// <param name="time">The BEATMAP time to advance to, in milliseconds.</param>
+        /// <param name="clockRate">
+        /// The speed-adjusting-mod rate that applied over the segment ENDING at <paramref name="time"/>,
+        /// i.e. over [previous update time, <paramref name="time"/>]: 1.5 under Double Time, 0.75 under
+        /// Half Time, whatever the slider says at a custom rate, and the CURRENT ramp value under
+        /// ModWindUp / ModWindDown. Only the WPM clock uses it, dividing that segment's beatmap
+        /// milliseconds back into real ones (see <see cref="activeRealTimeMs"/>); judgement is
+        /// untouched. Per-segment rather than per-run is what makes a rate that varies across the play
+        /// accrue piecewise instead of being smeared by whatever value happened to be sampled last.
+        /// The value is sanitised before dividing (magnitude only; zero and non-finite fall back to 1),
+        /// so a rewinding, paused or otherwise degenerate clock can never produce a negative, infinite
+        /// or NaN active time. Defaults to 1, the no-rate-mod case.
+        /// </param>
+        public void Update(double time, double clockRate = 1)
         {
             // (1) Accrue active time while a line is active AND incomplete AND not finished
             //     (state as of the previous frame).
@@ -460,7 +488,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 double dt = Math.Max(0, time - last);
 
                 if (activeLineIndex != -1 && !IsLineComplete && !isFinished && wpmClockRuns(last))
-                    activeTimeMs += dt;
+                    activeRealTimeMs += dt / sanitisedRate(clockRate);
             }
 
             lastUpdateTime = time;
@@ -574,6 +602,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private bool wpmClockRuns(double previousTime)
             => !FletcherEnabled || activeLineIndex == -1 || previousTime >= lines[activeLineIndex].ActivationTime;
+
+        /// <summary>
+        /// The usable magnitude of a clock rate for the WPM divisor. A rewinding clock reports a
+        /// NEGATIVE rate, but rewind is a direction and not a speed, and dt is already clamped >= 0, so
+        /// the sign is dropped rather than allowed to run active time backwards. A stopped (0) or
+        /// non-finite rate carries no speed information at all, so it falls back to 1x instead of
+        /// poisoning the accumulator with an infinity or a NaN that every later readout would inherit.
+        /// </summary>
+        private static double sanitisedRate(double rate)
+        {
+            double magnitude = Math.Abs(rate);
+
+            return double.IsFinite(magnitude) && magnitude > 0 ? magnitude : 1;
+        }
 
         /// <summary>
         /// Fletcher DRAG FREEDOM: a line the player is still typing must not be force-sealed out from
@@ -939,7 +981,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             double syncPercent = totalTypeableCells == 0 ? 100 : 100 * qualitySum / totalTypeableCells;
 
-            double wpm = activeTimeMs <= 0 ? 0 : (countCorrectCells() / 5.0) / (activeTimeMs / 60000.0);
+            double wpm = activeRealTimeMs <= 0 ? 0 : (countCorrectCells() / 5.0) / (activeRealTimeMs / 60000.0);
 
             return new ResultsSummary
             {
@@ -973,14 +1015,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>
-        /// Record one correct keypress at the current active time for <see cref="LiveRollingWpm"/>.
+        /// Record one correct keypress at the current active REAL time for <see cref="LiveRollingWpm"/>.
         /// Nothing reads this back into judgement, so it can never move a score. <see cref="ProcessBackspace"/>
         /// deliberately does NOT pop: the buffer is what the player typed, not what the cells currently
         /// hold, so backspacing and retyping simply logs another (later) press.
         /// </summary>
         private void pushRollingSample()
         {
-            rollingSamples[rollingNext] = activeTimeMs;
+            rollingSamples[rollingNext] = activeRealTimeMs;
             rollingNext = (rollingNext + 1) % rolling_wpm_window;
 
             if (rollingCount < rolling_wpm_window)
