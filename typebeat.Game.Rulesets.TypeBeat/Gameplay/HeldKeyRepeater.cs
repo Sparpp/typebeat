@@ -270,7 +270,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// timestamp and then handed that earlier timestamp (which would re-accrue active time).
         /// Returns how many repeats actually mutated engine state.
         /// </summary>
-        public int Pump(double now)
+        /// <param name="now">The current BEATMAP time, in milliseconds.</param>
+        /// <param name="clockRate">
+        /// Passed straight through to <see cref="TypingEngine.Update"/> (see its own doc). It matters
+        /// here precisely BECAUSE this runs first: every repeat advances the engine to its own
+        /// timestamp, so during a sustained hold under a rate mod most of the frame's active time is
+        /// accrued on this path and the caller's later tick only ever sees the remainder. Leaving it at
+        /// the default would silently accrue that bulk at 1x and reinstate the WPM error for exactly
+        /// the players holding a key down.
+        /// </param>
+        public int Pump(double now, double clockRate = 1)
         {
             if (!holding)
                 return 0;
@@ -300,7 +309,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 // EXACTLY the live key handler's sequence, so a repeat is indistinguishable from a
                 // real keystroke to the engine and to the recorder.
-                engine.Update(time);
+                engine.Update(time, clockRate);
 
                 // THE MATCH GATE, read after the Update so it sees precisely the state ProcessKey
                 // would judge in. The run this hold is sustaining has ended, so the hold has too.

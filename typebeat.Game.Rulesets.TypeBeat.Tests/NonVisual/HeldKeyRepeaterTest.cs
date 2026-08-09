@@ -51,12 +51,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             => map(line(text, 1000, 9000, 2600, unit(text, 1000, 2600)));
 
         /// <summary>Frames the playfield's engine ticker: pump the repeater, then tick the engine.</summary>
-        private static void run(HeldKeyRepeater repeater, TypingEngine engine, int from, int to)
+        private static void run(HeldKeyRepeater repeater, TypingEngine engine, int from, int to, double clockRate = 1)
         {
             for (int t = from + frame_step_ms; t <= to; t += frame_step_ms)
             {
-                repeater.Pump(t);
-                engine.Update(t);
+                repeater.Pump(t, clockRate);
+                engine.Update(t, clockRate);
             }
         }
 
@@ -110,6 +110,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.AreEqual(0, cells[i].JudgedDelta, $"cell {i} pressed exactly on its target");
 
             Assert.IsTrue(Enumerable.Range(0, 10).All(i => cells[i].State == CellState.Correct && cells[i].TypedChar == 'a'));
+        }
+
+        /// <summary>
+        /// A hold must not smuggle beatmap milliseconds past the WPM clock's rate correction.
+        /// <see cref="HeldKeyRepeater.Pump"/> advances the engine to each repeat's OWN timestamp before
+        /// the frame's tick, so during a sustained hold most of the frame's active time accrues on this
+        /// path and the ticker's later call only ever sees the remainder. Accruing that bulk at 1x would
+        /// reinstate, for exactly the players holding a key down, the error the rate parameter exists to
+        /// remove.
+        /// </summary>
+        [Test]
+        public void HeldRunAccruesActiveTimeAtTheClockRate()
+        {
+            var (engine, repeater, recorded) = start(denseRun());
+
+            press(engine, repeater, recorded, Key.A, 'a', 1000);
+            run(repeater, engine, 1000, 2100, 0.5);
+
+            // Ten correct cells (the a-run; the 'h' ends the hold), and the line stays active and
+            // incomplete right through [1000, 2100], so 1100 ms of beatmap active time accrue. At 0.5x
+            // those really took 2200 ms, so WPM = (10/5)/(2200/60000), exactly half the 1x figure.
+            Assert.AreEqual(10, recorded.Count);
+            Assert.AreEqual(120000.0 / 2200.0, engine.LiveWpm, 1e-9);
         }
 
         /// <summary>

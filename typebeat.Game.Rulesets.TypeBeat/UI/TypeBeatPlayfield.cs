@@ -393,7 +393,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // Held-key repeats due this frame, applied before the tick below so the engine is
                     // only ever advanced forwards (an Update at an already-passed time would
                     // re-accrue that stretch of active time into the WPM clock).
-                    repeater.Pump(Time.Current);
+                    repeater.Pump(Time.Current, wpmClockRate(gameplayClock));
                 }
 
                 engine.Update(Time.Current, wpmClockRate(gameplayClock));
