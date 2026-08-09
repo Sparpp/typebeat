@@ -561,6 +561,99 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(42.0, engine.BuildResults().Wpm, 1e-9);
         }
 
+        /// <summary>
+        /// The exact run of <see cref="ActiveTimeWpmIgnoresGapsAndPostLineWaits"/>, with a clock rate
+        /// supplied for each of its FOUR accruing 500 ms segments: [1000,1500], [1500,2000],
+        /// [2000,2500] and [10000,10500]. Every other frame accrues nothing (lead-in, post-completion
+        /// wait, dead gap), so the rate passed there cannot move the result. 2000 ms of beatmap active
+        /// time throughout, so at rate 1 this still reads 42 WPM.
+        /// </summary>
+        private static TypingEngine wpmRunAtRates(double rate1, double rate2, double rate3, double rate4)
+        {
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("ab cd", 1000, 10000, 3000, unit("ab", 1000, 2000), unit("cd", 2000, 3000)),
+                line("ef", 10000, 12000, 11000, unit("ef", 10000, 11000))));
+
+            engine.Update(0, rate1);
+            engine.Update(500, rate1);
+            engine.Update(1000, rate1);
+
+            engine.ProcessKey('a', 1000);
+            engine.Update(1500, rate1); // segment 1
+            engine.ProcessKey('b', 1500);
+            engine.Update(2000, rate2); // segment 2
+            engine.ProcessKey(' ', 2000);
+            engine.ProcessKey('c', 2000);
+            engine.Update(2500, rate3); // segment 3
+            engine.ProcessKey('d', 2500); // line complete at t=2500
+
+            engine.Update(9000, rate3);  // line complete: no accrual
+            engine.Update(10000, rate3); // no accrual; seal L0, activate L1
+
+            engine.ProcessKey('e', 10000);
+            engine.Update(10500, rate4); // segment 4
+            engine.ProcessKey('f', 10500);
+
+            engine.Update(12000, rate4); // complete: no accrual; seal L1, finished
+
+            return engine;
+        }
+
+        [Test]
+        public void WpmDividesActiveTimeByTheClockRate()
+        {
+            // Rate 1 is the unmodded run, byte for byte: 2000 beatmap ms of active time is 2000 real ms.
+            Assert.AreEqual(42.0, wpmRunAtRates(1, 1, 1, 1).LiveWpm, 1e-9);
+
+            // Half Time: those 2000 beatmap ms took 2000/0.75 = 2666.666... ms in the real world, so the
+            // same 1.4 words read 1.4/(2666.666.../60000) = 31.5, which is 42 * 0.75. Accruing beatmap
+            // milliseconds instead reported 42 and flattered every HT play by exactly 1/0.75.
+            var slow = wpmRunAtRates(0.75, 0.75, 0.75, 0.75);
+            Assert.AreEqual(31.5, slow.LiveWpm, 1e-9);
+            Assert.AreEqual(31.5, slow.BuildResults().Wpm, 1e-9);
+
+            // Double Time: 2000/1.5 = 1333.333... real ms => 1.4/(1333.333.../60000) = 63 = 42 * 1.5.
+            var fast = wpmRunAtRates(1.5, 1.5, 1.5, 1.5);
+            Assert.AreEqual(63.0, fast.LiveWpm, 1e-9);
+            Assert.AreEqual(63.0, fast.BuildResults().Wpm, 1e-9);
+        }
+
+        [Test]
+        public void WpmAccruesAVaryingRatePiecewise()
+        {
+            // The ModWindUp / ModWindDown case, which no single whole-run multiplier can describe.
+            // First two segments at 1.5x (500/1.5 = 333.333... real ms each), last two at 0.5x
+            // (500/0.5 = 1000 each): 333.333... + 333.333... + 1000 + 1000 = 2666.666... real ms, which
+            // happens to be the same total as a flat 0.75x, so this reads 31.5 as well.
+            var engine = wpmRunAtRates(1.5, 1.5, 0.5, 0.5);
+
+            Assert.AreEqual(31.5, engine.LiveWpm, 1e-9);
+            Assert.AreEqual(31.5, engine.BuildResults().Wpm, 1e-9);
+        }
+
+        [Test]
+        public void WpmClockRateIsSanitisedToAUsableMagnitude()
+        {
+            // A stopped clock (0) and a non-finite one carry no speed information at all, so they fall
+            // back to 1x rather than divide by zero (infinite WPM) or write a NaN into the accumulator
+            // that every later readout, this run's results included, would inherit.
+            Assert.AreEqual(42.0, wpmRunAtRates(0, 0, 0, 0).LiveWpm, 1e-9);
+            Assert.AreEqual(42.0, wpmRunAtRates(double.NaN, double.NaN, double.NaN, double.NaN).LiveWpm, 1e-9);
+            Assert.AreEqual(42.0, wpmRunAtRates(double.PositiveInfinity, double.PositiveInfinity, double.PositiveInfinity, double.PositiveInfinity).LiveWpm, 1e-9);
+
+            // A rewinding clock reports a NEGATIVE rate, but the sign is a direction and not a speed:
+            // the MAGNITUDE is what the WPM clock divides by. So -1 behaves as 1 ...
+            Assert.AreEqual(42.0, wpmRunAtRates(-1, -1, -1, -1).LiveWpm, 1e-9);
+            // ... and -1.5 behaves as 1.5, not as the blanket 1x fallback: rewinding under Double Time
+            // is still Double Time.
+            Assert.AreEqual(63.0, wpmRunAtRates(-1.5, -1.5, -1.5, -1.5).LiveWpm, 1e-9);
+
+            // One degenerate frame must not contaminate the rest of the run: only its own segment takes
+            // the fallback. 500/1.5 + 500/1 + 500/0.5 + 500/0.5 = 2833.333... real ms.
+            var mixed = wpmRunAtRates(1.5, double.NaN, 0.5, 0.5);
+            Assert.AreEqual(84000.0 / (500 / 1.5 + 500 + 1000 + 1000), mixed.LiveWpm, 1e-9);
+        }
+
         [Test]
         public void InputInertDuringLeadInGapAndAfterCompletion()
         {
@@ -1302,6 +1395,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // The whole-run figure divides 10 chars by the same 9000 ms and reads 11% high.
             Assert.AreEqual(120000.0 / 9000.0, engine.LiveWpm, 1e-9);
+        }
+
+        [Test]
+        public void RollingWpmScalesWithTheClockRateExactlyOnce()
+        {
+            var engine = new TypingEngine(longMap());
+
+            engine.Update(0, 0.5);
+
+            // The identical beatmap cadence to RollingWpmTracksSteadyCadence (one press per 1000 beatmap
+            // ms), but at 0.5x every one of those seconds really took two, so the stamps, which are
+            // active REAL time, land at 0, 2000, ..., 18000 rather than 0, 1000, ..., 9000.
+            for (int i = 0; i < 10; i++)
+            {
+                double t = 1000 + i * 1000;
+                engine.Update(t, 0.5);
+                Assert.IsTrue(engine.ProcessKey(long_chars[i], t));
+            }
+
+            // ((10-1)/5)/(18000/60000) = 1.8/0.3 = 6: exactly half the 12 the unmodded run reads, which
+            // is right, half speed means the player really typed half as fast. The correction is applied
+            // ONCE, in the accumulator the stamps come from; scaling the span again here would read 3.
+            Assert.AreEqual(6.0, engine.LiveRollingWpm, 1e-9);
+
+            // Whole-run over the same real span: (10/5)/(18000/60000), half of the 1x figure.
+            Assert.AreEqual(120000.0 / 18000.0, engine.LiveWpm, 1e-9);
         }
 
         [Test]
