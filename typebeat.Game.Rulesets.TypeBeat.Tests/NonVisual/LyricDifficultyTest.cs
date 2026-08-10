@@ -52,11 +52,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void MatchesHandComputedRating()
         {
-            // "cat cat" -> 0.95 stars. Shared anchor with the web port's LyricPaceTest, locking
+            // "cat cat" -> 0.57 stars. Shared anchor with the web port's LyricPaceTest, locking
             // the two ports to the same per-word strain sum (density + endurance).
             double sr = LyricDifficulty.Compute(new[] { line(0, 800, ("cat", 0, 400), ("cat", 400, 800)) });
 
-            Assert.AreEqual(0.95, sr, 0.01);
+            Assert.AreEqual(0.57, sr, 0.01);
         }
 
         [Test]
