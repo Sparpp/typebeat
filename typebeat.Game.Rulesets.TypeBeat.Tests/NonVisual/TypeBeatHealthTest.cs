@@ -37,9 +37,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             apply(health, HitResult.Miss);
             Assert.AreEqual(1 - TypeBeatHealthProcessor.MISS_HEALTH_DRAIN, health.Health.Value, 1e-9);
 
-            // A single miss (MISS_HEALTH_DRAIN 0.03) is exactly undone by one Great (0.03), so from
-            // 0.97 the first Great restores full and the second overshoots past it — which is what
-            // exercises the clamp this test pins.
+            // One Great (GREAT_HEALTH_INCREASE) more than repays one miss (MISS_HEALTH_DRAIN), so the
+            // first Great already overshoots the full bar and the second overshoots further, which is
+            // what exercises the clamp this test pins.
+            Assert.Greater(TypeBeatHealthProcessor.GREAT_HEALTH_INCREASE, TypeBeatHealthProcessor.MISS_HEALTH_DRAIN,
+                "a perfect char must more than repay a miss");
             apply(health, HitResult.Great);
             apply(health, HitResult.Great);
             // Recovery caps at the full bar.
@@ -109,6 +111,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.IsFalse(health.HasFailed, "scattered misses must not fail");
             Assert.Greater(min, 0.9, "health stays comfortably full through spread-out misses");
+            TestContext.WriteLine($"12.5%-scattered-miss floor: {min:0.####} (one miss deep below the cap).");
         }
 
         #endregion

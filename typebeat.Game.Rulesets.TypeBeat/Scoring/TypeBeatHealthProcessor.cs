@@ -42,6 +42,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         // Balance targets (verified in TypeBeatHealthTest):
         //   * Full AFK on the real ~905-cell map empties the bar within the first few line seals
         //     (well under half the map) - clearly "sustained not typing", well before the map ends.
+        //     Death is quantized to line seals, so it lands on the second seal of Spectator (t~16.8s
+        //     of 168.3s) for any drain from about 0.0176 up to 0.0322: seal 1 banks 30 missed cells
+        //     and seal 2 banks 27 more, and nothing in between can kill.
         //   * Perfect play stays pinned at full (recovery caps at 1).
         //   * ~12% misses spread through otherwise-correct play never approaches 0 (Great recovery
         //     refills to the cap between misses, so the bar only ever dips one miss deep).
@@ -55,8 +58,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <summary>HP restored by a correct char in the Ok window (engine Ok -> osu Meh).</summary>
         public const double MEH_HEALTH_INCREASE = 0.02;
 
-        /// <summary>HP drained by one untyped cell sealing as a miss (also mistimed/wrong-char misses).</summary>
-        public const double MISS_HEALTH_DRAIN = 0.03;
+        /// <summary>
+        /// HP drained by one untyped cell sealing as a miss (also mistimed/wrong-char misses).
+        /// Deliberately BELOW <see cref="GREAT_HEALTH_INCREASE"/>, so one perfect char more than pays
+        /// back one miss and a player who resumes typing climbs back to full.
+        /// </summary>
+        public const double MISS_HEALTH_DRAIN = 0.0225;
 
         /// <summary>
         /// HP drained by a single rejected wrong key. Sized so an uninterrupted mash from full empties
