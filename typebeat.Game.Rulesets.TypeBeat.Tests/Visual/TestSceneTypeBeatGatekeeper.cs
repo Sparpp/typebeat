@@ -18,12 +18,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// Gatekeeper end to end through the real mod pipeline (backlog 107), and the SUDDEN DEATH
     /// question the default flip raises.
     ///
-    /// <para>Sudden Death fails a play on <c>TypingEngine.WrongKeyRejected</c>, an event that after
-    /// the flip fires only under Gatekeeper. The code's claim is that it does not need it in default
-    /// play, because a typed-through wrong char is judged <c>WrongChar</c>, which
-    /// <c>DrawableTypeBeatHitObject.toHitResult</c> maps to <c>HitResult.Miss</c>, which the
-    /// INHERITED <c>ModSuddenDeath.FailCondition</c> already fires on. This scene tests that claim
-    /// against the real health processor rather than trusting the comment, in both models.</para>
+    /// <para>Sudden Death used to fail a play on <c>TypingEngine.WrongKeyRejected</c> (Gatekeeper
+    /// only) plus, in default play, on the <c>HitResult.Miss</c> a typed-through wrong char was
+    /// judged as. Backlog 109 removed the second half: a typo no longer resolves its cell, so
+    /// nothing is a Miss until the line seals on it uncorrected, and Sudden Death would silently
+    /// have started failing a whole line late. It now hangs off <c>TypingEngine.Mistyped</c>, which
+    /// fires once per wrong keypress in BOTH models. This scene tests that against the real health
+    /// processor rather than trusting the comment, in both models.</para>
     /// </summary>
     public partial class TestSceneTypeBeatGatekeeper : PlayerTestScene
     {
@@ -93,8 +94,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
-        /// The same play with no mods at all: the default model types the char through, resolves the
-        /// cell as a Miss, and leaves the mash streak alone.
+        /// The same play with no mods at all: the default model types the char through, leaves the
+        /// mash streak alone, counts the mistype, and (backlog 109) hands the score processor NO
+        /// result for the cell. The cell is not resolved, it is deferred: see
+        /// <c>TestSceneTypeBeatTypoDeferral</c> for what happens to it either way.
         /// </summary>
         [Test]
         public void TestDefaultModelTypesWrongCharsThrough()
@@ -113,10 +116,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("the keypress is still a persisted mistype", () =>
                 Player.ScoreProcessor.Statistics.GetValueOrDefault(Rulesets.Scoring.HitResult.ComboBreak) == 1);
 
-            // The cell reached the score processor as a Miss, which is the whole reason Sudden
-            // Death still works below. The line's other cell is untouched, so this is unambiguous.
-            AddAssert("the cell was judged a Miss", () =>
-                Player.ScoreProcessor.Statistics.GetValueOrDefault(Rulesets.Scoring.HitResult.Miss) == 1);
+            // No judgement at all: a typo is not a missed character, and the player can still
+            // backspace and type this cell correctly. The line's other cell is untouched, so
+            // "nothing has been judged yet" is unambiguous here.
+            AddAssert("no result was applied for the cell", () =>
+                Player.ScoreProcessor.Statistics.GetValueOrDefault(Rulesets.Scoring.HitResult.Miss) == 0
+                && Player.ScoreProcessor.JudgedHits == 0);
 
             // Nothing failed the play: no Sudden Death, and the mash guard is Gatekeeper-only.
             AddAssert("play still alive", () => !Player.GameplayState.HasFailed);
@@ -124,8 +129,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         /// <summary>
         /// THE REGRESSION CHECK. Sudden Death alone, no Gatekeeper: the wrong key raises no
-        /// <c>WrongKeyRejected</c>, so if the Miss judgement did not exist the play would sail on and
-        /// Sudden Death would have silently stopped meaning anything.
+        /// <c>WrongKeyRejected</c> and, since backlog 109, no judgement result either, so without its
+        /// own <c>Mistyped</c> hook the play would sail on until the line sealed and Sudden Death
+        /// would have quietly become "fail at the end of the line you fumbled".
         /// </summary>
         [Test]
         public void TestSuddenDeathStillFailsOnAWrongKeyWithoutGatekeeper()

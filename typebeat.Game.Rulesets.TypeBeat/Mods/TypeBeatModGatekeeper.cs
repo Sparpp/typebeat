@@ -30,7 +30,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// <para>NO multiplier of any kind, score or pp. It is a real difficulty increase, but the two
     /// models already price themselves honestly against each other: rejection keeps the caret on the
     /// character, so a stumble under this mod costs the timing windows of everything behind it
-    /// (accuracy) where the default model costs a cell outright (completion). Ranked at 1.0x, exactly
+    /// (accuracy), where the default model makes you spend keystrokes going back for it, and costs
+    /// the cell outright (completion) if you do not (backlog 109). Ranked at 1.0x, exactly
     /// like Sudden Death, which is why it appears in neither
     /// <see cref="Scoring.TypeBeatScoreMultiplierCalculator"/> nor
     /// <c>PerformancePoints.ModMultiplier</c>: both treat an unlisted acronym as 1.0.</para>

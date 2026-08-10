@@ -51,12 +51,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
 
         /// <summary>
         /// Routes an engine char judgement to the matching nested cell drawable.
-        /// Mapping: Perfect->Great, Good->Ok, Ok->Meh, Premature/Lagging/WrongChar->Miss.
+        /// Mapping: Perfect->Great, Good->Ok, Ok->Meh, Premature/Lagging/Miss->Miss.
         /// Premature/Lagging accept the char with 0 engine points + combo break; osu Miss also
         /// breaks combo, so the mapping is behaviour-coherent for combo (score weights differ).
+        ///
+        /// <para>A <see cref="JudgementType.WrongChar"/> maps to NOTHING (backlog 109). A miss is a
+        /// character the line ran out of time on; a typo is a typo, and in the default input model
+        /// the player can still backspace and type the cell correctly. So a wrong keypress DEFERS
+        /// the cell's one osu result instead of spending it: correct it and the retype earns the
+        /// cell's real Great/Ok/Meh below, leave it and <see cref="ApplySealResults"/> misses it
+        /// exactly like a cell nobody ever touched. Applying a Miss here is what used to make the
+        /// two indistinguishable AND unrecoverable, because
+        /// <see cref="DrawableTypeBeatCharObject.ApplyEngineResult"/> drops every later result.</para>
+        ///
+        /// <para>The combo break the mistype costs therefore has no result to travel on, and is
+        /// mirrored into the score processor by hand on <see cref="TypingEngine.Mistyped"/> instead
+        /// (see <c>TypeBeatPlayfield.onMistyped</c>). That is the seam a REJECTED key has always
+        /// used, so the two input models now account for a wrong keypress identically.</para>
         /// </summary>
         public void ApplyCharJudgement(CharJudgement judgement)
         {
+            if (judgement.Type == JudgementType.WrongChar)
+                return;
+
             if (!charDrawablesByCell.TryGetValue(judgement.CellIndex, out var charDrawable))
                 return;
 
@@ -64,9 +81,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         }
 
         /// <summary>
-        /// Called when the engine seals this line: every still-unjudged cell becomes an osu Miss
-        /// (matching the engine marking untyped cells Missed), then the line object itself
-        /// resolves scoring-inert (IgnoreHit) so osu accuracy tracks only the cells.
+        /// Called when the engine seals this line: every still-unjudged cell becomes an osu Miss,
+        /// then the line object itself resolves scoring-inert (IgnoreHit) so osu accuracy tracks
+        /// only the cells. "Still unjudged" is exactly the engine's own seal-miss set: a cell that
+        /// was never typed, and a cell left sitting wrong (see <see cref="ApplyCharJudgement"/>).
         /// </summary>
         public void ApplySealResults()
         {
@@ -91,9 +109,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
                     return HitResult.Meh;
 
                 default:
-                    // Premature, Lagging, WrongChar, and Miss: the last one reaches here only from a
-                    // word abandoned by the "space to skip current word" setting, which announces the
-                    // cells it gives up immediately instead of leaving them to the seal.
+                    // Premature, Lagging and Miss. The last one reaches here only from a word
+                    // abandoned by the "space to skip current word" setting, which announces the
+                    // cells it gives up immediately instead of leaving them to the seal. WrongChar
+                    // never reaches here at all: ApplyCharJudgement returns before this.
                     return HitResult.Miss;
             }
         }

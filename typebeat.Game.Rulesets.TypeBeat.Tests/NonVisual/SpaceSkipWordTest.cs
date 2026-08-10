@@ -182,30 +182,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// A cell of the abandoned word that already carries a judgement keeps it. That is not a
-        /// preference, it is the only reachable reading: the cell's drawable has already handed the
-        /// score processor its one result and there is no un-apply, so re-missing it here would
-        /// double-count the same cell against the same play.
+        /// A cell of the abandoned word that has already handed the score processor its one result
+        /// keeps it, and since backlog 109 that group is exactly the CORRECT cells: a Great cannot be
+        /// revoked (there is no un-apply). A cell typed WRONG has spent no result at all, only
+        /// deferred one, and abandoning the word is the player deciding it will never be corrected,
+        /// so it is given up here like any other unresolved cell. It keeps CellState.Wrong on screen
+        /// (the line still shows what was typed); only its judgement is decided.
         /// </summary>
         [Test]
-        public void AWrongCharAlreadyTypedIntoTheWordKeepsItsOwnJudgement()
+        public void AWrongCharInTheAbandonedWordIsGivenUpLikeAnyUnresolvedCell()
         {
             var engine = started(catDog(), spaceSkipsWord: true);
+
+            var judged = new List<CharJudgement>();
+            engine.CharJudged += j => judged.Add(j);
 
             Assert.IsTrue(engine.ProcessKey('c', 1000));
             Assert.IsTrue(engine.ProcessKey('x', a_target)); // typed through (default model) onto 'a'
             Assert.AreEqual(CellState.Wrong, engine.Lines[0].Cells[1].State);
 
-            Assert.IsTrue(engine.ProcessKey(' ', 2600)); // caret is on 't': abandon it
+            judged.Clear();
+            Assert.IsTrue(engine.ProcessKey(' ', 2600)); // caret is on 't': abandon "at"
 
             var cells = engine.Lines[0].Cells;
-            Assert.AreEqual(CellState.Wrong, cells[1].State, "the wrong char stays wrong, it is not re-missed");
+            Assert.AreEqual(CellState.Correct, cells[0].State, "'c' keeps the Great it earned");
+            Assert.AreEqual(CellState.Wrong, cells[1].State, "the wrong char keeps its red");
             Assert.AreEqual('x', cells[1].TypedChar);
             Assert.AreEqual(CellState.Missed, cells[2].State);
 
+            // Both abandoned cells are announced immediately, so their drawables take their Miss now
+            // instead of at seal time and osu's combo breaks with the engine's.
+            Assert.AreEqual(3, judged.Count); // 'a', 't', then the word gap's own judgement
+            Assert.AreEqual(1, judged[0].CellIndex);
+            Assert.AreEqual(JudgementType.Miss, judged[0].Type);
+            Assert.AreEqual(2, judged[1].CellIndex);
+            Assert.AreEqual(JudgementType.Miss, judged[1].Type);
+
             var results = engine.BuildResults();
 
-            Assert.AreEqual(1, results.Counts[JudgementType.Miss]);      // only 't'
+            Assert.AreEqual(2, results.Counts[JudgementType.Miss]);      // the wrong 'a' and the untyped 't'
             Assert.AreEqual(1, results.Counts[JudgementType.WrongChar]); // 'x' still counted once
             Assert.AreEqual(1, engine.Mistypes);
         }
