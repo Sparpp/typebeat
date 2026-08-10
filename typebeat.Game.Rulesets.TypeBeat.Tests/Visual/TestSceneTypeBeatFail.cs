@@ -4,7 +4,9 @@
 using System.Collections.Generic;
 using NUnit.Framework;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.UI;
@@ -19,6 +21,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// recovery is a judgement increment rather than a snap back to full). Keys are fed straight
     /// to the engine (its events drive the playfield wiring), which is the same synchronous path
     /// raw keyboard input takes.
+    ///
+    /// <para>Loaded with <see cref="TypeBeatModGatekeeper"/>, because the streak only ever accrues
+    /// on the REJECTION path and backlog 107 moved that path behind the mod. That the guard has
+    /// therefore left ordinary play is deliberate and is pinned the other way round by
+    /// <see cref="TestSceneTypeBeatGatekeeper"/>.</para>
     /// </summary>
     public partial class TestSceneTypeBeatFail : PlayerTestScene
     {
@@ -27,6 +34,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         // This scene tests the fail path itself, so the base must NOT auto-append NoFail (which it
         // now does because the ruleset provides a NoFail mod).
         protected override bool AllowFail => true;
+
+        protected override bool HasCustomSteps => true;
 
         private TypeBeatPlayfield playfield => (TypeBeatPlayfield)Player.DrawableRuleset.Playfield;
 
@@ -62,6 +71,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void TestThirteenConsecutiveWrongKeysFail()
         {
+            AddStep("load player with Gatekeeper", () => LoadPlayer(new Mod[] { new TypeBeatModGatekeeper() }));
+            AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
+            AddAssert("the mod put the engine in strict mode", () => !playfield.Engine.AllowWrongInput);
+
             AddUntilStep("line active", () => playfield.Engine.ActiveLineIndex == 0);
 
             AddStep("mash 12 wrong keys", () =>

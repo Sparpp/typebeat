@@ -296,7 +296,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void MarksAreTypedJudgedAndCountedUnderTheMod()
         {
-            var engine = new TypingEngine(normativeMap(), literate: true);
+            // Gatekeeper on: the point here is that a mark/capital is a REAL target, which reads
+            // most sharply on the model that refuses anything else (backlog 107 made typing-through
+            // the default, and typing through would consume the cell instead of holding it).
+            var engine = new TypingEngine(normativeMap(), literate: true) { AllowWrongInput = false };
             var cells = engine.Lines[0].Cells;
 
             Assert.IsTrue(engine.Literate);

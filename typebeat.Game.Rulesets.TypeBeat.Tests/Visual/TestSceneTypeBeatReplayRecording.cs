@@ -74,7 +74,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             AddUntilStep("line 0 active", () => playfield.Engine.ActiveLineIndex == 0);
 
-            AddAssert("strict mode by default", () => !playfield.Engine.AllowWrongInput);
+            AddAssert("typing wrong chars through is the default", () => playfield.Engine.AllowWrongInput);
+
+            // Switch to the Gatekeeper (strict) model, which is what this test is about: a rejected
+            // key IS recorded (it is an effective engine call) while a gated-off backspace is not.
+            AddStep("switch to the strict model", () => playfield.Engine.AllowWrongInput = false);
 
             AddStep("press Z (correct)", () => InputManager.Key(Key.Z));
             AddStep("press X (wrong, rejected)", () => InputManager.Key(Key.X));

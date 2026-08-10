@@ -82,12 +82,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         /// deliberately do not travel through <c>ApplyResult</c>, because that increments
         /// <c>JudgedHits</c>, which is compared for EQUALITY against the map's object count to
         /// decide the run is over, and one extra applied result would hang the run forever.
+        ///
+        /// <para>Driven on the REJECTION model (backlog 107 made typing-through the default), which
+        /// is where the claim above actually bites: a rejected key is the only wrong keypress that
+        /// reaches the score processor without a judgement of its own. The default model's version
+        /// of this is <c>TestSceneTypeBeatGatekeeper.TestDefaultModelTypesWrongCharsThrough</c>.</para>
         /// </summary>
         [Test]
         public void TestMistypesPersistWithoutBlockingCompletion()
         {
             AddUntilStep("gameplay started", () => Player.GameplayClockContainer.CurrentTime > 0);
             AddUntilStep("a line is active", () => playfield.Engine.LineIsActive);
+
+            // Set on the engine rather than through the mod: this scene loads a bare Player and the
+            // point being made is about the engine path, not about how the mod is applied (which
+            // TestSceneTypeBeatGatekeeper pins through the real mod pipeline).
+            AddStep("reject wrong keys (Gatekeeper model)", () => playfield.Engine.AllowWrongInput = false);
 
             AddStep("press three wrong keys", () =>
             {
