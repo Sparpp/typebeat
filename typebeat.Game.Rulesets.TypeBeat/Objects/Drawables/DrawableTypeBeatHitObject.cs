@@ -6,6 +6,7 @@ using typebeat.Game.Rulesets.Objects;
 using typebeat.Game.Rulesets.Objects.Drawables;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Scoring;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
 {
@@ -50,18 +51,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         }
 
         /// <summary>
-        /// Routes an engine char judgement to the matching nested cell drawable.
-        /// Mapping: Perfect->Great, Good->Ok, Ok->Meh, Premature/Lagging/Miss->Miss.
-        /// Premature/Lagging accept the char with 0 engine points + combo break; osu Miss also
-        /// breaks combo, so the mapping is behaviour-coherent for combo (score weights differ).
+        /// Routes an engine char judgement to the matching nested cell drawable, through the
+        /// shared <see cref="TypeBeatResultMapping.CellResult"/> (which is also what
+        /// <see cref="Scoring.TypeBeatReplayScorer"/> re-derives a stored score with, so live play
+        /// and recalculation cannot drift). Live play is always <see cref="TypoRule.Deferred"/>;
+        /// nothing in gameplay may select the other rule.
         ///
         /// <para>A <see cref="JudgementType.WrongChar"/> maps to NOTHING (backlog 109). A miss is a
         /// character the line ran out of time on; a typo is a typo, and in the default input model
         /// the player can still backspace and type the cell correctly. So a wrong keypress DEFERS
         /// the cell's one osu result instead of spending it: correct it and the retype earns the
-        /// cell's real Great/Ok/Meh below, leave it and <see cref="ApplySealResults"/> misses it
-        /// exactly like a cell nobody ever touched. Applying a Miss here is what used to make the
-        /// two indistinguishable AND unrecoverable, because
+        /// cell's real Great/Ok/Meh, leave it and <see cref="ApplySealResults"/> misses it exactly
+        /// like a cell nobody ever touched. Applying a Miss used to make the two indistinguishable
+        /// AND unrecoverable, because
         /// <see cref="DrawableTypeBeatCharObject.ApplyEngineResult"/> drops every later result.</para>
         ///
         /// <para>The combo break the mistype costs therefore has no result to travel on, and is
@@ -71,13 +73,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         /// </summary>
         public void ApplyCharJudgement(CharJudgement judgement)
         {
-            if (judgement.Type == JudgementType.WrongChar)
+            if (TypeBeatResultMapping.CellResult(judgement.Type, TypoRule.Deferred) is not HitResult result)
                 return;
 
             if (!charDrawablesByCell.TryGetValue(judgement.CellIndex, out var charDrawable))
                 return;
 
-            charDrawable.ApplyEngineResult(toHitResult(judgement.Type));
+            charDrawable.ApplyEngineResult(result);
         }
 
         /// <summary>
@@ -89,32 +91,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         public void ApplySealResults()
         {
             foreach (var charDrawable in charDrawablesByCell.Values)
-                charDrawable.ApplyEngineResult(HitResult.Miss);
+                charDrawable.ApplyEngineResult(TypeBeatResultMapping.SEAL_MISS);
 
             if (!Judged)
-                ApplyResult(HitResult.IgnoreHit);
-        }
-
-        private static HitResult toHitResult(JudgementType type)
-        {
-            switch (type)
-            {
-                case JudgementType.Perfect:
-                    return HitResult.Great;
-
-                case JudgementType.Good:
-                    return HitResult.Ok;
-
-                case JudgementType.Ok:
-                    return HitResult.Meh;
-
-                default:
-                    // Premature, Lagging and Miss. The last one reaches here only from a word
-                    // abandoned by the "space to skip current word" setting, which announces the
-                    // cells it gives up immediately instead of leaving them to the seal. WrongChar
-                    // never reaches here at all: ApplyCharJudgement returns before this.
-                    return HitResult.Miss;
-            }
+                ApplyResult(TypeBeatResultMapping.LINE_RESULT);
         }
 
         protected override void CheckForResult(bool userTriggered, double timeOffset)

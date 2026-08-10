@@ -1,0 +1,106 @@
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// See the LICENCE file in the repository root for full licence text.
+
+using typebeat.Game.Rulesets.Scoring;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+
+namespace typebeat.Game.Rulesets.TypeBeat.Scoring
+{
+    /// <summary>
+    /// The rule deciding what a typed-through wrong character does to its cell's osu result. It
+    /// exists so a stored score can be re-derived under the rule it was PLAYED under rather than
+    /// only under the current one; live play is always <see cref="Deferred"/>.
+    /// </summary>
+    public enum TypoRule
+    {
+        /// <summary>
+        /// The rule since backlog 109, and the only one live play uses: a wrong char resolves
+        /// nothing. Correct the cell and the retype earns its real Great/Ok/Meh, leave it and the
+        /// seal misses it. The combo break the keypress costs rides on
+        /// <see cref="TypingEngine.Mistyped"/>, because no result exists to carry it.
+        /// </summary>
+        Deferred,
+
+        /// <summary>
+        /// The rule every score stored BEFORE backlog 109 was judged under: a wrong char spent its
+        /// cell's one result on a <see cref="HitResult.Miss"/> the instant it landed, which is also
+        /// what broke osu's combo, so <see cref="TypingEngine.Mistyped"/> only counted the mistype
+        /// and the combo break for a REJECTED key rode on
+        /// <see cref="TypingEngine.WrongKeyRejected"/> instead.
+        ///
+        /// <para>Only score RECALCULATION selects this. Nothing in gameplay may.</para>
+        /// </summary>
+        ImmediateMiss,
+    }
+
+    /// <summary>
+    /// The single source of truth for how the engine's judgement stream becomes the osu result
+    /// stream a submitted score carries. <see cref="Objects.Drawables.DrawableTypeBeatHitObject"/>
+    /// applies it live; <see cref="TypeBeatReplayScorer"/> applies the same mapping headlessly when
+    /// re-deriving a stored score from its replay, so the two can never drift.
+    ///
+    /// <para>It is deliberately only the MAPPING. Whose result it is (a cell drawable, or a
+    /// headless slot), and the "first result on a cell wins" rule, belong to whoever owns the
+    /// cells.</para>
+    /// </summary>
+    public static class TypeBeatResultMapping
+    {
+        /// <summary>
+        /// The result every cell a line seals on without having resolved takes: a cell nobody
+        /// typed, and (under <see cref="TypoRule.Deferred"/>) a cell left sitting wrong.
+        /// </summary>
+        public const HitResult SEAL_MISS = HitResult.Miss;
+
+        /// <summary>
+        /// The line container's own result. Scoring-inert, so osu accuracy tracks only the cells.
+        /// </summary>
+        public const HitResult LINE_RESULT = HitResult.IgnoreHit;
+
+        /// <summary>
+        /// The osu result an engine char judgement resolves its cell with, or null when the cell's
+        /// result is DEFERRED and nothing at all is applied.
+        ///
+        /// <para>Mapping: Perfect-&gt;Great, Good-&gt;Ok, Ok-&gt;Meh, Premature/Lagging/Miss-&gt;Miss.
+        /// Premature and Lagging accept the char with 0 engine points plus a combo break, and an osu
+        /// Miss breaks combo too, so the mapping is behaviour-coherent for combo (the score weights
+        /// differ). Miss reaches here only from a word abandoned by the space-skip setting, which
+        /// announces the cells it gives up immediately instead of leaving them to the seal.</para>
+        ///
+        /// <para>WrongChar is the one that moved (backlog 109). A miss is a character the line ran
+        /// out of time on; a typo is a typo, and in the default input model the player can still
+        /// backspace and type the cell correctly, so the cell's one result waits to see which of the
+        /// two it turns out to be. Under <see cref="TypoRule.ImmediateMiss"/> it is spent on a Miss
+        /// straight away, which is what made the two indistinguishable AND unrecoverable, and is
+        /// exactly what every stored score was priced under.</para>
+        /// </summary>
+        public static HitResult? CellResult(JudgementType type, TypoRule rule)
+        {
+            switch (type)
+            {
+                case JudgementType.Perfect:
+                    return HitResult.Great;
+
+                case JudgementType.Good:
+                    return HitResult.Ok;
+
+                case JudgementType.Ok:
+                    return HitResult.Meh;
+
+                case JudgementType.WrongChar:
+                    return rule == TypoRule.Deferred ? null : HitResult.Miss;
+
+                default:
+                    // Premature, Lagging and Miss.
+                    return HitResult.Miss;
+            }
+        }
+
+        /// <summary>
+        /// Whether a wrong KEYPRESS carries osu's combo break by hand at
+        /// <see cref="TypingEngine.Mistyped"/> (backlog 109, both input models), as opposed to
+        /// riding on the Miss result the cell used to take, with only a REJECTED key resetting
+        /// combo by hand.
+        /// </summary>
+        public static bool MistypeCarriesTheComboBreak(TypoRule rule) => rule == TypoRule.Deferred;
+    }
+}
