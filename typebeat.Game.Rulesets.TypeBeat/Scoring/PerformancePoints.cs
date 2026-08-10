@@ -15,12 +15,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// website's <c>docs/pp.md</c>; every constant below is pinned there and must not drift.
     ///
     /// <code>
-    /// pp = 5.5 · SR_eff^2.70
+    /// pp = 12.5 · SR_eff^2.00
     ///      · max(0, 1 − miss^1.6/notes)^10                 cleanliness
     ///      · max(0, 1 − mistypes^1.6/(notes+mistypes))^4   mistyping
     ///      · max(0.1, 1 + 0.50·log10(notes/100))           length, floored
-    ///      · acc^1.75                                      timing quality
-    ///      · (maxcombo/notes)^1.50                         combo
+    ///      · acc^1.80                                      timing quality
+    ///      · (maxcombo/notes)^2.50                         combo
     ///      · modMult
     /// </code>
     ///
@@ -214,14 +214,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// accuracy, whatever the exponent), so this repositions everything BELOW an FC rather than
         /// rescaling the pool: a 97% play at 0.90 combo loses about 9%, a 90% play at 0.75 combo
         /// about 23%.</item>
+        /// <item>v11 = v11 = scale 5.5 to 12.5, sr_exponent 2.70 to 2.00, accuracy_exponent 1.75 to 1.80,
+        /// combo_exponent 1.50 to 2.50. v10 never shipped, so the meaningful comparison is against
+        /// v9: the SR exponent drop flattens the difficulty curve so easy maps gain and hard maps
+        /// lose, while the combo exponent sharpens what a broken combo costs.</item>
         /// </list>
         /// </summary>
-        public const int VERSION = 10;
+        public const int VERSION = 11;
 
         // ---- formula constants (docs/pp.md) ----
 
-        private const double scale = 5.5;              // C: global scale, does not affect ranking order
-        private const double sr_exponent = 2.70;
+        private const double scale = 12.5;              // C: global scale, does not affect ranking order
+        private const double sr_exponent = 2.00;
         private const double miss_exponent = 10.0;
         private const double mistype_exponent = 4.0;
 
@@ -244,8 +248,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         private const double length_weight = 0.50;
         private const double length_floor = 0.1;
-        private const double accuracy_exponent = 1.75;
-        private const double combo_exponent = 1.50;
+        private const double accuracy_exponent = 1.80;
+        private const double combo_exponent = 2.50;
         private const double reference_notes = 100.0;  // the log bonus' pivot: 100 notes is the 1.0 point
 
         /// <summary>
