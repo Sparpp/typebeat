@@ -10,12 +10,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
     /// Star rating for a lyric map. Each word carries a keystroke load (cost × line pressure/rhythm
-    /// multiplier) divided by the time you have for it; that load accumulates into a per-word
-    /// "strain" that decays with rest, and a duration-weighted soft maximum (log-sum-exp) over the
-    /// strains is remapped to stars. The soft max means difficulty spikes dominate and a subset can
-    /// never rate above its superset, while summing over every word (rather than one peak bucket)
-    /// means a sustained hard stretch actually counts, the thing that separates otherwise-equal-peak
-    /// diffs (e.g. an Insane that keeps a Hard's peak chorus but adds a dense a cappella ending).
+    /// multiplier) divided by the time you have for it; that load feeds two accumulators, a fast
+    /// DENSITY that decays with rest and a slow ENDURANCE (a time-constant moving average of the
+    /// same load), and their weighted sum is the word's "strain". A duration-weighted soft maximum
+    /// (log-sum-exp) over the strains is remapped to stars. The soft max means difficulty spikes
+    /// dominate and a subset can never rate above its superset, while summing over every word
+    /// (rather than one peak bucket) means a sustained hard stretch actually counts, the thing that
+    /// separates otherwise-equal-peak diffs (e.g. an Insane that keeps a Hard's peak chorus but adds
+    /// a dense a cappella ending). Endurance is the part that survives a rest: density is deliberately
+    /// leaky enough now that a single burst is forgotten within a second or two, so it is endurance
+    /// that carries "this section has been hard for a while" into the aggregate.
     ///
     /// Kept byte-for-byte in step with the website's port
     /// (typebeat-web: Typebeat.Web.Packages.Lyrics.LyricDifficulty) so the in-game star rating and
@@ -31,15 +35,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private const double back_to_back_grace_ms = 100; // gap below which inter-line pressure is full
         private const double back_to_back_tau_ms = 600; // pressure decay constant
         private const double back_to_back_bonus = 0.70; // max inter-line multiplier
-        private const double variation_weight = 0.50; // how much rhythm cv scales a line
+        private const double variation_weight = 0.40; // how much rhythm cv scales a line
         private const double variation_cap = 1.5; // cv is clamped here
-        private const double strain_decay_per_s = 0.05; // strain carried per second of rest
+        private const double strain_decay_per_s = 0.12; // density carried per second of rest
+        private const double endurance_tau_s = 8.0; // burst memory: the ema's time constant, seconds
+        private const double endurance_weight = 1.5; // how much sustained load adds on top of density
         private const double spike_focus = 14; // w: how sharply the hardest strains dominate
         private const double reference_duration_s = 0.4; // duration weight unit
         private const double star_scale = 0.277; // maps the aggregate to stars
         private const double star_power = 1.3; // stretches the hard end so top ratings spread
         private const double max_stars = 10;
-        private const double per_char_floor_ms = 40; // min plausible real-time per typed character; floors a word's window at chars × this (see the strain loop)
+        private const double per_char_floor_ms = 25; // min plausible real-time per typed character; floors a word's window at chars × this (see the strain loop)
         private const double min_span_ms = 50; // floor a word's sung span (cv guard)
         private const double repeat_window_ms = 20_000; // "last 20 seconds" for word repetition
 
@@ -136,11 +142,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (words.Count == 0)
                 return 0;
 
-            // Per-word strain: load (cost × line multiplier) per second you have for the word, carried
-            // forward with time decay. Windows are floored per-character (below) so a mistimed onset
-            // can't spike a word, without over-capping legitimately fast multi-character words.
+            // Per-word strain, from two accumulators over the same per-word load (cost × line
+            // multiplier, per second you have for the word):
+            //
+            //  - DENSITY, the fast one: load plus whatever survives strain_decay_per_s of rest. This
+            //    is what spikes on a burst and what falls away again within a second or two of quiet.
+            //  - ENDURANCE, the slow one: an exponential moving average of the same load with an
+            //    endurance_tau_s time constant, so a stretch that stays busy keeps a floor under the
+            //    rating long after any single burst has decayed out of density.
+            //
+            // Windows are floored per-character (below) so a mistimed onset can't spike a word,
+            // without over-capping legitimately fast multi-character words.
             double perCharFloorMs = per_char_floor_ms / rate;
-            double strain = 0;
+            double density = 0;
+            double endurance = 0;
             double prevStartMs = words[0].StartMs;
             double maxStrain = double.NegativeInfinity;
             double[] strains = new double[words.Count];
@@ -152,7 +167,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 // Time budget for this word: until the next word begins (final word → its own span).
                 double intervalMs = i + 1 < words.Count ? words[i + 1].StartMs - w.StartMs : w.SpanMs / rate;
-                // Per-character floor: typing a word takes at least ~45 ms/char of real time, so its
+                // Per-character floor: typing a word takes at least ~25 ms/char of real time, so its
                 // window can't drop below chars × that. A flat floor treated a 1-char and a 7-char word
                 // alike; over-capping fast multi-char words (exactly what separates a dense "Insane"
                 // ending from a "Hard") while under-guarding crammed long words.
@@ -167,13 +182,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // Decay interval = the previous word's window; floor it by that word's char count.
                 double dtFloorMs = i == 0 ? 0 : words[i - 1].Chars * perCharFloorMs;
                 double dt = i == 0 ? 0 : Math.Max(w.StartMs - prevStartMs, dtFloorMs) / 1000.0;
-                double carried = i == 0 ? 0 : strain * Math.Pow(strain_decay_per_s, dt);
-                strain = load + carried;
+                double carried = i == 0 ? 0 : density * Math.Pow(strain_decay_per_s, dt);
+                density = load + carried;
 
-                strains[i] = strain;
+                // Spacing-invariant EMA: alpha derives from ELAPSED TIME, not from the word index, so
+                // a burst of short words and a burst of long words at the same characters per second
+                // build the same endurance. An index-based alpha would instead reward whichever
+                // section happened to be chopped into more tokens.
+                if (i == 0)
+                    endurance = load;
+                else
+                    endurance += (1 - Math.Exp(-dt / endurance_tau_s)) * (load - endurance);
 
-                if (strain > maxStrain)
-                    maxStrain = strain;
+                strains[i] = density + endurance_weight * endurance;
+
+                // maxStrain tracks the COMBINED value, which is what the aggregate below subtracts:
+                // Math.Exp((strains[i] - maxStrain) / spike_focus) is only bounded by 1 when maxStrain
+                // is the max over strains. Tracking density alone would let that exponent go positive.
+                if (strains[i] > maxStrain)
+                    maxStrain = strains[i];
 
                 prevStartMs = w.StartMs;
             }
