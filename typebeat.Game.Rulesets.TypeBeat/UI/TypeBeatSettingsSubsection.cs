@@ -76,12 +76,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     TooltipText = "Type wrong characters through (shown red) instead of rejecting them, and enable backspace to fix them. The space key stays strict. Backspace does nothing while this is off, since no wrong character can land.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.AllowWrongInput),
                 },
-                new SettingsCheckbox
-                {
-                    LabelText = "Hold a key to repeat it",
-                    TooltipText = "Holding a character key keeps typing it in time with the song, so runs of the same letter can be sustained instead of hammered. Repeats only ever land as correct characters, and holding space never repeats.",
-                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.HeldKeyRepeat),
-                },
                 new SettingsSlider<float>
                 {
                     LabelText = "Lyric line spacing",
