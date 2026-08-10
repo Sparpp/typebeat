@@ -16,11 +16,13 @@ using typebeat.Game.Tests.Visual;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 {
     /// <summary>
-    /// Backlog 109: a typo is not a missed character. A MISS is a cell the line ran out of time on;
-    /// a typo is a typo, the two are weighted differently, and in the default input model the player
-    /// can still backspace and get the cell right. So a typed-through wrong char no longer resolves
-    /// its cell at all: the cell's one osu result is DEFERRED until the play says which of the two it
-    /// was.
+    /// Backlog 109 and 124: a typo is not a missed character. A MISS is a cell the player never
+    /// finished, a typo is a cell they finished wrongly, and the two say different things about the
+    /// play. So a typed-through wrong char resolves nothing at the keypress (109, the cell's one osu
+    /// result is DEFERRED until the play says which of the two it was), and when the seal decides it
+    /// was never corrected it resolves as <c>TypeBeatResultMapping.UNFIXED_TYPO</c> rather than as a
+    /// miss (124), so it costs accuracy, the mistype count and the combo break at the keypress, and
+    /// not the miss count, completion or rank.
     ///
     /// <para>This scene proves it where it actually matters, against the real
     /// <c>TypeBeatScoreProcessor</c> a <c>Player</c> caches, because the engine's own live combo is
@@ -128,14 +130,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
-        /// The typo left uncorrected. It costs a mistype at the keypress and a miss at the seal, and
-        /// the two land at the right MOMENTS: the combo break with the keypress, the cell's Miss with
-        /// the seal. That the play ends up paying for both is the deliberate trade of this design
-        /// (see the mod docs): it keeps the judgement count equal to the real cell count, so accuracy,
-        /// the combo ratio and the pp length term stay honest.
+        /// The typo left uncorrected. It costs a mistype and a combo break at the KEYPRESS, and at
+        /// the seal it resolves as a typo rather than a miss: the player finished that character,
+        /// they just got it wrong (backlog 124). The cell is still judged and still counted, so the
+        /// judgement count stays equal to the real cell count and accuracy, the combo ratio and the
+        /// pp length term stay honest; what it no longer costs is the miss count, completion and
+        /// rank.
         /// </summary>
         [Test]
-        public void TestAnUncorrectedTypoBreaksComboAtTheKeypressAndMissesAtTheSeal()
+        public void TestAnUncorrectedTypoBreaksComboAtTheKeypressAndIsNotAMissAtTheSeal()
         {
             loadPlayer();
 
@@ -151,22 +154,65 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             typeCorrectly(3, 12);
 
-            // THE assertion this whole scene exists for. Nine cells after the typo, so the submitted
-            // max_combo is 9. Had the break not been mirrored by hand it would have run 1..11 through
-            // a break the engine had already taken, and the play would submit 11.
+            // Nine cells after the typo, so the submitted max_combo is 9. Had the break not been
+            // mirrored by hand it would have run 1..11 through a break the engine had already taken,
+            // and the play would submit 11.
             AddAssert("submitted max_combo counts from the typo", () => Player.ScoreProcessor.HighestCombo.Value == 9);
             AddAssert("the engine's own live combo agrees", () => engine.MaxCombo == 9);
 
             sealLineZero();
 
-            AddUntilStep("the abandoned cell takes its miss at the seal", () =>
-                statistics.GetValueOrDefault(HitResult.Miss) == 1 && statistics.GetValueOrDefault(HitResult.Great) == 11);
-            AddAssert("the engine counts the same miss", () =>
-                engine.BuildResults().Counts[JudgementType.Miss] == 1
+            // THE assertion this scene exists for since backlog 124: the cell resolves as the worst
+            // HIT tier, not as a miss, and the miss count stays at zero.
+            AddUntilStep("the cell resolves as a typo, not a miss", () =>
+                statistics.GetValueOrDefault(HitResult.Meh) == 1
+                && statistics.GetValueOrDefault(HitResult.Miss) == 0
+                && statistics.GetValueOrDefault(HitResult.Great) == 11);
+            AddAssert("the engine counts no miss either, and keeps the red cell", () =>
+                engine.BuildResults().Counts[JudgementType.Miss] == 0
                 && engine.Lines[0].Cells[2].State == CellState.Wrong);
-            AddAssert("max_combo did not move at the seal", () => Player.ScoreProcessor.HighestCombo.Value == 9);
+            AddAssert("max_combo did not move at the seal, in either direction", () =>
+                Player.ScoreProcessor.HighestCombo.Value == 9 && Player.ScoreProcessor.Combo.Value == 9);
 
-            AddAssert("completion and rank cost exactly one cell", () =>
+            // Backlog 123, closed here: the HUD combo the player watches is the ENGINE's, a separate
+            // account from the submitted one, and backlog 109 had made its seal loop count a wrong
+            // cell as missed. So the counter on screen restarted at the seal while the scoreboard's
+            // did not. With the wrong cell no longer missed, the two agree again, as they did
+            // pre-109.
+            AddAssert("the HUD combo agrees with the scoreboard", () =>
+                engine.Combo == Player.ScoreProcessor.Combo.Value
+                && engine.MaxCombo == Player.ScoreProcessor.HighestCombo.Value);
+
+            // Every cell was finished, so completion is whole and the rank is the one a clean play
+            // would have earned. The typo is priced by the mistype count and by accuracy instead.
+            AddAssert("completion and rank cost nothing", () =>
+                TypeBeatScoreProcessor.ComputeCompletion(statistics) == 1
+                && Player.ScoreProcessor.Rank.Value == ScoreRank.X);
+            AddAssert("accuracy is what pays", () =>
+                Player.ScoreProcessor.Accuracy.Value == (11 * 300 + 50) / (12 * 300.0));
+        }
+
+        /// <summary>
+        /// The other case, held against the one above so the two are visibly different: a cell the
+        /// line genuinely RAN OUT OF TIME on. Nobody typed it, so it is a miss, it costs completion
+        /// and rank, and no mistype is recorded because no wrong key was ever pressed.
+        /// </summary>
+        [Test]
+        public void TestACellTheLineRanOutOfTimeOnIsStillAMiss()
+        {
+            loadPlayer();
+
+            // Eleven cells typed and the twelfth simply never reached: the only way a cell can be
+            // left UNTYPED is for the player to stop short of it, because the caret cannot move past
+            // a cell without something being put into it.
+            typeCorrectly(0, 11);
+
+            sealLineZero();
+
+            AddUntilStep("the untyped cell misses", () =>
+                statistics.GetValueOrDefault(HitResult.Miss) == 1 && statistics.GetValueOrDefault(HitResult.Meh) == 0);
+            AddAssert("no mistype behind it", () => statistics.GetValueOrDefault(HitResult.ComboBreak) == 0);
+            AddAssert("and it costs completion and rank", () =>
                 TypeBeatScoreProcessor.ComputeCompletion(statistics) == 11 / 12.0
                 && Player.ScoreProcessor.Rank.Value == ScoreRank.A);
         }
@@ -201,7 +247,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             sealLineZero();
 
-            AddUntilStep("the abandoned cell took its miss", () => statistics.GetValueOrDefault(HitResult.Miss) == 1);
+            AddUntilStep("the abandoned cell took its result", () => statistics.GetValueOrDefault(HitResult.Meh) == 1);
             AddAssert("...and the run it landed on is still standing", () => Player.ScoreProcessor.Combo.Value == 9);
 
             typeLineOneCell();
@@ -213,13 +259,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
-        /// The other half of backlog 122: what it must NOT move. The cell still MISSES, so the
-        /// mistype count, the miss count, accuracy, completion and the rank of that exact play all
-        /// read what they read before. Only the combo the later judgements are weighted by changed,
-        /// which is why no pp constant moves either.
+        /// The DENOMINATOR, which is the constraint backlog 124 had to work inside. Taking the cell
+        /// out of the miss count must not take it out of the count altogether: it stays one judged
+        /// note, so <c>notes</c> is one per cell and accuracy, the combo ratio and the pp length term
+        /// keep measuring the map the player actually played. Had the cell simply stopped resolving,
+        /// a line typed entirely as typos would judge nothing and read completion 1 over an empty
+        /// denominator.
         /// </summary>
         [Test]
-        public void TestTheUncorrectedTypoAccountIsUnchangedApartFromCombo()
+        public void TestTheUncorrectedTypoStaysInTheDenominator()
         {
             loadPlayer();
 
@@ -229,20 +277,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             sealLineZero();
             typeLineOneCell();
 
-            AddUntilStep("twelve cells typed, one missed", () =>
+            AddUntilStep("thirteen cells judged, twelve of them clean", () =>
                 statistics.GetValueOrDefault(HitResult.Great) == 12
-                && statistics.GetValueOrDefault(HitResult.Miss) == 1);
+                && statistics.GetValueOrDefault(HitResult.Meh) == 1);
 
-            AddAssert("no other judgement tier appeared", () =>
-                statistics.GetValueOrDefault(HitResult.Ok) == 0 && statistics.GetValueOrDefault(HitResult.Meh) == 0);
+            AddAssert("nothing missed and nothing in between", () =>
+                statistics.GetValueOrDefault(HitResult.Miss) == 0 && statistics.GetValueOrDefault(HitResult.Ok) == 0);
 
             AddAssert("the mistype is still counted, exactly once", () =>
                 statistics.GetValueOrDefault(HitResult.ComboBreak) == 1);
 
-            AddAssert("accuracy, completion and rank cost exactly one cell", () =>
-                Player.ScoreProcessor.Accuracy.Value == 12 / 13.0
-                && TypeBeatScoreProcessor.ComputeCompletion(statistics) == 12 / 13.0
-                && Player.ScoreProcessor.Rank.Value == ScoreRank.A);
+            AddAssert("pp counts thirteen notes and no miss", () =>
+            {
+                var notes = PerformancePoints.CountNotes(statistics);
+                return notes.Notes == 13 && notes.Misses == 0 && notes.Mistypes == 1;
+            });
+
+            AddAssert("accuracy pays, completion and rank do not", () =>
+                Player.ScoreProcessor.Accuracy.Value == (12 * 300 + 50) / (13 * 300.0)
+                && TypeBeatScoreProcessor.ComputeCompletion(statistics) == 1
+                && Player.ScoreProcessor.Rank.Value == ScoreRank.X);
         }
 
         /// <summary>

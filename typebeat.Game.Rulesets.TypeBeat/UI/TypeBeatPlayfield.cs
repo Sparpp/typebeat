@@ -260,17 +260,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             // The accepted char reaches the health processor as its own Great/Ok/Meh result via
             // ApplyCharJudgement below, which is what recovers HP; no separate reset needed. A WRONG
-            // char reaches it as nothing at all (backlog 109): its cell's result is deferred, so the
-            // HP cost of a typo is likewise deferred to the seal that misses it, and a typo the
-            // player fixes costs no HP, which is the same statement the score account makes.
+            // char reaches it as nothing at all (backlog 109): its cell's result is deferred, so a
+            // typo the player fixes costs no HP, which is the same statement the score account
+            // makes. An uncorrected one resolves at the seal as a Meh, so it RECOVERS HP like any
+            // other hit (backlog 124), which is the documented health philosophy read literally:
+            // death comes from sustained not-typing, and a typo is typing.
             //
-            // A typed-through wrong char has just had its combo break taken by hand, one event
-            // earlier, in onMistyped. Record that against the CELL (backlog 122) so the deferred
-            // Miss it eventually resolves with, at the seal or at a word skip, does not break combo
-            // a second time after the player has rebuilt a run through the rest of the line.
-            if (TypeBeatResultMapping.PrepaysCellComboBreak(judgement.Type, TypoRule.Deferred))
-                (scoreProcessor as TypeBeatScoreProcessor)?.PrepayComboBreak(judgement.LineIndex, judgement.CellIndex);
-
             if (lineDrawables.TryGetValue(judgement.LineIndex, out var line))
                 line.ApplyCharJudgement(judgement);
 
@@ -302,9 +297,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <c>HighestCombo</c>, the judged count and accuracy. <c>HighestCombo</c> needs no update
         /// because it only ever grows and this only shrinks <c>Combo</c>.</para>
         ///
-        /// <para>This is the ONLY break a wrong keypress costs (backlog 122). The cell's deferred
-        /// Miss is still a Miss, so osu would break combo on it again at the seal; <c>onCharJudged</c>
-        /// prepays the cell against that (<see cref="TypeBeatScoreProcessor.PrepayComboBreak"/>).</para>
+        /// <para>This is the ONLY break a wrong keypress costs (backlog 122), and since backlog 124
+        /// it is the cell's whole combo consequence in both directions: the result the cell resolves
+        /// with at the seal is a hit, which would otherwise EXTEND the run by one, so
+        /// <see cref="onLineSealed"/> applies it combo-neutral
+        /// (<see cref="TypeBeatScoreProcessor.MarkComboNeutral"/>).</para>
         /// </summary>
         private void onMistyped()
         {
@@ -322,10 +319,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             (healthProcessor as TypeBeatHealthProcessor)?.ApplyWrongKeyStreak(Engine.ConsecutiveWrongKeys);
         }
 
-        private void onLineSealed(LineSealResult result)
+        /// <summary>
+        /// The line ran out of time: every cell the play never resolved takes its result now. Two
+        /// results, not one (backlog 124): a cell nobody typed is a MISS, a cell left holding a
+        /// typed-through wrong character is an unfixed TYPO, which is a hit. Only the engine knows
+        /// which, so the decision is made here and handed down.
+        ///
+        /// <para>The typo's hit is applied COMBO-NEUTRAL. Its combo break was taken at the keypress
+        /// (see <see cref="onMistyped"/>), and a hit landing at the seal, after the player has
+        /// rebuilt a run through the rest of the line, would otherwise hand back an increment on top
+        /// of it. The mark is written immediately before the result is applied, and
+        /// <see cref="DrawableTypeBeatHitObject.ApplySealResults"/> only asks about cells it is
+        /// actually going to resolve.</para>
+        /// </summary>
+        private void onLineSealed(LineSealResult sealResult)
         {
-            if (lineDrawables.TryGetValue(result.LineIndex, out var line))
-                line.ApplySealResults();
+            if (!lineDrawables.TryGetValue(sealResult.LineIndex, out var line))
+                return;
+
+            line.ApplySealResults(cellIndex =>
+            {
+                var result = TypeBeatResultMapping.UnresolvedCellResult(Engine.CellLeftWrong(sealResult.LineIndex, cellIndex), TypoRule.Deferred);
+
+                if (result == TypeBeatResultMapping.UNFIXED_TYPO)
+                    (scoreProcessor as TypeBeatScoreProcessor)?.MarkComboNeutral(sealResult.LineIndex, cellIndex);
+
+                return result;
+            });
         }
 
         protected override void Dispose(bool isDisposing)

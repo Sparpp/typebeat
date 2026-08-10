@@ -9,7 +9,7 @@
 //   1. under TypoRule.ImmediateMiss it reproduces the PRE-109 account, which is what every stored
 //      score was priced under, so the tool can prove itself against stored numbers before it
 //      writes new ones;
-//   2. under TypoRule.Deferred it produces exactly the account backlog 109 describes.
+//   2. under TypoRule.Deferred it produces exactly the account backlog 109 and 124 describe.
 //
 // TestSceneTypeBeatReplayRescore is the other half: it holds this harness against a real Player's
 // own score processor, so "the same numbers" is proven end to end rather than asserted here.
@@ -204,22 +204,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The typo left uncorrected. It costs a mistype and exactly one cell under BOTH rules:
-        /// backlog 109 moved WHEN the cell resolves, not whether an abandoned typo costs one. The
-        /// STATISTICS are therefore identical, which is the single biggest reason most stored
-        /// scores cannot move at all.
+        /// The typo left uncorrected, which is where backlog 124 makes the two eras come apart in
+        /// the one place backlog 122 had just made them agree. Pre-109 (<c>ImmediateMiss</c>) the
+        /// cell is a MISS, which is a character the player never finished. Now it is an unfixed
+        /// TYPO, a character they finished and got wrong: still one judged note, still costing
+        /// accuracy, still costing the mistype and the combo break it took at the keypress, but no
+        /// longer costing the miss count, completion or rank.
         ///
-        /// <para>Backlog 122 makes <c>max_combo</c> and <c>total_score</c> identical too, and this
-        /// is the case that says so. Deferring the cell's result had left the break paid twice: once
-        /// by hand at the keypress, and once more by the deferred Miss at the SEAL, i.e. after every
-        /// later cell of the line had already run the combo back up. Prepaying the cell removes the
-        /// second one, so an uncorrected typo cuts the run exactly where the player made the
-        /// mistake, which is what the rule cost before 109 and what it costs again now. The two
-        /// rules can only be told apart by a typo the player goes back for
-        /// (<see cref="AFixedTypoRecoversItsCellOnlyUnderTheDeferredRule"/>).</para>
+        /// <para>COMBO is the quantity that must NOT move, and it does not: one break, at the
+        /// keypress, under both rules. Backlog 122 got there by suppressing the deferred Miss's
+        /// second break; 124 gets there by making the result a hit and applying it combo-neutral, so
+        /// it can neither break the run a second time nor extend it by the cell that spoiled it.</para>
         /// </summary>
         [Test]
-        public void AnUncorrectedTypoCostsTheSameCellAndBreaksComboOnceUnderBothRules()
+        public void AnUncorrectedTypoIsATypoNowAndWasAMissBeforeBacklog109()
         {
             var map = beatmap();
             var targets = lineZeroTargets(map);
@@ -236,26 +234,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                // Everything accuracy, completion and rank are computed from is untouched.
-                Assert.That(deferred.Statistics, Is.EqualTo(immediate.Statistics));
-                Assert.That(deferred.Accuracy, Is.EqualTo(immediate.Accuracy));
-                Assert.That(deferred.Completion, Is.EqualTo(immediate.Completion));
-                Assert.That(deferred.Rank, Is.EqualTo(immediate.Rank));
-
+                // Twelve cells struck clean under both. The thirteenth is the whole difference.
                 Assert.That(count(deferred, HitResult.Great), Is.EqualTo(12));
-                Assert.That(count(deferred, HitResult.Miss), Is.EqualTo(1));
+                Assert.That(count(immediate, HitResult.Great), Is.EqualTo(12));
+
+                Assert.That(count(deferred, HitResult.Meh), Is.EqualTo(1), "the cell was finished, wrongly");
+                Assert.That(count(deferred, HitResult.Miss), Is.Zero, "and a finished cell is not a miss");
+
+                Assert.That(count(immediate, HitResult.Meh), Is.Zero);
+                Assert.That(count(immediate, HitResult.Miss), Is.EqualTo(1), "the pre-109 arm must not move");
+
+                // The mistype is what the wrong keypress leaves behind, identically in both eras.
                 Assert.That(deferred.Mistypes, Is.EqualTo(1));
+                Assert.That(immediate.Mistypes, Is.EqualTo(1));
+
+                // Completion and rank: the play typed every cell, so it keeps the X it would have had
+                // without the typo. Pre-109 the same play read 12/13 and an A.
+                Assert.That(deferred.Completion, Is.EqualTo(1).Within(1e-12));
+                Assert.That(deferred.Rank, Is.EqualTo(ScoreRank.X));
+                Assert.That(immediate.Completion, Is.EqualTo(12 / 13.0).Within(1e-12));
+                Assert.That(immediate.Rank, Is.EqualTo(ScoreRank.A));
+
+                // ACCURACY still pays, and it is the one scale that does: 12 Greats plus a Meh
+                // against a 13-Great maximum, i.e. (12*300 + 50) / (13*300).
+                Assert.That(deferred.Accuracy, Is.EqualTo(3650 / 3900.0).Within(1e-12));
+                Assert.That(immediate.Accuracy, Is.EqualTo(12 / 13.0).Within(1e-12));
 
                 // ONE break, at the typo, under both rules: cells 3..11 run the combo back up to 9
-                // and the seal's Miss no longer cuts it, so line 1's cell extends the run to 10
-                // instead of starting a fresh one. Before backlog 122 the deferred rule read 9 here.
+                // and the seal neither cuts it nor extends it, so line 1's cell takes the run to 10.
                 Assert.That(deferred.MaxCombo, Is.EqualTo(10));
                 Assert.That(immediate.MaxCombo, Is.EqualTo(10));
 
-                // ...and with the same run behind every judgement, the combo-weighted portion of the
-                // total score comes out the same too, so the whole account matches.
-                Assert.That(deferred.TotalScore, Is.EqualTo(immediate.TotalScore));
-                Assert.That(deferred.TotalScoreWithoutMods, Is.EqualTo(immediate.TotalScoreWithoutMods));
+                // A cell that scores 50 instead of 0, and contributes to the combo portion at the
+                // combo it FOUND (9, not 10, see TypeBeatScoreProcessor.GetComboScoreChange), is
+                // worth more than a miss. Pinned as a golden because the weight is the only thing
+                // that decides it: weighting the same Meh at 10 instead lands 758,457, i.e. it pays
+                // the play for a run the seal did not extend.
+                Assert.That(deferred.TotalScore, Is.EqualTo(756145));
+                Assert.That(immediate.TotalScore, Is.EqualTo(684636));
             });
         }
 
@@ -264,7 +280,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// into the next line, which is the whole of backlog 122 stated as one number.
         ///
         /// <para>Line 0 is where the two readings come apart: the typo is on cell 2, so cells 3..11
-        /// rebuild a run of 9 and the seal's Miss arrives after all of them. Line 1's single cell
+        /// rebuild a run of 9 and the seal's result arrives after all of them. Line 1's single cell
         /// then reads 10 if the run survived and 1 if it did not, and <c>max_combo</c> is the
         /// running maximum of the two, so it reads 10 or 9. This asserts the SUBMITTED number, off
         /// the score processor's own <c>HighestCombo</c> via <c>PopulateScore</c>, not the engine's
@@ -308,12 +324,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// What backlog 122 must NOT move: an uncorrected typo still MISSES its cell, so every
-        /// quantity derived from the result stream reads exactly what it read before. Only the combo
-        /// the later judgements are weighted by changed.
+        /// The DENOMINATOR, which is the constraint backlog 124 had to work inside. Taking the cell
+        /// out of the miss count must not take it out of the count altogether: it stays one judged
+        /// note, so <c>notes</c> is still one per cell and accuracy, the combo ratio and the pp
+        /// length term keep measuring the map the player actually played. Had the cell simply stopped
+        /// resolving, a line typed entirely as typos would judge nothing and read completion 1 over
+        /// an empty denominator.
         /// </summary>
         [Test]
-        public void TheUncorrectedTypoAccountIsUnchangedApartFromCombo()
+        public void AnUncorrectedTypoStaysInTheDenominator()
         {
             var map = beatmap();
             var targets = lineZeroTargets(map);
@@ -327,20 +346,94 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var account = score(map, replay(frames), TypoRule.Deferred);
 
+            var notes = PerformancePoints.CountNotes(account.Statistics);
+
             Assert.Multiple(() =>
             {
                 // notes = great + ok + meh + miss, one per cell, with the mistype counted apart.
                 Assert.That(count(account, HitResult.Great), Is.EqualTo(12));
                 Assert.That(count(account, HitResult.Ok), Is.Zero);
-                Assert.That(count(account, HitResult.Meh), Is.Zero);
-                Assert.That(count(account, HitResult.Miss), Is.EqualTo(1), "the cell still misses");
-                Assert.That(account.Mistypes, Is.EqualTo(1));
+                Assert.That(count(account, HitResult.Meh), Is.EqualTo(1));
+                Assert.That(count(account, HitResult.Miss), Is.Zero);
                 Assert.That(account.MaximumStatistics.GetValueOrDefault(HitResult.Great), Is.EqualTo(13));
 
-                // 12 Greats out of a 13-Great maximum, on both the accuracy and completion scales.
-                Assert.That(account.Accuracy, Is.EqualTo(12 / 13.0).Within(1e-12));
-                Assert.That(account.Completion, Is.EqualTo(12 / 13.0).Within(1e-12));
-                Assert.That(account.Rank, Is.EqualTo(ScoreRank.A));
+                // pp counts thirteen notes, none of them a miss, and prices the typo through the
+                // mistype term instead. Twelve would inflate the length term and the combo ratio.
+                Assert.That(notes.Notes, Is.EqualTo(13));
+                Assert.That(notes.Misses, Is.Zero);
+                Assert.That(notes.Mistypes, Is.EqualTo(1));
+            });
+        }
+
+        /// <summary>
+        /// A cell the line genuinely ran out of time on, held against the typo above so the two are
+        /// visibly different facts. Same map, same one spoiled cell, and the only difference is that
+        /// nobody ever finished it: it is a MISS, it costs completion and rank, and there is no
+        /// mistype behind it because no wrong key was ever pressed.
+        /// </summary>
+        [Test]
+        public void ACellTheLineRanOutOfTimeOnIsStillAMiss()
+        {
+            var map = beatmap();
+            var targets = lineZeroTargets(map);
+
+            var frames = new List<TypeBeatReplayFrame> { TypeBeatReplayFrame.CreateConfigFrame(0, true) };
+
+            // The player stops after cell 10, which is the ONLY way a cell is ever left untyped: the
+            // caret cannot move past a cell without something being put into it, so an untyped cell
+            // is always one the play never reached. Line 0's cell 11 and line 1's single cell are
+            // both left to their seals.
+            for (int i = 0; i < word.Length - 1; i++)
+                frames.Add(new TypeBeatReplayFrame(targets[i], word[i]));
+
+            var account = score(map, replay(frames), TypoRule.Deferred);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(count(account, HitResult.Great), Is.EqualTo(11));
+                Assert.That(count(account, HitResult.Miss), Is.EqualTo(2), "never finished, so misses");
+                Assert.That(count(account, HitResult.Meh), Is.Zero);
+                Assert.That(account.Mistypes, Is.Zero, "no wrong key was ever pressed");
+
+                Assert.That(account.Completion, Is.EqualTo(11 / 13.0).Within(1e-12));
+                Assert.That(account.Rank, Is.EqualTo(ScoreRank.B));
+            });
+        }
+
+        /// <summary>
+        /// The unfixed typo's result is a HIT, and a hit increases combo, so the seal would otherwise
+        /// hand the player back the very cell that broke their run. It does not: the result is
+        /// applied combo-neutral.
+        ///
+        /// <para>The fixture is built so that the SEAL is the last combo event of the play, which is
+        /// the only shape that can tell a full repair from a half one. The typo is on cell 0 and
+        /// cells 1..11 are typed clean, so the run and the running maximum are both 11 when the seal
+        /// arrives, and line 1 is never typed at all, so nothing after the seal can push the maximum
+        /// up again. Restoring <c>Combo</c> alone would leave <c>HighestCombo</c> at the 12 that
+        /// <c>ApplyResultInternal</c> already banked, two lines before the hook that repairs it.</para>
+        /// </summary>
+        [Test]
+        public void TheUnfixedTypoDoesNotExtendTheSubmittedMaxCombo()
+        {
+            var map = beatmap();
+            var targets = lineZeroTargets(map);
+
+            var frames = new List<TypeBeatReplayFrame> { TypeBeatReplayFrame.CreateConfigFrame(0, true) };
+
+            for (int i = 0; i < word.Length; i++)
+                frames.Add(new TypeBeatReplayFrame(targets[i], i == 0 ? 'q' : word[i]));
+
+            var account = score(map, replay(frames), TypoRule.Deferred);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(count(account, HitResult.Great), Is.EqualTo(11), "cells 1..11");
+                Assert.That(count(account, HitResult.Meh), Is.EqualTo(1), "the typo on cell 0");
+                Assert.That(count(account, HitResult.Miss), Is.EqualTo(1), "line 1, never typed");
+
+                // THE assertion: eleven, the run the player actually built. Twelve means the seal's
+                // hit was allowed to extend it.
+                Assert.That(account.MaxCombo, Is.EqualTo(11));
             });
         }
 

@@ -225,6 +225,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public int ConsecutiveWrongKeys => consecutiveWrongKeys;
 
         /// <summary>
+        /// Whether the cell at (<paramref name="lineIndex"/>, <paramref name="cellIndex"/>) is
+        /// currently holding a typed-through WRONG character: the player finished that character and
+        /// got it wrong, and has not backspaced it away. Read at the seal to tell an unfixed TYPO
+        /// from a cell the line ran out of time on, which are the two ways a cell can reach the seal
+        /// with nothing resolved and, since backlog 124, two different results
+        /// (<see cref="Scoring.TypeBeatResultMapping.UnresolvedCellResult"/>).
+        ///
+        /// <para>State, not history, on purpose: a typo the player backspaced away and then never
+        /// retyped leaves an EMPTY cell, which is a character they did not finish, and it must read
+        /// as the miss it is. Out-of-range coordinates answer false rather than throwing, because
+        /// the callers are event handlers routed by index.</para>
+        /// </summary>
+        public bool CellLeftWrong(int lineIndex, int cellIndex)
+        {
+            if (lineIndex < 0 || lineIndex >= lines.Count)
+                return false;
+
+            var cells = lines[lineIndex].Cells;
+
+            if (cellIndex < 0 || cellIndex >= cells.Count)
+                return false;
+
+            return cells[cellIndex].IsTypeable && cells[cellIndex].State == CellState.Wrong;
+        }
+
+        /// <summary>
         /// Wrong KEYPRESSES so far, in either input mode: the play's mistype stat (see
         /// <see cref="Mistyped"/>). Identical to <c>Counts[JudgementType.WrongChar]</c>, named for
         /// what it means outside the engine.
@@ -278,9 +304,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <item>A wrong char typed through does NOT resolve its cell against the score processor
         /// (backlog 109). A miss is a character the line ran out of time on; a typo is a typo, and
         /// backspace makes it fixable, so the cell's result waits to see which of the two it turns
-        /// out to be. Uncorrected it is still both (one mistype and, at the seal, one miss), which
-        /// keeps the judgement count equal to the real cell count and accuracy, the combo ratio and
-        /// the pp length term honest.</item>
+        /// out to be. Uncorrected it resolves at the seal as
+        /// <see cref="Scoring.TypeBeatResultMapping.UNFIXED_TYPO"/> and NOT as a miss (backlog 124):
+        /// the cell was finished, just wrongly. It still counts as one judged note, so accuracy, the
+        /// combo ratio and the pp length term stay honest, and it still costs the mistype and the
+        /// combo break it took at the keypress; what it no longer costs is rank and the miss
+        /// count.</item>
         /// </list>
         /// </summary>
         public bool AllowWrongInput { get; set; } = true;
@@ -290,15 +319,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// When on, a space pressed while the caret sits inside a word abandons the rest of that word
         /// and lands the caret on the word gap, so one bad character costs a word instead of the run.
         ///
-        /// <para>What "abandons" means precisely, and it is the only reading the code can actually
-        /// deliver: every cell of that word that has not already handed the score processor a result
-        /// takes a <see cref="JudgementType.Miss"/> right now, exactly as the seal loop's misses do.
-        /// That is every <see cref="CellState.Untyped"/> cell and, since backlog 109, every
-        /// <see cref="CellState.Wrong"/> one as well: a typo no longer resolves its cell, it defers
-        /// it, and abandoning the word is precisely the player deciding it will never be corrected.
-        /// A cell typed CORRECTLY is the one thing left alone, because it has handed its Great over
-        /// and there is no un-apply (<c>DrawableTypeBeatCharObject.ApplyEngineResult</c> drops every
-        /// later result on an already-judged cell).</para>
+        /// <para>What "abandons" means precisely: every <see cref="CellState.Untyped"/> cell of that
+        /// word takes a <see cref="JudgementType.Miss"/> right now, exactly as the seal loop's misses
+        /// do. Nothing else does. A cell typed CORRECTLY has handed its Great over and there is no
+        /// un-apply (<c>DrawableTypeBeatCharObject.ApplyEngineResult</c> drops every later result on
+        /// an already-judged cell). A cell typed WRONG is a cell the player finished, so abandoning
+        /// the word cannot make it a miss (backlog 124); its deferred result is decided at the seal
+        /// like every other unfixed typo, and until then backspacing back into the word can still
+        /// fix it.</para>
         ///
         /// <para>The press itself is NOT a keypress judgement: it never enters the accuracy counters
         /// and never counts as a <see cref="Mistyped"/>, because it is a deliberate control action
@@ -587,21 +615,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 foreach (var cell in line.Cells)
                 {
-                    // MISSED at seal: a typeable cell the line ran out of time on, and (backlog 109)
-                    // a cell left sitting WRONG. Neither has handed the score processor a result, so
-                    // both take a Miss here, which is exactly what happens on the drawable side by
-                    // itself (DrawableTypeBeatHitObject.ApplySealResults misses every still-unjudged
-                    // nested cell). This loop is the ENGINE's own count agreeing with that, rather
-                    // than reporting an uncorrected typo as having cost no cell at all.
-                    //
-                    // An untyped cell becomes Missed (dimmed on the stack); a wrong one KEEPS
-                    // CellState.Wrong, so the line still shows WHICH character was got wrong instead
-                    // of flattening it into "never typed".
-                    if (!cell.IsTypeable || (cell.State != CellState.Untyped && cell.State != CellState.Wrong))
+                    // MISSED at seal: a typeable cell the line ran out of time on, and ONLY that.
+                    // A cell left sitting WRONG is not one (backlog 124, reversing the predicate
+                    // backlog 109 widened): the player finished that character, they just got it
+                    // wrong, which is a mistype and not a miss. It keeps CellState.Wrong so the line
+                    // still shows which character went wrong, it takes no engine miss, and it does
+                    // not break the engine's combo here, because its break was already taken at the
+                    // keypress. That is what puts the HUD combo back in agreement with the submitted
+                    // max_combo (backlog 123); the cell's own osu result is decided on the drawable
+                    // side by TypeBeatResultMapping.UnresolvedCellResult.
+                    if (!cell.IsTypeable || cell.State != CellState.Untyped)
                         continue;
 
-                    if (cell.State == CellState.Untyped)
-                        cell.State = CellState.Missed;
+                    cell.State = CellState.Missed;
 
                     missed++;
                     counts[JudgementType.Miss]++;
@@ -870,8 +896,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     // The CELL's judgement still travels here, for the stage's red/shake feedback,
                     // but DrawableTypeBeatHitObject.ApplyCharJudgement deliberately applies no osu
                     // result for a WrongChar: the cell's result is DEFERRED. Backspace and retype it
-                    // correctly and it earns its real Great/Ok/Meh; leave it and the seal misses it,
-                    // exactly like a cell the line ran out of time on.
+                    // correctly and it earns its real Great/Ok/Meh; leave it and the seal resolves it
+                    // as an unfixed typo, which is a hit and not a miss (backlog 124).
                     CharJudged?.Invoke(new CharJudgement(activeLineIndex, wrongCellIndex, JudgementType.WrongChar, delta, 0, combo));
                     rollForwardIfFinishedEarly();
                     return true;
@@ -988,10 +1014,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// "Space to skip current word" (see <see cref="SpaceSkipsWord"/>): abandon the word the caret
         /// is inside and leave the caret on the word gap that follows it (or at the end of the line,
-        /// for a word with no gap after it). Every typeable cell of that word that is still unresolved
-        /// takes a Miss, the way the seal loop misses an untyped cell, and the whole abandonment costs
-        /// AT MOST ONE combo break no matter how many characters were given up, which is the same rule
-        /// a sealed line's misses follow.
+        /// for a word with no gap after it). Every typeable cell of that word nobody has typed
+        /// ANYTHING into takes a Miss, the way the seal loop misses an untyped cell, and the whole
+        /// abandonment costs AT MOST ONE combo break no matter how many characters were given up,
+        /// which is the same rule a sealed line's misses follow. There is always at least one such
+        /// cell, the one the caret is sitting on, so the break always has a miss behind it.
         ///
         /// <para>Non-typeable cells inside the run are marked <see cref="CellState.AutoSkipped"/>,
         /// which is exactly what <see cref="autoSkipForward"/> would have done to them had the caret
@@ -1030,21 +1057,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     continue;
                 }
 
-                // A cell that has already handed its drawable the one osu result it will ever have
-                // keeps it: a Great cannot be revoked (ApplyEngineResult drops every later result on
-                // an already-judged cell, and there is no un-apply), so a CORRECT cell is left alone.
-                //
-                // Since backlog 109 a WRONG cell is NOT in that group. Typing a wrong character no
-                // longer applies any result at all, it only DEFERS the cell's fate until the player
-                // either fixes it or the line seals on it. Abandoning the word is the player deciding
-                // it will never be fixed, so the cell is given up here exactly like an untyped one.
-                // It keeps CellState.Wrong (the line still shows what was typed); only its judgement
-                // changes, from "not decided yet" to Miss.
-                if (cell.State != CellState.Untyped && cell.State != CellState.Wrong)
+                // Only a cell nobody has put anything into is given up. A CORRECT one has already
+                // handed its drawable the one osu result it will ever have and a Great cannot be
+                // revoked (ApplyEngineResult drops every later result on an already-judged cell, and
+                // there is no un-apply). A WRONG one is not given up either, and since backlog 124
+                // that is for its own reason rather than that one: a typed-through wrong character
+                // is a cell the player FINISHED, so abandoning the word cannot turn it into a miss.
+                // Its deferred result is decided at the seal like every other unfixed typo, which
+                // also leaves the promise intact that backspacing back into the word can still fix
+                // it. Backlog 109 had it given up here, because at the time the only fate available
+                // to an unfixed typo was a Miss.
+                if (cell.State != CellState.Untyped)
                     continue;
 
-                if (cell.State == CellState.Untyped)
-                    cell.State = CellState.Missed;
+                cell.State = CellState.Missed;
 
                 counts[JudgementType.Miss]++;
                 abandoned.Add(i);

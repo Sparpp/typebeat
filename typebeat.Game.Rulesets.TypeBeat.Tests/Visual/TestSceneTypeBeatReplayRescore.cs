@@ -227,22 +227,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             typeCorrectly(3, 12);
             runTheMapOut();
 
-            AddAssert("the abandoned cell took its miss, and line 1 its own", () =>
-                liveStatistics.Single(kvp => kvp.Key == HitResult.Miss).Value == 2);
+            // The typo resolves as an unfixed typo (backlog 124), line 1's untyped cell as a real
+            // miss: the seal seam has to hand out BOTH results, from the same loop, for this to hold.
+            AddAssert("the typo took its own result, and line 1's cell a miss", () =>
+                liveStatistics.Single(kvp => kvp.Key == HitResult.Meh).Value == 1
+                && liveStatistics.Single(kvp => kvp.Key == HitResult.Miss).Value == 1);
 
             compare();
         }
 
         /// <summary>
         /// The uncorrected typo with line 1 typed as well, which is the run backlog 122 changed and
-        /// the only shape on which its prepayment is observable at all. In the scene above line 1 is
-        /// never typed, so its own miss breaks the combo whatever the seal did; here the run has to
-        /// survive the seal and extend to 10.
+        /// the only shape on which the combo treatment of the seal's result is observable at all. In
+        /// the scene above line 1 is never typed, so its own miss breaks the combo whatever the seal
+        /// did; here the run has to survive the seal and extend to 10.
         ///
-        /// <para>That makes this the scene that would catch the two wirings of the prepayment coming
-        /// apart, the live <c>TypeBeatPlayfield.onCharJudged</c> and the harness's own
-        /// <c>onCharJudged</c>: they address the same cell by (line, cell), and if either stopped
-        /// prepaying, its max_combo would drop to 9 and the equality below would fail.</para>
+        /// <para>That makes this the scene that would catch the two wirings of the combo-neutral
+        /// mark coming apart, the live <c>TypeBeatPlayfield.onLineSealed</c> and the harness's own
+        /// <c>CellRegistry.Seal</c>: they address the same cell by (line, cell), and if either
+        /// stopped marking it, its max_combo would move off 10 and the equality below would
+        /// fail.</para>
         /// </summary>
         [Test]
         public void TestAComboCarriedAcrossASealRescoresToTheLivePlayersAccount()

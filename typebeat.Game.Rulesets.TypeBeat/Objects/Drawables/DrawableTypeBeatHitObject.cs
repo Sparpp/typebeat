@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using typebeat.Game.Rulesets.Objects;
 using typebeat.Game.Rulesets.Objects.Drawables;
@@ -17,7 +18,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
     /// </summary>
     public partial class DrawableTypeBeatHitObject : DrawableHitObject<TypeBeatHitObject>
     {
-        private readonly Dictionary<int, DrawableTypeBeatCharObject> charDrawablesByCell = new Dictionary<int, DrawableTypeBeatCharObject>();
+        /// <summary>
+        /// The nested cell drawables, keyed by cell index. SORTED rather than a plain
+        /// <see cref="Dictionary{TKey,TValue}"/> because <see cref="ApplySealResults"/> iterates it,
+        /// and since backlog 124 the seal can hand out two different results (a Miss, which breaks
+        /// combo, and an unfixed typo, which is weighted by the combo it finds). The order the seal
+        /// walks the cells in therefore reaches the score, so it is pinned to cell order here rather
+        /// than left to the insertion order the framework happens to add nested objects in. It is
+        /// also the order <c>typebeat-core.js</c> walks, which is the point.
+        /// </summary>
+        private readonly SortedDictionary<int, DrawableTypeBeatCharObject> charDrawablesByCell = new SortedDictionary<int, DrawableTypeBeatCharObject>();
 
         public DrawableTypeBeatHitObject(TypeBeatHitObject hitObject)
             : base(hitObject)
@@ -61,17 +71,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         /// character the line ran out of time on; a typo is a typo, and in the default input model
         /// the player can still backspace and type the cell correctly. So a wrong keypress DEFERS
         /// the cell's one osu result instead of spending it: correct it and the retype earns the
-        /// cell's real Great/Ok/Meh, leave it and <see cref="ApplySealResults"/> misses it exactly
-        /// like a cell nobody ever touched. Applying a Miss used to make the two indistinguishable
-        /// AND unrecoverable, because
+        /// cell's real Great/Ok/Meh, leave it and <see cref="ApplySealResults"/> resolves it as
+        /// <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>, a hit, because the player did finish
+        /// that character (backlog 124). Applying a Miss used to make the two indistinguishable AND
+        /// unrecoverable, because
         /// <see cref="DrawableTypeBeatCharObject.ApplyEngineResult"/> drops every later result.</para>
         ///
         /// <para>The combo break the mistype costs therefore has no result to travel on, and is
         /// mirrored into the score processor by hand on <see cref="TypingEngine.Mistyped"/> instead
         /// (see <c>TypeBeatPlayfield.onMistyped</c>). That is the seam a REJECTED key has always
-        /// used, so the two input models now account for a wrong keypress identically. The cell is
-        /// PREPAID at the same moment (backlog 122) so that the deferred Miss, when it lands, misses
-        /// the cell without breaking combo a second time.</para>
+        /// used, so the two input models now account for a wrong keypress identically. That break is
+        /// the cell's whole combo consequence, which is why the seal applies the unfixed typo's hit
+        /// combo-neutral (<see cref="Scoring.TypeBeatScoreProcessor.MarkComboNeutral"/>).</para>
         /// </summary>
         public void ApplyCharJudgement(CharJudgement judgement)
         {
@@ -85,15 +96,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         }
 
         /// <summary>
-        /// Called when the engine seals this line: every still-unjudged cell becomes an osu Miss,
-        /// then the line object itself resolves scoring-inert (IgnoreHit) so osu accuracy tracks
-        /// only the cells. "Still unjudged" is exactly the engine's own seal-miss set: a cell that
-        /// was never typed, and a cell left sitting wrong (see <see cref="ApplyCharJudgement"/>).
+        /// Called when the engine seals this line: every still-unjudged cell takes the result
+        /// <paramref name="resultForCell"/> gives for its cell index, in ascending cell order, and
+        /// then the line object itself resolves scoring-inert (IgnoreHit) so osu accuracy tracks only
+        /// the cells.
+        ///
+        /// <para>"Still unjudged" is exactly the set of cells the play never resolved: one nobody
+        /// typed, and one left sitting wrong (see <see cref="ApplyCharJudgement"/>). Since backlog
+        /// 124 those two take DIFFERENT results, which is why the caller decides rather than this
+        /// loop: only the caller can see the engine's cell states. Already-judged cells are skipped
+        /// before the callback runs, so a caller that marks a cell as it answers cannot mark one
+        /// whose result is about to be dropped.</para>
         /// </summary>
-        public void ApplySealResults()
+        public void ApplySealResults(Func<int, HitResult> resultForCell)
         {
-            foreach (var charDrawable in charDrawablesByCell.Values)
-                charDrawable.ApplyEngineResult(TypeBeatResultMapping.SEAL_MISS);
+            foreach ((int cellIndex, var charDrawable) in charDrawablesByCell)
+            {
+                if (charDrawable.Judged)
+                    continue;
+
+                charDrawable.ApplyEngineResult(resultForCell(cellIndex));
+            }
 
             if (!Judged)
                 ApplyResult(TypeBeatResultMapping.LINE_RESULT);
