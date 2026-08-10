@@ -267,7 +267,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// replay already on disk: 1 = wrong input allowed. Naming the property for the mod would
         /// invert it against the wire and force a negation at every encode/decode site, for nothing.</para>
         ///
-        /// <para>Two consequences of the flip worth stating where the flag lives:</para>
+        /// <para>Three consequences of the flip worth stating where the flag lives:</para>
         /// <list type="bullet">
         /// <item>The 13-in-a-row mash-fail streak (<see cref="ConsecutiveWrongKeys"/>) only ever
         /// accrued on the rejection path, so it is now a Gatekeeper-only guard. That is where it
@@ -275,6 +275,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <item>Backspace is gated on this flag at the INPUT layer (see <c>TypeBeatPlayfield</c>),
         /// so it is now live by default and inert under Gatekeeper, which is the same rule as
         /// before ("erasing exists only where an erasable char can land") resolving the other way.</item>
+        /// <item>A wrong char typed through does NOT resolve its cell against the score processor
+        /// (backlog 109). A miss is a character the line ran out of time on; a typo is a typo, and
+        /// backspace makes it fixable, so the cell's result waits to see which of the two it turns
+        /// out to be. Uncorrected it is still both (one mistype and, at the seal, one miss), which
+        /// keeps the judgement count equal to the real cell count and accuracy, the combo ratio and
+        /// the pp length term honest.</item>
         /// </list>
         /// </summary>
         public bool AllowWrongInput { get; set; } = true;
@@ -285,15 +291,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// and lands the caret on the word gap, so one bad character costs a word instead of the run.
         ///
         /// <para>What "abandons" means precisely, and it is the only reading the code can actually
-        /// deliver: every cell of that word still <see cref="CellState.Untyped"/> takes a
-        /// <see cref="JudgementType.Miss"/> right now, exactly as the seal loop's misses do. Cells
-        /// that already carry a judgement keep it: a cell typed
-        /// CORRECTLY has handed its Great to the score processor and there is no un-apply
-        /// (<c>DrawableTypeBeatCharObject.ApplyEngineResult</c> drops every later result on an
-        /// already-judged cell), and a cell typed WRONG has already been counted a
-        /// <see cref="JudgementType.WrongChar"/> and taken its Miss on the osu side, so re-missing it
-        /// would double-count the same cell. In practice only cells at or ahead of the caret can be
-        /// untouched anyway, which is exactly the "rest of the word" the player is abandoning.</para>
+        /// deliver: every cell of that word that has not already handed the score processor a result
+        /// takes a <see cref="JudgementType.Miss"/> right now, exactly as the seal loop's misses do.
+        /// That is every <see cref="CellState.Untyped"/> cell and, since backlog 109, every
+        /// <see cref="CellState.Wrong"/> one as well: a typo no longer resolves its cell, it defers
+        /// it, and abandoning the word is precisely the player deciding it will never be corrected.
+        /// A cell typed CORRECTLY is the one thing left alone, because it has handed its Great over
+        /// and there is no un-apply (<c>DrawableTypeBeatCharObject.ApplyEngineResult</c> drops every
+        /// later result on an already-judged cell).</para>
         ///
         /// <para>The press itself is NOT a keypress judgement: it never enters the accuracy counters
         /// and never counts as a <see cref="Mistyped"/>, because it is a deliberate control action
@@ -348,26 +353,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// plus the two cases the default path refuses anyway (a space pressed on a lyric char, any
         /// key pressed on a word gap). The first of those is what <see cref="SpaceSkipsWord"/>
         /// intercepts, so with that setting on the space consumes the word instead of being rejected
-        /// here. In DEFAULT play a wrong char is typed through and its cell
-        /// carries a <see cref="JudgementType.WrongChar"/> on <see cref="CharJudged"/> instead,
-        /// which <c>DrawableTypeBeatHitObject.toHitResult</c> maps to <c>HitResult.Miss</c>, so
-        /// Sudden Death still fails the play (through the inherited fail condition rather than
-        /// through this event). Pinned by <c>TypeBeatModGatekeeperTest</c>.</para>
+        /// here. In DEFAULT play a wrong char is typed through and its cell carries a
+        /// <see cref="JudgementType.WrongChar"/> on <see cref="CharJudged"/> instead.</para>
+        ///
+        /// <para>Since backlog 109 it is no longer the seam anything but the MASH GUARD hangs off:
+        /// the combo break rides on <see cref="Mistyped"/> (which fires for this key too, one event
+        /// earlier, in both models) and Sudden Death rides on it as well. Only the consecutive-wrong-
+        /// key drain is left here, because only the rejection model ever accrues that streak.</para>
         /// </summary>
         public event Action<char>? WrongKeyRejected;
 
         /// <summary>
-        /// A WRONG KEYPRESS happened, in EITHER input mode (backlog 72). Accounting only: every
-        /// gameplay consequence still travels on its existing event, so nothing about how the game
-        /// feels depends on this one.
+        /// A WRONG KEYPRESS happened, in EITHER input mode (backlog 72). The keypress, as opposed to
+        /// the CELL it landed on (or failed to), which is <see cref="CharJudged"/>'s business.
         ///
         /// <list type="bullet">
         /// <item>Strict (Gatekeeper): the key is rejected, so no <see cref="CharJudged"/> exists to
         /// carry it and the score processor would otherwise never learn the press happened.</item>
-        /// <item><see cref="AllowWrongInput"/> (default): the wrong char IS typed into the cell and the cell's
-        /// own judgement travels on <see cref="CharJudged"/> as before. That judgement is about the
-        /// CELL, not the keypress; this event is the keypress, so both modes account identically.</item>
+        /// <item><see cref="AllowWrongInput"/> (default): the wrong char IS typed into the cell, and
+        /// its judgement travels on <see cref="CharJudged"/>, but since backlog 109 that judgement
+        /// applies no osu result (the cell's result is deferred until it is corrected or sealed on).
+        /// So in this model too the keypress is the only thing the score processor hears about at the
+        /// time.</item>
         /// </list>
+        ///
+        /// <para>It therefore carries BOTH consequences a wrong keypress has on the submitted
+        /// account, identically in both models: the mistype COUNT, and the COMBO BREAK, which is
+        /// mirrored into osu's incrementally-maintained combo by hand because no result exists to
+        /// carry it (see <c>TypeBeatPlayfield.onMistyped</c>). Sudden Death fails the play from here
+        /// for the same reason.</para>
         ///
         /// Raised BEFORE <see cref="ComboBroken"/> / <see cref="WrongKeyRejected"/> /
         /// <see cref="CharJudged"/>, with <see cref="Mistypes"/> already incremented.
@@ -573,12 +587,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 foreach (var cell in line.Cells)
                 {
-                    if (cell.IsTypeable && cell.State == CellState.Untyped)
-                    {
+                    // MISSED at seal: a typeable cell the line ran out of time on, and (backlog 109)
+                    // a cell left sitting WRONG. Neither has handed the score processor a result, so
+                    // both take a Miss here, which is exactly what happens on the drawable side by
+                    // itself (DrawableTypeBeatHitObject.ApplySealResults misses every still-unjudged
+                    // nested cell). This loop is the ENGINE's own count agreeing with that, rather
+                    // than reporting an uncorrected typo as having cost no cell at all.
+                    //
+                    // An untyped cell becomes Missed (dimmed on the stack); a wrong one KEEPS
+                    // CellState.Wrong, so the line still shows WHICH character was got wrong instead
+                    // of flattening it into "never typed".
+                    if (!cell.IsTypeable || (cell.State != CellState.Untyped && cell.State != CellState.Wrong))
+                        continue;
+
+                    if (cell.State == CellState.Untyped)
                         cell.State = CellState.Missed;
-                        missed++;
-                        counts[JudgementType.Miss]++;
-                    }
+
+                    missed++;
+                    counts[JudgementType.Miss]++;
                 }
 
                 bool broke = missed >= 1;
@@ -735,9 +761,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// Returns false when inert (no active line / line complete / finished).
         /// A space pressed inside a word abandons it under <see cref="SpaceSkipsWord"/> (off by default).
         /// A wrong char is TYPED THROUGH by default (<see cref="AllowWrongInput"/>), or REJECTED
-        /// under Gatekeeper. Either way it breaks combo, counts as a mistype, and stays in the
-        /// accuracy denominator forever; only the rejection path grows
-        /// <see cref="ConsecutiveWrongKeys"/>.
+        /// under Gatekeeper. Either way it breaks combo, counts as a mistype, stays in the accuracy
+        /// denominator forever, and resolves NO cell against the score processor; only the rejection
+        /// path grows <see cref="ConsecutiveWrongKeys"/>.
         /// </summary>
         public bool ProcessKey(char c, double time)
         {
@@ -836,12 +862,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     autoSkipForward();
 
                     // The keypress was wrong, so it is a mistype exactly as it would be in strict
-                    // mode. The CELL's fate (typed wrong here, rejected there) is a separate matter
-                    // and still travels on CharJudged below, unchanged.
+                    // mode, and since backlog 109 it ACCOUNTS exactly as strict mode does too: the
+                    // mistype carries the combo break by hand (TypeBeatPlayfield.onMistyped) and the
+                    // cell hands the score processor nothing at all.
                     Mistyped?.Invoke();
                     ComboBroken?.Invoke();
-                    // Miss result (see DrawableTypeBeatHitObject.toHitResult) + red/shake feedback;
-                    // a later backspace + correct retype re-judges the cell Correct for completion.
+                    // The CELL's judgement still travels here, for the stage's red/shake feedback,
+                    // but DrawableTypeBeatHitObject.ApplyCharJudgement deliberately applies no osu
+                    // result for a WrongChar: the cell's result is DEFERRED. Backspace and retype it
+                    // correctly and it earns its real Great/Ok/Meh; leave it and the seal misses it,
+                    // exactly like a cell the line ran out of time on.
                     CharJudged?.Invoke(new CharJudgement(activeLineIndex, wrongCellIndex, JudgementType.WrongChar, delta, 0, combo));
                     rollForwardIfFinishedEarly();
                     return true;
@@ -988,7 +1018,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             while (end < cells.Count && !(cells[end].IsTypeable && cells[end].Expected == ' '))
                 end++;
 
-            int missed = 0;
+            var abandoned = new List<int>();
 
             for (int i = start; i < end; i++)
             {
@@ -1000,22 +1030,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     continue;
                 }
 
-                // Anything already Correct or Wrong keeps the judgement it earned, and the one osu
-                // result its drawable already took: a Great cannot be revoked (ApplyEngineResult
-                // drops every later result on an already-judged cell, and there is no un-apply), and
-                // a wrong char has already been counted a WrongChar and taken its Miss, so re-missing
-                // either would double-count the same cell against the same play.
-                if (cell.State != CellState.Untyped)
+                // A cell that has already handed its drawable the one osu result it will ever have
+                // keeps it: a Great cannot be revoked (ApplyEngineResult drops every later result on
+                // an already-judged cell, and there is no un-apply), so a CORRECT cell is left alone.
+                //
+                // Since backlog 109 a WRONG cell is NOT in that group. Typing a wrong character no
+                // longer applies any result at all, it only DEFERS the cell's fate until the player
+                // either fixes it or the line seals on it. Abandoning the word is the player deciding
+                // it will never be fixed, so the cell is given up here exactly like an untyped one.
+                // It keeps CellState.Wrong (the line still shows what was typed); only its judgement
+                // changes, from "not decided yet" to Miss.
+                if (cell.State != CellState.Untyped && cell.State != CellState.Wrong)
                     continue;
 
-                cell.State = CellState.Missed;
+                if (cell.State == CellState.Untyped)
+                    cell.State = CellState.Missed;
+
                 counts[JudgementType.Miss]++;
-                missed++;
+                abandoned.Add(i);
             }
 
             caretIndex = end;
 
-            if (missed == 0)
+            if (abandoned.Count == 0)
                 return;
 
             combo = 0;
@@ -1024,15 +1061,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // Announce the misses AFTER the break so every judgement carries the post-break combo,
             // and one per cell so the stage repaints it and its scoring drawable takes its Miss now
             // rather than at seal time (which would leave osu's combo counting on past a break the
-            // engine has already taken). Nothing else on an active line ever writes Missed, so the
-            // state test picks out exactly the cells the loop above gave up.
-            for (int i = start; i < end; i++)
-            {
-                var cell = cells[i];
-
-                if (cell.IsTypeable && cell.State == CellState.Missed)
-                    CharJudged?.Invoke(new CharJudgement(activeLineIndex, i, JudgementType.Miss, time - cell.TargetTime, 0, combo));
-            }
+            // engine has already taken).
+            foreach (int i in abandoned)
+                CharJudged?.Invoke(new CharJudgement(activeLineIndex, i, JudgementType.Miss, time - cells[i].TargetTime, 0, combo));
         }
 
         /// <summary>

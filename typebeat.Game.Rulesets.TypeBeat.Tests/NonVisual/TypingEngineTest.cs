@@ -1250,11 +1250,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsEmpty(rejected);                       // no rejection event either
             Assert.AreEqual(JudgementType.WrongChar, judgements[1].Type);
 
-            engine.Update(3000); // seal: nothing left untyped, so nothing is force-missed
+            // Seal with the wrong char still sitting there: nothing is left UNTYPED, but the wrong
+            // cell was never resolved either (backlog 109 defers a typo's result rather than
+            // spending it), so the seal misses it exactly like a cell nobody touched. It keeps
+            // CellState.Wrong on screen, so the stack still says which character went wrong.
+            engine.Update(3000);
+
+            Assert.AreEqual(CellState.Wrong, engine.Lines[0].Cells[1].State);
 
             var results = engine.BuildResults();
             Assert.AreEqual(1, results.Counts[JudgementType.WrongChar]);
-            Assert.AreEqual(0, results.Counts[JudgementType.Miss]);
+            Assert.AreEqual(1, results.Counts[JudgementType.Miss]);
             Assert.AreEqual(0.5, engine.LiveAccuracy, 1e-9); // 1 correct / 2 keypresses
         }
 

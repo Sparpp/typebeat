@@ -258,35 +258,55 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private void onCharJudged(CharJudgement judgement)
         {
-            // The accepted char reaches the health processor as its own Great/Ok/Meh (or, for a
-            // wrong char in allow-wrong-input mode, Miss) result via ApplyCharJudgement below, which
-            // is what recovers HP; no separate reset needed.
+            // The accepted char reaches the health processor as its own Great/Ok/Meh result via
+            // ApplyCharJudgement below, which is what recovers HP; no separate reset needed. A WRONG
+            // char reaches it as nothing at all (backlog 109): its cell's result is deferred, so the
+            // HP cost of a typo is likewise deferred to the seal that misses it, and a typo the
+            // player fixes costs no HP, which is the same statement the score account makes.
             if (lineDrawables.TryGetValue(judgement.LineIndex, out var line))
                 line.ApplyCharJudgement(judgement);
 
             // Fletcher's rush cap breaks combo on a press that is still judged Perfect/Good/Ok, so the
             // hit result alone (a Great/Ok/Meh, which INCREMENTS osu's combo) cannot carry the break.
             // Mirror the engine's own combo by hand, after the result has been applied, exactly as
-            // onWrongKeyRejected does for a rejected key. Gated on the mod so the default path, where
-            // every ComboAfter == 0 judgement already maps to a Miss, is untouched.
+            // onMistyped does for a wrong keypress. Gated on the mod so the default path is untouched:
+            // there every ComboAfter == 0 judgement either maps to a Miss (which breaks osu's combo
+            // itself) or is a WrongChar, whose break onMistyped has already carried.
             if (Engine.FletcherEnabled && judgement.ComboAfter == 0 && scoreProcessor != null)
                 scoreProcessor.Combo.Value = 0;
         }
 
         /// <summary>
-        /// Every wrong KEYPRESS, in both input modes (see <see cref="TypingEngine.Mistyped"/>).
-        /// The count is the ONLY thing recorded here: the combo break is left exactly where it
-        /// already was in each mode, so gameplay and every derived number stay byte-identical.
+        /// Every wrong KEYPRESS, in both input modes (see <see cref="TypingEngine.Mistyped"/>), and
+        /// since backlog 109 the single seam carrying BOTH of the consequences a wrong keypress has
+        /// on the submitted account: the mistype count and the combo break.
+        ///
+        /// <para>Neither model raises a judgement RESULT for a wrong keypress any more. A rejected
+        /// key never did, and a typed-through wrong char now defers its cell's result until the cell
+        /// is corrected or sealed on. osu's <see cref="ScoreProcessor.Combo"/> is maintained
+        /// incrementally off results, so with no result to carry the break it has to be mirrored by
+        /// hand here, or the submitted <c>max_combo</c> would count straight on through the rest of
+        /// the line after a break the engine has already taken.</para>
+        ///
+        /// <para>Setting the bindable directly, rather than folding the reset into
+        /// <see cref="TypeBeatScoreProcessor.RecordMistype"/>, is the same choice the rejection path
+        /// has always made: <c>Combo</c> is a plain bindable, whereas a result would also move
+        /// <c>HighestCombo</c>, the judged count and accuracy. <c>HighestCombo</c> needs no update
+        /// because it only ever grows and this only shrinks <c>Combo</c>.</para>
         /// </summary>
-        private void onMistyped() => (scoreProcessor as TypeBeatScoreProcessor)?.RecordMistype();
-
-        private void onWrongKeyRejected(char c)
+        private void onMistyped()
         {
-            // A rejected key produces no hit result, so mirror the engine's combo break into
-            // osu's score processor by hand (its combo bindable is maintained incrementally).
             if (scoreProcessor != null)
                 scoreProcessor.Combo.Value = 0;
 
+            (scoreProcessor as TypeBeatScoreProcessor)?.RecordMistype();
+        }
+
+        private void onWrongKeyRejected(char c)
+        {
+            // The combo break rides on Mistyped (see onMistyped), which fires for this key too, one
+            // event earlier and in both input models. The mash guard is all that is left here,
+            // because only the rejection model ever accrues the consecutive-wrong-key streak.
             (healthProcessor as TypeBeatHealthProcessor)?.ApplyWrongKeyStreak(Engine.ConsecutiveWrongKeys);
         }
 

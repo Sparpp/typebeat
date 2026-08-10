@@ -26,10 +26,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// <list type="bullet">
     /// <item>the 13-wrong-keys mash guard is now Gatekeeper-only, because the streak only ever
     /// accrued on the rejection path;</item>
-    /// <item>Sudden Death must still fail on a wrong key WITHOUT this mod, through the Miss the
-    /// typed-through char is judged as, rather than through the rejection event it used to ride.
-    /// The engine-level half of that is here; the end-to-end half is in
-    /// <c>TestSceneTypeBeatGatekeeper</c>.</item>
+    /// <item>Sudden Death must still fail on a wrong key WITHOUT this mod. Since backlog 109 that
+    /// can no longer ride a judgement result (a typed-through wrong char applies none), so it rides
+    /// <c>TypingEngine.Mistyped</c>, the one wrong-key event both models raise. The engine-level
+    /// half of that is here; the end-to-end half is in <c>TestSceneTypeBeatGatekeeper</c>.</item>
     /// </list>
     /// </summary>
     [TestFixture]
@@ -192,39 +192,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The Sudden Death regression check, at the engine level: under the DEFAULT model a wrong
-        /// key raises no <c>WrongKeyRejected</c> at all (which is the event Sudden Death subscribes
-        /// to), so if the typed-through char did not carry a judgement of its own, Sudden Death
-        /// would silently stop failing on wrong keys. It does carry one, and its type is the one
-        /// <c>DrawableTypeBeatHitObject.toHitResult</c> maps to <c>HitResult.Miss</c>, which is what
-        /// the inherited fail condition fires on.
+        /// The Sudden Death regression check, at the engine level. Since backlog 109 a typed-through
+        /// wrong char raises no osu result either (its cell's result is deferred), so the two events
+        /// a wrong keypress CAN be caught on are <c>WrongKeyRejected</c> and <c>Mistyped</c>, and
+        /// only one of them fires in both models. Sudden Death must fail on the FIRST wrong key
+        /// whichever model is in force, so it has to be <c>Mistyped</c>, exactly once per press.
         /// </summary>
         [Test]
-        public void ADefaultModelWrongKeyRaisesNoRejectionButDoesRaiseAMissJudgement()
+        public void MistypedIsTheOnlyWrongKeyEventBothModelsRaise()
         {
             var engine = new TypingEngine(map());
 
             var rejected = new List<char>();
             var judged = new List<CharJudgement>();
+            int mistypes = 0;
             engine.WrongKeyRejected += rejected.Add;
             engine.CharJudged += judged.Add;
+            engine.Mistyped += () => mistypes++;
 
             engine.Update(1000);
             Assert.IsTrue(engine.ProcessKey('z', 1000));
 
-            Assert.IsEmpty(rejected, "nothing was rejected, so Sudden Death's own hook cannot fire");
+            Assert.IsEmpty(rejected, "nothing was rejected, so Sudden Death cannot ride the rejection event");
+            Assert.AreEqual(1, mistypes, "exactly one mistype, which is what Sudden Death rides");
             Assert.AreEqual(1, judged.Count);
             Assert.AreEqual(JudgementType.WrongChar, judged[0].Type,
-                "the typed-through char must carry a judgement, which is the only remaining route to Sudden Death");
+                "the cell judgement still travels, for the stage; it just applies no osu result now");
 
-            // ...and with Gatekeeper the old route is intact.
+            // ...and with Gatekeeper both events fire, the mistype still exactly once, so subscribing
+            // to it (and only it) cannot double-fail a strict play.
             var strict = new TypingEngine(map()) { AllowWrongInput = false };
             var strictRejected = new List<char>();
+            int strictMistypes = 0;
             strict.WrongKeyRejected += strictRejected.Add;
+            strict.Mistyped += () => strictMistypes++;
             strict.Update(1000);
             strict.ProcessKey('z', 1000);
 
             Assert.AreEqual(new[] { 'z' }, strictRejected);
+            Assert.AreEqual(1, strictMistypes);
         }
     }
 }

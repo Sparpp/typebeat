@@ -87,15 +87,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("caret advanced", () => engine.CaretIndex == 1);
             AddAssert("osu result applied for the cell", () => osuResults == 1);
 
-            // DEFAULT model since backlog 107: the wrong char is TYPED THROUGH. It resolves the cell
-            // (a WrongChar judgement, which the drawable maps to an osu Miss), so unlike the old
-            // rejection model it does raise a result; the mash-fail streak is deliberately not fed.
+            // DEFAULT model since backlog 107: the wrong char is TYPED THROUGH. Since backlog 109 it
+            // does NOT resolve the cell: no osu result is applied, because the player can still
+            // backspace and get it right. The mash-fail streak is deliberately not fed either.
             AddStep("press X (wrong char for 'a')", () => InputManager.Key(Key.X));
             AddAssert("typed through: cell wrong, caret advanced", () =>
                 engine.Lines[0].Cells[1].State == CellState.Wrong
                 && engine.Lines[0].Cells[1].TypedChar == 'x'
                 && engine.CaretIndex == 2);
-            AddAssert("the wrong char is judged (osu Miss)", () => osuResults == 2);
+            AddAssert("the wrong char applies no result", () => osuResults == 1);
             AddAssert("combo broken, no mash streak", () => engine.Combo == 0 && engine.ConsecutiveWrongKeys == 0);
 
             // Backspace is live by default now (it is gated on the same flag, which now reads the
@@ -109,9 +109,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("press A (correct char)", () => InputManager.Key(Key.A));
             AddAssert("cell accepted at the real time", () => engine.Lines[0].Cells[1].State == CellState.Correct);
             AddAssert("streak still clear", () => engine.ConsecutiveWrongKeys == 0);
-            // The cell already carries its one-and-only osu result (the Miss), so the retype adds
-            // none: DrawableTypeBeatCharObject.ApplyEngineResult bails on an already-Judged cell.
-            AddAssert("no second osu result for the retyped cell", () => osuResults == 2);
+            // The typo spent nothing, so the fix IS the cell's first and only osu result: the play
+            // genuinely recovers the cell rather than painting it green over a miss that stands.
+            AddAssert("the fix is the cell's one osu result", () => osuResults == 2);
 
             AddStep("press space", () => InputManager.Key(Key.Space));
             AddAssert("space cell accepted", () => engine.Lines[0].Cells[2].State == CellState.Correct && engine.CaretIndex == 3);

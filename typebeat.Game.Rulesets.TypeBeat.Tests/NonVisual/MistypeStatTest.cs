@@ -112,7 +112,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 // ...while the CELL keeps doing exactly what it did before: the wrong char is typed
                 // through, marked Wrong, the caret advances, and the cell's own WrongChar judgement
-                // still travels on CharJudged (mapping to an osu Miss on the drawable).
+                // still travels on CharJudged. Since backlog 109 the drawable applies no osu result
+                // for it (the cell's result is deferred until it is corrected or sealed on), which is
+                // a matter for the drawable and does not touch this keypress count.
                 Assert.That(judged, Has.Count.EqualTo(1));
                 Assert.That(judged[0].Type, Is.EqualTo(JudgementType.WrongChar));
                 Assert.That(engine.CaretIndex, Is.EqualTo(1));

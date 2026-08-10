@@ -10,10 +10,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <summary>
     /// type!beat scoring. Total score, combo and ACCURACY are the standardised defaults, but the
     /// RANK is derived from <b>completion</b>: the fraction of typeable cells the player actually
-    /// typed (any non-miss judgement), instead of accuracy. Typing every character earns an SS
-    /// even with wrong-key stumbles and sloppy timing along the way; timing quality still shows in
-    /// accuracy, score and combo, it just no longer gates the grade. Cells that scroll past
-    /// untyped (miss judgements) are the only thing that costs rank.
+    /// typed (any non-miss judgement), instead of accuracy. Typing every character earns an SS even
+    /// with wrong-key stumbles and sloppy timing along the way, as long as the stumbles get fixed;
+    /// timing quality still shows in accuracy, score and combo, it just no longer gates the grade.
+    /// A cell only costs rank when it ends the line unresolved: never typed, or typed wrong and left
+    /// that way (backlog 109). Both reach here as one <see cref="HitResult.Miss"/> at the seal.
     ///
     /// The server mirrors this exactly (typebeat-web ScoringContract.RankFromCompletion); keep
     /// the cutoffs in the two files in sync.
@@ -69,11 +70,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <summary>
         /// Records one wrong KEYPRESS. Counting is ALL this does: no score, no accuracy, no
         /// completion, no rank, no health, no hit event, and deliberately not the combo break
-        /// either, which each input mode already carries its own way (a rejected key through
-        /// TypeBeatPlayfield's hand-written reset, a typed-through wrong char through the Miss
-        /// judgement its cell raises). Folding the reset in here would double-break the second
-        /// case and, worse, move its <c>ComboAtJudgement</c> to 0, which is the value a rewind
-        /// restores the combo from.
+        /// either, which <c>TypeBeatPlayfield.onMistyped</c> carries by hand for both input models
+        /// (backlog 109) at the same seam that calls this. Keeping the two separate keeps this a
+        /// pure counter: the break is a plain <see cref="ScoreProcessor.Combo"/> write, whereas
+        /// anything routed through <see cref="JudgementProcessor.ApplyResult"/> would also move
+        /// <see cref="JudgementProcessor.JudgedHits"/> and accuracy.
         /// </summary>
         public void RecordMistype()
             => ScoreResultCounts[MISTYPE_RESULT] = ScoreResultCounts.GetValueOrDefault(MISTYPE_RESULT) + 1;
