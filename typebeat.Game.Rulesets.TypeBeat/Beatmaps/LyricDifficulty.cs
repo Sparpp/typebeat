@@ -42,7 +42,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private const double endurance_weight = 1.5; // how much sustained load adds on top of density
         private const double spike_focus = 14; // w: how sharply the hardest strains dominate
         private const double reference_duration_s = 0.4; // duration weight unit
-        private const double star_scale = 0.277; // maps the aggregate to stars
+        // Maps the aggregate to stars. Cut from 0.277 with the endurance term (backlog 116): that
+        // term lifted real maps 1.2x to 3.7x, which pushed three of the five reference maps past
+        // max_stars. Clamping there is not a cosmetic top-end squash, it is a pp hole: once
+        // difficulty_rating, sr_dt and sr_ht all clamp to the same 10, HalfTimeMultiplier's mirror
+        // computes 1/(1*1) = 1.0, its "mirror > 1" guard never fires, and Half Time is priced at the
+        // full base rating for free. Fitted so the hardest reference map (Siames, The Wolf) lands
+        // just under 9.5, leaving the ceiling as a real bound again rather than a wall the top of
+        // the pool sits against.
+        private const double star_scale = 0.084;
         private const double star_power = 1.3; // stretches the hard end so top ratings spread
         private const double max_stars = 10;
         private const double per_char_floor_ms = 25; // min plausible real-time per typed character; floors a word's window at chars × this (see the strain loop)
