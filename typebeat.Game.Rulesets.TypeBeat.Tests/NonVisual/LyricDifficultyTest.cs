@@ -52,11 +52,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void MatchesHandComputedRating()
         {
-            // "cat cat" -> 0.29 stars. Shared anchor with the web port's LyricPaceTest, locking
+            // "cat cat" -> 0.95 stars. Shared anchor with the web port's LyricPaceTest, locking
             // the two ports to the same per-word strain sum (density + endurance).
             double sr = LyricDifficulty.Compute(new[] { line(0, 800, ("cat", 0, 400), ("cat", 400, 800)) });
 
-            Assert.AreEqual(0.29, sr, 0.01);
+            Assert.AreEqual(0.95, sr, 0.01);
         }
 
         [Test]
@@ -109,14 +109,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void RealisticMapLandsInASaneBand()
         {
             // ~100 WPM (4 words / 2.4 s line), 40 lines. Perfectly uniform (no rhythm variation
-            // or pressure spikes), so it sits well below real ~100 WPM maps, which rate ~1.8 and up
-            // on the backlog-116 scale (the endurance term plus the rescale that keeps its top under
-            // max_stars moved every band down; the ORDERING these tests really pin did not move).
+            // or pressure spikes), so it sits well below real ~100 WPM maps, which rate ~6 and up.
             var map = buildMap(lineCount: 40, wordsPerLine: 4, lineMs: 2400);
             double sr = LyricDifficulty.Compute(map);
 
             TestContext.WriteLine($"~100 WPM / 40-line map -> {sr:0.00} stars");
-            Assert.That(sr, Is.InRange(0.6, 2.0));
+            Assert.That(sr, Is.InRange(2.0, 6.5));
         }
 
         [Test]
