@@ -19,8 +19,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     ///      · max(0, 1 − miss^1.6/notes)^10                 cleanliness
     ///      · max(0, 1 − mistypes^1.6/(notes+mistypes))^4   mistyping
     ///      · max(0.1, 1 + 0.50·log10(notes/100))           length, floored
-    ///      · acc^1.30                                      timing quality
-    ///      · (maxcombo/notes)^0.75                         combo
+    ///      · acc^1.75                                      timing quality
+    ///      · (maxcombo/notes)^1.50                         combo
     ///      · modMult
     /// </code>
     ///
@@ -209,9 +209,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// essentially nothing. Both penalty bases are still exactly 1.0 at a count of zero, so a
         /// spotless play moves only by the rescale, while every stored row carrying a mistype is
         /// repriced upwards, which is what forces the bump.</item>
+        /// <item>v10 = v10 = accuracy exponent 1.30 to 1.75 and combo exponent 0.75 to 1.50. A spotless
+        /// play is priced bit-identically (both bases are exactly 1.0 at a full combo and perfect
+        /// accuracy, whatever the exponent), so this repositions everything BELOW an FC rather than
+        /// rescaling the pool: a 97% play at 0.90 combo loses about 9%, a 90% play at 0.75 combo
+        /// about 23%.</item>
         /// </list>
         /// </summary>
-        public const int VERSION = 9;
+        public const int VERSION = 10;
 
         // ---- formula constants (docs/pp.md) ----
 
@@ -239,8 +244,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         private const double length_weight = 0.50;
         private const double length_floor = 0.1;
-        private const double accuracy_exponent = 1.30;
-        private const double combo_exponent = 0.75;
+        private const double accuracy_exponent = 1.75;
+        private const double combo_exponent = 1.50;
         private const double reference_notes = 100.0;  // the log bonus' pivot: 100 notes is the 1.0 point
 
         /// <summary>
