@@ -63,16 +63,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsFalse(frame.IsConfig);
         }
 
-        [TestCase(true)]
-        [TestCase(false)]
-        public void ConfigFrameRoundTripsAllowWrongInput(bool allowWrongInput)
+        /// <summary>
+        /// Both judgement-relevant settings travel in the one flags word, and all four combinations
+        /// must survive: bit 0 = allow-wrong-input, bit 1 = space-skips-word.
+        /// </summary>
+        [TestCase(true, true)]
+        [TestCase(true, false)]
+        [TestCase(false, true)]
+        [TestCase(false, false)]
+        public void ConfigFrameRoundTripsBothSettingBits(bool allowWrongInput, bool spaceSkipsWord)
         {
-            var frame = roundTrip(TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput));
+            var frame = roundTrip(TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput, spaceSkipsWord));
 
             Assert.AreEqual(500, frame.Time);
             Assert.IsTrue(frame.IsConfig);
             Assert.IsFalse(frame.IsBackspace);
             Assert.AreEqual(allowWrongInput, frame.AllowWrongInput);
+            Assert.AreEqual(spaceSkipsWord, frame.SpaceSkipsWord);
+        }
+
+        /// <summary>
+        /// Bit 0 keeps the exact meaning every replay already on disk was written with, so a stored
+        /// flags word of 0 or 1 (the only two values that existed before space-skip) still decodes to
+        /// the run it recorded, with the newer bit reading false.
+        /// </summary>
+        [TestCase(0, false)]
+        [TestCase(1, true)]
+        public void ReplaysRecordedBeforeSpaceSkipDecodeUnchanged(int storedFlags, bool expectedAllowWrongInput)
+        {
+            var decoded = new TypeBeatReplayFrame();
+            decoded.FromLegacy(new LegacyReplayFrame(500, (float)TypeBeatReplayFrame.CONFIG, storedFlags, ReplayButtonState.None), dummy_beatmap);
+
+            Assert.IsTrue(decoded.IsConfig);
+            Assert.AreEqual(expectedAllowWrongInput, decoded.AllowWrongInput);
+            Assert.IsFalse(decoded.SpaceSkipsWord, "a replay from before the setting existed was played without it");
+        }
+
+        /// <summary>A non-CONFIG frame carries no flags: the character's own frame must not smuggle settings.</summary>
+        [Test]
+        public void CharacterFramesCarryNoConfigFlags()
+        {
+            var frame = new TypeBeatReplayFrame(1234, 'a') { AllowWrongInput = true, SpaceSkipsWord = true };
+
+            Assert.AreEqual(0f, frame.ToLegacy(dummy_beatmap).MouseY ?? -1f);
         }
 
         [Test]

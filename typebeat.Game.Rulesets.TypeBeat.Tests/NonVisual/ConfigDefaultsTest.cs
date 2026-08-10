@@ -81,5 +81,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     Is.EqualTo(CaretStyle.Line));
             }
         }
+
+        /// <summary>
+        /// Space-to-skip-a-word ships OFF (backlog 110). It changes how a keypress is judged, so it
+        /// must be something a player asks for: nobody's space key starts throwing words away because
+        /// they updated.
+        /// </summary>
+        [Test]
+        public void SpaceSkipsWordDefaultsToOff()
+        {
+            using (var rulesetConfig = new TypeBeatRulesetConfigManager(null, new TypeBeatRuleset().RulesetInfo))
+            {
+                Assert.That(rulesetConfig.GetBindable<bool>(TypeBeatRulesetSetting.SpaceSkipsWord).Default, Is.False);
+            }
+        }
     }
 }

@@ -66,6 +66,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         // the reason stated on CaretStyle above: rows are keyed by member NAME, so every other
         // setting keeps its row and the orphaned AllowWrongInput row is simply never looked up.
 
+        /// <summary>
+        /// Whether pressing space in the middle of a word abandons the rest of it (every character
+        /// of it you had not resolved yet counts as a miss) and moves you on to the next word, rather
+        /// than being rejected as a wrong key. OFF by default: it changes how a keypress is judged, so
+        /// nobody gets it without asking for it. See <see cref="Gameplay.TypingEngine.SpaceSkipsWord"/>
+        /// for what it costs and why it needs no multiplier.
+        /// </summary>
+        SpaceSkipsWord,
+
         /// <summary>Vertical gap (px) between the three gameplay lyric lines.</summary>
         LineSpacing,
 
@@ -146,6 +155,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.CaretStyle, DEFAULT_CARET_STYLE);
             SetDefault(TypeBeatRulesetSetting.SungCaretStyle, DEFAULT_SUNG_CARET_STYLE);
             SetDefault(TypeBeatRulesetSetting.KeyboardLayout, Gameplay.KeyboardLayout.Qwerty);
+            SetDefault(TypeBeatRulesetSetting.SpaceSkipsWord, false);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
         }

@@ -112,6 +112,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // typing wrong chars through is the default, and TypeBeatModGatekeeper is the only thing
             // that turns it off, via ApplyToDrawableRuleset.
 
+            // Space-to-skip-a-word IS a setting, and is read ONCE here rather than bound live: it
+            // decides how a space is judged, and the replay CONFIG frame stamps whatever the engine
+            // holds at the first keystroke, so a value that could change mid-play would leave the
+            // header describing only part of the run. Absent config (a bare test scene) leaves the
+            // engine's own default, which is off.
+            if (config != null)
+                Engine.SpaceSkipsWord = config.Get<bool>(TypeBeatRulesetSetting.SpaceSkipsWord);
+
             // The Player already renders the beatmap background image (dimmed) and, when
             // "beatmap storyboard/video" is on, the video, both BELOW the ruleset. Historically
             // this playfield painted an opaque serika-dark box over all of it (the monkeytype flat
@@ -379,8 +387,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 if (frame.IsConfig)
                 {
-                    // Recorded machine's judgement-relevant setting wins over local config.
+                    // Recorded machine's judgement-relevant settings win over local config, both of
+                    // them: a replay of a run played WITHOUT space-skip must not start skipping words
+                    // because the watcher turned the setting on, and vice versa. Every replay recorded
+                    // before the setting existed carries bit 1 = 0, which decodes to false, i.e. to
+                    // exactly the model those runs were played under.
                     engine.AllowWrongInput = frame.AllowWrongInput;
+                    engine.SpaceSkipsWord = frame.SpaceSkipsWord;
                     return;
                 }
 
