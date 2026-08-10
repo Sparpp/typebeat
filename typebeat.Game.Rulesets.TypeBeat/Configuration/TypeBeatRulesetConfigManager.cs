@@ -80,17 +80,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// is treated as an installed system-font family. Unknown or failed fonts fall back to the
         /// default. Only the typing surface is affected; the rest of the UI keeps its default fonts.
         /// </summary>
-        LyricFont,
-
-        /// <summary>
-        /// Song-paced held-key repeat (see <c>Gameplay.HeldKeyRepeater</c>): holding a character key
-        /// re-types it at the cadence the song sings the line at, so runs of the same letter can be
-        /// sustained instead of hammered. Off by default (backlog 57): with the setting off, holding
-        /// a key behaves exactly as if the feature did not exist, only the initial press is judged.
-        /// Bound live by the playfield to the repeater's own Enabled bindable, so toggling applies
-        /// immediately (disabling mid-hold cancels the hold rather than stranding it).
-        /// </summary>
-        HeldKeyRepeat
+        LyricFont
     }
 
     /// <summary>Monkeytype's caret styles. <see cref="Line"/> is the classic 3px beam.</summary>
@@ -163,7 +153,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.AllowWrongInput, false);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
-            SetDefault(TypeBeatRulesetSetting.HeldKeyRepeat, false);
         }
     }
 }
