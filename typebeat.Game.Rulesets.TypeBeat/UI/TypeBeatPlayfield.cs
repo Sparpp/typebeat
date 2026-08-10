@@ -263,6 +263,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // char reaches it as nothing at all (backlog 109): its cell's result is deferred, so the
             // HP cost of a typo is likewise deferred to the seal that misses it, and a typo the
             // player fixes costs no HP, which is the same statement the score account makes.
+            //
+            // A typed-through wrong char has just had its combo break taken by hand, one event
+            // earlier, in onMistyped. Record that against the CELL (backlog 122) so the deferred
+            // Miss it eventually resolves with, at the seal or at a word skip, does not break combo
+            // a second time after the player has rebuilt a run through the rest of the line.
+            if (TypeBeatResultMapping.PrepaysCellComboBreak(judgement.Type, TypoRule.Deferred))
+                (scoreProcessor as TypeBeatScoreProcessor)?.PrepayComboBreak(judgement.LineIndex, judgement.CellIndex);
+
             if (lineDrawables.TryGetValue(judgement.LineIndex, out var line))
                 line.ApplyCharJudgement(judgement);
 
@@ -293,6 +301,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// has always made: <c>Combo</c> is a plain bindable, whereas a result would also move
         /// <c>HighestCombo</c>, the judged count and accuracy. <c>HighestCombo</c> needs no update
         /// because it only ever grows and this only shrinks <c>Combo</c>.</para>
+        ///
+        /// <para>This is the ONLY break a wrong keypress costs (backlog 122). The cell's deferred
+        /// Miss is still a Miss, so osu would break combo on it again at the seal; <c>onCharJudged</c>
+        /// prepays the cell against that (<see cref="TypeBeatScoreProcessor.PrepayComboBreak"/>).</para>
         /// </summary>
         private void onMistyped()
         {

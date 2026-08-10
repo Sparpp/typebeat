@@ -59,7 +59,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <item><c>CharJudged</c> resolves the cell with
     /// <see cref="TypeBeatResultMapping.CellResult"/>, the same call the drawable makes, and the
     /// FIRST result on a cell wins (<c>DrawableTypeBeatCharObject.ApplyEngineResult</c> drops every
-    /// later one).</item>
+    /// later one). A typed-through wrong char resolves nothing and instead PREPAYS its cell's combo
+    /// break (<see cref="TypeBeatResultMapping.PrepaysCellComboBreak"/>, backlog 122), the same call
+    /// <c>TypeBeatPlayfield.onCharJudged</c> makes.</item>
     /// <item><c>LineSealed</c> misses every still-unresolved cell of the line, then resolves the
     /// line itself scoring-inert (<c>ApplySealResults</c>).</item>
     /// <item><c>Mistyped</c> counts the mistype and, under <see cref="TypoRule.Deferred"/>, mirrors
@@ -131,6 +133,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             void onCharJudged(CharJudgement judgement)
             {
+                // The drawable layer's prepayment seam (TypeBeatPlayfield.onCharJudged): a
+                // typed-through wrong char has just paid its combo break at the keypress, so the
+                // deferred Miss its cell resolves with must not pay it again (backlog 122).
+                if (TypeBeatResultMapping.PrepaysCellComboBreak(judgement.Type, rule))
+                    scoreProcessor.PrepayComboBreak(judgement.LineIndex, judgement.CellIndex);
+
                 if (TypeBeatResultMapping.CellResult(judgement.Type, rule) is HitResult result)
                     cells.Resolve(scoreProcessor, judgement.LineIndex, judgement.CellIndex, result);
 

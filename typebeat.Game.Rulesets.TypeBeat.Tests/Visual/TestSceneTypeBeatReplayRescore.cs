@@ -137,6 +137,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 frames.Add(new TypeBeatReplayFrame(engine.Lines[0].Cells[index].TargetTime, TypeBeatReplayFrame.BACKSPACE));
         });
 
+        /// <summary>Run line 0 out of time so it seals, which costs no keystroke and no frame.</summary>
+        private void sealLineZero() => AddStep("run line 0 out of time", () => engine.Update(line_zero_end + 1));
+
+        /// <summary>Type line 1's single cell, at the moment the seal ran the clock to.</summary>
+        private void typeLineOneCell()
+        {
+            AddUntilStep("line 1 active", () => engine.ActiveLineIndex == 1);
+            AddStep("type line 1's cell", () => press(engine.Lines[1].Cells[0].Expected, line_zero_end + 1));
+        }
+
         /// <summary>
         /// Exactly what <c>TypeBeatKeyHandler</c> does for one keystroke: advance the engine to the
         /// press time, judge, and record the pair if the engine actually consumed it.
@@ -219,6 +229,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("the abandoned cell took its miss, and line 1 its own", () =>
                 liveStatistics.Single(kvp => kvp.Key == HitResult.Miss).Value == 2);
+
+            compare();
+        }
+
+        /// <summary>
+        /// The uncorrected typo with line 1 typed as well, which is the run backlog 122 changed and
+        /// the only shape on which its prepayment is observable at all. In the scene above line 1 is
+        /// never typed, so its own miss breaks the combo whatever the seal did; here the run has to
+        /// survive the seal and extend to 10.
+        ///
+        /// <para>That makes this the scene that would catch the two wirings of the prepayment coming
+        /// apart, the live <c>TypeBeatPlayfield.onCharJudged</c> and the harness's own
+        /// <c>onCharJudged</c>: they address the same cell by (line, cell), and if either stopped
+        /// prepaying, its max_combo would drop to 9 and the equality below would fail.</para>
+        /// </summary>
+        [Test]
+        public void TestAComboCarriedAcrossASealRescoresToTheLivePlayersAccount()
+        {
+            loadPlayer();
+
+            typeCorrectly(0, 2);
+            typeTypoOnCell(2);
+            typeCorrectly(3, 12);
+            sealLineZero();
+            typeLineOneCell();
+            runTheMapOut();
+
+            AddAssert("the run survived the seal and took line 1's cell", () => liveMaxCombo == 10);
 
             compare();
         }

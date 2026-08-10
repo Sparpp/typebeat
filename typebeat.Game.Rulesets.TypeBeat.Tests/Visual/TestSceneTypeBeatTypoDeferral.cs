@@ -118,6 +118,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private void sealLineZero() => AddStep("run line 0 out of time", () => engine.Update(line_zero_end + 1));
 
         /// <summary>
+        /// Type line 1's single cell, at the moment the seal ran the clock to. Line 1 is not sealed
+        /// afterwards, so the play stays open and the submitted account stays readable.
+        /// </summary>
+        private void typeLineOneCell()
+        {
+            AddUntilStep("line 1 active", () => engine.ActiveLineIndex == 1);
+            AddStep("type line 1's cell", () => engine.ProcessKey(engine.Lines[1].Cells[0].Expected, line_zero_end + 1));
+        }
+
+        /// <summary>
         /// The typo left uncorrected. It costs a mistype at the keypress and a miss at the seal, and
         /// the two land at the right MOMENTS: the combo break with the keypress, the cell's Miss with
         /// the seal. That the play ends up paying for both is the deliberate trade of this design
@@ -158,6 +168,80 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("completion and rank cost exactly one cell", () =>
                 TypeBeatScoreProcessor.ComputeCompletion(statistics) == 11 / 12.0
+                && Player.ScoreProcessor.Rank.Value == ScoreRank.A);
+        }
+
+        /// <summary>
+        /// Backlog 122, against the real <c>Player</c>: the combo run the player builds through the
+        /// rest of the line after an uncorrected typo SURVIVES the seal and carries into the next
+        /// line. The break belongs to the keypress, and it happens once.
+        ///
+        /// <para>Backlog 109 had left it happening twice. The keypress break is mirrored by hand
+        /// (<c>onMistyped</c>) because the deferred cell has no result to carry it, but the cell's
+        /// deferred result is still a <see cref="HitResult.Miss"/>, and osu resets
+        /// <c>Combo</c> on every result that <c>BreaksCombo</c>. So the seal cut the run a second
+        /// time, nine cells after the mistake, which is strictly harsher than the single pre-109
+        /// break the deferral was supposed to be no worse than.</para>
+        ///
+        /// <para>Read off <c>HighestCombo</c>, which is the number the client SUBMITS as
+        /// <c>max_combo</c>, not off the engine's live HUD combo: they are separate accounts, and
+        /// only one of them reaches the leaderboards.</para>
+        /// </summary>
+        [Test]
+        public void TestTheComboRunAfterAnUncorrectedTypoSurvivesTheSeal()
+        {
+            loadPlayer();
+
+            typeCorrectly(0, 2);
+            typeTypoOnCell(2);
+            typeCorrectly(3, 12);
+
+            AddAssert("nine cells rebuilt after the typo", () =>
+                Player.ScoreProcessor.Combo.Value == 9 && Player.ScoreProcessor.HighestCombo.Value == 9);
+
+            sealLineZero();
+
+            AddUntilStep("the abandoned cell took its miss", () => statistics.GetValueOrDefault(HitResult.Miss) == 1);
+            AddAssert("...and the run it landed on is still standing", () => Player.ScoreProcessor.Combo.Value == 9);
+
+            typeLineOneCell();
+
+            // THE assertion. Ten: nine cells of line 0 after the typo, plus line 1's. Before backlog
+            // 122 the seal had reset the run, so line 1's cell started again from 1 and the play
+            // submitted 9.
+            AddAssert("the submitted max_combo carries across the seal", () => Player.ScoreProcessor.HighestCombo.Value == 10);
+        }
+
+        /// <summary>
+        /// The other half of backlog 122: what it must NOT move. The cell still MISSES, so the
+        /// mistype count, the miss count, accuracy, completion and the rank of that exact play all
+        /// read what they read before. Only the combo the later judgements are weighted by changed,
+        /// which is why no pp constant moves either.
+        /// </summary>
+        [Test]
+        public void TestTheUncorrectedTypoAccountIsUnchangedApartFromCombo()
+        {
+            loadPlayer();
+
+            typeCorrectly(0, 2);
+            typeTypoOnCell(2);
+            typeCorrectly(3, 12);
+            sealLineZero();
+            typeLineOneCell();
+
+            AddUntilStep("twelve cells typed, one missed", () =>
+                statistics.GetValueOrDefault(HitResult.Great) == 12
+                && statistics.GetValueOrDefault(HitResult.Miss) == 1);
+
+            AddAssert("no other judgement tier appeared", () =>
+                statistics.GetValueOrDefault(HitResult.Ok) == 0 && statistics.GetValueOrDefault(HitResult.Meh) == 0);
+
+            AddAssert("the mistype is still counted, exactly once", () =>
+                statistics.GetValueOrDefault(HitResult.ComboBreak) == 1);
+
+            AddAssert("accuracy, completion and rank cost exactly one cell", () =>
+                Player.ScoreProcessor.Accuracy.Value == 12 / 13.0
+                && TypeBeatScoreProcessor.ComputeCompletion(statistics) == 12 / 13.0
                 && Player.ScoreProcessor.Rank.Value == ScoreRank.A);
         }
 
