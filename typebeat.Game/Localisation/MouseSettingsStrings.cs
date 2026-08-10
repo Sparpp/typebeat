@@ -15,11 +15,6 @@ namespace typebeat.Game.Localisation
         public static LocalisableString Mouse => new TranslatableString(getKey(@"mouse"), @"Mouse");
 
         /// <summary>
-        /// "Not applicable in full screen mode"
-        /// </summary>
-        public static LocalisableString NotApplicableFullscreen => new TranslatableString(getKey(@"not_applicable_full_screen"), @"Not applicable in full screen mode");
-
-        /// <summary>
         /// "High precision mouse"
         /// </summary>
         public static LocalisableString HighPrecisionMouse => new TranslatableString(getKey(@"high_precision_mouse"), @"High precision mouse");
@@ -28,21 +23,6 @@ namespace typebeat.Game.Localisation
         /// "Attempts to bypass any operating system mouse acceleration. On Windows, this is equivalent to what used to be known as &quot;Raw Input&quot;."
         /// </summary>
         public static LocalisableString HighPrecisionMouseTooltip => new TranslatableString(getKey(@"high_precision_mouse_tooltip"), @"Attempts to bypass any operating system mouse acceleration. On Windows, this is equivalent to what used to be known as ""Raw Input"".");
-
-        /// <summary>
-        /// "Confine mouse cursor to window"
-        /// </summary>
-        public static LocalisableString ConfineMouseMode => new TranslatableString(getKey(@"confine_mouse_mode"), @"Confine mouse cursor to window");
-
-        /// <summary>
-        /// "Disable mouse wheel adjusting volume during gameplay"
-        /// </summary>
-        public static LocalisableString DisableMouseWheelVolumeAdjust => new TranslatableString(getKey(@"disable_mouse_wheel_volume_adjust"), @"Disable mouse wheel adjusting volume during gameplay");
-
-        /// <summary>
-        /// "Volume can still be adjusted using the mouse wheel by holding &quot;Alt&quot;"
-        /// </summary>
-        public static LocalisableString DisableMouseWheelVolumeAdjustTooltip => new TranslatableString(getKey(@"disable_mouse_wheel_volume_adjust_tooltip"), @"Volume can still be adjusted using the mouse wheel by holding ""Alt""");
 
         /// <summary>
         /// "Disable clicks during gameplay"
@@ -78,12 +58,6 @@ namespace typebeat.Game.Localisation
         /// "Never"
         /// </summary>
         public static LocalisableString NeverConfine => new TranslatableString(getKey(@"never_confine"), @"Never");
-
-        /// <summary>
-        /// "Looking to change your pen tablet&#39;s sensitivity? Search for pen sensitivity instead."
-        /// </summary>
-        public static LocalisableString CursorSensitivityForTabletsElsewhere => new TranslatableString(getKey(@"cursor_sensitivity_for_tablets_elsewhere"),
-            @"Looking to change your pen tablet's sensitivity? Search for pen sensitivity instead.");
 
         private static string getKey(string key) => $@"{prefix}:{key}";
     }

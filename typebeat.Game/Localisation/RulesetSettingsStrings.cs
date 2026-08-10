@@ -10,11 +10,6 @@ namespace typebeat.Game.Localisation
         private const string prefix = @"typebeat.Game.Resources.Localisation.RulesetSettings";
 
         /// <summary>
-        /// "Rulesets"
-        /// </summary>
-        public static LocalisableString Rulesets => new TranslatableString(getKey(@"rulesets"), @"Rulesets");
-
-        /// <summary>
         /// "Snaking in sliders"
         /// </summary>
         public static LocalisableString SnakingInSliders => new TranslatableString(getKey(@"snaking_in_sliders"), @"Snaking in sliders");

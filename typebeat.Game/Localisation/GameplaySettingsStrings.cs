@@ -20,11 +20,6 @@ namespace typebeat.Game.Localisation
         public static LocalisableString BeatmapHeader => new TranslatableString(getKey(@"beatmap_header"), @"Beatmap");
 
         /// <summary>
-        /// "Audio"
-        /// </summary>
-        public static LocalisableString AudioHeader => new TranslatableString(getKey(@"audio"), @"Audio");
-
-        /// <summary>
         /// "HUD"
         /// </summary>
         public static LocalisableString HUDHeader => new TranslatableString(getKey(@"h_u_d"), @"HUD");
@@ -75,11 +70,6 @@ namespace typebeat.Game.Localisation
         public static LocalisableString FadePlayfieldWhenHealthLow => new TranslatableString(getKey(@"fade_playfield_when_health_low"), @"Fade playfield to red when health is low");
 
         /// <summary>
-        /// "Star fountains"
-        /// </summary>
-        public static LocalisableString StarFountains => new TranslatableString(getKey(@"star_fountains"), @"Star fountains");
-
-        /// <summary>
         /// "Always show key overlay"
         /// </summary>
         public static LocalisableString AlwaysShowKeyOverlay => new TranslatableString(getKey(@"key_overlay"), @"Always show key overlay");
@@ -98,11 +88,6 @@ namespace typebeat.Game.Localisation
         /// "Require holding key to pause gameplay"
         /// </summary>
         public static LocalisableString AlwaysRequireHoldForMenu => new TranslatableString(getKey(@"require_holding_key_to_pause_gameplay"), @"Require holding key to pause gameplay");
-
-        /// <summary>
-        /// "Always play first combo break sound"
-        /// </summary>
-        public static LocalisableString AlwaysPlayFirstComboBreak => new TranslatableString(getKey(@"always_play_first_combo_break"), @"Always play first combo break sound");
 
         /// <summary>
         /// "Score display mode"

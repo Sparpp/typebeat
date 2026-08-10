@@ -30,16 +30,8 @@ namespace typebeat.Game.Overlays.Settings.Sections.Gameplay
                     Keywords = new[] { "scoring" },
                     ApplyClassicDefault = c => ((IHasCurrentValue<ScoringMode>)c).Current.Value = ScoringMode.Classic,
                 },
-                new SettingsItemV2(new FormCheckBox
-                {
-                    Caption = GraphicsSettingsStrings.HitLighting,
-                    Current = config.GetBindable<bool>(OsuSetting.HitLighting)
-                }),
-                new SettingsItemV2(new FormCheckBox
-                {
-                    Caption = GameplaySettingsStrings.StarFountains,
-                    Current = config.GetBindable<bool>(OsuSetting.StarFountains)
-                }),
+                // Hit lighting and star fountains are not surfaced; both keys keep their
+                // configured defaults (OsuSetting.HitLighting, OsuSetting.StarFountains).
             };
         }
     }

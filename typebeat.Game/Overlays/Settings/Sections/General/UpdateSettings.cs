@@ -1,17 +1,12 @@
-﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using System.Threading.Tasks;
-using osu.Framework;
 using osu.Framework.Allocation;
-using osu.Framework.Bindables;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Localisation;
-using typebeat.Game.Configuration;
-using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Localisation;
 using typebeat.Game.Online.Multiplayer;
-using typebeat.Game.Overlays.Dialog;
 using typebeat.Game.Overlays.Notifications;
 using typebeat.Game.Updater;
 
@@ -22,11 +17,6 @@ namespace typebeat.Game.Overlays.Settings.Sections.General
         protected override LocalisableString Header => GeneralSettingsStrings.UpdateHeader;
 
         private SettingsButtonV2 checkForUpdatesButton = null!;
-        private FormEnumDropdown<ReleaseStream> releaseStreamDropdown = null!;
-
-        private readonly Bindable<SettingsNote.Data?> releaseStreamDropdownNote = new Bindable<SettingsNote.Data?>();
-
-        private readonly Bindable<ReleaseStream> configReleaseStream = new Bindable<ReleaseStream>();
 
         [Resolved]
         private UpdateManager? updateManager { get; set; }
@@ -37,63 +27,16 @@ namespace typebeat.Game.Overlays.Settings.Sections.General
         [Resolved]
         private OsuGame? game { get; set; }
 
-        [Resolved]
-        private IDialogOverlay? dialogOverlay { get; set; }
-
         [BackgroundDependencyLoader]
-        private void load(OsuConfigManager config)
+        private void load()
         {
-            config.BindWith(OsuSetting.ReleaseStream, configReleaseStream);
-
-            bool isDesktop = RuntimeInfo.IsDesktop;
-
-            // For simplicity, hide the concept of release streams from mobile users.
-            if (isDesktop)
-            {
-                Add(new SettingsItemV2(releaseStreamDropdown = new FormEnumDropdown<ReleaseStream>
-                {
-                    Caption = GeneralSettingsStrings.ReleaseStream,
-                    Current = { Value = configReleaseStream.Value },
-                })
-                {
-                    Keywords = new[] { @"version" },
-                    ShowRevertToDefaultButton = updateManager!.FixedReleaseStream == null
-                });
-
-                if (updateManager!.FixedReleaseStream != null)
-                {
-                    configReleaseStream.Value = updateManager.FixedReleaseStream.Value;
-
-                    releaseStreamDropdown.Items = [updateManager.FixedReleaseStream.Value];
-                    releaseStreamDropdownNote.Value = new SettingsNote.Data(GeneralSettingsStrings.ChangeReleaseStreamPackageManagerWarning, SettingsNote.Type.Warning);
-                }
-
-                releaseStreamDropdown.Current.BindValueChanged(releaseStreamChanged);
-            }
-
+            // Release stream selection is deliberately not surfaced: the stream stays at whatever
+            // OsuSetting.ReleaseStream defaults to (or whatever the update manager pins it to).
             Add(checkForUpdatesButton = new SettingsButtonV2
             {
                 Text = GeneralSettingsStrings.CheckUpdate,
                 Action = () => checkForUpdates().FireAndForget()
             });
-        }
-
-        private void releaseStreamChanged(ValueChangedEvent<ReleaseStream> stream)
-        {
-            if (stream.NewValue == ReleaseStream.Tachyon)
-            {
-                dialogOverlay?.Push(
-                    new ConfirmDialog(GeneralSettingsStrings.ChangeReleaseStreamConfirmation,
-                        () => configReleaseStream.Value = ReleaseStream.Tachyon,
-                        () => releaseStreamDropdown.Current.Value = ReleaseStream.Lazer)
-                    {
-                        BodyText = GeneralSettingsStrings.ChangeReleaseStreamConfirmationInfo
-                    });
-
-                return;
-            }
-
-            configReleaseStream.Value = stream.NewValue;
         }
 
         private async Task checkForUpdates()

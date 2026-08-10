@@ -26,7 +26,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// </summary>
     public partial class TypeBeatSettingsSubsection : RulesetSettingsSubsection
     {
-        protected override LocalisableString Header => "type!beat";
+        // Blank: the enclosing settings section is itself titled "type!beat", so a subsection
+        // heading here would just repeat it. CreateHeader is suppressed so no gap is left.
+        protected override LocalisableString Header => default;
+
+        protected override Drawable CreateHeader() => Empty();
 
         [Resolved(CanBeNull = true)]
         private ILocalAlignerManager? alignerManager { get; set; }

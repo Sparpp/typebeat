@@ -4,7 +4,6 @@
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using typebeat.Game.Localisation;
-using typebeat.Game.Rulesets;
 
 namespace typebeat.Game.Overlays.Settings.Sections.Input
 {
@@ -13,12 +12,11 @@ namespace typebeat.Game.Overlays.Settings.Sections.Input
         protected override Drawable CreateHeader() => new SettingsHeader(InputSettingsStrings.KeyBindingPanelHeader, InputSettingsStrings.KeyBindingPanelDescription);
 
         [BackgroundDependencyLoader(permitNulls: true)]
-        private void load(RulesetStore rulesets)
+        private void load()
         {
+            // Per-ruleset binding sections are not surfaced: the sole ruleset's variant bindings
+            // are the two default buttons, which are not worth a section of their own.
             AddSection(new GlobalKeyBindingsSection());
-
-            foreach (var ruleset in rulesets.AvailableRulesets)
-                AddSection(new RulesetBindingsSection(ruleset));
         }
     }
 }

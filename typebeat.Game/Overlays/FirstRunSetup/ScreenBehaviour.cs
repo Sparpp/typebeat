@@ -79,15 +79,13 @@ namespace typebeat.Game.Overlays.FirstRunSetup
                     {
                         // This list should be kept in sync with SettingsOverlay.
                         new GeneralSection(),
-                        new SkinSection(),
                         // InputSection is intentionally omitted for now due to its sub-panel being a pain to set up.
                         new UserInterfaceSection(),
                         new GameplaySection(),
                         new RulesetSection(),
                         new AudioSection(),
                         new GraphicsSection(),
-                        new MaintenanceSection(),
-                        new DebugSection()
+                        new MaintenanceSection()
                     },
                     SearchTerm = SettingsItem<bool>.CLASSIC_DEFAULT_SEARCH_TERM,
                 }

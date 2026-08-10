@@ -30,11 +30,6 @@ namespace typebeat.Game.Localisation
         public static LocalisableString OutputDevice => new TranslatableString(getKey(@"output_device"), @"Output device");
 
         /// <summary>
-        /// "Hitsound stereo separation"
-        /// </summary>
-        public static LocalisableString PositionalLevel => new TranslatableString(getKey(@"positional_hitsound_audio_level"), @"Hitsound stereo separation");
-
-        /// <summary>
         /// "Master"
         /// </summary>
         public static LocalisableString MasterVolume => new TranslatableString(getKey(@"master_volume"), @"Master");

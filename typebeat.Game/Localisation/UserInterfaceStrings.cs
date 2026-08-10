@@ -75,11 +75,6 @@ namespace typebeat.Game.Localisation
         public static LocalisableString SeasonalBackgrounds => new TranslatableString(getKey(@"seasonal_backgrounds"), @"Seasonal backgrounds");
 
         /// <summary>
-        /// "Changes to this setting will only apply with an active type!beatsupporter tag."
-        /// </summary>
-        public static LocalisableString NotSupporterNote => new TranslatableString(getKey(@"not_supporter_note"), @"Changes to this setting will only apply with an active type!beatsupporter tag.");
-
-        /// <summary>
         /// "Song Select"
         /// </summary>
         public static LocalisableString SongSelectHeader => new TranslatableString(getKey(@"song_select_header"), @"Song Select");

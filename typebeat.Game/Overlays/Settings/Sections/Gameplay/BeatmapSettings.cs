@@ -2,7 +2,6 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using osu.Framework.Allocation;
-using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Localisation;
 using typebeat.Game.Configuration;
@@ -15,13 +14,9 @@ namespace typebeat.Game.Overlays.Settings.Sections.Gameplay
     {
         protected override LocalisableString Header => GameplaySettingsStrings.BeatmapHeader;
 
-        private readonly BindableFloat comboColourNormalisation = new BindableFloat();
-
         [BackgroundDependencyLoader]
         private void load(OsuConfigManager config)
         {
-            config.BindWith(OsuSetting.ComboColourNormalisationAmount, comboColourNormalisation);
-
             Children = new Drawable[]
             {
                 new SettingsItemV2(new FormCheckBox
@@ -50,15 +45,8 @@ namespace typebeat.Game.Overlays.Settings.Sections.Gameplay
                     Caption = GraphicsSettingsStrings.StoryboardVideo,
                     Current = config.GetBindable<bool>(OsuSetting.ShowStoryboard)
                 }),
-                new SettingsItemV2(new FormSliderBar<float>
-                {
-                    Caption = GraphicsSettingsStrings.ComboColourNormalisation,
-                    Current = comboColourNormalisation,
-                    DisplayAsPercentage = true,
-                })
-                {
-                    Keywords = new[] { "color" },
-                },
+                // Combo colour normalisation is not surfaced here any more; it remains adjustable
+                // from the in-game visual settings panel.
             };
         }
     }
