@@ -69,7 +69,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         /// <para>The combo break the mistype costs therefore has no result to travel on, and is
         /// mirrored into the score processor by hand on <see cref="TypingEngine.Mistyped"/> instead
         /// (see <c>TypeBeatPlayfield.onMistyped</c>). That is the seam a REJECTED key has always
-        /// used, so the two input models now account for a wrong keypress identically.</para>
+        /// used, so the two input models now account for a wrong keypress identically. The cell is
+        /// PREPAID at the same moment (backlog 122) so that the deferred Miss, when it lands, misses
+        /// the cell without breaking combo a second time.</para>
         /// </summary>
         public void ApplyCharJudgement(CharJudgement judgement)
         {

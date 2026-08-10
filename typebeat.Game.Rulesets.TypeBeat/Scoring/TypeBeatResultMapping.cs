@@ -18,6 +18,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// nothing. Correct the cell and the retype earns its real Great/Ok/Meh, leave it and the
         /// seal misses it. The combo break the keypress costs rides on
         /// <see cref="TypingEngine.Mistyped"/>, because no result exists to carry it.
+        ///
+        /// <para>Since backlog 122 it also means "and ONLY at the keypress": the deferred Miss is
+        /// still a Miss, so it would otherwise break combo a second time at the seal. See
+        /// <see cref="TypeBeatResultMapping.PrepaysCellComboBreak"/>.</para>
         /// </summary>
         Deferred,
 
@@ -102,5 +106,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// combo by hand.
         /// </summary>
         public static bool MistypeCarriesTheComboBreak(TypoRule rule) => rule == TypoRule.Deferred;
+
+        /// <summary>
+        /// Whether this char judgement PREPAYS its cell's combo break, i.e. the break is taken now,
+        /// at the keypress, and the result the cell eventually resolves with must not take it again
+        /// (backlog 122).
+        ///
+        /// <para>Only a typed-through wrong char under <see cref="TypoRule.Deferred"/> can be in
+        /// this position, and it is the exact hole backlog 109 left. Deferring the cell's result
+        /// meant the break had to be mirrored by hand at the keypress, but the deferred result is
+        /// still a <see cref="HitResult.Miss"/> when nobody fixes the cell, and osu breaks combo on
+        /// every Miss. So one uncorrected typo cost TWO breaks: one at the keypress and one at the
+        /// seal, AFTER the player had rebuilt a run through the rest of the line. That is strictly
+        /// harsher than the pre-109 single break the deferral was meant to be no worse than, and
+        /// backlog 114's replay recalculation measured it as the dominant reason stored scores lose
+        /// <c>total_score</c> and <c>max_combo</c>.</para>
+        ///
+        /// <para>Under <see cref="TypoRule.ImmediateMiss"/> nothing prepays: the cell's Miss lands
+        /// at the keypress and IS the break, so there is never a second one to suppress. The two
+        /// rules therefore now agree that an uncorrected typo breaks combo exactly once, at the
+        /// keypress; where they still differ is the CORRECTED typo, whose cell only Deferred can
+        /// recover.</para>
+        ///
+        /// <para>The prepayment is per CELL, not per seal: it is redeemed by whatever result the
+        /// cell finally takes, which is the seal's Miss in the ordinary case and the word-skip's
+        /// immediate Miss when the player abandons the word instead. Both are the same statement,
+        /// "this cell was never fixed", and both follow a break that has already been paid.</para>
+        /// </summary>
+        public static bool PrepaysCellComboBreak(JudgementType type, TypoRule rule)
+            => type == JudgementType.WrongChar && rule == TypoRule.Deferred;
     }
 }
