@@ -1,4 +1,4 @@
-﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 #nullable disable
@@ -6,14 +6,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using JetBrains.Annotations;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Cursor;
-using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Localisation;
 using osu.Framework.Logging;
@@ -28,18 +26,17 @@ using osuTK;
 using Realms;
 using WebCommonStrings = typebeat.Game.Resources.Localisation.Web.CommonStrings;
 
-namespace typebeat.Game.Overlays.Settings.Sections
+namespace typebeat.Game.Overlays.Settings.Sections.UserInterface
 {
-    public partial class SkinSection : SettingsSection
+    /// <summary>
+    /// Skin selection and management. This used to be a section of its own; it now leads the
+    /// User Interface section.
+    /// </summary>
+    public partial class SkinSettings : SettingsSubsection
     {
         private SkinDropdown skinDropdown;
 
-        public override LocalisableString Header => SkinSettingsStrings.SkinSectionHeader;
-
-        public override Drawable CreateIcon() => new SpriteIcon
-        {
-            Icon = OsuIcon.SkinB
-        };
+        protected override LocalisableString Header => SkinSettingsStrings.SkinSectionHeader;
 
         public override IEnumerable<LocalisableString> FilterTerms => base.FilterTerms.Concat(new LocalisableString[] { "skins" });
 

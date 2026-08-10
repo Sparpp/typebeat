@@ -35,20 +35,18 @@ namespace typebeat.Game.Overlays
             {
                 // This list should be kept in sync with ScreenBehaviour.
                 new GeneralSection(),
-                new SkinSection(),
                 new InputSection(createSubPanel(new KeyBindingPanel())),
                 new UserInterfaceSection(),
                 new GameplaySection(),
                 new RulesetSection(),
                 new AudioSection(),
                 new GraphicsSection(),
-                new MaintenanceSection(),
-                new DebugSection()
+                new MaintenanceSection()
             };
 
             var today = DateTimeOffset.Now;
             if (today.Month == 4 && today.Day == 1)
-                sections.Insert(9, new AfToggleSection());
+                sections.Insert(8, new AfToggleSection());
 
             return sections;
         }

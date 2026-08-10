@@ -10,7 +10,9 @@ namespace typebeat.Game.Overlays.Settings.Sections.DebugSettings
 {
     public partial class GeneralSettings : SettingsSubsection
     {
-        protected override LocalisableString Header => @"General";
+        // Named "Debug" rather than "General" because this subsection now sits inside the
+        // Maintenance section, which already has a General subsection of its own.
+        protected override LocalisableString Header => @"Debug";
 
         [BackgroundDependencyLoader]
         private void load(FrameworkDebugConfigManager config, FrameworkConfigManager frameworkConfig)

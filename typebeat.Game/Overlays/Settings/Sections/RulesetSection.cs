@@ -8,14 +8,15 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Localisation;
 using typebeat.Game.Graphics;
-using typebeat.Game.Localisation;
 using typebeat.Game.Rulesets;
 
 namespace typebeat.Game.Overlays.Settings.Sections
 {
     public partial class RulesetSection : SettingsSection
     {
-        public override LocalisableString Header => RulesetSettingsStrings.Rulesets;
+        // There is only one ruleset, so the section carries its name directly rather than the
+        // generic "Rulesets" heading (its subsection heading is blank for the same reason).
+        public override LocalisableString Header => @"type!beat";
 
         public override Drawable CreateIcon() => new SpriteIcon
         {

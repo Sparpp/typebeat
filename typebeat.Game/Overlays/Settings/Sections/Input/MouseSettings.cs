@@ -1,16 +1,13 @@
-﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using osu.Framework;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
-using osu.Framework.Configuration;
 using osu.Framework.Graphics;
 using osu.Framework.Input.Handlers.Mouse;
 using osu.Framework.Localisation;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics.UserInterfaceV2;
-using typebeat.Game.Input;
 using typebeat.Game.Localisation;
 
 namespace typebeat.Game.Overlays.Settings.Sections.Input
@@ -23,9 +20,6 @@ namespace typebeat.Game.Overlays.Settings.Sections.Input
 
         private Bindable<double> handlerSensitivity = null!;
         private Bindable<double> localSensitivity = null!;
-        private Bindable<WindowMode> windowMode = null!;
-        private Bindable<bool> minimiseOnFocusLoss = null!;
-        private FormEnumDropdown<OsuConfineMouseMode> confineMouseModeSetting = null!;
         private Bindable<bool> relativeMode = null!;
 
         private FormCheckBox highPrecisionMouse = null!;
@@ -41,15 +35,13 @@ namespace typebeat.Game.Overlays.Settings.Sections.Input
         }
 
         [BackgroundDependencyLoader]
-        private void load(OsuConfigManager osuConfig, FrameworkConfigManager config)
+        private void load()
         {
             // use local bindable to avoid changing enabled state of game host's bindable.
             handlerSensitivity = mouseHandler.Sensitivity.GetBoundCopy();
             localSensitivity = handlerSensitivity.GetUnboundCopy();
 
             relativeMode = mouseHandler.UseRelativeMode.GetBoundCopy();
-            windowMode = config.GetBindable<WindowMode>(FrameworkSetting.WindowMode);
-            minimiseOnFocusLoss = config.GetBindable<bool>(FrameworkSetting.MinimiseOnFocusLossInFullscreen);
 
             AddRange(new Drawable[]
             {
@@ -74,24 +66,7 @@ namespace typebeat.Game.Overlays.Settings.Sections.Input
                 })
                 {
                     Keywords = new[] { "speed", "velocity" },
-                    Note = { Value = FrameworkEnvironment.UseSDL3 ? new SettingsNote.Data(MouseSettingsStrings.CursorSensitivityForTabletsElsewhere, SettingsNote.Type.Informational) : null }
                 },
-                new SettingsItemV2(confineMouseModeSetting = new FormEnumDropdown<OsuConfineMouseMode>
-                {
-                    Caption = MouseSettingsStrings.ConfineMouseMode,
-                    Current = osuConfig.GetBindable<OsuConfineMouseMode>(OsuSetting.ConfineMouseMode)
-                }),
-                new SettingsItemV2(new FormCheckBox
-                {
-                    Caption = MouseSettingsStrings.DisableMouseWheelVolumeAdjust,
-                    HintText = MouseSettingsStrings.DisableMouseWheelVolumeAdjustTooltip,
-                    Current = osuConfig.GetBindable<bool>(OsuSetting.MouseDisableWheel)
-                }),
-                new SettingsItemV2(new FormCheckBox
-                {
-                    Caption = MouseSettingsStrings.DisableClicksDuringGameplay,
-                    Current = osuConfig.GetBindable<bool>(OsuSetting.MouseDisableButtons)
-                }),
             });
         }
 
@@ -112,9 +87,6 @@ namespace typebeat.Game.Overlays.Settings.Sections.Input
 
             localSensitivity.BindValueChanged(val => handlerSensitivity.Value = val.NewValue);
 
-            windowMode.BindValueChanged(_ => updateConfineMouseModeSettingVisibility());
-            minimiseOnFocusLoss.BindValueChanged(_ => updateConfineMouseModeSettingVisibility(), true);
-
             highPrecisionMouse.Current.BindValueChanged(highPrecision =>
             {
                 switch (RuntimeInfo.OS)
@@ -130,25 +102,6 @@ namespace typebeat.Game.Overlays.Settings.Sections.Input
                         break;
                 }
             }, true);
-        }
-
-        /// <summary>
-        /// Updates disabled state and tooltip of <see cref="confineMouseModeSetting"/> to match when <see cref="ConfineMouseTracker"/> is overriding the confine mode.
-        /// </summary>
-        private void updateConfineMouseModeSettingVisibility()
-        {
-            bool confineModeOverriden = windowMode.Value == WindowMode.Fullscreen && minimiseOnFocusLoss.Value;
-
-            if (confineModeOverriden)
-            {
-                confineMouseModeSetting.Current.Disabled = true;
-                confineMouseModeSetting.HintText = MouseSettingsStrings.NotApplicableFullscreen;
-            }
-            else
-            {
-                confineMouseModeSetting.Current.Disabled = false;
-                confineMouseModeSetting.HintText = default;
-            }
         }
     }
 }
