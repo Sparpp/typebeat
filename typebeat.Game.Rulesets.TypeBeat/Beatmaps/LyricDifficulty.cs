@@ -42,18 +42,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private const double endurance_weight = 1.5; // how much sustained load adds on top of density
         private const double spike_focus = 14; // w: how sharply the hardest strains dominate
         private const double reference_duration_s = 0.4; // duration weight unit
-        // Maps the aggregate to stars. Anchored on the LIVE RANKED CATALOGUE, not on local
-        // reference maps: measured across all 31 ranked difficulties, "(It Goes Like) Nanana x
-        // Cola [Extreme]" is the hardest thing published and sits at 7.00 here, which leaves real
-        // headroom under max_stars instead of parking the top of the pool against it. An earlier
-        // pass fitted this to a local map harder than anything ranked and cut the whole catalogue
-        // to a mean 0.45 of its old rating; the lesson is that the anchor has to come from what
-        // players can actually play. Stars are LINEAR in this constant, so re-anchoring is a pure
-        // rescale and cannot reorder anything.
-        private const double star_scale = 0.1675;
+        // Maps the aggregate to stars. Calibrated against the LIVE RANKED CATALOGUE rather than
+        // local reference maps: measured across all 31 ranked difficulties, "(It Goes Like)
+        // Nanana x Cola [Extreme]" is the hardest thing published and sits at 7.81 here, leaving
+        // real headroom under max_stars instead of parking the top of the pool against it. An
+        // earlier pass fitted this to a local map harder than anything ranked and cut the whole
+        // catalogue to a mean 0.45 of its old rating; the lesson is that the calibration has to
+        // come from what players can actually play. Stars are LINEAR in this constant, so moving
+        // it alone is a pure rescale and cannot reorder anything (per_char_floor_ms can, and
+        // did).
+        private const double star_scale = 0.23;
         private const double star_power = 1.3; // stretches the hard end so top ratings spread
         private const double max_stars = 10;
-        private const double per_char_floor_ms = 25; // min plausible real-time per typed character; floors a word's window at chars × this (see the strain loop)
+        private const double per_char_floor_ms = 50; // min plausible real-time per typed character; floors a word's window at chars × this (see the strain loop)
         private const double min_span_ms = 50; // floor a word's sung span (cv guard)
         private const double repeat_window_ms = 20_000; // "last 20 seconds" for word repetition
 
@@ -175,7 +176,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 // Time budget for this word: until the next word begins (final word → its own span).
                 double intervalMs = i + 1 < words.Count ? words[i + 1].StartMs - w.StartMs : w.SpanMs / rate;
-                // Per-character floor: typing a word takes at least ~25 ms/char of real time, so its
+                // Per-character floor: typing a word takes at least ~50 ms/char of real time, so its
                 // window can't drop below chars × that. A flat floor treated a 1-char and a 7-char word
                 // alike; over-capping fast multi-char words (exactly what separates a dense "Insane"
                 // ending from a "Hard") while under-guarding crammed long words.
