@@ -182,15 +182,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// A cell of the abandoned word that has already handed the score processor its one result
-        /// keeps it, and since backlog 109 that group is exactly the CORRECT cells: a Great cannot be
-        /// revoked (there is no un-apply). A cell typed WRONG has spent no result at all, only
-        /// deferred one, and abandoning the word is the player deciding it will never be corrected,
-        /// so it is given up here like any other unresolved cell. It keeps CellState.Wrong on screen
-        /// (the line still shows what was typed); only its judgement is decided.
+        /// A cell of the abandoned word that the player FINISHED is not given up, and since backlog
+        /// 124 that group is the correct cells AND the wrong ones. A Great cannot be revoked (there
+        /// is no un-apply); a typo is not a miss, so abandoning the word cannot turn it into one
+        /// either. The wrong cell keeps CellState.Wrong and its deferred result, which the seal
+        /// decides (as an unfixed typo, not a miss), and until then backspacing back into the word
+        /// can still fix it. Backlog 109 had given it up here, because a Miss was then the only fate
+        /// an unfixed typo had.
         /// </summary>
         [Test]
-        public void AWrongCharInTheAbandonedWordIsGivenUpLikeAnyUnresolvedCell()
+        public void AWrongCharInTheAbandonedWordIsNotGivenUp()
         {
             var engine = started(catDog(), spaceSkipsWord: true);
 
@@ -210,17 +211,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual('x', cells[1].TypedChar);
             Assert.AreEqual(CellState.Missed, cells[2].State);
 
-            // Both abandoned cells are announced immediately, so their drawables take their Miss now
-            // instead of at seal time and osu's combo breaks with the engine's.
-            Assert.AreEqual(3, judged.Count); // 'a', 't', then the word gap's own judgement
-            Assert.AreEqual(1, judged[0].CellIndex);
+            // ONLY the untyped 't' is announced: the wrong 'a' is a character the player finished,
+            // so it is not among the cells the skip gives up.
+            Assert.AreEqual(2, judged.Count); // 't', then the word gap's own judgement
+            Assert.AreEqual(2, judged[0].CellIndex);
             Assert.AreEqual(JudgementType.Miss, judged[0].Type);
-            Assert.AreEqual(2, judged[1].CellIndex);
-            Assert.AreEqual(JudgementType.Miss, judged[1].Type);
 
             var results = engine.BuildResults();
 
-            Assert.AreEqual(2, results.Counts[JudgementType.Miss]);      // the wrong 'a' and the untyped 't'
+            Assert.AreEqual(1, results.Counts[JudgementType.Miss]);      // the untyped 't', and only it
             Assert.AreEqual(1, results.Counts[JudgementType.WrongChar]); // 'x' still counted once
             Assert.AreEqual(1, engine.Mistypes);
         }

@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using typebeat.Game.Rulesets.Judgements;
 using typebeat.Game.Rulesets.Scoring;
@@ -15,10 +16,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// typed (any non-miss judgement), instead of accuracy. Typing every character earns an SS even
     /// with wrong-key stumbles and sloppy timing along the way, as long as the stumbles get fixed;
     /// timing quality still shows in accuracy, score and combo, it just no longer gates the grade.
-    /// A cell only costs rank when it ends the line unresolved: never typed, or typed wrong and left
-    /// that way (backlog 109). Both reach here as one <see cref="HitResult.Miss"/> at the seal, but
-    /// only the never-typed one breaks COMBO there: a typo's break was already taken at the keypress
-    /// (backlog 122, see <see cref="PrepayComboBreak"/>).
+    /// A cell only costs rank when the play NEVER FINISHED it: nobody typed it and the line ran out
+    /// of time. A cell typed wrong and left that way is finished, just wrongly, so since backlog 124
+    /// it resolves as <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/> (a hit) rather than a Miss:
+    /// it keeps costing accuracy, the mistype count and the combo break it took at the keypress, and
+    /// stops costing rank and the miss count. It is applied COMBO-NEUTRAL (see
+    /// <see cref="MarkComboNeutral"/>) because that keypress break was the one the cell owed.
     ///
     /// The server mirrors this exactly (typebeat-web ScoringContract.RankFromCompletion); keep
     /// the cutoffs in the two files in sync.
@@ -64,12 +67,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         public const HitResult MISTYPE_RESULT = HitResult.ComboBreak;
 
         /// <summary>
-        /// Cells whose combo break has ALREADY been taken, by hand, at the keypress that spoiled
-        /// them. Keyed by (line, cell), which is what a <see cref="TypeBeatCharObject"/> carries and
-        /// what every judgement stream is routed by, so live play and
+        /// Cells whose combo consequence has ALREADY been taken, by hand, at the keypress that
+        /// spoiled them, so the result they finally resolve with must leave combo exactly as it
+        /// finds it. Keyed by (line, cell), which is what a <see cref="TypeBeatCharObject"/> carries
+        /// and what every judgement stream is routed by, so live play and
         /// <see cref="TypeBeatReplayScorer"/> address exactly the same cells.
         /// </summary>
-        private readonly HashSet<(int lineIndex, int cellIndex)> prepaidComboBreaks = new HashSet<(int, int)>();
+        private readonly HashSet<(int lineIndex, int cellIndex)> comboNeutralCells = new HashSet<(int, int)>();
 
         public TypeBeatScoreProcessor(TypeBeatRuleset ruleset)
             : base(ruleset)
@@ -92,61 +96,100 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             => ScoreResultCounts[MISTYPE_RESULT] = ScoreResultCounts.GetValueOrDefault(MISTYPE_RESULT) + 1;
 
         /// <summary>
-        /// Declares that one cell's combo break is already paid: the caller has just reset
-        /// <see cref="ScoreProcessor.Combo"/> by hand for the keypress that spoiled this cell, so the
-        /// <see cref="HitResult.Miss"/> the cell eventually resolves with must NOT break combo again.
-        /// See <see cref="TypeBeatResultMapping.PrepaysCellComboBreak"/> for the policy and backlog
-        /// 122 for why it exists.
+        /// Declares that the result ABOUT TO BE APPLIED to one cell must leave combo exactly as it
+        /// finds it: neither break it nor extend it, and take its combo-weighted score portion from
+        /// the combo it found. The cell's combo consequence was already taken, by hand, at the
+        /// keypress that spoiled it (<c>TypeBeatPlayfield.onMistyped</c>).
         ///
-        /// <para>Idempotent, and harmless on a cell that goes on to be FIXED: the retype resolves the
-        /// cell with a Great/Ok/Meh, which increases combo and never consults this set.</para>
+        /// <para>Only <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/> is ever marked, and it is
+        /// marked at the seam that applies it (the seal), not at the keypress. That is what keeps a
+        /// CORRECTED typo working: its cell is resolved by the retype's own Great/Ok/Meh, which is
+        /// an ordinary combo-increasing hit and never passes through here, even though the same cell
+        /// carried a wrong char earlier in the play.</para>
+        ///
+        /// <para>Backlog 122 built this ledger to suppress a second combo BREAK, because the
+        /// deferred result was a Miss. Backlog 124 made that result a hit, so there is no second
+        /// break left to suppress; what is left is the mirror-image problem, a hit that would hand
+        /// back a combo increment the player did not earn, and it is the same ledger redeemed in the
+        /// same place.</para>
+        ///
+        /// <para>Idempotent. A mark on a cell that turns out to be already judged (its seal result
+        /// is dropped) is simply never redeemed, and is cleared with the rest at
+        /// <see cref="Reset"/>.</para>
         /// </summary>
-        public void PrepayComboBreak(int lineIndex, int cellIndex) => prepaidComboBreaks.Add((lineIndex, cellIndex));
+        public void MarkComboNeutral(int lineIndex, int cellIndex) => comboNeutralCells.Add((lineIndex, cellIndex));
 
         /// <summary>
-        /// Redeems a prepaid combo break (see <see cref="PrepayComboBreak"/>), which is the ONE
-        /// place the second reset is undone, shared by live play and recalculation because both
-        /// drive this same processor.
+        /// The combo-weighted score portion a result contributes. A combo-neutral cell (see
+        /// <see cref="MarkComboNeutral"/>) is weighted by the combo it FOUND rather than by the one
+        /// the base implementation is about to leave behind, because it is not going to be allowed
+        /// to leave that one behind: <see cref="ApplyScoreChange"/> puts it back.
         ///
-        /// <para>Why here. <see cref="ScoreProcessor.ApplyResultInternal"/> is sealed and resets
-        /// <see cref="ScoreProcessor.Combo"/> for every result whose type
-        /// <see cref="HitResultExtensions.BreaksCombo"/>, which <see cref="HitResult.Miss"/> does and
-        /// must keep doing: swapping the seal's result for anything else would move
-        /// <c>statistics</c>, <c>notes</c>, accuracy, completion and rank, none of which this
-        /// changes. <see cref="ScoreProcessor.ApplyScoreChange"/> is the ruleset hook that runs
-        /// INSIDE that method, after the combo reset and after the combo-weighted score portion has
-        /// been accumulated, and before <c>updateScore</c> (which reads neither
-        /// <c>Combo</c> nor <c>HighestCombo</c>). So restoring here leaves the miss worth exactly
-        /// what it was worth, 0 to the combo portion and one Miss to every count, and changes only
-        /// the combo the NEXT judgement is weighted by.</para>
+        /// <para>This override is needed, rather than a repair afterwards, purely because of
+        /// ORDER: <see cref="ScoreProcessor.ApplyResultInternal"/> accumulates the combo portion
+        /// BEFORE it calls <see cref="ApplyScoreChange"/>, so by the time combo can be restored the
+        /// contribution has already been banked. Weighting an uncorrected typo as though it had
+        /// extended the run, while its combo does not, is the one incoherence available here, and
+        /// this is where it is avoided.</para>
+        /// </summary>
+        protected override double GetComboScoreChange(JudgementResult result)
+        {
+            if (result.HitObject is TypeBeatCharObject cell && comboNeutralCells.Contains((cell.LineIndex, cell.CellIndex)))
+                return GetBaseScoreForResult(result.Judgement.MaxResult) * Math.Pow(result.ComboAtJudgement, COMBO_EXPONENT);
+
+            return base.GetComboScoreChange(result);
+        }
+
+        /// <summary>
+        /// Puts back the combo a combo-neutral cell's result moved (see
+        /// <see cref="MarkComboNeutral"/>), which is the ONE place it is undone, shared by live play
+        /// and recalculation because both drive this same processor.
         ///
-        /// <para><see cref="ScoreProcessor.HighestCombo"/>, which is what <c>max_combo</c> is
-        /// submitted from, needs no repair: it is a running maximum, so a reset that never
-        /// happened cannot have lowered it, and the run that continues past this point pushes it up
-        /// as it goes. That is the same property that makes <c>onMistyped</c>'s hand-written break
-        /// safe.</para>
+        /// <para>Why undone rather than prevented. <see cref="ScoreProcessor.ApplyResultInternal"/>
+        /// is sealed, and it moves <see cref="ScoreProcessor.Combo"/> for every result whose type
+        /// <see cref="HitResultExtensions.AffectsCombo"/>, which every result a cell can take does.
+        /// Swapping the result for one that does not would mean giving up the tier, and the tier is
+        /// the whole decision (see <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>).
+        /// <see cref="ScoreProcessor.ApplyScoreChange"/> is the ruleset hook that runs INSIDE that
+        /// method, after the combo move and after the combo-weighted score portion has been
+        /// accumulated, and before <c>updateScore</c> (which reads neither <c>Combo</c> nor
+        /// <c>HighestCombo</c>). So restoring here leaves the result worth exactly what it is worth
+        /// to every count, to accuracy and to the score, and changes only the combo the NEXT
+        /// judgement is weighted by.</para>
         ///
-        /// <para><see cref="JudgementResult.ComboAfterJudgement"/> is deliberately left reading 0.
-        /// It is the value the combo portion was already accumulated from, and rewriting it would
-        /// make a REVERT subtract a contribution that was never added. Rewind is not supported by
-        /// this ruleset at all (results come only from the monotonic engine), and the hand-written
-        /// breaks this pairs with have always been invisible to it.</para>
+        /// <para><see cref="ScoreProcessor.HighestCombo"/> IS repaired here, unlike in backlog 122,
+        /// and the difference is the direction the result moves combo. A suppressed BREAK cannot
+        /// have raised a running maximum, so 122 could leave it alone. A suppressed INCREMENT can:
+        /// <c>ApplyResultInternal</c> pushes <c>HighestCombo</c> up from the incremented value two
+        /// lines before this hook runs, so an uncorrected typo would otherwise inflate the submitted
+        /// <c>max_combo</c> by one per typo. It is restored to
+        /// <see cref="JudgementResult.HighestComboAtJudgement"/>, captured before anything moved.</para>
+        ///
+        /// <para><see cref="JudgementResult.ComboAfterJudgement"/> and
+        /// <see cref="JudgementResult.HighestComboAfterJudgement"/> are deliberately left reading the
+        /// moved values. They are what a REVERT subtracts, and rewriting them would make it subtract
+        /// a contribution that was never added. Rewind is not supported by this ruleset at all
+        /// (results come only from the monotonic engine), and the hand-written breaks this pairs
+        /// with have always been invisible to it.</para>
         /// </summary>
         protected override void ApplyScoreChange(JudgementResult result)
         {
             base.ApplyScoreChange(result);
 
-            if (!result.Type.BreaksCombo() || result.HitObject is not TypeBeatCharObject cell)
+            if (!result.Type.AffectsCombo() || result.HitObject is not TypeBeatCharObject cell)
                 return;
 
-            if (prepaidComboBreaks.Contains((cell.LineIndex, cell.CellIndex)))
-                Combo.Value = result.ComboAtJudgement;
+            if (!comboNeutralCells.Contains((cell.LineIndex, cell.CellIndex)))
+                return;
+
+            Combo.Value = result.ComboAtJudgement;
+            HighestCombo.Value = result.HighestComboAtJudgement;
         }
 
         protected override void Reset(bool storeResults)
         {
             base.Reset(storeResults);
-            prepaidComboBreaks.Clear();
+            comboNeutralCells.Clear();
         }
 
         /// <summary>

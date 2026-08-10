@@ -59,11 +59,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <item><c>CharJudged</c> resolves the cell with
     /// <see cref="TypeBeatResultMapping.CellResult"/>, the same call the drawable makes, and the
     /// FIRST result on a cell wins (<c>DrawableTypeBeatCharObject.ApplyEngineResult</c> drops every
-    /// later one). A typed-through wrong char resolves nothing and instead PREPAYS its cell's combo
-    /// break (<see cref="TypeBeatResultMapping.PrepaysCellComboBreak"/>, backlog 122), the same call
-    /// <c>TypeBeatPlayfield.onCharJudged</c> makes.</item>
-    /// <item><c>LineSealed</c> misses every still-unresolved cell of the line, then resolves the
-    /// line itself scoring-inert (<c>ApplySealResults</c>).</item>
+    /// later one). A typed-through wrong char resolves nothing.</item>
+    /// <item><c>LineSealed</c> resolves every still-unresolved cell of the line, in ascending cell
+    /// order, through <see cref="TypeBeatResultMapping.UnresolvedCellResult"/>: a Miss for a cell
+    /// nobody typed, an unfixed typo (applied combo-neutral) for one left sitting wrong. Then it
+    /// resolves the line itself scoring-inert (<c>ApplySealResults</c>).</item>
     /// <item><c>Mistyped</c> counts the mistype and, under <see cref="TypoRule.Deferred"/>, mirrors
     /// the combo break by hand (<c>onMistyped</c>).</item>
     /// <item>Fletcher's rush cap breaks combo on a judgement that is still a hit
@@ -133,12 +133,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             void onCharJudged(CharJudgement judgement)
             {
-                // The drawable layer's prepayment seam (TypeBeatPlayfield.onCharJudged): a
-                // typed-through wrong char has just paid its combo break at the keypress, so the
-                // deferred Miss its cell resolves with must not pay it again (backlog 122).
-                if (TypeBeatResultMapping.PrepaysCellComboBreak(judgement.Type, rule))
-                    scoreProcessor.PrepayComboBreak(judgement.LineIndex, judgement.CellIndex);
-
                 if (TypeBeatResultMapping.CellResult(judgement.Type, rule) is HitResult result)
                     cells.Resolve(scoreProcessor, judgement.LineIndex, judgement.CellIndex, result);
 
@@ -146,7 +140,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                     scoreProcessor.Combo.Value = 0;
             }
 
-            void onLineSealed(LineSealResult sealResult) => cells.Seal(scoreProcessor, sealResult.LineIndex);
+            // TypeBeatPlayfield.onLineSealed: the engine is the only thing that can tell a cell
+            // nobody typed from one left holding a wrong character, so the decision is made here and
+            // the registry only applies it.
+            void onLineSealed(LineSealResult sealResult) => cells.Seal(scoreProcessor, sealResult.LineIndex, engine, rule);
 
             void onMistyped()
             {
@@ -320,13 +317,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 cell.Apply(scoreProcessor, result);
             }
 
-            public void Seal(ScoreProcessor scoreProcessor, int lineIndex)
+            public void Seal(ScoreProcessor scoreProcessor, int lineIndex, TypingEngine engine, TypoRule rule)
             {
                 if (!lines.TryGetValue(lineIndex, out var line))
                     return;
 
-                foreach (var cell in line.Cells.Values)
-                    cell.Apply(scoreProcessor, TypeBeatResultMapping.SEAL_MISS);
+                foreach ((int cellIndex, var cell) in line.Cells)
+                {
+                    if (cell.Judged)
+                        continue;
+
+                    var result = TypeBeatResultMapping.UnresolvedCellResult(engine.CellLeftWrong(lineIndex, cellIndex), rule);
+
+                    if (result == TypeBeatResultMapping.UNFIXED_TYPO && scoreProcessor is TypeBeatScoreProcessor typeBeatProcessor)
+                        typeBeatProcessor.MarkComboNeutral(lineIndex, cellIndex);
+
+                    cell.Apply(scoreProcessor, result);
+                }
 
                 line.Apply(scoreProcessor, TypeBeatResultMapping.LINE_RESULT);
             }
@@ -334,7 +341,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         private sealed class LineCells(TypeBeatHitObject lineObject)
         {
-            public readonly Dictionary<int, Cell> Cells = new Dictionary<int, Cell>();
+            /// <summary>
+            /// SORTED, because <see cref="CellRegistry.Seal"/> walks it and since backlog 124 the
+            /// order reaches the score: a Miss breaks combo and an unfixed typo is weighted by the
+            /// combo it finds. Ascending cell order is what
+            /// <c>DrawableTypeBeatHitObject.ApplySealResults</c> walks, and the two have to agree.
+            /// </summary>
+            public readonly SortedDictionary<int, Cell> Cells = new SortedDictionary<int, Cell>();
 
             private readonly Slot slot = new Slot(lineObject);
 
@@ -344,6 +357,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         private sealed class Cell(TypeBeatCharObject charObject)
         {
             private readonly Slot slot = new Slot(charObject);
+
+            /// <summary><c>DrawableHitObject.Judged</c>: this cell has already taken its one result.</summary>
+            public bool Judged => slot.Judged;
 
             public void Apply(ScoreProcessor scoreProcessor, HitResult result) => slot.Apply(scoreProcessor, result);
         }
@@ -358,6 +374,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             private readonly JudgementResult result = new JudgementResult(hitObject, hitObject.Judgement);
 
             private bool judged;
+
+            public bool Judged => judged;
 
             public void Apply(ScoreProcessor scoreProcessor, HitResult hitResult)
             {
