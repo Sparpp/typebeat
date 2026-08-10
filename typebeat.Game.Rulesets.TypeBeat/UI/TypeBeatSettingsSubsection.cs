@@ -21,7 +21,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// <summary>
     /// The ruleset's section in Settings > Rulesets: the two monkeytype-style head choices (typing
     /// caret and song playhead, kept adjacent so the pair reads as a pair), the physical keyboard
-    /// layout, and the local auto-aligner install/enable controls.
+    /// layout, the typing surface's look, the one gameplay toggle (space to skip a word), and the
+    /// local auto-aligner install/enable controls.
     /// (LyricOffsetMs/LyricLabPath surfacing remains deferred to M7.)
     /// </summary>
     public partial class TypeBeatSettingsSubsection : RulesetSettingsSubsection
@@ -86,6 +87,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     TooltipText = "Font for the gameplay lyric text only (the rest of the UI is unchanged). OpenDyslexic is bundled; you can also pick any installed system font. Applies from the next play.",
                     Items = buildFontItems(lyricFont.Value),
                     Current = lyricFont,
+                },
+                new SettingsCheckbox
+                {
+                    LabelText = "Space to skip current word",
+                    TooltipText = "Press space in the middle of a word to give up on it and jump to the next one. Everything you had not typed of that word counts as a miss, so one bad character costs a word instead of your whole run. Applies from the next play.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.SpaceSkipsWord),
                 },
                 new SettingsCheckbox
                 {

@@ -91,7 +91,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
                     return HitResult.Meh;
 
                 default:
-                    // Premature, Lagging, WrongChar (and Miss, which never reaches here).
+                    // Premature, Lagging, WrongChar, and Miss: the last one reaches here only from a
+                    // word abandoned by the "space to skip current word" setting, which announces the
+                    // cells it gives up immediately instead of leaving them to the seal.
                     return HitResult.Miss;
             }
         }

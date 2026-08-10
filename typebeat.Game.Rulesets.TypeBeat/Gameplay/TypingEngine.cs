@@ -280,6 +280,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool AllowWrongInput { get; set; } = true;
 
         /// <summary>
+        /// "Space to skip current word" (backlog 110), a local SETTING and not a mod, OFF by default.
+        /// When on, a space pressed while the caret sits inside a word abandons the rest of that word
+        /// and lands the caret on the word gap, so one bad character costs a word instead of the run.
+        ///
+        /// <para>What "abandons" means precisely, and it is the only reading the code can actually
+        /// deliver: every cell of that word still <see cref="CellState.Untyped"/> takes a
+        /// <see cref="JudgementType.Miss"/> right now, exactly as the seal loop's misses do. Cells
+        /// that already carry a judgement keep it: a cell typed
+        /// CORRECTLY has handed its Great to the score processor and there is no un-apply
+        /// (<c>DrawableTypeBeatCharObject.ApplyEngineResult</c> drops every later result on an
+        /// already-judged cell), and a cell typed WRONG has already been counted a
+        /// <see cref="JudgementType.WrongChar"/> and taken its Miss on the osu side, so re-missing it
+        /// would double-count the same cell. In practice only cells at or ahead of the caret can be
+        /// untouched anyway, which is exactly the "rest of the word" the player is abandoning.</para>
+        ///
+        /// <para>The press itself is NOT a keypress judgement: it never enters the accuracy counters
+        /// and never counts as a <see cref="Mistyped"/>, because it is a deliberate control action
+        /// rather than a typo. It costs the abandoned cells (completion, sync and the osu-side
+        /// accuracy) plus one combo break, and it can only ever LOSE cells, never earn any, which is
+        /// why it needs no score or pp multiplier despite being judgement-relevant.</para>
+        ///
+        /// <para>Orthogonal to <see cref="AllowWrongInput"/>: Gatekeeper is about wrong LETTERS (is a
+        /// mistyped char written into the cell or refused), this is about abandoning a WORD, so both
+        /// combinations are meaningful and the skip works under Gatekeeper too. It is inert under
+        /// <see cref="MashingEnabled"/>, where a pressed space has already been rewritten into the
+        /// cell's expected char before this is reached: mashing makes every key the right key, so no
+        /// word can ever need abandoning.</para>
+        ///
+        /// <para>Judgement-relevant, so it travels in the replay CONFIG frame as bit 1 (see
+        /// <see cref="Replays.TypeBeatReplayFrame"/>).</para>
+        /// </summary>
+        public bool SpaceSkipsWord { get; set; }
+
+        /// <summary>
         /// Fletcher mod ("Were you Rushing or were you Dragging?!"): decouples the player's caret
         /// from the song's playhead. Three behaviours, all confined to this flag so the default path
         /// stays byte-identical:
@@ -312,7 +346,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         ///
         /// <para>Since backlog 107 this fires only under <see cref="Mods.TypeBeatModGatekeeper"/>,
         /// plus the two cases the default path refuses anyway (a space pressed on a lyric char, any
-        /// key pressed on a word gap). In DEFAULT play a wrong char is typed through and its cell
+        /// key pressed on a word gap). The first of those is what <see cref="SpaceSkipsWord"/>
+        /// intercepts, so with that setting on the space consumes the word instead of being rejected
+        /// here. In DEFAULT play a wrong char is typed through and its cell
         /// carries a <see cref="JudgementType.WrongChar"/> on <see cref="CharJudged"/> instead,
         /// which <c>DrawableTypeBeatHitObject.toHitResult</c> maps to <c>HitResult.Miss</c>, so
         /// Sudden Death still fails the play (through the inherited fail condition rather than
@@ -697,6 +733,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// Process a lowercased char from KeyCharMap at gameplay time <paramref name="time"/>.
         /// Returns false when inert (no active line / line complete / finished).
+        /// A space pressed inside a word abandons it under <see cref="SpaceSkipsWord"/> (off by default).
         /// A wrong char is TYPED THROUGH by default (<see cref="AllowWrongInput"/>), or REJECTED
         /// under Gatekeeper. Either way it breaks combo, counts as a mistype, and stays in the
         /// accuracy denominator forever; only the rejection path grows
@@ -734,6 +771,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     c = Typeability.FREESTYLE_AUTO_CHAR;
             }
 
+            // SPACE-SKIP (see SpaceSkipsWord), evaluated BEFORE the match: a space pressed while the
+            // caret sits on a lyric character abandons the rest of that word. The caret cell is
+            // typeable here (autoSkipForward ran above), so "Expected is not a space" is exactly "the
+            // caret is inside a word"; a space pressed ON the word gap keeps its ordinary meaning and
+            // never reaches this branch. Placed after the Mashing rewrite on purpose: mashing has
+            // already turned the press into the expected char, so this is unreachable under it.
+            if (SpaceSkipsWord && c == ' ' && cell.Expected != ' ')
+            {
+                skipCurrentWord(time);
+
+                if (caretIndex >= line.Cells.Count)
+                {
+                    // The abandoned word ran to the end of the line, so there is no word gap for the
+                    // space to land on. The line is complete, exactly as it would be had the player
+                    // typed that last word out, and the same end-of-line handling applies.
+                    rollForwardIfFinishedEarly();
+                    return true;
+                }
+
+                // The caret now sits on the word gap, and the press is judged there: a space typed
+                // from further back in the word is still a typed space, so it takes the ordinary
+                // path below (same windows, points, combo, accuracy) and leaves the cell exactly as
+                // a normally typed space would.
+                cell = line.Cells[caretIndex];
+            }
+
             double delta = time - cell.TargetTime;
             // FREESTYLE cell: every char EXCEPT SPACE matches, in any case, under every mod (so the
             // Literate mod's exact-case rule and the allow-wrong-input path are both bypassed for
@@ -743,7 +806,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // means to leave sitting in a lyric, so it falls through to the ordinary non-match path
             // below and is judged exactly as a wrong key on any other cell would be. The strict
             // rejection is the only outcome available to it, because the allow-wrong-input path
-            // already refuses to type a space through (c != ' ').
+            // already refuses to type a space through (c != ' '). Unless SpaceSkipsWord is on, in
+            // which case the space never reaches here at all: it was consumed by the word skip above,
+            // freestyle slot included (a freestyle cell is a lyric character like any other, so a
+            // space pressed on one is the player abandoning the word it sits in).
             // Literate mod folds nothing: the typed char must match the target's exact case.
             // Default gameplay is case-insensitive (both sides lower-cased through Fold).
             bool matched = (cell.IsFreestyle && c != ' ')
@@ -887,6 +953,86 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             CharJudged?.Invoke(new CharJudgement(activeLineIndex, judgedCellIndex, type, delta, points, combo));
             rollForwardIfFinishedEarly();
             return true;
+        }
+
+        /// <summary>
+        /// "Space to skip current word" (see <see cref="SpaceSkipsWord"/>): abandon the word the caret
+        /// is inside and leave the caret on the word gap that follows it (or at the end of the line,
+        /// for a word with no gap after it). Every typeable cell of that word that is still unresolved
+        /// takes a Miss, the way the seal loop misses an untyped cell, and the whole abandonment costs
+        /// AT MOST ONE combo break no matter how many characters were given up, which is the same rule
+        /// a sealed line's misses follow.
+        ///
+        /// <para>Non-typeable cells inside the run are marked <see cref="CellState.AutoSkipped"/>,
+        /// which is exactly what <see cref="autoSkipForward"/> would have done to them had the caret
+        /// walked over them one press at a time; they are not typed, so they cannot be missed.</para>
+        /// </summary>
+        private void skipCurrentWord(double time)
+        {
+            var cells = lines[activeLineIndex].Cells;
+
+            // The WHOLE word the caret is inside: the run of cells between the word gaps either side
+            // of it (a word gap being a typeable SPACE cell), or the ends of the line. Deliberately
+            // the whole word rather than just the tail from the caret onwards, even though the two
+            // give up exactly the same cells: every typeable cell BEHIND the caret is already Correct
+            // or Wrong, because resolving it is the only way the caret got past it and backspace
+            // takes the caret back with it. Scanning the word is what the feature promises, and it
+            // puts the weight on the "already resolved" test below instead of on an off-screen
+            // argument about where the caret can be.
+            int start = caretIndex;
+            int end = caretIndex;
+
+            while (start > 0 && !(cells[start - 1].IsTypeable && cells[start - 1].Expected == ' '))
+                start--;
+
+            while (end < cells.Count && !(cells[end].IsTypeable && cells[end].Expected == ' '))
+                end++;
+
+            int missed = 0;
+
+            for (int i = start; i < end; i++)
+            {
+                var cell = cells[i];
+
+                if (!cell.IsTypeable)
+                {
+                    cell.State = CellState.AutoSkipped;
+                    continue;
+                }
+
+                // Anything already Correct or Wrong keeps the judgement it earned, and the one osu
+                // result its drawable already took: a Great cannot be revoked (ApplyEngineResult
+                // drops every later result on an already-judged cell, and there is no un-apply), and
+                // a wrong char has already been counted a WrongChar and taken its Miss, so re-missing
+                // either would double-count the same cell against the same play.
+                if (cell.State != CellState.Untyped)
+                    continue;
+
+                cell.State = CellState.Missed;
+                counts[JudgementType.Miss]++;
+                missed++;
+            }
+
+            caretIndex = end;
+
+            if (missed == 0)
+                return;
+
+            combo = 0;
+            ComboBroken?.Invoke();
+
+            // Announce the misses AFTER the break so every judgement carries the post-break combo,
+            // and one per cell so the stage repaints it and its scoring drawable takes its Miss now
+            // rather than at seal time (which would leave osu's combo counting on past a break the
+            // engine has already taken). Nothing else on an active line ever writes Missed, so the
+            // state test picks out exactly the cells the loop above gave up.
+            for (int i = start; i < end; i++)
+            {
+                var cell = cells[i];
+
+                if (cell.IsTypeable && cell.State == CellState.Missed)
+                    CharJudged?.Invoke(new CharJudgement(activeLineIndex, i, JudgementType.Miss, time - cell.TargetTime, 0, combo));
+            }
         }
 
         /// <summary>

@@ -23,9 +23,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// remapping and Shift application (so it carries the case the Literate mod judges on, and is
     /// independent of the player's physical layout). Two sentinels reuse ASCII control codes:
     /// <see cref="BACKSPACE"/> (0x08) is a backspace erase, and <see cref="CONFIG"/> (0x00) is a
-    /// settings header frame carrying <see cref="AllowWrongInput"/>, the wrong-key model the run was
-    /// judged under. Other mods (Literate/Mashing/rate) travel in the score itself and need no
-    /// frames.
+    /// settings header frame carrying the judgement-relevant settings as BITS: bit 0
+    /// <see cref="AllowWrongInput"/> (the wrong-key model the run was judged under) and bit 1
+    /// <see cref="SpaceSkipsWord"/> (whether a space pressed inside a word abandoned it). Other mods
+    /// (Literate/Mashing/rate) travel in the score itself and need no frames.
     ///
     /// <para>Backlog 107 turned that model from a local SETTING into a mod (Gatekeeper), so it now
     /// travels in the score's mods too, and the header frame is kept anyway, for two reasons. It is
@@ -39,8 +40,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     ///
     /// <para><b>Legacy (.osr) mapping</b>, chosen to round-trip through
     /// <see cref="typebeat.Game.Scoring.Legacy.LegacyScoreEncoder"/>/<c>Decoder</c> untouched:
-    /// MouseX = character code, MouseY = config flags (bit 0 = allow-wrong-input; only meaningful on
-    /// CONFIG frames), ButtonState = None, time = the integral frame time. All typeable characters
+    /// MouseX = character code, MouseY = config flags (bit 0 = allow-wrong-input, bit 1 =
+    /// space-skips-word; only meaningful on CONFIG frames), ButtonState = None, time = the integral
+    /// frame time. A flags word of at most 3 is as harmless to the encoder as the single bit was.
+    /// Bit 0 keeps its meaning and its position untouched, so every replay already on disk decodes
+    /// identically and simply reads false for the newer bit. All typeable characters
     /// (a-z, A-Z, 0-9, space, plus the Literate mod's punctuation, whose highest code point is ']'
     /// at 0x5D) and both sentinels are far below the decoder's coordinate parse limits and its
     /// (256, -500) stable-header positions, so no stable fixup can mangle them. The sentinels sit
@@ -73,6 +77,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// </summary>
         public bool AllowWrongInput;
 
+        /// <summary>
+        /// The engine's space-to-skip-a-word setting at record time (see
+        /// <see cref="Gameplay.TypingEngine.SpaceSkipsWord"/>). Only meaningful on
+        /// <see cref="CONFIG"/> frames. Judgement-relevant, hence recorded: the same recorded space
+        /// keystroke abandons a word with it on and is rejected with it off, so a replay watched on a
+        /// machine with the opposite setting would otherwise diverge from the run it stores.
+        /// </summary>
+        public bool SpaceSkipsWord;
+
         public bool IsBackspace => Character == BACKSPACE;
 
         public bool IsConfig => Character == CONFIG;
@@ -87,19 +100,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             Character = character;
         }
 
-        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput) => new TypeBeatReplayFrame(time, CONFIG)
+        /// <summary>
+        /// The header frame for a run. <paramref name="spaceSkipsWord"/> is optional so the older
+        /// two-value call sites keep meaning what they always did (bit 1 clear = no word skipping),
+        /// which is also exactly how a pre-setting replay decodes.
+        /// </summary>
+        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false) => new TypeBeatReplayFrame(time, CONFIG)
         {
             AllowWrongInput = allowWrongInput,
+            SpaceSkipsWord = spaceSkipsWord,
         };
+
+        /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>
+        private const int flag_allow_wrong_input = 1;
+
+        /// <summary>Bit 1 of the CONFIG frame's flags word: space skips the current word.</summary>
+        private const int flag_space_skips_word = 2;
 
         public void FromLegacy(LegacyReplayFrame currentFrame, IBeatmap beatmap, ReplayFrame? lastFrame = null)
         {
             Character = (char)(int)(currentFrame.MouseX ?? 0);
-            AllowWrongInput = (((int)(currentFrame.MouseY ?? 0)) & 1) != 0;
+
+            int flags = (int)(currentFrame.MouseY ?? 0);
+
+            AllowWrongInput = (flags & flag_allow_wrong_input) != 0;
+            SpaceSkipsWord = (flags & flag_space_skips_word) != 0;
         }
 
         public LegacyReplayFrame ToLegacy(IBeatmap beatmap) =>
-            new LegacyReplayFrame(Time, Character, IsConfig && AllowWrongInput ? 1 : 0, ReplayButtonState.None);
+            new LegacyReplayFrame(Time, Character, IsConfig ? configFlags() : 0, ReplayButtonState.None);
+
+        private int configFlags() =>
+            (AllowWrongInput ? flag_allow_wrong_input : 0) | (SpaceSkipsWord ? flag_space_skips_word : 0);
 
         /// <summary>
         /// Never equivalent: every frame is a discrete keystroke. Two identical characters at the
