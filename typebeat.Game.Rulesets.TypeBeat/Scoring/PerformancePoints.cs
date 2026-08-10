@@ -15,9 +15,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// website's <c>docs/pp.md</c>; every constant below is pinned there and must not drift.
     ///
     /// <code>
-    /// pp = 3.0 · SR_eff^2.60
+    /// pp = 5.5 · SR_eff^2.70
     ///      · max(0, 1 − miss^1.6/notes)^10                 cleanliness
-    ///      · max(0, 1 − mistypes^1.6/(notes+mistypes))^8   mistyping
+    ///      · max(0, 1 − mistypes^1.6/(notes+mistypes))^4   mistyping
     ///      · max(0.1, 1 + 0.50·log10(notes/100))           length, floored
     ///      · acc^1.30                                      timing quality
     ///      · (maxcombo/notes)^0.75                         combo
@@ -198,16 +198,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// ONE miss or ONE mistype is repriced, upwards this time and mostly away from zero, which
         /// is what forces the bump.</item>
         /// <item>v8 = (no summary given)</item>
+        /// <item>v9 = the backlog-112 retune of three constants, with the SHAPE untouched: the global
+        /// scale rises 3.0 to 5.5, sr_exponent 2.60 to 2.70, and mistype_exponent 8.0 to 4.0.
+        /// count_power stays 1.6, miss_exponent stays 10, and the length, accuracy and combo terms
+        /// and every mod multiplier are exactly as they were. scale and sr_exponent together are
+        /// close to a pure rescale (they preserve ranking order among plays on the same map, and
+        /// steepen it only mildly across difficulties), and roughly DOUBLE a clean mid-difficulty
+        /// play. Halving the mistype exponent is the part that changes ORDER: a mistype-heavy play
+        /// is repriced far more than double, because 8 was steep enough to price such plays at
+        /// essentially nothing. Both penalty bases are still exactly 1.0 at a count of zero, so a
+        /// spotless play moves only by the rescale, while every stored row carrying a mistype is
+        /// repriced upwards, which is what forces the bump.</item>
         /// </list>
         /// </summary>
-        public const int VERSION = 8;
+        public const int VERSION = 9;
 
         // ---- formula constants (docs/pp.md) ----
 
-        private const double scale = 3.0;              // C: global scale, does not affect ranking order
-        private const double sr_exponent = 2.60;
+        private const double scale = 5.5;              // C: global scale, does not affect ranking order
+        private const double sr_exponent = 2.70;
         private const double miss_exponent = 10.0;
-        private const double mistype_exponent = 8.0;
+        private const double mistype_exponent = 4.0;
 
         /// <summary>
         /// The power the RAW COUNT is raised to inside both penalty bases, before its denominator
