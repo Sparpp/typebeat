@@ -276,8 +276,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void WrongKeyIsRejectedBreaksComboAndTracksStreak()
         {
             // "ab" [1000, 3000), unit [1000,2000] => a=1000, b=1500.
+            // AllowWrongInput off = the GATEKEEPER model (backlog 107 made typing-through the
+            // default, so the rejection path this pins is now reached only through that mod).
             var engine = new TypingEngine(map(TimingGranularity.Line,
-                line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000))));
+                line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000)))) { AllowWrongInput = false };
 
             var judgements = new List<CharJudgement>();
             var rejected = new List<char>();
@@ -333,9 +335,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void RejectedWrongKeyLeavesCellTypeable()
         {
-            // "ab" [1000, 5000), unit [1000,2000] => a=1000, b=1500.
+            // "ab" [1000, 5000), unit [1000,2000] => a=1000, b=1500. Gatekeeper (rejection) model.
             var engine = new TypingEngine(map(TimingGranularity.Line,
-                line("ab", 1000, 5000, 2000, unit("ab", 1000, 2000))));
+                line("ab", 1000, 5000, 2000, unit("ab", 1000, 2000)))) { AllowWrongInput = false };
 
             // Backspace with no active line is inert.
             Assert.IsFalse(engine.ProcessBackspace());
@@ -714,9 +716,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0.0, w.SyncQuality(2000), 1e-12);  // late edge hits exactly 0
             Assert.AreEqual(0.0, w.SyncQuality(9999), 1e-12);  // clamped
 
-            // "abc", one unit [1000, 2500], k=3 => a=1000, b=1500, c=2000.
+            // "abc", one unit [1000, 2500], k=3 => a=1000, b=1500, c=2000. Gatekeeper (rejection)
+            // model, so a wrong key leaves the cell untyped and contributes no timeline sample.
             var engine = new TypingEngine(map(TimingGranularity.Line,
-                line("abc", 1000, 10000, 2500, unit("abc", 1000, 2500))));
+                line("abc", 1000, 10000, 2500, unit("abc", 1000, 2500)))) { AllowWrongInput = false };
 
             engine.Update(1000);
             engine.ProcessKey('a', 400);  // delta -600 => Good; sample (400, -600)
@@ -1171,8 +1174,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // "aB": 'a' lower-case target @1000, 'B' upper-case target @1500. Under Literate the
             // cells carry the authored case (without it they would be flattened to "ab").
+            // Gatekeeper on, so a wrong-case letter is REJECTED rather than typed through; the
+            // wrong-case-under-the-default-model case is covered by
+            // CaseSensitiveTypesWrongCaseThroughByDefault below.
             var engine = new TypingEngine(map(TimingGranularity.Line,
-                line("aB", 1000, 3000, 2000, unit("aB", 1000, 2000))), literate: true);
+                line("aB", 1000, 3000, 2000, unit("aB", 1000, 2000))), literate: true) { AllowWrongInput = false };
 
             Assert.IsTrue(engine.CaseSensitive);
             Assert.AreEqual("aB", engine.Lines[0].DisplayText);
@@ -1213,6 +1219,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, results.Counts[JudgementType.Miss]);
             // 2 correct / 3 keypresses (the rejected wrong-case key stays in the denominator).
             Assert.AreEqual(2.0 / 3.0, engine.LiveAccuracy, 1e-9);
+        }
+
+        [Test]
+        public void CaseSensitiveTypesWrongCaseThroughByDefault()
+        {
+            // The same wrong-case press as above, but WITHOUT Gatekeeper, i.e. the default model:
+            // the letter lands in the cell as a Wrong char, the caret moves on, and the mash-fail
+            // streak is deliberately not fed.
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("aB", 1000, 3000, 2000, unit("aB", 1000, 2000))), literate: true);
+
+            Assert.IsTrue(engine.AllowWrongInput);
+
+            var rejected = new List<char>();
+            var judgements = new List<CharJudgement>();
+            engine.WrongKeyRejected += c => rejected.Add(c);
+            engine.CharJudged += j => judgements.Add(j);
+
+            engine.Update(1000);
+
+            Assert.IsTrue(engine.ProcessKey('a', 1000));
+            Assert.IsTrue(engine.ProcessKey('b', 1500)); // wrong case for 'B'
+
+            Assert.AreEqual(CellState.Wrong, engine.Lines[0].Cells[1].State);
+            Assert.AreEqual('b', engine.Lines[0].Cells[1].TypedChar);
+            Assert.AreEqual(2, engine.CaretIndex);
+            Assert.AreEqual(0, engine.Combo);
+            Assert.AreEqual(0, engine.ConsecutiveWrongKeys); // no mash streak off the default path
+            Assert.IsEmpty(rejected);                       // no rejection event either
+            Assert.AreEqual(JudgementType.WrongChar, judgements[1].Type);
+
+            engine.Update(3000); // seal: nothing left untyped, so nothing is force-missed
+
+            var results = engine.BuildResults();
+            Assert.AreEqual(1, results.Counts[JudgementType.WrongChar]);
+            Assert.AreEqual(0, results.Counts[JudgementType.Miss]);
+            Assert.AreEqual(0.5, engine.LiveAccuracy, 1e-9); // 1 correct / 2 keypresses
         }
 
         [Test]

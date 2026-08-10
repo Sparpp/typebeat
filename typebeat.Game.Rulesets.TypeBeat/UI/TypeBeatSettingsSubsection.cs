@@ -74,12 +74,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     LabelText = "Keyboard layout",
                     Current = config.GetBindable<KeyboardLayout>(TypeBeatRulesetSetting.KeyboardLayout),
                 },
-                new SettingsCheckbox
-                {
-                    LabelText = "Allow wrong keypresses",
-                    TooltipText = "Type wrong characters through (shown red) instead of rejecting them, and enable backspace to fix them. The space key stays strict. Backspace does nothing while this is off, since no wrong character can land.",
-                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.AllowWrongInput),
-                },
                 new SettingsSlider<float>
                 {
                     LabelText = "Lyric line spacing",

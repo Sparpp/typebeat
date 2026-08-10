@@ -11,7 +11,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <summary>
     /// Score multipliers for type!beat mods. The flat values mirror osu!'s current (V2) multipliers
     /// so modded scores read consistently with the rest of lazer. Mods not listed here stay at 1.0x
-    /// (Sudden Death, Muted). Mashing is unranked, but still carries the Relax 0.1x for display parity.
+    /// (Sudden Death, Gatekeeper, Muted). Mashing is unranked, but still carries the Relax 0.1x for
+    /// display parity.
     ///
     /// <para>
     /// The rate mods are the exception: type!beat ranks them at every speed, so they are paid by
@@ -30,7 +31,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             Single<TypeBeatModHalfTime>(hasMultiplier: halfTime => TypeBeatRateMultiplier.For(halfTime.SpeedChange.Value));
 
             // Difficulty increase.
-            // Sudden Death (1.0x)
+            // Sudden Death (1.0x), Gatekeeper (1.0x): both deliberately absent. Gatekeeper swaps one
+            // wrong-key model for another rather than adding a handicap on top of the same model,
+            // and the two already cost differently in accuracy vs completion, so it is ranked and
+            // pays nothing either way. Mirrored by the mod's own ScoreMultiplier self-report, the
+            // server's ModMultiplier and PerformancePoints.ModMultiplier (which is neutral for any
+            // acronym it does not list).
             Single<TypeBeatModDoubleTime>(hasMultiplier: doubleTime => TypeBeatRateMultiplier.For(doubleTime.SpeedChange.Value));
             Single<TypeBeatModNightcore>(hasMultiplier: nightcore => TypeBeatRateMultiplier.For(nightcore.SpeedChange.Value));
             // Flashlight is a fixed character-window reveal (no size setting). 1.05x, trimmed from

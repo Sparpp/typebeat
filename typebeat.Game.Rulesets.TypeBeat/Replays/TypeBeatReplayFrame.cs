@@ -23,9 +23,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// remapping and Shift application (so it carries the case the Literate mod judges on, and is
     /// independent of the player's physical layout). Two sentinels reuse ASCII control codes:
     /// <see cref="BACKSPACE"/> (0x08) is a backspace erase, and <see cref="CONFIG"/> (0x00) is a
-    /// settings header frame carrying <see cref="AllowWrongInput"/> (the one judgement-relevant
-    /// value that lives in local config rather than in the score's mods). Mods (Literate/Mashing/
-    /// rate) travel in the score itself and need no frames.</item>
+    /// settings header frame carrying <see cref="AllowWrongInput"/>, the wrong-key model the run was
+    /// judged under. Other mods (Literate/Mashing/rate) travel in the score itself and need no
+    /// frames.
+    ///
+    /// <para>Backlog 107 turned that model from a local SETTING into a mod (Gatekeeper), so it now
+    /// travels in the score's mods too, and the header frame is kept anyway, for two reasons. It is
+    /// what makes a replay self-describing, so playback reproduces the run without depending on the
+    /// mod list surviving; and, more concretely, every replay recorded BEFORE the flip carries
+    /// bit 0 = 0 for a strict run that has no Gatekeeper mod on it, so the header is the only thing
+    /// that still judges those runs the way they were played. The BIT therefore keeps its original
+    /// meaning exactly (1 = wrong input allowed), which is also why the engine property was not
+    /// renamed to match the mod.</para></item>
     /// </list>
     ///
     /// <para><b>Legacy (.osr) mapping</b>, chosen to round-trip through

@@ -87,15 +87,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("caret advanced", () => engine.CaretIndex == 1);
             AddAssert("osu result applied for the cell", () => osuResults == 1);
 
+            // DEFAULT model since backlog 107: the wrong char is TYPED THROUGH. It resolves the cell
+            // (a WrongChar judgement, which the drawable maps to an osu Miss), so unlike the old
+            // rejection model it does raise a result; the mash-fail streak is deliberately not fed.
             AddStep("press X (wrong char for 'a')", () => InputManager.Key(Key.X));
-            AddAssert("rejected: cell untouched, caret stays", () => engine.Lines[0].Cells[1].State == CellState.Untyped && engine.CaretIndex == 1);
-            AddAssert("no osu result for a rejected key", () => osuResults == 1);
-            AddAssert("combo broken, streak counted", () => engine.Combo == 0 && engine.ConsecutiveWrongKeys == 1);
+            AddAssert("typed through: cell wrong, caret advanced", () =>
+                engine.Lines[0].Cells[1].State == CellState.Wrong
+                && engine.Lines[0].Cells[1].TypedChar == 'x'
+                && engine.CaretIndex == 2);
+            AddAssert("the wrong char is judged (osu Miss)", () => osuResults == 2);
+            AddAssert("combo broken, no mash streak", () => engine.Combo == 0 && engine.ConsecutiveWrongKeys == 0);
+
+            // Backspace is live by default now (it is gated on the same flag, which now reads the
+            // other way), and it reaches the engine through the real input path.
+            AddStep("press Backspace", () => InputManager.Key(Key.BackSpace));
+            AddAssert("wrong char erased, caret back", () =>
+                engine.Lines[0].Cells[1].State == CellState.Untyped
+                && engine.Lines[0].Cells[1].TypedChar == null
+                && engine.CaretIndex == 1);
 
             AddStep("press A (correct char)", () => InputManager.Key(Key.A));
             AddAssert("cell accepted at the real time", () => engine.Lines[0].Cells[1].State == CellState.Correct);
-            AddAssert("streak reset by the accepted char", () => engine.ConsecutiveWrongKeys == 0);
-            AddAssert("osu result applied on the correct press", () => osuResults == 2);
+            AddAssert("streak still clear", () => engine.ConsecutiveWrongKeys == 0);
+            // The cell already carries its one-and-only osu result (the Miss), so the retype adds
+            // none: DrawableTypeBeatCharObject.ApplyEngineResult bails on an already-Judged cell.
+            AddAssert("no second osu result for the retyped cell", () => osuResults == 2);
 
             AddStep("press space", () => InputManager.Key(Key.Space));
             AddAssert("space cell accepted", () => engine.Lines[0].Cells[2].State == CellState.Correct && engine.CaretIndex == 3);

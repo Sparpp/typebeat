@@ -108,9 +108,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             config?.BindWith(TypeBeatRulesetSetting.LyricOffsetMs, lyricOffset);
             config?.BindWith(TypeBeatRulesetSetting.KeyboardLayout, keyboardLayout);
 
-            // The wrong-input model is fixed for the play; the engine reads the flag on every key.
-            if (config != null)
-                Engine.AllowWrongInput = config.Get<bool>(TypeBeatRulesetSetting.AllowWrongInput);
+            // The wrong-input model is fixed for the play and is no longer a setting (backlog 107):
+            // typing wrong chars through is the default, and TypeBeatModGatekeeper is the only thing
+            // that turns it off, via ApplyToDrawableRuleset.
 
             // The Player already renders the beatmap background image (dimmed) and, when
             // "beatmap storyboard/video" is on, the video, both BELOW the ruleset. Historically
@@ -406,9 +406,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// press. Ctrl/Alt combos fall through to framework shortcuts.
         ///
         /// <para>Backspace is live ONLY in allow-wrong-input mode, the only model where a wrong char
-        /// lands in a cell and is thus worth erasing; in strict (default) play the key is swallowed
-        /// and does nothing at all. Replay playback is unaffected: recorded backspace frames go
-        /// straight to the engine (see <see cref="EngineTicker"/>).</para>
+        /// lands in a cell and is thus worth erasing; under Gatekeeper the key is swallowed and does
+        /// nothing at all. Since backlog 107 allow-wrong-input is the default, so backspace is live
+        /// by default: the predicate is unchanged, it simply resolves the other way now. Replay
+        /// playback is unaffected: recorded backspace frames go straight to the engine (see
+        /// <see cref="EngineTicker"/>).</para>
         ///
         /// <para>Replay determinism: every keystroke is stamped with the ROUNDED (integral ms)
         /// lyric time, the engine is advanced to that exact time first, and every EFFECTIVE input
@@ -480,10 +482,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (e.Key == Key.BackSpace)
                 {
                     // Erasing only ever has something to undo in ALLOW-WRONG-INPUT mode: that is the
-                    // one model where a wrong char lands in a cell. In strict (default) play a wrong
+                    // one model where a wrong char lands in a cell. Under GATEKEEPER a wrong
                     // key is rejected outright, so nothing erasable is ever written, and re-typing an
                     // already-correct cell (freestyle cells included, whose press is a CORRECT hit) is
-                    // scoring-inert. Backspace is therefore inert-by-design in strict play, and is
+                    // scoring-inert. Backspace is therefore inert-by-design under Gatekeeper, and is
                     // gated off entirely: no engine call, nothing recorded. Gated at the INPUT layer,
                     // not in the engine, so the JS port of TypingEngine stays byte-compatible.
                     //

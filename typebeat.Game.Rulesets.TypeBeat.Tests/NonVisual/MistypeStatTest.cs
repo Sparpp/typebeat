@@ -60,7 +60,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void StrictModeAnnouncesEveryRejectedKeyAsAMistype()
         {
-            var engine = new TypingEngine(map());
+            // Strict is the GATEKEEPER model since backlog 107; the default one is covered by
+            // AllowWrongInputAnnouncesTheSameMistypeAndStillResolvesTheCell below.
+            var engine = new TypingEngine(map()) { AllowWrongInput = false };
 
             int mistypes = 0, judgements = 0;
             engine.Mistyped += () => mistypes++;

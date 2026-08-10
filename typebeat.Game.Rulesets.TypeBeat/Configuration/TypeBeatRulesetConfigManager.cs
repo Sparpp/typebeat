@@ -60,15 +60,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// </summary>
         KeyboardLayout,
 
-        /// <summary>
-        /// Legacy typing model. Off (default) = strict: a wrong key is rejected and 13 in a row fail
-        /// the play. On = a wrong character is typed through (shown red) and can be backspaced; only
-        /// the space key stays strict, and the mash-fail streak does not apply.
-        ///
-        /// <para>Doubles as the BACKSPACE gate (see <c>TypeBeatPlayfield</c>'s key handler): strict
-        /// play never writes an erasable char, so backspace is ignored outright while this is off.</para>
-        /// </summary>
-        AllowWrongInput,
+        // NOTE (backlog 107): there used to be an AllowWrongInput member here. Typing wrong
+        // characters through is now the DEFAULT gameplay for everyone and strict rejection is a mod
+        // (Gatekeeper), so the choice is no longer a setting. Removing a member is safe for exactly
+        // the reason stated on CaretStyle above: rows are keyed by member NAME, so every other
+        // setting keeps its row and the orphaned AllowWrongInput row is simply never looked up.
 
         /// <summary>Vertical gap (px) between the three gameplay lyric lines.</summary>
         LineSpacing,
@@ -150,7 +146,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.CaretStyle, DEFAULT_CARET_STYLE);
             SetDefault(TypeBeatRulesetSetting.SungCaretStyle, DEFAULT_SUNG_CARET_STYLE);
             SetDefault(TypeBeatRulesetSetting.KeyboardLayout, Gameplay.KeyboardLayout.Qwerty);
-            SetDefault(TypeBeatRulesetSetting.AllowWrongInput, false);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
         }

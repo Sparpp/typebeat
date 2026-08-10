@@ -555,7 +555,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                         multiplier *= no_fail_multiplier;
                         break;
 
-                    // SD / MU are explicitly 1.0, matching their score multipliers. Anything else
+                    // SD / GK / MU are explicitly 1.0, matching their score multipliers. Anything else
                     // (including a mod this table has not learned yet) is neutral: an unknown mod
                     // must never silently inflate or deflate a ranking.
                 }

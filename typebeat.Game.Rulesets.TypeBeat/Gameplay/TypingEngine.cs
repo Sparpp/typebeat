@@ -256,10 +256,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool Literate { get; }
 
         /// <summary>
-        /// Legacy "allow wrong input" setting: wrong (non-space) characters are typed through and
-        /// marked red instead of rejected, and can be backspaced. Off by default (strict rejection).
+        /// The DEFAULT typing model (backlog 107): wrong (non-space) characters are typed through
+        /// and marked red instead of rejected, and can be backspaced, which is what every typing
+        /// site does. ON by default; the <see cref="Mods.TypeBeatModGatekeeper"/> mod turns it off
+        /// to get strict rejection back.
+        ///
+        /// <para>Deliberately still phrased as "allow wrong input" rather than as the mod's own
+        /// name. This flag is what the replay CONFIG frame persists as a single bit (see
+        /// <see cref="Replays.TypeBeatReplayFrame"/>), and that bit's meaning is fixed by every
+        /// replay already on disk: 1 = wrong input allowed. Naming the property for the mod would
+        /// invert it against the wire and force a negation at every encode/decode site, for nothing.</para>
+        ///
+        /// <para>Two consequences of the flip worth stating where the flag lives:</para>
+        /// <list type="bullet">
+        /// <item>The 13-in-a-row mash-fail streak (<see cref="ConsecutiveWrongKeys"/>) only ever
+        /// accrued on the rejection path, so it is now a Gatekeeper-only guard. That is where it
+        /// belongs: it exists to stop a masher farming a model that refuses wrong keys.</item>
+        /// <item>Backspace is gated on this flag at the INPUT layer (see <c>TypeBeatPlayfield</c>),
+        /// so it is now live by default and inert under Gatekeeper, which is the same rule as
+        /// before ("erasing exists only where an erasable char can land") resolving the other way.</item>
+        /// </list>
         /// </summary>
-        public bool AllowWrongInput { get; set; }
+        public bool AllowWrongInput { get; set; } = true;
 
         /// <summary>
         /// Fletcher mod ("Were you Rushing or were you Dragging?!"): decouples the player's caret
@@ -291,6 +309,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// A wrong key was REJECTED: nothing was input (no cell state change, no caret move,
         /// no <see cref="CharJudged"/>), but combo has been reset and the consecutive streak
         /// incremented. Carries the offending char for feedback visuals.
+        ///
+        /// <para>Since backlog 107 this fires only under <see cref="Mods.TypeBeatModGatekeeper"/>,
+        /// plus the two cases the default path refuses anyway (a space pressed on a lyric char, any
+        /// key pressed on a word gap). In DEFAULT play a wrong char is typed through and its cell
+        /// carries a <see cref="JudgementType.WrongChar"/> on <see cref="CharJudged"/> instead,
+        /// which <c>DrawableTypeBeatHitObject.toHitResult</c> maps to <c>HitResult.Miss</c>, so
+        /// Sudden Death still fails the play (through the inherited fail condition rather than
+        /// through this event). Pinned by <c>TypeBeatModGatekeeperTest</c>.</para>
         /// </summary>
         public event Action<char>? WrongKeyRejected;
 
@@ -300,9 +326,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// feels depends on this one.
         ///
         /// <list type="bullet">
-        /// <item>Strict (default): the key is rejected, so no <see cref="CharJudged"/> exists to
+        /// <item>Strict (Gatekeeper): the key is rejected, so no <see cref="CharJudged"/> exists to
         /// carry it and the score processor would otherwise never learn the press happened.</item>
-        /// <item><see cref="AllowWrongInput"/>: the wrong char IS typed into the cell and the cell's
+        /// <item><see cref="AllowWrongInput"/> (default): the wrong char IS typed into the cell and the cell's
         /// own judgement travels on <see cref="CharJudged"/> as before. That judgement is about the
         /// CELL, not the keypress; this event is the keypress, so both modes account identically.</item>
         /// </list>
@@ -671,8 +697,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// Process a lowercased char from KeyCharMap at gameplay time <paramref name="time"/>.
         /// Returns false when inert (no active line / line complete / finished).
-        /// A wrong char is REJECTED, never input, but still breaks combo, stays in the
-        /// accuracy denominator forever, and grows <see cref="ConsecutiveWrongKeys"/>.
+        /// A wrong char is TYPED THROUGH by default (<see cref="AllowWrongInput"/>), or REJECTED
+        /// under Gatekeeper. Either way it breaks combo, counts as a mistype, and stays in the
+        /// accuracy denominator forever; only the rejection path grows
+        /// <see cref="ConsecutiveWrongKeys"/>.
         /// </summary>
         public bool ProcessKey(char c, double time)
         {
@@ -723,10 +751,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             if (!matched)
             {
-                // Legacy "allow wrong input" setting: a wrong LETTER is typed through, marked red,
-                // backspaceable, instead of rejected. The space key stays strict (no wrong space,
-                // and no wrong char consuming a word boundary), and this mode never feeds the
-                // mash-fail streak (consecutiveWrongKeys is left at 0).
+                // DEFAULT: a wrong LETTER is typed through, marked red, backspaceable, instead of
+                // rejected. The space key stays strict (no wrong space, and no wrong char consuming
+                // a word boundary), and this path never feeds the mash-fail streak
+                // (consecutiveWrongKeys is left at 0, which is why that guard is Gatekeeper-only).
                 if (AllowWrongInput && c != ' ' && cell.Expected != ' ')
                 {
                     totalKeypresses++;
@@ -753,7 +781,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     return true;
                 }
 
-                // Strict (default): wrong key REJECTED, no cell mutation, no caret advance, no
+                // Gatekeeper (strict): wrong key REJECTED, no cell mutation, no caret advance, no
                 // CharJudged. It still costs the accuracy denominator, an error, a combo break, and
                 // the consecutive-wrong-key streak (the game fails the play when it hits 13), and
                 // it is counted as a MISTYPE, which is the only route by which a rejected key

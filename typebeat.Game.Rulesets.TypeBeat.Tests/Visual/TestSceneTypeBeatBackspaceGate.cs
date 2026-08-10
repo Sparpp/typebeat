@@ -18,11 +18,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 {
     /// <summary>
     /// Backspace is gated on allow-wrong-input (backlog 24), driven here through the real input
-    /// path. In strict (default) play a wrong key is rejected instead of landing, so there is never
-    /// an erasable character and the key is ignored outright: no engine call, no state change. With
-    /// the setting on, a wrong char lands and backspace erases it again. FREESTYLE cells (whose
-    /// press is a correct hit that keeps the pressed char) are gated identically, so the rule stays
-    /// one predicate: erasing exists only where wrong input can land.
+    /// path. Under the Gatekeeper model a wrong key is rejected instead of landing, so there is
+    /// never an erasable character and the key is ignored outright: no engine call, no state
+    /// change. On the DEFAULT model a wrong char lands and backspace erases it again. FREESTYLE
+    /// cells (whose press is a correct hit that keeps the pressed char) are gated identically, so
+    /// the rule stays one predicate: erasing exists only where wrong input can land.
+    ///
+    /// <para>Backlog 107 flipped which side of that predicate ships by default (typing through is
+    /// now the default and rejection is the mod), so backspace is now LIVE by default. The gate
+    /// itself is unchanged and still reads the engine flag, which is the thing this scene pins.</para>
     /// </summary>
     public partial class TestSceneTypeBeatBackspaceGate : OsuManualInputManagerTestScene
     {
@@ -78,7 +82,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void TestBackspaceIsInertInStrictMode()
         {
-            AddAssert("strict mode is the default", () => !engine.AllowWrongInput);
+            AddStep("switch to the Gatekeeper (strict) model", () => engine.AllowWrongInput = false);
 
             AddStep("type z, a", () =>
             {
@@ -119,7 +123,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void TestBackspaceErasesWhenWrongInputIsAllowed()
         {
-            AddStep("allow wrong input", () => engine.AllowWrongInput = true);
+            AddAssert("allow wrong input is the default", () => engine.AllowWrongInput);
 
             AddStep("type z", () => InputManager.Key(Key.Z));
 
