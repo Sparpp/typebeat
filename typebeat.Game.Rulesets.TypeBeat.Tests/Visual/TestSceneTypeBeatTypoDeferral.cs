@@ -22,7 +22,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// result is DEFERRED until the play says which of the two it was), and when the seal decides it
     /// was never corrected it resolves as <c>TypeBeatResultMapping.UNFIXED_TYPO</c> rather than as a
     /// miss (124), so it costs accuracy, the mistype count and the combo break at the keypress, and
-    /// not the miss count, completion or rank.
+    /// not the miss count.
+    ///
+    /// <para>Backlog 126 finishes the rule: the typo has a key of its OWN (124 had spent Meh on it,
+    /// which is also what a slow-but-correct keypress resolves as, so nothing downstream could tell
+    /// the two apart), and a cell typed WRONG is not a cell TYPED, so it is out of completion's
+    /// numerator and costs rank exactly as a miss does. What it still does not cost is the miss
+    /// count, which is the one distinction pp is built on.</para>
     ///
     /// <para>This scene proves it where it actually matters, against the real
     /// <c>TypeBeatScoreProcessor</c> a <c>Player</c> caches, because the engine's own live combo is
@@ -162,11 +168,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             sealLineZero();
 
-            // THE assertion this scene exists for since backlog 124: the cell resolves as the worst
-            // HIT tier, not as a miss, and the miss count stays at zero.
+            // THE assertion this scene exists for since backlog 124: the cell resolves under the
+            // typo's own key, not as a miss and not as the Meh a late-but-correct char takes, and the
+            // miss count stays at zero.
             AddUntilStep("the cell resolves as a typo, not a miss", () =>
-                statistics.GetValueOrDefault(HitResult.Meh) == 1
+                statistics.GetValueOrDefault(TypeBeatResultMapping.UNFIXED_TYPO) == 1
                 && statistics.GetValueOrDefault(HitResult.Miss) == 0
+                && statistics.GetValueOrDefault(HitResult.Meh) == 0
                 && statistics.GetValueOrDefault(HitResult.Great) == 11);
             AddAssert("the engine counts no miss either, and keeps the red cell", () =>
                 engine.BuildResults().Counts[JudgementType.Miss] == 0
@@ -183,12 +191,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 engine.Combo == Player.ScoreProcessor.Combo.Value
                 && engine.MaxCombo == Player.ScoreProcessor.HighestCombo.Value);
 
-            // Every cell was finished, so completion is whole and the rank is the one a clean play
-            // would have earned. The typo is priced by the mistype count and by accuracy instead.
-            AddAssert("completion and rank cost nothing", () =>
-                TypeBeatScoreProcessor.ComputeCompletion(statistics) == 1
-                && Player.ScoreProcessor.Rank.Value == ScoreRank.X);
-            AddAssert("accuracy is what pays", () =>
+            // COMPLETION AND RANK, backlog 126: the cell was finished but not TYPED, so it is out
+            // of completion's numerator and in its denominator, and the play reads 11/12 with an A,
+            // exactly what a miss on that cell would have read. Between backlog 124 and 126 the same
+            // play read 1 and an X, because the typo's result was a hit and completion counted hits.
+            AddAssert("completion and rank fall exactly as a miss makes them fall", () =>
+                TypeBeatScoreProcessor.ComputeCompletion(statistics) == 11 / 12.0
+                && Player.ScoreProcessor.Rank.Value == ScoreRank.A);
+
+            // ACCURACY does not move, and that is deliberate: the typo tier is re-weighted to the
+            // Meh value, so backlog 126 changes completion, rank and health and nothing else.
+            AddAssert("accuracy pays exactly what it paid before", () =>
                 Player.ScoreProcessor.Accuracy.Value == (11 * 300 + 50) / (12 * 300.0));
         }
 
@@ -210,7 +223,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             sealLineZero();
 
             AddUntilStep("the untyped cell misses", () =>
-                statistics.GetValueOrDefault(HitResult.Miss) == 1 && statistics.GetValueOrDefault(HitResult.Meh) == 0);
+                statistics.GetValueOrDefault(HitResult.Miss) == 1
+                && statistics.GetValueOrDefault(TypeBeatResultMapping.UNFIXED_TYPO) == 0);
             AddAssert("no mistype behind it", () => statistics.GetValueOrDefault(HitResult.ComboBreak) == 0);
             AddAssert("and it costs completion and rank", () =>
                 TypeBeatScoreProcessor.ComputeCompletion(statistics) == 11 / 12.0
@@ -247,7 +261,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             sealLineZero();
 
-            AddUntilStep("the abandoned cell took its result", () => statistics.GetValueOrDefault(HitResult.Meh) == 1);
+            AddUntilStep("the abandoned cell took its result", () => statistics.GetValueOrDefault(TypeBeatResultMapping.UNFIXED_TYPO) == 1);
             AddAssert("...and the run it landed on is still standing", () => Player.ScoreProcessor.Combo.Value == 9);
 
             typeLineOneCell();
@@ -259,11 +273,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
-        /// The DENOMINATOR, which is the constraint backlog 124 had to work inside. Taking the cell
-        /// out of the miss count must not take it out of the count altogether: it stays one judged
-        /// note, so <c>notes</c> is one per cell and accuracy, the combo ratio and the pp length term
-        /// keep measuring the map the player actually played. Had the cell simply stopped resolving,
-        /// a line typed entirely as typos would judge nothing and read completion 1 over an empty
+        /// The DENOMINATOR, which is the constraint backlog 124 had to work inside and the thing
+        /// backlog 126 leans on. Taking the cell out of the miss count must not take it out of the
+        /// count altogether: it stays one judged note, so <c>notes</c> is one per cell and accuracy,
+        /// the combo ratio and the pp length term keep measuring the map the player actually played,
+        /// AND completion has something to divide by. Had the cell simply stopped resolving, a line
+        /// typed entirely as typos would judge nothing and read completion 1 over an empty
         /// denominator.
         /// </summary>
         [Test]
@@ -279,10 +294,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddUntilStep("thirteen cells judged, twelve of them clean", () =>
                 statistics.GetValueOrDefault(HitResult.Great) == 12
-                && statistics.GetValueOrDefault(HitResult.Meh) == 1);
+                && statistics.GetValueOrDefault(TypeBeatResultMapping.UNFIXED_TYPO) == 1);
 
             AddAssert("nothing missed and nothing in between", () =>
-                statistics.GetValueOrDefault(HitResult.Miss) == 0 && statistics.GetValueOrDefault(HitResult.Ok) == 0);
+                statistics.GetValueOrDefault(HitResult.Miss) == 0
+                && statistics.GetValueOrDefault(HitResult.Ok) == 0
+                && statistics.GetValueOrDefault(HitResult.Meh) == 0);
 
             AddAssert("the mistype is still counted, exactly once", () =>
                 statistics.GetValueOrDefault(HitResult.ComboBreak) == 1);
@@ -293,10 +310,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 return notes.Notes == 13 && notes.Misses == 0 && notes.Mistypes == 1;
             });
 
-            AddAssert("accuracy pays, completion and rank do not", () =>
+            AddAssert("accuracy pays, and so now do completion and rank", () =>
                 Player.ScoreProcessor.Accuracy.Value == (12 * 300 + 50) / (13 * 300.0)
-                && TypeBeatScoreProcessor.ComputeCompletion(statistics) == 1
-                && Player.ScoreProcessor.Rank.Value == ScoreRank.X);
+                && TypeBeatScoreProcessor.ComputeCompletion(statistics) == 12 / 13.0
+                && Player.ScoreProcessor.Rank.Value == ScoreRank.A);
         }
 
         /// <summary>

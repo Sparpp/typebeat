@@ -56,6 +56,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(drained + TypeBeatHealthProcessor.MEH_HEALTH_INCREASE, health.Health.Value, 1e-9);
         }
 
+        /// <summary>
+        /// Backlog 125, closed by backlog 126. An uncorrected typo resolves as an osu HIT
+        /// (<c>TypeBeatResultMapping.UNFIXED_TYPO</c>) so that pp can stop pricing it as a miss, and
+        /// on the stock health table every hit RECOVERS. That made a masher immortal: type nothing
+        /// but wrong characters and the bar climbed. The cell was not typed, so it drains exactly
+        /// what an untyped cell drains, and that constant is reused rather than reinvented.
+        /// </summary>
+        [Test]
+        public void AnUncorrectedTypoDrainsInsteadOfRecovering()
+        {
+            var health = new TypeBeatHealthProcessor();
+
+            apply(health, TypeBeatResultMapping.UNFIXED_TYPO);
+            Assert.AreEqual(1 - TypeBeatHealthProcessor.MISS_HEALTH_DRAIN, health.Health.Value, 1e-9);
+
+            // Held against the Meh it used to be, which is what a correct-but-late char takes: that
+            // one still recovers, and the two must not be the same number.
+            var recovering = new TypeBeatHealthProcessor();
+            apply(recovering, HitResult.Meh);
+            Assert.AreEqual(1.0, recovering.Health.Value, 1e-9, "a correct char cannot lose health");
+        }
+
+        /// <summary>
+        /// The same run backlog 125 flagged, end to end: a play typed ENTIRELY wrong must die. Under
+        /// the stock table it never could, because every one of its cells was a health-recovering
+        /// hit. It now dies on exactly the same schedule as a play that typed nothing at all.
+        /// </summary>
+        [Test]
+        public void SustainedTyposEmptyBarAndFail()
+        {
+            int cellsToDeath = (int)Math.Ceiling(1.0 / TypeBeatHealthProcessor.MISS_HEALTH_DRAIN);
+
+            var health = new TypeBeatHealthProcessor();
+
+            for (int i = 0; i < cellsToDeath - 1; i++)
+                apply(health, TypeBeatResultMapping.UNFIXED_TYPO);
+
+            Assert.IsFalse(health.HasFailed, "must not fail before the bar empties");
+
+            apply(health, TypeBeatResultMapping.UNFIXED_TYPO);
+            Assert.IsTrue(health.HasFailed, "a run typed entirely wrong must not survive on health");
+        }
+
         [Test]
         public void SustainedMissesEmptyBarAndFail()
         {

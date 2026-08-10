@@ -23,8 +23,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <para>Backlog 124 decided what the seal resolves it AS, and that is the second half of
         /// this rule: a typo is not a MISS. A miss is a cell the player never finished, a typo is a
         /// cell they finished wrongly, and the two say different things about the play, which is
-        /// why pp prices them separately. So the uncorrected typo takes the worst HIT tier
-        /// (<see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>) rather than a Miss.</para>
+        /// why pp prices them separately. So the uncorrected typo takes a key of its OWN
+        /// (<see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>) rather than a Miss. Backlog 126 is
+        /// which key, and what it costs: keeping the two distinguishable in <c>statistics</c> is
+        /// what lets pp keep pricing a typo as a typo while COMPLETION treats it as the unfinished
+        /// cell it is.</para>
         /// </summary>
         Deferred,
 
@@ -61,41 +64,56 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         /// <summary>
         /// The result a typed-through wrong character nobody corrected takes at the seal
-        /// (backlog 124). A MISS says the player was too slow to finish the character at all; a
-        /// typo says they finished it and got it wrong. Those are different facts about a play, so
-        /// they must not arrive as the same result.
+        /// (backlog 124, re-keyed by backlog 126). A MISS says the player was too slow to finish the
+        /// character at all; a typo says they finished it and got it wrong. Those are different
+        /// facts about a play, so they must not arrive as the same result.
         ///
-        /// <para><b>Why Meh, and why the choice is forced.</b> Three things have to stay true of
-        /// the cell, and together they leave exactly one candidate:</para>
+        /// <para><b>Why the key has to be its own, and why it is Good.</b> Backlog 124 spent
+        /// <see cref="HitResult.Meh"/> on this, which made an unfixed typo indistinguishable in
+        /// <c>statistics</c> from a slow-but-CORRECT keypress (engine Ok maps to Meh). The server
+        /// sees nothing but that dictionary, so with the two sharing a key no consumer could ever
+        /// price them differently, and the typo counted as a TYPED cell: a run typed entirely wrong
+        /// read completion 1 and took an X. Making it cost completion therefore requires a key
+        /// nothing else uses.</para>
+        ///
+        /// <para>The candidate set is not a preference, it is forced.
+        /// <c>DrawableHitObject.ApplyResult</c> refuses any result outside
+        /// <see cref="HitResultExtensions.IsValidHitResult"/> for the cell's judgement, and
+        /// <see cref="HitResultExtensions.ValidateHitResultPair"/> forces MinResult to be
+        /// <see cref="HitResult.Miss"/> for the Great-max
+        /// <see cref="Judgements.TypeBeatCharJudgement"/>. So a cell may only ever resolve as one of
+        /// {Miss, Meh, Ok, Good, Great}. Great/Ok/Meh are the engine's Perfect/Good/Ok tiers and
+        /// Miss is <see cref="SEAL_MISS"/>, which leaves exactly one free slot,
+        /// <see cref="HitResult.Good"/>. No tick, bonus or ignore result is reachable at all, so
+        /// there is no non-hit alternative to weigh up.</para>
+        ///
+        /// <para><b>What that key does, and what has to be adapted round it.</b> Good is a basic,
+        /// accuracy-affecting, combo-affecting HIT, so out of the box it lands in
+        /// <c>TypeBeatScoreProcessor.ComputeCompletion</c>'s denominator (wanted: pp's length term
+        /// and the combo ratio still measure the map the player played) and in
+        /// <see cref="PerformancePoints.NOTE_RESULTS"/> as a note that is not a miss (wanted: pp
+        /// keeps pricing a typo by the mistype term, never by the miss term). Three things it gets
+        /// wrong on its own, each fixed at the one place that owns it:</para>
         /// <list type="bullet">
-        /// <item>It must still be JUDGED: <see cref="HitResultExtensions.AffectsAccuracy"/> has to
-        /// be true, or the cell drops out of <c>TypeBeatScoreProcessor.ComputeCompletion</c>'s
-        /// DENOMINATOR and a line typed entirely as typos would judge nothing, compute completion 1
-        /// and hand out an X for free.</item>
-        /// <item>It must count as TYPED: <see cref="HitResultExtensions.IsHit"/> has to be true, or
-        /// the cell costs completion exactly as a miss does and nothing has changed.</item>
-        /// <item>It must still be a NOTE: it has to be in
-        /// <see cref="PerformancePoints.NOTE_RESULTS"/> (great/ok/meh/miss), or pp's length term
-        /// and combo ratio inflate over a shorter map than the player played.</item>
+        /// <item>It is a hit, so it would count as a TYPED cell. Completion excludes it by name
+        /// (<c>TypeBeatScoreProcessor.ComputeCompletion</c>), which is the whole of backlog 126: an
+        /// unfixed typo now costs completion, and therefore rank, exactly as a miss does.</item>
+        /// <item>It <see cref="HitResultExtensions.IncreasesCombo"/>, and the cell's combo
+        /// consequence was already taken at the keypress
+        /// (<c>TypeBeatPlayfield.onMistyped</c>). So the result is applied COMBO-NEUTRAL, see
+        /// <see cref="TypeBeatScoreProcessor.MarkComboNeutral"/>.</item>
+        /// <item>Its stock base score is 200 of the cell's 300, which would make a typo cost LESS
+        /// accuracy than a correct-but-late character.
+        /// <see cref="TypeBeatScoreProcessor.GetBaseScoreForResult"/> re-weights it to 50, the Meh
+        /// value, so accuracy and total score come out bit-identical to what backlog 124 shipped
+        /// and a typo still pays the most accuracy a judged cell can pay.</item>
         /// </list>
-        /// <para>The intersection of "is a hit" and "is a note" is {Great, Ok, Meh}, and Meh is its
-        /// floor: 50 base score against the cell's 300 maximum, so a typo pays the most accuracy a
-        /// counted, typed cell can pay. Nothing outside that set works:
-        /// <see cref="HitResult.IgnoreHit"/> is not accuracy-affecting, the tick results are not
-        /// notes, and <see cref="HitResult.ComboBreak"/> is neither.</para>
         ///
-        /// <para>This is what STRICT mode has always done, arrived at from the other side: a
-        /// Gatekeeper-rejected key never cost the cell anything either, because the player still
-        /// had to type the right character afterwards. The cost of getting a character wrong has
-        /// always been the mistype count plus the combo break, and it stays exactly that.</para>
-        ///
-        /// <para>COMBO is the one thing this tier gets wrong on its own, and the caller fixes it:
-        /// a Meh <see cref="HitResultExtensions.IncreasesCombo"/>, and the cell's combo consequence
-        /// was already taken at the keypress (<c>TypeBeatPlayfield.onMistyped</c>). So the result
-        /// is applied COMBO-NEUTRAL, see
-        /// <see cref="TypeBeatScoreProcessor.MarkComboNeutral"/>.</para>
+        /// <para>HEALTH is the fourth (backlog 125): a stock Good RECOVERS health, so a run typed
+        /// entirely wrong could not die. <see cref="TypeBeatHealthProcessor"/> drains
+        /// <see cref="TypeBeatHealthProcessor.MISS_HEALTH_DRAIN"/> for it instead.</para>
         /// </summary>
-        public const HitResult UNFIXED_TYPO = HitResult.Meh;
+        public const HitResult UNFIXED_TYPO = HitResult.Good;
 
         /// <summary>
         /// The line container's own result. Scoring-inert, so osu accuracy tracks only the cells.
@@ -157,7 +175,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         ///
         /// <list type="bullet">
         /// <item><paramref name="leftWrong"/>: the player typed the character and got it wrong, and
-        /// never went back for it. <see cref="UNFIXED_TYPO"/>, a hit.</item>
+        /// never went back for it. <see cref="UNFIXED_TYPO"/>, its own key.</item>
         /// <item>otherwise: nobody ever put anything in the cell, so the line ran out of time on it.
         /// <see cref="SEAL_MISS"/>, and it costs completion and rank exactly as it always has.</item>
         /// </list>

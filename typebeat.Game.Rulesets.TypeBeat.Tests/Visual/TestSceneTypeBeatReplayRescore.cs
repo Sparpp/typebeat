@@ -230,7 +230,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // The typo resolves as an unfixed typo (backlog 124), line 1's untyped cell as a real
             // miss: the seal seam has to hand out BOTH results, from the same loop, for this to hold.
             AddAssert("the typo took its own result, and line 1's cell a miss", () =>
-                liveStatistics.Single(kvp => kvp.Key == HitResult.Meh).Value == 1
+                liveStatistics.Single(kvp => kvp.Key == TypeBeatResultMapping.UNFIXED_TYPO).Value == 1
                 && liveStatistics.Single(kvp => kvp.Key == HitResult.Miss).Value == 1);
 
             compare();
