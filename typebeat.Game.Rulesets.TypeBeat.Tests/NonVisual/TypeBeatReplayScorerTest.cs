@@ -208,8 +208,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// the one place backlog 122 had just made them agree. Pre-109 (<c>ImmediateMiss</c>) the
         /// cell is a MISS, which is a character the player never finished. Now it is an unfixed
         /// TYPO, a character they finished and got wrong: still one judged note, still costing
-        /// accuracy, still costing the mistype and the combo break it took at the keypress, but no
-        /// longer costing the miss count, completion or rank.
+        /// accuracy, still costing the mistype and the combo break it took at the keypress, and
+        /// since backlog 126 still costing COMPLETION and RANK, which is the whole of what the two
+        /// eras now agree on. What it does not cost is the MISS COUNT, and that is the entire
+        /// remaining difference: pp prices a miss and a typo by different terms, so the two must
+        /// stay distinguishable in <c>statistics</c> even though completion treats them alike.
         ///
         /// <para>COMBO is the quantity that must NOT move, and it does not: one break, at the
         /// keypress, under both rules. Backlog 122 got there by suppressing the deferred Miss's
@@ -238,25 +241,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(count(deferred, HitResult.Great), Is.EqualTo(12));
                 Assert.That(count(immediate, HitResult.Great), Is.EqualTo(12));
 
-                Assert.That(count(deferred, HitResult.Meh), Is.EqualTo(1), "the cell was finished, wrongly");
+                Assert.That(count(deferred, TypeBeatResultMapping.UNFIXED_TYPO), Is.EqualTo(1), "the cell was finished, wrongly");
                 Assert.That(count(deferred, HitResult.Miss), Is.Zero, "and a finished cell is not a miss");
+                Assert.That(count(deferred, HitResult.Meh), Is.Zero, "the typo has a key of its own, not the Ok tier's");
 
-                Assert.That(count(immediate, HitResult.Meh), Is.Zero);
+                Assert.That(count(immediate, TypeBeatResultMapping.UNFIXED_TYPO), Is.Zero);
                 Assert.That(count(immediate, HitResult.Miss), Is.EqualTo(1), "the pre-109 arm must not move");
 
                 // The mistype is what the wrong keypress leaves behind, identically in both eras.
                 Assert.That(deferred.Mistypes, Is.EqualTo(1));
                 Assert.That(immediate.Mistypes, Is.EqualTo(1));
 
-                // Completion and rank: the play typed every cell, so it keeps the X it would have had
-                // without the typo. Pre-109 the same play read 12/13 and an A.
-                Assert.That(deferred.Completion, Is.EqualTo(1).Within(1e-12));
-                Assert.That(deferred.Rank, Is.EqualTo(ScoreRank.X));
+                // COMPLETION AND RANK, which is backlog 126: the typo'd cell was not typed, so it
+                // costs completion and rank exactly as the pre-109 miss did, 12/13 and an A. Between
+                // backlog 124 and 126 this same play read completion 1 and took an X, which is what
+                // the user objected to. What is NOT the same as the pre-109 arm is the miss count
+                // and therefore pp, which is the whole reason the two keys stay apart.
+                Assert.That(deferred.Completion, Is.EqualTo(12 / 13.0).Within(1e-12));
+                Assert.That(deferred.Rank, Is.EqualTo(ScoreRank.A));
                 Assert.That(immediate.Completion, Is.EqualTo(12 / 13.0).Within(1e-12));
                 Assert.That(immediate.Rank, Is.EqualTo(ScoreRank.A));
 
-                // ACCURACY still pays, and it is the one scale that does: 12 Greats plus a Meh
-                // against a 13-Great maximum, i.e. (12*300 + 50) / (13*300).
+                // ACCURACY is unmoved by backlog 126: the typo tier is re-weighted to the Meh value
+                // (TypeBeatScoreProcessor.GetBaseScoreForResult), so it is still 12 Greats plus 50
+                // against a 13-Great maximum, i.e. (12*300 + 50) / (13*300). Its stock weight of 200
+                // would read 3800/3900 instead, i.e. a typo cheaper than a correct-but-late char.
                 Assert.That(deferred.Accuracy, Is.EqualTo(3650 / 3900.0).Within(1e-12));
                 Assert.That(immediate.Accuracy, Is.EqualTo(12 / 13.0).Within(1e-12));
 
@@ -268,8 +277,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // A cell that scores 50 instead of 0, and contributes to the combo portion at the
                 // combo it FOUND (9, not 10, see TypeBeatScoreProcessor.GetComboScoreChange), is
                 // worth more than a miss. Pinned as a golden because the weight is the only thing
-                // that decides it: weighting the same Meh at 10 instead lands 758,457, i.e. it pays
-                // the play for a run the seal did not extend.
+                // that decides it: weighting the same typo at 10 instead lands 758,457, i.e. it pays
+                // the play for a run the seal did not extend. UNCHANGED by backlog 126, which is the
+                // point of re-weighting the tier: only completion, rank and health move.
                 Assert.That(deferred.TotalScore, Is.EqualTo(756145));
                 Assert.That(immediate.TotalScore, Is.EqualTo(684636));
             });
@@ -350,10 +360,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                // notes = great + ok + meh + miss, one per cell, with the mistype counted apart.
+                // notes = great + ok + meh + typo + miss, one per cell, with the mistype apart.
                 Assert.That(count(account, HitResult.Great), Is.EqualTo(12));
                 Assert.That(count(account, HitResult.Ok), Is.Zero);
-                Assert.That(count(account, HitResult.Meh), Is.EqualTo(1));
+                Assert.That(count(account, HitResult.Meh), Is.Zero);
+                Assert.That(count(account, TypeBeatResultMapping.UNFIXED_TYPO), Is.EqualTo(1));
                 Assert.That(count(account, HitResult.Miss), Is.Zero);
                 Assert.That(account.MaximumStatistics.GetValueOrDefault(HitResult.Great), Is.EqualTo(13));
 
@@ -362,6 +373,59 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(notes.Notes, Is.EqualTo(13));
                 Assert.That(notes.Misses, Is.Zero);
                 Assert.That(notes.Mistypes, Is.EqualTo(1));
+
+                // The denominator is the point: thirteen cells JUDGED, twelve of them typed, so
+                // completion is 12/13 and not 1-over-nothing. This is what stops a line typed
+                // entirely as typos judging nothing and taking an X for free.
+                Assert.That(account.Completion, Is.EqualTo(12 / 13.0).Within(1e-12));
+            });
+        }
+
+        /// <summary>
+        /// Backlog 126 stated as the case that forced it: a run typed ENTIRELY wrong. Every cell is
+        /// finished and none of them is right, and between backlog 124 and 126 that read completion
+        /// 1 and took an X, because every cell resolved as a HIT and completion counted hits. Now
+        /// the typo tier is excluded from the numerator and the same play reads completion 0 and a
+        /// D, which is what a play that typed none of the map should read.
+        ///
+        /// <para>The MISS COUNT stays zero throughout, which is the property that must survive: pp
+        /// still prices this play through the mistype term, not the cleanliness term, because the
+        /// player did reach and finish every character.</para>
+        /// </summary>
+        [Test]
+        public void ARunTypedEntirelyWrongIsNotAnX()
+        {
+            var map = beatmap();
+            var targets = lineZeroTargets(map);
+
+            var frames = new List<TypeBeatReplayFrame> { TypeBeatReplayFrame.CreateConfigFrame(0, true) };
+
+            // 'q' is in neither line, so every one of these is wrong wherever the caret sits.
+            for (int i = 0; i < word.Length; i++)
+                frames.Add(new TypeBeatReplayFrame(targets[i], 'q'));
+
+            frames.Add(new TypeBeatReplayFrame(line_zero_end, 'q'));
+
+            var account = score(map, replay(frames), TypoRule.Deferred);
+            var notes = PerformancePoints.CountNotes(account.Statistics);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(count(account, TypeBeatResultMapping.UNFIXED_TYPO), Is.EqualTo(13), "every cell finished, wrongly");
+                Assert.That(count(account, HitResult.Great), Is.Zero);
+                Assert.That(count(account, HitResult.Miss), Is.Zero, "nothing was left unfinished");
+
+                // THE assertion backlog 126 exists for.
+                Assert.That(account.Completion, Is.Zero);
+                Assert.That(account.Rank, Is.EqualTo(ScoreRank.D));
+
+                // Still thirteen notes and no miss, so pp keeps pricing this by the mistype term.
+                Assert.That(notes.Notes, Is.EqualTo(13));
+                Assert.That(notes.Misses, Is.Zero);
+                Assert.That(notes.Mistypes, Is.EqualTo(13));
+
+                // No cell ever extended a run, and every keypress broke one.
+                Assert.That(account.MaxCombo, Is.Zero);
             });
         }
 
@@ -392,7 +456,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(count(account, HitResult.Great), Is.EqualTo(11));
                 Assert.That(count(account, HitResult.Miss), Is.EqualTo(2), "never finished, so misses");
-                Assert.That(count(account, HitResult.Meh), Is.Zero);
+                Assert.That(count(account, TypeBeatResultMapping.UNFIXED_TYPO), Is.Zero, "and NOT the typo key");
                 Assert.That(account.Mistypes, Is.Zero, "no wrong key was ever pressed");
 
                 Assert.That(account.Completion, Is.EqualTo(11 / 13.0).Within(1e-12));
@@ -428,7 +492,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(count(account, HitResult.Great), Is.EqualTo(11), "cells 1..11");
-                Assert.That(count(account, HitResult.Meh), Is.EqualTo(1), "the typo on cell 0");
+                Assert.That(count(account, TypeBeatResultMapping.UNFIXED_TYPO), Is.EqualTo(1), "the typo on cell 0");
                 Assert.That(count(account, HitResult.Miss), Is.EqualTo(1), "line 1, never typed");
 
                 // THE assertion: eleven, the run the player actually built. Twelve means the seal's

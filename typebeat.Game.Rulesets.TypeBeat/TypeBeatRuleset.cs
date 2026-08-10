@@ -163,17 +163,32 @@ namespace typebeat.Game.Rulesets.TypeBeat
         public override ScoreProcessor CreateScoreProcessor() => new TypeBeatScoreProcessor(this);
 
         /// <summary>
-        /// type!beat only ever awards Great/Ok/Meh (+ implicit Miss). Restricting the valid results
-        /// keeps the base ruleset from surfacing spurious rows on the results card, notably the
-        /// obsolete <see cref="HitResult.LegacyComboIncrease"/>, which the base "all enum values"
-        /// default would otherwise emit at count 0.
+        /// type!beat only ever awards Great/Ok/Meh, the uncorrected-typo tier
+        /// (<see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>) and the implicit Miss. Restricting the
+        /// valid results keeps the base ruleset from surfacing spurious rows on the results card,
+        /// notably the obsolete <see cref="HitResult.LegacyComboIncrease"/>, which the base "all
+        /// enum values" default would otherwise emit at count 0.
+        ///
+        /// <para>The typo tier is listed so it is VISIBLE: it is a fifth thing a cell can end up as,
+        /// and the judgement counter and the in-game score table read this list. Left off, a play's
+        /// typo'd cells would vanish from every count the player can see while still costing
+        /// completion and rank.</para>
         /// </summary>
         public override IEnumerable<HitResult> GetValidHitResults() => new[]
         {
             HitResult.Great,
             HitResult.Ok,
             HitResult.Meh,
+            TypeBeatResultMapping.UNFIXED_TYPO,
         };
+
+        /// <summary>
+        /// <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/> is a borrowed enum member, not a grade:
+        /// its stock description would print "Good" beside Great/Ok/Meh, which reads as the opposite
+        /// of what it is. Everything else keeps the base description.
+        /// </summary>
+        public override LocalisableString GetDisplayNameForHitResult(HitResult result)
+            => result == TypeBeatResultMapping.UNFIXED_TYPO ? "Typo" : base.GetDisplayNameForHitResult(result);
 
         /// <summary>
         /// Results-screen statistics: completion (the number the rank is graded on) alongside the

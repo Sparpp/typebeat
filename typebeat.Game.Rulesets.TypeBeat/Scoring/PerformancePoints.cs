@@ -99,8 +99,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// </para>
     ///
     /// <para>
-    /// Mistypes deliberately do NOT enter <c>notes</c>, which stays <c>great + ok + meh + miss</c>,
-    /// the map's cell count. Letting keypresses inflate it would hand a masher a bigger LENGTH bonus
+    /// Mistypes deliberately do NOT enter <c>notes</c>, which stays the map's CELL count
+    /// (<c>great + ok + meh + good + miss</c>, one entry per cell, where <c>good</c> is an
+    /// uncorrected typo). Letting keypresses inflate it would hand a masher a bigger LENGTH bonus
     /// and a smaller COMBO denominator, paying for the mashing twice over. At zero mistypes the
     /// mistyping term is exactly 1.0, so such a play is priced by
     /// <c>max(0, 1 − miss^1.2/notes)^10</c> alone.
@@ -278,16 +279,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         /// <summary>
         /// The judgement results that count as a NOTE, i.e. the server's
-        /// <c>["great", "ok", "meh", "miss"]</c> statistics keys.
+        /// <c>["great", "ok", "meh", "good", "miss"]</c> statistics keys.
         /// <see cref="HitResult.IgnoreHit"/> is deliberately absent: the line containers are
         /// ignore_hit judgements and counting them would inflate <c>notes</c> and dilute every
         /// single factor (cleanliness, length, combo).
+        ///
+        /// <para><see cref="TypeBeatResultMapping.UNFIXED_TYPO"/> IS a note, and that is the pp half
+        /// of backlog 124 and 126. It is one cell of the map, so leaving it out would shorten the
+        /// map pp thinks the player played, inflating the length term and the combo ratio. It is
+        /// deliberately NOT <see cref="MISS_RESULT"/>: a miss is a character the player was too slow
+        /// to finish at all, a typo is one they finished wrongly, and the mistype term already
+        /// prices the second. So the typo costs COMPLETION like a miss
+        /// (<see cref="TypeBeatScoreProcessor.CountsAsTyped"/>) and pp like a typo, which is exactly
+        /// the split those two backlog items exist to keep.</para>
         /// </summary>
         public static readonly IReadOnlyList<HitResult> NOTE_RESULTS = new[]
         {
             HitResult.Great,
             HitResult.Ok,
             HitResult.Meh,
+            TypeBeatResultMapping.UNFIXED_TYPO,
             HitResult.Miss,
         };
 

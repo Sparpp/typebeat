@@ -10,8 +10,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// type!beat health is a genuine osu HP pool. Two independent things drain it:
     ///
     /// <list type="bullet">
-    /// <item><b>Not typing.</b> Every cell that scrolls past untyped seals as a
-    /// <see cref="HitResult.Miss"/> and drains <see cref="MISS_HEALTH_DRAIN"/>. Typing recovers HP
+    /// <item><b>Not typing it right.</b> Every cell that scrolls past untyped seals as a
+    /// <see cref="HitResult.Miss"/>, and every cell left holding a wrong character seals as
+    /// <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>; both drain
+    /// <see cref="MISS_HEALTH_DRAIN"/>. Typing recovers HP
     /// (<see cref="GREAT_HEALTH_INCREASE"/>/<see cref="OK_HEALTH_INCREASE"/>/<see cref="MEH_HEALTH_INCREASE"/>),
     /// so imperfect play with scattered misses stays healthy, but sustained AFK never recovers and
     /// dies once the accumulated drain empties the bar (default fail condition: health &lt;= 0).</item>
@@ -98,6 +100,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                     return MEH_HEALTH_INCREASE;
 
                 case HitResult.Miss:
+                    return -MISS_HEALTH_DRAIN;
+
+                // An uncorrected typo, which is an osu HIT and would therefore RECOVER health on
+                // the stock table (backlog 125: between 124 and 126 it did, so a player who typed
+                // nothing but wrong characters healed their way through a map they never typed).
+                // It drains exactly what a miss drains, and deliberately reuses that constant: the
+                // cell was not typed, and health is the one account that has never cared WHY.
+                case TypeBeatResultMapping.UNFIXED_TYPO:
                     return -MISS_HEALTH_DRAIN;
 
                 default:
