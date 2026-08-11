@@ -10,38 +10,56 @@ using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Rendering.Vertices;
 using osu.Framework.Graphics.Shaders;
+using osu.Framework.Localisation;
 using osu.Framework.Utils;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
-using typebeat.Game.Resources.Localisation.Web;
+using typebeat.Game.Overlays;
 using osuTK;
 
 namespace typebeat.Game.Screens.Select
 {
     public partial class BeatmapMetadataWedge
     {
-        public partial class FailRetryDisplay : CompositeDrawable
+        /// <summary>
+        /// The map's typing pace: a WPM curve over its length, with the peak and average WPM/CPM
+        /// spelled out beside it. Unlike the rest of this wedge the data is LOCAL, computed from the
+        /// selected beatmap's own lyric lines, so it needs no online lookup.
+        /// </summary>
+        public partial class TypingPaceDisplay : CompositeDrawable
         {
-            private readonly GraphDrawable retriesGraph;
-            private readonly GraphDrawable failsGraph;
+            private readonly GraphDrawable wpmGraph;
+            private readonly PaceRow peakRow;
+            private readonly PaceRow averageRow;
 
-            public APIFailTimes Data
+            /// <summary>Width reserved to the right of the graph for the peak/average readouts.</summary>
+            private const float readout_width = 150f;
+
+            /// <summary>
+            /// Null leaves the last values standing: the wedge hides the whole section for a map
+            /// with no pace to show, so blanking here would only be visible mid-fade.
+            /// </summary>
+            public TypingPaceProfile? Data
             {
                 set
                 {
-                    int[] retries = value.Retries ?? Array.Empty<int>();
-                    int[] fails = value.Fails ?? Array.Empty<int>();
-                    int[] total = retries.Zip(fails, (r, f) => r + f).ToArray();
+                    if (value == null)
+                        return;
 
-                    int maximum = total.DefaultIfEmpty(0).Max();
+                    // The curve is raw WPM; normalising it for display is this end's job. Scaling by
+                    // the peak (which is by construction the curve's own maximum) keeps the tallest
+                    // bar full height whatever the map's absolute speed.
+                    double peak = value.PeakWpm;
 
-                    retriesGraph.Data = total.Select(r => maximum == 0 ? 0 : (float)r / maximum).ToArray();
-                    failsGraph.Data = fails.Select(r => maximum == 0 ? 0 : (float)r / maximum).ToArray();
+                    wpmGraph.Data = value.WpmCurve.Select(v => peak <= 0 ? 0 : (float)(v / peak)).ToArray();
+
+                    peakRow.SetValues(value.PeakWpm, value.PeakCpm);
+                    averageRow.SetValues(value.AverageWpm, value.AverageCpm);
                 }
             }
 
-            public FailRetryDisplay()
+            public TypingPaceDisplay()
             {
                 RelativeSizeAxes = Axes.X;
                 AutoSizeAxes = Axes.Y;
@@ -56,7 +74,7 @@ namespace typebeat.Game.Screens.Select
                     {
                         new OsuSpriteText
                         {
-                            Text = BeatmapsetsStrings.ShowInfoPointsOfFailure,
+                            Text = @"Typing pace",
                             Font = OsuFont.Style.Caption1.With(weight: FontWeight.SemiBold),
                             Margin = new MarginPadding { Bottom = 4f },
                         },
@@ -64,10 +82,28 @@ namespace typebeat.Game.Screens.Select
                         {
                             RelativeSizeAxes = Axes.X,
                             Height = 65f,
-                            Children = new[]
+                            Children = new Drawable[]
                             {
-                                retriesGraph = new GraphDrawable { RelativeSizeAxes = Axes.Both, Y = -1f },
-                                failsGraph = new GraphDrawable { RelativeSizeAxes = Axes.Both },
+                                new Container
+                                {
+                                    RelativeSizeAxes = Axes.Both,
+                                    Padding = new MarginPadding { Right = readout_width + 15f },
+                                    Child = wpmGraph = new GraphDrawable { RelativeSizeAxes = Axes.Both },
+                                },
+                                new FillFlowContainer
+                                {
+                                    Anchor = Anchor.CentreRight,
+                                    Origin = Anchor.CentreRight,
+                                    Width = readout_width,
+                                    AutoSizeAxes = Axes.Y,
+                                    Direction = FillDirection.Vertical,
+                                    Spacing = new Vector2(0f, 4f),
+                                    Children = new[]
+                                    {
+                                        peakRow = new PaceRow(@"Peak"),
+                                        averageRow = new PaceRow(@"Average"),
+                                    },
+                                },
                             },
                         },
                     },
@@ -77,8 +113,63 @@ namespace typebeat.Game.Screens.Select
             [BackgroundDependencyLoader]
             private void load(OsuColour colours)
             {
-                retriesGraph.Colour = colours.Orange1;
-                failsGraph.Colour = colours.DarkOrange2;
+                wpmGraph.Colour = colours.Blue1;
+            }
+
+            /// <summary>One labelled "&lt;label&gt; &lt;n&gt; WPM &lt;n&gt; CPM" line of the readout.</summary>
+            private partial class PaceRow : CompositeDrawable
+            {
+                private const float label_width = 52f;
+                private const float value_width = 52f;
+
+                private readonly OsuSpriteText wpmText;
+                private readonly OsuSpriteText cpmText;
+
+                public PaceRow(LocalisableString label)
+                {
+                    RelativeSizeAxes = Axes.X;
+                    AutoSizeAxes = Axes.Y;
+
+                    InternalChild = new FillFlowContainer
+                    {
+                        RelativeSizeAxes = Axes.X,
+                        AutoSizeAxes = Axes.Y,
+                        Direction = FillDirection.Horizontal,
+                        Children = new Drawable[]
+                        {
+                            new Container
+                            {
+                                Width = label_width,
+                                AutoSizeAxes = Axes.Y,
+                                Child = new OsuSpriteText
+                                {
+                                    Text = label,
+                                    Font = OsuFont.Style.Caption1.With(weight: FontWeight.SemiBold),
+                                },
+                            },
+                            new Container
+                            {
+                                Width = value_width,
+                                AutoSizeAxes = Axes.Y,
+                                Child = wpmText = new OsuSpriteText { Font = OsuFont.Style.Caption1 },
+                            },
+                            cpmText = new OsuSpriteText { Font = OsuFont.Style.Caption1 },
+                        },
+                    };
+                }
+
+                public void SetValues(double wpm, double cpm)
+                {
+                    wpmText.Text = $@"{wpm:0} WPM";
+                    cpmText.Text = $@"{cpm:0} CPM";
+                }
+
+                [BackgroundDependencyLoader]
+                private void load(OverlayColourProvider colourProvider)
+                {
+                    wpmText.Colour = colourProvider.Content2;
+                    cpmText.Colour = colourProvider.Content2;
+                }
             }
 
             private partial class GraphDrawable : Drawable
