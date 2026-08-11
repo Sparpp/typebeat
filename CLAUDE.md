@@ -93,11 +93,17 @@ to the player. `typebeat-web/tests/Typebeat.WireCompat` compiles both repos and 
 |---|---|
 | `typebeat.Game.Rulesets.TypeBeat/Scoring/PerformancePoints.cs` | `src/Typebeat.Web/Scoring/PerformancePoints.cs` |
 | `typebeat.Game.Rulesets.TypeBeat/Beatmaps/LyricDifficulty.cs` | `src/Typebeat.Web/Packages/Lyrics/LyricDifficulty.cs` |
+| `typebeat.Game.Rulesets.TypeBeat/Beatmaps/LyricWpmCurve.cs` | `src/Typebeat.Web/Packages/Lyrics/LyricWpmCurve.cs` |
 | `typebeat.Game.Rulesets.TypeBeat/Gameplay/InstrumentalGaps.cs` | `src/Typebeat.Web/Packages/Lyrics/InstrumentalGaps.cs` |
 | the `TypingEngine` / score processor | `src/Typebeat.Web/wwwroot/js/typebeat-core.js` (hand-written JS reimplementation) |
 
 `PerformancePoints.VERSION` is **shared** between the two copies and stamps `scores.pp_version`;
 bump it in both the moment a change values any stored row differently.
+
+`LyricWpmCurve` (peak WPM, peak CPM and the downsampled WPM curve) is computed locally here for song
+select and STORED on the server's beatmap row for the set page's WPM tab, deliberately **not** put on
+the wire, so the mirror is the only thing keeping the in-game and on-site figures equal. A change
+here also needs the server's `LyricPace.VERSION` bumped so its stored columns recompute.
 
 `docs/pp.md` in `typebeat-web` is the canonical pp spec: every constant in `PerformancePoints.cs` is
 pinned there and must not drift from it.
