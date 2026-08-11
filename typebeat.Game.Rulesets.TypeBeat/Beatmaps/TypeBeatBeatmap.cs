@@ -15,10 +15,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// WPM/CPM) which song select's statistics display computes live from the hit objects,
     /// always correct, never stale realm data.
     /// </summary>
-    public class TypeBeatBeatmap : Beatmap<TypeBeatHitObject>
+    public class TypeBeatBeatmap : Beatmap<TypeBeatHitObject>, IHasTypingPace
     {
         /// <summary>Display normalisation caps for the statistic bars.</summary>
         private const float max_display_wpm = 150;
+
+        /// <summary>
+        /// Peak (rolling-window) and average (per-line) pace for song select's metadata wedge, both
+        /// derived from ONE materialised pass over the lyric lines: the curve sweep and the pace
+        /// averages read the same list rather than enumerating the hit objects twice.
+        /// </summary>
+        public TypingPaceProfile? GetTypingPace()
+        {
+            if (HitObjects.Count == 0)
+                return null;
+
+            var lines = HitObjects.Select(h => h.Line).ToList();
+            var curve = LyricWpmCurve.Compute(lines);
+            var pace = LyricPaceStatistics.Compute(lines);
+
+            // Nothing to draw (no typeable cell at all, or fewer than one rolling window's worth)
+            // reports null so the wedge hides the section instead of showing a flat empty graph.
+            if (pace.TypeableCellCount == 0 || curve.IsEmpty)
+                return null;
+
+            return new TypingPaceProfile
+            {
+                WpmCurve = curve.Curve,
+                PeakWpm = curve.PeakWpm,
+                PeakCpm = curve.PeakCpm,
+                AverageWpm = pace.AverageWpm,
+                AverageCpm = pace.AverageCpm,
+            };
+        }
 
         public override IEnumerable<BeatmapStatistic> GetStatistics()
         {

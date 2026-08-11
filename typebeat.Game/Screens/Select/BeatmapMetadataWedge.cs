@@ -4,6 +4,7 @@
 using System;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using osu.Framework.Allocation;
 using osu.Framework.Audio;
 using osu.Framework.Audio.Sample;
@@ -11,6 +12,7 @@ using osu.Framework.Bindables;
 using osu.Framework.Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
+using osu.Framework.Logging;
 using osu.Framework.Utils;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Database;
@@ -40,11 +42,11 @@ namespace typebeat.Game.Screens.Select
         private UserRatingDisplay userRatingDisplay = null!;
         private RatingSpreadDisplay ratingSpreadDisplay = null!;
 
-        private Drawable failRetryWedge = null!;
-        private FailRetryDisplay failRetryDisplay = null!;
+        private Drawable typingPaceWedge = null!;
+        private TypingPaceDisplay typingPaceDisplay = null!;
 
         public bool RatingsVisible => ratingsWedge.Alpha > 0;
-        public bool FailRetryVisible => failRetryWedge.Alpha > 0;
+        public bool TypingPaceVisible => typingPaceWedge.Alpha > 0;
 
         protected override bool StartHidden => true;
 
@@ -220,7 +222,7 @@ namespace typebeat.Game.Screens.Select
                             },
                         }
                     }),
-                    new ShearAligningWrapper(failRetryWedge = new Container
+                    new ShearAligningWrapper(typingPaceWedge = new Container
                     {
                         Alpha = 0f,
                         CornerRadius = 10,
@@ -236,7 +238,7 @@ namespace typebeat.Game.Screens.Select
                                 AutoSizeAxes = Axes.Y,
                                 Shear = -OsuGame.SHEAR,
                                 Padding = new MarginPadding { Left = SongSelect.WEDGE_CONTENT_MARGIN, Right = 40f, Vertical = 16 },
-                                Child = failRetryDisplay = new FailRetryDisplay(),
+                                Child = typingPaceDisplay = new TypingPaceDisplay(),
                             },
                         },
                     }),
@@ -283,31 +285,45 @@ namespace typebeat.Game.Screens.Select
             var beatmapInfo = beatmap.Value.BeatmapInfo;
             var currentOnlineBeatmap = onlineLookupResult.Value?.Result?.Beatmaps.SingleOrDefault(b => b.OnlineID == beatmapInfo.OnlineID);
 
-            if (State.Value == Visibility.Visible && currentOnlineBeatmap != null)
-            {
-                // play show sounds only if the wedges were previously hidden
-                if (ratingsWedge.Alpha < 1)
-                    playWedgeAppearSound();
+            bool wedgeVisible = State.Value == Visibility.Visible;
 
+            // The ratings wedge is online data; the typing pace wedge is computed from the local
+            // beatmap, so the two are gated separately and a map with no lyric lines simply drops
+            // its pace section rather than drawing an empty graph.
+            bool showRatings = wedgeVisible && currentOnlineBeatmap != null;
+            bool showTypingPace = wedgeVisible && typingPaceAvailable;
+
+            bool wasVisible = ratingsWedge.Alpha > 0 || typingPaceWedge.Alpha > 0;
+            bool nowVisible = showRatings || showTypingPace;
+
+            // play the transition sounds only when the wedge block as a whole appears or disappears
+            if (nowVisible && !wasVisible)
+                playWedgeAppearSound();
+            else if (!nowVisible && wasVisible)
+                playWedgeHideSound();
+
+            if (showRatings)
+            {
                 ratingsWedge.FadeIn(transition_duration, Easing.OutQuint)
                             .MoveToX(0, transition_duration, Easing.OutQuint);
-
-                failRetryWedge.Delay(100)
-                              .FadeIn(transition_duration, Easing.OutQuint)
-                              .MoveToX(0, transition_duration, Easing.OutQuint);
             }
             else
             {
-                // play hide sounds only if the wedges were previously visible
-                if (ratingsWedge.Alpha > 0)
-                    playWedgeHideSound();
-
-                failRetryWedge.FadeOut(transition_duration, Easing.OutQuint)
-                              .MoveToX(-50, transition_duration, Easing.OutQuint);
-
                 ratingsWedge.Delay(100)
                             .FadeOut(transition_duration, Easing.OutQuint)
                             .MoveToX(-50, transition_duration, Easing.OutQuint);
+            }
+
+            if (showTypingPace)
+            {
+                typingPaceWedge.Delay(100)
+                               .FadeIn(transition_duration, Easing.OutQuint)
+                               .MoveToX(0, transition_duration, Easing.OutQuint);
+            }
+            else
+            {
+                typingPaceWedge.FadeOut(transition_duration, Easing.OutQuint)
+                               .MoveToX(-50, transition_duration, Easing.OutQuint);
             }
         }
 
@@ -363,7 +379,67 @@ namespace typebeat.Game.Screens.Select
             submitted.Date = beatmapSetInfo.DateSubmitted;
             ranked.Date = beatmapSetInfo.DateRanked;
 
+            updateTypingPace();
             updateOnlineDisplay();
+        }
+
+        private bool typingPaceAvailable;
+
+        /// <summary>
+        /// Identifies the in-flight pace request. Selection changes far faster than a playable
+        /// beatmap loads, so results are matched against this rather than cancelled: a
+        /// <see cref="CancellationToken"/> would still let an already-scheduled continuation from an
+        /// older selection overwrite a newer one, and the same reasoning that makes API response
+        /// handlers gate on request identity applies here.
+        /// </summary>
+        private int typingPaceRequestId;
+
+        private WorkingBeatmap? typingPaceBeatmap;
+
+        private void updateTypingPace()
+        {
+            var working = beatmap.Value;
+
+            // updateDisplay also fires on online-lookup and api-state changes, neither of which can
+            // move a local pace figure; converting the beatmap again for those would be pure waste.
+            if (ReferenceEquals(typingPaceBeatmap, working))
+                return;
+
+            typingPaceBeatmap = working;
+
+            int requestId = ++typingPaceRequestId;
+
+            if (beatmap.IsDefault)
+            {
+                typingPaceAvailable = false;
+                updateSubWedgeVisibility();
+                return;
+            }
+
+            Task.Run(() =>
+            {
+                TypingPaceProfile? profile = null;
+
+                try
+                {
+                    // Expensive and synchronous (it converts the beatmap), so never on the update thread.
+                    profile = (working.GetPlayableBeatmap(working.BeatmapInfo.Ruleset) as IHasTypingPace)?.GetTypingPace();
+                }
+                catch (Exception e)
+                {
+                    Logger.Log($@"Failed to compute typing pace for {working.BeatmapInfo}: {e.Message}");
+                }
+
+                Schedule(() =>
+                {
+                    if (requestId != typingPaceRequestId)
+                        return;
+
+                    typingPaceAvailable = profile != null;
+                    typingPaceDisplay.Data = profile;
+                    updateSubWedgeVisibility();
+                });
+            });
         }
 
         private void updateOnlineDisplay()
@@ -396,7 +472,6 @@ namespace typebeat.Game.Screens.Select
                     userRatingDisplay.Data = onlineBeatmapSet.Ratings;
                     ratingSpreadDisplay.Data = onlineBeatmapSet.Ratings;
                     successRateDisplay.Data = (onlineBeatmap.PassCount, onlineBeatmap.PlayCount);
-                    failRetryDisplay.Data = onlineBeatmap.FailTimes ?? new APIFailTimes();
                 }
             }
 
