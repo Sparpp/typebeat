@@ -44,16 +44,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private const double reference_duration_s = 0.4; // duration weight unit
         // Maps the aggregate to stars. Calibrated against the LIVE RANKED CATALOGUE rather than
         // local reference maps: measured across all 31 ranked difficulties, "(It Goes Like)
-        // Nanana x Cola [Extreme]" is the hardest thing published and sits at 7.81 here, leaving
-        // real headroom under max_stars instead of parking the top of the pool against it. An
-        // earlier pass fitted this to a local map harder than anything ranked and cut the whole
+        // Nanana x Cola [Extreme]" is the hardest thing published and sits at 7.81 here, so the
+        // whole ranked pool reads inside a single star decade without anything being cut to fit.
+        // An earlier pass fitted this to a local map harder than anything ranked and cut the whole
         // catalogue to a mean 0.45 of its old rating; the lesson is that the calibration has to
         // come from what players can actually play. Stars are LINEAR in this constant, so moving
         // it alone is a pure rescale and cannot reorder anything (per_char_floor_ms can, and
         // did).
         private const double star_scale = 0.23;
         private const double star_power = 1.3; // stretches the hard end so top ratings spread
-        private const double max_stars = 10;
         private const double per_char_floor_ms = 50; // min plausible real-time per typed character; floors a word's window at chars × this (see the strain loop)
         private const double min_span_ms = 50; // floor a word's sung span (cv guard)
         private const double repeat_window_ms = 20_000; // "last 20 seconds" for word repetition
@@ -223,7 +222,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double raw = maxStrain / spike_focus + Math.Log(sum);
             double stars = star_scale * Math.Pow(raw, star_power);
 
-            return Math.Clamp(stars, 0, max_stars);
+            // THERE IS NO CEILING HERE, deliberately (backlog 118). One used to live on this line,
+            // a flat 10 chosen to keep a star BADGE sane, and it truncated far more than a badge:
+            // this same method produces the pp INPUTS, the ratings the server stores as sr_dt
+            // (rate 1.50) and sr_ht (0.75), and PerformancePoints prices a rate play purely
+            // through the RATIO of those to the base rating. A ceiling makes that ratio wrong the
+            // moment either side touches it, and it is the up-rate side that touches it: measured
+            // over the five real reference maps, sr_dt hit the old 10 on three of them while no
+            // base rating and no sr_ht came near it, and the hardest ranked difficulty published
+            // reads 7.81, so every truncation the ceiling ever performed was on a number it was
+            // not chosen for. On two of those three the truncated ratio also pushed
+            // HalfTimeMultiplier's mirror past 1.0 and dropped it onto its flat fallback: Siames
+            // "The Wolf" rates sr_dt 16.33 rather than 10.00, which is Double Time's factor 2.85
+            // rather than 1.07, and an HT mirror of 0.762 rather than the flat 0.70. Bounding a
+            // star READOUT is a presentation decision and belongs at the surface that draws one.
+            //
+            // The FLOOR stays. A negative rating describes no map, and callers divide by this.
+            return Math.Max(stars, 0);
         }
 
         /// <summary>

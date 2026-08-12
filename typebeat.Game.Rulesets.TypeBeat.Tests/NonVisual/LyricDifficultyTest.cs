@@ -80,6 +80,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void RateAdjustedRatingIsNotTruncatedAtTheTop()
+        {
+            // backlog 118. Compute used to end in a flat clamp to 10 stars, chosen to keep a star
+            // BADGE sane, and it truncated the rate-adjusted ratings with it. That mattered because
+            // the same pass produces sr_dt, the 1.50x rating PerformancePoints prices a Double Time
+            // play from. The asymmetry is the point: this shape stays clear of 10 at 1.00x and
+            // passes it at 1.50x, so the old ceiling cut one of the two numbers whose RATIO decides
+            // what the rate is charged for, which is the same shape the real catalogue has (no base
+            // rating has ever reached 10; sr_dt reached it on 3 of the 5 real reference maps).
+            var map = buildMap(lineCount: 40, wordsPerLine: 8, lineMs: 1200);
+
+            double noMod = LyricDifficulty.Compute(map);
+            double doubleTime = LyricDifficulty.Compute(map, 1.50);
+
+            Assert.That(noMod, Is.EqualTo(6.1622).Within(0.001));
+            Assert.That(doubleTime, Is.EqualTo(10.5567).Within(0.001), "under the old ceiling this read exactly 10.00");
+        }
+
+        [Test]
         public void AddingContentNeverLowersRating()
         {
             var baseMap = buildMap(lineCount: 8, wordsPerLine: 4, lineMs: 2400);
