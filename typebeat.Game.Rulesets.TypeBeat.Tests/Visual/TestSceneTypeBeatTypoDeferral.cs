@@ -307,7 +307,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("pp counts thirteen notes and no miss", () =>
             {
                 var notes = PerformancePoints.CountNotes(statistics);
-                return notes.Notes == 13 && notes.Misses == 0 && notes.Mistypes == 1;
+                return notes.Notes == 13 && notes.Misses == 0 && notes.Typos == 1;
             });
 
             AddAssert("accuracy pays, and so now do completion and rank", () =>

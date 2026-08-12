@@ -17,7 +17,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <code>
     /// pp = 9.6 · SR_eff^2.00
     ///      · max(0, 1 − miss^1.2/notes)^10                   cleanliness
-    ///      · max(0, 1 − mistypes^1.2/(notes+mistypes))^4     mistyping
+    ///      · max(0, 1 − typos^1.2/(notes+typos))^4           typos
     ///      · max(0.1, 1 + 0.50·log10(notes/100))             length, floored
     ///      · acc^1.80                                        timing quality
     ///      · (ln(1 + 9.0·maxcombo/notes)/ln(1 + 9.0))^2.50   combo
@@ -35,28 +35,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// </para>
     ///
     /// <para>
-    /// MISSES and MISTYPES are priced by SEPARATE terms (backlog 89), and neither appears in the
+    /// MISSES and TYPOS are priced by SEPARATE terms (backlog 89), and neither appears in the
     /// other's. CLEANLINESS is dropped cells alone, over the plain note count, at the steeper
-    /// exponent 10. MISTYPING (wrong keypresses,
+    /// exponent 10. The TYPO term (wrong keypresses,
     /// <see cref="TypeBeatScoreProcessor.MISTYPE_RESULT"/>, i.e. the <c>combo_break</c> statistics
     /// key) is its own factor at 4. Between backlog 72 and 89 the two rode inside one fraction,
-    /// which quietly made each penalty depend on the other: a mistype pulled the miss ratio towards
-    /// its own value, so a player with a heavy mistype count was charged LESS per dropped cell than
+    /// which quietly made each penalty depend on the other: a typo pulled the miss ratio towards
+    /// its own value, so a player with a heavy typo count was charged LESS per dropped cell than
     /// a clean one. Split, a play's misses cost the same whatever its keypresses did, and vice
     /// versa.
     /// </para>
     ///
     /// <para>
-    /// A mistype is still the cheaper of the two failures (4 against 10): a stumble you recover from
+    /// A typo is still the cheaper of the two failures (4 against 10): a stumble you recover from
     /// is not the same thing as never typing the cell at all. Backlog 95 raised both exponents
-    /// (8.5 to 10, 3.5 to 6); the mistype one has moved twice since, to 8 in v8 and back to 4 in v9.
+    /// (8.5 to 10, 3.5 to 6); the typo one has moved twice since, to 8 in v8 and back to 4 in v9.
     /// </para>
     ///
     /// <para>
     /// BOTH PENALTIES RAISE THE RAW COUNT TO A POWER, NOT THE RATIO (backlog 97), and that power is
     /// <see cref="count_power"/>, a tunable rather than part of the shape (backlog 101). Cleanliness
-    /// is <c>max(0, 1 − miss^1.6/notes)</c> and mistyping
-    /// <c>max(0, 1 − mistypes^1.6/(notes + mistypes))</c>. Backlog 96 squared the RATIO, which runs
+    /// is <c>max(0, 1 − miss^1.6/notes)</c> and the typo term
+    /// <c>max(0, 1 − typos^1.6/(notes + typos))</c>. Backlog 96 squared the RATIO, which runs
     /// the opposite way (a value already in [0, 1] gets SMALLER when squared, so <c>1 − r²</c> is
     /// LARGER than <c>1 − r</c>) and was a misreading of the intent; backlog 97 corrected it at a
     /// power of 2, which was far too extreme, and 101 settled the power at 1.2. v8 then retuned it
@@ -68,7 +68,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// denominator is not bounded by [0, 1] at all: the base crosses zero at
     /// <c>miss = notes^(1/1.6)</c> (49 misses on a 500-note map) and runs NEGATIVE past it, and a
     /// fractional exponent on a negative base is not merely wrong but non-real. Misses really can
-    /// equal <c>notes</c> and mistypes have no bound whatever, so this is the ordinary case and not a
+    /// equal <c>notes</c> and typos have no bound whatever, so this is the ordinary case and not a
     /// hostile-input guard. Clamped, the term is a well-defined 0 beyond that point: a CLIFF, chosen
     /// knowingly. WHERE it falls is exactly what <see cref="count_power"/> sets, which is why backlog
     /// 101 pulled that lever rather than the exponents; see the backlog-101 amendment in
@@ -77,7 +77,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     ///
     /// <para>
     /// BOTH NUMERATORS GO THROUGH <c>Math.Pow</c>, WHICH CONVERTS TO DOUBLE FIRST (never
-    /// <c>x * x</c> in <c>int</c>). Mistypes are unbounded, so an <c>int</c> square overflows
+    /// <c>x * x</c> in <c>int</c>). Typos are unbounded, so an <c>int</c> square overflows
     /// catastrophically (at <c>int.MaxValue</c> the true square is about 4.6e18), and a tamper-shaped
     /// note count could do the same to the misses. In double, <c>Math.Pow(int.MaxValue, 1.6)</c> is
     /// about 8.5e14 and the ratio about 4.0e5, so the base clamps to a well-defined zero rather than
@@ -89,22 +89,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// </para>
     ///
     /// <para>
-    /// Why the mistype term keeps mistypes on BOTH sides of its fraction while the miss term does
+    /// Why the typo term keeps typos on BOTH sides of its fraction while the miss term does
     /// not: misses are bounded by <c>notes</c> (a play cannot drop more cells than the map has), but
-    /// keypresses are UNBOUNDED, so a plain <c>mistypes^1.6/notes</c> would grow without limit and
+    /// keypresses are UNBOUNDED, so a plain <c>typos^1.6/notes</c> would grow without limit and
     /// make the clamp the only thing standing between a masher and a non-real result at any count at
     /// all. Keeping the count in the denominator too moves the zero out to the positive root of
-    /// <c>m^1.6 − m − notes = 0</c> (about 51.71, i.e. 52 mistypes, on a 500-note map) and keeps the
-    /// sum itself in <c>double</c>, since <c>notes + mistypes</c> as <c>int</c> overflows as readily
+    /// <c>m^1.6 − m − notes = 0</c> (about 51.71, i.e. 52 typos, on a 500-note map) and keeps the
+    /// sum itself in <c>double</c>, since <c>notes + typos</c> as <c>int</c> overflows as readily
     /// as the power does. Do not "simplify" that denominator away.
     /// </para>
     ///
     /// <para>
-    /// Mistypes deliberately do NOT enter <c>notes</c>, which stays the map's CELL count
+    /// Typos deliberately do NOT enter <c>notes</c>, which stays the map's CELL count
     /// (<c>great + ok + meh + good + miss</c>, one entry per cell, where <c>good</c> is an
     /// uncorrected typo). Letting keypresses inflate it would hand a masher a bigger LENGTH bonus
-    /// and a smaller COMBO denominator, paying for the mashing twice over. At zero mistypes the
-    /// mistyping term is exactly 1.0, so such a play is priced by
+    /// and a smaller COMBO denominator, paying for the mashing twice over. At zero typos the
+    /// typo term is exactly 1.0, so such a play is priced by
     /// <c>max(0, 1 − miss^1.6/notes)^10</c> alone.
     /// </para>
     ///
@@ -266,7 +266,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         private const double scale = 9.6;              // C: global scale, does not affect ranking order
         private const double sr_exponent = 2.00;
         private const double miss_exponent = 10.0;
-        private const double mistype_exponent = 4.0;
+        private const double typo_exponent = 4.0;
 
         /// <summary>
         /// The power the RAW COUNT is raised to inside both penalty bases, before its denominator
@@ -348,7 +348,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// of backlog 124 and 126. It is one cell of the map, so leaving it out would shorten the
         /// map pp thinks the player played, inflating the length term and the combo ratio. It is
         /// deliberately NOT <see cref="MISS_RESULT"/>: a miss is a character the player was too slow
-        /// to finish at all, a typo is one they finished wrongly, and the mistype term already
+        /// to finish at all, a typo is one they finished wrongly, and the typo term already
         /// prices the second. So the typo costs COMPLETION like a miss
         /// (<see cref="TypeBeatScoreProcessor.CountsAsTyped"/>) and pp like a typo, which is exactly
         /// the split those two backlog items exist to keep.</para>
@@ -381,17 +381,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         public const double HALF_TIME_BASE_RATE = 0.75;
 
         /// <summary>
-        /// Notes, misses and mistypes for a play, as the formula defines them. <see cref="Mistypes"/>
-        /// defaults to 0 so a play carrying no mistype count prices exactly as it always did.
+        /// Notes, misses and typos for a play, as the formula defines them. <see cref="Typos"/>
+        /// defaults to 0 so a play carrying no typo count prices exactly as it always did.
         /// </summary>
-        public readonly record struct NoteCounts(int Notes, int Misses, int Mistypes = 0);
+        public readonly record struct NoteCounts(int Notes, int Misses, int Typos = 0);
 
         /// <summary>
-        /// Notes, misses and mistypes from a play's judgement counts: the live
+        /// Notes, misses and typos from a play's judgement counts: the live
         /// <see cref="ScoreProcessor.Statistics"/> mid-play, or a finished score's
         /// <see cref="ScoreInfo.Statistics"/>. Negative counts (which only a rewind race could
         /// produce) contribute nothing rather than subtracting, and an absent
-        /// <see cref="MISTYPE_RESULT"/> reads as 0 mistypes.
+        /// <see cref="MISTYPE_RESULT"/> reads as 0 typos.
         ///
         /// <para>MID-PLAY THIS IS WHAT MAKES THE LIVE COUNTER CONVERGE: <c>notes</c> is the count of
         /// JUDGED notes, so it grows cell by cell and, on the last judgement of a passed play, is
@@ -417,9 +417,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                     misses += count;
             }
 
-            int mistypes = statistics.TryGetValue(MISTYPE_RESULT, out int mistypeCount) && mistypeCount > 0 ? mistypeCount : 0;
+            int typos = statistics.TryGetValue(MISTYPE_RESULT, out int typoCount) && typoCount > 0 ? typoCount : 0;
 
-            return new NoteCounts(notes, misses, mistypes);
+            return new NoteCounts(notes, misses, typos);
         }
 
         /// <summary>The same counts for a finished score.</summary>
@@ -671,7 +671,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <paramref name="maxCombo"/> the highest combo reached.
         ///
         /// <para>Inputs are clamped rather than trusted: misses and combo into <c>[0, notes]</c>
-        /// (the theoretical max combo of a typing map IS its note count), mistypes to non-negative
+        /// (the theoretical max combo of a typing map IS its note count), typos to non-negative
         /// (they have no upper bound: a player can press as many wrong keys as they like) and
         /// accuracy into <c>[0, 1]</c>. The result is guaranteed finite and non-negative.</para>
         ///
@@ -691,7 +691,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             double accuracy,
             int maxCombo,
             IReadOnlyList<Mod>? mods,
-            int mistypes = 0,
+            int typos = 0,
             double rateMultiplier = 1)
         {
             // No notes describes no play; a zero or non-finite rating prices nothing.
@@ -700,7 +700,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             misses = Math.Clamp(misses, 0, notes);
             maxCombo = Math.Clamp(maxCombo, 0, notes);
-            mistypes = Math.Max(mistypes, 0);
+            typos = Math.Max(typos, 0);
             accuracy = double.IsFinite(accuracy) ? Math.Clamp(accuracy, 0, 1) : 0;
 
             double difficulty = Math.Pow(starRating, sr_exponent);
@@ -723,16 +723,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // Wrong keypresses, and nothing else, under the same power. The count is UNBOUNDED, so
             // it still sits on BOTH sides of the fraction: that is what keeps the denominator
             // growing with the count, putting the zero at the positive root of
-            // m^count_power - m - notes = 0 (about 51.71, i.e. 52 mistypes, on a 500-note map)
+            // m^count_power - m - notes = 0 (about 51.71, i.e. 52 typos, on a 500-note map)
             // rather than at notes^(1/count_power). The numerator goes through Math.Pow and the sum
             // is taken in DOUBLE, independently and for the same reason: an int square overflows
             // catastrophically (the true square at int.MaxValue is about 4.6e18) and notes +
-            // mistypes as ints overflows too. In double, int.MaxValue mistypes give a ratio of about
+            // typos as ints overflows too. In double, int.MaxValue typos give a ratio of about
             // 4.0e5, so the base clamps to a well-defined 0 rather than wrapping into a NaN or a
-            // bonus. At zero mistypes this is exactly 1.0. notes is untouched by design (see the
-            // class docs): only this term prices mistypes.
-            double mistypeBase = Math.Max(0.0, 1.0 - Math.Pow(mistypes, count_power) / ((double)notes + mistypes));
-            double mistyping = Math.Pow(mistypeBase, mistype_exponent);
+            // bonus. At zero typos this is exactly 1.0. notes is untouched by design (see the
+            // class docs): only this term prices typos.
+            double typoBase = Math.Max(0.0, 1.0 - Math.Pow(typos, count_power) / ((double)notes + typos));
+            double typoPenalty = Math.Pow(typoBase, typo_exponent);
 
             double length = LengthBonus(notes);
             double timing = Math.Pow(accuracy, accuracy_exponent);
@@ -746,7 +746,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             double comboBase = Math.Log(1.0 + combo_log_shape * comboRatio) / Math.Log(1.0 + combo_log_shape);
             double combo = Math.Pow(comboBase, combo_exponent);
 
-            double pp = scale * difficulty * cleanliness * mistyping * length * timing * combo * ModMultiplier(mods, notes) * rateMultiplier;
+            double pp = scale * difficulty * cleanliness * typoPenalty * length * timing * combo * ModMultiplier(mods, notes) * rateMultiplier;
 
             return double.IsFinite(pp) && pp > 0 ? pp : 0;
         }
@@ -763,6 +763,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// surfaces get both halves from one place.</para>
         /// </summary>
         public static double ForPlay(double starRating, NoteCounts counts, double accuracy, int maxCombo, IReadOnlyList<Mod>? mods, double rateMultiplier = 1)
-            => Compute(starRating, counts.Notes, counts.Misses, accuracy, maxCombo, mods, counts.Mistypes, rateMultiplier);
+            => Compute(starRating, counts.Notes, counts.Misses, accuracy, maxCombo, mods, counts.Typos, rateMultiplier);
     }
 }
