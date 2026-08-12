@@ -16,8 +16,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     ///
     /// <code>
     /// pp = 12.5 · SR_eff^2.00
-    ///      · max(0, 1 − miss^1.6/notes)^10                   cleanliness
-    ///      · max(0, 1 − mistypes^1.6/(notes+mistypes))^4     mistyping
+    ///      · max(0, 1 − miss^1.2/notes)^10                   cleanliness
+    ///      · max(0, 1 − mistypes^1.2/(notes+mistypes))^4     mistyping
     ///      · max(0.1, 1 + 0.50·log10(notes/100))             length, floored
     ///      · acc^1.80                                        timing quality
     ///      · (ln(1 + 9.0·maxcombo/notes)/ln(1 + 9.0))^2.50   combo
@@ -241,9 +241,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// gives 0.7983, 0.75 gives 0.7458): a broken combo now costs roughly its face value, where
         /// at ^2.50 alone losing 10% of a combo cost 23% of the term. Every stored row below a full
         /// combo is repriced upwards, which is what forces the bump.</item>
+        /// <item>v13 = v13 = count_power 1.6 back to 1.2, restoring the value backlog 101 chose with a
+        /// written argument and that v8 silently replaced. The SHAPE is untouched and so is every
+        /// other constant. At 1.6 the cleanliness base hit zero at 49 misses on a 500-note map,
+        /// 9.7% of it, within a factor of two of the 4.6% that backlog 101 rejected as pricing
+        /// essentially every real play to nothing; at 1.2 it is 178, i.e. 35%. It also restores the
+        /// mistyping term's separate cliff, which exists because its count sits in its own
+        /// denominator: the two cliffs were 52 and 49 at 1.6, three counts apart, and are 249 and
+        /// 178 at 1.2. Both bases are still exactly 1.0 at a count of zero, so a spotless play is
+        /// priced bit-identically, while every stored row carrying a miss or a mistype is repriced
+        /// upwards, many of them away from exactly zero, which is what forces the bump.</item>
         /// </list>
         /// </summary>
-        public const int VERSION = 12;
+        public const int VERSION = 13;
 
         // ---- formula constants (docs/pp.md) ----
 
@@ -268,7 +278,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// moved 46% to 35% to 28% across 100, 500 and 2000 notes, and at 1.6 it moves 17.8% to 9.7%
         /// to 5.8% across the same three.</para>
         /// </summary>
-        private const double count_power = 1.6;
+        private const double count_power = 1.2;
 
         private const double length_weight = 0.50;
         private const double length_floor = 0.1;

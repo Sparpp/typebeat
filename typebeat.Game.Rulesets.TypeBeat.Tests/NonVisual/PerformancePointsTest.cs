@@ -241,7 +241,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(absurd, Is.Zero);
-                Assert.That(absurd, Is.EqualTo(Math.Pow(Math.Max(0.0, 1.0 - Math.Pow(5000.0, 1.6) / 5500.0), 4)).Within(1e-12)); // pp:const count_power=1.6 mistype_exponent=4
+                Assert.That(absurd, Is.EqualTo(Math.Pow(Math.Max(0.0, 1.0 - Math.Pow(5000.0, 1.2) / 5500.0), 4)).Within(1e-12)); // pp:const count_power=1.2 mistype_exponent=4
             });
         }
 
@@ -390,14 +390,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // 0.770823 under the squared ratio, 0.114309 at the linear shape, 0.200678 after the
                 // backlog-89 split and 0.125946 before it: a sloppy play is priced harshly again
                 // rather than zeroed.
-                Assert.That(penaltyFactor(notes: 500, misses: 60, mistypes: 80), Is.EqualTo(0.000000).Within(1e-6)); // pp[f.penalty(500, 60, 80)]
+                Assert.That(penaltyFactor(notes: 500, misses: 60, mistypes: 80), Is.EqualTo(0.008341).Within(1e-6)); // pp[f.penalty(500, 60, 80)]
 
                 // The near-clean case, which is the headline figure: the bases are 1 - 15.849/500 =
                 // 0.96830 and 1 - 36.411/520 = 0.92998, giving 0.724618 and 0.646893. A play with
                 // ten misses and twenty mistypes keeps 0.469 of a spotless one, against 0.000016 at
                 // a power of 2, 0.987200 under the squared ratio and 0.645745 at the linear shape.
                 // THAT IS THE POINT OF THE CHANGE: it lands almost exactly where backlog 95 had it.
-                Assert.That(penaltyFactor(notes: 500, misses: 10, mistypes: 20), Is.EqualTo(0.151677).Within(1e-6)); // pp[f.penalty(500, 10, 20)]
+                Assert.That(penaltyFactor(notes: 500, misses: 10, mistypes: 20), Is.EqualTo(0.542001).Within(1e-6)); // pp[f.penalty(500, 10, 20)]
             });
         }
 
@@ -415,7 +415,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 double withoutArgument = PerformancePoints.Compute(4.2, 500, misses, 0.87, 400, no_mods);
 
                 Assert.That(withArgument, Is.EqualTo(withoutArgument), $"misses={misses}");
-                Assert.That(penaltyFactor(500, misses, 0), Is.EqualTo(Math.Pow(Math.Max(0.0, 1.0 - Math.Pow(misses, 1.6) / 500.0), 10)).Within(1e-12), // pp:const count_power=1.6 miss_exponent=10
+                Assert.That(penaltyFactor(500, misses, 0), Is.EqualTo(Math.Pow(Math.Max(0.0, 1.0 - Math.Pow(misses, 1.2) / 500.0), 10)).Within(1e-12), // pp:const count_power=1.2 miss_exponent=10
                     $"misses={misses}");
             }
         }
@@ -454,7 +454,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 double clean = penaltyFactor(500, 0, mistypes);
                 double missy = penaltyFactor(500, 10, mistypes);
 
-                Assert.That(missy / clean, Is.EqualTo(Math.Pow(Math.Max(0.0, 1.0 - Math.Pow(10.0, 1.6) / 500.0), 10)).Within(1e-12), // pp:const count_power=1.6 miss_exponent=10
+                Assert.That(missy / clean, Is.EqualTo(Math.Pow(Math.Max(0.0, 1.0 - Math.Pow(10.0, 1.2) / 500.0), 10)).Within(1e-12), // pp:const count_power=1.2 miss_exponent=10
                     $"the miss term must not be diluted by {mistypes} mistypes");
             }
 
@@ -539,9 +539,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // THE THRESHOLDS ARE LIFTED INTO CONSTANTS so the pp tool can rewrite them. A cliff
             // sitting in a call argument is invisible to it, which is why the last two retunes moved
             // these three numbers by hand and why one of them was left describing the wrong power.
-            const int cliff500 = 49; // pp[math.ceil(f.miss_cliff(500))]
-            const int cliff2000 = 116; // pp[math.ceil(f.miss_cliff(2000))]
-            const int cliff100 = 18; // pp[math.ceil(f.miss_cliff(100))]
+            const int cliff500 = 178; // pp[math.ceil(f.miss_cliff(500))]
+            const int cliff2000 = 564; // pp[math.ceil(f.miss_cliff(2000))]
+            const int cliff100 = 47; // pp[math.ceil(f.miss_cliff(100))]
 
             Assert.Multiple(() =>
             {
@@ -570,10 +570,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // has none and is solved numerically. It is 248.37 at 500 notes, 730.32 at 2000 and
             // 73.45 at 100: LATER than the miss cliff on every map, which is the mistype term
             // staying the cheaper of the two failures.
-            const int cliff500 = 52; // pp[math.ceil(f.mistype_cliff(500))]
-            const int cliff2000 = 120; // pp[math.ceil(f.mistype_cliff(2000))]
-            const int cliff100 = 20; // pp[math.ceil(f.mistype_cliff(100))]
-            const int missCliff500 = 49; // pp[math.ceil(f.miss_cliff(500))]
+            const int cliff500 = 249; // pp[math.ceil(f.mistype_cliff(500))]
+            const int cliff2000 = 731; // pp[math.ceil(f.mistype_cliff(2000))]
+            const int cliff100 = 74; // pp[math.ceil(f.mistype_cliff(100))]
+            const int missCliff500 = 178; // pp[math.ceil(f.miss_cliff(500))]
 
             Assert.Multiple(() =>
             {
@@ -600,8 +600,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Not merely a small factor: the whole play is worth nothing, whatever its difficulty,
             // accuracy or combo. That is a deliberate consequence of the shape and not a rounding
             // artefact, so it is asserted on Compute itself rather than on the penalty factor.
-            const int missCliff = 49; // pp[math.ceil(f.miss_cliff(500))]
-            const int mistypeCliff = 52; // pp[math.ceil(f.mistype_cliff(500))]
+            const int missCliff = 178; // pp[math.ceil(f.miss_cliff(500))]
+            const int mistypeCliff = 249; // pp[math.ceil(f.mistype_cliff(500))]
 
             Assert.Multiple(() =>
             {
@@ -687,7 +687,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // mistypes, so its mistyping term is exactly 1.0 whatever the power, and the whole
                 // change is max(0, 1 - 5^1.2/300)^10 = 0.97700^10 replacing 0.91667^10. Five misses
                 // is far under the 116-miss cliff on a 300-note map, so this prices comfortably.
-                Assert.That(bare, Is.EqualTo(49.631726).Within(1e-5)); // pp[f.compute(3, 300, 5, 0.8, 250)]
+                Assert.That(bare, Is.EqualTo(61.535568).Within(1e-5)); // pp[f.compute(3, 300, 5, 0.8, 250)]
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModNoFail())),
                     Is.EqualTo(bare * 0.90).Within(1e-9)); // pp:const no_fail_multiplier=0.90
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModFletcher())),
@@ -810,7 +810,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // docs/pp.md move with it. v7 = the backlog-101 drop of count_power from 2 to 1.2, which
             // had to bump because it reprices every stored row carrying even one miss or one mistype
             // (upwards this time, and most of them away from the zero backlog 97 left them at).
-            Assert.That(PerformancePoints.VERSION, Is.EqualTo(12)); // pp:version
+            Assert.That(PerformancePoints.VERSION, Is.EqualTo(13)); // pp:version
         }
 
         #endregion
