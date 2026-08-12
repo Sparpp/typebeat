@@ -687,7 +687,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // mistypes, so its mistyping term is exactly 1.0 whatever the power, and the whole
                 // change is max(0, 1 - 5^1.2/300)^10 = 0.97700^10 replacing 0.91667^10. Five misses
                 // is far under the 116-miss cliff on a 300-note map, so this prices comfortably.
-                Assert.That(bare, Is.EqualTo(37.781351).Within(1e-5)); // pp[f.compute(3, 300, 5, 0.8, 250)]
+                Assert.That(bare, Is.EqualTo(49.631726).Within(1e-5)); // pp[f.compute(3, 300, 5, 0.8, 250)]
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModNoFail())),
                     Is.EqualTo(bare * 0.90).Within(1e-9)); // pp:const no_fail_multiplier=0.90
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModFletcher())),
@@ -810,7 +810,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // docs/pp.md move with it. v7 = the backlog-101 drop of count_power from 2 to 1.2, which
             // had to bump because it reprices every stored row carrying even one miss or one mistype
             // (upwards this time, and most of them away from the zero backlog 97 left them at).
-            Assert.That(PerformancePoints.VERSION, Is.EqualTo(11)); // pp:version
+            Assert.That(PerformancePoints.VERSION, Is.EqualTo(12)); // pp:version
         }
 
         #endregion
