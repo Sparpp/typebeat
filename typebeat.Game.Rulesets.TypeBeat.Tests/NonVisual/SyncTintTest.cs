@@ -18,7 +18,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// leaves a dull one.
     ///
     /// <para>The invariant that actually matters is the FLOOR. <see cref="SyncWindows.SyncQuality"/>
-    /// is exactly 0 at and beyond the Ok-window edges while the cell still lands Correct, so an
+    /// is exactly 0 at and beyond the widest window's edges while the cell still lands Correct, so an
     /// unfloored ramp would paint a char the player DID type in precisely the untyped grey. The floor
     /// tests below pin that in contrast terms rather than by restating the interpolation, so they
     /// stay meaningful if the ramp's shape is ever retuned.</para>
@@ -165,20 +165,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var windows = SyncWindows.For(TimingGranularity.Word);
 
             var deadOn = tint(windows.SyncQuality(0));
-            var goodEdge = tint(windows.SyncQuality(windows.GoodLate));
-            var okEdge = tint(windows.SyncQuality(windows.OkLate));
-            var beyondOk = tint(windows.SyncQuality(windows.OkLate * 3));
+            var okEdge = tint(windows.SyncQuality(windows.OkLate));   // exactly half the Meh window => q 0.5
+            var mehEdge = tint(windows.SyncQuality(windows.MehLate)); // the widest scoring edge => q 0
+            var beyondMeh = tint(windows.SyncQuality(windows.MehLate * 3));
 
-            assertBrighterThan(deadOn, goodEdge, "dead on vs the Good-window edge");
-            assertBrighterThan(goodEdge, okEdge, "the Good edge vs the Ok edge");
+            assertBrighterThan(deadOn, okEdge, "dead on vs the Ok-window edge");
+            assertBrighterThan(okEdge, mehEdge, "the Ok edge vs the Meh edge");
 
             Assert.That(deadOn, Is.EqualTo(TypeBeatStyle.TypedChar));
 
-            // The Ok edge is quality 0, and everything past it stays there: this is exactly the case
+            // The Meh edge is quality 0, and everything past it stays there: this is exactly the case
             // that would have painted an untyped grey without the floor.
-            Assert.That(okEdge, Is.EqualTo(tint(0)));
-            Assert.That(beyondOk, Is.EqualTo(tint(0)));
-            assertBrighterThan(okEdge, TypeBeatStyle.UntypedChar, "an Ok-edge correct char vs untyped");
+            Assert.That(mehEdge, Is.EqualTo(tint(0)));
+            Assert.That(beyondMeh, Is.EqualTo(tint(0)));
+            assertBrighterThan(mehEdge, TypeBeatStyle.UntypedChar, "a Meh-edge correct char vs untyped");
         }
 
         [Test]
@@ -188,7 +188,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // punished harder when the player rushes than when they drag. The tint inherits that
             // from SyncQuality rather than restating it.
             var windows = SyncWindows.For(TimingGranularity.Syllable);
-            double offset = windows.OkEarly * 0.5;
+            double offset = windows.MehEarly * 0.5;
 
             assertBrighterThan(tint(windows.SyncQuality(offset)), tint(windows.SyncQuality(-offset)),
                 "the same error late vs early");
@@ -198,13 +198,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void ATighterWindowTierPunishesTheSameDeltaHarder()
         {
             // Estimated lines and low-confidence words are judged at the widest (Line) tier, so the
-            // same delta must leave a brighter char there than on a syllable-timed map. Free, because
-            // the tint reads the cell's own JudgeGranularity.
-            const double delta = 300;
+            // same character distance must leave a brighter char there than on a syllable-timed map.
+            // Free, because the tint reads the cell's own JudgeGranularity.
+            const double distance = 3;
 
-            assertBrighterThan(tint(SyncWindows.For(TimingGranularity.Line).SyncQuality(delta)),
-                tint(SyncWindows.For(TimingGranularity.Syllable).SyncQuality(delta)),
-                "Line tier vs Syllable tier at the same delta");
+            assertBrighterThan(tint(SyncWindows.For(TimingGranularity.Line).SyncQuality(distance)),
+                tint(SyncWindows.For(TimingGranularity.Syllable).SyncQuality(distance)),
+                "Line tier vs Syllable tier at the same character distance");
         }
     }
 }

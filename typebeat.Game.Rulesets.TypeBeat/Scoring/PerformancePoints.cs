@@ -326,6 +326,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         public static readonly IReadOnlyList<HitResult> NOTE_RESULTS = new[]
         {
+            HitResult.Perfect,
             HitResult.Great,
             HitResult.Ok,
             HitResult.Meh,

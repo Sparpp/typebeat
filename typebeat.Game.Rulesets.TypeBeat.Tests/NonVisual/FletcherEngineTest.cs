@@ -238,8 +238,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, typing.CaretCountablePosition);
 
             // Presses 1..6 at t = 1000 put the caret 0, 1, 2, 3, 4 and 5 chars ahead: all inside the
-            // cap, and all still inside the timing windows (-500 ms is Good at Line granularity), so
-            // the combo climbs to 6 untouched.
+            // cap, and all still inside the judgement windows (5 characters early is the Ok edge at
+            // Line granularity), so the combo climbs to 6 untouched.
             for (int i = 0; i < 6; i++)
                 Assert.IsTrue(typing.ProcessKey(dense_chars[i], 1000));
 
@@ -248,18 +248,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, comboBreaks);
 
             // The 7th press ('g', target 1600) would sit 6 chars ahead: over the cap. The char still
-            // lands, is still judged Good (delta -600 is the Good edge) and still scores at the
-            // pre-break multiplier, 150 * (1 + 6/50) = 168, but the combo goes.
+            // lands, is still judged (6 characters early is inside the Meh window, which reaches 10)
+            // and still scores at the pre-break multiplier, 50 * (1 + 6/50) = 56, but the combo goes.
+            // The rush cap and the judgement windows are deliberately different rules here: the cap
+            // bites at 6 characters, the windows only at 10.
             long scoreBefore = typing.Score;
             Assert.IsTrue(typing.ProcessKey('g', 1000));
             Assert.AreEqual(CellState.Correct, typing.Lines[0].Cells[6].State);
             Assert.AreEqual(-600, typing.Lines[0].Cells[6].JudgedDelta);
-            Assert.AreEqual(168, typing.Score - scoreBefore);
+            Assert.AreEqual(-6, typing.Lines[0].Cells[6].JudgedOffset);
+            Assert.AreEqual(56, typing.Score - scoreBefore);
             Assert.AreEqual(0, typing.Combo);
             Assert.AreEqual(6, typing.MaxCombo, "the over-cap press must not extend max combo");
             Assert.AreEqual(1, comboBreaks);
 
-            // Still out past the cap: the press lands and scores (Ok, 50 at 1.0x) but there is no
+            // Still out past the cap: the press lands and scores (Meh, 50 at 1.0x) but there is no
             // combo left to break, so no second event fires.
             Assert.IsTrue(typing.ProcessKey('h', 1000));
             Assert.AreEqual(7, typing.CharsAheadOfPlayhead(1000));

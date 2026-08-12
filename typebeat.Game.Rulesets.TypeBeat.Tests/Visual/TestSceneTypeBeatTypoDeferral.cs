@@ -175,7 +175,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 statistics.GetValueOrDefault(TypeBeatResultMapping.UNFIXED_TYPO) == 1
                 && statistics.GetValueOrDefault(HitResult.Miss) == 0
                 && statistics.GetValueOrDefault(HitResult.Meh) == 0
-                && statistics.GetValueOrDefault(HitResult.Great) == 11);
+                && statistics.GetValueOrDefault(HitResult.Perfect) == 11);
             AddAssert("the engine counts no miss either, and keeps the red cell", () =>
                 engine.BuildResults().Counts[JudgementType.Miss] == 0
                 && engine.Lines[0].Cells[2].State == CellState.Wrong);
@@ -293,7 +293,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             typeLineOneCell();
 
             AddUntilStep("thirteen cells judged, twelve of them clean", () =>
-                statistics.GetValueOrDefault(HitResult.Great) == 12
+                statistics.GetValueOrDefault(HitResult.Perfect) == 12
                 && statistics.GetValueOrDefault(TypeBeatResultMapping.UNFIXED_TYPO) == 1);
 
             AddAssert("nothing missed and nothing in between", () =>
@@ -340,14 +340,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("the fix is the cell's first and only result", () =>
                 Player.ScoreProcessor.JudgedHits == 3
-                && statistics.GetValueOrDefault(HitResult.Great) == 3
+                && statistics.GetValueOrDefault(HitResult.Perfect) == 3
                 && statistics.GetValueOrDefault(HitResult.Miss) == 0);
 
             typeCorrectly(3, 12);
             sealLineZero();
 
-            AddUntilStep("every cell is a Great", () =>
-                statistics.GetValueOrDefault(HitResult.Great) == 12 && statistics.GetValueOrDefault(HitResult.Miss) == 0);
+            AddUntilStep("every cell is a top-tier hit", () =>
+                statistics.GetValueOrDefault(HitResult.Perfect) == 12 && statistics.GetValueOrDefault(HitResult.Miss) == 0);
 
             AddAssert("completion is whole and the rank is an X", () =>
                 TypeBeatScoreProcessor.ComputeCompletion(statistics) == 1

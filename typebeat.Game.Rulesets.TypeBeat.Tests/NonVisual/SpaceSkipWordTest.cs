@@ -127,11 +127,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var results = engine.BuildResults();
 
             Assert.AreEqual(2, results.Counts[JudgementType.Miss]);
-            // The gap's delta is 2600 - 3000 = -400: inside GoodEarly (600), outside PerfectEarly (250).
-            Assert.AreEqual(1, results.Counts[JudgementType.Good]);
-            Assert.AreEqual(1, results.Counts[JudgementType.Perfect]);
-            // 300 ('c') + 150 (the space, at combo 0 after the break => x1.00).
-            Assert.AreEqual(450, results.Score);
+            // The gap sits at 3000 and 't' at 2333.33, so the press at 2600 puts the playhead at
+            // 2.4 characters and the gap is cell 3: 0.6 of a character AHEAD of it, inside
+            // PerfectEarly (1.25). Judged exactly as a space typed in place would be.
+            Assert.AreEqual(2, results.Counts[JudgementType.Perfect]); // 'c' and the word gap
+            // 300 ('c') + 300 (the space, at combo 0 after the break => x1.00).
+            Assert.AreEqual(600, results.Score);
             // The skip itself is not a keypress, so both presses that WERE judged were correct.
             Assert.AreEqual(1.0, results.Accuracy);
             Assert.AreEqual(1, results.MaxCombo); // 'c' made it 1, the skip broke it, the space rebuilt it to 1
@@ -176,8 +177,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(2600 - t_target, judged[1].Delta, 1e-9);
 
             Assert.AreEqual(3, judged[2].CellIndex);
-            Assert.AreEqual(JudgementType.Good, judged[2].Type);
-            Assert.AreEqual(150, judged[2].PointsAwarded);
+            Assert.AreEqual(JudgementType.Perfect, judged[2].Type);
+            Assert.AreEqual(300, judged[2].PointsAwarded);
             Assert.AreEqual(1, judged[2].ComboAfter);
         }
 

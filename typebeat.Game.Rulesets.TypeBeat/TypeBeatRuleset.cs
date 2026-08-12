@@ -163,19 +163,20 @@ namespace typebeat.Game.Rulesets.TypeBeat
         public override ScoreProcessor CreateScoreProcessor() => new TypeBeatScoreProcessor(this);
 
         /// <summary>
-        /// type!beat only ever awards Great/Ok/Meh, the uncorrected-typo tier
+        /// type!beat only ever awards Perfect/Great/Ok/Meh, the uncorrected-typo tier
         /// (<see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>) and the implicit Miss. Restricting the
         /// valid results keeps the base ruleset from surfacing spurious rows on the results card,
         /// notably the obsolete <see cref="HitResult.LegacyComboIncrease"/>, which the base "all
         /// enum values" default would otherwise emit at count 0.
         ///
-        /// <para>The typo tier is listed so it is VISIBLE: it is a fifth thing a cell can end up as,
+        /// <para>The typo tier is listed so it is VISIBLE: it is a sixth thing a cell can end up as,
         /// and the judgement counter and the in-game score table read this list. Left off, a play's
         /// typo'd cells would vanish from every count the player can see while still costing
         /// completion and rank.</para>
         /// </summary>
         public override IEnumerable<HitResult> GetValidHitResults() => new[]
         {
+            HitResult.Perfect,
             HitResult.Great,
             HitResult.Ok,
             HitResult.Meh,
