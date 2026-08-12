@@ -233,6 +233,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             Engine.LineSealed += onLineSealed;
             Engine.WrongKeyRejected += onWrongKeyRejected;
             Engine.Mistyped += onMistyped;
+            Engine.ComboRestored += onComboRestored;
         }
 
         protected override void Update()
@@ -311,6 +312,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             (scoreProcessor as TypeBeatScoreProcessor)?.RecordMistype();
         }
 
+        /// <summary>
+        /// The player went back and corrected a typo, so the streak that typo's keypress broke
+        /// resumes (backlog 140, see <see cref="TypingEngine.ComboRestored"/>). Exactly the mirror
+        /// image of <see cref="onMistyped"/>, at the same seam and for the same reason: no
+        /// judgement result carries a restore, so osu's incrementally-maintained combo has to be
+        /// moved by hand or the submitted <c>max_combo</c> would keep counting from zero.
+        ///
+        /// <para>The engine raises this BEFORE the corrected retype's own judgement, so the result
+        /// applied a moment later by <see cref="onCharJudged"/> is weighted by the resumed streak.
+        /// That is what makes fixing a typo worth SCORE and not only accuracy.</para>
+        /// </summary>
+        private void onComboRestored(int streak) => (scoreProcessor as TypeBeatScoreProcessor)?.RestoreCombo(streak);
+
         private void onWrongKeyRejected(char c)
         {
             // The combo break rides on Mistyped (see onMistyped), which fires for this key too, one
@@ -354,6 +368,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             Engine.LineSealed -= onLineSealed;
             Engine.WrongKeyRejected -= onWrongKeyRejected;
             Engine.Mistyped -= onMistyped;
+            Engine.ComboRestored -= onComboRestored;
             base.Dispose(isDisposing);
         }
 

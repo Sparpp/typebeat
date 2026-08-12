@@ -163,16 +163,21 @@ namespace typebeat.Game.Rulesets.TypeBeat
         public override ScoreProcessor CreateScoreProcessor() => new TypeBeatScoreProcessor(this);
 
         /// <summary>
-        /// type!beat only ever awards Perfect/Great/Ok/Meh, the uncorrected-typo tier
-        /// (<see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>) and the implicit Miss. Restricting the
+        /// type!beat only ever awards Perfect/Great/Ok/Meh and the implicit Miss. Restricting the
         /// valid results keeps the base ruleset from surfacing spurious rows on the results card,
         /// notably the obsolete <see cref="HitResult.LegacyComboIncrease"/>, which the base "all
         /// enum values" default would otherwise emit at count 0.
         ///
-        /// <para>The typo tier is listed so it is VISIBLE: it is a sixth thing a cell can end up as,
-        /// and the judgement counter and the in-game score table read this list. Left off, a play's
-        /// typo'd cells would vanish from every count the player can see while still costing
-        /// completion and rank.</para>
+        /// <para>The uncorrected-typo tier (<see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>) is
+        /// deliberately NOT listed, which is backlog 140. A cell can still end up as one and it
+        /// still costs accuracy, completion and rank exactly as it did; what it no longer does is
+        /// show up as a SECOND typo number. The player-facing account of typing wrong is one stat,
+        /// TYPOS, which counts wrong KEYPRESSES (see
+        /// <see cref="CreateCompletionStatistics"/>), and every uncorrected typo'd cell implied one
+        /// of those, so listing the seal-state count beside it offered a smaller number under a
+        /// near-identical name and no way to tell which was which. This list is what the judgement
+        /// counter, the in-game score table and the results card read, so dropping it here is what
+        /// retires the split everywhere at once.</para>
         /// </summary>
         public override IEnumerable<HitResult> GetValidHitResults() => new[]
         {
@@ -180,13 +185,18 @@ namespace typebeat.Game.Rulesets.TypeBeat
             HitResult.Great,
             HitResult.Ok,
             HitResult.Meh,
-            TypeBeatResultMapping.UNFIXED_TYPO,
         };
 
         /// <summary>
         /// <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/> is a borrowed enum member, not a grade:
         /// its stock description would print "Good" beside Great/Ok/Meh, which reads as the opposite
         /// of what it is. Everything else keeps the base description.
+        ///
+        /// <para>Kept after backlog 140 dropped the result from
+        /// <see cref="GetValidHitResults"/>, which is what the results card and the judgement
+        /// counter filter on: the name is a property of the result, and anything that asks for one
+        /// by a route that does not consult that list must still be told the truth rather than
+        /// "Good".</para>
         /// </summary>
         public override LocalisableString GetDisplayNameForHitResult(HitResult result)
             => result == TypeBeatResultMapping.UNFIXED_TYPO ? "Typo" : base.GetDisplayNameForHitResult(result);
@@ -195,14 +205,17 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// Results-screen statistics: completion (the number the rank is graded on) alongside the
         /// judgement counts. The accuracy shown in the expanded panel is unchanged.
         ///
-        /// <para>MISTYPES sit beside the missed-character count, never folded into it: a miss is a
-        /// character the song left behind, a mistype is a wrong key the player pressed, and only
-        /// the first costs completion or rank. The row appears only for a score that actually
-        /// CARRIES the stat (<see cref="TypeBeatScoreProcessor.MistypesOf"/>); plays from before it
-        /// existed show no row at all rather than a fabricated 0.</para>
+        /// <para>TYPOS sit beside the missed-character count, never folded into it: a miss is a
+        /// character the song left behind, a typo is a wrong key the player pressed, and only
+        /// the first costs completion or rank. It is ONE number (backlog 140), counting wrong
+        /// KEYPRESSES as events, and it is the only typo figure the player is shown: the cells left
+        /// holding a wrong character at the seal are no longer counted separately, because each of
+        /// them took a wrong keypress that this number already carries. The row appears only for a
+        /// score that actually CARRIES the stat (<see cref="TypeBeatScoreProcessor.MistypesOf"/>);
+        /// plays from before it existed show no row at all rather than a fabricated 0.</para>
         ///
         /// <para>PP closes the table, after the raw counts it is derived from: it is what the whole
-        /// play was worth. Unlike the mistype row it is unconditional, because a pp reading is
+        /// play was worth. Unlike the typo row it is unconditional, because a pp reading is
         /// always knowable, either as a number or as "this could never have earned any"
         /// (<see cref="PerformancePointsDisplay"/>, which also owns the gates and the rounding, so
         /// this table and the live in-game counter can never disagree). No round trip is involved:
@@ -216,7 +229,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
 
         /// <summary>
         /// The rows of the completion table. Public so a test can pin WHICH rows a score gets
-        /// (notably: none for mistypes on a play that carries no mistype stat) against the very
+        /// (notably: none for typos on a play that carries no typo stat) against the very
         /// list the results screen renders, rather than a second copy of the rule.
         /// </summary>
         /// <param name="score">The score being shown.</param>
@@ -235,11 +248,11 @@ namespace typebeat.Game.Rulesets.TypeBeat
                 },
             };
 
-            if (TypeBeatScoreProcessor.MistypesOf(score) is int mistypes)
+            if (TypeBeatScoreProcessor.MistypesOf(score) is int typos)
             {
-                items.Add(new SimpleStatisticItem<int>("Mistypes")
+                items.Add(new SimpleStatisticItem<int>("Typos")
                 {
-                    Value = mistypes,
+                    Value = typos,
                 });
             }
 

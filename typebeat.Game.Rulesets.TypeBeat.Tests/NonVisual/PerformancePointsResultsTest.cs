@@ -220,7 +220,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void ThePpRowIsUnconditionalAndClosesTheTable()
         {
-            // Unlike Mistypes, which appears only for a score that carries the stat, a pp reading
+            // Unlike Typos, which appears only for a score that carries the stat, a pp reading
             // always exists: either a number or "could never have earned any". It sits last, after
             // the raw counts it is derived from.
             var beatmap = playable();
@@ -231,8 +231,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(priced.Select(r => r.Name), Is.EqualTo(new[] { "Completion", "Missed characters", "Mistypes", "pp" }));
-                Assert.That(ineligible.Select(r => r.Name), Is.EqualTo(new[] { "Completion", "Missed characters", "Mistypes", "pp" }));
+                Assert.That(priced.Select(r => r.Name), Is.EqualTo(new[] { "Completion", "Missed characters", "Typos", "pp" }));
+                Assert.That(ineligible.Select(r => r.Name), Is.EqualTo(new[] { "Completion", "Missed characters", "Typos", "pp" }));
             });
         }
 

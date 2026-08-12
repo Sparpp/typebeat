@@ -353,11 +353,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 TypeBeatScoreProcessor.ComputeCompletion(statistics) == 1
                 && Player.ScoreProcessor.Rank.Value == ScoreRank.X);
 
-            // The typo is still on the record, and still cost the combo it broke: the recovery is of
-            // the CELL, not of the mistake.
-            AddAssert("the mistype and its combo break survive the fix", () =>
+            // The typo is still on the record: the count is of the KEYPRESS, and no correction can
+            // unpress it. The COMBO it broke is a different matter since backlog 140, and this is
+            // that rule proved against a real Player rather than against the headless scorer: the
+            // fix resumed the streak of 2 the wrong key broke, before the retype was judged, so the
+            // twelve cells of line 0 run unbroken (2 restored, the retype makes 3, cells 3..11 take
+            // it to 12) where the same play used to submit 10.
+            AddAssert("the typo survives the fix but the combo it broke does not", () =>
                 statistics.GetValueOrDefault(HitResult.ComboBreak) == 1
-                && Player.ScoreProcessor.HighestCombo.Value == 10);
+                && Player.ScoreProcessor.HighestCombo.Value == 12);
         }
     }
 }

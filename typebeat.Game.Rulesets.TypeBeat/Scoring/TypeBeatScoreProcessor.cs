@@ -101,6 +101,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             => ScoreResultCounts[MISTYPE_RESULT] = ScoreResultCounts.GetValueOrDefault(MISTYPE_RESULT) + 1;
 
         /// <summary>
+        /// Puts back the streak a corrected typo's wrong keypress broke (backlog 140): osu's combo
+        /// resumes at what it was before that keypress, plus everything earned since. The engine
+        /// decides WHETHER and BY HOW MUCH (<see cref="Gameplay.TypingEngine.ComboRestored"/>); this is the
+        /// hand-mirror into the score processor, the exact counterpart of the hand-mirrored break
+        /// on <c>TypeBeatPlayfield.onMistyped</c>, and it exists here rather than at either caller
+        /// so live play and <see cref="TypeBeatReplayScorer"/> cannot restore differently.
+        ///
+        /// <para>Applied as a DELTA, not as the engine's own combo value: the two counters are kept
+        /// equal by mirroring every move, never by one overwriting the other, and adding back
+        /// exactly what the break took is what that break's undo is.</para>
+        ///
+        /// <para><see cref="ScoreProcessor.HighestCombo"/> is pushed up here rather than left to the
+        /// next result. The resumed run is a streak the player is holding right now, and the next
+        /// result is not guaranteed to arrive: a corrected retype of a cell that was ALREADY judged
+        /// (typo, fix, typo, fix on one cell) applies none at all, so waiting would drop the
+        /// restored maximum whenever the fix is the last thing that happens on the map.</para>
+        /// </summary>
+        public void RestoreCombo(int streak)
+        {
+            if (streak <= 0)
+                return;
+
+            Combo.Value += streak;
+            HighestCombo.Value = Math.Max(HighestCombo.Value, Combo.Value);
+        }
+
+        /// <summary>
         /// Declares that the result ABOUT TO BE APPLIED to one cell must leave combo exactly as it
         /// finds it: neither break it nor extend it, and take its combo-weighted score portion from
         /// the combo it found. The cell's combo consequence was already taken, by hand, at the

@@ -11,6 +11,7 @@
 using System;
 using System.Collections.Generic;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Scoring;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 {
@@ -62,6 +63,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// that changed measure mid-run would carry two different rules in one score.
         /// </summary>
         public SyncMeasure Measure { get; set; } = SyncMeasure.CharacterDistance;
+
+        /// <summary>
+        /// Whether correcting a wrong cell resumes the streak its keypress broke (see
+        /// <see cref="ComboRestored"/>). <see cref="ComboRestoreRule.OnFix"/> is the live rule
+        /// (backlog 140) and the default; only <see cref="Scoring.TypeBeatReplayScorer"/> ever sets
+        /// the other one, to re-derive a score from before the restore existed. Like
+        /// <see cref="Measure"/> it must be set BEFORE the first keypress and left alone afterwards:
+        /// combo already awarded is never revisited.
+        /// </summary>
+        public ComboRestoreRule ComboRestore { get; set; } = ComboRestoreRule.OnFix;
 
         /// <summary>The window set the beatmap's own granularity gets under the current <see cref="Measure"/>.</summary>
         public SyncWindows Windows => SyncWindows.For(Beatmap.Granularity, Measure);
@@ -429,6 +440,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public event Action? Mistyped;
 
+        /// <summary>
+        /// A corrected typo just RESUMED the streak its wrong keypress broke (backlog 140). Carries
+        /// how much combo was put back, i.e. the streak that keypress broke, which is always
+        /// positive (a break that cost nothing announces nothing).
+        ///
+        /// <para>Raised from <see cref="ProcessKey"/> with <see cref="Combo"/> and
+        /// <see cref="MaxCombo"/> already restored, and BEFORE the corrected retype is judged, so
+        /// every consumer prices that retype at the resumed streak: the standardised combo score
+        /// pays for the fix, not only the accuracy does. osu's own combo is maintained
+        /// incrementally off results and no result carries this, so the playfield mirrors it by hand
+        /// exactly as it mirrors the break on <see cref="Mistyped"/> (see
+        /// <c>TypeBeatPlayfield.onComboRestored</c> and
+        /// <see cref="Scoring.TypeBeatScoreProcessor.RestoreCombo"/>).</para>
+        ///
+        /// <para><b>What is restorable, and for how long.</b> A wrong keypress SNAPSHOTS the streak
+        /// it breaks against the cell it spoiled, and correcting that cell redeems the snapshot:
+        /// the run resumes at the snapshot plus everything earned since. Exactly one snapshot is
+        /// ever outstanding, because ANY other combo break (a sealed line's misses, an abandoned
+        /// word, a Premature/Lagging press, a rejected key, Fletcher's rush cap, or a wrong keypress
+        /// on another cell) takes ownership of the streak and discards it: an intervening break is a
+        /// run the player has already lost, and going back to fix the older cell cannot un-lose it.
+        /// Repeated wrong/fix cycles on ONE cell therefore break and restore each time, each cycle
+        /// snapshotting whatever the run had grown back to.</para>
+        ///
+        /// <para>Nothing else about a typo changes: the wrong keypress is still counted
+        /// (<see cref="Mistyped"/>), still costs the accuracy denominator, and health is untouched
+        /// in both directions.</para>
+        /// </summary>
+        public event Action<int>? ComboRestored;
+
         private readonly List<TypingLine> lines;
         private readonly bool[] lineSealed;
         private readonly Dictionary<JudgementType, int> counts = new Dictionary<JudgementType, int>();
@@ -475,6 +516,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         private int rollingCount; // entries held in rollingSamples, capped at rolling_wpm_window
         private int rollingNext;  // next slot to write; also the oldest entry once the ring is full
+
+        /// <summary>
+        /// The one outstanding combo snapshot (see <see cref="ComboRestored"/>): the cell a wrong
+        /// keypress spoiled and the streak that keypress broke, or null when there is nothing to go
+        /// back for. Set by the wrong keypress, redeemed by the correction of that same cell, and
+        /// discarded by any other combo break (<see cref="discardRestorableStreak"/>).
+        /// </summary>
+        private (int lineIndex, int cellIndex, int streak)? restorable;
 
         public TypingEngine(LyricBeatmap beatmap, bool literate = false)
         {
@@ -651,7 +700,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 {
                     // AT MOST ONE combo break per sealed line, no matter how many cells were missed.
                     combo = 0;
+
+                    // A real break, so it owns the streak. Distinct from the line-scoped drop
+                    // below: under Fletcher the caret can already be on a LATER line, holding a
+                    // snapshot this break has just cost it.
+                    discardRestorableStreak();
                 }
+
+                // A sealed line's cells can never be typed again, so a snapshot left on this one is
+                // unredeemable whether or not the seal broke anything. Dropping it here keeps the
+                // state truthful rather than relying on the caret never going back.
+                if (restorable?.lineIndex == index)
+                    restorable = null;
 
                 lineSealed[index] = true;
                 nextSealIndex++;
@@ -893,6 +953,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 {
                     totalKeypresses++;
                     errorCount++;
+
+                    // The streak this keypress is about to break, snapshotted against the cell it
+                    // spoils: correcting that cell resumes it (backlog 140, see ComboRestored).
+                    // Written unconditionally, so a wrong key on a SECOND cell discards the first
+                    // cell's claim exactly as any other intervening break would.
+                    int brokenStreak = combo;
+
                     combo = 0;
                     counts[JudgementType.WrongChar]++;
 
@@ -900,6 +967,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     cell.TypedChar = c;
 
                     int wrongCellIndex = caretIndex;
+
+                    restorable = TypeBeatResultMapping.FixRestoresTheComboBreak(ComboRestore)
+                        ? (activeLineIndex, wrongCellIndex, brokenStreak)
+                        : null;
+
                     caretIndex++;
                     autoSkipForward();
 
@@ -912,8 +984,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     // The CELL's judgement still travels here, for the stage's red/shake feedback,
                     // but DrawableTypeBeatHitObject.ApplyCharJudgement deliberately applies no osu
                     // result for a WrongChar: the cell's result is DEFERRED. Backspace and retype it
-                    // correctly and it earns its real Perfect/Great/Ok/Meh; leave it and the seal resolves it
-                    // as an unfixed typo, which is a hit and not a miss (backlog 124).
+                    // correctly and it earns its real Perfect/Great/Ok/Meh, plus the streak this
+                    // press just broke (backlog 140, see ComboRestored); leave it and the seal
+                    // resolves it as an unfixed typo, which is a hit and not a miss (backlog 124).
                     CharJudged?.Invoke(new CharJudgement(activeLineIndex, wrongCellIndex, JudgementType.WrongChar, delta, 0, combo));
                     rollForwardIfFinishedEarly();
                     return true;
@@ -928,6 +1001,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 errorCount++;
                 consecutiveWrongKeys++;
                 combo = 0;
+
+                // Nothing was written into a cell, so there is nothing to go back and correct: this
+                // break is final, and it ends any older cell's claim on the streak.
+                discardRestorableStreak();
                 counts[JudgementType.WrongChar]++;
                 Mistyped?.Invoke();
                 ComboBroken?.Invoke();
@@ -936,6 +1013,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             consecutiveWrongKeys = 0;
+
+            // COMBO RESTORE (backlog 140), before anything about this press is judged: if this is
+            // the correction of the cell a wrong keypress spoiled, the run resumes at the streak
+            // that keypress broke plus everything earned since. Placed here so the press below is
+            // scored, and announced, at the RESUMED streak. Not a scoring-inert operation even for
+            // an inert retype: the streak belongs to the fix, not to the cell's judgement.
+            resumeStreakIfThisFixesTheTypo(caretIndex);
 
             // Correctly re-typing a cell that was EVER judged correct (reached again via backspace,
             // which resets State but not FirstCorrectDelta) is scoring-inert: no counters, no
@@ -991,7 +1075,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                         combo = 0;
 
                         if (hadCombo)
+                        {
+                            discardRestorableStreak();
                             ComboBroken?.Invoke();
+                        }
                     }
                     else
                     {
@@ -1003,6 +1090,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 {
                     // Premature / Lagging: 0 points, combo break, char still accepted.
                     combo = 0;
+                    discardRestorableStreak();
                     ComboBroken?.Invoke();
                 }
 
@@ -1104,6 +1192,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 return;
 
             combo = 0;
+            discardRestorableStreak();
             ComboBroken?.Invoke();
 
             // Announce the misses AFTER the break so every judgement carries the post-break combo,
@@ -1112,6 +1201,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // engine has already taken).
             foreach (int i in abandoned)
                 CharJudged?.Invoke(new CharJudgement(activeLineIndex, i, JudgementType.Miss, time - cells[i].TargetTime, 0, combo));
+        }
+
+        /// <summary>
+        /// A combo break that is nobody's fixable typo happened, so the outstanding snapshot (if
+        /// any) is discarded: the streak it was holding has been lost to THIS break, and correcting
+        /// the older cell later cannot bring back a run that ended after it. Called at every
+        /// <see cref="ComboBroken"/> seam except the wrong keypress's own, which takes the snapshot
+        /// instead.
+        /// </summary>
+        private void discardRestorableStreak() => restorable = null;
+
+        /// <summary>
+        /// Redeem the outstanding snapshot if the cell about to be typed correctly is the cell it
+        /// was taken against: the run resumes at that streak plus everything earned since, which is
+        /// exactly <c>combo + streak</c> because no break has landed in between (any that had would
+        /// have discarded the snapshot). The claim is spent either way, so a second correct retype
+        /// of the same cell restores nothing.
+        /// </summary>
+        private void resumeStreakIfThisFixesTheTypo(int cellIndex)
+        {
+            if (restorable is not (int lineIndex, int typoCellIndex, int streak))
+                return;
+
+            if (lineIndex != activeLineIndex || typoCellIndex != cellIndex)
+                return;
+
+            restorable = null;
+
+            // A break that cost nothing restores nothing, and announcing it would have every
+            // consumer write back a combo it already holds.
+            if (streak <= 0)
+                return;
+
+            combo += streak;
+            maxCombo = Math.Max(maxCombo, combo);
+
+            ComboRestored?.Invoke(streak);
         }
 
         /// <summary>
