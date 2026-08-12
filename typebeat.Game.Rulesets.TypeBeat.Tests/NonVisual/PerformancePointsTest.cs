@@ -904,6 +904,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        [Test]
+        public void HalfTimeMultiplier_TookTheFlatCutOnlyBecauseSrDtHadBeenTruncated()
+        {
+            // backlog 118. LyricDifficulty used to end in a flat clamp to 10 stars. It never touched
+            // a base rating (the hardest ranked difficulty published reads 7.81) but it truncated
+            // sr_dt on any map dense enough at 1.50x, and sr_dt is half of what decides this
+            // multiplier. The three numbers below are Siames "The Wolf" measured through the real
+            // formula: base 9.6708, sr_ht 6.5614, and sr_dt 16.3333 against the 10.0000 the ceiling
+            // used to hand over. Truncated, the spread reads as CONCAVE and takes the flat cut; it
+            // is an ordinary, milder per-map mirror once the rating runs free, so the flat cut was
+            // firing on an artefact of the ceiling rather than on the shape of the map.
+            const double base_stars = 9.6708, ht = 6.5614;
+
+            double truncated = PerformancePoints.HalfTimeMultiplier(base_stars, 10.0, ht);
+            double untruncated = PerformancePoints.HalfTimeMultiplier(base_stars, 16.3333, ht);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(10.0 * ht, Is.LessThan(base_stars * base_stars), "truncated, the spread looks concave");
+                Assert.That(truncated, Is.EqualTo(0.70).Within(1e-12), "so it takes the flat cut"); // pp[f.half_time_buff_clamp]
+
+                Assert.That(16.3333 * ht, Is.GreaterThan(base_stars * base_stars), "untruncated it is convex, like most maps");
+                Assert.That(untruncated, Is.EqualTo(0.761568).Within(1e-6)); // pp[f.half_time_multiplier(9.6708, 16.3333, 6.5614)]
+                Assert.That(untruncated, Is.Not.EqualTo(0.70).Within(1e-6), "and needs no fallback at all"); // pp[f.half_time_buff_clamp]
+            });
+        }
+
         [TestCase(0.0, 6.0, 3.0)]
         [TestCase(-4.0, 6.0, 3.0)]
         [TestCase(4.0, 0.0, 3.0)]
