@@ -51,9 +51,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             {
                 // line 0 "ab": both correct at target (the wrong 'x' is rejected without a result;
                 // the backspace + retype of 'a' is scoring-inert), line resolves IgnoreHit.
-                HitResult.Great, HitResult.Great, HitResult.IgnoreHit,
+                HitResult.Perfect, HitResult.Perfect, HitResult.IgnoreHit,
                 // line 1 "cd": 'c' correct, 'd' never typed (Miss at seal), line IgnoreHit.
-                HitResult.Great, HitResult.Miss, HitResult.IgnoreHit,
+                HitResult.Perfect, HitResult.Miss, HitResult.IgnoreHit,
             };
 
             Score originalScore = null!;

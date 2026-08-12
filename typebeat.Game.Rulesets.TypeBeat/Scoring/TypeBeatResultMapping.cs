@@ -15,7 +15,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     {
         /// <summary>
         /// The rule since backlog 109, and the only one live play uses: a wrong char resolves
-        /// nothing. Correct the cell and the retype earns its real Great/Ok/Meh; leave it and the
+        /// nothing. Correct the cell and the retype earns its real Perfect/Great/Ok/Meh; leave it and the
         /// seal resolves it as <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>. The combo break the
         /// keypress costs rides on <see cref="TypingEngine.Mistyped"/>, because no result exists to
         /// carry it.
@@ -70,7 +70,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         ///
         /// <para><b>Why the key has to be its own, and why it is Good.</b> Backlog 124 spent
         /// <see cref="HitResult.Meh"/> on this, which made an unfixed typo indistinguishable in
-        /// <c>statistics</c> from a slow-but-CORRECT keypress (engine Ok maps to Meh). The server
+        /// <c>statistics</c> from a slow-but-CORRECT keypress (the engine's widest scoring tier
+        /// resolves as Meh). The server
         /// sees nothing but that dictionary, so with the two sharing a key no consumer could ever
         /// price them differently, and the typo counted as a TYPED cell: a run typed entirely wrong
         /// read completion 1 and took an X. Making it cost completion therefore requires a key
@@ -80,12 +81,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <c>DrawableHitObject.ApplyResult</c> refuses any result outside
         /// <see cref="HitResultExtensions.IsValidHitResult"/> for the cell's judgement, and
         /// <see cref="HitResultExtensions.ValidateHitResultPair"/> forces MinResult to be
-        /// <see cref="HitResult.Miss"/> for the Great-max
-        /// <see cref="Judgements.TypeBeatCharJudgement"/>. So a cell may only ever resolve as one of
-        /// {Miss, Meh, Ok, Good, Great}. Great/Ok/Meh are the engine's Perfect/Good/Ok tiers and
-        /// Miss is <see cref="SEAL_MISS"/>, which leaves exactly one free slot,
-        /// <see cref="HitResult.Good"/>. No tick, bonus or ignore result is reachable at all, so
-        /// there is no non-hit alternative to weigh up.</para>
+        /// <see cref="HitResult.Miss"/> for the basic
+        /// <see cref="Judgements.TypeBeatCharJudgement"/>. Its MaxResult is what sets the ceiling,
+        /// and it is <see cref="HitResult.Perfect"/> since backlog 133, so a cell may only ever
+        /// resolve as one of {Miss, Meh, Ok, Good, Great, Perfect}. Perfect/Great/Ok/Meh are the
+        /// engine's four quality tiers and Miss is <see cref="SEAL_MISS"/>, which leaves exactly
+        /// one free slot, <see cref="HitResult.Good"/>. No tick, bonus or ignore result is reachable
+        /// at all, so there is no non-hit alternative to weigh up.</para>
+        ///
+        /// <para>That is also WHY the ceiling moved. Backlog 124 needed one key that nothing else
+        /// used and got the last one, and backlog 133's fourth quality tier needed another; raising
+        /// MaxResult from Great to Perfect is the only thing that frees one, because the valid set
+        /// is the enum interval between MinResult and MaxResult and Perfect is the next member
+        /// above Great. The tier costs nothing anywhere else: Perfect's base score is already 300
+        /// (the base game's own table gives it no bonus over a Great), so the per-cell maximum, and
+        /// therefore the accuracy DENOMINATOR, is exactly what it was.</para>
         ///
         /// <para><b>What that key does, and what has to be adapted round it.</b> Good is a basic,
         /// accuracy-affecting, combo-affecting HIT, so out of the box it lands in
@@ -124,11 +134,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// The osu result an engine char judgement resolves its cell with, or null when the cell's
         /// result is DEFERRED and nothing at all is applied.
         ///
-        /// <para>Mapping: Perfect-&gt;Great, Good-&gt;Ok, Ok-&gt;Meh, Premature/Lagging/Miss-&gt;Miss.
-        /// Premature and Lagging accept the char with 0 engine points plus a combo break, and an osu
-        /// Miss breaks combo too, so the mapping is behaviour-coherent for combo (the score weights
-        /// differ). Miss reaches here only from a word abandoned by the space-skip setting, which
-        /// announces the cells it gives up immediately instead of leaving them to the seal.</para>
+        /// <para>Mapping: the four QUALITY tiers are the IDENTITY (Perfect, Great, Ok and Meh each
+        /// resolve as the osu result they are named for, backlog 133), and
+        /// Premature/Lagging/Miss-&gt;Miss. Premature and Lagging accept the char with 0 engine
+        /// points plus a combo break, and an osu Miss breaks combo too, so the mapping is
+        /// behaviour-coherent for combo (the score weights differ). Miss reaches here only from a
+        /// word abandoned by the space-skip setting, which announces the cells it gives up
+        /// immediately instead of leaving them to the seal.</para>
         ///
         /// <para>WrongChar is the one that moved (backlog 109). A miss is a character the line ran
         /// out of time on; a typo is a typo, and in the default input model the player can still
@@ -143,12 +155,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             switch (type)
             {
                 case JudgementType.Perfect:
+                    return HitResult.Perfect;
+
+                case JudgementType.Great:
                     return HitResult.Great;
 
-                case JudgementType.Good:
+                case JudgementType.Ok:
                     return HitResult.Ok;
 
-                case JudgementType.Ok:
+                case JudgementType.Meh:
                     return HitResult.Meh;
 
                 case JudgementType.WrongChar:

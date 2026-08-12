@@ -76,7 +76,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("no wrong keys", () => playfield.Engine.LiveAccuracy == 1);
 
             AddUntilStep("no misses in osu results", () =>
-                Player.Results.Count(r => r.Type == HitResult.Great) == 4
+                Player.Results.Count(r => r.Type == HitResult.Perfect) == 4
                 && Player.Results.All(r => r.Type != HitResult.Miss));
         }
     }

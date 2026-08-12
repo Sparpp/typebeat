@@ -56,15 +56,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         public char? TypedChar { get; internal set; }
 
-        /// <summary>Delta of the awarded correct keypress, or the wrong keypress.</summary>
+        /// <summary>Signed lead/lag of the awarded correct keypress, in MILLISECONDS.</summary>
         public double? JudgedDelta { get; internal set; }
 
         /// <summary>
-        /// Delta of the FIRST correct judgement: set once, never cleared (survives backspace).
-        /// Its presence makes later correct retypes scoring-inert, so backspace-retype cannot
-        /// farm score/combo/accuracy.
+        /// The awarded correct keypress's offset in the measure the play is JUDGED in (see
+        /// <see cref="SyncMeasure"/>): a fractional CHARACTER DISTANCE by default (negative = the
+        /// press was ahead of the playhead), and equal to <see cref="JudgedDelta"/> under
+        /// <see cref="SyncMeasure.Milliseconds"/>.
+        ///
+        /// <para>This, and not <see cref="JudgedDelta"/>, is what
+        /// <see cref="SyncWindows.Classify"/> and <see cref="SyncWindows.SyncQuality"/> read, so it
+        /// is what the sync tint and the sync percent are computed from. The two are kept apart
+        /// because they answer different questions: the delta says WHEN the key was pressed, the
+        /// offset says how far off the playhead that was in the map's own pace.</para>
+        /// </summary>
+        public double? JudgedOffset { get; internal set; }
+
+        /// <summary>
+        /// <see cref="SyncWindows.SyncQuality"/> of the awarded correct keypress, in [0, 1], banked
+        /// at the moment it was judged. It is BANKED rather than recomputed because the windows it
+        /// comes from depend on the play's <see cref="SyncMeasure"/>, and the one thing that knows
+        /// the measure is the engine: the stage reads cells pull-based and holds no engine
+        /// reference, so recomputing it out there would silently judge a millisecond offset against
+        /// character windows the day a mod selects the other measure. Banking also makes the sync
+        /// percent a sum rather than a whole-map reclassification every frame.
+        /// </summary>
+        public double? JudgedSyncQuality { get; internal set; }
+
+        /// <summary>
+        /// Delta of the FIRST correct judgement, in milliseconds: set once, never cleared (survives
+        /// backspace). Its presence makes later correct retypes scoring-inert, so backspace-retype
+        /// cannot farm score/combo/accuracy.
         /// </summary>
         internal double? FirstCorrectDelta { get; set; }
+
+        /// <summary>
+        /// <see cref="JudgedOffset"/> of the FIRST correct judgement, kept alongside
+        /// <see cref="FirstCorrectDelta"/> and for the same reason: a scoring-inert retype replays
+        /// the judgement the cell already earned rather than earning a new one, and under the
+        /// character measure the offset is what that judgement was derived from.
+        /// </summary>
+        internal double? FirstCorrectOffset { get; set; }
 
         internal TypingCell(char expected, bool isTypeable, double targetTime, TimingGranularity judgeGranularity)
         {
@@ -130,6 +163,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private readonly List<(double time, double index)> sungPoints;
 
+        /// <summary>
+        /// Target times of the line's TYPEABLE cells, in display order and therefore ascending
+        /// (construction clamps every target non-decreasing). This is the axis character DISTANCE is
+        /// measured on: index k is "the k'th character of this line".
+        /// </summary>
+        private readonly double[] judgeTargets;
+
+        /// <summary>
+        /// Where each DISPLAY cell sits on that axis. A typeable cell sits exactly on its own
+        /// integer index; a non-typeable one (auto-skipped punctuation) is interpolated onto the
+        /// axis from its target, so a caller never has to special-case it. Nothing judges a
+        /// non-typeable cell (the caret hops it), so which end of a tie it takes cannot reach a
+        /// score.
+        /// </summary>
+        private readonly double[] cellPositions;
+
+        /// <summary>
+        /// Milliseconds per character used to EXTRAPOLATE beyond the ends of
+        /// <see cref="judgeTargets"/>: this line's mean typeable spacing, with the fallbacks
+        /// described on <see cref="computeExtrapolationSpacing"/>.
+        /// </summary>
+        private readonly double extrapolationSpacingMs;
+
         private TypingLine(LyricLine source, IReadOnlyList<TypingCell> cells, double sealGraceMs)
         {
             Source = source;
@@ -188,6 +244,203 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             sungPoints.Add((Math.Max(SingEndTime, lastTime), cells.Count));
+
+            // The character-distance axis (backlog 133). Typeable cells only: they are the ones the
+            // caret stops on and the ones a keypress can ever be judged against, and SPACES are
+            // among them on purpose. A word gap is a cell with a target that the playhead crosses,
+            // so leaving it out would put a hole in the axis and make the interpolation jump. This
+            // is deliberately NOT the countable stream (TypingCell.IsCountable, which excludes
+            // spaces): that one measures a keypress BUDGET for Flashlight and Fletcher, a different
+            // question with a different right answer.
+            judgeTargets = new double[typeable];
+            int nextTarget = 0;
+
+            for (int i = 0; i < cells.Count; i++)
+            {
+                if (cells[i].IsTypeable)
+                    judgeTargets[nextTarget++] = cells[i].TargetTime;
+            }
+
+            extrapolationSpacingMs = computeExtrapolationSpacing();
+
+            cellPositions = new double[cells.Count];
+            int rank = 0;
+
+            for (int i = 0; i < cells.Count; i++)
+                cellPositions[i] = cells[i].IsTypeable ? rank++ : playheadSpan(cells[i].TargetTime).last;
+        }
+
+        /// <summary>
+        /// The character spacing to extrapolate at beyond the ends of the axis, in milliseconds per
+        /// character. The line's MEAN typeable spacing, which is its own pace and is immune to a
+        /// single degenerate gap in a way the first/last interval would not be. Two fallbacks, for
+        /// data that offers no spacing at all: a line with one typeable cell, or one whose targets
+        /// all sit on the same millisecond, falls back to its sung span over its cell count, and a
+        /// line with no span either falls back to <see cref="FALLBACK_CHAR_SPACING_MS"/>. The result
+        /// is always strictly positive, so no caller can divide by zero.
+        /// </summary>
+        private double computeExtrapolationSpacing()
+        {
+            int m = judgeTargets.Length;
+
+            if (m >= 2)
+            {
+                double mean = (judgeTargets[m - 1] - judgeTargets[0]) / (m - 1);
+
+                if (mean > 0)
+                    return mean;
+            }
+
+            if (m >= 1)
+            {
+                double sung = (Math.Max(SingEndTime, judgeTargets[m - 1]) - judgeTargets[0]) / m;
+
+                if (sung > 0)
+                    return sung;
+            }
+
+            return FALLBACK_CHAR_SPACING_MS;
+        }
+
+        /// <summary>
+        /// How many characters a keypress at <paramref name="time"/> on the cell at
+        /// <paramref name="cellIndex"/> is from the character the playhead is on. NEGATIVE means the
+        /// press is AHEAD of the playhead (the player is rushing), positive that it is behind
+        /// (dragging), matching the sign of the millisecond delta it replaces. Fractional: a press
+        /// halfway between two characters' targets is half a character out. This is the whole of
+        /// what backlog 133 judges on.
+        ///
+        /// <para>The playhead is a SPAN of characters, not a point (see
+        /// <see cref="playheadSpan"/>), and a cell inside that span is exactly 0 characters out. For
+        /// every ordinary press that is the same thing as subtracting one position from another,
+        /// because the span is a single point; it differs only where several characters share one
+        /// target time, which is the ordinary case at a word boundary (a word gap takes its unit's
+        /// end time and the next word's first letter takes the next unit's start time, and for
+        /// contiguous words those are the same millisecond). Both of those characters are equally
+        /// "the one the playhead is on", so a press dead on that time has to read as 0 for both;
+        /// picking either end of the run instead would charge a rhythm-perfect player a whole
+        /// character for the other one.</para>
+        /// </summary>
+        public double CharacterDistanceAt(double time, int cellIndex)
+        {
+            double cell = CellPosition(cellIndex);
+            (double first, double last) = playheadSpan(time);
+
+            if (cell < first)
+                return first - cell; // the playhead has gone past this character: the press is behind
+
+            if (cell > last)
+                return last - cell;  // the playhead has not reached it yet: the press is ahead
+
+            return 0;                // the playhead is ON this character
+        }
+
+        /// <summary>The cell's own position on the character axis (see <see cref="cellPositions"/>).</summary>
+        public double CellPosition(int cellIndex)
+            => cellPositions.Length == 0 ? 0 : cellPositions[Math.Clamp(cellIndex, 0, cellPositions.Length - 1)];
+
+        /// <summary>
+        /// Where the playhead is on this line's character axis at <paramref name="time"/>, as the
+        /// INCLUSIVE RANGE of fractional cell positions it covers. The two ends are equal for almost
+        /// every time; they separate only when the time lands exactly on a run of characters that
+        /// share a target, and then the range is that whole run.
+        ///
+        /// <para>INSIDE the line, between two targets, it is the exact piecewise-linear
+        /// interpolation between them, which is the inverse of the per-character target
+        /// interpolation <see cref="FromLyricLine"/> already does. Where spacing is locally uniform
+        /// it reduces exactly to the millisecond delta divided by that spacing, which is the point of
+        /// the whole measure.</para>
+        ///
+        /// <para>OUTSIDE it, at the line's first and last characters, one bracket is missing, and the
+        /// position is EXTRAPOLATED linearly at <see cref="extrapolationSpacingMs"/> rather than
+        /// clamped. Clamping is what <see cref="SungPositionAt"/> does, correctly, because a caret
+        /// sweep must not leave its line; doing it here would make every early press on a line's
+        /// first character a distance of exactly 0, i.e. a Perfect however early it was, which is the
+        /// one answer that must not come out. Extrapolating instead reads a press one second before a
+        /// 100 ms/character line opens as ten characters early, a miss, exactly as the old
+        /// millisecond windows read it.</para>
+        ///
+        /// <para>The axis is PER LINE, and that is the reason the ends need extrapolating at all. A
+        /// map-wide axis would bracket a press made during the cue lead between the PREVIOUS line's
+        /// last character and this line's first, so a ten-second instrumental gap would compress into
+        /// one character of distance and a press two seconds early would read as a fifth of a
+        /// character out, i.e. a Perfect. Per line, the gaps between lines are simply not on the
+        /// axis.</para>
+        /// </summary>
+        private (double first, double last) playheadSpan(double time)
+        {
+            int m = judgeTargets.Length;
+
+            // A line with nothing typeable has no characters to be distant from, and no keypress can
+            // reach one either (the caret auto-skips straight past it).
+            if (m == 0)
+                return (0, 0);
+
+            int last = lastAtOrBefore(time);  // -1 when the time precedes every target
+            int first = firstAtOrAfter(time); // m  when the time follows every target
+
+            // The time lands exactly on one or more targets: the playhead is on all of them.
+            if (first <= last)
+                return (first, last);
+
+            double position;
+
+            if (last < 0)
+                position = (time - judgeTargets[0]) / extrapolationSpacingMs;
+            else if (first >= m)
+                position = (m - 1) + (time - judgeTargets[m - 1]) / extrapolationSpacingMs;
+            else
+                // Strictly between two targets, so first == last + 1 and the bracket has real width:
+                // the divisor cannot be zero however many characters share a millisecond elsewhere.
+                position = last + (time - judgeTargets[last]) / (judgeTargets[first] - judgeTargets[last]);
+
+            return (position, position);
+        }
+
+        /// <summary>The last index of <see cref="judgeTargets"/> at or before <paramref name="time"/>, or -1.</summary>
+        private int lastAtOrBefore(double time)
+        {
+            int found = -1;
+            int lo = 0;
+            int hi = judgeTargets.Length - 1;
+
+            while (lo <= hi)
+            {
+                int mid = (lo + hi) / 2;
+
+                if (judgeTargets[mid] <= time)
+                {
+                    found = mid;
+                    lo = mid + 1;
+                }
+                else
+                    hi = mid - 1;
+            }
+
+            return found;
+        }
+
+        /// <summary>The first index of <see cref="judgeTargets"/> at or after <paramref name="time"/>, or the length.</summary>
+        private int firstAtOrAfter(double time)
+        {
+            int found = judgeTargets.Length;
+            int lo = 0;
+            int hi = judgeTargets.Length - 1;
+
+            while (lo <= hi)
+            {
+                int mid = (lo + hi) / 2;
+
+                if (judgeTargets[mid] >= time)
+                {
+                    found = mid;
+                    hi = mid - 1;
+                }
+                else
+                    lo = mid + 1;
+            }
+
+            return found;
         }
 
         /// <summary>
@@ -446,6 +699,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             return timeLo + (j - segIndexLo) / (segIndexHi - segIndexLo) * (timeHi - timeLo);
         }
+
+        /// <summary>
+        /// The character spacing a line falls back to when its own data offers none at all (see
+        /// <see cref="computeExtrapolationSpacing"/>): one typeable cell, or every target on the
+        /// same millisecond, AND no sung span to divide either. 200 ms per character is 60 WPM, a
+        /// plausible middle of the range this game is typed at, so the windows such a line hands out
+        /// are neither free nor impossible. It is a floor for degenerate data, never a tuning knob:
+        /// no real aligned line reaches it.
+        /// </summary>
+        public const double FALLBACK_CHAR_SPACING_MS = 200;
 
         private const double boundary_epsilon_ms = 30;
         private const double min_boundary_grace_ms = 250;

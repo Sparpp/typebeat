@@ -51,7 +51,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         public IReadOnlyList<TypingLine> Lines => lines;
 
-        public SyncWindows Windows { get; }
+        /// <summary>
+        /// What a keypress's offset from its cell is measured in, and therefore which ladder of
+        /// <see cref="SyncWindows"/> judges it. <see cref="SyncMeasure.CharacterDistance"/> is the
+        /// live rule (backlog 133); nothing in the game selects
+        /// <see cref="SyncMeasure.Milliseconds"/> yet, and the Rhythmic mod (backlog 135) is what
+        /// will, by setting this the way <see cref="MashingEnabled"/> and
+        /// <see cref="FletcherEnabled"/> are set. It must be set BEFORE the first keypress and left
+        /// alone for the rest of the run: judgements already awarded are not revisited, so a play
+        /// that changed measure mid-run would carry two different rules in one score.
+        /// </summary>
+        public SyncMeasure Measure { get; set; } = SyncMeasure.CharacterDistance;
+
+        /// <summary>The window set the beatmap's own granularity gets under the current <see cref="Measure"/>.</summary>
+        public SyncWindows Windows => SyncWindows.For(Beatmap.Granularity, Measure);
 
         /// <summary>-1 before the first line and after finish.</summary>
         public int ActiveLineIndex => activeLineIndex;
@@ -204,9 +217,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                         if (!cell.IsTypeable)
                             continue;
 
-                        if (cell.State == CellState.Correct && cell.JudgedDelta is double d)
+                        if (cell.State == CellState.Correct && cell.JudgedSyncQuality is double q)
                         {
-                            sum += windowsFor(cell).SyncQuality(d);
+                            sum += q;
                             resolved++;
                         }
                         else if (lineSealed[i])
@@ -466,7 +479,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public TypingEngine(LyricBeatmap beatmap, bool literate = false)
         {
             Beatmap = beatmap ?? throw new ArgumentNullException(nameof(beatmap));
-            Windows = SyncWindows.For(beatmap.Granularity);
 
             Literate = literate;
             CaseSensitive = literate;
@@ -849,7 +861,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 cell = line.Cells[caretIndex];
             }
 
+            // The press's lead/lag in milliseconds, which is what the judgement EVENT carries and
+            // what the sync timeline records, and its offset in the measure the play is JUDGED in,
+            // which is what the windows classify. Identical under SyncMeasure.Milliseconds.
             double delta = time - cell.TargetTime;
+            double offset = judgementOffset(line, caretIndex, time);
             // FREESTYLE cell: every char EXCEPT SPACE matches, in any case, under every mod (so the
             // Literate mod's exact-case rule and the allow-wrong-input path are both bypassed for
             // it). The press is then judged exactly like a correct char: same windows, points,
@@ -896,7 +912,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     // The CELL's judgement still travels here, for the stage's red/shake feedback,
                     // but DrawableTypeBeatHitObject.ApplyCharJudgement deliberately applies no osu
                     // result for a WrongChar: the cell's result is DEFERRED. Backspace and retype it
-                    // correctly and it earns its real Great/Ok/Meh; leave it and the seal resolves it
+                    // correctly and it earns its real Perfect/Great/Ok/Meh; leave it and the seal resolves it
                     // as an unfixed typo, which is a hit and not a miss (backlog 124).
                     CharJudged?.Invoke(new CharJudgement(activeLineIndex, wrongCellIndex, JudgementType.WrongChar, delta, 0, combo));
                     rollForwardIfFinishedEarly();
@@ -933,11 +949,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (inertRetype)
             {
                 delta = cell.FirstCorrectDelta!.Value;
-                type = windowsFor(cell).Classify(delta);
+                offset = cell.FirstCorrectOffset!.Value;
+                type = windowsFor(cell).Classify(offset);
 
                 cell.State = CellState.Correct;
                 cell.TypedChar = c;
                 cell.JudgedDelta = delta;
+                cell.JudgedOffset = offset;
+                cell.JudgedSyncQuality = windowsFor(cell).SyncQuality(offset);
             }
             else
             {
@@ -948,7 +967,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // Premature/Lagging still count as CORRECT keypresses (right char, wrong time).
                 correctKeypresses++;
 
-                type = windowsFor(cell).Classify(delta);
+                type = windowsFor(cell).Classify(offset);
                 int basePoints = SyncWindows.BasePoints(type);
 
                 // Fletcher RUSH CAP, evaluated before the caret moves: does this press put the caret
@@ -990,7 +1009,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 cell.State = CellState.Correct;
                 cell.TypedChar = c;
                 cell.JudgedDelta = delta;
-                cell.FirstCorrectDelta = delta; // the one awarded judgement; retypes are inert.
+                cell.JudgedOffset = offset;
+                cell.JudgedSyncQuality = windowsFor(cell).SyncQuality(offset);
+                cell.FirstCorrectDelta = delta;   // the one awarded judgement; retypes are inert.
+                cell.FirstCorrectOffset = offset;
 
                 // SyncTimeline records every AWARDED correct-char judgement, incl. Premature/Lagging.
                 syncTimeline.Add(new SyncSample(time, delta));
@@ -1134,7 +1156,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>Windows for a cell's judgement tier (Line for estimated/low-confidence timing).</summary>
-        private static SyncWindows windowsFor(TypingCell cell) => SyncWindows.For(cell.JudgeGranularity);
+        private SyncWindows windowsFor(TypingCell cell) => SyncWindows.For(cell.JudgeGranularity, Measure);
+
+        /// <summary>
+        /// The offset a keypress at <paramref name="time"/> on cell <paramref name="cellIndex"/> of
+        /// <paramref name="line"/> is JUDGED by, in the current <see cref="Measure"/>: how many
+        /// characters it is from the character the playhead is on (negative = ahead of it), or the
+        /// plain millisecond delta under <see cref="SyncMeasure.Milliseconds"/>.
+        /// </summary>
+        private double judgementOffset(TypingLine line, int cellIndex, double time)
+            => Measure == SyncMeasure.Milliseconds
+                ? time - line.Cells[cellIndex].TargetTime
+                : line.CharacterDistanceAt(time, cellIndex);
 
         /// <summary>
         /// Erase the most recent typed cell within the active line, stepping back transparently
@@ -1168,6 +1201,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             cell.State = CellState.Untyped;
             cell.TypedChar = null;
             cell.JudgedDelta = null;
+            cell.JudgedOffset = null;
+            cell.JudgedSyncQuality = null;
 
             caretIndex = target;
             return true;
@@ -1197,16 +1232,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         public ResultsSummary BuildResults()
         {
-            // SyncPercent over ALL typeable cells: finally-Correct cells contribute
-            // SyncQuality(final correct delta); everything else (Missed / Wrong / unresolved) is 0.
+            // SyncPercent over ALL typeable cells: finally-Correct cells contribute the sync
+            // quality banked at their judgement; everything else (Missed / Wrong / unresolved) is 0.
             double qualitySum = 0;
 
             foreach (var line in lines)
             {
                 foreach (var cell in line.Cells)
                 {
-                    if (cell.IsTypeable && cell.State == CellState.Correct && cell.JudgedDelta is double d)
-                        qualitySum += windowsFor(cell).SyncQuality(d);
+                    if (cell.IsTypeable && cell.State == CellState.Correct && cell.JudgedSyncQuality is double q)
+                        qualitySum += q;
                 }
             }
 

@@ -330,8 +330,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// Mirrors <see cref="UI.TypeBeatPlayfield"/>'s health wiring: a correct char reaches health
-        /// as its Great/Ok/Meh result, every cell that seals untyped as a Miss, and a rejected wrong
-        /// key through the mash-streak drain; the same paths the drawable bridge takes in gameplay.
+        /// as its Perfect/Great/Ok/Meh result, every cell that seals untyped as a Miss, and a rejected
+        /// wrong key through the mash-streak drain; the same paths the drawable bridge takes in
+        /// gameplay.
         /// </summary>
         private sealed class HealthBridge
         {
@@ -350,15 +351,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             private static HitResult toHitResult(JudgementType type)
             {
+                // The four quality tiers are named for the results they map to (backlog 133), so
+                // this is the identity on them; everything else reaches health as a Miss.
                 switch (type)
                 {
                     case JudgementType.Perfect:
+                        return HitResult.Perfect;
+
+                    case JudgementType.Great:
                         return HitResult.Great;
 
-                    case JudgementType.Good:
+                    case JudgementType.Ok:
                         return HitResult.Ok;
 
-                    case JudgementType.Ok:
+                    case JudgementType.Meh:
                         return HitResult.Meh;
 
                     default:
