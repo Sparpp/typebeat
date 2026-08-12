@@ -60,17 +60,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         };
 
         /// <summary>
+        /// The same three lines in their AUTHORED form, marks and capitals intact, which is what a
+        /// map actually stores. Only the Literate mod types this stream; every other stack types
+        /// the stripped, lower-case one <see cref="lines"/> already is. Needed because Literate is
+        /// invisible on a mark-free fixture (backlog 144).
+        /// </summary>
+        private static IReadOnlyList<LyricLine> punctuatedLines() => new[]
+        {
+            line("Hello there, world!", 1000, 4000, unit("Hello", 1000, 2000), unit("there,", 2000, 3000), unit("world!", 3000, 4000)),
+            line("Typing is a rhythm...", 4000, 8000, unit("Typing", 4000, 5000), unit("is", 5000, 5500), unit("a", 5500, 6000), unit("rhythm...", 6000, 8000)),
+            line("One more long-line to seal.", 8000, 12000, unit("One", 8000, 8600), unit("more", 8600, 9400), unit("long-line", 9400, 10200), unit("to", 10200, 10800), unit("seal.", 10800, 12000)),
+        };
+
+        /// <summary>
         /// The converted beatmap the drawable ruleset hands the HUD: one line object per lyric line,
         /// each carrying one nested <see cref="TypeBeatCharObject"/> per typeable cell.
         /// </summary>
         private static Beatmap<TypeBeatHitObject> playable(BeatmapOnlineStatus status = BeatmapOnlineStatus.Ranked)
+            => playable(lines(), status);
+
+        private static Beatmap<TypeBeatHitObject> playable(IReadOnlyList<LyricLine> source, BeatmapOnlineStatus status = BeatmapOnlineStatus.Ranked)
         {
             var beatmap = new Beatmap<TypeBeatHitObject>
             {
                 BeatmapInfo = new BeatmapInfo { Status = status },
             };
-
-            var source = lines();
 
             for (int i = 0; i < source.Count; i++)
             {
@@ -128,12 +142,79 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void StarRating_IsUnaffectedByNonRateMods()
+        public void StarRating_IsUnaffectedByModsThatChangeNeitherTheRateNorTheCells()
         {
             var beatmap = playable();
 
-            Assert.That(TypeBeatHudOverlay.StarRatingFor(beatmap, mods(new TypeBeatModLiterate(), new TypeBeatModNoFail(), new TypeBeatModFlashlight())),
+            Assert.That(TypeBeatHudOverlay.StarRatingFor(beatmap, mods(new TypeBeatModNoFail(), new TypeBeatModFlashlight(), new TypeBeatModGatekeeper())),
                 Is.EqualTo(TypeBeatHudOverlay.StarRatingFor(beatmap, null)));
+        }
+
+        /// <summary>
+        /// LITERATE IS NOT ONE OF THOSE (backlog 144). It is
+        /// <see cref="IApplicableAfterBeatmapConversion"/> and makes every supported punctuation
+        /// mark a typed cell of its own, so the readout has to price the CONVERTED map, which is the
+        /// server's <c>sr_literate</c>. It carries no pp multiplier of its own any more, so if this
+        /// readout did not move, the mod would be free.
+        ///
+        /// <para>The main fixture cannot see this: its text carries no mark and no capital, so the
+        /// two streams are the same string and the pass is bit-identical (asserted, because that
+        /// no-op is what keeps every map authored before punctuation existed exactly where it is).
+        /// The punctuated fixture is what actually pins the mod.</para>
+        /// </summary>
+        [Test]
+        public void StarRating_ForLiterateIsTheConvertedMapsRating()
+        {
+            var plainMap = playable();
+            var punctuatedMap = playable(punctuatedLines());
+            var punctuated = punctuatedMap.HitObjects.Select(h => h.Line).ToList();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(TypeBeatHudOverlay.StarRatingFor(plainMap, mods(new TypeBeatModLiterate())),
+                    Is.EqualTo(TypeBeatHudOverlay.StarRatingFor(plainMap, null)),
+                    "a mark-free, lower-case map converts to itself");
+
+                Assert.That(TypeBeatHudOverlay.StarRatingFor(punctuatedMap, mods(new TypeBeatModLiterate())),
+                    Is.EqualTo(LyricDifficulty.Compute(punctuated, 1, literate: true)).Within(1e-12));
+
+                Assert.That(TypeBeatHudOverlay.StarRatingFor(punctuatedMap, mods(new TypeBeatModLiterate())),
+                    Is.Not.EqualTo(TypeBeatHudOverlay.StarRatingFor(punctuatedMap, null)),
+                    "and on a punctuated map it is a different rating, or the mod would be free");
+
+                // It composes with the rate rather than replacing it: this is the server's
+                // sr_literate_dt, the combination that forces the stored ratings to be a cross
+                // product rather than a list.
+                Assert.That(TypeBeatHudOverlay.StarRatingFor(punctuatedMap, mods(new TypeBeatModLiterate(), new TypeBeatModDoubleTime())),
+                    Is.EqualTo(LyricDifficulty.Compute(punctuated, 1.50, literate: true)).Within(1e-12));
+            });
+        }
+
+        /// <summary>
+        /// The Half Time mirror is computed entirely WITHIN one stream. Its claim is that Half
+        /// Time's total factor is the reciprocal of Double Time's on the map the play was on, so
+        /// mixing a converted rating with an unconverted one would make its D and H ratios of
+        /// different maps.
+        /// </summary>
+        [Test]
+        public void RateMultiplier_ForLiterateHalfTimeMirrorsTheConvertedMapsOwnThreeRatings()
+        {
+            var beatmap = playable(punctuatedLines());
+            var source = beatmap.HitObjects.Select(h => h.Line).ToList();
+
+            double expected = PerformancePoints.HalfTimeMultiplier(
+                LyricDifficulty.Compute(source, 1, literate: true),
+                LyricDifficulty.Compute(source, 1.50, literate: true),
+                LyricDifficulty.Compute(source, 0.75, literate: true));
+
+            double actual = PerformancePointsDisplay.RateMultiplierFor(beatmap, mods(new TypeBeatModLiterate(), new TypeBeatModHalfTime()));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(actual, Is.EqualTo(expected).Within(1e-12));
+                Assert.That(actual, Is.Not.EqualTo(PerformancePointsDisplay.RateMultiplierFor(beatmap, mods(new TypeBeatModHalfTime()))),
+                    "and it is genuinely the converted map's mirror, not the plain one's");
+            });
         }
 
         [Test]

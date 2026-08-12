@@ -109,11 +109,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// </para>
     ///
     /// <para>
-    /// SR_eff is the map's star rating AT THE PLAY'S CLOCK RATE, never the base rating with a flat
-    /// DT/HT bonus bolted on: the rate is priced exclusively through the recomputed star rating, so
-    /// nothing double-counts. Only the BASE rates are pp-eligible (DT/NC 1.50x, HT 0.75x); a custom
-    /// rate prices to nothing at all (<see cref="EligibleRate"/>). The play still ranks on the score
-    /// leaderboards at every rate exactly as before, it just earns no pp.
+    /// SR_eff is the map's star rating AT THE PLAY'S CLOCK RATE AND ON THE MAP ITS CONVERSION MODS
+    /// PRODUCED, never a base rating with a flat bonus bolted on: anything that moves the difficulty
+    /// is priced exclusively through the recomputed star rating, so nothing double-counts. Only the
+    /// BASE rates are pp-eligible (DT/NC 1.50x, HT 0.75x); a custom rate prices to nothing at all
+    /// (<see cref="EligibleRate"/>). The play still ranks on the score leaderboards at every rate
+    /// exactly as before, it just earns no pp.
+    /// </para>
+    ///
+    /// <para>
+    /// LITERATE IS THE OTHER HALF OF THAT RULE (backlog 144). It is
+    /// <see cref="IApplicableAfterBeatmapConversion"/> and makes every punctuation mark a typed
+    /// cell, so it is priced through the rating of the CONVERTED map and carries no flat multiplier
+    /// (see <see cref="ModMultiplier"/>). It is ORTHOGONAL to the rate, so the two compose into six
+    /// ratings per difficulty, which the server stores as
+    /// <c>difficulty_rating</c> / <c>sr_dt</c> / <c>sr_ht</c> and
+    /// <c>sr_literate</c> / <c>sr_literate_dt</c> / <c>sr_literate_ht</c>. This client stores none
+    /// of them: <see cref="StarsFor"/> computes whichever one it needs on the spot.
     /// </para>
     ///
     /// <para>
@@ -131,11 +143,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <para>
     /// WHERE THE CLIENT'S STAR RATING COMES FROM, and why it is the same number the server stores:
     /// <see cref="StarsFor"/> runs <see cref="LyricDifficulty.Compute"/> over the map's lyric lines
-    /// at the eligible rate. That is the identical computation behind
+    /// at the eligible rate and on the eligible stream. That is the identical computation behind
     /// <see cref="TypeBeatDifficultyCalculator"/> and, through the server's mirrored copy of
-    /// <c>LyricDifficulty</c>, behind <c>beatmaps.difficulty_rating</c> (rate 1.00),
-    /// <c>beatmaps.sr_dt</c> (1.50) and <c>beatmaps.sr_ht</c> (0.75). Nothing is fetched from the
-    /// server to price a play.
+    /// <c>LyricDifficulty</c>, behind all six stored ratings. Nothing is fetched from the server to
+    /// price a play, which is exactly why the client has no "not stored yet" state where the server
+    /// has one.
     /// </para>
     ///
     /// <para>
@@ -257,9 +269,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// and nothing else. Every stored row is repriced, which is what forces the bump, but no
         /// leaderboard reorders. Applied on top of v13 rather than the v12 the sandbox export names
         /// as its baseline, because backlog 137 landed count_power 1.6 to 1.2 first.</item>
+        /// <item>v15 = the flat Literate multiplier of 1.06 leaves modMult, and Literate is priced
+        /// through the star rating of the map it CONVERTS instead. The mod is
+        /// IApplicableAfterBeatmapConversion: it makes every supported punctuation mark a typed
+        /// cell of its own, so it genuinely changes the map's cell count, its pace and its
+        /// difficulty. docs/pp.md has always said a rate is priced EXCLUSIVELY through SR_eff so
+        /// that nothing double-counts, and once Literate moves the rating too, a flat multiplier on
+        /// top is precisely that double count. The SHAPE of the formula is untouched and no
+        /// constant moves; every stored Literate row is repriced and nothing else is, which is what
+        /// forces the bump.</item>
         /// </list>
         /// </summary>
-        public const int VERSION = 14;
+        public const int VERSION = 15;
 
         // ---- formula constants (docs/pp.md) ----
 
@@ -321,8 +342,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         private const double half_time_buff_clamp = 0.70;
 
         // ---- mod multipliers (docs/pp.md) ----
-
-        private const double literate_multiplier = 1.06;
 
         /// <summary>
         /// Rhythmic (backlog 135): the play is judged on the millisecond ladder, so each character
@@ -505,14 +524,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         }
 
         /// <summary>
+        /// The acronym of the LITERATE mod. Keyed on the acronym rather than on
+        /// <see cref="Mods.TypeBeatModLiterate"/> for the same reason
+        /// <see cref="TryGetBaseRate"/> is: the acronym is what travels on the wire and what this
+        /// implementation and the server's share, where the mod TYPE exists only here.
+        /// </summary>
+        public const string LITERATE_ACRONYM = "LT";
+
+        /// <summary>Whether this stack carries Literate, i.e. whether the play is on the CONVERTED map.</summary>
+        public static bool IsLiterate(IReadOnlyList<Mod>? mods)
+        {
+            if (mods == null)
+                return false;
+
+            for (int i = 0; i < mods.Count; i++)
+            {
+                if (string.Equals(mods[i].Acronym?.Trim(), LITERATE_ACRONYM, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// The star rating this play is priced at, or null when its rate makes it pp-ineligible:
         /// <see cref="LyricDifficulty.Compute"/> over the map's lyric lines at
-        /// <see cref="EligibleRate"/>. This is the client-side stand-in for the server's three
-        /// stored ratings, and produces the same numbers because both sides run the same mirrored
-        /// difficulty code (see the class docs).
+        /// <see cref="EligibleRate"/>, and on the stream <see cref="IsLiterate"/> selects. This is
+        /// the client-side stand-in for the server's SIX stored ratings, and produces the same
+        /// numbers because both sides run the same mirrored difficulty code (see the class docs).
+        ///
+        /// <para>LITERATE IS APPLIED HERE, NOT IN <see cref="ModMultiplier"/> (backlog 144). The mod
+        /// converts the beatmap, adding a typed cell per punctuation mark, so the map it is played
+        /// on is a different map and is rated as one. It composes with the rate rather than
+        /// replacing it: a Literate Double Time play is the CONVERTED map's rating at 1.50x, which
+        /// is the server's <c>sr_literate_dt</c> and is a genuinely separate number from either
+        /// <c>sr_literate</c> or <c>sr_dt</c>.</para>
         /// </summary>
         public static double? StarsFor(IEnumerable<LyricLine> lines, IReadOnlyList<Mod>? mods)
-            => EligibleRate(mods) is double rate ? LyricDifficulty.Compute(lines, rate) : (double?)null;
+            => EligibleRate(mods) is double rate ? LyricDifficulty.Compute(lines, rate, IsLiterate(mods)) : (double?)null;
 
         /// <summary>
         /// The play's RATE multiplier, the second half of what <see cref="StarsFor"/> starts:
@@ -524,6 +573,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <see cref="StarsFor"/> already computes. Those are the same three numbers the server
         /// stores as <c>difficulty_rating</c> / <c>sr_dt</c> / <c>sr_ht</c>, which is why the two
         /// halves reach the same multiplier without the client fetching anything.</para>
+        ///
+        /// <para>ALL THREE PASSES RUN ON THE SAME STREAM, Literate or plain (backlog 144), matching
+        /// the server, which reads its mirror out of one triple of columns and never across the
+        /// two. The mirror's whole claim is that Half Time's total factor is the reciprocal of
+        /// Double Time's ON THIS MAP; mixing a converted rating with an unconverted one would make
+        /// D and H ratios of different maps and quietly break that.</para>
         /// </summary>
         public static double RateMultiplier(IEnumerable<LyricLine> lines, IReadOnlyList<Mod>? mods)
         {
@@ -532,10 +587,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             if (EligibleRate(mods) != HALF_TIME_BASE_RATE)
                 return 1;
 
+            bool literate = IsLiterate(mods);
+
             return HalfTimeMultiplier(
-                LyricDifficulty.Compute(lines),
-                LyricDifficulty.Compute(lines, DOUBLE_TIME_BASE_RATE),
-                LyricDifficulty.Compute(lines, HALF_TIME_BASE_RATE));
+                LyricDifficulty.Compute(lines, 1, literate),
+                LyricDifficulty.Compute(lines, DOUBLE_TIME_BASE_RATE, literate),
+                LyricDifficulty.Compute(lines, HALF_TIME_BASE_RATE, literate));
         }
 
         /// <summary>
@@ -610,6 +667,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// would-be fail, which earns nothing at all, into a completed play. Its 0.5x SCORE
         /// multiplier stays score-side; mirroring that here would double-punish on top of the miss
         /// term.</para>
+        ///
+        /// <para>THERE IS NO LITERATE TERM HERE EITHER, and for exactly the reason there is no rate
+        /// one (backlog 144). <see cref="Mods.TypeBeatModLiterate"/> is
+        /// <see cref="IApplicableAfterBeatmapConversion"/>: it turns every punctuation mark into a
+        /// typed cell, so it changes the map's cell count, its pace and its difficulty, and it is
+        /// priced through <see cref="StarsFor"/> like a rate. It used to carry a flat 1.06 ON TOP of
+        /// the unconverted map's rating, which was the only place in this file where a mod that
+        /// moves the rating was also paid a multiplier; keeping both once the rating moves would be
+        /// precisely the double count docs/pp.md exists to forbid. The flat number was also a poor
+        /// description of the mod: measured over the five reference maps the honest rate-1.0 rating
+        /// moves between -0.8% and +6.3%, i.e. Literate makes two of them EASIER, where a flat 1.06
+        /// paid every map the same 6%.</para>
         /// </summary>
         public static double ModMultiplier(IReadOnlyList<Mod>? mods, int notes)
         {
@@ -631,10 +700,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
                 switch (acronym.ToUpperInvariant())
                 {
-                    case "LT":
-                        multiplier *= literate_multiplier;
-                        break;
-
                     case "FL":
                         multiplier *= FlashlightMultiplier(notes);
                         break;

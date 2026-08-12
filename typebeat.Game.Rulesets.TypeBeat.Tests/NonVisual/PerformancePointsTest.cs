@@ -622,15 +622,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         #region Mod multipliers, driven by the REAL ruleset mods
 
         [Test]
-        public void ModMultiplier_NoFailAndFletcherEachCostTenPercentAndLiterateAddsSix()
+        public void ModMultiplier_NoFailAndFletcherEachCostTenPercent()
         {
             Assert.Multiple(() =>
             {
                 Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModNoFail()), 300), Is.EqualTo(0.90).Within(1e-12)); // pp[f.no_fail_multiplier]
                 Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModFletcher()), 300), Is.EqualTo(0.90).Within(1e-12)); // pp[f.fletcher_multiplier]
-                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModLiterate()), 300), Is.EqualTo(1.06).Within(1e-12)); // pp[f.literate_multiplier]
                 Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModFlashlight()), 300),
                     Is.EqualTo(PerformancePoints.FlashlightMultiplier(300)).Within(1e-12));
+            });
+        }
+
+        /// <summary>
+        /// LITERATE CONTRIBUTES NOTHING HERE (backlog 144), and that is the whole point rather than
+        /// an omission: <see cref="TypeBeatModLiterate"/> is IApplicableAfterBeatmapConversion, so
+        /// it is priced through the star rating of the map it converts this one into
+        /// (<see cref="PerformancePoints.StarsFor"/>), and a flat multiplier on top would be
+        /// exactly the double count docs/pp.md forbids for DT/HT. It used to be a flat 1.06 here.
+        ///
+        /// <para>Asserted against the SAME value as a mod this table has never heard of, because
+        /// that is precisely what it now is. The flat number was a poor description of the mod
+        /// anyway: measured over the five reference maps the honest rate-1.0 rating moves between
+        /// -0.8% and +6.3%, so Literate makes two of them EASIER where 1.06 paid every map 6%.</para>
+        /// </summary>
+        [Test]
+        public void ModMultiplier_LiterateIsNeutralBecauseItIsPricedThroughTheStarRating()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModLiterate()), 300), Is.EqualTo(1.0).Within(1e-12));
+
+                // Stacked with a mod that IS priced here, only that mod's value survives.
+                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModLiterate(), new TypeBeatModNoFail()), 300),
+                    Is.EqualTo(PerformancePoints.ModMultiplier(mods(new TypeBeatModNoFail()), 300)).Within(1e-12));
             });
         }
 
@@ -647,8 +671,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModRhythmic()), 300), Is.EqualTo(1.10).Within(1e-12)); // pp[f.rhythmic_multiplier]
+                // Literate rides along contributing exactly nothing since backlog 144 (see the
+                // Literate test above), so this pair is worth what Rhythmic alone is.
                 Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModRhythmic(), new TypeBeatModLiterate()), 300),
-                    Is.EqualTo(1.166).Within(1e-12)); // pp[f.mod_multiplier(["RH", "LT"], 300)]
+                    Is.EqualTo(1.100).Within(1e-12)); // pp[f.mod_multiplier(["RH", "LT"], 300)]
             });
         }
 
@@ -681,11 +707,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void ModMultiplier_StacksAndCollapsesDuplicates()
         {
             double stacked = PerformancePoints.ModMultiplier(
-                mods(new TypeBeatModLiterate(), new TypeBeatModNoFail(), new TypeBeatModFlashlight()), 500);
+                mods(new TypeBeatModNoFail(), new TypeBeatModFlashlight()), 500);
 
             Assert.Multiple(() =>
             {
-                Assert.That(stacked, Is.EqualTo(1.06 * 0.90 * PerformancePoints.FlashlightMultiplier(500)).Within(1e-12)); // pp:const literate_multiplier=1.06 no_fail_multiplier=0.90
+                Assert.That(stacked, Is.EqualTo(0.90 * PerformancePoints.FlashlightMultiplier(500)).Within(1e-12)); // pp:const no_fail_multiplier=0.90
 
                 // A duplicated acronym is tamper-shaped; it must be applied once, not squared.
                 Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModNoFail(), new TypeBeatModNoFail()), 300),
@@ -710,8 +736,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     Is.EqualTo(bare * 0.90).Within(1e-9)); // pp:const no_fail_multiplier=0.90
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModFletcher())),
                     Is.EqualTo(bare * 0.90).Within(1e-9)); // pp:const fletcher_multiplier=0.90
+                // Literate does not reach this function at all any more: it moves the star rating
+                // that was passed IN, not the multiplier applied here (backlog 144).
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModLiterate())),
-                    Is.EqualTo(bare * 1.06).Within(1e-9)); // pp:const literate_multiplier=1.06
+                    Is.EqualTo(bare).Within(1e-9));
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModFlashlight())),
                     Is.EqualTo(bare * PerformancePoints.FlashlightMultiplier(300)).Within(1e-9));
             });
@@ -828,7 +856,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // docs/pp.md move with it. v7 = the backlog-101 drop of count_power from 2 to 1.2, which
             // had to bump because it reprices every stored row carrying even one miss or one typo
             // (upwards this time, and most of them away from the zero backlog 97 left them at).
-            Assert.That(PerformancePoints.VERSION, Is.EqualTo(14)); // pp:version
+            Assert.That(PerformancePoints.VERSION, Is.EqualTo(15)); // pp:version
         }
 
         #endregion

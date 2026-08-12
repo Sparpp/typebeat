@@ -18,7 +18,16 @@ namespace typebeat.Game.Rulesets.TypeBeat
     /// <summary>
     /// Star rating from <see cref="LyricDifficulty"/>: a duration-weighted soft maximum over
     /// per-word typing strain (see sr-formula-v1.md). Rate-adjusting mods (DoubleTime/Nightcore/
-    /// HalfTime) feed their combined clock rate in, so a faster clock raises the rating.
+    /// HalfTime) feed their combined clock rate in, so a faster clock raises the rating, and the
+    /// LITERATE mod feeds in the cell stream it converts the map to, so its extra punctuation cells
+    /// move the rating as well (backlog 144).
+    ///
+    /// <para>The Literate flag is read off the MOD STACK rather than off the beatmap, deliberately:
+    /// the mod stamps <see cref="TypeBeatHitObject.Literate"/> on the line objects so the nested
+    /// scoring objects flatten correctly, but the <see cref="LyricLine"/> underneath is untouched
+    /// (it always holds the authored text), so the flag is the only thing that says which stream to
+    /// rate. Routed through <see cref="PerformancePoints.IsLiterate"/> so this and the pp path can
+    /// never disagree about what a Literate stack is.</para>
     /// </summary>
     public class TypeBeatDifficultyCalculator : DifficultyCalculator
     {
@@ -45,7 +54,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
             // The pp rate multiplier travels with the attributes because the performance calculator
             // gets no beatmap of its own (see TypeBeatDifficultyAttributes). It is exactly 1 for
             // everything but a base-rate Half Time stack, and only that branch costs extra passes.
-            return new TypeBeatDifficultyAttributes(mods, LyricDifficulty.Compute(lines, rate), PerformancePoints.RateMultiplier(lines, mods));
+            return new TypeBeatDifficultyAttributes(mods, LyricDifficulty.Compute(lines, rate, PerformancePoints.IsLiterate(mods)), PerformancePoints.RateMultiplier(lines, mods));
         }
 
         protected override IEnumerable<DifficultyHitObject> CreateDifficultyHitObjects(IBeatmap beatmap, Mod[] mods) => Enumerable.Empty<DifficultyHitObject>();

@@ -165,5 +165,81 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // this is exactly what a single-bucket/D_max-only formula cannot see.
             Assert.That(harderSr - easierSr, Is.GreaterThan(0.15));
         }
+
+        #region The Literate stream (backlog 144)
+
+        /// <summary>
+        /// The whole reason the Literate mod is priced through this rating rather than by a flat
+        /// multiplier: it makes every supported punctuation mark a typed cell of its own, so the
+        /// map really is a different map and rates as one.
+        /// </summary>
+        [Test]
+        public void LiterateRatesThePunctuatedStream()
+        {
+            var map = new[]
+            {
+                line(0, 2000, ("Hello,", 0, 700), ("bad-cat!", 700, 1400), ("sat...", 1400, 2000)),
+            };
+
+            double plain = LyricDifficulty.Compute(map);
+            double literate = LyricDifficulty.Compute(map, 1, literate: true);
+
+            TestContext.WriteLine($"plain -> {plain:0.0000}; literate -> {literate:0.0000}");
+
+            Assert.That(literate, Is.Not.EqualTo(plain).Within(1e-9));
+        }
+
+        /// <summary>
+        /// AND IT IS EXACTLY A NO-OP WITHOUT MARKS OR CAPITALS, which is the other half of the
+        /// claim and the one that keeps every stored rating where it is: the default stream of a
+        /// mark-free, lower-case line is that line, so the Literate pass over such a map must be
+        /// BIT-identical rather than merely close. Every map authored before punctuation existed
+        /// had its marks stripped on the way in, so this is the ordinary case.
+        /// </summary>
+        [Test]
+        public void LiterateIsBitIdenticalOnAMapWithNoMarksAndNoCapitals()
+        {
+            var map = buildMap(lineCount: 12, wordsPerLine: 6, lineMs: 1800);
+
+            Assert.Multiple(() =>
+            {
+                foreach (double rate in new[] { 0.75, 1.00, 1.50 })
+                {
+                    Assert.That(LyricDifficulty.Compute(map, rate, literate: true),
+                        Is.EqualTo(LyricDifficulty.Compute(map, rate)), $"rate {rate}");
+                }
+            });
+        }
+
+        /// <summary>
+        /// Literate does not compose with the rate by any constant, which is why the server stores
+        /// the CROSS PRODUCT of the two (029_literate_stars.sql) instead of deriving three of the
+        /// six ratings from the other three. The obvious saving is
+        /// <c>sr_literate_dt = sr_literate · (sr_dt/sr_base)</c>; it is wrong, and this is where
+        /// that is written down so the next reader does not have to rediscover it.
+        /// </summary>
+        [Test]
+        public void TheLiterateRatingIsNotTheRateRatingTimesAConstant()
+        {
+            var map = new[]
+            {
+                line(0, 2000, ("Hello,", 0, 700), ("bad-cat!", 700, 1400), ("sat...", 1400, 2000)),
+                line(2200, 5000, ("Typing", 2200, 3000), ("is", 3000, 3400), ("a", 3400, 3700), ("rhythm;", 3700, 4300), ("not", 4300, 4700), ("a", 4700, 4850), ("race.", 4850, 5000)),
+            };
+
+            double plainBase = LyricDifficulty.Compute(map);
+            double plainDt = LyricDifficulty.Compute(map, 1.50);
+            double literateBase = LyricDifficulty.Compute(map, 1, literate: true);
+            double literateDt = LyricDifficulty.Compute(map, 1.50, literate: true);
+
+            double predicted = literateBase * (plainDt / plainBase);
+
+            TestContext.WriteLine($"actual literate DT {literateDt:0.0000}; predicted {predicted:0.0000} " +
+                                  $"({(predicted / literateDt - 1) * 100:0.000}% out)");
+
+            Assert.That(literateDt, Is.Not.EqualTo(predicted).Within(1e-9));
+        }
+
+        #endregion
     }
 }
