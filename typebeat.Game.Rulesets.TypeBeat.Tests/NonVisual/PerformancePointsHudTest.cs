@@ -366,7 +366,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // Same map, same cells typed, same accuracy, same combo: only the mistypes differ...
                 Assert.That(sloppyCounts.Notes, Is.EqualTo(cleanCounts.Notes));
                 Assert.That(sloppyCounts.Misses, Is.EqualTo(cleanCounts.Misses));
-                Assert.That(sloppyCounts.Mistypes, Is.EqualTo(40));
+                Assert.That(sloppyCounts.Typos, Is.EqualTo(40));
                 Assert.That(sloppy.Accuracy.Value, Is.EqualTo(clean.Accuracy.Value));
 
                 // ...and the counter prices exactly that difference.

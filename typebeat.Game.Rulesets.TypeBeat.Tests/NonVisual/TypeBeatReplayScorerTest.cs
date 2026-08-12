@@ -376,7 +376,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // mistype term instead. Twelve would inflate the length term and the combo ratio.
                 Assert.That(notes.Notes, Is.EqualTo(13));
                 Assert.That(notes.Misses, Is.Zero);
-                Assert.That(notes.Mistypes, Is.EqualTo(1));
+                Assert.That(notes.Typos, Is.EqualTo(1));
 
                 // The denominator is the point: thirteen cells JUDGED, twelve of them typed, so
                 // completion is 12/13 and not 1-over-nothing. This is what stops a line typed
@@ -426,7 +426,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // Still thirteen notes and no miss, so pp keeps pricing this by the mistype term.
                 Assert.That(notes.Notes, Is.EqualTo(13));
                 Assert.That(notes.Misses, Is.Zero);
-                Assert.That(notes.Mistypes, Is.EqualTo(13));
+                Assert.That(notes.Typos, Is.EqualTo(13));
 
                 // No cell ever extended a run, and every keypress broke one.
                 Assert.That(account.MaxCombo, Is.Zero);
