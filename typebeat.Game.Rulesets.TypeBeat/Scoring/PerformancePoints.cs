@@ -16,11 +16,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     ///
     /// <code>
     /// pp = 12.5 · SR_eff^2.00
-    ///      · max(0, 1 − miss^1.6/notes)^10                 cleanliness
-    ///      · max(0, 1 − mistypes^1.6/(notes+mistypes))^4   mistyping
-    ///      · max(0.1, 1 + 0.50·log10(notes/100))           length, floored
-    ///      · acc^1.80                                      timing quality
-    ///      · (maxcombo/notes)^2.50                         combo
+    ///      · max(0, 1 − miss^1.6/notes)^10                   cleanliness
+    ///      · max(0, 1 − mistypes^1.6/(notes+mistypes))^4     mistyping
+    ///      · max(0.1, 1 + 0.50·log10(notes/100))             length, floored
+    ///      · acc^1.80                                        timing quality
+    ///      · (ln(1 + 9.0·maxcombo/notes)/ln(1 + 9.0))^2.50   combo
     ///      · modMult
     /// </code>
     ///
@@ -219,9 +219,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// combo_exponent 1.50 to 2.50. v10 never shipped, so the meaningful comparison is against
         /// v9: the SR exponent drop flattens the difficulty curve so easy maps gain and hard maps
         /// lose, while the combo exponent sharpens what a broken combo costs.</item>
+        /// <item>v12 = the combo term stops being a plain powered ratio. The base becomes ln(1 +
+        /// 9.0·r)/ln(1 + 9.0) over r = maxcombo/notes, and only then is raised to the same
+        /// combo_exponent of 2.50; nothing else in the formula moves. A FULL COMBO IS EXACTLY 1.0
+        /// for any shape constant, so an FC is priced bit-identically and this repositions only
+        /// what sits BELOW one, exactly as the v10 and v11 combo retunes did. The concave log base
+        /// very nearly cancels the convex ^2.50 over the range real plays live in, so the term
+        /// reads as roughly LINEAR in the combo ratio down to about 0.7 (0.90 gives 0.9007, 0.80
+        /// gives 0.7983, 0.75 gives 0.7458): a broken combo now costs roughly its face value, where
+        /// at ^2.50 alone losing 10% of a combo cost 23% of the term. Every stored row below a full
+        /// combo is repriced upwards, which is what forces the bump.</item>
         /// </list>
         /// </summary>
-        public const int VERSION = 11;
+        public const int VERSION = 12;
 
         // ---- formula constants (docs/pp.md) ----
 
@@ -251,6 +261,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         private const double length_floor = 0.1;
         private const double accuracy_exponent = 1.80;
         private const double combo_exponent = 2.50;
+
+        /// <summary>
+        /// The CURVATURE of the combo base (backlog 131). The term is
+        /// <c>(ln(1 + combo_log_shape·r)/ln(1 + combo_log_shape))^combo_exponent</c> over
+        /// <c>r = maxcombo/notes</c>: the ratio is bent through a log BEFORE the exponent reaches
+        /// it, where every generation through v11 raised the plain ratio.
+        ///
+        /// <para>A FULL COMBO IS EXACTLY 1.0 AT EVERY VALUE OF THIS CONSTANT, since
+        /// <c>ln(1 + k)/ln(1 + k)</c> is 1 and 1 raised to anything is 1. So an FC is priced
+        /// bit-identically across any retune of it and the constant repositions only what sits
+        /// BELOW a full combo, exactly as the v10 and v11 combo retunes did.</para>
+        ///
+        /// <para>THE BEND RUNS OPPOSITE TO THE EXPONENT, which is why it is worth having: the log
+        /// base is CONCAVE (it lifts every ratio under 1) where <c>^2.50</c> is convex. At 9 the two
+        /// very nearly cancel over the range real plays live in, so the term reads as roughly LINEAR
+        /// in the combo ratio down to about 0.7 (0.90 gives 0.9007, 0.80 gives 0.7983, 0.75 gives
+        /// 0.7458). A broken combo therefore costs roughly its FACE VALUE, where under
+        /// <c>^2.50</c> alone losing 10% of a combo cost 23% of the term.</para>
+        /// </summary>
+        private const double combo_log_shape = 9.0;
+
         private const double reference_notes = 100.0;  // the log bonus' pivot: 100 notes is the 1.0 point
 
         /// <summary>
@@ -672,7 +703,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             double length = LengthBonus(notes);
             double timing = Math.Pow(accuracy, accuracy_exponent);
-            double combo = Math.Pow((double)maxCombo / notes, combo_exponent);
+            // The longest run as a fraction of the map, bent through a log before the exponent
+            // reaches it (see combo_log_shape). NO CLAMP IS NEEDED HERE and none would bite:
+            // maxCombo is already clamped into [0, notes] above, so comboRatio is in [0, 1], the
+            // log's argument in [1, 1 + combo_log_shape] and the base in [0, 1]. A FULL COMBO IS
+            // EXACTLY 1.0, since the numerator and denominator are then the same Math.Log call on
+            // the same value, so an FC is priced bit-identically across any retune of the shape.
+            double comboRatio = (double)maxCombo / notes;
+            double comboBase = Math.Log(1.0 + combo_log_shape * comboRatio) / Math.Log(1.0 + combo_log_shape);
+            double combo = Math.Pow(comboBase, combo_exponent);
 
             double pp = scale * difficulty * cleanliness * mistyping * length * timing * combo * ModMultiplier(mods, notes) * rateMultiplier;
 
