@@ -46,7 +46,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
         public override string Acronym => "GK";
 
-        public override ModType Type => ModType.DifficultyIncrease;
+        // CONVERSION, not DifficultyIncrease (backlog 144). It changes the INPUT MODEL rather than
+        // tightening anything: a wrong key is rejected instead of typed through, so the caret waits
+        // rather than the play getting harder at the same rules. That also matches its 1.0x score
+        // multiplier, which would read oddly on a difficulty-increase mod. Fletcher is the other
+        // mod in this category and is the same kind of change.
+        public override ModType Type => ModType.Conversion;
 
         public override LocalisableString Description => "Wrong keys are rejected outright instead of typed through: the caret waits until you get it right.";
 

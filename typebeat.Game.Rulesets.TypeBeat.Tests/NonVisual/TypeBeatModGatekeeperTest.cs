@@ -63,7 +63,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual("Gatekeeper", mod.Name);
             Assert.AreEqual("GK", mod.Acronym);
-            Assert.AreEqual(ModType.DifficultyIncrease, mod.Type);
+            Assert.AreEqual(ModType.Conversion, mod.Type);
             Assert.IsTrue(mod.Ranked, "Gatekeeper is the old default model, not a cheat; its scores must reach the leaderboards.");
             Assert.IsTrue(mod.HasImplementation);
             Assert.IsTrue(mod.Description.ToString().Contains("rejected"),
@@ -71,12 +71,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void RulesetSurfacesGatekeeperUnderDifficultyIncrease()
+        public void RulesetSurfacesGatekeeperUnderConversion()
         {
             var ruleset = new TypeBeatRuleset();
 
-            Assert.IsTrue(ruleset.GetModsFor(ModType.DifficultyIncrease).Any(m => m is TypeBeatModGatekeeper),
-                "Gatekeeper must be offered in the mod-select overlay under Difficulty Increase.");
+            // Backlog 144. CONVERSION, because it swaps one wrong-key model for another rather than
+            // stacking a handicap on the same one, which is the argument the multiplier test below
+            // was already making for pricing it at exactly 1.0.
+            Assert.IsTrue(ruleset.GetModsFor(ModType.Conversion).Any(m => m is TypeBeatModGatekeeper),
+                "Gatekeeper must be offered in the mod-select overlay under Conversion.");
+
+            // The mod's Type and this listing are two separate declarations and BOTH have to move,
+            // or the mod reports one category and is offered under another.
+            Assert.IsFalse(ruleset.GetModsFor(ModType.DifficultyIncrease).Any(m => m is TypeBeatModGatekeeper),
+                "and must not still be offered under Difficulty Increase");
 
             var acronyms = ruleset.AllMods.Select(m => m.Acronym).ToList();
             Assert.AreEqual(acronyms.Count, acronyms.Distinct().Count(), "two mods share an acronym");

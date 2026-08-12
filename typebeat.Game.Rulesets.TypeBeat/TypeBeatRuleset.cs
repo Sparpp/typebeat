@@ -92,11 +92,11 @@ namespace typebeat.Game.Rulesets.TypeBeat
                 new TypeBeatModNightcore(),
                 new TypeBeatModFlashlight(),
                 new TypeBeatModLiterate(),
-                new TypeBeatModGatekeeper(),
             },
             ModType.Conversion => new Mod[]
             {
                 new TypeBeatModFletcher(),
+                new TypeBeatModGatekeeper(),
             },
             ModType.Automation => new Mod[]
             {
