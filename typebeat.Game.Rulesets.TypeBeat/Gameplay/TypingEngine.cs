@@ -55,9 +55,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// What a keypress's offset from its cell is measured in, and therefore which ladder of
         /// <see cref="SyncWindows"/> judges it. <see cref="SyncMeasure.CharacterDistance"/> is the
-        /// live rule (backlog 133); nothing in the game selects
-        /// <see cref="SyncMeasure.Milliseconds"/> yet, and the Rhythmic mod (backlog 135) is what
-        /// will, by setting this the way <see cref="MashingEnabled"/> and
+        /// default rule (backlog 133); <see cref="SyncMeasure.Milliseconds"/> is selected by the
+        /// Rhythmic mod (<see cref="Scoring.TypeBeatReplayScorer"/> and
+        /// <see cref="Mods.TypeBeatModRhythmic"/>, backlog 135), which sets this the way
+        /// <see cref="MashingEnabled"/> and
         /// <see cref="FletcherEnabled"/> are set. It must be set BEFORE the first keypress and left
         /// alone for the rest of the run: judgements already awarded are not revisited, so a play
         /// that changed measure mid-run would carry two different rules in one score.

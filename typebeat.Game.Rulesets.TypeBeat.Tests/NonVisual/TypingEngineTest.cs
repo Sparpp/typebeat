@@ -185,9 +185,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(JudgementType.Meh, ww.Classify(9.60));       // MehLate = 16.00*0.6 = 9.60
             Assert.AreEqual(JudgementType.Lagging, ww.Classify(9.61));
 
-            // The MILLISECOND ladder, which nothing selects yet (backlog 135's Rhythmic mod will).
-            // Its Great/Ok/Meh rows are the windows the game judged in before backlog 133, so an
-            // engine put back on this measure reproduces the old game rather than approximating it.
+            // The MILLISECOND ladder, which the Rhythmic mod selects (backlog 135). Its Great/Ok/Meh
+            // rows are the windows the game judged in before backlog 133, so an engine put back on
+            // this measure reproduces the old game rather than approximating it.
             var ms = SyncWindows.For(TimingGranularity.Line, SyncMeasure.Milliseconds);
 
             Assert.AreEqual(SyncMeasure.Milliseconds, ms.Measure);

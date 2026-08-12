@@ -44,6 +44,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // Mirrored by the mod's own ScoreMultiplier self-report and the server's ModMultiplier.
             Single<TypeBeatModFlashlight>(hasMultiplier: 1.05);
             Single<TypeBeatModLiterate>(hasMultiplier: 1.05);
+            // Rhythmic judges a press on its millisecond offset from the character's own target time
+            // instead of on how far the caret is from the playhead. On any map slower than 10
+            // characters per second (which is nearly all of them) that is the tighter ladder, so it
+            // pays a bonus. Mirrored by the mod's own ScoreMultiplier self-report, the server's
+            // ModMultiplier and PerformancePoints.rhythmic_multiplier.
+            Single<TypeBeatModRhythmic>(hasMultiplier: 1.10);
 
             // Conversion.
             // Fletcher unpins the caret from the playhead: still ranked, and only a shade easier than

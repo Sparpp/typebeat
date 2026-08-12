@@ -676,6 +676,60 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// THE RHYTHMIC MOD REACHES THE RE-DERIVED ENGINE (backlog 135). The mod selects the
+        /// millisecond window ladder, and this harness builds its own engine rather than borrowing
+        /// the one the run was played on, so the mod has to be read off the stack here as well as at
+        /// <c>ApplyToDrawableRuleset</c>. If it were not, a stored Rhythmic score would re-derive
+        /// under the character-distance rule it was never played on, silently, because both rules
+        /// produce a perfectly well-formed account.
+        ///
+        /// <para>The map is what makes the two visible at once: line 0's twelve cells are spread
+        /// over 240 seconds, so they sit about 21.8 SECONDS apart, and a press 300 ms late is 0.014
+        /// characters from the playhead (dead-centre Perfect on the character ladder) and 300 ms
+        /// from its target (past the millisecond Perfect row's 200, so Great). The last cell is
+        /// struck dead on target and stays Perfect under both, which is what keeps this a statement
+        /// about the LADDER rather than about the harness.</para>
+        /// </summary>
+        [Test]
+        public void ARhythmicRunReDerivesOnTheMillisecondLadder()
+        {
+            var map = beatmap();
+            var targets = lineZeroTargets(map);
+
+            var frames = new List<TypeBeatReplayFrame> { TypeBeatReplayFrame.CreateConfigFrame(0, true) };
+
+            for (int i = 0; i < word.Length; i++)
+                frames.Add(new TypeBeatReplayFrame(targets[i] + 300, word[i]));
+
+            frames.Add(new TypeBeatReplayFrame(line_zero_end, 'z'));
+
+            var unmodded = score(map, replay(frames), TypoRule.Deferred);
+            var rhythmic = score(map, replay(frames), TypoRule.Deferred, new TypeBeatModRhythmic());
+
+            Assert.Multiple(() =>
+            {
+                // Same replay, same rule, same map: only the ladder differs.
+                Assert.That(count(unmodded, HitResult.Perfect), Is.EqualTo(13), "300 ms is nothing on a 21.8 s character");
+                Assert.That(count(unmodded, HitResult.Great), Is.Zero);
+
+                Assert.That(count(rhythmic, HitResult.Perfect), Is.EqualTo(1), "only the on-target cell of line 1");
+                Assert.That(count(rhythmic, HitResult.Great), Is.EqualTo(12));
+
+                // Nothing else about the account moved: every cell was still typed, in order, and
+                // the run is still unbroken.
+                Assert.That(count(rhythmic, HitResult.Miss), Is.Zero);
+                Assert.That(rhythmic.Mistypes, Is.Zero);
+                Assert.That(rhythmic.MaxCombo, Is.EqualTo(13));
+                Assert.That(rhythmic.Completion, Is.EqualTo(1));
+                Assert.That(rhythmic.UnconsumedFrames, Is.Zero);
+
+                // And it costs what a tier costs: less accuracy, so a lower rank and a lower total.
+                Assert.That(rhythmic.Accuracy, Is.LessThan(unmodded.Accuracy));
+                Assert.That(rhythmic.TotalScoreWithoutMods, Is.LessThan(unmodded.TotalScoreWithoutMods));
+            });
+        }
+
+        /// <summary>
         /// maximum_statistics is the map's, not the play's: one great per cell plus one inert
         /// result per LINE. The server's ScoringContract reads exactly this, and its completion
         /// denominator would move if a line container ever became accuracy-affecting.

@@ -103,7 +103,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// score processor's <c>maximum_statistics</c> comes from, so it must be the same beatmap
         /// the client had.</param>
         /// <param name="mods">The run's mods. They reach three places: the engine (Gatekeeper,
-        /// Fletcher, Mashing, Literate), the score multiplier, and the rank adjustment.</param>
+        /// Fletcher, Mashing, Literate, Rhythmic), the score multiplier, and the rank
+        /// adjustment.</param>
         /// <param name="replay">The recorded frames (see <see cref="TypeBeatReplayFrame"/>).</param>
         /// <param name="rule">The typo rule to judge under. Stored scores predating backlog 109
         /// were judged under <see cref="TypoRule.ImmediateMiss"/>.</param>
@@ -249,6 +250,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             if (mods.Any(m => m is TypeBeatModMashing))
                 engine.MashingEnabled = true;
+
+            // Rhythmic judges the run on the millisecond ladder. This is the SECOND of the two
+            // places that ladder is selected, and the one that is easy to forget: miss it and every
+            // stored Rhythmic score re-derives under the character-distance rule it was never played
+            // on, silently, because both rules produce a perfectly well-formed account.
+            if (mods.Any(m => m is TypeBeatModRhythmic))
+                engine.Measure = SyncMeasure.Milliseconds;
 
             return engine;
         }

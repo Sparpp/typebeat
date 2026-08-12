@@ -92,6 +92,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
                 new TypeBeatModNightcore(),
                 new TypeBeatModFlashlight(),
                 new TypeBeatModLiterate(),
+                new TypeBeatModRhythmic(),
             },
             ModType.Conversion => new Mod[]
             {

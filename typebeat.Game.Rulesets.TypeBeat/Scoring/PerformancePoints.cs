@@ -323,6 +323,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         // ---- mod multipliers (docs/pp.md) ----
 
         private const double literate_multiplier = 1.06;
+
+        /// <summary>
+        /// Rhythmic (backlog 135): the play is judged on the millisecond ladder, so each character
+        /// has to be pressed at its own target time instead of near the character the playhead is
+        /// on. The two ladders coincide at a pace of 10 characters per second and the millisecond
+        /// one is the tighter pair everywhere below that, which is where lyrics sit, so the mod is
+        /// a real difficulty increase on essentially every map and is paid like one.
+        /// </summary>
+        private const double rhythmic_multiplier = 1.10;
+
         private const double fletcher_multiplier = 0.90;
         private const double no_fail_multiplier = 0.90;
         private const double flashlight_offset = 0.02;
@@ -627,6 +637,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
                     case "FL":
                         multiplier *= FlashlightMultiplier(notes);
+                        break;
+
+                    case "RH":
+                        multiplier *= rhythmic_multiplier;
                         break;
 
                     case "FT":
