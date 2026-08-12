@@ -298,12 +298,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             };
 
             // The trailing "pp" row (backlog 75) is unconditional, unlike this one: an absent
-            // mistype count is unknowable and shows no row, whereas a pp reading always exists,
+            // typo count is unknowable and shows no row, whereas a pp reading always exists,
             // either as a number or as "could never have earned any".
+            //
+            // The row is named TYPOS since backlog 140, and it is the only typo figure the results
+            // screen carries: the uncorrected-typo CELLS are no longer surfaced as a count of their
+            // own (TypeBeatRuleset.GetValidHitResults), because each of them took a wrong keypress
+            // that this one number already counts.
             Assert.Multiple(() =>
             {
                 Assert.That(rowsFor(old), Is.EqualTo(new[] { "Completion", "Missed characters", "pp" }));
-                Assert.That(rowsFor(messy), Is.EqualTo(new[] { "Completion", "Missed characters", "Mistypes", "pp" }));
+                Assert.That(rowsFor(messy), Is.EqualTo(new[] { "Completion", "Missed characters", "Typos", "pp" }));
+
+                Assert.That(new TypeBeatRuleset().GetValidHitResults(), Does.Not.Contain(TypeBeatResultMapping.UNFIXED_TYPO));
             });
         }
 

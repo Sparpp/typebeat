@@ -69,6 +69,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <item>Fletcher's rush cap breaks combo on a judgement that is still a hit
     /// (<c>onCharJudged</c>), and under <see cref="TypoRule.ImmediateMiss"/> a REJECTED key breaks
     /// it (<c>onWrongKeyRejected</c>, which is where the break lived before backlog 109).</item>
+    /// <item><c>ComboRestored</c> puts back the streak a CORRECTED typo's keypress broke, under
+    /// <see cref="ComboRestoreRule.OnFix"/> only (<c>onComboRestored</c>, backlog 140).</item>
     /// </list>
     ///
     /// <para><b>What it does not do.</b> No health, so PASS/FAIL is not re-derived: a replay ends
@@ -105,7 +107,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <param name="replay">The recorded frames (see <see cref="TypeBeatReplayFrame"/>).</param>
         /// <param name="rule">The typo rule to judge under. Stored scores predating backlog 109
         /// were judged under <see cref="TypoRule.ImmediateMiss"/>.</param>
-        public static TypeBeatReplayAccount Score(IBeatmap playable, IReadOnlyList<Mod> mods, Replay replay, TypoRule rule)
+        /// <param name="comboRule">The combo-restore rule to judge under. Stored scores predating
+        /// backlog 140 were played under <see cref="ComboRestoreRule.Never"/>, so re-deriving one
+        /// under the live rule would hand it a max_combo its fingers never earned. Independent of
+        /// <paramref name="rule"/>: a score from between backlog 109 and 140 is
+        /// <see cref="TypoRule.Deferred"/> with <see cref="ComboRestoreRule.Never"/>.</param>
+        public static TypeBeatReplayAccount Score(IBeatmap playable, IReadOnlyList<Mod> mods, Replay replay, TypoRule rule, ComboRestoreRule comboRule)
         {
             ArgumentNullException.ThrowIfNull(playable);
             ArgumentNullException.ThrowIfNull(replay);
@@ -120,6 +127,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 lineObjects[i].LineIndex = i;
 
             var engine = createEngine(playable, lineObjects, mods);
+
+            // The combo-restore rule is IMPLEMENTED in the engine (TypeBeatResultMapping
+            // .FixRestoresTheComboBreak is read there and nowhere else), so setting it here is the
+            // whole of the era gate: with it off no snapshot is ever taken, ComboRestored never
+            // fires, and the handler below is dead. That is deliberately the same shape the mods
+            // use, and it is why live play and this cannot restore differently.
+            engine.ComboRestore = comboRule;
+
             var ruleset = new TypeBeatRuleset();
 
             var scoreProcessor = new TypeBeatScoreProcessor(ruleset);
@@ -153,6 +168,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 scoreProcessor.RecordMistype();
             }
 
+            // TypeBeatPlayfield.onComboRestored: a corrected typo resumes the streak its keypress
+            // broke, mirrored by hand because no result carries it (backlog 140).
+            void onComboRestored(int streak) => scoreProcessor.RestoreCombo(streak);
+
             // Pre-109 the break for a REJECTED key lived here, and a typed-through wrong char broke
             // combo through the Miss its cell took. The mash-guard half of this seam is health only,
             // which is not simulated.
@@ -166,6 +185,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             engine.LineSealed += onLineSealed;
             engine.Mistyped += onMistyped;
             engine.WrongKeyRejected += onWrongKeyRejected;
+            engine.ComboRestored += onComboRestored;
 
             int consumed = feed(engine, replay);
 
@@ -173,6 +193,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             engine.LineSealed -= onLineSealed;
             engine.Mistyped -= onMistyped;
             engine.WrongKeyRejected -= onWrongKeyRejected;
+            engine.ComboRestored -= onComboRestored;
 
             var populated = new ScoreInfo { Ruleset = ruleset.RulesetInfo };
             scoreProcessor.PopulateScore(populated);

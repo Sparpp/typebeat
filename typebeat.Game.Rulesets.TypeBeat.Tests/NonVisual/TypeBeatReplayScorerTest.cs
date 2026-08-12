@@ -94,8 +94,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return r;
         }
 
+        /// <summary>
+        /// Score under the ERA the typo rule belongs to: pre-109 play (<c>ImmediateMiss</c>) also
+        /// predates the combo restore, and <c>Deferred</c> stands for live play, which restores.
+        /// The two rules are independent axes, so the overload below is what a test uses when it
+        /// means to vary one of them on its own (backlog 140's parity pin does).
+        /// </summary>
         private static TypeBeatReplayAccount score(IBeatmap map, Replay r, TypoRule rule, params Mod[] mods)
-            => TypeBeatReplayScorer.Score(map, mods, r, rule);
+            => score(map, r, rule, rule == TypoRule.Deferred ? ComboRestoreRule.OnFix : ComboRestoreRule.Never, mods);
+
+        private static TypeBeatReplayAccount score(IBeatmap map, Replay r, TypoRule rule, ComboRestoreRule comboRule, params Mod[] mods)
+            => TypeBeatReplayScorer.Score(map, mods, r, rule, comboRule);
 
         private static int count(TypeBeatReplayAccount account, HitResult result)
             => account.Statistics.GetValueOrDefault(result);
@@ -154,8 +163,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// greats and an X.</item>
         /// </list>
         ///
-        /// The mistype and its combo break survive either way: the recovery is of the CELL, not of
-        /// the mistake.
+        /// The typo COUNT survives either way, because it counts the keypress and no correction can
+        /// unpress it. Its combo break does not: since backlog 140 the fix resumes the streak the
+        /// wrong key broke, so the deferred arm's run is unbroken end to end. That axis is gated by
+        /// its own rule and isolated in <see cref="AFixedTypoResumesTheStreakOnlyUnderTheLiveRule"/>;
+        /// here the two arms are each judged under the whole of their own era.
         /// </summary>
         [Test]
         public void AFixedTypoRecoversItsCellOnlyUnderTheDeferredRule()
@@ -196,14 +208,79 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(deferred.Mistypes, Is.EqualTo(1));
                 Assert.That(immediate.Mistypes, Is.EqualTo(1));
 
-                // The fix is worth a combo too, and only the deferred rule lets it count: pre-109
-                // the retype was dropped on an already-judged cell, so the run after the break is
-                // cell 2 plus 3..11 plus line 1 (11) now, against 3..11 plus line 1 (10) then.
-                Assert.That(deferred.MaxCombo, Is.EqualTo(11));
+                // The fix is worth a combo too, and the live era gives back the whole run: the
+                // wrong key broke a streak of 2 (cells 0 and 1) and correcting cell 2 resumes it,
+                // so the thirteen cells run unbroken. Pre-109 the retype was dropped on an
+                // already-judged cell and the break stood, leaving 3..11 plus line 1.
+                Assert.That(deferred.MaxCombo, Is.EqualTo(13));
                 Assert.That(immediate.MaxCombo, Is.EqualTo(10));
 
                 // Recovering the cell is worth real score.
                 Assert.That(deferred.TotalScore, Is.GreaterThan(immediate.TotalScore));
+            });
+        }
+
+        /// <summary>
+        /// Backlog 140's era gate, on the axis it owns. The SAME keystrokes, judged under the same
+        /// typo rule, re-derive a different max_combo depending on the combo-restore rule alone,
+        /// and each is the number its own era submitted:
+        ///
+        /// <list type="bullet">
+        /// <item><see cref="ComboRestoreRule.Never"/>, i.e. every score stored before 140: the
+        /// wrong key on cell 2 broke a streak of 2 for good, so the run is cell 2's retype plus
+        /// 3..11 plus line 1, eleven;</item>
+        /// <item><see cref="ComboRestoreRule.OnFix"/>, i.e. live play: correcting cell 2 resumes
+        /// that streak of 2 BEFORE the retype is judged, so the retype lands on 3 and the map runs
+        /// unbroken to thirteen.</item>
+        /// </list>
+        ///
+        /// <para>The gate is why no stored row moves: re-deriving one under the live rule would
+        /// hand it two combo its fingers never earned, and price the rest of the run at a streak it
+        /// never held. The restored streak is worth SCORE as well as max_combo, which is the whole
+        /// point of restoring it before the judgement rather than after.</para>
+        ///
+        /// <para>Everything a typo costs on the record is untouched by the rule: one wrong keypress
+        /// counted, thirteen cells resolved, completion whole.</para>
+        /// </summary>
+        [Test]
+        public void AFixedTypoResumesTheStreakOnlyUnderTheLiveRule()
+        {
+            var map = beatmap();
+            var targets = lineZeroTargets(map);
+
+            var frames = new List<TypeBeatReplayFrame> { TypeBeatReplayFrame.CreateConfigFrame(0, true) };
+
+            frames.Add(new TypeBeatReplayFrame(targets[0], word[0]));
+            frames.Add(new TypeBeatReplayFrame(targets[1], word[1]));
+            frames.Add(new TypeBeatReplayFrame(targets[2], 'q')); // wrong, on a streak of 2
+            frames.Add(new TypeBeatReplayFrame(targets[2], TypeBeatReplayFrame.BACKSPACE));
+            frames.Add(new TypeBeatReplayFrame(targets[2], word[2])); // fixed
+
+            for (int i = 3; i < word.Length; i++)
+                frames.Add(new TypeBeatReplayFrame(targets[i], word[i]));
+
+            frames.Add(new TypeBeatReplayFrame(line_zero_end, 'z'));
+
+            var restored = score(map, replay(frames), TypoRule.Deferred, ComboRestoreRule.OnFix);
+            var stands = score(map, replay(frames), TypoRule.Deferred, ComboRestoreRule.Never);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(restored.MaxCombo, Is.EqualTo(13), "the streak of 2 resumes, so nothing is ever broken");
+                Assert.That(stands.MaxCombo, Is.EqualTo(11), "the break stands, so the run restarts at the fix");
+
+                // Restoring BEFORE the retype's judgement is what makes the fix worth score: every
+                // cell from the fix onwards is weighted by a streak two higher.
+                Assert.That(restored.TotalScore, Is.GreaterThan(stands.TotalScore));
+
+                // The rule moves combo and nothing else. The keypress is still a typo, the cell is
+                // still recovered, and both eras agree on every count.
+                Assert.That(restored.Statistics, Is.EqualTo(stands.Statistics));
+                Assert.That(restored.Mistypes, Is.EqualTo(1));
+                Assert.That(stands.Mistypes, Is.EqualTo(1));
+                Assert.That(restored.Completion, Is.EqualTo(1));
+                Assert.That(restored.Accuracy, Is.EqualTo(stands.Accuracy));
+                Assert.That(restored.Rank, Is.EqualTo(stands.Rank));
             });
         }
 

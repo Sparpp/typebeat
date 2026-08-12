@@ -44,6 +44,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     }
 
     /// <summary>
+    /// The rule deciding what CORRECTING a typo does to the combo its wrong keypress broke. It
+    /// exists for the same reason <see cref="TypoRule"/> does: a stored score has to be re-derived
+    /// under the rule it was PLAYED under rather than only under the current one. Live play is
+    /// always <see cref="OnFix"/>.
+    /// </summary>
+    public enum ComboRestoreRule
+    {
+        /// <summary>
+        /// The rule since backlog 140, and the only one live play uses: backspacing and correctly
+        /// retyping a wrong cell RESUMES the streak that cell's wrong keypress broke (the streak it
+        /// broke, plus whatever has been earned since), provided no other combo break landed in
+        /// between. See <see cref="TypingEngine.ComboRestored"/> for the mechanism and for why an
+        /// intervening break ends the claim.
+        ///
+        /// <para>It is what makes fixing a typo worth anything once typos are counted as EVENTS:
+        /// the count is spent the moment the wrong key lands and no correction can take it back, so
+        /// without this the only thing a fix would buy is the accuracy and completion the cell is
+        /// worth, and leaving the typo sitting there would cost the player nothing extra in
+        /// combo.</para>
+        /// </summary>
+        OnFix,
+
+        /// <summary>
+        /// The rule every score stored BEFORE backlog 140 was played under: the break the wrong
+        /// keypress took is permanent, and the corrected retype starts a fresh run from zero.
+        ///
+        /// <para>Only score RECALCULATION selects this. Nothing in gameplay may.</para>
+        /// </summary>
+        Never,
+    }
+
+    /// <summary>
     /// The single source of truth for how the engine's judgement stream becomes the osu result
     /// stream a submitted score carries. <see cref="Objects.Drawables.DrawableTypeBeatHitObject"/>
     /// applies it live; <see cref="TypeBeatReplayScorer"/> applies the same mapping headlessly when
@@ -182,6 +214,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// combo by hand.
         /// </summary>
         public static bool MistypeCarriesTheComboBreak(TypoRule rule) => rule == TypoRule.Deferred;
+
+        /// <summary>
+        /// Whether correcting a wrong cell puts back the streak its keypress broke (backlog 140,
+        /// both input models, though only the default one can ever reach it: a REJECTED key writes
+        /// no cell, so there is nothing to go back and fix).
+        ///
+        /// <para>Read in exactly one place, <see cref="TypingEngine.ProcessKey"/>, so the rule is
+        /// IMPLEMENTED once and only SELECTED twice (live play takes the engine's default,
+        /// <see cref="TypeBeatReplayScorer"/> sets the era's). Both the engine's own combo and osu's
+        /// then follow from the one decision, which is what stops the two drifting.</para>
+        /// </summary>
+        public static bool FixRestoresTheComboBreak(ComboRestoreRule rule) => rule == ComboRestoreRule.OnFix;
 
         /// <summary>
         /// The result a cell takes when the LINE decides its fate instead of a keypress: the seal

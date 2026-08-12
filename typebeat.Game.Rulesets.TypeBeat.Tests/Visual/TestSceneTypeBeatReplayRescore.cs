@@ -304,7 +304,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                     Player.GameplayState.Beatmap,
                     Player.GameplayState.Mods,
                     replay,
-                    TypoRule.Deferred);
+                    TypoRule.Deferred,
+                    ComboRestoreRule.OnFix);
             });
 
             AddAssert("the replay reproduces the submitted statistics", () =>
