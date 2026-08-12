@@ -3,7 +3,18 @@
 Guidance for anyone (human or agent) working inside `typebeat-osu`, the **type!beat game client**:
 a C#/.NET 8 fork of ppy/osu-framework. `TypeBeat` namespace, `type!beat` product name.
 
-`DESIGN.md` at the repo root is the canonical spec for the timing schema and judgement policy.
+There is **no `DESIGN.md`** in this repo, despite what older notes say. Two separate agents have gone
+looking for it. The canonical sources are the code itself:
+
+- **Judgement policy and the window ladders**: `Gameplay/Judgement.cs`, which says in its own header
+  that it is the single tuning point. Since backlog 133 a keypress is graded on CHARACTER DISTANCE
+  from the character the playhead is on, in four tiers; the millisecond ladder is still there and is
+  selected by `TypingEngine.Measure` for backlog 135's Rhythmic mod.
+- **The timing schema** (per-character target times, syllable subdivision, space cells):
+  `Gameplay/TypingLine.cs`, `FromLyricLine`.
+- **How a judgement becomes a stored osu result**: `Scoring/TypeBeatResultMapping.cs`, which also
+  documents why the candidate result set is forced rather than chosen.
+- **pp**: `typebeat-web/docs/pp.md` is canonical and every constant here is pinned there.
 
 Most work here is done by an agent spawned into a **git worktree** under `.claude/worktrees/<slug>`
 by an orchestrator running in the parent superrepo. The rules below are the ones that get re-typed
