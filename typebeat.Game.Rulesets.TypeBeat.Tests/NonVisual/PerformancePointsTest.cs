@@ -634,6 +634,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        /// <summary>
+        /// Rhythmic (backlog 135) PAYS, which makes it the only flat mod multiplier above 1.0 that
+        /// is not length-scaled: judging a press on its millisecond offset from its own target
+        /// instead of on its distance from the playhead is the tighter ladder on any map slower
+        /// than 10 characters per second, i.e. nearly all of them. This is the marked site, so a
+        /// retune through <c>pp.py set --rhythmic-multiplier</c> lands here.
+        /// </summary>
+        [Test]
+        public void ModMultiplier_RhythmicPaysTenPercent()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModRhythmic()), 300), Is.EqualTo(1.10).Within(1e-12)); // pp[f.rhythmic_multiplier]
+                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModRhythmic(), new TypeBeatModLiterate()), 300),
+                    Is.EqualTo(1.166).Within(1e-12)); // pp[f.mod_multiplier(["RH", "LT"], 300)]
+            });
+        }
+
         [Test]
         public void ModMultiplier_SuddenDeathMutedAndUnknownModsAreNeutral()
         {

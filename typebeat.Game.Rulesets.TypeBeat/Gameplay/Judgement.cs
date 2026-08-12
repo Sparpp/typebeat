@@ -66,8 +66,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>
         /// The rule up to backlog 133: milliseconds between the keypress and the cell's
-        /// <see cref="TypingCell.TargetTime"/>. Negative is early. Nothing selects this yet; it is
-        /// kept live for the Rhythmic mod (backlog 135), which turns it back on by setting
+        /// <see cref="TypingCell.TargetTime"/>. Negative is early. Selected by the Rhythmic mod
+        /// (<see cref="Mods.TypeBeatModRhythmic"/>, backlog 135), which turns it back on by setting
         /// <see cref="TypingEngine.Measure"/>.
         /// </summary>
         Milliseconds,
