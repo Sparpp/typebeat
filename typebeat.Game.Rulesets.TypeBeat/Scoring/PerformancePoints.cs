@@ -39,7 +39,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// other's. CLEANLINESS is dropped cells alone, over the plain note count, at the steeper
     /// exponent 10. MISTYPING (wrong keypresses,
     /// <see cref="TypeBeatScoreProcessor.MISTYPE_RESULT"/>, i.e. the <c>combo_break</c> statistics
-    /// key) is its own factor at 6. Between backlog 72 and 89 the two rode inside one fraction,
+    /// key) is its own factor at 4. Between backlog 72 and 89 the two rode inside one fraction,
     /// which quietly made each penalty depend on the other: a mistype pulled the miss ratio towards
     /// its own value, so a player with a heavy mistype count was charged LESS per dropped cell than
     /// a clean one. Split, a play's misses cost the same whatever its keypresses did, and vice
@@ -47,25 +47,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// </para>
     ///
     /// <para>
-    /// A mistype is still the cheaper of the two failures (6 against 10): a stumble you recover from
+    /// A mistype is still the cheaper of the two failures (4 against 10): a stumble you recover from
     /// is not the same thing as never typing the cell at all. Backlog 95 raised both exponents
-    /// (8.5 to 10, 3.5 to 6), so the gap between them is narrower than it was.
+    /// (8.5 to 10, 3.5 to 6); the mistype one has moved twice since, to 8 in v8 and back to 4 in v9.
     /// </para>
     ///
     /// <para>
     /// BOTH PENALTIES RAISE THE RAW COUNT TO A POWER, NOT THE RATIO (backlog 97), and that power is
     /// <see cref="count_power"/>, a tunable rather than part of the shape (backlog 101). Cleanliness
-    /// is <c>max(0, 1 − miss^1.2/notes)</c> and mistyping
-    /// <c>max(0, 1 − mistypes^1.2/(notes + mistypes))</c>. Backlog 96 squared the RATIO, which runs
+    /// is <c>max(0, 1 − miss^1.6/notes)</c> and mistyping
+    /// <c>max(0, 1 − mistypes^1.6/(notes + mistypes))</c>. Backlog 96 squared the RATIO, which runs
     /// the opposite way (a value already in [0, 1] gets SMALLER when squared, so <c>1 − r²</c> is
     /// LARGER than <c>1 − r</c>) and was a misreading of the intent; backlog 97 corrected it at a
-    /// power of 2, which was far too extreme, and 101 settled the power at 1.2.
+    /// power of 2, which was far too extreme, and 101 settled the power at 1.2. v8 then retuned it
+    /// to the 1.6 in force.
     /// </para>
     ///
     /// <para>
     /// THE <c>Math.Max</c> CLAMP IS LOAD-BEARING, NOT DEFENSIVE. A powered COUNT over an unpowered
     /// denominator is not bounded by [0, 1] at all: the base crosses zero at
-    /// <c>miss = notes^(1/1.2)</c> (178 misses on a 500-note map) and runs NEGATIVE past it, and a
+    /// <c>miss = notes^(1/1.6)</c> (49 misses on a 500-note map) and runs NEGATIVE past it, and a
     /// fractional exponent on a negative base is not merely wrong but non-real. Misses really can
     /// equal <c>notes</c> and mistypes have no bound whatever, so this is the ordinary case and not a
     /// hostile-input guard. Clamped, the term is a well-defined 0 beyond that point: a CLIFF, chosen
@@ -78,11 +79,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// BOTH NUMERATORS GO THROUGH <c>Math.Pow</c>, WHICH CONVERTS TO DOUBLE FIRST (never
     /// <c>x * x</c> in <c>int</c>). Mistypes are unbounded, so an <c>int</c> square overflows
     /// catastrophically (at <c>int.MaxValue</c> the true square is about 4.6e18), and a tamper-shaped
-    /// note count could do the same to the misses. In double, <c>Math.Pow(int.MaxValue, 1.2)</c> is
-    /// about 1.6e11 and the ratio about 74, so the base clamps to a well-defined zero rather than
+    /// note count could do the same to the misses. In double, <c>Math.Pow(int.MaxValue, 1.6)</c> is
+    /// about 8.5e14 and the ratio about 4.0e5, so the base clamps to a well-defined zero rather than
     /// wrapping to a NaN or, worse, a bonus. THE COUNTS ARE CLAMPED NON-NEGATIVE BEFORE THEY REACH
     /// THE POWER, and that ordering is load-bearing now the power is FRACTIONAL:
-    /// <c>Math.Pow(-1, 1.2)</c> is NaN, not merely a wrong sign. <c>Math.Pow(0, 1.2)</c> is exactly
+    /// <c>Math.Pow(-1, 1.6)</c> is NaN, not merely a wrong sign. <c>Math.Pow(0, 1.6)</c> is exactly
     /// 0, so both bases are still exactly 1.0 at a count of zero and a spotless play is priced
     /// bit-identically across any retune of the power.
     /// </para>
@@ -90,10 +91,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <para>
     /// Why the mistype term keeps mistypes on BOTH sides of its fraction while the miss term does
     /// not: misses are bounded by <c>notes</c> (a play cannot drop more cells than the map has), but
-    /// keypresses are UNBOUNDED, so a plain <c>mistypes^1.2/notes</c> would grow without limit and
+    /// keypresses are UNBOUNDED, so a plain <c>mistypes^1.6/notes</c> would grow without limit and
     /// make the clamp the only thing standing between a masher and a non-real result at any count at
     /// all. Keeping the count in the denominator too moves the zero out to the positive root of
-    /// <c>m^1.2 − m − notes = 0</c> (about 248.4, i.e. 249 mistypes, on a 500-note map) and keeps the
+    /// <c>m^1.6 − m − notes = 0</c> (about 51.71, i.e. 52 mistypes, on a 500-note map) and keeps the
     /// sum itself in <c>double</c>, since <c>notes + mistypes</c> as <c>int</c> overflows as readily
     /// as the power does. Do not "simplify" that denominator away.
     /// </para>
@@ -104,7 +105,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// uncorrected typo). Letting keypresses inflate it would hand a masher a bigger LENGTH bonus
     /// and a smaller COMBO denominator, paying for the mashing twice over. At zero mistypes the
     /// mistyping term is exactly 1.0, so such a play is priced by
-    /// <c>max(0, 1 − miss^1.2/notes)^10</c> alone.
+    /// <c>max(0, 1 − miss^1.6/notes)^10</c> alone.
     /// </para>
     ///
     /// <para>
@@ -198,7 +199,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// zero, so a spotless play is priced bit-identically, while every stored row carrying even
         /// ONE miss or ONE mistype is repriced, upwards this time and mostly away from zero, which
         /// is what forces the bump.</item>
-        /// <item>v8 = (no summary given)</item>
+        /// <item>v8 = a retune of six constants at once (game commit 51f1dc5, 2026-08-08), with the
+        /// SHAPE untouched: the global scale drops 4.0 to 3.0, sr_exponent 2.70 to 2.60,
+        /// mistype_exponent 6.0 to 8.0, count_power 1.2 to 1.6, length_weight 0.70 to 0.50 and
+        /// combo_exponent 0.55 to 0.75. miss_exponent and accuracy_exponent do not move, and neither
+        /// does any mod multiplier. It is the ONLY version that shipped without an amendment in
+        /// docs/pp.md, so the record of it is its commit message and nothing more: "New pp
+        /// coefficients: scale 3, SR 2.6, count power 1.6, mistype exponent 8, length weight 0.5,
+        /// combo 0.75". Both penalty bases are still exactly 1.0 at a count of zero, but scale,
+        /// sr_exponent, length_weight and combo_exponent price a spotless play too, so this reprices
+        /// every stored row rather than only the ones carrying a miss or a mistype. count_power is
+        /// the part that moves both CLIFFS, from 178 misses on a 500-note map to 49 and from 249
+        /// mistypes to 52.</item>
         /// <item>v9 = the backlog-112 retune of three constants, with the SHAPE untouched: the global
         /// scale rises 3.0 to 5.5, sr_exponent 2.60 to 2.70, and mistype_exponent 8.0 to 4.0.
         /// count_power stays 1.6, miss_exponent stays 10, and the length, accuracy and combo terms
@@ -248,12 +260,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         ///
         /// <para>It is the constant that decides WHERE EACH TERM'S CLIFF FALLS, since the
         /// cleanliness base vanishes at <c>miss = notes^(1/count_power)</c>. At 2 that is 23 misses
-        /// on a 500-note map, i.e. 4.6% of it, which zeroed essentially every real play; at 1.2 it
-        /// is 178, i.e. 35%, which reads as "you dropped a third of the map". It also decides how
-        /// the cliff scales WITH map size: as a fraction of the map it is
+        /// on a 500-note map, i.e. 4.6% of it, which zeroed essentially every real play; backlog 101
+        /// moved it to 1.2, where it is 178, i.e. 35%; at the 1.6 v8 set it is 49, i.e. 9.7%. It also
+        /// decides how the cliff scales WITH map size: as a fraction of the map it is
         /// <c>notes^(1/count_power - 1)</c>, so at 2 it swung from 10% of a 100-note map to 2.2% of
-        /// a 2000-note map (long maps drastically harsher, for no reason anyone chose), while at 1.2
-        /// it moves only 46% to 35% to 28% across 100, 500 and 2000 notes.</para>
+        /// a 2000-note map (long maps drastically harsher, for no reason anyone chose), at 1.2 it
+        /// moved 46% to 35% to 28% across 100, 500 and 2000 notes, and at 1.6 it moves 17.8% to 9.7%
+        /// to 5.8% across the same three.</para>
         /// </summary>
         private const double count_power = 1.6;
 
@@ -503,10 +516,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// rating. 1.0 is NOT a possible answer here; every other rate's multiplier is 1.0 and never
         /// reaches this function.
         ///
-        /// <para>Write <c>D = (sr_dt/sr_base)^2.70</c> and <c>H = (sr_ht/sr_base)^2.70</c>. Those
-        /// are what the two base rates are ALREADY worth on this map, purely through
-        /// <c>SR^2.70</c>, with no term of their own anywhere: D is Double Time's emergent bonus
-        /// and H is Half Time's emergent discount. The mirror multiplier is <c>1/(D·H)</c>, which
+        /// <para>Write <c>D = (sr_dt/sr_base)^2.00</c> and <c>H = (sr_ht/sr_base)^2.00</c>, the
+        /// exponent being <c>sr_exponent</c> in both cases. Those are what the two base rates are
+        /// ALREADY worth on this map, purely through <c>SR^2.00</c>, with no term of their own
+        /// anywhere: D is Double Time's emergent bonus and H is Half Time's emergent discount, and
+        /// both move with any retune of the exponent. The mirror multiplier is <c>1/(D·H)</c>, which
         /// makes Half Time's TOTAL rate factor <c>H · 1/(D·H) = 1/D</c>, exactly the reciprocal of
         /// Double Time's, per map. Speeding a map up and slowing it down are then equal and
         /// opposite by construction rather than by a flat guess, which is the whole point: HT used
@@ -517,9 +531,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <c>1/D &gt; H</c>, i.e. <c>D·H &lt; 1</c>, i.e. <c>sr_dt · sr_ht &lt; sr_base²</c>: a map
         /// whose SR curve is concave in log-rate, so slowing it down helps far more than speeding
         /// it up hurts. That is precisely the map an unguarded mirror would REWARD for using Half
-        /// Time. Worked example: base 4.2, dt 4.5, ht 2.0 gives D = 1.205 and H = 0.135, so the
-        /// mirror would make HT's total factor 0.830 against today's 0.135, a six-fold buff.
-        /// Clamped, it is <c>0.70 · 0.135 = 0.094</c>, still a nerf.</para>
+        /// Time. Worked example: base 4.2, dt 4.5, ht 2.0 gives D = 1.148 and H = 0.227, so the
+        /// mirror would make HT's total factor 0.871 against today's 0.227, a nearly four-fold buff.
+        /// Clamped, it is <c>0.70 · 0.227 = 0.159</c>, still a nerf.</para>
         ///
         /// <para>IT IS NOT A <c>Math.Min</c>. A mirror multiplier of, say, 0.90 is a mild nerf and
         /// must be used AS IS. <c>Math.Min(mirror, 0.70)</c> would deepen every mild nerf into a
@@ -623,9 +637,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         /// <summary>The length bonus, floored (see <see cref="length_floor"/>).</summary>
         /// <remarks>
-        /// The raw term crosses zero at about 4 notes and would go negative below that, so the floor
-        /// is required: no play may ever compute to zero or negative pp from its LENGTH alone. It
-        /// bites under roughly 5 notes, i.e. only on data that describes no real map.
+        /// No play may ever compute to zero or negative pp from its LENGTH alone, which is what the
+        /// floor is for. At the current weight of 0.50 the raw term crosses zero at exactly 1 note
+        /// and the floor at about 1.585, so the clamp is close to vestigial and bites only on data
+        /// that describes no real map; at the old weight of 0.70 those two crossings sat at about
+        /// 3.73 and 5.18 notes. It stays because it is the guard, not because it currently fires.
         /// </remarks>
         public static double LengthBonus(int notes)
             => notes <= 0
@@ -674,7 +690,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             // Dropped cells, and nothing else. The RAW COUNT carries the power (count_power), not
             // the ratio, so this base falls off far faster than misses/notes ever did: it reaches 0
-            // at misses = notes^(1/count_power), i.e. 178 misses on a 500-note map, and would run
+            // at misses = notes^(1/count_power), i.e. 49 misses on a 500-note map, and would run
             // NEGATIVE past that. Math.Max is what makes it a well-defined cliff instead, and it is
             // load-bearing: misses can equal notes after the clamp above, so the unclamped base
             // really does go negative, and a fractional exponent on a negative base is non-real.
@@ -690,14 +706,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // Wrong keypresses, and nothing else, under the same power. The count is UNBOUNDED, so
             // it still sits on BOTH sides of the fraction: that is what keeps the denominator
             // growing with the count, putting the zero at the positive root of
-            // m^count_power - m - notes = 0 (about 248.4, i.e. 249 mistypes, on a 500-note map)
+            // m^count_power - m - notes = 0 (about 51.71, i.e. 52 mistypes, on a 500-note map)
             // rather than at notes^(1/count_power). The numerator goes through Math.Pow and the sum
             // is taken in DOUBLE, independently and for the same reason: an int square overflows
             // catastrophically (the true square at int.MaxValue is about 4.6e18) and notes +
             // mistypes as ints overflows too. In double, int.MaxValue mistypes give a ratio of about
-            // 74, so the base clamps to a well-defined 0 rather than wrapping into a NaN or a bonus.
-            // At zero mistypes this is exactly 1.0. notes is untouched by design (see the class
-            // docs): only this term prices mistypes.
+            // 4.0e5, so the base clamps to a well-defined 0 rather than wrapping into a NaN or a
+            // bonus. At zero mistypes this is exactly 1.0. notes is untouched by design (see the
+            // class docs): only this term prices mistypes.
             double mistypeBase = Math.Max(0.0, 1.0 - Math.Pow(mistypes, count_power) / ((double)notes + mistypes));
             double mistyping = Math.Pow(mistypeBase, mistype_exponent);
 
