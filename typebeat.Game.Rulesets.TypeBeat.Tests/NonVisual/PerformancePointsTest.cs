@@ -40,7 +40,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>A clean-ish reference play: 4 stars, 500 notes, no misses, 90% acc, full combo.</summary>
-        private const double reference_pp = 223.272161; // pp[f.compute(4, 500, 0, 0.9, 500)]
+        private const double reference_pp = 171.473019; // pp[f.compute(4, 500, 0, 0.9, 500)]
 
         [Test]
         public void Compute_MatchesAnIndependentlyEvaluatedReferencePlay()
@@ -193,7 +193,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(pp, Is.EqualTo(31.250000).Within(1e-5)); // pp[f.compute(5, 1, 0, 1, 1)]
+                Assert.That(pp, Is.EqualTo(24.000000).Within(1e-5)); // pp[f.compute(5, 1, 0, 1, 1)]
                 Assert.That(pp, Is.LessThan(reference_pp));
             });
         }
@@ -432,7 +432,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             foreach (int notes in new[] { 1, 100, 500, 2137 })
             {
                 double spotless = PerformancePoints.Compute(4, notes, 0, 0.9, notes, no_mods, mistypes: 0);
-                double withoutEitherPenaltyTerm = 12.5 * Math.Pow(4, 2.00) * PerformancePoints.LengthBonus(notes) * Math.Pow(0.9, 1.80); // pp:const scale=12.5 sr_exponent=2.00 accuracy_exponent=1.80
+                double withoutEitherPenaltyTerm = 9.6 * Math.Pow(4, 2.00) * PerformancePoints.LengthBonus(notes) * Math.Pow(0.9, 1.80); // pp:const scale=9.6 sr_exponent=2.00 accuracy_exponent=1.80
 
                 Assert.That(spotless, Is.EqualTo(withoutEitherPenaltyTerm), $"notes={notes}");
             }
@@ -687,7 +687,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // mistypes, so its mistyping term is exactly 1.0 whatever the power, and the whole
                 // change is max(0, 1 - 5^1.2/300)^10 = 0.97700^10 replacing 0.91667^10. Five misses
                 // is far under the 116-miss cliff on a 300-note map, so this prices comfortably.
-                Assert.That(bare, Is.EqualTo(61.535568).Within(1e-5)); // pp[f.compute(3, 300, 5, 0.8, 250)]
+                Assert.That(bare, Is.EqualTo(47.259316).Within(1e-5)); // pp[f.compute(3, 300, 5, 0.8, 250)]
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModNoFail())),
                     Is.EqualTo(bare * 0.90).Within(1e-9)); // pp:const no_fail_multiplier=0.90
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModFletcher())),
@@ -810,7 +810,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // docs/pp.md move with it. v7 = the backlog-101 drop of count_power from 2 to 1.2, which
             // had to bump because it reprices every stored row carrying even one miss or one mistype
             // (upwards this time, and most of them away from the zero backlog 97 left them at).
-            Assert.That(PerformancePoints.VERSION, Is.EqualTo(13)); // pp:version
+            Assert.That(PerformancePoints.VERSION, Is.EqualTo(14)); // pp:version
         }
 
         #endregion
