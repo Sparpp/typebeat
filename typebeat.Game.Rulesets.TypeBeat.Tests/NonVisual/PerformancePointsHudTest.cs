@@ -470,7 +470,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             foreach (var cell in beatmap.HitObjects[0].NestedHitObjects.OfType<TypeBeatCharObject>())
             {
-                var result = new JudgementResult(cell, cell.CreateJudgement()) { Type = HitResult.Great };
+                // THE FIRST CELL IS A MISS ON PURPOSE, and it is what keeps this test from being
+                // vacuous. Before backlog 152 the note count moved the LENGTH bonus, so an all
+                // GREAT rewind repriced on the count alone; with that factor deleted a spotless
+                // play at a full combo prices to scale·SR^2·acc^1.8 whatever the count is, and
+                // the assertion below would compare a number with itself. One miss puts the count
+                // back in the arithmetic, through the cleanliness ratio it is the denominator of.
+                var type = applied.Count == 0 ? HitResult.Miss : HitResult.Great;
+                var result = new JudgementResult(cell, cell.CreateJudgement()) { Type = type };
                 processor.ApplyResult(result);
                 applied.Add(result);
             }

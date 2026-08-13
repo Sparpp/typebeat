@@ -42,7 +42,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>A clean-ish reference play: 4 stars, 500 notes, no misses, 90% acc, full combo.</summary>
-        private const double reference_pp = 171.473019; // pp[f.compute(4, 500, 0, 0.9, 500)]
+        private const double reference_pp = 127.065524; // pp[f.compute(4, 500, 0, 0.9, 500)]
 
         [Test]
         public void Compute_MatchesAnIndependentlyEvaluatedReferencePlay()
@@ -52,34 +52,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(pp, Is.EqualTo(reference_pp).Within(1e-5));
         }
 
-        #region Length bonus
-
-        // The raw term crosses ZERO at exactly 1 note and the floor at ~1.585, so the clamp is what
-        // stops a degenerate map computing zero or negative pp from its length alone.
-        //
-        // The weight moved 0.70 to 0.50 (backlog 103), which pushed both crossings a long way in:
-        // they used to sit at ~3.73 and ~5.18 notes, so 3, 4 and 5 were clamped cases. They are not
-        // any more (at 2 notes the raw term is already 0.1505, above the floor), so the clamp now
-        // bites at 1 note and below. Kept as a range rather than a single case so the NEXT weight
-        // change fails here loudly instead of silently testing nothing.
-        [TestCase(0)]
-        [TestCase(1)]
-        public void LengthBonus_ClampsToTheFloorWhereTheRawTermWouldSinkBelowIt(int notes)
-        {
-            double raw = 1 + 0.50 * Math.Log10(Math.Max(notes, 1) / 100.0); // pp:const length_weight=0.50 reference_notes=100.0
-
-            Assert.That(PerformancePoints.LengthBonus(notes), Is.EqualTo(0.1).Within(1e-12), // pp[f.length_floor]
-                $"raw term at {notes} notes is {raw:0.####}");
-        }
-
-        [TestCase(6, 0.389076)] // pp[f.length_bonus(6)]
-        [TestCase(100, 1.0)] // pp[f.length_bonus(100)]
-        [TestCase(500, 1.349485)] // pp[f.length_bonus(500)]
-        [TestCase(1000, 1.5)] // pp[f.length_bonus(1000)]
-        public void LengthBonus_IsTheLogBonusAboveTheFloor(int notes, double expected)
-            => Assert.That(PerformancePoints.LengthBonus(notes), Is.EqualTo(expected).Within(1e-6));
-
-        #endregion
+        // THERE IS NO LENGTH REGION HERE, because there is no length factor: backlog 152 deleted it
+        // and moved length pricing into the star rating, as an additive
+        // 0.12*max(0, log10(cells/100)) bonus inside LyricDifficulty (LyricDifficultyTest pins the
+        // clamp and the bonus there). pp sees a long map only through the SR_eff it is handed, so
+        // the thing this file can still assert about length is that Compute does NOT read the note
+        // count as a bonus: the spotless-play identity below spells the surviving factors out in
+        // full and would fail the moment a length term came back.
 
         #region Flashlight
 
@@ -187,16 +166,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             => Assert.That(PerformancePoints.Compute(5, notes: 0, misses: 0, accuracy: 1, maxCombo: 0, no_mods), Is.Zero);
 
         [Test]
-        public void Compute_OneNoteIsTinyButPositive()
+        public void Compute_OneNoteIsNoLongerDiscountedForBeingOneNote()
         {
-            // A single perfect note on a 5-star map: the length floor is what keeps this finite and
-            // positive rather than zero or negative.
+            // A single perfect note on a 5-star map. This used to be TINY (24.0), and the length
+            // floor was the entire reason: the term bottomed out at 0.1 and cut the play to a
+            // tenth. Backlog 152 deleted the length factor, so a one-note map is now priced purely
+            // by its rating, accuracy and combo, and this play is worth MORE than the 4-star
+            // 500-note reference play at 90%. That inversion is deliberate and is not reachable: pp
+            // is a pure function over primitives and this feeds it a rating no one-cell map could
+            // ever carry, since the star rating is what knows how long a map is (LyricDifficulty's
+            // own length bonus is zero below 100 cells, and a one-cell map's strain aggregate is
+            // nowhere near 5 stars).
             double pp = PerformancePoints.Compute(5, notes: 1, misses: 0, accuracy: 1, maxCombo: 1, no_mods);
 
             Assert.Multiple(() =>
             {
-                Assert.That(pp, Is.EqualTo(24.000000).Within(1e-5)); // pp[f.compute(5, 1, 0, 1, 1)]
-                Assert.That(pp, Is.LessThan(reference_pp));
+                Assert.That(pp, Is.EqualTo(240.000000).Within(1e-5)); // pp[f.compute(5, 1, 0, 1, 1)]
+                Assert.That(pp, Is.GreaterThan(reference_pp));
             });
         }
 
@@ -342,9 +328,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void Compute_IgnoreHitInflationWouldChangeTheAnswer()
         {
             // The reason CountNotes has to exclude it. Line containers are one ignore_hit per LINE,
-            // so a 400-note map with 60 lines would read as 460 "notes". Three of the six factors
-            // take the note count as a denominator, and the most visible casualty is the combo term:
-            // a genuine full combo would stop reading as one.
+            // so a 400-note map with 60 lines would read as 460 "notes". The note count sits under
+            // both penalty terms, the combo ratio and Flashlight's bonus, and the most visible
+            // casualty is the combo term: a genuine full combo would stop reading as one. On a
+            // spotless play (this one) the penalty terms are exactly 1.0 either way, so the combo
+            // ratio is the whole of what moves here now that backlog 152 has removed the length
+            // factor that used to move with it.
             double fullCombo = PerformancePoints.Compute(4, 400, 0, 0.85, 400, no_mods);
             double inflated = PerformancePoints.Compute(4, 460, 0, 0.85, 400, no_mods);
 
@@ -434,7 +423,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             foreach (int notes in new[] { 1, 100, 500, 2137 })
             {
                 double spotless = PerformancePoints.Compute(4, notes, 0, 0.9, notes, no_mods, typos: 0);
-                double withoutEitherPenaltyTerm = 9.6 * Math.Pow(4, 2.00) * PerformancePoints.LengthBonus(notes) * Math.Pow(0.9, 1.80); // pp:const scale=9.6 sr_exponent=2.00 accuracy_exponent=1.80
+                double withoutEitherPenaltyTerm = 9.6 * Math.Pow(4, 2.00) * Math.Pow(0.9, 1.80); // pp:const scale=9.6 sr_exponent=2.00 accuracy_exponent=1.80
 
                 Assert.That(spotless, Is.EqualTo(withoutEitherPenaltyTerm), $"notes={notes}");
             }
@@ -765,7 +754,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // typos, so its typo term is exactly 1.0 whatever the power, and the whole
                 // change is max(0, 1 - 5^1.2/300)^10 = 0.97700^10 replacing 0.91667^10. Five misses
                 // is far under the 116-miss cliff on a 300-note map, so this prices comfortably.
-                Assert.That(bare, Is.EqualTo(47.259316).Within(1e-5)); // pp[f.compute(3, 300, 5, 0.8, 250)]
+                Assert.That(bare, Is.EqualTo(38.156643).Within(1e-5)); // pp[f.compute(3, 300, 5, 0.8, 250)]
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModNoFail())),
                     Is.EqualTo(bare * 0.90).Within(1e-9)); // pp:const no_fail_multiplier=0.90
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModFletcher())),
@@ -890,7 +879,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // docs/pp.md move with it. v7 = the backlog-101 drop of count_power from 2 to 1.2, which
             // had to bump because it reprices every stored row carrying even one miss or one typo
             // (upwards this time, and most of them away from the zero backlog 97 left them at).
-            Assert.That(PerformancePoints.VERSION, Is.EqualTo(15)); // pp:version
+            Assert.That(PerformancePoints.VERSION, Is.EqualTo(16)); // pp:version
         }
 
         #endregion
