@@ -79,6 +79,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private static readonly SyncWindows word_windows = new SyncWindows(0.6);
         private static readonly SyncWindows syllable_windows = new SyncWindows(0.45);
 
+        /// <summary>
+        /// The BASE ladder for a granularity: three cached instances, one per tier, and the only
+        /// ones this class keeps. A mod that widens or tightens the windows does NOT get a cache of
+        /// its own here (see <see cref="Scaled"/>).
+        /// </summary>
         public static SyncWindows For(TimingGranularity granularity)
         {
             switch (granularity)
@@ -112,6 +117,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             OkLate = base_ok_late * scale;
             MehEarly = base_meh_early * scale;
             MehLate = base_meh_late * scale;
+        }
+
+        /// <summary>
+        /// This ladder with every bound multiplied by <paramref name="factor"/>. A GENERAL
+        /// multiplicative window scale, deliberately not named after any one mod: the Easy mod
+        /// doubles the windows through it, and anything else that widens or tightens them (a rate
+        /// mod scaling them by the clock rate, say) multiplies its own factor in on top, so two of
+        /// them compose by multiplication instead of one overwriting the other.
+        ///
+        /// <para>Every bound is <c>base_constant * Scale</c>, so scaling the ladder is exactly
+        /// constructing it at <c>Scale * factor</c>. That is why there is no second cache keyed by
+        /// granularity AND factor: <see cref="For"/>'s three instances are the LADDER, and a scale
+        /// is a number the ENGINE holds (<c>TypingEngine.WindowScale</c>), applied once when it is
+        /// set rather than per keypress.</para>
+        ///
+        /// <para>A factor of exactly 1 returns this same instance, so the unmodded path allocates
+        /// nothing and keeps grading against the very objects it graded against before the scale
+        /// existed.</para>
+        /// </summary>
+        public SyncWindows Scaled(double factor)
+        {
+            if (!double.IsFinite(factor) || factor <= 0)
+                throw new ArgumentOutOfRangeException(nameof(factor), factor, "A judgement window scale must be finite and positive.");
+
+            return factor == 1 ? this : new SyncWindows(Scale * factor);
         }
 
         /// <summary>

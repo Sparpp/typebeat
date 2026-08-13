@@ -244,6 +244,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             var engine = new TypingEngine(lyricBeatmap, literate);
 
+            // Multiplied in, never assigned, so this stays right when a second window-scaling mod
+            // exists (see TypingEngine.WindowScale). A replay carries KEYSTROKES and is re-judged
+            // from scratch, so missing this would re-grade an Easy run on unscaled windows.
+            if (mods.Any(m => m is TypeBeatModEasy))
+                engine.WindowScale *= TypeBeatModEasy.WINDOW_SCALE;
+
             if (mods.Any(m => m is TypeBeatModFletcher))
                 engine.FletcherEnabled = true;
 
