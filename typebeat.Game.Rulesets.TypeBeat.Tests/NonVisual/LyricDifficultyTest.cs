@@ -94,8 +94,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             double noMod = LyricDifficulty.Compute(map);
             double doubleTime = LyricDifficulty.Compute(map, 1.50);
 
-            Assert.That(noMod, Is.EqualTo(6.1622).Within(0.001));
-            Assert.That(doubleTime, Is.EqualTo(10.5567).Within(0.001), "under the old ceiling this read exactly 10.00");
+            // Both figures carry the backlog-152 length bonus, which is 0.1445 on this 1600-cell
+            // fixture (0.12 * log10(16)) and is the SAME on both rates, since the bonus reads the
+            // cell count and a clock change adds no cells. Before it they read 6.1622 and 10.5567.
+            Assert.That(noMod, Is.EqualTo(6.3067).Within(0.001));
+            Assert.That(doubleTime, Is.EqualTo(10.7012).Within(0.001), "under the old ceiling this read exactly 10.00");
         }
 
         [Test]
@@ -165,6 +168,59 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // this is exactly what a single-bucket/D_max-only formula cannot see.
             Assert.That(harderSr - easierSr, Is.GreaterThan(0.15));
         }
+
+        #region The length bonus (backlog 152)
+
+        /// <summary>
+        /// The additive per-decade length bonus, stated as its own quantity. Every word the fixture
+        /// builder emits is a 5-character pool word, so the cell count is exactly
+        /// <c>lineCount * wordsPerLine * 5</c> and the bonus is a number this test can write out
+        /// rather than read back off the thing under test. The other half of each expectation is the
+        /// STRAIN rating, which is the value the same fixture rated before this term existed.
+        /// </summary>
+        [TestCase(40, 8, 1200, 1600, 6.16224)] // the RateAdjusted fixture: its pre-152 rating is pinned above at 6.1622
+        [TestCase(40, 4, 2400, 800, 3.43140)] // the RealisticMap fixture
+        public void TheLengthBonusIsAddedFlatOnTopOfTheStrainRating(int lineCount, int wordsPerLine, double lineMs, int cells, double strainOnly)
+        {
+            var map = buildMap(lineCount, wordsPerLine, lineMs);
+
+            double bonus = 0.12 * Math.Log10(cells / 100.0);
+
+            Assert.That(bonus, Is.GreaterThan(0), "the fixture has to be over the pivot for this to test anything");
+            Assert.That(LyricDifficulty.Compute(map), Is.EqualTo(strainOnly + bonus).Within(1e-5));
+        }
+
+        /// <summary>
+        /// AND IT IS EXACTLY ZERO BELOW 100 CELLS, which is what the <c>max(0, .)</c> clamp is for
+        /// and is not a rounding claim: the raw term is NEGATIVE under the pivot, so without the
+        /// clamp every short fixture would LOSE stars (0.0122 at 90 cells, and 0.147 on the 6-cell
+        /// "cat cat" anchor above). Every synthetic-map regression constant in this repo and the
+        /// server's, the 0.79 anchor here and the 0.63s in LyricPaceStatisticsTest and the web's
+        /// PackageParserTest, is a short fixture, so the clamp is the reason they all rate
+        /// byte-identically across this change.
+        /// </summary>
+        [TestCase(3, 6, 1800, 90, 4.189181)] // under the pivot: the raw term is negative
+        [TestCase(4, 5, 2000, 100, 3.195837)] // AT the pivot: log10(1) is exactly 0
+        public void TheLengthBonusIsExactlyNothingAtOrBelowTheHundredCellPivot(int lineCount, int wordsPerLine, double lineMs, int cells, double strainOnly)
+        {
+            var map = buildMap(lineCount, wordsPerLine, lineMs);
+
+            double raw = 0.12 * Math.Log10(cells / 100.0);
+            double rated = LyricDifficulty.Compute(map);
+
+            TestContext.WriteLine($"{cells} cells -> {rated:0.000000} (raw term {raw:0.000000}, clamped away)");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(raw, Is.LessThanOrEqualTo(0), "the clamp cannot be tested where the raw term is positive");
+                // The expectation is the STRAIN rating alone, i.e. what the fixture rated before
+                // this term existed (verified by setting length_stars to 0 and re-running). Drop
+                // the clamp and the 90-cell case reads 4.183690 instead, which this catches.
+                Assert.That(rated, Is.EqualTo(strainOnly).Within(1e-5));
+            });
+        }
+
+        #endregion
 
         #region The Literate stream (backlog 144)
 

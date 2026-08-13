@@ -18,7 +18,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// pp = 9.6 · SR_eff^2.00
     ///      · max(0, 1 − miss^1.2/notes)^10                   cleanliness
     ///      · max(0, 1 − typos^1.2/(notes+typos))^4           typos
-    ///      · max(0.1, 1 + 0.50·log10(notes/100))             length, floored
     ///      · acc^1.80                                        timing quality
     ///      · (ln(1 + 9.0·maxcombo/notes)/ln(1 + 9.0))^2.50   combo
     ///      · modMult
@@ -102,10 +101,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <para>
     /// Typos deliberately do NOT enter <c>notes</c>, which stays the map's CELL count
     /// (<c>great + ok + meh + good + miss</c>, one entry per cell, where <c>good</c> is an
-    /// uncorrected typo). Letting keypresses inflate it would hand a masher a bigger LENGTH bonus
-    /// and a smaller COMBO denominator, paying for the mashing twice over. At zero typos the
-    /// typo term is exactly 1.0, so such a play is priced by
+    /// uncorrected typo). Letting keypresses inflate it would hand a masher a smaller COMBO
+    /// denominator and a bigger Flashlight bonus, paying for the mashing twice over. At zero typos
+    /// the typo term is exactly 1.0, so such a play is priced by
     /// <c>max(0, 1 − miss^1.6/notes)^10</c> alone.
+    /// </para>
+    ///
+    /// <para>
+    /// THERE IS NO LENGTH FACTOR HERE, AND ADDING ONE BACK WOULD DOUBLE COUNT (backlog 152).
+    /// Through v15 this file carried <c>max(0.1, 1 + 0.50·log10(notes/100))</c>, worth up to 1.70x,
+    /// while the star rating priced length barely at all. Length now lives entirely in
+    /// <see cref="Beatmaps.LyricDifficulty"/>, as an ADDITIVE <c>0.12·max(0, log10(cells/100))</c>
+    /// star bonus, so pp still sees a long map, but only as <c>((SR + bonus)/SR)^2.00</c>, a few
+    /// percent rather than up to 70. That deflates long-map plays hardest (roughly 18% at 340
+    /// cells, 28% at 800, 38% at 2300), which is the intended reordering: length stops buying pp it
+    /// no longer earns. <c>notes</c> itself stays, and is still load-bearing for both penalty
+    /// terms, the combo ratio and <see cref="FlashlightMultiplier"/>.
     /// </para>
     ///
     /// <para>
@@ -278,9 +289,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// top is precisely that double count. The SHAPE of the formula is untouched and no
         /// constant moves; every stored Literate row is repriced and nothing else is, which is what
         /// forces the bump.</item>
+        /// <item>v16 = the backlog-152 length migration: the length factor max(0.1, 1 +
+        /// 0.50*log10(notes/100)) is DELETED from this file and length is priced by LyricDifficulty
+        /// instead, as an additive 0.12*max(0, log10(cells/100)) star bonus. Two length terms would
+        /// double count, so pp keeps none: it now sees a long map only as ((SR +
+        /// bonus)/SR)^sr_exponent, a few percent where the old term paid up to 1.70x. Long-map
+        /// plays therefore deflate hardest (roughly 18% at 340 cells, 28% at 800, 38% at 2300),
+        /// which is the intended reordering; the uniform part of that deflation is to be taken out
+        /// by re-anchoring scale separately. notes stays, for both penalty terms, the combo ratio
+        /// and Flashlight.</item>
         /// </list>
         /// </summary>
-        public const int VERSION = 15;
+        public const int VERSION = 16;
 
         // ---- formula constants (docs/pp.md) ----
 
@@ -307,8 +327,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         private const double count_power = 1.2;
 
-        private const double length_weight = 0.50;
-        private const double length_floor = 0.1;
         private const double accuracy_exponent = 1.80;
         private const double combo_exponent = 2.50;
 
@@ -332,7 +350,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         private const double combo_log_shape = 9.0;
 
-        private const double reference_notes = 100.0;  // the log bonus' pivot: 100 notes is the 1.0 point
+        /// <summary>
+        /// The pivot of <see cref="FlashlightMultiplier"/>'s log bonus: 100 notes is where it is
+        /// worth exactly <c>1 + flashlight_offset</c>. It was shared with the length bonus until
+        /// backlog 152 deleted that; Flashlight owns it alone now, and it stays here rather than
+        /// moving into the mod block because it is a property of the note count, not of the mod.
+        /// </summary>
+        private const double reference_notes = 100.0;
 
         /// <summary>
         /// The flat cut a Half Time play takes when the mirror multiplier would be a BUFF, i.e. a
@@ -398,18 +422,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <c>["perfect", "great", "ok", "meh", "good", "miss"]</c> statistics keys.
         /// <see cref="HitResult.IgnoreHit"/> is deliberately absent: the line containers are
         /// ignore_hit judgements and counting them would inflate <c>notes</c> and dilute every
-        /// single factor (cleanliness, length, combo).
+        /// factor it appears in (cleanliness, typos, combo, Flashlight).
         ///
         /// <para><see cref="HitResult.Perfect"/> is kept AFTER backlog 147 took the fourth quality
         /// tier back out, and it is not dead weight: the four-tier judgement shipped, so rows
         /// submitted in that window carry a <c>perfect</c> key, and dropping it here would read
-        /// those rows as maps with almost no notes, inflating the length term and the combo ratio.
+        /// those rows as maps with almost no notes, hardening both penalty terms and inflating the
+        /// combo ratio.
         /// No client can produce one any more, so for every play made under the current rules the
         /// entry contributes exactly nothing.</para>
         ///
         /// <para><see cref="TypeBeatResultMapping.UNFIXED_TYPO"/> IS a note, and that is the pp half
         /// of backlog 124 and 126. It is one cell of the map, so leaving it out would shorten the
-        /// map pp thinks the player played, inflating the length term and the combo ratio. It is
+        /// map pp thinks the player played, hardening both penalty terms and inflating the combo
+        /// ratio. It is
         /// deliberately NOT <see cref="MISS_RESULT"/>: a miss is a character the player was too slow
         /// to finish at all, a typo is one they finished wrongly, and the typo term already
         /// prices the second. So the typo costs COMPLETION like a miss
@@ -780,19 +806,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 ? flashlight_floor
                 : Math.Max(flashlight_floor, 1 + flashlight_offset + flashlight_weight * Math.Log10(notes / reference_notes));
 
-        /// <summary>The length bonus, floored (see <see cref="length_floor"/>).</summary>
-        /// <remarks>
-        /// No play may ever compute to zero or negative pp from its LENGTH alone, which is what the
-        /// floor is for. At the current weight of 0.50 the raw term crosses zero at exactly 1 note
-        /// and the floor at about 1.585, so the clamp is close to vestigial and bites only on data
-        /// that describes no real map; at the old weight of 0.70 those two crossings sat at about
-        /// 3.73 and 5.18 notes. It stays because it is the guard, not because it currently fires.
-        /// </remarks>
-        public static double LengthBonus(int notes)
-            => notes <= 0
-                ? length_floor
-                : Math.Max(length_floor, 1 + length_weight * Math.Log10(notes / reference_notes));
-
         /// <summary>
         /// pp for one play. <paramref name="starRating"/> is the play's EFFECTIVE rating
         /// (<see cref="StarsFor"/>), <paramref name="accuracy"/> the standardised hit accuracy and
@@ -862,7 +875,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             double typoBase = Math.Max(0.0, 1.0 - Math.Pow(typos, count_power) / ((double)notes + typos));
             double typoPenalty = Math.Pow(typoBase, typo_exponent);
 
-            double length = LengthBonus(notes);
             double timing = Math.Pow(accuracy, accuracy_exponent);
             // The longest run as a fraction of the map, bent through a log before the exponent
             // reaches it (see combo_log_shape). NO CLAMP IS NEEDED HERE and none would bite:
@@ -874,7 +886,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             double comboBase = Math.Log(1.0 + combo_log_shape * comboRatio) / Math.Log(1.0 + combo_log_shape);
             double combo = Math.Pow(comboBase, combo_exponent);
 
-            double pp = scale * difficulty * cleanliness * typoPenalty * length * timing * combo * ModMultiplier(mods, notes) * rateMultiplier;
+            double pp = scale * difficulty * cleanliness * typoPenalty * timing * combo * ModMultiplier(mods, notes) * rateMultiplier;
 
             return double.IsFinite(pp) && pp > 0 ? pp : 0;
         }
