@@ -270,7 +270,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             if (lineDrawables.TryGetValue(judgement.LineIndex, out var line))
                 line.ApplyCharJudgement(judgement);
 
-            // Fletcher's rush cap breaks combo on a press that is still judged Perfect/Good/Ok, so the
+            // Fletcher's rush cap breaks combo on a press that is still judged Great/Ok/Meh, so the
             // hit result alone (a Great/Ok/Meh, which INCREMENTS osu's combo) cannot carry the break.
             // Mirror the engine's own combo by hand, after the result has been applied, exactly as
             // onMistyped does for a wrong keypress. Gated on the mod so the default path is untouched:

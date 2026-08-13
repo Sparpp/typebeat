@@ -23,12 +23,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// between the untyped grey and the full typed off-white according to how in sync the keypress
     /// that scored it was, so the trail behind the caret reads as brightness. The maths itself is
     /// pinned by <c>SyncTintTest</c>, which needs no font; what is pinned HERE is the wiring, that
-    /// the display actually reads the sync quality the engine banked at the cell's own window tier
-    /// and repaints with it, plus the two states that deliberately take no ramp.
+    /// the display actually reads the engine's judged delta at the cell's own window tier and repaints
+    /// with it, plus the two states that deliberately take no ramp.
     ///
     /// <para>Keys are fed straight to the engine at computed times rather than through the input
-    /// manager, because the whole point is a controlled offset and the real input path can only press
-    /// "now". The event chain under test (ProcessKey banks the quality, raises CharJudged, the stage
+    /// manager, because the whole point is a controlled delta and the real input path can only press
+    /// "now". The event chain under test (ProcessKey writes the delta, raises CharJudged, the stage
     /// repaints the cell) is entirely unchanged by that.</para>
     /// </summary>
     public partial class TestSceneTypeBeatSyncTint : OsuTestScene
@@ -52,23 +52,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         private static bool same(Color4 a, Color4 b) => ((ColourInfo)a).Equals((ColourInfo)b);
 
-        /// <summary>Milliseconds per character on the fixture line: its five cells are spread evenly
-        /// across a five-minute unit, so a character distance converts to a press time by this alone.</summary>
-        private const double spacing_ms = 300000.0 / 5;
-
         /// <summary>Feed one key into cell <paramref name="index"/> at a chosen offset from its target
-        /// time, so the CHARACTER DISTANCE the engine judges is exactly <paramref name="distance"/>
-        /// (negative = ahead of the playhead).</summary>
-        private void press(int index, char c, double distance)
-            => engine.ProcessKey(c, cell(index).TargetTime + distance * spacing_ms);
+        /// time, so the delta the engine judges is exactly <paramref name="delta"/>.</summary>
+        private void press(int index, char c, double delta) => engine.ProcessKey(c, cell(index).TargetTime + delta);
 
         /// <summary>A late offset worth exactly half sync quality at whatever tier the cell is judged
         /// at: q = 1 - OkLate/MehLate, and the two scale together, so this is 0.5 on every tier.</summary>
-        private double halfQualityLateDistance(int index) => SyncWindows.For(cell(index).JudgeGranularity).OkLate;
+        private double halfQualityLateDelta(int index) => SyncWindows.For(cell(index).JudgeGranularity).OkLate;
 
         /// <summary>Far enough past the Meh window that sync quality is pinned at 0: the case that
         /// would render as the untyped grey if the ramp had no floor.</summary>
-        private double hopelesslyLateDistance(int index) => SyncWindows.For(cell(index).JudgeGranularity).MehLate * 3;
+        private double hopelesslyLateDelta(int index) => SyncWindows.For(cell(index).JudgeGranularity).MehLate * 3;
 
         [SetUpSteps]
         public void SetUpSteps()
@@ -116,7 +110,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void TestTheTrailIsBrightWhereThePlayerWasInSync()
         {
             AddStep("type 'a' dead on", () => press(0, 'a', 0));
-            AddStep("type 'b' half a window late", () => press(1, 'b', halfQualityLateDistance(1)));
+            AddStep("type 'b' half a window late", () => press(1, 'b', halfQualityLateDelta(1)));
 
             AddUntilStep("both chars repainted", () => !same(colour(0), TypeBeatStyle.UntypedChar)
                                                       && !same(colour(1), TypeBeatStyle.UntypedChar));
@@ -139,12 +133,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void TestTheWorstCorrectCharStillReadsAsTyped()
         {
-            AddStep("type 'a' hopelessly late", () => press(0, 'a', hopelesslyLateDistance(0)));
+            AddStep("type 'a' hopelessly late", () => press(0, 'a', hopelesslyLateDelta(0)));
 
             AddUntilStep("char repainted", () => cell(0).State == CellState.Correct && !same(colour(0), TypeBeatStyle.UntypedChar));
 
             AddAssert("it judged Lagging, not a miss", () =>
-                SyncWindows.For(cell(0).JudgeGranularity).Classify(cell(0).JudgedOffset!.Value) == JudgementType.Lagging);
+                SyncWindows.For(cell(0).JudgeGranularity).Classify(cell(0).JudgedDelta!.Value) == JudgementType.Lagging);
 
             // The floor is the whole reason this test exists: quality is pinned at 0 here, so an
             // unfloored ramp would paint a char the player DID type in precisely the untyped grey.
@@ -163,7 +157,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             });
             AddAssert("caret reached the slot", () => engine.CaretIndex == slot);
 
-            AddStep("fill the slot hopelessly late", () => press(slot, 'x', hopelesslyLateDistance(slot)));
+            AddStep("fill the slot hopelessly late", () => press(slot, 'x', hopelesslyLateDelta(slot)));
 
             AddUntilStep("slot filled", () => cell(slot).State == CellState.Correct && display.CellText(slot) == "x");
 
@@ -173,7 +167,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             // ...and the exclusion is specific, not "nothing is tinted": the very next ORDINARY cell,
             // typed just as badly, does drop to the floor.
-            AddStep("type the next ordinary cell just as late", () => press(3, 'c', hopelesslyLateDistance(3)));
+            AddStep("type the next ordinary cell just as late", () => press(3, 'c', hopelesslyLateDelta(3)));
             AddUntilStep("it repainted", () => cell(3).State == CellState.Correct && !same(colour(3), TypeBeatStyle.UntypedChar));
             AddAssert("the ordinary cell took the ramp floor", () => same(colour(3), LyricLineDisplay.CorrectCharColour(0)));
             AddAssert("the slot did not follow it", () => same(colour(slot), TypeBeatStyle.FreestyleChar));
@@ -186,10 +180,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("painted bright", () => same(colour(0), TypeBeatStyle.TypedChar));
 
             AddStep("backspace", () => engine.ProcessBackspace());
-            AddAssert("cell state and judgement both cleared", () => cell(0).State == CellState.Untyped
-                                                                     && cell(0).JudgedDelta == null
-                                                                     && cell(0).JudgedOffset == null
-                                                                     && cell(0).JudgedSyncQuality == null);
+            AddAssert("cell state and delta both cleared", () => cell(0).State == CellState.Untyped && cell(0).JudgedDelta == null);
             AddUntilStep("char is untyped grey again", () => same(colour(0), TypeBeatStyle.UntypedChar));
         }
     }

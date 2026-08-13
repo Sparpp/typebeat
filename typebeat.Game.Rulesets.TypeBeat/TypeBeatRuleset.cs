@@ -92,7 +92,6 @@ namespace typebeat.Game.Rulesets.TypeBeat
                 new TypeBeatModNightcore(),
                 new TypeBeatModFlashlight(),
                 new TypeBeatModLiterate(),
-                new TypeBeatModRhythmic(),
             },
             ModType.Conversion => new Mod[]
             {
@@ -164,7 +163,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
         public override ScoreProcessor CreateScoreProcessor() => new TypeBeatScoreProcessor(this);
 
         /// <summary>
-        /// type!beat only ever awards Perfect/Great/Ok/Meh and the implicit Miss. Restricting the
+        /// type!beat only ever awards Great/Ok/Meh and the implicit Miss. Restricting the
         /// valid results keeps the base ruleset from surfacing spurious rows on the results card,
         /// notably the obsolete <see cref="HitResult.LegacyComboIncrease"/>, which the base "all
         /// enum values" default would otherwise emit at count 0.
@@ -182,7 +181,6 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// </summary>
         public override IEnumerable<HitResult> GetValidHitResults() => new[]
         {
-            HitResult.Perfect,
             HitResult.Great,
             HitResult.Ok,
             HitResult.Meh,

@@ -61,7 +61,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// Renders one <see cref="TypingLine"/> as per-cell <see cref="OsuSpriteText"/>s at the
     /// font's natural (proportional) advances; every glyph is measured individually, so the
     /// caret/sweep math never assumes a constant advance. Per-cell colouring, judgement
-    /// feedback (Perfect pop / Wrong shake), and the sung-position underline sweep. State is
+    /// feedback (Great pop / Wrong shake), and the sung-position underline sweep. State is
     /// read pull-based via <see cref="RefreshCell"/>; no engine reference is held.
     ///
     /// <para>A correctly typed char is tinted by how in sync its keypress was, on a ramp between the
@@ -442,7 +442,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// Floor of the grey-to-white ramp a CORRECT character is painted on: how far from
         /// <see cref="TypeBeatStyle.UntypedChar"/> towards <see cref="TypeBeatStyle.TypedChar"/> the
         /// very worst correct keypress still gets. It cannot be 0.
-        /// <see cref="SyncWindows.SyncQuality"/> returns exactly 0 at the widest window's edges and stays
+        /// <see cref="SyncWindows.SyncQuality"/> returns exactly 0 at the Meh-window edges and stays
         /// there beyond them, and a Premature/Lagging press still lands the cell
         /// <see cref="CellState.Correct"/>, so an unfloored ramp would paint a character the player
         /// DID type in precisely the untyped grey, making it indistinguishable from one they have not
@@ -509,27 +509,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // Tinted by how in sync the press was (see CorrectCharColour). Two properties of
                     // the delta this reads are load-bearing:
                     //
-                    // ORDERING: TypingEngine.ProcessKey writes JudgedSyncQuality BEFORE it raises
+                    // ORDERING: TypingEngine.ProcessKey writes JudgedDelta BEFORE it raises
                     // CharJudged, and LyricStage's handler for that event is what calls RefreshCell,
                     // so the delta is always present by the time the cell first repaints. Reversed,
                     // every char would paint at the floor colour on the frame it was typed.
                     //
-                    // ANTI-FARMING: JudgedSyncQuality on a Correct cell is always the quality of the
-                    // press that actually SCORED. A scoring-inert retype (backspace over a cell that
-                    // was ever correct) has the first correct judgement written back into it, so a
-                    // player cannot backspace-retype to brighten a char beyond what it earned.
+                    // ANTI-FARMING: JudgedDelta on a Correct cell is always the delta that actually
+                    // SCORED. A scoring-inert retype (backspace over a cell that was ever correct)
+                    // has the first correct delta written back into it, so a player cannot
+                    // backspace-retype to brighten a char beyond what it earned.
                     //
-                    // The quality is READ, not recomputed, since backlog 133. It is derived from the
-                    // cell's judged offset against the windows of the measure the play is judged in,
-                    // and this class deliberately holds no engine reference, so it cannot know that
-                    // measure; the engine banks the value at the judgement instead. The tint stays a
-                    // live preview of exactly the number the play is graded on, which is the whole
-                    // point of it (see CorrectCharColour).
-                    //
-                    // A Correct cell with no quality cannot arise from the engine; if one ever does,
+                    // A Correct cell with no delta cannot arise from the engine; if one ever does,
                     // fall back to the flat typed colour rather than to the dull floor.
-                    cell.Colour = source.JudgedSyncQuality is double quality
-                        ? CorrectCharColour(quality)
+                    cell.Colour = source.JudgedDelta is double delta
+                        ? CorrectCharColour(SyncWindows.For(source.JudgeGranularity).SyncQuality(delta))
                         : TypeBeatStyle.TypedChar;
                     cellStateAlpha[cellIndex] = 1f;
                     break;
@@ -600,7 +593,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             var cell = cells[i];
 
-            if (judgement.Type == JudgementType.Perfect)
+            if (judgement.Type == JudgementType.Great)
             {
                 cell.ScaleTo(1.25f).Then().ScaleTo(1f, 120, Easing.OutQuint);
             }

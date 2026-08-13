@@ -344,11 +344,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         // ---- mod multipliers (docs/pp.md) ----
 
         /// <summary>
-        /// Rhythmic (backlog 135): the play is judged on the millisecond ladder, so each character
-        /// has to be pressed at its own target time instead of near the character the playhead is
-        /// on. The two ladders coincide at a pace of 10 characters per second and the millisecond
-        /// one is the tighter pair everywhere below that, which is where lyrics sit, so the mod is
-        /// a real difficulty increase on essentially every map and is paid like one.
+        /// Rhythmic (backlog 135): the play was judged on the millisecond ladder rather than on the
+        /// character distance from the playhead, which was the tighter pair on any map slower than
+        /// 10 characters per second, so it was paid as the difficulty increase it was.
+        ///
+        /// <para>THE MOD IS GONE (backlog 147 made the millisecond ladder the default again and
+        /// removed it from the client), and this constant deliberately is not. RH shipped, so rows
+        /// carrying it exist, and pp is recomputed from a stored row's mods every time
+        /// <c>PpBackfill</c> or the recalc tool runs. Delete the constant and every one of those
+        /// rows silently reprices 10% down, and, worse on the server side, its
+        /// <c>ModMultiplier.TotalScoreCeiling</c> twin would put the row's own stored total above
+        /// its ceiling and store it UNRANKED. Pricing an acronym no client can send costs nothing:
+        /// no new play can reach this arm.</para>
         /// </summary>
         private const double rhythmic_multiplier = 1.10;
 
@@ -368,10 +375,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         /// <summary>
         /// The judgement results that count as a NOTE, i.e. the server's
-        /// <c>["great", "ok", "meh", "good", "miss"]</c> statistics keys.
+        /// <c>["perfect", "great", "ok", "meh", "good", "miss"]</c> statistics keys.
         /// <see cref="HitResult.IgnoreHit"/> is deliberately absent: the line containers are
         /// ignore_hit judgements and counting them would inflate <c>notes</c> and dilute every
         /// single factor (cleanliness, length, combo).
+        ///
+        /// <para><see cref="HitResult.Perfect"/> is kept AFTER backlog 147 took the fourth quality
+        /// tier back out, and it is not dead weight: the four-tier judgement shipped, so rows
+        /// submitted in that window carry a <c>perfect</c> key, and dropping it here would read
+        /// those rows as maps with almost no notes, inflating the length term and the combo ratio.
+        /// No client can produce one any more, so for every play made under the current rules the
+        /// entry contributes exactly nothing.</para>
         ///
         /// <para><see cref="TypeBeatResultMapping.UNFIXED_TYPO"/> IS a note, and that is the pp half
         /// of backlog 124 and 126. It is one cell of the map, so leaving it out would shorten the

@@ -207,7 +207,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             runTheMapOut();
 
             AddAssert("the run recovered the cell", () =>
-                liveStatistics.Single(kvp => kvp.Key == HitResult.Perfect).Value == 12
+                liveStatistics.Single(kvp => kvp.Key == HitResult.Great).Value == 12
                 && liveStatistics.Single(kvp => kvp.Key == HitResult.ComboBreak).Value == 1);
 
             compare();

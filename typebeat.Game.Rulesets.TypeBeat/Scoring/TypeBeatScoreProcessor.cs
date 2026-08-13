@@ -220,20 +220,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         /// <summary>
         /// The base score a result is worth, i.e. its ACCURACY weight and (for the maximum result)
-        /// its combo-portion weight. Exactly the base game's table but for two results:
-        ///
-        /// <list type="bullet">
-        /// <item><see cref="HitResult.Great"/>, re-weighted from 300 down to 200. Backlog 133 made
-        /// the cell's quality ladder FOUR tiers deep, and the four are worth 300 / 200 / 100 / 50, a
-        /// halving per tier exactly like the windows themselves. The base game's table gives Perfect
-        /// and Great the same 300 (Perfect is a tighter window that "does not give any bonus
-        /// accuracy or score"), which would have made the top two tiers accuracy-identical and the
-        /// tightest window worth nothing at all. Moving GREAT rather than Perfect is what keeps the
-        /// per-cell MAXIMUM at 300, so the accuracy denominator stays <c>300 * cells</c> and the
-        /// whole of the score, pp and rank pipeline is untouched by the extra tier.</item>
-        /// <item><see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>, re-weighted from 200 down to
-        /// <see cref="HitResult.Meh"/>'s 50.</item>
-        /// </list>
+        /// its combo-portion weight. Exactly the base game's table but for
+        /// <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>, which is re-weighted from 200 down to
+        /// <see cref="HitResult.Meh"/>'s 50.
         ///
         /// <para>The tier is a relabelling, not a grade: <see cref="HitResult.Good"/> was the one
         /// result a type!beat cell could legally take that nothing else was using (see
@@ -246,27 +235,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         ///
         /// <para>Mirrored by the server (<c>ScoringContract.BaseScore</c>), which recomputes
         /// accuracy from the same dictionaries, and by <c>typebeat-core.js</c>. The judgement's
-        /// MAXIMUM result is <see cref="HitResult.Perfect"/> and is worth 300, exactly what Great
-        /// was worth when it was the maximum, so the accuracy DENOMINATOR is untouched.</para>
+        /// MAXIMUM result is still Great, so the accuracy DENOMINATOR is untouched.</para>
         /// </summary>
         public override int GetBaseScoreForResult(HitResult result)
-        {
-            if (result == TypeBeatResultMapping.UNFIXED_TYPO)
-                return base.GetBaseScoreForResult(HitResult.Meh);
-
-            if (result == HitResult.Great)
-                return GREAT_BASE_SCORE;
-
-            return base.GetBaseScoreForResult(result);
-        }
-
-        /// <summary>
-        /// What the second quality tier is worth, against the top tier's 300 (see
-        /// <see cref="GetBaseScoreForResult"/>). Halfway down a 300 / 200 / 100 / 50 ladder, and
-        /// deliberately the base game's own <see cref="HitResult.Good"/> weight, so the four tiers
-        /// step through values the rest of the scoring pipeline was already built around.
-        /// </summary>
-        public const int GREAT_BASE_SCORE = 200;
+            => result == TypeBeatResultMapping.UNFIXED_TYPO
+                ? base.GetBaseScoreForResult(HitResult.Meh)
+                : base.GetBaseScoreForResult(result);
 
         protected override void Reset(bool storeResults)
         {
