@@ -76,6 +76,68 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     }
 
     /// <summary>
+    /// The rule deciding whether a space typed on a space cell is part of the TIMING challenge. Same
+    /// reason as <see cref="TypoRule"/> and <see cref="ComboRestoreRule"/>: a stored score has to be
+    /// re-derived under the rule it was PLAYED under. Live play is always <see cref="Untimed"/>.
+    ///
+    /// <para>This is the axis with the widest reach of the four, because every map has spaces: a row
+    /// judged under the wrong arm here differs on tier counts (a loosely hit space is Great under one
+    /// and Meh, Premature or Lagging under the other), on max_combo (only the timed arm can break a
+    /// streak on a space) and therefore on accuracy, rank and pp.</para>
+    /// </summary>
+    public enum SpaceTimingRule
+    {
+        /// <summary>
+        /// The rule since backlog 148, and the only one live play uses: the spacebar is outside the
+        /// timing challenge, so a space typed on a space cell is judged on a ZEROED delta. It takes
+        /// the top tier however loosely it was hit, never breaks combo, and stays out of the sync
+        /// timeline and the sync mean (the word gap is where a typist's hands reset, not a note to
+        /// hit). See <see cref="TypingEngine.ProcessKey"/>, which is where it is implemented.
+        /// </summary>
+        Untimed,
+
+        /// <summary>
+        /// The rule every score stored BEFORE backlog 148 was played under: a space was graded on its
+        /// real delta like any other character, so it could land in any tier, could break combo as a
+        /// Premature or a Lagging press, and counted in both sync readouts.
+        ///
+        /// <para>Only score RECALCULATION selects this. Nothing in gameplay may.</para>
+        /// </summary>
+        Timed,
+    }
+
+    /// <summary>
+    /// The rule deciding whether a rate-adjusting mod scales the judgement windows. Same reason as
+    /// the three above. Live play is always <see cref="ScaledByRate"/>, and the axis only reaches a
+    /// stored row that carries one of the rate mods (DT / NC / HT), unlike
+    /// <see cref="SpaceTimingRule"/>, which reaches every row there is.
+    ///
+    /// <para>Kept as its own rule rather than folded into <see cref="SpaceTimingRule"/> even though
+    /// backlog 148 and 150 ship together and no stored row can separate them: they are two
+    /// independent facts about how a press was graded, and the next change to either has no reason to
+    /// move the other. It is read by <see cref="TypeBeatReplayScorer"/> alone, which is the only
+    /// caller that can build an engine for a run it did not judge.</para>
+    /// </summary>
+    public enum RateWindowRule
+    {
+        /// <summary>
+        /// The rule since backlog 150, and the only one live play uses: the windows are multiplied by
+        /// the clock rate, so the tolerance in REAL time is the same at every rate. Double Time
+        /// therefore does not tighten the timing challenge and Half Time does not loosen it.
+        /// </summary>
+        ScaledByRate,
+
+        /// <summary>
+        /// The rule every score stored BEFORE backlog 150 was played under: the windows were fixed in
+        /// BEATMAP milliseconds whatever the rate, so a Double Time run had 1/1.5 of the real-time
+        /// tolerance an unmodded one had, and a Half Time run had 1/0.75 of it.
+        ///
+        /// <para>Only score RECALCULATION selects this. Nothing in gameplay may.</para>
+        /// </summary>
+        Unscaled,
+    }
+
+    /// <summary>
     /// The single source of truth for how the engine's judgement stream becomes the osu result
     /// stream a submitted score carries. <see cref="Objects.Drawables.DrawableTypeBeatHitObject"/>
     /// applies it live; <see cref="TypeBeatReplayScorer"/> applies the same mapping headlessly when
@@ -217,6 +279,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// then follow from the one decision, which is what stops the two drifting.</para>
         /// </summary>
         public static bool FixRestoresTheComboBreak(ComboRestoreRule rule) => rule == ComboRestoreRule.OnFix;
+
+        /// <summary>
+        /// Whether a space typed on a space cell is judged on a zeroed delta rather than on the clock
+        /// (backlog 148).
+        ///
+        /// <para>Read in exactly two places, both inside <see cref="TypingEngine"/> (the keypress
+        /// itself, and the sync readouts' cell filter), so the rule is IMPLEMENTED once and only
+        /// SELECTED twice: live play takes the engine's default and
+        /// <see cref="TypeBeatReplayScorer"/> sets the era's. That is the same shape
+        /// <see cref="FixRestoresTheComboBreak"/> has, and for the same reason.</para>
+        /// </summary>
+        public static bool SpacesAreUntimed(SpaceTimingRule rule) => rule == SpaceTimingRule.Untimed;
+
+        /// <summary>
+        /// Whether a rate-adjusting mod multiplies the judgement windows by its clock rate
+        /// (backlog 150). Read by <see cref="TypeBeatReplayScorer"/> only: live play applies the
+        /// scale in <c>DrawableTypeBeatRuleset.createEngine</c>, which has no era to express.
+        /// </summary>
+        public static bool RateScalesTheWindows(RateWindowRule rule) => rule == RateWindowRule.ScaledByRate;
 
         /// <summary>
         /// The result a cell takes when the LINE decides its fate instead of a keypress: the seal

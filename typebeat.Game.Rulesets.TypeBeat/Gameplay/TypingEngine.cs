@@ -63,6 +63,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public ComboRestoreRule ComboRestore { get; set; } = ComboRestoreRule.OnFix;
 
         /// <summary>
+        /// Whether the spacebar is inside the timing challenge (see <see cref="ProcessKey"/>).
+        /// <see cref="SpaceTimingRule.Untimed"/> is the live rule (backlog 148) and the default; only
+        /// <see cref="Scoring.TypeBeatReplayScorer"/> ever sets the other one, to re-derive a score
+        /// from before the exemption existed. It must be set BEFORE the first keypress and left alone
+        /// afterwards, exactly like <see cref="ComboRestore"/> and <see cref="WindowScale"/>:
+        /// judgements already made are never revisited.
+        ///
+        /// <para>Setting it recomputes the sync readouts' denominator
+        /// (<see cref="totalTimedCells"/>), which is the one piece of the rule that is decided per
+        /// BEATMAP rather than per keypress. Doing that here rather than in the constructor is what
+        /// lets the rule be selected after the engine is built, which is when a replay harness knows
+        /// which era it is judging.</para>
+        /// </summary>
+        public SpaceTimingRule SpaceTiming
+        {
+            get => spaceTiming;
+            set
+            {
+                spaceTiming = value;
+                countTimedCells();
+            }
+        }
+
+        /// <summary>
         /// The ladder for the BEATMAP's own granularity, at the current <see cref="WindowScale"/>.
         /// Individual cells may be judged at a wider tier than this (an estimated or low-confidence
         /// word falls back to Line), which is what <see cref="windowsFor"/> resolves.
@@ -520,8 +544,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <see cref="countableTargets"/>, whose length happens to equal it today: that array is the
         /// Fletcher rush cap's currency, and tying the sync readout to it would make one a silent
         /// constraint on the other.
+        ///
+        /// <para>Not readonly, because <see cref="SpaceTiming"/> decides which cells are in it and a
+        /// replay harness selects that after construction. It is still fixed before the first
+        /// keypress, like every other era switch.</para>
         /// </summary>
-        private readonly int totalTimedCells;
+        private int totalTimedCells;
 
         // --- Countable-character stream (Fletcher). The whole map read as one run of COUNTABLE
         // cells (typeable and not a space), which is the currency the rush cap measures in.
@@ -570,6 +598,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         private double windowScale = 1;
 
+        private SpaceTimingRule spaceTiming = SpaceTimingRule.Untimed;
+
         /// <summary>
         /// The ladder each granularity is judged at under the current <see cref="WindowScale"/>,
         /// indexed by <see cref="TimingGranularity"/>. Rebuilt when the scale is set, so a keypress
@@ -600,15 +630,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             lineSealed = new bool[lines.Count];
 
             foreach (var line in lines)
-            {
                 totalTypeableCells += line.TypeableCount;
 
-                foreach (var cell in line.Cells)
-                {
-                    if (isTimed(cell))
-                        totalTimedCells++;
-                }
-            }
+            countTimedCells();
 
             foreach (JudgementType type in Enum.GetValues<JudgementType>())
                 counts[type] = 0;
@@ -1107,7 +1131,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // a space cell nobody pressed is still a character of the map left untyped, and seals a
             // Miss alongside every other one (the seal loop in Update tests IsTypeable, which a
             // space cell is; only IsCountable excludes it).
-            bool untimedSpace = cell.Expected == ' ';
+            //
+            // Gated on SpaceTiming, the era switch, for the same reason ComboRestore is: a replay is
+            // re-judged from scratch, so a run stored before backlog 148 has to be graded with the
+            // spacebar back inside the timing challenge or its tier counts and its max_combo come
+            // back as a ladder it was never played on. Live play never selects the other arm.
+            bool untimedSpace = cell.Expected == ' ' && TypeBeatResultMapping.SpacesAreUntimed(spaceTiming);
 
             if (untimedSpace)
                 delta = 0;
@@ -1421,8 +1450,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// property is the Fletcher rush cap's currency ("how much budget does pressing this spend"),
         /// and one answering the other by coincidence is not a reason to make either the definition
         /// of the other.
+        ///
+        /// <para>Under <see cref="SpaceTimingRule.Timed"/> a space IS timed, because it was graded on
+        /// its real delta, so it belongs in both halves of the mean exactly as any other character
+        /// does. The exemption and the readout it feeds move together or the engine would report a
+        /// sync figure no client ever produced.</para>
         /// </summary>
-        private static bool isTimed(TypingCell cell) => cell.IsTypeable && cell.Expected != ' ';
+        private bool isTimed(TypingCell cell)
+            => cell.IsTypeable && (!TypeBeatResultMapping.SpacesAreUntimed(spaceTiming) || cell.Expected != ' ');
+
+        /// <summary>Recount <see cref="totalTimedCells"/> under the current <see cref="SpaceTiming"/>.</summary>
+        private void countTimedCells()
+        {
+            totalTimedCells = 0;
+
+            foreach (var line in lines)
+            {
+                foreach (var cell in line.Cells)
+                {
+                    if (isTimed(cell))
+                        totalTimedCells++;
+                }
+            }
+        }
 
         /// <summary>
         /// Erase the most recent typed cell within the active line, stepping back transparently

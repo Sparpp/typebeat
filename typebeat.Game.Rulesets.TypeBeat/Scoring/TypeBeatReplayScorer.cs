@@ -112,7 +112,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// under the live rule would hand it a max_combo its fingers never earned. Independent of
         /// <paramref name="rule"/>: a score from between backlog 109 and 140 is
         /// <see cref="TypoRule.Deferred"/> with <see cref="ComboRestoreRule.Never"/>.</param>
-        public static TypeBeatReplayAccount Score(IBeatmap playable, IReadOnlyList<Mod> mods, Replay replay, TypoRule rule, ComboRestoreRule comboRule)
+        /// <param name="spaceRule">Whether the spacebar is inside the timing challenge. Stored scores
+        /// predating backlog 148 were played under <see cref="SpaceTimingRule.Timed"/>. Defaults to
+        /// the LIVE rule, like <paramref name="rateRule"/>, so a caller that has not thought about
+        /// eras gets today's judgement rather than a silently different one.</param>
+        /// <param name="rateRule">Whether a rate mod scales the judgement windows. Stored scores
+        /// predating backlog 150 were played under <see cref="RateWindowRule.Unscaled"/>. Only
+        /// reaches a run that carries a rate mod, so it is the one era axis most rows are indifferent
+        /// to.</param>
+        public static TypeBeatReplayAccount Score(
+            IBeatmap playable,
+            IReadOnlyList<Mod> mods,
+            Replay replay,
+            TypoRule rule,
+            ComboRestoreRule comboRule,
+            SpaceTimingRule spaceRule = SpaceTimingRule.Untimed,
+            RateWindowRule rateRule = RateWindowRule.ScaledByRate)
         {
             ArgumentNullException.ThrowIfNull(playable);
             ArgumentNullException.ThrowIfNull(replay);
@@ -126,7 +141,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             for (int i = 0; i < lineObjects.Count; i++)
                 lineObjects[i].LineIndex = i;
 
-            var engine = createEngine(playable, lineObjects, mods);
+            var engine = createEngine(playable, lineObjects, mods, rateRule);
 
             // The combo-restore rule is IMPLEMENTED in the engine (TypeBeatResultMapping
             // .FixRestoresTheComboBreak is read there and nowhere else), so setting it here is the
@@ -134,6 +149,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // fires, and the handler below is dead. That is deliberately the same shape the mods
             // use, and it is why live play and this cannot restore differently.
             engine.ComboRestore = comboRule;
+
+            // Same shape again, and set before a single frame is fed: the space exemption is
+            // implemented inside ProcessKey, so selecting it here is the whole of that era gate.
+            // Backlog 148 is the widest of the four axes, because every map has spaces, and it is
+            // the one that decides whether a pre-148 row can be reproduced at all.
+            engine.SpaceTiming = spaceRule;
 
             var ruleset = new TypeBeatRuleset();
 
@@ -222,7 +243,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// or from any config: the replay's CONFIG frame carries what the run was judged under and
         /// overwrites both, which is the only thing that judges a pre-Gatekeeper strict run right.
         /// </summary>
-        private static TypingEngine createEngine(IBeatmap playable, IReadOnlyList<TypeBeatHitObject> lineObjects, IReadOnlyList<Mod> mods)
+        private static TypingEngine createEngine(IBeatmap playable, IReadOnlyList<TypeBeatHitObject> lineObjects, IReadOnlyList<Mod> mods, RateWindowRule rateRule)
         {
             TimingGranularity granularity = lineObjects.Count > 0 ? lineObjects[0].Granularity : TimingGranularity.Line;
 
@@ -248,6 +269,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // TypingEngine.WindowScale), so the three arms below compose in any order. A replay
             // carries KEYSTROKES and is re-judged from scratch, so missing any one of them would
             // re-grade a stored run on a ladder it was never played on.
+            //
+            // EASY AND HARD ROCK ARE NOT ERA-DEPENDENT, and deliberately have no switch. Both ship
+            // for the first time in this release (backlog 149 and 150), so no stored row can carry
+            // either acronym: there is no era in which their arms should be off, and adding a switch
+            // would be a dead one that a later reader would have to prove dead all over again.
             if (mods.Any(m => m is TypeBeatModEasy))
                 engine.WindowScale *= TypeBeatModEasy.WINDOW_SCALE;
 
@@ -261,10 +287,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // SpeedChange, never a hardcoded 1.50 / 0.75. Wind Up / Wind Down are deliberately not
             // here: a ramp's rate is a function of time, which one scale set before the first
             // keypress cannot express, and both are unranked at every configuration.
-            foreach (var mod in mods)
+            //
+            // Unlike the two above, this one DOES need an era switch: DT / NC / HT have been ranked
+            // mods for the whole life of the score table, so every stored rate row was judged on
+            // windows fixed in beatmap milliseconds. Under RateWindowRule.Unscaled the loop is
+            // skipped entirely, which is exactly what a pre-150 client did.
+            if (TypeBeatResultMapping.RateScalesTheWindows(rateRule))
             {
-                if (mod is ModRateAdjust rateAdjust)
-                    engine.WindowScale *= rateAdjust.SpeedChange.Value;
+                foreach (var mod in mods)
+                {
+                    if (mod is ModRateAdjust rateAdjust)
+                        engine.WindowScale *= rateAdjust.SpeedChange.Value;
+                }
             }
 
             if (mods.Any(m => m is TypeBeatModFletcher))
