@@ -82,6 +82,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
         {
             ModType.DifficultyReduction => new Mod[]
             {
+                new TypeBeatModEasy(),
                 new TypeBeatModNoFail(),
                 new TypeBeatModHalfTime(),
             },

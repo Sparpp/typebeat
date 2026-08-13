@@ -27,6 +27,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             : base(context)
         {
             // Difficulty reduction.
+            // Easy at osu's own 0.5x, the value No Fail below already carries: this fork keeps no
+            // copy of osu's per-ruleset table (the osu/taiko/catch/mania rulesets are not in it), so
+            // the 0.5 that lazer prices both DifficultyReduction mods at is read off NF, which was
+            // taken from that table when this class was written and is the only surviving witness
+            // to it here.
+            Single<TypeBeatModEasy>(hasMultiplier: 0.5);
             Single<TypeBeatModNoFail>(hasMultiplier: 0.5);
             Single<TypeBeatModHalfTime>(hasMultiplier: halfTime => TypeBeatRateMultiplier.For(halfTime.SpeedChange.Value));
 

@@ -359,6 +359,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         private const double rhythmic_multiplier = 1.10;
 
+        /// <summary>
+        /// Easy (backlog 149): the play was judged on DOUBLED windows, so every character was twice
+        /// as forgiving to land. Priced as the difficulty reduction it is, at a value the user chose
+        /// on 2026-08-13. Flat rather than routed through the star rating, unlike Literate: the mod
+        /// converts nothing (the cells, their target times and the map's pace are identical), it
+        /// only widens the tolerance around each target, which no rating input can see.
+        /// </summary>
+        private const double easy_multiplier = 0.75;
+
         private const double fletcher_multiplier = 0.90;
         private const double no_fail_multiplier = 0.90;
         private const double flashlight_offset = 0.02;
@@ -682,6 +691,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// multiplier stays score-side; mirroring that here would double-punish on top of the miss
         /// term.</para>
         ///
+        /// <para>Easy IS a flat term here (<see cref="easy_multiplier"/>), and that is not in tension
+        /// with the Literate rule below: doubling the judgement windows changes nothing the star
+        /// rating is computed from, so there is no converted map to price it through.</para>
+        ///
         /// <para>THERE IS NO LITERATE TERM HERE EITHER, and for exactly the reason there is no rate
         /// one (backlog 144). <see cref="Mods.TypeBeatModLiterate"/> is
         /// <see cref="IApplicableAfterBeatmapConversion"/>: it turns every punctuation mark into a
@@ -716,6 +729,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 {
                     case "FL":
                         multiplier *= FlashlightMultiplier(notes);
+                        break;
+
+                    case "EZ":
+                        multiplier *= easy_multiplier;
                         break;
 
                     case "RH":

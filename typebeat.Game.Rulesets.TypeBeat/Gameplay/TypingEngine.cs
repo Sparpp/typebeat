@@ -62,7 +62,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public ComboRestoreRule ComboRestore { get; set; } = ComboRestoreRule.OnFix;
 
-        public SyncWindows Windows { get; }
+        /// <summary>
+        /// The ladder for the BEATMAP's own granularity, at the current <see cref="WindowScale"/>.
+        /// Individual cells may be judged at a wider tier than this (an estimated or low-confidence
+        /// word falls back to Line), which is what <see cref="windowsFor"/> resolves.
+        /// </summary>
+        public SyncWindows Windows { get; private set; }
+
+        /// <summary>
+        /// A MULTIPLICATIVE scale on every judgement window this engine grades against, 1 by default
+        /// (the ladder exactly as <see cref="SyncWindows.For"/> hands it over). 2 doubles every
+        /// window, 0.5 halves it; the scale multiplies each granularity tier's bounds, so it widens
+        /// Line, Word and Syllable cells in the same proportion rather than flattening them.
+        ///
+        /// <para>DELIBERATELY NOT AN "EASY" FLAG. The Easy mod sets it to 2, but a mod that scales
+        /// the windows by the audio rate wants exactly the same lever, and the two must COMPOSE:
+        /// each such mod multiplies its own factor in (<c>WindowScale *= factor</c>) rather than
+        /// assigning, so the result does not depend on the order the mods are applied in.</para>
+        ///
+        /// <para>Set BEFORE the first keypress and left alone afterwards, like
+        /// <see cref="ComboRestore"/>: judgements already made are never revisited, and the two sync
+        /// readouts re-derive quality from stored deltas, so moving it mid-run would restate old
+        /// presses under a ladder they were never graded on. Both application sites do it while the
+        /// engine is being built (<c>DrawableTypeBeatRuleset.createEngine</c> for a live play,
+        /// <c>TypeBeatReplayScorer.createEngine</c> for a re-judged replay).</para>
+        /// </summary>
+        public double WindowScale
+        {
+            get => windowScale;
+            set
+            {
+                if (!double.IsFinite(value) || value <= 0)
+                    throw new ArgumentOutOfRangeException(nameof(value), value, "A judgement window scale must be finite and positive.");
+
+                windowScale = value;
+                applyWindowScale();
+            }
+        }
 
         /// <summary>-1 before the first line and after finish.</summary>
         public int ActiveLineIndex => activeLineIndex;
@@ -532,10 +568,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private (int lineIndex, int cellIndex, int streak)? restorable;
 
+        private double windowScale = 1;
+
+        /// <summary>
+        /// The ladder each granularity is judged at under the current <see cref="WindowScale"/>,
+        /// indexed by <see cref="TimingGranularity"/>. Rebuilt when the scale is set, so a keypress
+        /// costs one array read and no allocation whatever the scale is: at 1 the entries ARE
+        /// <see cref="SyncWindows.For"/>'s cached instances, and at any other scale there are three
+        /// scaled ones for this engine, never a global cache keyed by granularity and scale.
+        /// </summary>
+        private readonly SyncWindows[] windowsByGranularity = new SyncWindows[Enum.GetValues<TimingGranularity>().Length];
+
         public TypingEngine(LyricBeatmap beatmap, bool literate = false)
         {
             Beatmap = beatmap ?? throw new ArgumentNullException(nameof(beatmap));
+
+            // Assigned here as well as in applyWindowScale (which sets the same value at the default
+            // scale of 1) because definite assignment of a get-only-outside property cannot see
+            // through a helper call.
             Windows = SyncWindows.For(beatmap.Granularity);
+            applyWindowScale();
 
             Literate = literate;
             CaseSensitive = literate;
@@ -1331,8 +1383,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             LineActivated?.Invoke(activeLineIndex);
         }
 
-        /// <summary>Windows for a cell's judgement tier (Line for estimated/low-confidence timing).</summary>
-        private static SyncWindows windowsFor(TypingCell cell) => SyncWindows.For(cell.JudgeGranularity);
+        /// <summary>
+        /// Windows for a cell's judgement tier (Line for estimated/low-confidence timing), at this
+        /// engine's <see cref="WindowScale"/>. NOT static, which is the whole point of the scale: the
+        /// tier is a property of the CELL and the scale is a property of the ENGINE, so the four
+        /// sites that grade or measure a delta (both <see cref="SyncWindows.Classify"/> calls plus
+        /// the two <see cref="SyncWindows.SyncQuality"/> ones behind
+        /// <see cref="LiveSyncPercent"/> and <see cref="BuildResults"/>) all resolve it here and
+        /// none of them can quietly miss the scale. Scaling the sync readouts is correct rather than
+        /// incidental: a wider window really is easier to sit inside, and SyncPercent gates the
+        /// letter grade.
+        /// </summary>
+        private SyncWindows windowsFor(TypingCell cell)
+        {
+            int index = (int)cell.JudgeGranularity;
+
+            // Mirrors SyncWindows.For's default arm: an unrecognised granularity is judged at Line.
+            return (uint)index < (uint)windowsByGranularity.Length
+                ? windowsByGranularity[index]
+                : windowsByGranularity[(int)TimingGranularity.Line];
+        }
+
+        /// <summary>Rebuild the per-granularity ladders (and <see cref="Windows"/>) at the current scale.</summary>
+        private void applyWindowScale()
+        {
+            foreach (var granularity in Enum.GetValues<TimingGranularity>())
+                windowsByGranularity[(int)granularity] = SyncWindows.For(granularity).Scaled(windowScale);
+
+            Windows = SyncWindows.For(Beatmap.Granularity).Scaled(windowScale);
+        }
 
         /// <summary>
         /// Whether a cell's timing is part of the challenge, and so whether its delta means anything:
