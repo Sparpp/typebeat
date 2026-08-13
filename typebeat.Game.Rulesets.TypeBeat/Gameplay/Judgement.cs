@@ -118,6 +118,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// Classify a correct keypress's delta (keypress time - cell target time; negative = early).
         /// Nested asymmetric ranges, tested Great -&gt; Ok -&gt; Meh; outside Meh the sign decides
         /// Premature (too early) vs Lagging (too late).
+        ///
+        /// <para>A SPACE never arrives here with a real delta: backlog 148 took the spacebar out of
+        /// the timing challenge, so <see cref="TypingEngine.ProcessKey"/> zeroes the delta of a space
+        /// typed on a space cell before it is classified (and before it is stored for the sync
+        /// readouts). This ladder therefore only ever grades lyric characters, and the exemption is
+        /// the engine's rule rather than a window constant, so it is not tuned from here.</para>
         /// </summary>
         public JudgementType Classify(double delta)
         {
