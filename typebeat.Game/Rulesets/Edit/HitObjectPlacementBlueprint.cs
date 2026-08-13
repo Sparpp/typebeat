@@ -12,9 +12,9 @@ using typebeat.Game.Audio;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Beatmaps.ControlPoints;
 using typebeat.Game.Rulesets.Objects;
-using typebeat.Game.Rulesets.Objects.Types;
 using typebeat.Game.Screens.Edit;
 using typebeat.Game.Screens.Edit.Compose;
+using typebeat.Game.Screens.Edit.Compose.Components;
 using osuTK;
 
 namespace typebeat.Game.Rulesets.Edit
@@ -47,12 +47,12 @@ namespace typebeat.Game.Rulesets.Edit
 
         private Bindable<double> startTimeBindable = null!;
 
-        private HitObject? getPreviousHitObject() => beatmap.HitObjects.TakeWhile(h => h.StartTime <= startTimeBindable.Value).LastOrDefault();
-
         protected override bool IsValidForPlacement => HitObject.StartTime >= beatmap.ControlPointInfo.TimingPoints.FirstOrDefault()?.Time;
 
         [Resolved]
         private IPlacementHandler placementHandler { get; set; } = null!;
+
+        private PlacementStateManager placementStateManager = null!;
 
         /// <summary>
         /// Acceptable leniency to account for rounding errors and minor unsnaps that we generally
@@ -80,6 +80,8 @@ namespace typebeat.Game.Rulesets.Edit
         [BackgroundDependencyLoader]
         private void load()
         {
+            AddInternal(placementStateManager = new PlacementStateManager(HitObject));
+
             startTimeBindable = HitObject.StartTimeBindable.GetBoundCopy();
             startTimeBindable.BindValueChanged(_ => ApplyDefaultsToHitObject(), true);
         }
@@ -119,45 +121,9 @@ namespace typebeat.Game.Rulesets.Edit
         public override SnapResult UpdateTimeAndPosition(Vector2 screenSpacePosition, double time)
         {
             if (PlacementActive == PlacementState.Waiting)
-            {
                 HitObject.StartTime = time;
 
-                if (HitObject is IHasComboInformation comboInformation)
-                    comboInformation.UpdateComboInformation(getPreviousHitObject() as IHasComboInformation);
-            }
-
-            var lastHitObject = getPreviousHitObject();
-            var lastHitNormal = lastHitObject?.Samples?.FirstOrDefault(o => o.Name == HitSampleInfo.HIT_NORMAL);
-
-            if (lastHitNormal != null && AutomaticBankAssignment)
-                // Inherit the bank from the previous hit object
-                HitObject.Samples = HitObject.Samples.Select(s => s.Name == HitSampleInfo.HIT_NORMAL ? s.With(newBank: lastHitNormal.Bank, newEditorAutoBank: true) : s).ToList();
-            else
-                HitObject.Samples = HitObject.Samples.Select(s => s.Name == HitSampleInfo.HIT_NORMAL ? s.With(newEditorAutoBank: false) : s).ToList();
-
-            if (lastHitNormal != null)
-            {
-                // Inherit the volume and sample set info from the previous hit object
-                HitObject.Samples = HitObject.Samples.Select(s => s.With(
-                    newVolume: lastHitNormal.Volume,
-                    newSuffix: lastHitNormal.Suffix,
-                    newUseBeatmapSamples: lastHitNormal.UseBeatmapSamples)).ToList();
-            }
-
-            if (AutomaticAdditionBankAssignment)
-            {
-                string bank = HitObject.Samples.FirstOrDefault(s => s.Name == HitSampleInfo.HIT_NORMAL)?.Bank ?? HitSampleInfo.BANK_SOFT;
-                HitObject.Samples = HitObject.Samples.Select(s => s.Name != HitSampleInfo.HIT_NORMAL ? s.With(newBank: bank, newEditorAutoBank: true) : s).ToList();
-            }
-            else
-                HitObject.Samples = HitObject.Samples.Select(s => s.Name != HitSampleInfo.HIT_NORMAL ? s.With(newEditorAutoBank: false) : s).ToList();
-
-            if (HitObject is IHasRepeats hasRepeats)
-            {
-                // Make sure all the node samples are identical to the hit object's samples
-                for (int i = 0; i < hasRepeats.NodeSamples.Count; i++)
-                    hasRepeats.NodeSamples[i] = HitObject.Samples.Select(o => o.With()).ToList();
-            }
+            placementStateManager.CopyStateFromPreviousObject();
 
             return new SnapResult(screenSpacePosition, time);
         }
