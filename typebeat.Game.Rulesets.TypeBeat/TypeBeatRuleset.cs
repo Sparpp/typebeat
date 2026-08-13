@@ -88,6 +88,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
             },
             ModType.DifficultyIncrease => new Mod[]
             {
+                new TypeBeatModHardRock(),
                 new TypeBeatModSuddenDeath(),
                 new TypeBeatModDoubleTime(),
                 new TypeBeatModNightcore(),

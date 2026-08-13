@@ -244,11 +244,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             var engine = new TypingEngine(lyricBeatmap, literate);
 
-            // Multiplied in, never assigned, so this stays right when a second window-scaling mod
-            // exists (see TypingEngine.WindowScale). A replay carries KEYSTROKES and is re-judged
-            // from scratch, so missing this would re-grade an Easy run on unscaled windows.
+            // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
+            // TypingEngine.WindowScale), so the three arms below compose in any order. A replay
+            // carries KEYSTROKES and is re-judged from scratch, so missing any one of them would
+            // re-grade a stored run on a ladder it was never played on.
             if (mods.Any(m => m is TypeBeatModEasy))
                 engine.WindowScale *= TypeBeatModEasy.WINDOW_SCALE;
+
+            if (mods.Any(m => m is TypeBeatModHardRock))
+                engine.WindowScale *= TypeBeatModHardRock.WINDOW_SCALE;
+
+            // The rate mods scale the windows by the CLOCK RATE so the real-time tolerance is
+            // constant (backlog 150). Matched on ModRateAdjust, the base the ruleset's three rate
+            // mods share and the same set that carries the live ApplyToDrawableRuleset seam
+            // (pinned by TypeBeatRateModTest); the rate is read off the mod's own user-adjustable
+            // SpeedChange, never a hardcoded 1.50 / 0.75. Wind Up / Wind Down are deliberately not
+            // here: a ramp's rate is a function of time, which one scale set before the first
+            // keypress cannot express, and both are unranked at every configuration.
+            foreach (var mod in mods)
+            {
+                if (mod is ModRateAdjust rateAdjust)
+                    engine.WindowScale *= rateAdjust.SpeedChange.Value;
+            }
 
             if (mods.Any(m => m is TypeBeatModFletcher))
                 engine.FletcherEnabled = true;
