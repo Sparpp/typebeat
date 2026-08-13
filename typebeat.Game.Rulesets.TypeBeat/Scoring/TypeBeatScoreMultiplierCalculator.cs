@@ -37,6 +37,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             Single<TypeBeatModHalfTime>(hasMultiplier: halfTime => TypeBeatRateMultiplier.For(halfTime.SpeedChange.Value));
 
             // Difficulty increase.
+            // Hard Rock at 1.10x, and the value is NOT read off osu: this fork keeps no copy of
+            // lazer's per-mod table (see the Easy note above), and the one surviving witness there
+            // to what THIS game pays for a tighter judgement ladder is the retired Rhythmic mod,
+            // which tightened the same windows and was priced at 1.10 (backlog 135). Rhythmic is
+            // gone from the client but its 1.10 is still carried for stored rows by the server's
+            // ModMultiplier and by PerformancePoints, so the number is checkable rather than
+            // invented. Hard Rock is the harsher mod of the two, which argues for MORE, and the
+            // headroom argues back: the fattest reachable ranked stack becomes
+            // DT@2.00 (1.46) x FL (1.05) x LT (1.05) x HR (1.10) = 1.770615, against the server's
+            // absolute STACK_CAP of 2.0. At the mod's pp value of 1.25 that product is 2.0121, over
+            // the cap, so an honest maximal stack would be clamped and stored UNRANKED. The score
+            // multiplier and the pp multiplier are separate numbers (as they are for Easy and No
+            // Fail), and this is the one with a ceiling to respect.
+            Single<TypeBeatModHardRock>(hasMultiplier: 1.10);
             // Sudden Death (1.0x), Gatekeeper (1.0x): both deliberately absent. Gatekeeper swaps one
             // wrong-key model for another rather than adding a handicap on top of the same model,
             // and the two already cost differently in accuracy vs completion, so it is ranked and

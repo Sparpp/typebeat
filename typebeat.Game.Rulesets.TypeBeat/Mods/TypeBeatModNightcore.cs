@@ -5,6 +5,9 @@ using System;
 using System.Collections.Generic;
 using osu.Framework.Localisation;
 using typebeat.Game.Rulesets.Mods;
+using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Rulesets.TypeBeat.UI;
+using typebeat.Game.Rulesets.UI;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
@@ -15,10 +18,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     ///
     /// <para>
     /// Ranked at every speed and paid on the same curve as <see cref="TypeBeatModDoubleTime"/>: the
-    /// two mods differ only in what happens to the pitch, which is not a difficulty lever.
+    /// two mods differ only in what happens to the pitch, which is not a difficulty lever. The
+    /// judgement windows are scaled by the rate here too, for the same reason and by the same seam.
     /// </para>
     /// </summary>
-    public class TypeBeatModNightcore : ModNightcore
+    public class TypeBeatModNightcore : ModNightcore, IApplicableToDrawableRuleset<TypeBeatHitObject>
     {
         public override bool Ranked => true;
 
@@ -32,5 +36,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
         /// <summary>See <see cref="TypeBeatModDoubleTime.AlwaysSerializeSetting"/>.</summary>
         public override bool AlwaysSerializeSetting(string propertyName) => propertyName == nameof(SpeedChange);
+
+        /// <summary>See <see cref="TypeBeatModDoubleTime.ApplyToDrawableRuleset"/>.</summary>
+        public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset) =>
+            ((DrawableTypeBeatRuleset)drawableRuleset).Engine.WindowScale *= SpeedChange.Value;
     }
 }

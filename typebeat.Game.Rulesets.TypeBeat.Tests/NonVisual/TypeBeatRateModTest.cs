@@ -4,13 +4,20 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Newtonsoft.Json;
 using NUnit.Framework;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Beatmaps.ControlPoints;
 using typebeat.Game.Online.API;
+using typebeat.Game.Replays;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Scoring;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Mods;
+using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Scoring;
 using typebeat.Game.Scoring.Legacy;
@@ -224,9 +231,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 new TypeBeatModDoubleTime { SpeedChange = { Value = 2.0 } },
                 new TypeBeatModFlashlight(),
                 new TypeBeatModLiterate(),
+                // Hard Rock (backlog 150) is the newest entry to RAISE this product, and the reason
+                // its score multiplier is 1.10 rather than its 1.25 pp value: at 1.25 the stack
+                // below is 2.0121, over the ceiling asserted here.
+                new TypeBeatModHardRock(),
             });
 
-            Assert.AreEqual(1.46 * 1.05 * 1.05, stacked, 1e-9);
+            Assert.AreEqual(1.46 * 1.05 * 1.05 * 1.10, stacked, 1e-9);
 
             // The server bounds a submitted total by TotalScoreWithoutMods * 2.0. The richest legal
             // ranked stack must stay under that or honest maximum-rate plays get clamped.
@@ -246,6 +257,139 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // ...and they are still unranked, so none of this reaches a leaderboard.
             Assert.IsFalse(new ModWindUp().Ranked);
             Assert.IsFalse(new ModWindDown().Ranked);
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // Judgement windows scale with the rate (backlog 150), so the real-time tolerance around a
+        // character is the same at every speed and the mod's difficulty is purely its pace.
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// A three-cell line "abc" over [0, 12000], so the cells target 0, 4000 and 8000, struck
+        /// <paramref name="pressOffset"/> ms late apiece. Replay frames are MAP time and are fed
+        /// unshifted, which is exactly the point: the same deltas are graded against a ladder the
+        /// mods have scaled.
+        /// </summary>
+        private static TypeBeatReplayAccount scoreThreeLatePresses(double pressOffset, params Mod[] mods)
+        {
+            var line = new LyricLine
+            {
+                RawText = "abc",
+                StartTime = 0,
+                EndTime = 20000,
+                SingEndTime = 12000,
+                Units = new[] { new TimedUnit { Text = "abc", StartTime = 0, EndTime = 12000 } },
+            };
+
+            var map = new TypeBeatBeatmap();
+            map.HitObjects.Add(new TypeBeatHitObject { StartTime = 0, LineIndex = 0, Line = line, Granularity = TimingGranularity.Line });
+
+            foreach (var hitObject in map.HitObjects)
+                hitObject.ApplyDefaults(new ControlPointInfo(), new BeatmapDifficulty(), CancellationToken.None);
+
+            var replay = new Replay();
+            replay.Frames.Add(TypeBeatReplayFrame.CreateConfigFrame(0, true));
+
+            for (int i = 0; i < 3; i++)
+                replay.Frames.Add(new TypeBeatReplayFrame(i * 4000 + pressOffset, "abc"[i]));
+
+            return TypeBeatReplayScorer.Score(map, mods, replay, TypoRule.Deferred, ComboRestoreRule.OnFix);
+        }
+
+        /// <summary>
+        /// The live seam and the replay seam must cover the SAME set of mods. The replay scorer
+        /// matches on <see cref="ModRateAdjust"/>, so every rate mod the ruleset offers has to carry
+        /// <see cref="IApplicableToDrawableRuleset{T}"/>, or a live play and its own replay would be
+        /// judged on different ladders. The ramps are outside both on purpose: a ramp's rate is a
+        /// function of time, which one scale set before the first keypress cannot express.
+        /// </summary>
+        [Test]
+        public void EveryRateModCarriesTheLiveWindowScaleSeam()
+        {
+            var rateMods = new TypeBeatRuleset().AllMods.OfType<ModRateAdjust>().ToList();
+
+            Assert.AreEqual(3, rateMods.Count, "Double Time, Nightcore and Half Time");
+
+            foreach (var mod in rateMods)
+            {
+                Assert.IsInstanceOf<IApplicableToDrawableRuleset<TypeBeatHitObject>>(mod,
+                    $"{mod.Acronym} would scale a replay's windows but not a live play's");
+            }
+
+            Assert.IsNotInstanceOf<ModRateAdjust>(new ModWindUp());
+            Assert.IsNotInstanceOf<ModRateAdjust>(new ModWindDown());
+        }
+
+        /// <summary>
+        /// The engine works in MAP time and holds no rate, so a fixed map-time window elapses in
+        /// 1/rate of the real time it used to: before this, speeding the track up TIGHTENED the
+        /// windows and slowing it down LOOSENED them, on top of the rate change itself. Scaling the
+        /// ladder by the rate cancels that exactly. Three presses 500 ms late are an Ok apiece
+        /// unmodded (GreatLate 400, OkLate 1000); at 1.50x the Great window reaches 600 and pays all
+        /// three, and three presses 800 ms late fall from Ok to Meh at 0.75x (OkLate 750).
+        /// </summary>
+        [Test]
+        public void RateScalesTheWindowsSoTheRealTimeToleranceIsConstant()
+        {
+            var plain = scoreThreeLatePresses(500);
+            var doubleTime = scoreThreeLatePresses(500, new TypeBeatModDoubleTime());
+            var nightcore = scoreThreeLatePresses(500, new TypeBeatModNightcore());
+
+            Assert.AreEqual(3, plain.Statistics.GetValueOrDefault(HitResult.Ok));
+            Assert.AreEqual(0, plain.Statistics.GetValueOrDefault(HitResult.Great));
+
+            Assert.AreEqual(3, doubleTime.Statistics.GetValueOrDefault(HitResult.Great));
+            Assert.AreEqual(0, doubleTime.Statistics.GetValueOrDefault(HitResult.Ok));
+
+            // Nightcore differs from Double Time only in pitch, which is not a difficulty lever.
+            Assert.AreEqual(3, nightcore.Statistics.GetValueOrDefault(HitResult.Great));
+
+            var plainLater = scoreThreeLatePresses(800);
+            var halfTime = scoreThreeLatePresses(800, new TypeBeatModHalfTime());
+
+            Assert.AreEqual(3, plainLater.Statistics.GetValueOrDefault(HitResult.Ok));
+            Assert.AreEqual(3, halfTime.Statistics.GetValueOrDefault(HitResult.Meh));
+            Assert.AreEqual(0, halfTime.Statistics.GetValueOrDefault(HitResult.Ok));
+        }
+
+        /// <summary>
+        /// The factor is the mod's own SpeedChange, not the 1.50x default: the slider is ranked
+        /// across its whole range, so a play at 1.80x is judged on 1.80x windows. Presses 700 ms
+        /// late are an Ok at 1.50x (GreatLate 600) and a Great at 1.80x (720).
+        /// </summary>
+        [Test]
+        public void TheWindowScaleIsReadOffTheUserAdjustableSlider()
+        {
+            var atDefault = scoreThreeLatePresses(700, new TypeBeatModDoubleTime());
+            var faster = scoreThreeLatePresses(700, new TypeBeatModDoubleTime { SpeedChange = { Value = 1.80 } });
+
+            Assert.AreEqual(3, atDefault.Statistics.GetValueOrDefault(HitResult.Ok));
+            Assert.AreEqual(3, faster.Statistics.GetValueOrDefault(HitResult.Great));
+        }
+
+        /// <summary>
+        /// Every window-scaling mod multiplies its factor in, so a rate and Easy compose:
+        /// 0.75x x 2 is the same 1.5x ladder Double Time's default produces on its own, and Hard
+        /// Rock's 0.5 puts a 1.50x play back on the unscaled one.
+        /// </summary>
+        [Test]
+        public void RateComposesWithTheOtherWindowScalingMods()
+        {
+            var halfTimeEasy = scoreThreeLatePresses(500, new TypeBeatModHalfTime(), new TypeBeatModEasy());
+            var doubleTime = scoreThreeLatePresses(500, new TypeBeatModDoubleTime());
+
+            Assert.AreEqual(3, halfTimeEasy.Statistics.GetValueOrDefault(HitResult.Great));
+            Assert.AreEqual(doubleTime.Statistics.GetValueOrDefault(HitResult.Great),
+                halfTimeEasy.Statistics.GetValueOrDefault(HitResult.Great),
+                "0.75 x 2 and 1.50 are the same ladder");
+
+            var plain = scoreThreeLatePresses(500);
+            var doubleTimeHardRock = scoreThreeLatePresses(500, new TypeBeatModDoubleTime(), new TypeBeatModHardRock());
+
+            Assert.AreEqual(plain.Statistics.GetValueOrDefault(HitResult.Ok),
+                doubleTimeHardRock.Statistics.GetValueOrDefault(HitResult.Ok),
+                "1.50 x 0.5 lands back on the unscaled ladder");
+            Assert.AreEqual(3, doubleTimeHardRock.Statistics.GetValueOrDefault(HitResult.Ok));
         }
 
         // -----------------------------------------------------------------------------------------

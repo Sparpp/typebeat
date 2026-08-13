@@ -320,10 +320,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// osu's <see cref="ModEasy"/> declares <see cref="ModHardRock"/> and
-        /// <see cref="ModDifficultyAdjust"/> incompatible; neither has a type!beat implementation,
-        /// so the list is decided against the mods this ruleset actually offers. Nothing it offers
-        /// conflicts with a wider window, and the Hard Rock entry is a deliberate inert seam for the
-        /// mod that tightens the same windows.
+        /// <see cref="ModDifficultyAdjust"/> incompatible; the second has no type!beat
+        /// implementation and can never have one, so the list is decided against the mods this
+        /// ruleset actually offers. Nothing it offers conflicts with a wider window EXCEPT Hard
+        /// Rock, which backlog 150 gave the ruleset: the entry 149 left here as an inert seam is
+        /// now live, and the exclusion fires from both sides without this file being reopened for
+        /// anything but its test.
         /// </summary>
         [Test]
         public void ComposesWithEveryModTheRulesetActuallyOffers()
@@ -333,7 +335,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual(new[] { typeof(ModHardRock) }, easy.IncompatibleMods);
 
-            foreach (var other in ruleset.AllMods.OfType<Mod>().Where(m => m is not TypeBeatModEasy))
+            // The one real exclusion, stated from both ends: the two scale the same windows in
+            // opposite directions, so a stack holding both would be a no-op ladder priced as two
+            // difficulty adjustments.
+            Assert.IsFalse(ModUtils.CheckCompatibleSet(new Mod[] { new TypeBeatModEasy(), new TypeBeatModHardRock() }));
+
+            foreach (var other in ruleset.AllMods.OfType<Mod>().Where(m => m is not TypeBeatModEasy and not TypeBeatModHardRock))
             {
                 // Autoplay-style mods are exclusive of each other, not of Easy, so test the pair.
                 Assert.IsFalse(easy.IncompatibleMods.Any(t => t.IsInstanceOfType(other)),
