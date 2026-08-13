@@ -129,32 +129,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void WindowBoundariesClassifyExactly()
         {
             // Windows are CHARACTER DISTANCES since backlog 133 (negative = the press is AHEAD of
-            // the playhead). Line granularity, scale 1.0:
-            //   Perfect [-1.25, +2.00]  Great [-2.50, +4.00]  Ok [-5.00, +8.00]  Meh [-10.00, +16.00]
+            // the playhead), and backlog 146 moved every band up one. Line granularity, scale 1.0:
+            //   Perfect [-2.50, +4.00]  Great [-5.00, +8.00]  Ok [-10.00, +16.00]  Meh [-20.00, +32.00]
             // Every tier is exactly 1.6x late-biased and exactly double the tier inside it.
             var w = SyncWindows.For(TimingGranularity.Line);
 
-            Assert.AreEqual(JudgementType.Great, w.Classify(-1.26));     // just outside PerfectEarly
-            Assert.AreEqual(JudgementType.Perfect, w.Classify(-1.25));   // edge inclusive
-            Assert.AreEqual(JudgementType.Perfect, w.Classify(-1.24));
-            Assert.AreEqual(JudgementType.Perfect, w.Classify(1.99));
-            Assert.AreEqual(JudgementType.Perfect, w.Classify(2.00));    // edge inclusive
-            Assert.AreEqual(JudgementType.Great, w.Classify(2.01));
-            Assert.AreEqual(JudgementType.Ok, w.Classify(-2.51));        // just outside GreatEarly
-            Assert.AreEqual(JudgementType.Great, w.Classify(-2.50));     // edge inclusive
-            Assert.AreEqual(JudgementType.Great, w.Classify(3.99));
-            Assert.AreEqual(JudgementType.Great, w.Classify(4.00));      // edge inclusive
-            Assert.AreEqual(JudgementType.Ok, w.Classify(4.01));
-            Assert.AreEqual(JudgementType.Meh, w.Classify(-5.01));       // just outside OkEarly
-            Assert.AreEqual(JudgementType.Ok, w.Classify(-5.00));        // edge inclusive
-            Assert.AreEqual(JudgementType.Ok, w.Classify(7.99));
-            Assert.AreEqual(JudgementType.Ok, w.Classify(8.00));         // edge inclusive
-            Assert.AreEqual(JudgementType.Meh, w.Classify(8.01));
-            Assert.AreEqual(JudgementType.Premature, w.Classify(-10.01)); // outside MehEarly: no tier left
-            Assert.AreEqual(JudgementType.Meh, w.Classify(-10.00));      // edge inclusive
-            Assert.AreEqual(JudgementType.Meh, w.Classify(15.99));
-            Assert.AreEqual(JudgementType.Meh, w.Classify(16.00));       // edge inclusive
-            Assert.AreEqual(JudgementType.Lagging, w.Classify(16.01));
+            Assert.AreEqual(JudgementType.Great, w.Classify(-2.51));     // just outside PerfectEarly
+            Assert.AreEqual(JudgementType.Perfect, w.Classify(-2.50));   // edge inclusive
+            Assert.AreEqual(JudgementType.Perfect, w.Classify(-2.49));
+            Assert.AreEqual(JudgementType.Perfect, w.Classify(3.99));
+            Assert.AreEqual(JudgementType.Perfect, w.Classify(4.00));    // edge inclusive
+            Assert.AreEqual(JudgementType.Great, w.Classify(4.01));
+            Assert.AreEqual(JudgementType.Ok, w.Classify(-5.01));        // just outside GreatEarly
+            Assert.AreEqual(JudgementType.Great, w.Classify(-5.00));     // edge inclusive
+            Assert.AreEqual(JudgementType.Great, w.Classify(7.99));
+            Assert.AreEqual(JudgementType.Great, w.Classify(8.00));      // edge inclusive
+            Assert.AreEqual(JudgementType.Ok, w.Classify(8.01));
+            Assert.AreEqual(JudgementType.Meh, w.Classify(-10.01));      // just outside OkEarly
+            Assert.AreEqual(JudgementType.Ok, w.Classify(-10.00));       // edge inclusive
+            Assert.AreEqual(JudgementType.Ok, w.Classify(15.99));
+            Assert.AreEqual(JudgementType.Ok, w.Classify(16.00));        // edge inclusive
+            Assert.AreEqual(JudgementType.Meh, w.Classify(16.01));
+            Assert.AreEqual(JudgementType.Premature, w.Classify(-20.01)); // outside MehEarly: no tier left
+            Assert.AreEqual(JudgementType.Meh, w.Classify(-20.00));      // edge inclusive
+            Assert.AreEqual(JudgementType.Meh, w.Classify(31.99));
+            Assert.AreEqual(JudgementType.Meh, w.Classify(32.00));       // edge inclusive
+            Assert.AreEqual(JudgementType.Lagging, w.Classify(32.01));
 
             // The ladder's shape, asserted rather than only described: 1.6x late-biased, doubling
             // outwards. That is what any retune has to preserve.
@@ -170,20 +170,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var ww = SyncWindows.For(TimingGranularity.Word);
 
             Assert.AreEqual(0.6, ww.Scale);
-            Assert.AreEqual(JudgementType.Great, ww.Classify(-0.76));    // PerfectEarly = 1.25*0.6 = 0.75
-            Assert.AreEqual(JudgementType.Perfect, ww.Classify(-0.75));
-            Assert.AreEqual(JudgementType.Perfect, ww.Classify(1.19));   // PerfectLate = 2.00*0.6 = 1.20
-            Assert.AreEqual(JudgementType.Perfect, ww.Classify(1.20));
-            Assert.AreEqual(JudgementType.Great, ww.Classify(1.21));
-            Assert.AreEqual(JudgementType.Ok, ww.Classify(-1.51));       // GreatEarly = 2.50*0.6 = 1.50
-            Assert.AreEqual(JudgementType.Great, ww.Classify(2.40));     // GreatLate = 4.00*0.6 = 2.40
-            Assert.AreEqual(JudgementType.Ok, ww.Classify(2.41));
-            Assert.AreEqual(JudgementType.Meh, ww.Classify(-3.01));      // OkEarly = 5.00*0.6 = 3.00
-            Assert.AreEqual(JudgementType.Ok, ww.Classify(4.80));        // OkLate = 8.00*0.6 = 4.80
-            Assert.AreEqual(JudgementType.Meh, ww.Classify(4.81));
-            Assert.AreEqual(JudgementType.Premature, ww.Classify(-6.01)); // MehEarly = 10.00*0.6 = 6.00
-            Assert.AreEqual(JudgementType.Meh, ww.Classify(9.60));       // MehLate = 16.00*0.6 = 9.60
-            Assert.AreEqual(JudgementType.Lagging, ww.Classify(9.61));
+            Assert.AreEqual(JudgementType.Great, ww.Classify(-1.51));    // PerfectEarly = 2.50*0.6 = 1.50
+            Assert.AreEqual(JudgementType.Perfect, ww.Classify(-1.50));
+            Assert.AreEqual(JudgementType.Perfect, ww.Classify(2.39));   // PerfectLate = 4.00*0.6 = 2.40
+            Assert.AreEqual(JudgementType.Perfect, ww.Classify(2.40));
+            Assert.AreEqual(JudgementType.Great, ww.Classify(2.41));
+            Assert.AreEqual(JudgementType.Ok, ww.Classify(-3.01));       // GreatEarly = 5.00*0.6 = 3.00
+            Assert.AreEqual(JudgementType.Great, ww.Classify(4.80));     // GreatLate = 8.00*0.6 = 4.80
+            Assert.AreEqual(JudgementType.Ok, ww.Classify(4.81));
+            Assert.AreEqual(JudgementType.Meh, ww.Classify(-6.01));      // OkEarly = 10.00*0.6 = 6.00
+            Assert.AreEqual(JudgementType.Ok, ww.Classify(9.60));        // OkLate = 16.00*0.6 = 9.60
+            Assert.AreEqual(JudgementType.Meh, ww.Classify(9.61));
+            Assert.AreEqual(JudgementType.Premature, ww.Classify(-12.01)); // MehEarly = 20.00*0.6 = 12.00
+            Assert.AreEqual(JudgementType.Meh, ww.Classify(19.20));      // MehLate = 32.00*0.6 = 19.20
+            Assert.AreEqual(JudgementType.Lagging, ww.Classify(19.21));
+
+            // The Syllable tier, scale 0.45, is where backlog 146's stated goal is checked: the top
+            // band is now [-1.125, +1.80] characters, so -1, 0 and +1 are all Perfect (a 3-wide
+            // window) where the pre-146 [-0.5625, +0.90] demanded the exact character.
+            var ws = SyncWindows.For(TimingGranularity.Syllable);
+
+            Assert.AreEqual(JudgementType.Perfect, ws.Classify(-1.0));
+            Assert.AreEqual(JudgementType.Perfect, ws.Classify(0.0));
+            Assert.AreEqual(JudgementType.Perfect, ws.Classify(1.0));
 
             // The MILLISECOND ladder, which the Rhythmic mod selects (backlog 135). Its Great/Ok/Meh
             // rows are the windows the game judged in before backlog 133, so an engine put back on
@@ -203,18 +212,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(JudgementType.Great, ms.Classify(201));
 
             // An engine on a Word-granularity map uses the scaled windows. "ab", targets 1000 and
-            // 1500, so the line's mean spacing is 500 ms per character and a press at 1601 is
-            // (1601-1500)/500 past the last target, i.e. 1.202 characters behind the playhead: one
-            // notch past the scaled PerfectLate of 1.20, so Great. The event still carries the press
-            // in MILLISECONDS.
+            // 1500, so the line's mean spacing is 500 ms per character and a press at 2201 is
+            // 1 + (2201-1500)/500 = 2.402 characters behind the playhead: one notch past the scaled
+            // PerfectLate of 2.40, so Great. The event still carries the press in MILLISECONDS.
             var engine = new TypingEngine(map(TimingGranularity.Word,
                 line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000))));
             CharJudgement? judged = null;
             engine.CharJudged += j => judged = j;
             engine.Update(1000);
-            engine.ProcessKey('a', 1601);
+            engine.ProcessKey('a', 2201);
             Assert.AreEqual(JudgementType.Great, judged!.Value.Type);
-            Assert.AreEqual(601, judged!.Value.Delta);
+            Assert.AreEqual(1201, judged!.Value.Delta);
         }
 
         [Test]
@@ -265,58 +273,62 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void MashingAWholeLineAheadWalksDownEveryTierAndThenEarnsNothing()
         {
-            // 14 x one letter, one unit [1000, 29000], k=14 => step 2000, targets 1000, 3000, ...,
-            // 27000, so the line's mean spacing is 2000 ms per character.
+            // 24 x one letter, one unit [1000, 49000], k=24 => step 2000, targets 1000, 3000, ...,
+            // 47000, so the line's mean spacing is 2000 ms per character.
             //
             // PREMISE CHANGE (backlog 133). Before, mashing this line at t=1000 made every press but
             // the first PREMATURE, because each was thousands of MILLISECONDS early. The measure is
             // CHARACTERS now, so the k'th press is exactly k characters ahead of the playhead
             // whatever the tempo, and the ladder is walked down one rung at a time. That is the
-            // point of the change: how far ahead a player may be is capped in characters (10) rather
-            // than in milliseconds, so a slow line is not a harder line. Mashing still cannot pay:
-            // the tail earns literally nothing and breaks the combo, and no real map is paced at two
-            // seconds per character, so on one a whole-line mash runs off the end of the ladder
-            // inside the first word.
-            string text = new string('a', 14);
+            // point of the change: how far ahead a player may be is capped in characters (20 since
+            // backlog 146) rather than in milliseconds, so a slow line is not a harder line. Mashing
+            // still cannot pay: the tail earns literally nothing and breaks the combo, and no real
+            // map is paced at two seconds per character, so on one a whole-line mash runs off the end
+            // of the ladder inside the first word or two.
+            //
+            // FIXTURE WIDENED (backlog 146). The line is 24 characters rather than 14 for the same
+            // reason it was 14 before: one more than the ladder can reach, so the run off the end is
+            // still covered. The early reach doubled from 10 characters to 20, so the fixture had to.
+            string text = new string('a', 24);
             var engine = new TypingEngine(map(TimingGranularity.Line,
-                line(text, 1000, 30000, 29000, unit(text, 1000, 29000))));
+                line(text, 1000, 50000, 49000, unit(text, 1000, 49000))));
 
             int comboBreaks = 0;
             engine.ComboBroken += () => comboBreaks++;
 
             engine.Update(1000);
 
-            for (int i = 0; i < 14; i++)
+            for (int i = 0; i < 24; i++)
                 Assert.IsTrue(engine.ProcessKey('a', 1000));
 
-            // distance -i, so: 0 and -1 Perfect (early edge 1.25); -2 Great (2.50); -3, -4, -5 Ok
-            // (5.00, edge inclusive); -6..-10 Meh (10.00, edge inclusive); -11, -12, -13 past every
-            // window => Premature, 0 points, one combo break each.
+            // distance -i, so: 0, -1, -2 Perfect (early edge 2.50); -3, -4, -5 Great (5.00, edge
+            // inclusive); -6..-10 Ok (10.00, edge inclusive); -11..-20 Meh (20.00, edge inclusive);
+            // -21, -22, -23 past every window => Premature, 0 points, one combo break each.
             // points_i = round(base_i * (1 + comboBefore/50)) with comboBefore = i while scoring:
-            //   300, 306 | 208 | 106, 108, 110 | 56, 57, 58, 59, 60 = 1428.
-            Assert.AreEqual(1428, engine.Score);
+            //   300, 306, 312 | 212, 216, 220 | 112, 114, 116, 118, 120 | 61..70 = 2801.
+            Assert.AreEqual(2801, engine.Score);
             Assert.AreEqual(0, engine.Combo);
-            Assert.AreEqual(11, engine.MaxCombo);
+            Assert.AreEqual(21, engine.MaxCombo);
             Assert.AreEqual(3, comboBreaks);
             Assert.AreEqual(1.0, engine.LiveAccuracy); // right chars, wrong time: accuracy is not sync's job
 
-            // q_i = clamp(1 - i/MehEarly(10)) => 1, 0.9, ..., 0.1, then 0 from 10 characters out.
-            // Sum = 5.5 over 14 cells => 39.2857...%.
-            Assert.AreEqual(100 * 5.5 / 14, engine.LiveSyncPercent, 1e-9);
+            // q_i = clamp(1 - i/MehEarly(20)) => 1, 0.95, ..., 0.05, 0, then 0 from 20 characters out.
+            // Sum = 21 - 210/20 = 10.5 over 24 cells => 43.75%.
+            Assert.AreEqual(100 * 10.5 / 24, engine.LiveSyncPercent, 1e-9);
 
-            engine.Update(30000); // seal: nothing Untyped (all Correct), so NO additional combo break
+            engine.Update(50000); // seal: nothing Untyped (all Correct), so NO additional combo break
 
             Assert.IsTrue(engine.IsFinished);
             Assert.AreEqual(3, comboBreaks); // unchanged by the seal
 
             var results = engine.BuildResults();
-            Assert.AreEqual(2, results.Counts[JudgementType.Perfect]);
-            Assert.AreEqual(1, results.Counts[JudgementType.Great]);
-            Assert.AreEqual(3, results.Counts[JudgementType.Ok]);
-            Assert.AreEqual(5, results.Counts[JudgementType.Meh]);
+            Assert.AreEqual(3, results.Counts[JudgementType.Perfect]);
+            Assert.AreEqual(3, results.Counts[JudgementType.Great]);
+            Assert.AreEqual(5, results.Counts[JudgementType.Ok]);
+            Assert.AreEqual(10, results.Counts[JudgementType.Meh]);
             Assert.AreEqual(3, results.Counts[JudgementType.Premature]);
             Assert.AreEqual(0, results.Counts[JudgementType.Miss]);
-            Assert.AreEqual(100 * 5.5 / 14, results.SyncPercent, 1e-9);
+            Assert.AreEqual(100 * 10.5 / 24, results.SyncPercent, 1e-9);
         }
 
         [Test]
@@ -399,7 +411,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, engine.CaretIndex);
 
             // 'a' correct at t=1200: the line's characters are 500 ms apart, so +200 ms is 0.4 of
-            // a character behind the playhead, well inside the Line PerfectLate of 2.00.
+            // a character behind the playhead, well inside the Line PerfectLate of 4.00.
             // Judged at the REAL time; wrong presses never consumed the cell. Streak resets.
             Assert.IsTrue(engine.ProcessKey('a', 1200));
             Assert.AreEqual(new CharJudgement(0, 0, JudgementType.Perfect, 200, 300, 1), judgements[0]);
@@ -420,8 +432,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var results = engine.BuildResults();
             Assert.AreEqual(2, results.Counts[JudgementType.WrongChar]);
             Assert.AreEqual(0, results.Counts[JudgementType.Miss]);
-            // Sync: q(a) = 1 - 0.4/16 = 0.975 (Line MehLate 16 characters); q(b) = 1. Mean => 98.75%.
-            Assert.AreEqual(98.75, results.SyncPercent, 1e-9);
+            // Sync: q(a) = 1 - 0.4/32 = 0.9875 (Line MehLate 32 characters); q(b) = 1. Mean => 99.375%.
+            Assert.AreEqual(99.375, results.SyncPercent, 1e-9);
         }
 
         [Test]
@@ -448,17 +460,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // 'a' at t=2500: judged at the real time. The line's two characters are 500 ms apart,
             // and 2500 is 1000 ms past the LAST of them, so the playhead is at 1 + 1000/500 = 3.0
-            // and the press is 3.0 characters behind it => Great (2.00 < 3.00 <= 4.00).
-            // Points = round(200 * (1 + 0/50)) = 200. The millisecond delta is still recorded.
+            // and the press is 3.0 characters behind it => Perfect (0 <= 3.00 <= 4.00). PREMISE
+            // CHANGE (backlog 146): 3.0 characters behind used to be a Great, at the old PerfectLate
+            // of 2.00. Points = round(300 * (1 + 0/50)) = 300. The millisecond delta is still recorded.
             Assert.IsTrue(engine.ProcessKey('a', 2500));
             Assert.AreEqual(CellState.Correct, engine.Lines[0].Cells[0].State);
             Assert.AreEqual(1500, engine.Lines[0].Cells[0].JudgedDelta);
 
-            // 'b' at t=2600: playhead 1 + 1100/500 = 3.2, cell 'b' sits at 1 => 2.2 behind => Great.
-            // Points = round(200 * 1.02) = 204.
+            // 'b' at t=2600: playhead 1 + 1100/500 = 3.2, cell 'b' sits at 1 => 2.2 behind => Perfect.
+            // Points = round(300 * 1.02) = 306.
             Assert.IsTrue(engine.ProcessKey('b', 2600));
 
-            Assert.AreEqual(404, engine.Score); // 200 + 204
+            Assert.AreEqual(606, engine.Score); // 300 + 306
 
             // Accuracy: keypresses x, a, b => 2 correct / 3 total (the rejected key stays in
             // the denominator forever; backspace is not a keypress).
@@ -467,10 +480,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             engine.Update(5000);
             var results = engine.BuildResults();
 
-            // Sync uses the judged distances: q(a) = 1 - 3.0/16 = 0.8125; q(b) = 1 - 2.2/16 = 0.8625.
-            // SyncPercent = 100 * (0.8125 + 0.8625) / 2 = 83.75.
-            Assert.AreEqual(83.75, results.SyncPercent, 1e-9);
-            Assert.AreEqual(2, results.Counts[JudgementType.Great]);
+            // Sync uses the judged distances: q(a) = 1 - 3.0/32 = 0.90625; q(b) = 1 - 2.2/32 = 0.93125.
+            // SyncPercent = 100 * (0.90625 + 0.93125) / 2 = 91.875.
+            Assert.AreEqual(91.875, results.SyncPercent, 1e-9);
+            Assert.AreEqual(2, results.Counts[JudgementType.Perfect]);
+            Assert.AreEqual(0, results.Counts[JudgementType.Great]);
             Assert.AreEqual(1, results.Counts[JudgementType.WrongChar]);
         }
 
@@ -799,18 +813,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void SyncQualityAsymmetricAndTimelineCaptured()
         {
-            // Asymmetric normalization over the WIDEST scoring window (Line scale, Meh 10 early /
-            // 16 late): the SAME 4.8 characters of offset scores differently by sign.
-            //   early: q = 1 - 4.8/MehEarly(10) = 0.52
-            //   late:  q = 1 - 4.8/MehLate(16)  = 0.70
+            // Asymmetric normalization over the WIDEST scoring window (Line scale, Meh 20 early /
+            // 32 late): the SAME 9.6 characters of offset scores differently by sign.
+            //   early: q = 1 - 9.6/MehEarly(20) = 0.52
+            //   late:  q = 1 - 9.6/MehLate(32)  = 0.70
+            // Backlog 146 doubled the window, so the offsets here doubled with it and the qualities
+            // are unchanged: the ramp is a pure rescale of the axis, not a change of shape.
             var w = SyncWindows.For(TimingGranularity.Line);
-            Assert.AreEqual(0.52, w.SyncQuality(-4.8), 1e-12);
-            Assert.AreEqual(0.70, w.SyncQuality(4.8), 1e-12);
-            Assert.AreEqual(0.5, w.SyncQuality(-5), 1e-12);
+            Assert.AreEqual(0.52, w.SyncQuality(-9.6), 1e-12);
+            Assert.AreEqual(0.70, w.SyncQuality(9.6), 1e-12);
+            Assert.AreEqual(0.5, w.SyncQuality(-10), 1e-12);
             Assert.AreEqual(1.0, w.SyncQuality(0), 1e-12);
-            Assert.AreEqual(0.0, w.SyncQuality(-10), 1e-12); // early edge hits exactly 0
+            Assert.AreEqual(0.0, w.SyncQuality(-20), 1e-12); // early edge hits exactly 0
             Assert.AreEqual(0.0, w.SyncQuality(-50), 1e-12); // clamped below
-            Assert.AreEqual(0.0, w.SyncQuality(16), 1e-12);  // late edge hits exactly 0
+            Assert.AreEqual(0.0, w.SyncQuality(32), 1e-12);  // late edge hits exactly 0
             Assert.AreEqual(0.0, w.SyncQuality(99), 1e-12);  // clamped
 
             // "abc", one unit [1000, 2500], k=3 => a=1000, b=1500, c=2000. Gatekeeper (rejection)
@@ -820,7 +836,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             engine.Update(1000);
             // Characters are 500 ms apart, so -600 ms is 1.2 characters ahead of the playhead:
-            // inside PerfectEarly (1.25), and the timeline still records the MILLISECONDS.
+            // inside PerfectEarly (2.50), and the timeline still records the MILLISECONDS.
             engine.ProcessKey('a', 400);  // sample (400, -600)
             engine.ProcessKey('x', 1500); // WRONG on 'b': rejected, caret stays, no timeline sample
             engine.ProcessKey('c', 2600); // ALSO wrong ('b' expected): rejected, no sample
@@ -832,8 +848,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(1, results.SyncTimeline.Count);
             Assert.AreEqual(new SyncSample(400, -600), results.SyncTimeline[0]);
 
-            // SyncPercent = 100 * (q(a) + q(b) + q(c)) / 3, q(a) = 1 - 1.2/10 = 0.88.
-            Assert.AreEqual(88.0 / 3, results.SyncPercent, 1e-9);
+            // SyncPercent = 100 * (q(a) + q(b) + q(c)) / 3, q(a) = 1 - 1.2/20 = 0.94.
+            Assert.AreEqual(94.0 / 3, results.SyncPercent, 1e-9);
             Assert.AreEqual(2, results.Counts[JudgementType.WrongChar]);
             Assert.AreEqual(2, results.Counts[JudgementType.Miss]);
         }
@@ -907,8 +923,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void BuildResultsMatchesHandComputedSummary()
         {
-            // WORD granularity: windows scale 0.6 => Perfect [-0.75, +1.20], Great [-1.50, +2.40],
-            // Ok [-3.00, +4.80], Meh [-6.00, +9.60], all in CHARACTERS.
+            // WORD granularity: windows scale 0.6 => Perfect [-1.50, +2.40], Great [-3.00, +4.80],
+            // Ok [-6.00, +9.60], Meh [-12.00, +19.20], all in CHARACTERS.
             // L0 "ab" [1000, 3000), unit [1000,2000] => a=1000, b=1500, mean spacing 500 ms.
             // L1 "cd" [3000, 5000), unit [3000,4000] => c=3000, d=3500, mean spacing 500 ms.
             var engine = new TypingEngine(map(TimingGranularity.Word,
@@ -919,27 +935,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             engine.Update(1200);   // +200 active time
             engine.ProcessKey('a', 1200); // playhead 0.4, cell 0 => 0.4 behind => Perfect. 300 * (1 + 0/50) = 300. combo 1.
             engine.Update(2200);   // +1000
-            engine.ProcessKey('b', 2200); // playhead 1 + 700/500 = 2.4, cell 1 => 1.4 behind => Great. round(200 * 1.02) = 204. combo 2.
+            engine.ProcessKey('b', 2200); // playhead 1 + 700/500 = 2.4, cell 1 => 1.4 behind => Perfect. round(300 * 1.02) = 306. combo 2.
             engine.Update(3000);   // line complete => +0; seal L0 (0 missed); activate L1
             engine.Update(4500);   // +1500
-            engine.ProcessKey('c', 4500); // playhead 1 + 1000/500 = 3.0, cell 0 => 3.0 behind => Ok. round(100 * 1.04) = 104. combo 3.
+            engine.ProcessKey('c', 4500); // playhead 1 + 1000/500 = 3.0, cell 0 => 3.0 behind => Great. round(200 * 1.04) = 208. combo 3.
             engine.Update(5000);   // L1 active & incomplete ('d' pending) => +500; seal L1: 'd' Missed, combo break
 
             Assert.IsTrue(engine.IsFinished);
 
             var results = engine.BuildResults();
 
-            Assert.AreEqual(608, results.Score);            // 300 + 204 + 104
+            Assert.AreEqual(814, results.Score);            // 300 + 306 + 208
             Assert.AreEqual(1.0, results.Accuracy);         // 3 correct / 3 keypresses
             Assert.AreEqual(3, results.MaxCombo);
 
-            // Sync qualities (Word scale: MehEarly 6.00, MehLate 9.60 characters):
-            //   q(a) = 1 - 0.4/9.6 = 23/24
-            //   q(b) = 1 - 1.4/9.6 = 41/48
-            //   q(c) = 1 - 3.0/9.6 = 11/16
+            // Sync qualities (Word scale: MehEarly 12.00, MehLate 19.20 characters):
+            //   q(a) = 1 - 0.4/19.2 = 47/48
+            //   q(b) = 1 - 1.4/19.2 = 89/96
+            //   q(c) = 1 - 3.0/19.2 = 27/32
             //   q(d) = 0 (Missed)
-            // Sum = (46 + 41 + 33)/48 = 2.5 exactly => SyncPercent = 100 * 2.5 / 4 = 62.5.
-            Assert.AreEqual(62.5, results.SyncPercent, 1e-9);
+            // Sum = (94 + 89 + 81)/96 = 2.75 exactly => SyncPercent = 100 * 2.75 / 4 = 68.75.
+            Assert.AreEqual(68.75, results.SyncPercent, 1e-9);
 
             // Active time = 200 + 1000 + 1500 + 500 = 3200 ms.
             // Correct cells = 3 => 0.6 words => WPM = 0.6 / (3200/60000) = 11.25.
@@ -947,9 +963,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // Counts: all 8 keys present, exact values.
             Assert.AreEqual(8, results.Counts.Count);
-            Assert.AreEqual(1, results.Counts[JudgementType.Perfect]);
+            Assert.AreEqual(2, results.Counts[JudgementType.Perfect]);
             Assert.AreEqual(1, results.Counts[JudgementType.Great]);
-            Assert.AreEqual(1, results.Counts[JudgementType.Ok]);
+            Assert.AreEqual(0, results.Counts[JudgementType.Ok]);
             Assert.AreEqual(0, results.Counts[JudgementType.Meh]);
             Assert.AreEqual(0, results.Counts[JudgementType.Premature]);
             Assert.AreEqual(0, results.Counts[JudgementType.Lagging]);
@@ -961,7 +977,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual("Test", results.Artist);
             Assert.AreEqual("Song", results.Title);
-            Assert.AreEqual("D", results.Grade); // sync 62.5 fails every tier floor => D
+            // PREMISE CHANGE (backlog 146): the same play now grades C rather than D. Nothing about
+            // the grade thresholds moved; the wider Meh window raised sync 62.5 to 68.75, over C's
+            // floor of 65, and accuracy was already 1.0.
+            Assert.AreEqual("C", results.Grade); // sync 68.75 >= 65 && acc 1.0 >= 0.65
         }
 
         [Test]
@@ -1090,9 +1109,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Word-granularity beatmap, but the line is aligner-estimated (no acoustic
             // evidence); its cells judge at the wider Line windows.
             // Cells a=1000 b=1500 ' '=2000 c=2000 d=2500, mean spacing (2500-1000)/4 = 375 ms, so a
-            // press at 4750 is 4 + (4750-2500)/375 = 10.0 characters behind the playhead.
-            //   Word windows: MehLate = 16 * 0.6 = 9.6  => Lagging, 0 points, combo break.
-            //   Line windows: MehLate = 16            => Meh, 50 points, combo intact.
+            // press at 8500 is 4 + (8500-2500)/375 = 20.0 characters behind the playhead.
+            //   Word windows: MehLate = 32 * 0.6 = 19.2 => Lagging, 0 points, combo break.
+            //   Line windows: MehLate = 32             => Meh, 50 points, combo intact.
             static LyricLine estimatable(bool estimated) => new LyricLine
             {
                 RawText = "ab cd", StartTime = 1000, EndTime = 10000, SingEndTime = 3000,
@@ -1106,7 +1125,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             engine.ComboBroken += () => comboBreaks++;
 
             engine.Update(1000);
-            Assert.IsTrue(engine.ProcessKey('a', 4750));
+            Assert.IsTrue(engine.ProcessKey('a', 8500));
             Assert.AreEqual(0, comboBreaks);
             Assert.AreEqual(1, engine.Combo);
             Assert.AreEqual(50, engine.Score); // Meh = 50 * (1 + 0/50)
@@ -1119,7 +1138,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             trusted.ComboBroken += () => trustedBreaks++;
 
             trusted.Update(1000);
-            Assert.IsTrue(trusted.ProcessKey('a', 4750));
+            Assert.IsTrue(trusted.ProcessKey('a', 8500));
             Assert.AreEqual(1, trustedBreaks);
             Assert.AreEqual(0, trusted.Combo);
             Assert.AreEqual(0, trusted.Score);
