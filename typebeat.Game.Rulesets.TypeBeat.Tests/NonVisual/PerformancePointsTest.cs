@@ -16,7 +16,9 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using NUnit.Framework;
+using osu.Framework.Localisation;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Mods;
@@ -659,23 +661,55 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// Rhythmic (backlog 135) PAYS, which makes it the only flat mod multiplier above 1.0 that
-        /// is not length-scaled: judging a press on its millisecond offset from its own target
-        /// instead of on its distance from the playhead is the tighter ladder on any map slower
-        /// than 10 characters per second, i.e. nearly all of them. This is the marked site, so a
-        /// retune through <c>pp.py set --rhythmic-multiplier</c> lands here.
+        /// A mod carrying the RETIRED Rhythmic acronym. Backlog 147 deleted
+        /// <c>TypeBeatModRhythmic</c>, so nothing in the ruleset can produce an <c>RH</c> any more
+        /// and this stands in for the one thing that still can: a score row submitted while the mod
+        /// was live, whose stored mods blob is read back and priced.
+        /// </summary>
+        private sealed class RetiredRhythmicMod : Mod
+        {
+            public override string Name => "Rhythmic";
+            public override string Acronym => "RH";
+            public override LocalisableString Description => "A stored acronym no client can select any more.";
+        }
+
+        /// <summary>
+        /// Rhythmic (backlog 135) PAID 10%, and backlog 147 removed the mod from the client without
+        /// removing that price. THIS IS THE PRODUCTION-SAFETY TEST, not a leftover: RH shipped, so
+        /// rows carrying it exist, and pp is recomputed from a stored row's mods on every
+        /// <c>PpBackfill</c> sweep and every recalc. Deleting the arm would silently reprice every
+        /// one of those rows 10% down, and its server-side twin
+        /// (<c>ModMultiplier.TotalScoreCeiling</c>) would then put each row's own stored total above
+        /// its ceiling and store it UNRANKED.
+        ///
+        /// <para>It costs nothing to keep: no mod in <c>TypeBeatRuleset.GetModsFor</c> answers RH,
+        /// so no play made under today's rules can reach the arm at all. This is still the marked
+        /// site, so a retune through <c>pp.py set --rhythmic-multiplier</c> lands here.</para>
         /// </summary>
         [Test]
-        public void ModMultiplier_RhythmicPaysTenPercent()
+        public void ModMultiplier_StillPricesAStoredRhythmicAtTenPercent()
         {
             Assert.Multiple(() =>
             {
-                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModRhythmic()), 300), Is.EqualTo(1.10).Within(1e-12)); // pp[f.rhythmic_multiplier]
+                Assert.That(PerformancePoints.ModMultiplier(mods(new RetiredRhythmicMod()), 300), Is.EqualTo(1.10).Within(1e-12)); // pp[f.rhythmic_multiplier]
                 // Literate rides along contributing exactly nothing since backlog 144 (see the
                 // Literate test above), so this pair is worth what Rhythmic alone is.
-                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModRhythmic(), new TypeBeatModLiterate()), 300),
+                Assert.That(PerformancePoints.ModMultiplier(mods(new RetiredRhythmicMod(), new TypeBeatModLiterate()), 300),
                     Is.EqualTo(1.100).Within(1e-12)); // pp[f.mod_multiplier(["RH", "LT"], 300)]
             });
+        }
+
+        /// <summary>
+        /// The other half of the same fact: the ruleset no longer OFFERS Rhythmic, so no new play
+        /// can earn the multiplier the test above keeps alive. Asserted on the acronym rather than
+        /// on the type, because the type is gone.
+        /// </summary>
+        [Test]
+        public void ModMultiplier_NoModTheRulesetOffersCarriesTheRhythmicAcronym()
+        {
+            var ruleset = new TypeBeatRuleset();
+
+            Assert.That(ruleset.AllMods.Select(m => m.Acronym), Has.No.Member("RH"));
         }
 
         [Test]

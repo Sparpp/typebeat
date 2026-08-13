@@ -127,7 +127,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 // The restore lands BEFORE the retype is judged, so the judgement the stage and the
                 // score see already carries the resumed run.
-                Assert.That(judgements[^1].Type, Is.EqualTo(JudgementType.Perfect));
+                Assert.That(judgements[^1].Type, Is.EqualTo(JudgementType.Great));
                 Assert.That(judgements[^1].ComboAfter, Is.EqualTo(6));
 
                 // Exactly one break, at the keypress, and it is not un-counted: the typo stat counts

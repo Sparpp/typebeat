@@ -3,8 +3,7 @@
 
 // Ported verbatim from type!beat TypeBeat.Game/Gameplay/Judgement.cs (regression-anchored).
 // This file is the SINGLE tuning point for all judgement window constants.
-// Pure C#: no osu.Framework dependencies. All TIMES are double milliseconds; judgement OFFSETS
-// are in whatever SyncMeasure the play uses (character distances by default).
+// Pure C#: no osu.Framework dependencies. All times are double milliseconds.
 // Renames on entry: public constants restyled to ALL_UPPER per fork naming rules.
 // No type here collides with typebeat.Game.Rulesets.Judgements.Judgement (no type named "Judgement").
 
@@ -17,22 +16,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// <summary>
     /// What one keypress resolved its cell as.
     ///
-    /// <para>The four QUALITY tiers are named for the osu <see cref="Rulesets.Scoring.HitResult"/> they map
-    /// to, and <see cref="TypeBeat.Scoring.TypeBeatResultMapping.CellResult"/> is the identity on them
-    /// (backlog 133). Before that the two vocabularies disagreed (engine Perfect meant osu Great,
-    /// engine Good meant osu Ok, engine Ok meant osu Meh), so the word "Perfect" meant two different
-    /// things depending on which side of the mapping you were reading, and a fourth tier would have
-    /// made that worse rather than better. Nothing persists this enum, by name or by ordinal, so the
-    /// realignment could be made rather than only wished for: it exists in memory during a play, and
-    /// a stored score carries osu results, while a replay carries KEYSTROKES and is re-judged from
-    /// scratch (see <see cref="TypeBeat.Scoring.TypeBeatReplayScorer"/>).</para>
+    /// <para>The three QUALITY tiers are named for the osu <see cref="Rulesets.Scoring.HitResult"/>
+    /// they map to, and <see cref="TypeBeat.Scoring.TypeBeatResultMapping.CellResult"/> is the
+    /// identity on them. That naming is the one thing backlog 147 kept from the character-distance
+    /// arc it otherwise reverted: before backlog 133 the two vocabularies disagreed (engine Perfect
+    /// meant osu Great, engine Good meant osu Ok, engine Ok meant osu Meh), so the word "Perfect"
+    /// meant two different things depending on which side of the mapping you were reading. Nothing
+    /// persists this enum, by name or by ordinal, so the alignment costs nothing: it exists in
+    /// memory during a play, a stored score carries osu results, and a replay carries KEYSTROKES
+    /// and is re-judged from scratch (see
+    /// <see cref="TypeBeat.Scoring.TypeBeatReplayScorer"/>).</para>
     /// </summary>
     public enum JudgementType
     {
-        /// <summary>Inside the tightest window. osu <see cref="Rulesets.Scoring.HitResult.Perfect"/>.</summary>
-        Perfect,
-
-        /// <summary>osu <see cref="Rulesets.Scoring.HitResult.Great"/>.</summary>
+        /// <summary>Inside the tightest window. osu <see cref="Rulesets.Scoring.HitResult.Great"/>.</summary>
         Great,
 
         /// <summary>osu <see cref="Rulesets.Scoring.HitResult.Ok"/>.</summary>
@@ -41,36 +38,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>The widest window a correct keypress can still score in. osu <see cref="Rulesets.Scoring.HitResult.Meh"/>.</summary>
         Meh,
 
-        /// <summary>Right character, too far AHEAD of the playhead to score.</summary>
+        /// <summary>Right character, pressed too EARLY to score.</summary>
         Premature,
 
-        /// <summary>Right character, too far BEHIND the playhead to score.</summary>
+        /// <summary>Right character, pressed too LATE to score.</summary>
         Lagging,
 
         WrongChar,
         Miss
-    }
-
-    /// <summary>
-    /// What a keypress's offset from its cell is MEASURED IN, and therefore what unit
-    /// <see cref="SyncWindows"/>' windows are expressed in.
-    /// </summary>
-    public enum SyncMeasure
-    {
-        /// <summary>
-        /// The live rule (backlog 133): how many CHARACTERS the keypress is from the character the
-        /// playhead is on, fractionally (see <see cref="TypingLine.CharacterDistanceAt"/>). Negative
-        /// is ahead of the playhead.
-        /// </summary>
-        CharacterDistance,
-
-        /// <summary>
-        /// The rule up to backlog 133: milliseconds between the keypress and the cell's
-        /// <see cref="TypingCell.TargetTime"/>. Negative is early. Selected by the Rhythmic mod
-        /// (<see cref="Mods.TypeBeatModRhythmic"/>, backlog 135), which turns it back on by setting
-        /// <see cref="TypingEngine.Measure"/>.
-        /// </summary>
-        Milliseconds,
     }
 
     public sealed class SyncWindows
@@ -83,85 +58,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public const double LOW_CONFIDENCE_SCORE = 0.15;
 
-        // Base (Line-granularity) window constants: the one tuning point. TWO ladders, one per
-        // SyncMeasure, because a window is a distance in whatever the offset is measured in and the
-        // two measures do not share a unit.
+        // Base (Line-granularity) window constants: the one tuning point. MILLISECONDS between the
+        // keypress and the cell's TargetTime, late-biased 1.6x on every tier.
         //
-        // CHARACTER DISTANCE (the live ladder, backlog 133). A geometric ladder: every tier is
-        // exactly 1.6x late-biased, which is what today's 250/400 millisecond pair was, and exactly
-        // double the tier inside it. Wherever cell spacing is locally uniform a character distance
-        // reduces to the millisecond delta divided by that spacing, which is the whole point: per-
-        // character targets are already interpolated (TypingLine.FromLyricLine), so "characters
-        // behind the playhead" and "milliseconds off target" were always the same axis, and this
-        // rescales it to the map's own pace rather than measuring something new.
-        //
-        // Backlog 146 moved every band UP ONE: 133's ladder demanded the exact character for a
-        // Perfect and was too strict, so each tier took the window of the tier outside it, which in
-        // a doubling ladder is exactly a factor of two on all eight constants. The 1.6x late bias
-        // and the doubling structure survive unchanged, which is the point of retuning it this way
-        // rather than adding a flat character to each bound. At the granularities real maps use the
-        // top band is now about a character either side of the playhead: -1.125 to +1.8 at Syllable
-        // and -1.5 to +2.4 at Word, so -1, 0 and +1 all read as Perfect.
-        private const double base_perfect_early = 2.50;
-        private const double base_perfect_late = 4.00;
-        private const double base_great_early = 5.00;
-        private const double base_great_late = 8.00;
-        private const double base_ok_early = 10.00;
-        private const double base_ok_late = 16.00;
-        private const double base_meh_early = 20.00;
-        private const double base_meh_late = 32.00;
+        // Backlog 133 replaced this ladder with a CHARACTER-DISTANCE one in four tiers, and backlog
+        // 147 put it back exactly as it was, three tiers on these six constants. The character axis
+        // measured how far the press was from the character the playhead was on, which capped how
+        // far AHEAD a player could press at a fixed number of characters however slow the map, and
+        // it valued the top tier at 200 where this ladder values it at 300. Both had to go together:
+        // a four-tier millisecond ladder would still have valued every stored row's top tier at 200
+        // where it was submitted at 300.
+        private const double base_great_early = 250;
+        private const double base_great_late = 400;
+        private const double base_ok_early = 600;
+        private const double base_ok_late = 1000;
+        private const double base_meh_early = 1200;
+        private const double base_meh_late = 2000;
 
-        // MILLISECONDS (backlog 135's Rhythmic mod). The Great/Ok/Meh rows are EXACTLY the windows
-        // this game judged in up to backlog 133 (they were then called Perfect/Good/Ok and mapped
-        // onto those same three osu results), so selecting this measure reproduces the old game
-        // rather than approximating it. The fourth tier is new, and it subdivides the TOP of the
-        // ladder at the same halving the character ladder uses, so nothing that used to be a Great
-        // becomes anything worse.
-        private const double ms_perfect_early = 125;
-        private const double ms_perfect_late = 200;
-        private const double ms_great_early = 250;
-        private const double ms_great_late = 400;
-        private const double ms_ok_early = 600;
-        private const double ms_ok_late = 1000;
-        private const double ms_meh_early = 1200;
-        private const double ms_meh_late = 2000;
+        private static readonly SyncWindows line_windows = new SyncWindows(1.0);
+        private static readonly SyncWindows word_windows = new SyncWindows(0.6);
+        private static readonly SyncWindows syllable_windows = new SyncWindows(0.45);
 
-        // Granularity scales: unreliable timing gets the widest tolerance, never the tightest.
-        private const double line_scale = 1.0;
-        private const double word_scale = 0.6;
-        private const double syllable_scale = 0.45;
-
-        private static readonly SyncWindows character_line = new SyncWindows(SyncMeasure.CharacterDistance, line_scale);
-        private static readonly SyncWindows character_word = new SyncWindows(SyncMeasure.CharacterDistance, word_scale);
-        private static readonly SyncWindows character_syllable = new SyncWindows(SyncMeasure.CharacterDistance, syllable_scale);
-
-        private static readonly SyncWindows millisecond_line = new SyncWindows(SyncMeasure.Milliseconds, line_scale);
-        private static readonly SyncWindows millisecond_word = new SyncWindows(SyncMeasure.Milliseconds, word_scale);
-        private static readonly SyncWindows millisecond_syllable = new SyncWindows(SyncMeasure.Milliseconds, syllable_scale);
-
-        public static SyncWindows For(TimingGranularity granularity, SyncMeasure measure = SyncMeasure.CharacterDistance)
+        public static SyncWindows For(TimingGranularity granularity)
         {
-            bool milliseconds = measure == SyncMeasure.Milliseconds;
-
             switch (granularity)
             {
                 case TimingGranularity.Word:
-                    return milliseconds ? millisecond_word : character_word;
+                    return word_windows;
 
                 case TimingGranularity.Syllable:
-                    return milliseconds ? millisecond_syllable : character_syllable;
+                    return syllable_windows;
 
                 default:
-                    return milliseconds ? millisecond_line : character_line;
+                    return line_windows;
             }
         }
 
-        public SyncMeasure Measure { get; }
-
         public double Scale { get; }
 
-        public double PerfectEarly { get; }
-        public double PerfectLate { get; }
         public double GreatEarly { get; }
         public double GreatLate { get; }
         public double OkEarly { get; }
@@ -169,74 +103,51 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public double MehEarly { get; }
         public double MehLate { get; }
 
-        private SyncWindows(SyncMeasure measure, double scale)
+        private SyncWindows(double scale)
         {
-            Measure = measure;
             Scale = scale;
-
-            bool milliseconds = measure == SyncMeasure.Milliseconds;
-
-            PerfectEarly = (milliseconds ? ms_perfect_early : base_perfect_early) * scale;
-            PerfectLate = (milliseconds ? ms_perfect_late : base_perfect_late) * scale;
-            GreatEarly = (milliseconds ? ms_great_early : base_great_early) * scale;
-            GreatLate = (milliseconds ? ms_great_late : base_great_late) * scale;
-            OkEarly = (milliseconds ? ms_ok_early : base_ok_early) * scale;
-            OkLate = (milliseconds ? ms_ok_late : base_ok_late) * scale;
-            MehEarly = (milliseconds ? ms_meh_early : base_meh_early) * scale;
-            MehLate = (milliseconds ? ms_meh_late : base_meh_late) * scale;
+            GreatEarly = base_great_early * scale;
+            GreatLate = base_great_late * scale;
+            OkEarly = base_ok_early * scale;
+            OkLate = base_ok_late * scale;
+            MehEarly = base_meh_early * scale;
+            MehLate = base_meh_late * scale;
         }
 
         /// <summary>
-        /// Classify a correct keypress's offset in this window set's <see cref="Measure"/>: how many
-        /// characters the press is from the character the playhead is on (negative = ahead of it),
-        /// or, under <see cref="SyncMeasure.Milliseconds"/>, keypress time minus cell target time.
-        /// Nested asymmetric ranges, tested Perfect -&gt; Great -&gt; Ok -&gt; Meh; outside Meh the
-        /// sign decides Premature (too far ahead) vs Lagging (too far behind).
+        /// Classify a correct keypress's delta (keypress time - cell target time; negative = early).
+        /// Nested asymmetric ranges, tested Great -&gt; Ok -&gt; Meh; outside Meh the sign decides
+        /// Premature (too early) vs Lagging (too late).
         /// </summary>
-        public JudgementType Classify(double offset)
+        public JudgementType Classify(double delta)
         {
-            if (offset >= -PerfectEarly && offset <= PerfectLate)
-                return JudgementType.Perfect;
-
-            if (offset >= -GreatEarly && offset <= GreatLate)
+            if (delta >= -GreatEarly && delta <= GreatLate)
                 return JudgementType.Great;
 
-            if (offset >= -OkEarly && offset <= OkLate)
+            if (delta >= -OkEarly && delta <= OkLate)
                 return JudgementType.Ok;
 
-            if (offset >= -MehEarly && offset <= MehLate)
+            if (delta >= -MehEarly && delta <= MehLate)
                 return JudgementType.Meh;
 
-            return offset < -MehEarly ? JudgementType.Premature : JudgementType.Lagging;
+            return delta < -MehEarly ? JudgementType.Premature : JudgementType.Lagging;
         }
 
         /// <summary>
-        /// Asymmetric sync quality in [0, 1] over the WIDEST scoring window:
-        /// q = clamp(1 - (offset &lt; 0 ? -offset/MehEarly : offset/MehLate), 0, 1). Exactly 1 dead on
-        /// the playhead and exactly 0 at the edges of the Meh window, so every offset a correct
-        /// keypress can still score at maps somewhere inside the ramp and everything beyond it
-        /// (Premature / Lagging) sits on the floor.
+        /// Asymmetric sync quality in [0, 1]: q = clamp(1 - (delta &lt; 0 ? -delta/MehEarly : delta/MehLate), 0, 1).
         /// </summary>
-        public double SyncQuality(double offset)
-            => Math.Clamp(1 - (offset < 0 ? -offset / MehEarly : offset / MehLate), 0, 1);
+        public double SyncQuality(double delta)
+            => Math.Clamp(1 - (delta < 0 ? -delta / MehEarly : delta / MehLate), 0, 1);
 
-        /// <summary>
-        /// The engine's own per-character points, matching the osu base score each tier's result
-        /// carries (see <see cref="TypeBeat.Scoring.TypeBeatScoreProcessor.GetBaseScoreForResult"/>), so the
-        /// engine's running score and the submitted one grade a keypress the same way.
-        /// </summary>
         public static int BasePoints(JudgementType type)
         {
             switch (type)
             {
-                case JudgementType.Perfect:
+                case JudgementType.Great:
                     return 300;
 
-                case JudgementType.Great:
-                    return 200;
-
                 case JudgementType.Ok:
-                    return 100;
+                    return 150;
 
                 case JudgementType.Meh:
                     return 50;
@@ -247,14 +158,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
     }
 
-    /// <summary>
-    /// One resolved keypress. <paramref name="Delta"/> is the signed lead/lag in MILLISECONDS
-    /// (keypress time minus the cell's target), and stays milliseconds whatever
-    /// <see cref="SyncMeasure"/> the play is judged under: it is the honest read-out of when the
-    /// press happened, which is what a timing display wants. Since backlog 133 it is NOT what
-    /// <paramref name="Type"/> was derived from under the default measure; that is the character
-    /// distance, and it is kept on the cell (<see cref="TypingCell.JudgedOffset"/>).
-    /// </summary>
     public readonly record struct CharJudgement(int LineIndex, int CellIndex, JudgementType Type, double Delta, int PointsAwarded, int ComboAfter);
 
     public readonly record struct LineSealResult(int LineIndex, int MissedCells, bool ComboBroken);
@@ -275,7 +178,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         public required int MaxCombo { get; init; }
 
-        /// <summary>All 8 <see cref="JudgementType"/> keys always present.</summary>
+        /// <summary>All 7 <see cref="JudgementType"/> keys always present.</summary>
         public required IReadOnlyDictionary<JudgementType, int> Counts { get; init; }
 
         public required IReadOnlyList<SyncSample> SyncTimeline { get; init; }

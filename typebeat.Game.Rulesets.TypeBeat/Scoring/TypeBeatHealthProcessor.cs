@@ -51,7 +51,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         //   * ~12% misses spread through otherwise-correct play never approaches 0 (Great recovery
         //     refills to the cap between misses, so the bar only ever dips one miss deep).
 
-        /// <summary>HP restored by a well-timed correct char (the engine's Perfect and Great tiers).</summary>
+        /// <summary>HP restored by a well-timed correct char (the engine's Great tier).</summary>
         public const double GREAT_HEALTH_INCREASE = 0.03;
 
         /// <summary>HP restored by a correct char in the engine's Ok window.</summary>
@@ -90,14 +90,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         {
             switch (result.Type)
             {
-                // Perfect and Great share a rate on purpose. Health is a three-step ladder over
-                // "typed it about right / late / very late", and backlog 133's fourth quality tier
-                // splits the FIRST of those in two: it separates a very well timed character from a
-                // well timed one, which score and accuracy price, and which health has never had an
-                // opinion about. Giving Perfect its own recovery would also silently retune the
-                // balance targets above, which are pinned by TypeBeatHealthTest against the top
-                // tier's rate.
-                case HitResult.Perfect:
                 case HitResult.Great:
                     return GREAT_HEALTH_INCREASE;
 

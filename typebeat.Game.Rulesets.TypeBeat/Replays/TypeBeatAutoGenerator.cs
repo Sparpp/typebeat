@@ -13,7 +13,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
 {
     /// <summary>
     /// Generates a perfect play: every typeable cell's expected character pressed exactly at its
-    /// target time (delta 0 = Perfect), using the same <see cref="TypingLine.FromLyricLine"/>
+    /// target time (delta 0 = Great), using the same <see cref="TypingLine.FromLyricLine"/>
     /// flattening the engine itself is built from, so the frames line up with the engine's cells by
     /// construction. The literate flag must match the play's mods, because Literate changes which
     /// cells exist at all (punctuation becomes typed) and the case they are typed in; without it

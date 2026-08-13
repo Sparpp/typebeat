@@ -129,7 +129,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void ARightCharAtAWrongTimeIsNotAMistype()
         {
-            // TypingEngine's other no-miss combo break: the correct char struck outside the widest
+            // TypingEngine's other no-miss combo break: the correct char struck outside the Ok
             // window is ACCEPTED (0 points, combo broken) and judged Premature/Lagging, which the
             // drawable already maps to an osu Miss, so it has always reached the score processor.
             // Out of scope here, and it must stay out of the mistype count.
@@ -139,10 +139,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             engine.Mistyped += () => mistypes++;
 
             engine.Update(3200);
-            // The line's five characters span 1000..2500, i.e. 375 ms apart, so the playhead at 13375
-            // sits at 4 + 10875/375 = 33.0 characters: one character past the Line MehLate of 32. A
-            // press is judged on the time it is handed, so no further Update is needed to reach it.
-            Assert.That(engine.ProcessKey('a', 13375), Is.True);
+            Assert.That(engine.ProcessKey('a', 3200), Is.True); // delta +2200, past MehLate (2000)
 
             Assert.Multiple(() =>
             {

@@ -106,7 +106,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             char? rejected = null;
             engine.WrongKeyRejected += c => rejected = c;
 
-            Assert.IsTrue(engine.ProcessKey('c', 1000)); // delta 0 => Perfect, 300 * (1 + 0/50) = 300
+            Assert.IsTrue(engine.ProcessKey('c', 1000)); // delta 0 => Great, 300 * (1 + 0/50) = 300
             Assert.IsTrue(engine.ProcessKey(' ', 2600)); // caret is on 'a': abandon "at"
 
             Assert.IsNull(rejected, "the space is consumed by the skip, not rejected");
@@ -127,12 +127,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var results = engine.BuildResults();
 
             Assert.AreEqual(2, results.Counts[JudgementType.Miss]);
-            // The gap sits at 3000 and 't' at 2333.33, so the press at 2600 puts the playhead at
-            // 2.4 characters and the gap is cell 3: 0.6 of a character AHEAD of it, inside
-            // PerfectEarly (1.25). Judged exactly as a space typed in place would be.
-            Assert.AreEqual(2, results.Counts[JudgementType.Perfect]); // 'c' and the word gap
-            // 300 ('c') + 300 (the space, at combo 0 after the break => x1.00).
-            Assert.AreEqual(600, results.Score);
+            // The gap's delta is 2600 - 3000 = -400: inside OkEarly (600), outside GreatEarly (250).
+            Assert.AreEqual(1, results.Counts[JudgementType.Ok]);
+            Assert.AreEqual(1, results.Counts[JudgementType.Great]);
+            // 300 ('c') + 150 (the space, at combo 0 after the break => x1.00).
+            Assert.AreEqual(450, results.Score);
             // The skip itself is not a keypress, so both presses that WERE judged were correct.
             Assert.AreEqual(1.0, results.Accuracy);
             Assert.AreEqual(1, results.MaxCombo); // 'c' made it 1, the skip broke it, the space rebuilt it to 1
@@ -177,8 +176,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(2600 - t_target, judged[1].Delta, 1e-9);
 
             Assert.AreEqual(3, judged[2].CellIndex);
-            Assert.AreEqual(JudgementType.Perfect, judged[2].Type);
-            Assert.AreEqual(300, judged[2].PointsAwarded);
+            Assert.AreEqual(JudgementType.Ok, judged[2].Type);
+            Assert.AreEqual(150, judged[2].PointsAwarded);
             Assert.AreEqual(1, judged[2].ComboAfter);
         }
 
@@ -258,9 +257,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var engine = started(abCd(), spaceSkipsWord: true);
 
-            Assert.IsTrue(engine.ProcessKey('a', 1000)); // Perfect, 300
-            Assert.IsTrue(engine.ProcessKey('b', 1500)); // Perfect, 300 * 1.02 = 306
-            Assert.IsTrue(engine.ProcessKey(' ', 2000)); // ON the gap: Perfect, 300 * 1.04 = 312
+            Assert.IsTrue(engine.ProcessKey('a', 1000)); // Great, 300
+            Assert.IsTrue(engine.ProcessKey('b', 1500)); // Great, 300 * 1.02 = 306
+            Assert.IsTrue(engine.ProcessKey(' ', 2000)); // ON the gap: Great, 300 * 1.04 = 312
 
             var cells = engine.Lines[0].Cells;
             Assert.AreEqual(CellState.Correct, cells[2].State);
@@ -269,7 +268,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var results = engine.BuildResults();
 
             Assert.AreEqual(0, results.Counts[JudgementType.Miss]);
-            Assert.AreEqual(3, results.Counts[JudgementType.Perfect]);
+            Assert.AreEqual(3, results.Counts[JudgementType.Great]);
             Assert.AreEqual(918, results.Score);
             Assert.AreEqual(3, results.MaxCombo); // never broken
         }

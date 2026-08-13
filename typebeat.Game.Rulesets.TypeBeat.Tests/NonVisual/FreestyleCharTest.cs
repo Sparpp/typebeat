@@ -151,7 +151,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual(CellState.Correct, cells[1].State);
             Assert.AreEqual(pressed, cells[1].TypedChar);
-            Assert.AreEqual(0, cells[1].JudgedDelta!.Value); // on target => Perfect
+            Assert.AreEqual(0, cells[1].JudgedDelta!.Value); // on target => Great
             Assert.AreEqual(2, engine.CaretIndex);
             Assert.AreEqual(2, engine.Combo);
             Assert.AreEqual(0, engine.ConsecutiveWrongKeys);
@@ -285,7 +285,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(expected.Accuracy, actual.Accuracy);
             Assert.AreEqual(expected.SyncPercent, actual.SyncPercent);
             Assert.AreEqual(expected.Wpm, actual.Wpm);
-            Assert.AreEqual(expected.Counts[JudgementType.Perfect], actual.Counts[JudgementType.Perfect]);
+            Assert.AreEqual(expected.Counts[JudgementType.Great], actual.Counts[JudgementType.Great]);
         }
 
         [Test]

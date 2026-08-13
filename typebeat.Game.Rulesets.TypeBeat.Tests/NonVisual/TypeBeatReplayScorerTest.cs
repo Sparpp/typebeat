@@ -134,15 +134,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(count(deferred, HitResult.Perfect), Is.EqualTo(13), "twelve cells on line 0 plus one on line 1");
+                Assert.That(count(deferred, HitResult.Great), Is.EqualTo(13), "twelve cells on line 0 plus one on line 1");
                 Assert.That(count(deferred, HitResult.Miss), Is.Zero);
                 Assert.That(deferred.MaxCombo, Is.EqualTo(13));
                 Assert.That(deferred.Rank, Is.EqualTo(ScoreRank.X));
                 Assert.That(deferred.Completion, Is.EqualTo(1));
-                // The accuracy denominator is the judgement's MaxResult, one 300 per cell, and the
-                // top tier is worth exactly that (backlog 133): a play that resolves every cell at
-                // the top still reads exactly 1.0, as it did when the top was a Great.
-                Assert.That(deferred.Accuracy, Is.EqualTo(1.0));
                 Assert.That(deferred.UnconsumedFrames, Is.Zero);
 
                 Assert.That(immediate.Statistics, Is.EqualTo(deferred.Statistics));
@@ -193,12 +189,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(count(deferred, HitResult.Perfect), Is.EqualTo(13));
+                Assert.That(count(deferred, HitResult.Great), Is.EqualTo(13));
                 Assert.That(count(deferred, HitResult.Miss), Is.Zero);
                 Assert.That(deferred.Completion, Is.EqualTo(1));
                 Assert.That(deferred.Rank, Is.EqualTo(ScoreRank.X));
 
-                Assert.That(count(immediate, HitResult.Perfect), Is.EqualTo(12));
+                Assert.That(count(immediate, HitResult.Great), Is.EqualTo(12));
                 Assert.That(count(immediate, HitResult.Miss), Is.EqualTo(1));
                 Assert.That(immediate.Completion, Is.EqualTo(12 / 13.0).Within(1e-9));
                 Assert.That(immediate.Rank, Is.EqualTo(ScoreRank.A));
@@ -319,8 +315,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 // Twelve cells struck clean under both. The thirteenth is the whole difference.
-                Assert.That(count(deferred, HitResult.Perfect), Is.EqualTo(12));
-                Assert.That(count(immediate, HitResult.Perfect), Is.EqualTo(12));
+                Assert.That(count(deferred, HitResult.Great), Is.EqualTo(12));
+                Assert.That(count(immediate, HitResult.Great), Is.EqualTo(12));
 
                 Assert.That(count(deferred, TypeBeatResultMapping.UNFIXED_TYPO), Is.EqualTo(1), "the cell was finished, wrongly");
                 Assert.That(count(deferred, HitResult.Miss), Is.Zero, "and a finished cell is not a miss");
@@ -344,8 +340,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(immediate.Rank, Is.EqualTo(ScoreRank.A));
 
                 // ACCURACY is unmoved by backlog 126: the typo tier is re-weighted to the Meh value
-                // (TypeBeatScoreProcessor.GetBaseScoreForResult), so it is still 12 top-tier cells
-                // plus 50 against a 13-cell maximum of 300 each, i.e. (12*300 + 50) / (13*300). Its stock weight of 200
+                // (TypeBeatScoreProcessor.GetBaseScoreForResult), so it is still 12 Greats plus 50
+                // against a 13-Great maximum, i.e. (12*300 + 50) / (13*300). Its stock weight of 200
                 // would read 3800/3900 instead, i.e. a typo cheaper than a correct-but-late char.
                 Assert.That(deferred.Accuracy, Is.EqualTo(3650 / 3900.0).Within(1e-12));
                 Assert.That(immediate.Accuracy, Is.EqualTo(12 / 13.0).Within(1e-12));
@@ -442,12 +438,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 // notes = great + ok + meh + typo + miss, one per cell, with the mistype apart.
-                Assert.That(count(account, HitResult.Perfect), Is.EqualTo(12));
+                Assert.That(count(account, HitResult.Great), Is.EqualTo(12));
                 Assert.That(count(account, HitResult.Ok), Is.Zero);
                 Assert.That(count(account, HitResult.Meh), Is.Zero);
                 Assert.That(count(account, TypeBeatResultMapping.UNFIXED_TYPO), Is.EqualTo(1));
                 Assert.That(count(account, HitResult.Miss), Is.Zero);
-                Assert.That(account.MaximumStatistics.GetValueOrDefault(HitResult.Perfect), Is.EqualTo(13));
+                Assert.That(account.MaximumStatistics.GetValueOrDefault(HitResult.Great), Is.EqualTo(13));
 
                 // pp counts thirteen notes, none of them a miss, and prices the typo through the
                 // mistype term instead. Twelve would inflate the length term and the combo ratio.
@@ -493,7 +489,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(count(account, TypeBeatResultMapping.UNFIXED_TYPO), Is.EqualTo(13), "every cell finished, wrongly");
-                Assert.That(count(account, HitResult.Perfect), Is.Zero);
+                Assert.That(count(account, HitResult.Great), Is.Zero);
                 Assert.That(count(account, HitResult.Miss), Is.Zero, "nothing was left unfinished");
 
                 // THE assertion backlog 126 exists for.
@@ -535,7 +531,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(count(account, HitResult.Perfect), Is.EqualTo(11));
+                Assert.That(count(account, HitResult.Great), Is.EqualTo(11));
                 Assert.That(count(account, HitResult.Miss), Is.EqualTo(2), "never finished, so misses");
                 Assert.That(count(account, TypeBeatResultMapping.UNFIXED_TYPO), Is.Zero, "and NOT the typo key");
                 Assert.That(account.Mistypes, Is.Zero, "no wrong key was ever pressed");
@@ -572,7 +568,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(count(account, HitResult.Perfect), Is.EqualTo(11), "cells 1..11");
+                Assert.That(count(account, HitResult.Great), Is.EqualTo(11), "cells 1..11");
                 Assert.That(count(account, TypeBeatResultMapping.UNFIXED_TYPO), Is.EqualTo(1), "the typo on cell 0");
                 Assert.That(count(account, HitResult.Miss), Is.EqualTo(1), "line 1, never typed");
 
@@ -613,7 +609,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(deferred.MaxCombo, Is.EqualTo(immediate.MaxCombo));
                 Assert.That(deferred.TotalScore, Is.EqualTo(immediate.TotalScore));
 
-                Assert.That(count(deferred, HitResult.Perfect), Is.EqualTo(13), "the rejection cost no cell");
+                Assert.That(count(deferred, HitResult.Great), Is.EqualTo(13), "the rejection cost no cell");
                 Assert.That(count(deferred, HitResult.Miss), Is.Zero);
                 Assert.That(deferred.Mistypes, Is.EqualTo(1));
                 Assert.That(deferred.MaxCombo, Is.EqualTo(12), "combo broke on the rejected key");
@@ -648,7 +644,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(count(account, HitResult.Perfect), Is.EqualTo(13));
+                Assert.That(count(account, HitResult.Great), Is.EqualTo(13));
                 Assert.That(count(account, HitResult.Miss), Is.Zero);
                 Assert.That(account.Mistypes, Is.EqualTo(1));
             });
@@ -668,64 +664,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(count(account, HitResult.Miss), Is.EqualTo(13));
-                Assert.That(account.MaximumStatistics.GetValueOrDefault(HitResult.Perfect), Is.EqualTo(13));
+                Assert.That(account.MaximumStatistics.GetValueOrDefault(HitResult.Great), Is.EqualTo(13));
                 Assert.That(account.MaxCombo, Is.Zero);
                 Assert.That(account.Completion, Is.Zero);
                 Assert.That(account.Rank, Is.EqualTo(ScoreRank.D));
-            });
-        }
-
-        /// <summary>
-        /// THE RHYTHMIC MOD REACHES THE RE-DERIVED ENGINE (backlog 135). The mod selects the
-        /// millisecond window ladder, and this harness builds its own engine rather than borrowing
-        /// the one the run was played on, so the mod has to be read off the stack here as well as at
-        /// <c>ApplyToDrawableRuleset</c>. If it were not, a stored Rhythmic score would re-derive
-        /// under the character-distance rule it was never played on, silently, because both rules
-        /// produce a perfectly well-formed account.
-        ///
-        /// <para>The map is what makes the two visible at once: line 0's twelve cells are spread
-        /// over 240 seconds, so they sit about 21.8 SECONDS apart, and a press 300 ms late is 0.014
-        /// characters from the playhead (dead-centre Perfect on the character ladder) and 300 ms
-        /// from its target (past the millisecond Perfect row's 200, so Great). The last cell is
-        /// struck dead on target and stays Perfect under both, which is what keeps this a statement
-        /// about the LADDER rather than about the harness.</para>
-        /// </summary>
-        [Test]
-        public void ARhythmicRunReDerivesOnTheMillisecondLadder()
-        {
-            var map = beatmap();
-            var targets = lineZeroTargets(map);
-
-            var frames = new List<TypeBeatReplayFrame> { TypeBeatReplayFrame.CreateConfigFrame(0, true) };
-
-            for (int i = 0; i < word.Length; i++)
-                frames.Add(new TypeBeatReplayFrame(targets[i] + 300, word[i]));
-
-            frames.Add(new TypeBeatReplayFrame(line_zero_end, 'z'));
-
-            var unmodded = score(map, replay(frames), TypoRule.Deferred);
-            var rhythmic = score(map, replay(frames), TypoRule.Deferred, new TypeBeatModRhythmic());
-
-            Assert.Multiple(() =>
-            {
-                // Same replay, same rule, same map: only the ladder differs.
-                Assert.That(count(unmodded, HitResult.Perfect), Is.EqualTo(13), "300 ms is nothing on a 21.8 s character");
-                Assert.That(count(unmodded, HitResult.Great), Is.Zero);
-
-                Assert.That(count(rhythmic, HitResult.Perfect), Is.EqualTo(1), "only the on-target cell of line 1");
-                Assert.That(count(rhythmic, HitResult.Great), Is.EqualTo(12));
-
-                // Nothing else about the account moved: every cell was still typed, in order, and
-                // the run is still unbroken.
-                Assert.That(count(rhythmic, HitResult.Miss), Is.Zero);
-                Assert.That(rhythmic.Mistypes, Is.Zero);
-                Assert.That(rhythmic.MaxCombo, Is.EqualTo(13));
-                Assert.That(rhythmic.Completion, Is.EqualTo(1));
-                Assert.That(rhythmic.UnconsumedFrames, Is.Zero);
-
-                // And it costs what a tier costs: less accuracy, so a lower rank and a lower total.
-                Assert.That(rhythmic.Accuracy, Is.LessThan(unmodded.Accuracy));
-                Assert.That(rhythmic.TotalScoreWithoutMods, Is.LessThan(unmodded.TotalScoreWithoutMods));
             });
         }
 
@@ -735,14 +677,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// denominator would move if a line container ever became accuracy-affecting.
         /// </summary>
         [Test]
-        public void MaximumStatisticsIsOneTopTierResultPerCellPlusAnInertResultPerLine()
+        public void MaximumStatisticsIsOneGreatPerCellPlusAnInertResultPerLine()
         {
             var map = beatmap();
             var account = score(map, replay(new List<TypeBeatReplayFrame>()), TypoRule.Deferred);
 
             Assert.Multiple(() =>
             {
-                Assert.That(account.MaximumStatistics.GetValueOrDefault(HitResult.Perfect), Is.EqualTo(13));
+                Assert.That(account.MaximumStatistics.GetValueOrDefault(HitResult.Great), Is.EqualTo(13));
                 Assert.That(account.MaximumStatistics.GetValueOrDefault(HitResult.IgnoreHit), Is.EqualTo(2));
                 Assert.That(HitResult.IgnoreHit.AffectsAccuracy(), Is.False);
             });

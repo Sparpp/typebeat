@@ -6,10 +6,14 @@ a C#/.NET 8 fork of ppy/osu-framework. `TypeBeat` namespace, `type!beat` product
 There is **no `DESIGN.md`** in this repo, despite what older notes say. Two separate agents have gone
 looking for it. The canonical sources are the code itself:
 
-- **Judgement policy and the window ladders**: `Gameplay/Judgement.cs`, which says in its own header
-  that it is the single tuning point. Since backlog 133 a keypress is graded on CHARACTER DISTANCE
-  from the character the playhead is on, in four tiers; the millisecond ladder is still there and is
-  selected by `TypingEngine.Measure` for backlog 135's Rhythmic mod.
+- **Judgement policy and the window ladder**: `Gameplay/Judgement.cs`, which says in its own header
+  that it is the single tuning point. A keypress is graded on MILLISECONDS between the press and the
+  cell's target time, in three tiers (250/400, 600/1000, 1200/2000 at Line granularity). Backlog 133
+  replaced that with a four-tier character-distance ladder and backlog 147 reverted the whole arc, so
+  a note dated between the two describing a character axis, a `SyncMeasure`, a fourth `Perfect` tier
+  or a Rhythmic mod is describing code that no longer exists. What backlog 133 left behind on
+  purpose: `JudgementType`'s tiers are named `Great`/`Ok`/`Meh` for the osu results they map to, so
+  `TypeBeatResultMapping.CellResult` is the identity and "Perfect" no longer means two things.
 - **The timing schema** (per-character target times, syllable subdivision, space cells):
   `Gameplay/TypingLine.cs`, `FromLyricLine`.
 - **How a judgement becomes a stored osu result**: `Scoring/TypeBeatResultMapping.cs`, which also

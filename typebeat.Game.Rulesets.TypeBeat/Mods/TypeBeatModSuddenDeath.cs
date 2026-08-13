@@ -14,7 +14,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// <list type="bullet">
     /// <item>The inherited fail condition covers the CELLS: anything reaching the health processor
     /// as <c>HitResult.Miss</c>, i.e. a character the line ran out of time on and a right character
-    /// struck outside the Ok window.</item>
+    /// struck outside the Meh window.</item>
     /// <item>The subscription below covers the KEYPRESSES, which raise no judgement result in
     /// EITHER input model. Under <see cref="TypeBeatModGatekeeper"/> a wrong key is rejected and
     /// never had one; in default play (backlog 109) a typed-through wrong char DEFERS its cell's
