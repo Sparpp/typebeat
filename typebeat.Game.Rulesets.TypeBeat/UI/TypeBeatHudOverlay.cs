@@ -63,6 +63,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// A FAILED play is deliberately NOT in that list. Failing is not knowable in advance, the
         /// counter's contract is "what this play is worth if it ends right here", and a run that
         /// still might be no-failed or recovered should keep showing what it is building.
+        ///
+        /// <para>SO THE COUNTER DOES NOT MOVE ON A SPOTLESS RUN, and that is correct rather than
+        /// broken (backlog 152, backlog 154). Since length pricing left pp for the star rating, a
+        /// play with no misses, no typos and an unbroken combo is worth
+        /// <c>scale · SR^2 · acc^1.8</c> exactly, and the note count appears in none of those: it
+        /// survives only under the two penalty terms, the combo ratio and Flashlight's bonus, all
+        /// of which sit at 1.0 on a clean play. A perfect run therefore reads its final value from
+        /// the first character and holds it, which is precisely "what this play is worth if it ends
+        /// right here". Before backlog 152 the deleted length factor climbed from 0.1 to about 1.35
+        /// across a 500-cell map and was the ONLY thing animating this readout. Any mistake puts the
+        /// count back into the arithmetic through the penalty denominators and it moves again.</para>
         /// </summary>
         private double? starRating;
 
