@@ -127,11 +127,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var results = engine.BuildResults();
 
             Assert.AreEqual(2, results.Counts[JudgementType.Miss]);
-            // The gap's delta is 2600 - 3000 = -400: inside OkEarly (600), outside GreatEarly (250).
-            Assert.AreEqual(1, results.Counts[JudgementType.Ok]);
-            Assert.AreEqual(1, results.Counts[JudgementType.Great]);
-            // 300 ('c') + 150 (the space, at combo 0 after the break => x1.00).
-            Assert.AreEqual(450, results.Score);
+            // The gap's delta is 2600 - 3000 = -400, which the OLD millisecond ladder graded Ok
+            // (inside OkEarly 600, outside GreatEarly 250). Since backlog 148 the spacebar is out of
+            // the timing challenge, so the space on the gap is judged as though it landed on target:
+            // Great, whatever the clock said. The skip's own cost is untouched, the two abandoned
+            // cells and the one combo break below.
+            Assert.AreEqual(0, results.Counts[JudgementType.Ok]);
+            Assert.AreEqual(2, results.Counts[JudgementType.Great]);
+            // 300 ('c') + 300 (the space, at combo 0 after the break => x1.00).
+            Assert.AreEqual(600, results.Score);
             // The skip itself is not a keypress, so both presses that WERE judged were correct.
             Assert.AreEqual(1.0, results.Accuracy);
             Assert.AreEqual(1, results.MaxCombo); // 'c' made it 1, the skip broke it, the space rebuilt it to 1
@@ -176,8 +180,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(2600 - t_target, judged[1].Delta, 1e-9);
 
             Assert.AreEqual(3, judged[2].CellIndex);
-            Assert.AreEqual(JudgementType.Ok, judged[2].Type);
-            Assert.AreEqual(150, judged[2].PointsAwarded);
+            // The gap took an untimed space (backlog 148): top tier, and the delta it is announced
+            // with is the zeroed one it was judged on, not 2600 - 3000.
+            Assert.AreEqual(JudgementType.Great, judged[2].Type);
+            Assert.AreEqual(0, judged[2].Delta, 1e-9);
+            Assert.AreEqual(300, judged[2].PointsAwarded);
             Assert.AreEqual(1, judged[2].ComboAfter);
         }
 

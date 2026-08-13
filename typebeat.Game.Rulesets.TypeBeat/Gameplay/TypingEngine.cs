@@ -200,7 +200,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
         }
 
-        /// <summary>Mean sync quality (x100) over cells resolved so far (judged correct + sealed); 100 before anything resolves.</summary>
+        /// <summary>
+        /// Mean sync quality (x100) over TIMED cells resolved so far (judged correct + sealed); 100
+        /// before anything resolves. SPACE cells are excluded from both halves of the mean since
+        /// backlog 148: an untimed space is judged on a zeroed delta, so counting it would hand back
+        /// a full 1.0 quality it never earned and lift this readout (and the grade the results
+        /// screen computes from its final form) for free. Out of the numerator AND the denominator,
+        /// so a space neither helps nor hurts, which is the same treatment the sync timeline gives
+        /// it (see <see cref="ProcessKey"/>).
+        /// </summary>
         public double LiveSyncPercent
         {
             get
@@ -212,7 +220,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 {
                     foreach (var cell in lines[i].Cells)
                     {
-                        if (!cell.IsTypeable)
+                        if (!isTimed(cell))
                             continue;
 
                         if (cell.State == CellState.Correct && cell.JudgedDelta is double d)
@@ -467,6 +475,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         private readonly int totalTypeableCells;
 
+        /// <summary>
+        /// The same total with SPACE cells taken out: the denominator of both sync readouts since
+        /// backlog 148 took the spacebar out of the timing challenge. Kept as its own field rather
+        /// than subtracted at the call sites, because <see cref="totalTypeableCells"/> is the
+        /// COMPLETION denominator (every character of the map the player owes, spaces included) and
+        /// the two must not be confused. Counted here and not derived from
+        /// <see cref="countableTargets"/>, whose length happens to equal it today: that array is the
+        /// Fletcher rush cap's currency, and tying the sync readout to it would make one a silent
+        /// constraint on the other.
+        /// </summary>
+        private readonly int totalTimedCells;
+
         // --- Countable-character stream (Fletcher). The whole map read as one run of COUNTABLE
         // cells (typeable and not a space), which is the currency the rush cap measures in.
         // countableTargets: every countable cell's target time, sorted ascending, so the playhead's
@@ -528,7 +548,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             lineSealed = new bool[lines.Count];
 
             foreach (var line in lines)
+            {
                 totalTypeableCells += line.TypeableCount;
+
+                foreach (var cell in line.Cells)
+                {
+                    if (isTimed(cell))
+                        totalTimedCells++;
+                }
+            }
 
             foreach (JudgementType type in Enum.GetValues<JudgementType>())
                 counts[type] = 0;
@@ -846,6 +874,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// Process a lowercased char from KeyCharMap at gameplay time <paramref name="time"/>.
         /// Returns false when inert (no active line / line complete / finished).
         /// A space pressed inside a word abandons it under <see cref="SpaceSkipsWord"/> (off by default).
+        /// A space typed ON a space cell is UNTIMED (backlog 148): it is judged as though it landed on
+        /// target, so it always takes the top tier and never breaks combo, however loosely it was hit.
         /// A wrong char is TYPED THROUGH by default (<see cref="AllowWrongInput"/>), or REJECTED
         /// under Gatekeeper. Either way it breaks combo, counts as a mistype, stays in the accuracy
         /// denominator forever, and resolves NO cell against the score processor; only the rejection
@@ -998,6 +1028,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             consecutiveWrongKeys = 0;
 
+            // SPACES ARE UNTIMED (backlog 148). Reaching here on a space CELL means a SPACE was
+            // typed on it: Fold is only ToLowerInvariant, so nothing but ' ' folds onto ' ', a
+            // freestyle cell refuses space outright, and under Mashing the press was already
+            // rewritten to the cell's expected char, which is the space it stood for anyway. The
+            // spacebar is deliberately outside the timing challenge (the word gap is where a
+            // typist's hands reset, not a note to hit), so the press is judged as though it landed
+            // dead on the cell's target: top tier whatever the clock said, and never one of the two
+            // zero-point tiers that break combo.
+            //
+            // Written as a ZEROED DELTA rather than as a forced JudgementType so every reader of
+            // this press agrees with the judgement it was handed: the ladder below (Classify(0) is
+            // Great, the top tier since backlog 147 dropped Perfect), the sync tint (which reads
+            // JudgedDelta back, see LyricLineDisplay), LiveSyncPercent and the results SyncPercent
+            // (both average SyncQuality over that same field), and the inert retype, which
+            // re-classifies the stored FirstCorrectDelta. Forcing only the tier would leave a space
+            // graded Great while its real delta still dragged down the sync readout the final grade
+            // is computed from, which is the same timing hazard wearing a different hat.
+            //
+            // Scoped to the CELL and not to the KEY, which is what keeps the three ways a space can
+            // be pressed apart. A space that lands on a LYRIC character never reaches here: with
+            // SpaceSkipsWord off it is rejected above (combo break, mistype, and the
+            // consecutive-wrong-key streak that fails a masher at 13), and with it on it was
+            // consumed by the word skip, which misses the abandoned cells and takes its one combo
+            // break before the caret ever reaches the gap. And an untimed space is not a FREE one:
+            // a space cell nobody pressed is still a character of the map left untyped, and seals a
+            // Miss alongside every other one (the seal loop in Update tests IsTypeable, which a
+            // space cell is; only IsCountable excludes it).
+            bool untimedSpace = cell.Expected == ' ';
+
+            if (untimedSpace)
+                delta = 0;
+
             // COMBO RESTORE (backlog 140), before anything about this press is judged: if this is
             // the correction of the cell a wrong keypress spoiled, the run resumes at the streak
             // that keypress broke plus everything earned since. Placed here so the press below is
@@ -1080,8 +1142,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 cell.JudgedDelta = delta;
                 cell.FirstCorrectDelta = delta; // the one awarded judgement; retypes are inert.
 
-                // SyncTimeline records every AWARDED correct-char judgement, incl. Premature/Lagging.
-                syncTimeline.Add(new SyncSample(time, delta));
+                // SyncTimeline records every AWARDED correct-char judgement, incl. Premature/
+                // Lagging, and since backlog 148 EXCEPT an untimed space. This series is offset and
+                // sync ANALYSIS: a record of where the player's hands sit against the map. A space
+                // no longer measures that. Its delta is 0 by RULE rather than by observation, so
+                // keeping it adds a sample that saw nothing and pulls the mean toward zero, and
+                // keeping the true delta instead would be worse still, because a player told the
+                // spacebar does not matter will type it loosely on purpose and every word gap in
+                // the map would then widen the spread. Fewer honest samples beat more polluted
+                // ones, and the lyric characters (which the player is still timing) are the whole
+                // of what the analysis is about.
+                if (!untimedSpace)
+                    syncTimeline.Add(new SyncSample(time, delta));
 
                 counts[type]++;
             }
@@ -1263,6 +1335,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private static SyncWindows windowsFor(TypingCell cell) => SyncWindows.For(cell.JudgeGranularity);
 
         /// <summary>
+        /// Whether a cell's timing is part of the challenge, and so whether its delta means anything:
+        /// every typeable cell EXCEPT a space, which backlog 148 judges on a zeroed delta. This is
+        /// the sync readouts' filter, on both the numerator and the denominator. Identical in effect
+        /// to <see cref="TypingCell.IsCountable"/> today, and deliberately not written as it: that
+        /// property is the Fletcher rush cap's currency ("how much budget does pressing this spend"),
+        /// and one answering the other by coincidence is not a reason to make either the definition
+        /// of the other.
+        /// </summary>
+        private static bool isTimed(TypingCell cell) => cell.IsTypeable && cell.Expected != ' ';
+
+        /// <summary>
         /// Erase the most recent typed cell within the active line, stepping back transparently
         /// over AutoSkipped punctuation (which is un-skipped so retyping re-marks it).
         /// Returns false if nothing to erase. The erased keypress stays in the accuracy counts.
@@ -1323,20 +1406,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         public ResultsSummary BuildResults()
         {
-            // SyncPercent over ALL typeable cells: finally-Correct cells contribute
-            // SyncQuality(final correct delta); everything else (Missed / Wrong / unresolved) is 0.
+            // SyncPercent over every TIMED cell: finally-Correct cells contribute SyncQuality(final
+            // correct delta); everything else (Missed / Wrong / unresolved) is 0. SPACE cells are
+            // out of both the sum and the divisor since backlog 148, for the reason on
+            // LiveSyncPercent: their delta is zeroed by rule, so leaving them in would pay a full
+            // quality per word gap for nothing and lift the Grade thresholds' input (a map runs
+            // roughly one space in six typeable cells, which is enough to carry a 90 to an S).
             double qualitySum = 0;
 
             foreach (var line in lines)
             {
                 foreach (var cell in line.Cells)
                 {
-                    if (cell.IsTypeable && cell.State == CellState.Correct && cell.JudgedDelta is double d)
+                    if (isTimed(cell) && cell.State == CellState.Correct && cell.JudgedDelta is double d)
                         qualitySum += windowsFor(cell).SyncQuality(d);
                 }
             }
 
-            double syncPercent = totalTypeableCells == 0 ? 100 : 100 * qualitySum / totalTypeableCells;
+            double syncPercent = totalTimedCells == 0 ? 100 : 100 * qualitySum / totalTimedCells;
 
             double wpm = activeRealTimeMs <= 0 ? 0 : (countCorrectCells() / 5.0) / (activeRealTimeMs / 60000.0);
 
