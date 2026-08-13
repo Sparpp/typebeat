@@ -98,7 +98,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("engine judges in character distances", () => engine.Measure == SyncMeasure.CharacterDistance);
             AddAssert("the character windows are live", () =>
                 engine.Windows.Measure == SyncMeasure.CharacterDistance
-                && engine.Windows.PerfectLate == 2.00);
+                && engine.Windows.PerfectLate == 4.00);
         }
     }
 }

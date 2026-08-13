@@ -238,8 +238,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, typing.CaretCountablePosition);
 
             // Presses 1..6 at t = 1000 put the caret 0, 1, 2, 3, 4 and 5 chars ahead: all inside the
-            // cap, and all still inside the judgement windows (5 characters early is the Ok edge at
-            // Line granularity), so the combo climbs to 6 untouched.
+            // cap, and all still inside the judgement windows (5 characters early is the Great edge
+            // at Line granularity since backlog 146), so the combo climbs to 6 untouched.
             for (int i = 0; i < 6; i++)
                 Assert.IsTrue(typing.ProcessKey(dense_chars[i], 1000));
 
@@ -248,21 +248,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, comboBreaks);
 
             // The 7th press ('g', target 1600) would sit 6 chars ahead: over the cap. The char still
-            // lands, is still judged (6 characters early is inside the Meh window, which reaches 10)
-            // and still scores at the pre-break multiplier, 50 * (1 + 6/50) = 56, but the combo goes.
-            // The rush cap and the judgement windows are deliberately different rules here: the cap
-            // bites at 6 characters, the windows only at 10.
+            // lands, is still judged (6 characters early is inside the Ok window, which reaches 10)
+            // and still scores at the pre-break multiplier, 100 * (1 + 6/50) = 112, but the combo
+            // goes. The rush cap and the judgement windows are deliberately different rules here: the
+            // cap bites at 6 characters, the windows only at 20 (backlog 146 doubled that, which
+            // widens the gap between the two rules rather than changing which one fires).
             long scoreBefore = typing.Score;
             Assert.IsTrue(typing.ProcessKey('g', 1000));
             Assert.AreEqual(CellState.Correct, typing.Lines[0].Cells[6].State);
             Assert.AreEqual(-600, typing.Lines[0].Cells[6].JudgedDelta);
             Assert.AreEqual(-6, typing.Lines[0].Cells[6].JudgedOffset);
-            Assert.AreEqual(56, typing.Score - scoreBefore);
+            Assert.AreEqual(112, typing.Score - scoreBefore);
             Assert.AreEqual(0, typing.Combo);
             Assert.AreEqual(6, typing.MaxCombo, "the over-cap press must not extend max combo");
             Assert.AreEqual(1, comboBreaks);
 
-            // Still out past the cap: the press lands and scores (Meh, 50 at 1.0x) but there is no
+            // Still out past the cap: the press lands and scores (Ok, 100 at 1.0x) but there is no
             // combo left to break, so no second event fires.
             Assert.IsTrue(typing.ProcessKey('h', 1000));
             Assert.AreEqual(7, typing.CharsAheadOfPlayhead(1000));
@@ -383,15 +384,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, typing.NextUnsealedLineIndex, "the song is still on line 0");
             Assert.AreEqual(0, typing.CaretIndex);
 
-            // 'c' at 1600 against a 10000 target: accepted, judged Premature on a -8400 delta, 0
-            // points, combo broken by the CLOCK. The rush cap is not what fires here: the caret is
-            // level with the playhead (both at 2 countable chars) and the press puts it 1 ahead.
+            // 'c' at 1600 against a 10000 target: accepted, and judged on line 1's own character
+            // axis. That line's two cells are 500 ms apart, so 1600 is (1600-10000)/500 = 16.8
+            // characters AHEAD of its playhead.
+            //
+            // PREMISE CHANGE (backlog 146). 16.8 early used to be past MehEarly (10), so this press
+            // was Premature, scored 0, and the CLOCK broke the combo. MehEarly is 20 now, so the same
+            // press is a Meh worth round(50 * (1 + 2/50)) = 52 and the combo survives. Within this
+            // fixture the clock can no longer break a Fletcher dead-zone combo at all: it would take
+            // a press more than 20 * 500 = 10000 ms before the line's first target, which is earlier
+            // than the map starts. The rush cap is still not what fires: the caret is level with the
+            // playhead (both at 2 countable chars) and the press puts it 1 ahead.
             Assert.AreEqual(0, typing.CharsAheadOfPlayhead(1600));
             Assert.IsTrue(typing.ProcessKey('c', 1600));
             Assert.AreEqual(CellState.Correct, typing.Lines[1].Cells[0].State);
             Assert.AreEqual(-8400, typing.Lines[1].Cells[0].JudgedDelta);
-            Assert.AreEqual(0, typing.Combo);
-            Assert.AreEqual(1, typing.BuildResults().Counts[JudgementType.Premature]);
+            Assert.AreEqual(3, typing.Combo);
+            Assert.AreEqual(0, typing.BuildResults().Counts[JudgementType.Premature]);
+            Assert.AreEqual(1, typing.BuildResults().Counts[JudgementType.Meh]);
 
             // Line 0 seals on its own normal deadline, with nothing missed: rushing moved the player,
             // not the song.

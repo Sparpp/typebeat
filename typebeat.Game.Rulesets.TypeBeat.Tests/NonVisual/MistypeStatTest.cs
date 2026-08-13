@@ -139,10 +139,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             engine.Mistyped += () => mistypes++;
 
             engine.Update(3200);
-            // The line's five characters span 1000..2500, i.e. 375 ms apart, so the playhead at 7100
-            // sits at 4 + 4600/375 = 16.27 characters: one notch past the Line MehLate of 16. A press
-            // is judged on the time it is handed, so no further Update is needed to reach it.
-            Assert.That(engine.ProcessKey('a', 7100), Is.True);
+            // The line's five characters span 1000..2500, i.e. 375 ms apart, so the playhead at 13375
+            // sits at 4 + 10875/375 = 33.0 characters: one character past the Line MehLate of 32. A
+            // press is judged on the time it is handed, so no further Update is needed to reach it.
+            Assert.That(engine.ProcessKey('a', 13375), Is.True);
 
             Assert.Multiple(() =>
             {

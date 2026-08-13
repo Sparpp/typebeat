@@ -94,14 +94,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         // character targets are already interpolated (TypingLine.FromLyricLine), so "characters
         // behind the playhead" and "milliseconds off target" were always the same axis, and this
         // rescales it to the map's own pace rather than measuring something new.
-        private const double base_perfect_early = 1.25;
-        private const double base_perfect_late = 2.00;
-        private const double base_great_early = 2.50;
-        private const double base_great_late = 4.00;
-        private const double base_ok_early = 5.00;
-        private const double base_ok_late = 8.00;
-        private const double base_meh_early = 10.00;
-        private const double base_meh_late = 16.00;
+        //
+        // Backlog 146 moved every band UP ONE: 133's ladder demanded the exact character for a
+        // Perfect and was too strict, so each tier took the window of the tier outside it, which in
+        // a doubling ladder is exactly a factor of two on all eight constants. The 1.6x late bias
+        // and the doubling structure survive unchanged, which is the point of retuning it this way
+        // rather than adding a flat character to each bound. At the granularities real maps use the
+        // top band is now about a character either side of the playhead: -1.125 to +1.8 at Syllable
+        // and -1.5 to +2.4 at Word, so -1, 0 and +1 all read as Perfect.
+        private const double base_perfect_early = 2.50;
+        private const double base_perfect_late = 4.00;
+        private const double base_great_early = 5.00;
+        private const double base_great_late = 8.00;
+        private const double base_ok_early = 10.00;
+        private const double base_ok_late = 16.00;
+        private const double base_meh_early = 20.00;
+        private const double base_meh_late = 32.00;
 
         // MILLISECONDS (backlog 135's Rhythmic mod). The Great/Ok/Meh rows are EXACTLY the windows
         // this game judged in up to backlog 133 (they were then called Perfect/Good/Ok and mapped

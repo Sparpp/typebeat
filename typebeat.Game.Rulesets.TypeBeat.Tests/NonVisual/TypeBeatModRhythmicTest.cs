@@ -199,7 +199,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// millisecond one. The 'a' cell's target is 1000, so 1300 is 300 ms late (past the
         /// millisecond Perfect row's 200) and 2500 is 1500 ms late (past the Ok row's 1000), while
         /// on the character axis they are 0.3 and 1.5 characters out, both inside the Perfect row's
-        /// 2.00.
+        /// 4.00.
         ///
         /// <para>The DELTA the event carries is milliseconds under either measure, deliberately: it
         /// is the honest read-out of when the press happened, and a timing display wants it whatever
@@ -256,10 +256,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual(SyncMeasure.CharacterDistance, engine.Measure);
             Assert.AreEqual(SyncMeasure.CharacterDistance, engine.Windows.Measure);
-            Assert.AreEqual(1.25, engine.Windows.PerfectEarly, 1e-12);
+            Assert.AreEqual(2.50, engine.Windows.PerfectEarly, 1e-12);
 
             engine.Measure = SyncMeasure.Milliseconds;
 
+            // The MILLISECOND ladder is frozen and backlog 146 did not touch it: the mod exists to
+            // reproduce the pre-133 timing judgement byte for byte, so widening it would make
+            // Rhythmic a different game rather than the old one.
             Assert.AreEqual(SyncMeasure.Milliseconds, engine.Windows.Measure);
             Assert.AreEqual(125, engine.Windows.PerfectEarly, 1e-12);
         }
