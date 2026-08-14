@@ -10,15 +10,18 @@ using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Localisation;
+using osu.Framework.Screens;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Notifications;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Screens;
 using typebeat.Game.Screens.Edit;
 using typebeat.Game.Screens.Edit.Setup;
 using typebeat.Game.Screens.ImportLyrics;
+using typebeat.Game.Screens.Menu;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
@@ -43,8 +46,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         [Resolved]
         private EditorClock editorClock { get; set; } = null!;
 
+        [Resolved(CanBeNull = true)]
+        private Editor? editor { get; set; }
+
+        [Resolved(CanBeNull = true)]
+        private IPerformFromScreenRunner? performer { get; set; }
+
         private FormNumberBox beatdropBox = null!;
         private FormNumberBox offsetBox = null!;
+        private FormButton demoButton = null!;
         private FormFileSelector lyricsSelector = null!;
 
         [BackgroundDependencyLoader]
@@ -63,6 +73,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     Caption = "Stamp the beatdrop at the editor's current playhead position",
                     ButtonText = "Set @ playhead",
                     Action = () => Beatmap.IntroBeatdrop.Value = Math.Round(editorClock.CurrentTime),
+                },
+                demoButton = new FormButton
+                {
+                    Caption = IntroBeatdropDemo.CAPTION,
+                    ButtonText = "Demo the beatdrop",
+                    Action = requestBeatdropDemo,
                 },
                 offsetBox = new FormNumberBox(allowDecimals: true)
                 {
@@ -96,8 +112,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             base.LoadComplete();
 
-            Beatmap.IntroBeatdrop.BindValueChanged(
-                drop => beatdropBox.Current.Value = drop.NewValue is double d ? d.ToString("0", CultureInfo.InvariantCulture) : string.Empty, true);
+            Beatmap.IntroBeatdrop.BindValueChanged(drop =>
+            {
+                beatdropBox.Current.Value = drop.NewValue is double d ? d.ToString("0", CultureInfo.InvariantCulture) : string.Empty;
+
+                // With no beatdrop there is nothing to demo, so the button says so in place of its normal
+                // caption and goes dead, rather than playing an intro on some fallback the user would hear
+                // as their own map's.
+                demoButton.Caption = IntroBeatdropDemo.CaptionFor(drop.NewValue);
+                demoButton.Enabled.Value = IntroBeatdropDemo.CanDemo(drop.NewValue);
+            }, true);
+        }
+
+        /// <summary>
+        /// Replays the game startup intro on this map's beatdrop. Playing it takes the user out of the editor
+        /// and leaves them on the main menu the way a real startup does, so the standard save prompt is raised
+        /// first and nothing moves until it is answered.
+        /// </summary>
+        private void requestBeatdropDemo() => IntroBeatdropDemo.Request(Beatmap.IntroBeatdrop.Value, promptToSave, playBeatdropDemo);
+
+        private void promptToSave(Action confirmed)
+        {
+            // The editor is only absent in visual tests, where there is nothing to save.
+            if (editor == null)
+                confirmed();
+            else
+                editor.PromptToSaveThenExit(confirmed);
+        }
+
+        private void playBeatdropDemo(double dropTime)
+        {
+            if (performer == null)
+            {
+                notify("The game intro isn't reachable from here.");
+                return;
+            }
+
+            var demo = new IntroBeatdropDemo(working.Value.BeatmapInfo, dropTime);
+
+            // The editor is on its way out by now; wait for the menu to actually be current, then run the
+            // intro over it. The intro reveals the menu it was pushed over rather than pushing a fresh one,
+            // so the user is left where a real startup leaves them and the screen stack keeps its shape.
+            performer.PerformFromScreen(menu => menu.Push(IntroScreen.CreateDemo(demo)), new[] { typeof(MainMenu) });
         }
 
         private void commitBeatdrop()

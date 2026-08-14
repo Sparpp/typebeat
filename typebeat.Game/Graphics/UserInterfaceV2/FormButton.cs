@@ -23,10 +23,23 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
 {
     public partial class FormButton : CompositeDrawable
     {
+        private LocalisableString caption;
+
         /// <summary>
-        /// Caption describing this button, displayed on the left of it.
+        /// Caption describing this button, displayed on the left of it. Settable after load, for buttons whose
+        /// caption depends on state (see the type!beat setup section's beatdrop demo).
         /// </summary>
-        public LocalisableString Caption { get; init; }
+        public LocalisableString Caption
+        {
+            get => caption;
+            set
+            {
+                caption = value;
+
+                if (text != null)
+                    text.Text = value;
+            }
+        }
 
         /// <summary>
         /// Sets text inside the button.

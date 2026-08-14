@@ -931,6 +931,51 @@ namespace typebeat.Game.Screens.Edit
             this.Exit();
         }
 
+        /// <summary>
+        /// Leaves the editor and then runs <paramref name="onExited"/>, going through the same
+        /// "did you want to save your changes?" prompt (<see cref="PromptForSaveDialog"/>) that exiting the
+        /// editor normally raises. For actions which take the user out of the editor without being an exit in
+        /// their own right; currently the setup screen's beatdrop demo, which replays the game intro.
+        /// </summary>
+        /// <remarks>
+        /// The prompt comes first and nothing moves until the user has committed to leaving: cancelling it, or
+        /// a save that fails, leaves the editor exactly as it was and never runs <paramref name="onExited"/>.
+        /// </remarks>
+        public void PromptToSaveThenExit([NotNull] Action onExited)
+        {
+            if (ExitConfirmed)
+                return;
+
+            // As in OnExiting: an already-open prompt owns the decision.
+            if (dialogOverlay?.CurrentDialog is PromptForSaveDialog saveDialog)
+            {
+                saveDialog.Flash();
+                return;
+            }
+
+            // ...and there is nothing to ask about when there is nothing unsaved.
+            if (dialogOverlay == null || !(isNewBeatmap || HasUnsavedChanges))
+            {
+                exitThen(confirmExit, onExited);
+                return;
+            }
+
+            updateSampleDisabledState();
+            dialogOverlay.Push(new PromptForSaveDialog(
+                () => exitThen(confirmExit, onExited),
+                () => exitThen(confirmExitWithSave, onExited),
+                cancelExit));
+        }
+
+        private void exitThen(Action exit, Action onExited)
+        {
+            exit();
+
+            // confirmExitWithSave bails out without exiting when the save fails.
+            if (ExitConfirmed)
+                onExited();
+        }
+
         #region Clipboard support
 
         private EditorMenuItem cutMenuItem;
