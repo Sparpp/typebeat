@@ -237,7 +237,12 @@ namespace typebeat.Game.Screens.Menu
 
             if (resuming)
             {
-                Buttons.State = ButtonSystemState.TopLevel;
+                // A startup intro pushes the menu and stays below it, so an intro exiting back INTO the menu
+                // only ever happens for an editor beatdrop demo (IntroBeatdropDemo). Land where a real
+                // startup leaves the user, on the centred logo, rather than on the expanded button list a
+                // normal resume returns to.
+                Buttons.State = resumingFromIntro ? ButtonSystemState.Initial : ButtonSystemState.TopLevel;
+                resumingFromIntro = false;
 
                 this.FadeIn(FADE_IN_DURATION, Easing.OutQuint);
                 buttonsContainer.MoveTo(new Vector2(0, 0), FADE_IN_DURATION, Easing.OutQuint);
@@ -311,13 +316,25 @@ namespace typebeat.Game.Screens.Menu
             samplePlaybackDisabled.Value = true;
         }
 
+        /// <summary>
+        /// Whether this resume is the tail of an editor beatdrop demo, consumed by the next
+        /// <see cref="LogoArriving"/>. See the note there for why an intro screen exiting into the menu
+        /// identifies a demo.
+        /// </summary>
+        private bool resumingFromIntro;
+
         public override void OnResuming(ScreenTransitionEvent e)
         {
+            resumingFromIntro = e.Last is IntroScreen;
+
             base.OnResuming(e);
 
             // Ensures any playing `ButtonSystem` samples are stopped when returning to MainMenu (as to not overlap with the 'back' sample)
             Buttons.StopSamplePlayback();
-            reappearSampleSwoosh?.Play();
+
+            // The swoosh reads as "you went back"; arriving off an intro is an arrival, and a startup does not play it.
+            if (!resumingFromIntro)
+                reappearSampleSwoosh?.Play();
 
             ApplyToBackground(b => (b as BackgroundScreenDefault)?.Next());
 

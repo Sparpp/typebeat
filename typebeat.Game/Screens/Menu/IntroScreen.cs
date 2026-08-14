@@ -99,6 +99,23 @@ namespace typebeat.Game.Screens.Menu
             this.createNextScreen = createNextScreen;
         }
 
+        /// <summary>
+        /// Set (before the screen is loaded) to run this intro as an editor beatdrop demo rather than as the
+        /// game's startup intro: it is soundtracked by the requested map at the requested timestamp instead
+        /// of by a pick from the intro pool, and at the menu reveal it exits back into the menu it was pushed
+        /// over instead of pushing a new one. Null for a real startup.
+        /// </summary>
+        [CanBeNull]
+        public IntroBeatdropDemo Demo { get; init; }
+
+        /// <summary>
+        /// Creates the intro screen to run a beatdrop demo on. Deliberately not the user's configured intro
+        /// sequence: <see cref="IntroTriangles"/> is the only one that times the track so the beatdrop lands on
+        /// the menu reveal (<see cref="StartBeatdropTrack"/>), the others just start the chosen map from its
+        /// preview point, so it is the only one that has a beatdrop to demo at all.
+        /// </summary>
+        public static IntroScreen CreateDemo(IntroBeatdropDemo demo) => new IntroTriangles { Demo = demo };
+
         [Resolved]
         private BeatmapManager beatmaps { get; set; }
 
@@ -119,11 +136,32 @@ namespace typebeat.Game.Screens.Menu
             else
                 seeya = audio.Samples.Get(SeeyaSampleName);
 
+            // A beatdrop demo names its own soundtrack: the map being edited, at the timestamp being
+            // edited. Intro pool membership (BeatmapUserSettings.IntroPoolInclusion, the song select "Use on
+            // game intro" toggle) is neither read nor written here, because the point is to preview the map
+            // in front of you whether or not it has been opted in. The anti-repeat history is likewise left
+            // alone: a demo is not a real intro appearance and must not steer future ones. The MenuMusic
+            // setting is ignored too, since a silent beatdrop demo would have nothing to demo.
+            if (Demo != null)
+            {
+                var demoBeatmap = beatmaps.GetWorkingBeatmap(Demo.BeatmapInfo);
+
+                // Only reachable if the map was destroyed between requesting the demo and arriving here
+                // (discarding a brand new beatmap deletes it). Running silent is better than pretending.
+                if (demoBeatmap is DummyWorkingBeatmap)
+                    Logger.Log("Beatdrop demo target is no longer available; the intro will run silent.");
+                else
+                {
+                    initialBeatmap = demoBeatmap;
+                    beatdropTime = Demo.DropTime;
+                    Logger.Log($"Intro beatdrop demo: {initialBeatmap.Metadata.Artist} - {initialBeatmap.Metadata.Title} (drop at {beatdropTime:0}ms)");
+                }
+            }
             // The intro is soundtracked by a random user beatmap from the intro pool (by default the
             // maps that declare an intro beatdrop, see IntroBeatdropPool): subclasses start the track
             // so the drop lands exactly on the menu reveal. No candidates (or menu music disabled)
             // -> silent intro.
-            if (MenuMusic.Value)
+            else if (MenuMusic.Value)
             {
                 var recentlyPlayed = readBeatdropHistory();
                 Guid selectedSetId = Guid.Empty;
@@ -451,8 +489,19 @@ namespace typebeat.Game.Screens.Menu
             beatmap.Return();
 
             DidLoadMenu = true;
+
             if (nextScreen != null)
+            {
                 this.Push(nextScreen);
+                return;
+            }
+
+            // A beatdrop demo is pushed over the menu it is going to reveal rather than being handed a menu
+            // to push, so at the reveal it exits back into the one it came from. That leaves the screen stack
+            // exactly the shape it was before the demo, instead of stacking a second menu (and a second
+            // intro) on top of the startup pair the game's exit path relies on.
+            if (Demo != null)
+                this.Exit();
         }
     }
 }
