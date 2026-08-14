@@ -15,7 +15,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// website's <c>docs/pp.md</c>; every constant below is pinned there and must not drift.
     ///
     /// <code>
-    /// pp = 9.6 · SR_eff^2.00
+    /// pp = 12.4 · SR_eff^2.00
     ///      · max(0, 1 − miss^1.2/notes)^10                   cleanliness
     ///      · max(0, 1 − typos^1.2/(notes+typos))^4           typos
     ///      · acc^1.80                                        timing quality
@@ -298,13 +298,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// which is the intended reordering; the uniform part of that deflation is to be taken out
         /// by re-anchoring scale separately. notes stays, for both penalty terms, the combo ratio
         /// and Flashlight.</item>
+        /// <item>v17 = Global scale 9.6 to 12.4, a uniform rescale that holds the median ranked player's
+        /// total pp flat across backlog 152.</item>
         /// </list>
         /// </summary>
-        public const int VERSION = 16;
+        public const int VERSION = 17;
 
         // ---- formula constants (docs/pp.md) ----
 
-        private const double scale = 9.6;              // C: global scale, does not affect ranking order
+        private const double scale = 12.4;              // C: global scale, does not affect ranking order
         private const double sr_exponent = 2.00;
         private const double miss_exponent = 10.0;
         private const double typo_exponent = 4.0;
