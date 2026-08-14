@@ -262,7 +262,7 @@ namespace typebeat.Game.Screens.Select
                 updateDifficultyStatistics();
             }
 
-            // The raw per-beatmap statistics (Lines / WPM / CPM), cached so a mod toggle can re-apply
+            // The raw per-beatmap statistics (Words / WPM / CPM), cached so a mod toggle can re-apply
             // the clock rate to the pace stats without reloading the playable beatmap.
             private IReadOnlyList<BeatmapStatistic> countStatistics = Array.Empty<BeatmapStatistic>();
 
