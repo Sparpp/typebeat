@@ -25,6 +25,7 @@ using typebeat.Game.Performance;
 using typebeat.Game.Rulesets.TypeBeat.Import;
 using typebeat.Game.Screens.ImportLyrics;
 using typebeat.Game.Utils;
+using Velopack.Locators;
 
 namespace typebeat.Desktop
 {
@@ -132,10 +133,68 @@ namespace typebeat.Desktop
             return new VelopackUpdateManager();
         }
 
+        /// <summary>
+        /// Queues a restart, and answers HONESTLY whether the game is really going to come back.
+        /// </summary>
+        /// <remarks>
+        /// This used to hand back <c>true</c> unconditionally while queueing the updater's restart, which
+        /// is a lie in any build the updater did not install (a development build, or the plain zip the
+        /// game ships as): <see cref="Velopack.UpdateExe.Start"/> needs an <c>Update.exe</c> beside the
+        /// app, finds none, and does nothing at all. Callers take that answer as licence to discard
+        /// something, so the game would exit, keep its promise to nobody, and never return. Every caller
+        /// has a sane path for <c>false</c>, so reporting it correctly is worth more than claiming a
+        /// restart that will not happen.
+        /// </remarks>
         public override bool RestartAppWhenExited()
         {
-            RestartOnExitAction = () => Velopack.UpdateExe.Start(waitPid: (uint)Environment.ProcessId);
-            return true;
+            string? executablePath = Environment.ProcessPath;
+            int processId = Environment.ProcessId;
+
+            switch (GameRelaunch.Decide(updaterCanRestart(), RuntimeInfo.OS, executablePath, Assembly.GetEntryAssembly()?.GetName().Name))
+            {
+                case RelaunchMethod.Updater:
+                    RestartOnExitAction = () => Velopack.UpdateExe.Start(waitPid: (uint)processId);
+                    return true;
+
+                case RelaunchMethod.OwnExecutable:
+                    // No installer to restart through, so the game starts itself: the new process is handed
+                    // this one's id and does not touch the data directory until it is gone, which is the
+                    // same guarantee the updater's waitPid buys above. Two overlapping instances would
+                    // fight over realm and the storage lock, so it is a wait, not a delay.
+                    RestartOnExitAction = () => GameRelaunch.StartOwnExecutable(executablePath!, processId);
+                    return true;
+
+                default:
+                    Logger.Log("This build has no way to restart itself, so no restart has been queued.", LoggingTarget.Runtime, LogLevel.Important);
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// Whether an updater-managed install is actually present to restart through. Version alone does
+        /// not answer this: <see cref="OsuGameBase.IsDeployedBuild"/> is about the assembly version and
+        /// <see cref="IsPackageManaged"/> is about somebody else owning updates, while what matters here is
+        /// only whether the updater laid this copy down and left its launcher next to it.
+        /// </summary>
+        private static bool updaterCanRestart()
+        {
+            // An external provider owns the install, so its updater binary is not ours to drive.
+            if (IsPackageManaged)
+                return false;
+
+            try
+            {
+                var locator = VelopackLocator.IsCurrentSet ? VelopackLocator.Current : VelopackLocator.CreateDefaultForPlatform(null!);
+
+                return locator.CurrentlyInstalledVersion != null
+                       && !string.IsNullOrEmpty(locator.UpdateExePath)
+                       && File.Exists(locator.UpdateExePath);
+            }
+            catch (Exception e)
+            {
+                Logger.Log($"Could not tell whether this is an updater-managed install: {e.Message}", LoggingTarget.Runtime, LogLevel.Important);
+                return false;
+            }
         }
 
         protected override void LoadComplete()

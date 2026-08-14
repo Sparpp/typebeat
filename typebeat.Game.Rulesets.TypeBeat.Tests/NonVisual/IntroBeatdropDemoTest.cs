@@ -295,7 +295,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void APlatformThatCannotRestartRebootsNothingAndLeavesNoHandoffBehind()
         {
-            // OsuGameBase.RestartAppWhenExited() returns false off desktop. Quitting anyway would cost the
+            // OsuGameBase.RestartAppWhenExited() answers false whenever the game will not really come back
+            // (see GameRelaunch.Decide, and note it once answered true regardless, which is how the demo
+            // came to take the game down for good on a build with no updater). Quitting anyway would cost the
             // user their editor session and demo nothing, and an armed handoff waiting on a launch that has
             // to be done by hand would fire at some baffling later moment, so both are backed out.
             bool exited = false;
