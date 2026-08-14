@@ -1574,13 +1574,7 @@ namespace typebeat.Game
             switch (newScreen)
             {
                 case IntroScreen intro:
-                    // An editor beatdrop demo (IntroBeatdropDemo) is an intro pushed over the menu which
-                    // exits back into it, so it is gone by the time anything wants the startup intro back.
-                    // Letting it take this field would leave OnExiting making a dead screen current, and
-                    // quitting the game would stop working.
-                    if (intro.Demo == null)
-                        introScreen = intro;
-
+                    introScreen = intro;
                     devBuildBanner?.Show();
                     break;
 

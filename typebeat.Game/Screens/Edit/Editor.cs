@@ -935,11 +935,14 @@ namespace typebeat.Game.Screens.Edit
         /// Leaves the editor and then runs <paramref name="onExited"/>, going through the same
         /// "did you want to save your changes?" prompt (<see cref="PromptForSaveDialog"/>) that exiting the
         /// editor normally raises. For actions which take the user out of the editor without being an exit in
-        /// their own right; currently the setup screen's beatdrop demo, which replays the game intro.
+        /// their own right; currently the setup screen's beatdrop demo, which restarts the whole game so the
+        /// startup intro can be heard on the map being edited.
         /// </summary>
         /// <remarks>
         /// The prompt comes first and nothing moves until the user has committed to leaving: cancelling it, or
         /// a save that fails, leaves the editor exactly as it was and never runs <paramref name="onExited"/>.
+        /// That gate matters more for a restart than for an ordinary exit, since a restart discards the
+        /// editor session for real.
         /// </remarks>
         public void PromptToSaveThenExit([NotNull] Action onExited)
         {

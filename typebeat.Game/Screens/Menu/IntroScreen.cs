@@ -99,23 +99,6 @@ namespace typebeat.Game.Screens.Menu
             this.createNextScreen = createNextScreen;
         }
 
-        /// <summary>
-        /// Set (before the screen is loaded) to run this intro as an editor beatdrop demo rather than as the
-        /// game's startup intro: it is soundtracked by the requested map at the requested timestamp instead
-        /// of by a pick from the intro pool, and at the menu reveal it exits back into the menu it was pushed
-        /// over instead of pushing a new one. Null for a real startup.
-        /// </summary>
-        [CanBeNull]
-        public IntroBeatdropDemo Demo { get; init; }
-
-        /// <summary>
-        /// Creates the intro screen to run a beatdrop demo on. Deliberately not the user's configured intro
-        /// sequence: <see cref="IntroTriangles"/> is the only one that times the track so the beatdrop lands on
-        /// the menu reveal (<see cref="StartBeatdropTrack"/>), the others just start the chosen map from its
-        /// preview point, so it is the only one that has a beatdrop to demo at all.
-        /// </summary>
-        public static IntroScreen CreateDemo(IntroBeatdropDemo demo) => new IntroTriangles { Demo = demo };
-
         [Resolved]
         private BeatmapManager beatmaps { get; set; }
 
@@ -136,26 +119,30 @@ namespace typebeat.Game.Screens.Menu
             else
                 seeya = audio.Samples.Get(SeeyaSampleName);
 
-            // A beatdrop demo names its own soundtrack: the map being edited, at the timestamp being
-            // edited. Intro pool membership (BeatmapUserSettings.IntroPoolInclusion, the song select "Use on
-            // game intro" toggle) is neither read nor written here, because the point is to preview the map
-            // in front of you whether or not it has been opted in. The anti-repeat history is likewise left
-            // alone: a demo is not a real intro appearance and must not steer future ones. The MenuMusic
-            // setting is ignored too, since a silent beatdrop demo would have nothing to demo.
-            if (Demo != null)
-            {
-                var demoBeatmap = beatmaps.GetWorkingBeatmap(Demo.BeatmapInfo);
+            // The editor's beatdrop demo reboots the game and parks a handoff naming the map it wants
+            // heard (see IntroBeatdropDemo). Consuming it here reads and CLEARS it in one step, so the
+            // launch after a demo is an ordinary one again. A handoff that is stale, corrupt, or names a
+            // map that has since gone away resolves to nothing and falls straight through to the pool.
+            var demo = IntroBeatdropDemo.Consume(storage);
 
-                // Only reachable if the map was destroyed between requesting the demo and arriving here
-                // (discarding a brand new beatmap deletes it). Running silent is better than pretending.
-                if (demoBeatmap is DummyWorkingBeatmap)
-                    Logger.Log("Beatdrop demo target is no longer available; the intro will run silent.");
-                else
-                {
-                    initialBeatmap = demoBeatmap;
-                    beatdropTime = Demo.DropTime;
-                    Logger.Log($"Intro beatdrop demo: {initialBeatmap.Metadata.Artist} - {initialBeatmap.Metadata.Title} (drop at {beatdropTime:0}ms)");
-                }
+            var demoBeatmap = IntroBeatdropDemo.Resolve(demo, id => realm.Run(r =>
+            {
+                var demoInfo = r.Find<BeatmapInfo>(id);
+
+                // GetWorkingBeatmap hands back the dummy rather than null for a map it cannot read.
+                var resolved = demoInfo == null ? null : beatmaps.GetWorkingBeatmap(demoInfo);
+                return resolved is DummyWorkingBeatmap ? null : resolved;
+            }));
+
+            if (demoBeatmap != null)
+            {
+                // A demo overrules everything the pool would have decided: intro pool membership
+                // (BeatmapUserSettings.IntroPoolInclusion, the song select "Use on game intro" toggle) is
+                // neither read nor written, the anti-repeat history is left alone because a demo is not a
+                // real intro appearance, and MenuMusic is ignored because a silent demo demos nothing.
+                initialBeatmap = demoBeatmap;
+                beatdropTime = demo.DropTime;
+                Logger.Log($"Intro beatdrop demo: {initialBeatmap.Metadata.Artist} - {initialBeatmap.Metadata.Title} (drop at {beatdropTime:0}ms)");
             }
             // The intro is soundtracked by a random user beatmap from the intro pool (by default the
             // maps that declare an intro beatdrop, see IntroBeatdropPool): subclasses start the track
@@ -489,19 +476,8 @@ namespace typebeat.Game.Screens.Menu
             beatmap.Return();
 
             DidLoadMenu = true;
-
             if (nextScreen != null)
-            {
                 this.Push(nextScreen);
-                return;
-            }
-
-            // A beatdrop demo is pushed over the menu it is going to reveal rather than being handed a menu
-            // to push, so at the reveal it exits back into the one it came from. That leaves the screen stack
-            // exactly the shape it was before the demo, instead of stacking a second menu (and a second
-            // intro) on top of the startup pair the game's exit path relies on.
-            if (Demo != null)
-                this.Exit();
         }
     }
 }

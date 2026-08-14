@@ -10,6 +10,7 @@ using osu.Framework.Development;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shaders;
+using osu.Framework.Platform;
 using osu.Framework.Utils;
 using typebeat.Game.Screens.Menu;
 using osu.Framework.Screens;
@@ -106,9 +107,16 @@ namespace typebeat.Game.Screens
         }
 
         [BackgroundDependencyLoader]
-        private void load(OsuConfigManager config)
+        private void load(OsuConfigManager config, Storage storage)
         {
             introSequence = config.Get<IntroSequence>(OsuSetting.IntroSequence);
+
+            // A pending editor beatdrop demo (IntroBeatdropDemo) has to run the triangles sequence: it is
+            // the only one that times its track so the drop lands on the menu reveal
+            // (IntroScreen.StartBeatdropTrack), the others just start from the map's preview point and
+            // would demo nothing. Peeked rather than consumed: IntroScreen is what takes the handoff.
+            if (IntroBeatdropDemo.Peek(storage) != null)
+                introSequence = IntroSequence.Triangles;
         }
 
         /// <summary>

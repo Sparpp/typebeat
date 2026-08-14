@@ -10,14 +10,13 @@ using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Localisation;
-using osu.Framework.Screens;
+using osu.Framework.Platform;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Notifications;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
-using typebeat.Game.Screens;
 using typebeat.Game.Screens.Edit;
 using typebeat.Game.Screens.Edit.Setup;
 using typebeat.Game.Screens.ImportLyrics;
@@ -50,7 +49,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private Editor? editor { get; set; }
 
         [Resolved(CanBeNull = true)]
-        private IPerformFromScreenRunner? performer { get; set; }
+        private OsuGame? game { get; set; }
+
+        [Resolved]
+        private Storage storage { get; set; } = null!;
 
         private FormNumberBox beatdropBox = null!;
         private FormNumberBox offsetBox = null!;
@@ -77,7 +79,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 demoButton = new FormButton
                 {
                     Caption = IntroBeatdropDemo.CAPTION,
-                    ButtonText = "Demo the beatdrop",
+                    ButtonText = "Restart & demo",
                     Action = requestBeatdropDemo,
                 },
                 offsetBox = new FormNumberBox(allowDecimals: true)
@@ -125,11 +127,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>
-        /// Replays the game startup intro on this map's beatdrop. Playing it takes the user out of the editor
-        /// and leaves them on the main menu the way a real startup does, so the standard save prompt is raised
-        /// first and nothing moves until it is answered.
+        /// Restarts the game so that its startup intro is soundtracked by this map's beatdrop. A reboot
+        /// throws the editor session away for real, so the standard save prompt is raised first and nothing
+        /// is armed or torn down until it has been answered.
         /// </summary>
-        private void requestBeatdropDemo() => IntroBeatdropDemo.Request(Beatmap.IntroBeatdrop.Value, promptToSave, playBeatdropDemo);
+        private void requestBeatdropDemo() => IntroBeatdropDemo.Request(Beatmap.IntroBeatdrop.Value, promptToSave, rebootIntoDemo);
 
         private void promptToSave(Action confirmed)
         {
@@ -140,20 +142,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 editor.PromptToSaveThenExit(confirmed);
         }
 
-        private void playBeatdropDemo(double dropTime)
+        private void rebootIntoDemo(double dropTime)
         {
-            if (performer == null)
+            if (game == null)
             {
-                notify("The game intro isn't reachable from here.");
+                notify("Restarting isn't reachable from here.");
                 return;
             }
 
-            var demo = new IntroBeatdropDemo(working.Value.BeatmapInfo, dropTime);
-
-            // The editor is on its way out by now; wait for the menu to actually be current, then run the
-            // intro over it. The intro reveals the menu it was pushed over rather than pushing a fresh one,
-            // so the user is left where a real startup leaves them and the screen stack keeps its shape.
-            performer.PerformFromScreen(menu => menu.Push(IntroScreen.CreateDemo(demo)), new[] { typeof(MainMenu) });
+            // The map is handed over by ID: whatever the reboot costs, it must come back up on THIS map
+            // rather than on the pool's pick (see IntroBeatdropDemo).
+            IntroBeatdropDemo.Reboot(storage, working.Value.BeatmapInfo.ID, dropTime, game.RestartAppWhenExited, game.AttemptExit, notify);
         }
 
         private void commitBeatdrop()
