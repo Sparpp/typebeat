@@ -192,16 +192,16 @@ namespace typebeat.Game.Screens.Menu
         /// </summary>
         /// <remarks>
         /// Both failure modes back out completely rather than restarting into an ordinary intro, which would
-        /// cost the user their editor session for nothing: a handoff that could not be written, and a
-        /// platform that cannot relaunch the game (<see cref="OsuGameBase.RestartAppWhenExited"/> returns
-        /// false everywhere except desktop, where <c>OsuGameDesktop</c> overrides it). In the second case the
-        /// parked handoff is cleared as well, because a demo waiting on a launch that has to be done by hand,
-        /// and may never come, is worse than no demo.
+        /// cost the user their editor session for nothing: a handoff that could not be written, and a build
+        /// that cannot bring itself back (<see cref="OsuGameBase.RestartAppWhenExited"/> answers that
+        /// honestly, see <see cref="Utils.GameRelaunch"/>). In the second case the parked handoff is cleared
+        /// as well, because a demo waiting on a launch that has to be done by hand, and may never come, is
+        /// worse than no demo.
         /// </remarks>
         /// <param name="storage">Game storage, where the handoff is parked.</param>
         /// <param name="beatmapId">The map being edited.</param>
         /// <param name="dropTime">The beatdrop currently authored on it.</param>
-        /// <param name="restartWhenExited">Queues the relaunch, returning whether the platform supports one.</param>
+        /// <param name="restartWhenExited">Queues the relaunch, returning whether the game will really come back.</param>
         /// <param name="exit">Starts the shutdown that the relaunch follows.</param>
         /// <param name="report">Tells the user why nothing happened, in the cases where nothing happens.</param>
         /// <param name="now">Overridable clock, for tests.</param>
@@ -216,7 +216,7 @@ namespace typebeat.Game.Screens.Menu
             if (!restartWhenExited())
             {
                 Clear(storage);
-                report("Demoing the beatdrop restarts the game, which isn't supported on this platform.");
+                report("Demoing the beatdrop restarts the game, which this build can't do by itself.");
                 return false;
             }
 

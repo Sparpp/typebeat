@@ -11,6 +11,7 @@ using osu.Framework.Logging;
 using osu.Framework.Platform;
 using typebeat.Game;
 using typebeat.Game.IPC;
+using typebeat.Game.Utils;
 using SDL;
 using Velopack;
 
@@ -29,6 +30,15 @@ namespace typebeat.Desktop
         [STAThread]
         public static void Main(string[] args)
         {
+            // A restart the game started itself (see OsuGameDesktop.RestartAppWhenExited) hands us the id of
+            // the process being replaced. NOTHING may touch the data directory until that one is gone: it
+            // still holds realm and the storage lock, and in a debug build a second instance is not even
+            // refused, so overlapping the two would leave them fighting over the same files. Hence this runs
+            // first, ahead of velopack setup and the host, and hands the rest of startup a command line with
+            // the argument taken back out (everything below reads args for its own purposes).
+            args = GameRelaunch.TakeWaitTarget(args, out int replacingProcessId);
+            GameRelaunch.WaitForProcessExit(replacingProcessId);
+
             // IMPORTANT DON'T IGNORE: For general sanity, velopack's setup needs to run before anything else.
             // This has bitten us in the rear before (bricked updater), and although the underlying issue from
             // last time has been fixed, let's not tempt fate.
