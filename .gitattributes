@@ -19,6 +19,12 @@ App.config text eol=crlf
 
 # Check out with lf (UNIX) line endings
 *.sh text eol=lf
+# Must come AFTER the *.manifest rule above (last match wins). That rule is for Windows
+# application manifests and forces CRLF on EVERY platform, which would hand the Linux and macOS
+# runners a bundled-maps.manifest whose every file name ends in a stray \r, so no bundled beatmap
+# would ever be found under its real name. The script strips \r defensively as well; this is the
+# half that stops the file arriving broken in the first place.
+typebeat.Desktop/bundled-maps.manifest text eol=lf
 .gitignore text eol=lf
 .gitattributes text eol=lf
 *.md text eol=lf

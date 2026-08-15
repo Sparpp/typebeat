@@ -86,6 +86,18 @@ jobs:
           dotnet pack ../type-beat-assets/typebeat.Game.Resources/typebeat.Game.Resources.csproj \
             -c Release -o ../type-beat-assets/artifacts -p:PackageVersion="$VER" -p:Version="$VER"
 
+      # typebeat.Desktop/Bundled/ (the fresh-install beatmap payload) is gitignored: the packages
+      # carry real, non-redistributable audio and must never be committed. So actions/checkout
+      # lands a tree where that directory does not exist, the csproj's Bundled/*.typb glob matches
+      # nothing, and the publish carries no maps. NOTHING FAILED when that happened: the game's
+      # importBundledBeatmaps returns quietly on a missing directory and only ever runs while
+      # first-run setup is pending, so a Linux player got exactly one shot at the bundle and it
+      # silently did nothing, for an unknown number of releases. This step populates the directory
+      # from the committed manifest (typebeat.Desktop/bundled-maps.manifest) over plain HTTPS, and
+      # aborts the build if it cannot. Must run BEFORE the publish; MSBuild globs at publish time.
+      - name: Fetch the bundled beatmaps
+        run: bash .github/scripts/bundled-maps.sh fetch
+
       - name: Publish linux-x64 (self-contained)
         run: |
           dotnet publish typebeat.Desktop -c Release -r linux-x64 --self-contained \
@@ -94,6 +106,25 @@ jobs:
           # including the '!' — verified by a linux-x64 publish on the dev box.
           test -f "${GITHUB_WORKSPACE}/publish-linux/type!beat" \
             || { echo "::error::expected apphost 'type!beat' not found in publish output"; ls "${GITHUB_WORKSPACE}/publish-linux"; exit 1; }
+          # End-to-end check on the fetch step AND on the csproj glob: the fetch can succeed and
+          # the maps still not reach the publish output if that ItemGroup ever regresses. Assert
+          # the count here, where a failure is a red build, rather than discovering it from a
+          # player who has already burned their one first-run import.
+          want=$(bash .github/scripts/bundled-maps.sh count)
+          got=$(find "${GITHUB_WORKSPACE}/publish-linux/Bundled" -maxdepth 1 -name '*.typb' 2>/dev/null | wc -l | tr -d ' ')
+          test "$got" = "$want" \
+            || { echo "::error::publish output carries ${got} bundled .typb, the manifest declares ${want}"; ls -la "${GITHUB_WORKSPACE}/publish-linux/Bundled" || true; exit 1; }
+          echo "publish carries ${got} bundled beatmaps"
+          # The other payload that ships beside the exe and whose absence nothing notices: the
+          # lyriclab aligner scripts, which the "install local auto-aligner" action copies out of
+          # here (LyricMapImportService.InstallAsync). Same class of silent failure as the maps
+          # were, so assert it here too rather than waiting for a Linux user to find the button
+          # dead. align_lyrics.py is the entry point; setup.sh is the one this platform runs.
+          for f in lyriclab/align_lyrics.py lyriclab/setup.sh; do
+            test -f "${GITHUB_WORKSPACE}/publish-linux/$f" \
+              || { echo "::error::publish output is missing $f"; ls -la "${GITHUB_WORKSPACE}/publish-linux/lyriclab" || true; exit 1; }
+          done
+          echo "publish carries the lyriclab aligner scripts"
 
       - name: Install Velopack CLI (vpk)
         run: |

@@ -356,5 +356,8 @@ FodyWeavers.xsd
 
 # Bundled maps ship real audio that is NOT redistributable under this repo's licence.
 # The game imports whatever .typb files sit here at build time, but they must never be committed.
+# What belongs here IS recorded, by sha256, in the committed typebeat.Desktop/bundled-maps.manifest;
+# .github/scripts/bundled-maps.sh populates and verifies the directory from it. Do not un-ignore
+# this path to fix a build that ships no maps, that is what the manifest and the script are for.
 typebeat.Desktop/Bundled/
 .claude/

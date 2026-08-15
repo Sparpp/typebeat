@@ -1,0 +1,49 @@
+# Bundled beatmaps: the fresh-install payload of typebeat.Desktop/Bundled/.
+#
+# WHY THIS FILE EXISTS. The packages themselves carry real, non-redistributable audio, so
+# typebeat.Desktop/Bundled/ is gitignored and always will be. That left the bundle recorded
+# NOWHERE: the Windows release shipped whatever .typb happened to sit in one machine's working
+# tree, and the Linux/macOS CI builds, starting from a fresh actions/checkout where the directory
+# does not exist, shipped none at all and said nothing about it. This manifest is the record.
+# It names the bundle and pins every package by sha256, and it carries no audio, so it can live
+# in git.
+#
+# WHO READS IT.
+#   .github/scripts/bundled-maps.sh   populates Bundled/ in CI before the publish, and verifies
+#   ship-client.ps1                   verifies the local Bundled/ before the Windows pack
+# Both treat any mismatch as fatal. A build that cannot satisfy this manifest must not produce an
+# installer: an installer with a silently empty bundle is the exact defect this file prevents,
+# and it shipped for an unknown number of releases before anyone noticed.
+#
+# FORMAT. One entry per line, comments and blank lines ignored:
+#
+#     <sha256>  <size in bytes>  <file name>
+#
+# The file name is the rest of the line, so it may contain spaces; sha256 is lowercase hex. The
+# name is the on-disk name under Bundled/ and is also what the game imports, so renaming an entry
+# here renames the shipped package.
+#
+# TRANSPORT. Fetches are content-addressed off the hash in column 1:
+#
+#     https://typebeat.mingda.sh/releases/bundled-<sha256>.typb
+#
+# served by the web app's existing anonymous /releases/{file} route out of
+# /data/downloads/releases/ inside the app container. Content addressing means the checksum IS
+# the URL: fetching bytes that do not match the manifest would mean fetching a URL nobody
+# published, so the two can never silently disagree.
+#
+# CHANGING THE BUNDLE. Add or replace the .typb in Bundled/, then:
+#   1. .github/scripts/bundled-maps.sh manifest > typebeat.Desktop/bundled-maps.manifest
+#   2. upload the new package to the box under its content-addressed name (see the script header
+#      for the exact command), or the next CI build fails
+#   3. commit the regenerated manifest
+# Order matters: the upload must land before the manifest reaches a branch CI builds from.
+
+3fecfbb0eec228047d5f70fdfa0ab3079dcaeb9ae66590c8c5b903402153150c  4966821  Foreigner - Cold as Ice.typb
+bf72b1e9ba6c2aa8a7b1fb09e2dd63219890e01dc155f9084d8530789b736f4a  3542970  Friday Pilots Club - Spectator.typb
+af6a04804719a45dd7c19da494fdfe74f5f6114b961b5dd7f83ec9b23d9b29c9  3367883  Health x Chelsea Wolfe - Mean.typb
+de52839508a9f87947ec1d124b88a5796ae787edeedebd81a1fecdc05c73d9be  6210205  Mage - The Words I Never Said.typb
+3cb03a1bc617fe56d29760048a1507cbbda19bf7ecb505d8aad392f9439ab339  11396369  Panda Eyes and Teminite - Immortal Flame.typb
+519c082d3bb0d2dafc01b2cd52f9fef94b9c3108f7c7e8930742886718b3e685  6402408  Station Earth - Cold Green Eyes.typb
+0072c36931d2f9bcec79718ae4333bd402ab994d3b8e3e956b1e723da8006653  10635605  Undead Corporation - Embraced by the Flame.typb
+d1823a4cdb55caa346ed108d69c339c035eb8bbac5802829b6996c5565980299  3572352  Vance Joy - Riptide.typb
