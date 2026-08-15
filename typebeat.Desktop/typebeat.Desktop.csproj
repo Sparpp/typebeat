@@ -30,8 +30,10 @@
          It must be a PNG and not one of the .ico files next to it; see the comment there for why.
          assets/lazer.png is the same art the Linux and macOS CI icon steps already build from.
          LogicalName is explicit because the file lives outside this project's directory.
+         Forward slash for the same reason as the two ItemGroups below: it is the separator the
+         Linux and macOS runners resolve, and MSBuild accepts it on Windows.
          Pinned by NonVisual/WindowIconTest. -->
-    <EmbeddedResource Include="..\assets\lazer.png" LogicalName="typebeat.Desktop.lazer.png" />
+    <EmbeddedResource Include="../assets/lazer.png" LogicalName="typebeat.Desktop.lazer.png" />
   </ItemGroup>
   <ItemGroup Label="Windows Icons">
     <Content Include="*.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
