@@ -234,7 +234,25 @@ namespace typebeat.Desktop
             // Apple operating systems use a better icon provided via external assets.
             if (!RuntimeInfo.IsApple)
             {
-                var iconStream = Assembly.GetExecutingAssembly().GetManifestResourceStream(GetType(), "lazer.ico");
+                // This resource is a PNG, and must stay one. The framework's SetIconFromStream first
+                // tries ImageSharp, and the ImageSharp version osu.Framework pins (3.1.11, see the
+                // comment in typebeat.Game.csproj) ships no ICO decoder at all: ICO support only
+                // arrived in ImageSharp 4.0. ImageSharp is fully managed, so a .ico here fails to
+                // decode on every platform, Windows included.
+                //
+                // What differs by platform is the fallback. On the failure the framework parses the
+                // .ico itself and calls SetIconFromGroup. Windows overrides that to build the icon
+                // through the Win32 CreateIconFromResourceEx, which needs no decoder and works, so
+                // the bug stays invisible there. Everywhere else the base implementation just feeds
+                // the container's largest entry back to ImageSharp, and in our .ico files that entry
+                // is a headerless DIB rather than a PNG, so it fails a second time. That second
+                // throw happens inside the framework's own catch block, so nothing catches it and it
+                // escapes this method, taking the client down at startup. Linux is where a user hit
+                // it (backlog 163).
+                //
+                // Handing over a PNG means the very first ImageSharp load succeeds and the .ico
+                // fallback is never entered on any platform.
+                var iconStream = Assembly.GetExecutingAssembly().GetManifestResourceStream(GetType(), "lazer.png");
                 if (iconStream != null)
                     host.Window.SetIconFromStream(iconStream);
             }
