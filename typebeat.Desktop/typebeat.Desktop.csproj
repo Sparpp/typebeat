@@ -37,15 +37,20 @@
     <Content Include="*.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup Label="Bundled Beatmaps">
-    <!-- Shipped next to the exe; imported (and consumed) on first launch; see OsuGame.importBundledBeatmaps. -->
-    <Content Include="Bundled\*.typb" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Shipped next to the exe; imported (and consumed) on first launch; see OsuGame.importBundledBeatmaps.
+         The directory is gitignored (the packages carry non-redistributable audio), so it is EMPTY in a
+         fresh clone and this glob matches nothing. What belongs in it is recorded in bundled-maps.manifest,
+         and .github/scripts/bundled-maps.sh populates it: CI runs that before publishing and ship-client.ps1
+         verifies the local copy before packing. Forward slash on purpose, MSBuild accepts it on Windows and
+         it is the separator the Linux and macOS runners glob with. -->
+    <Content Include="Bundled/*.typb" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup Label="Local Auto-Aligner Component">
     <!-- The lyriclab aligner scripts ship beside the exe; the "install local auto-aligner" action
          (first-run setup / settings) copies them into the game data directory and builds their
          Python environment there, so the multi-GB venv survives Velopack updates.
          See LyricMapImportService.InstallAsync. -->
-    <Content Include="..\lyriclab\align_lyrics.py;..\lyriclab\debug_decode.py;..\lyriclab\setup.ps1;..\lyriclab\setup.sh;..\lyriclab\README.md"
+    <Content Include="../lyriclab/align_lyrics.py;../lyriclab/debug_decode.py;../lyriclab/setup.ps1;../lyriclab/setup.sh;../lyriclab/README.md"
              LinkBase="lyriclab" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

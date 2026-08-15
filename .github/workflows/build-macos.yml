@@ -120,6 +120,15 @@ jobs:
           dotnet pack ../type-beat-assets/typebeat.Game.Resources/typebeat.Game.Resources.csproj \
             -c Release -o ../type-beat-assets/artifacts -p:PackageVersion="$VER" -p:Version="$VER"
 
+      # Identical to build-linux.yml's step, and for the identical reason: the cause is structural,
+      # not platform-specific. typebeat.Desktop/Bundled/ is gitignored (non-redistributable audio),
+      # so a fresh actions/checkout has no such directory, the csproj glob matches nothing, and the
+      # publish carries no maps while NOTHING FAILS. Populate it from the committed manifest before
+      # the publish, or abort. The script is portable to this runner on purpose (bash 3.2, BSD
+      # userland: no sha256sum, no GNU stat).
+      - name: Fetch the bundled beatmaps
+        run: bash .github/scripts/bundled-maps.sh fetch
+
       - name: Publish osx-arm64 (self-contained)
         run: |
           dotnet publish typebeat.Desktop -c Release -r osx-arm64 --self-contained \
@@ -131,6 +140,21 @@ jobs:
           # is keyed off this exact name.
           test -f "${GITHUB_WORKSPACE}/publish-macos/type!beat" \
             || { echo "::error::expected apphost 'type!beat' not found in publish output"; ls "${GITHUB_WORKSPACE}/publish-macos"; exit 1; }
+          # End-to-end check on the fetch step AND on the csproj glob: the fetch can succeed and
+          # the maps still not reach the publish output if that ItemGroup ever regresses.
+          want=$(bash .github/scripts/bundled-maps.sh count)
+          got=$(find "${GITHUB_WORKSPACE}/publish-macos/Bundled" -maxdepth 1 -name '*.typb' 2>/dev/null | wc -l | tr -d ' ')
+          test "$got" = "$want" \
+            || { echo "::error::publish output carries ${got} bundled .typb, the manifest declares ${want}"; ls -la "${GITHUB_WORKSPACE}/publish-macos/Bundled" || true; exit 1; }
+          echo "publish carries ${got} bundled beatmaps"
+          # Same assertion build-linux.yml makes, for the same reason: the lyriclab aligner scripts
+          # ship beside the exe and LyricMapImportService.InstallAsync copies them out of here, so
+          # their absence is another silent dead button rather than a build failure.
+          for f in lyriclab/align_lyrics.py lyriclab/setup.sh; do
+            test -f "${GITHUB_WORKSPACE}/publish-macos/$f" \
+              || { echo "::error::publish output is missing $f"; ls -la "${GITHUB_WORKSPACE}/publish-macos/lyriclab" || true; exit 1; }
+          done
+          echo "publish carries the lyriclab aligner scripts"
 
       # The repo carries the app art only as assets/lazer.png (1024x1024). vpk on macOS wants an
       # .icns for the bundle icon, and an .icns can only be assembled by iconutil, which ships with
@@ -222,6 +246,21 @@ jobs:
             exit 1
           fi
           echo "bundle name, executable and CFBundleExecutable all keep the '!' verbatim"
+
+          # The bundled maps have to survive one more hop than they do on Linux, where the publish
+          # dir IS the payload. The game looks for Bundled/ under RuntimeInfo.StartupDirectory,
+          # which for a .app is Contents/MacOS, so that is where vpk must have put it. Asserted,
+          # not assumed: this is the platform where the payload silently vanishing has already
+          # happened once, and the pkg is expanded here anyway so the check is free.
+          WANT=$(bash .github/scripts/bundled-maps.sh count)
+          GOT=$(find "$APP/Contents/MacOS/Bundled" -maxdepth 1 -name '*.typb' 2>/dev/null | wc -l | tr -d ' ')
+          if [ "$GOT" != "$WANT" ]; then
+            echo "::error::the installed app carries ${GOT} bundled .typb under Contents/MacOS/Bundled, the manifest declares ${WANT}"
+            echo "if vpk placed the directory elsewhere in the bundle, it is listed below; fix this path rather than dropping the check"
+            find "$APP" -type d -name Bundled
+            exit 1
+          fi
+          echo "installed app carries ${GOT} bundled beatmaps under Contents/MacOS/Bundled"
 
       - name: Set up SSH
         run: |
