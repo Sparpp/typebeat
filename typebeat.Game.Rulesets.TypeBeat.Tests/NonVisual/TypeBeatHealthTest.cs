@@ -60,28 +60,71 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// Backlog 125, closed by backlog 126. An uncorrected typo resolves as an osu HIT
         /// (<c>TypeBeatResultMapping.UNFIXED_TYPO</c>) so that pp can stop pricing it as a miss, and
         /// on the stock health table every hit RECOVERS. That made a masher immortal: type nothing
-        /// but wrong characters and the bar climbed. The cell was not typed, so it drains exactly
-        /// what an untyped cell drains, and that constant is reused rather than reinvented.
+        /// but wrong characters and the bar climbed. The cell was not typed, so it costs exactly
+        /// what an untyped cell costs, and that constant is reused rather than reinvented.
+        ///
+        /// <para>Backlog 166 moved WHEN, not how much: the drain is taken at the keypress, so the
+        /// seal's result is HP-inert and the two cannot bill the same typo twice.</para>
         /// </summary>
         [Test]
         public void AnUncorrectedTypoDrainsInsteadOfRecovering()
         {
             var health = new TypeBeatHealthProcessor();
 
-            apply(health, TypeBeatResultMapping.UNFIXED_TYPO);
+            health.ApplyTypoDrain();
             Assert.AreEqual(1 - TypeBeatHealthProcessor.MISS_HEALTH_DRAIN, health.Health.Value, 1e-9);
 
-            // Held against the Meh it used to be, which is what a correct-but-late char takes: that
-            // one still recovers, and the two must not be the same number.
+            // The seal reaching the same cell adds NOTHING: the typo has already been paid for.
+            apply(health, TypeBeatResultMapping.UNFIXED_TYPO);
+            Assert.AreEqual(1 - TypeBeatHealthProcessor.MISS_HEALTH_DRAIN, health.Health.Value, 1e-9,
+                "an unfixed typo costs one drain in total, not one per account that hears about it");
+
+            // And it certainly never RECOVERS, which is the failure backlog 125 found.
+            Assert.LessOrEqual(health.Health.Value, 1 - TypeBeatHealthProcessor.MISS_HEALTH_DRAIN);
+
+            // Held against the Meh it used to be keyed as, which is what a correct-but-late char
+            // takes: that one still recovers, and the two must not be the same number.
             var recovering = new TypeBeatHealthProcessor();
             apply(recovering, HitResult.Meh);
             Assert.AreEqual(1.0, recovering.Health.Value, 1e-9, "a correct char cannot lose health");
         }
 
         /// <summary>
+        /// Erasing a typo gives back exactly what typing it drained, and no more (backlog 166): the
+        /// bar returns to where it was, and the recovery the corrected retype earns is left to the
+        /// retype's own result. A refund that paid a bonus would make a deliberate typo-and-fix
+        /// cycle a way to heal.
+        /// </summary>
+        [Test]
+        public void ErasingATypoRefundsExactlyItsDrain()
+        {
+            var health = new TypeBeatHealthProcessor();
+
+            // From a bar that is not at the cap, so neither the drain nor the refund is hidden by
+            // the clamp.
+            health.Health.Value = 0.5;
+
+            health.ApplyTypoDrain();
+            Assert.AreEqual(0.5 - TypeBeatHealthProcessor.MISS_HEALTH_DRAIN, health.Health.Value, 1e-9);
+
+            health.RefundTypoDrain();
+            Assert.AreEqual(0.5, health.Health.Value, 1e-9, "the refund is the drain, not the drain plus a bonus");
+
+            // The clamp still holds from a full bar: a typo, an erase and a hundred more erases
+            // cannot bank credit above the cap.
+            var full = new TypeBeatHealthProcessor();
+            full.ApplyTypoDrain();
+            full.RefundTypoDrain();
+            full.RefundTypoDrain();
+            Assert.AreEqual(1.0, full.Health.Value, 1e-9);
+        }
+
+        /// <summary>
         /// The same run backlog 125 flagged, end to end: a play typed ENTIRELY wrong must die. Under
         /// the stock table it never could, because every one of its cells was a health-recovering
-        /// hit. It now dies on exactly the same schedule as a play that typed nothing at all.
+        /// hit. It now dies on exactly the same schedule as a play that typed nothing at all, and
+        /// since backlog 166 it dies on the KEYPRESS that empties the bar rather than on the seal
+        /// that follows it.
         /// </summary>
         [Test]
         public void SustainedTyposEmptyBarAndFail()
@@ -91,11 +134,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var health = new TypeBeatHealthProcessor();
 
             for (int i = 0; i < cellsToDeath - 1; i++)
-                apply(health, TypeBeatResultMapping.UNFIXED_TYPO);
+                health.ApplyTypoDrain();
 
             Assert.IsFalse(health.HasFailed, "must not fail before the bar empties");
 
-            apply(health, TypeBeatResultMapping.UNFIXED_TYPO);
+            health.ApplyTypoDrain();
             Assert.IsTrue(health.HasFailed, "a run typed entirely wrong must not survive on health");
         }
 
@@ -186,6 +229,201 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.IsFalse(bridge.Health.HasFailed, "perfect play must never fail");
             Assert.AreEqual(1.0, bridge.Health.Health.Value, 1e-9, "perfect play keeps the bar full");
+        }
+
+        #endregion
+
+        #region Typo HP: charged at the keypress, refunded by the erase (backlog 166)
+
+        /// <summary>
+        /// The point of backlog 166: the bar moves on the keypress that typed the wrong character,
+        /// not a line later when it seals. Every other judgement already settled HP at its keypress
+        /// (a correct char through its own result, a rejected key through the mash drain); the typo
+        /// was the one that waited, because its cell's osu result is deferred.
+        /// </summary>
+        [Test]
+        public void ATypoDrainsAtTheKeypressNotAtTheSeal()
+        {
+            var beatmap = syntheticMap(lineCount: 2, cellsPerLine: 3);
+            var engine = new TypingEngine(beatmap);
+            var bridge = new HealthBridge(engine);
+
+            engine.Update(0);
+            Assert.AreEqual(0, engine.ActiveLineIndex, "line 0 must be active before anything is typed");
+
+            double t = engine.Lines[0].Cells[0].TargetTime;
+            engine.Update(t);
+            engine.ProcessKey('z', t); // every synthetic cell expects 'a'
+
+            Assert.AreEqual(1 - TypeBeatHealthProcessor.MISS_HEALTH_DRAIN, bridge.Health.Health.Value, 1e-9,
+                "the drain lands on the keypress");
+            Assert.AreEqual(0, engine.ActiveLineIndex, "and lands while the line is still being typed");
+            Assert.Less(t, beatmap.Lines[0].EndTime, "well before the line seals");
+        }
+
+        /// <summary>
+        /// The no-double-drain pin, end to end through the real engine: a typo nobody corrects costs
+        /// ONE <c>MISS_HEALTH_DRAIN</c> in total, even though two accounts hear about it (the
+        /// keypress and, a line later, the <c>UNFIXED_TYPO</c> its cell seals with). The other two
+        /// cells of the line are never typed, so they seal as ordinary misses and the arithmetic is
+        /// exact rather than clamped.
+        /// </summary>
+        [Test]
+        public void AnUnfixedTypoIsChargedOnceAcrossKeypressAndSeal()
+        {
+            var beatmap = syntheticMap(lineCount: 2, cellsPerLine: 3);
+            var engine = new TypingEngine(beatmap);
+            var bridge = new HealthBridge(engine);
+
+            engine.Update(0);
+
+            double t = engine.Lines[0].Cells[0].TargetTime;
+            engine.Update(t);
+            engine.ProcessKey('z', t);
+
+            sealFirstLine(engine, beatmap);
+
+            Assert.IsTrue(engine.CellLeftWrong(0, 0), "the typo was never corrected");
+
+            // 1 typo + 2 cells nobody typed, at MISS_HEALTH_DRAIN each. A seal that drained the
+            // typo again would read 1 - 4 * MISS_HEALTH_DRAIN.
+            Assert.AreEqual(1 - 3 * TypeBeatHealthProcessor.MISS_HEALTH_DRAIN, bridge.Health.Health.Value, 1e-9);
+        }
+
+        /// <summary>
+        /// The refund must not overpay: a typo, a backspace and a correct retype must leave the bar
+        /// exactly where typing the character right first time would have. So the two runs below are
+        /// compared rather than pinned to a hand-computed number, and both start from a HALF-FULL
+        /// bar, because at the cap a bonus refund would be invisible.
+        /// </summary>
+        [Test]
+        public void FixingATypoLeavesHealthWhereTypingItRightWouldHave()
+        {
+            double corrected = playFirstLine(typoOnFirstCell: true);
+            double clean = playFirstLine(typoOnFirstCell: false);
+
+            Assert.AreEqual(clean, corrected, 1e-9, "the detour is refunded, and pays no bonus");
+
+            // Non-vacuous both ways: the run really did climb from the starting bar (so the retype's
+            // own recovery is in there) and really did type a typo.
+            Assert.Greater(clean, 0.5);
+            TestContext.WriteLine($"typo-then-fixed: {corrected:0.######}, typed right first time: {clean:0.######}.");
+        }
+
+        /// <summary>
+        /// The refund rides on the ERASE, not on the fix, so a typo the player backspaces away and
+        /// then leaves empty is priced as the miss it has become: one drain at the seal, exactly
+        /// what the cell would have cost had it never been touched. Refunding only at the correction
+        /// would charge that cell twice.
+        /// </summary>
+        [Test]
+        public void ATypoErasedAndLeftEmptyCostsOneMissAndNoMore()
+        {
+            var beatmap = syntheticMap(lineCount: 2, cellsPerLine: 3);
+            var engine = new TypingEngine(beatmap);
+            var bridge = new HealthBridge(engine);
+
+            engine.Update(0);
+
+            double t = engine.Lines[0].Cells[0].TargetTime;
+            engine.Update(t);
+            engine.ProcessKey('z', t);
+            Assert.IsTrue(engine.ProcessBackspace());
+
+            Assert.AreEqual(1.0, bridge.Health.Health.Value, 1e-9, "the erase gave the drain back");
+
+            sealFirstLine(engine, beatmap);
+
+            Assert.IsFalse(engine.CellLeftWrong(0, 0), "an erased typo leaves an EMPTY cell, which is a miss");
+
+            // All three cells of the line seal untyped.
+            Assert.AreEqual(1 - 3 * TypeBeatHealthProcessor.MISS_HEALTH_DRAIN, bridge.Health.Health.Value, 1e-9);
+        }
+
+        /// <summary>
+        /// The player-visible consequence of charging at the keypress: death can now land MID-LINE,
+        /// on the character that empties the bar, where before it could only land on a line seal.
+        /// </summary>
+        [Test]
+        public void ATypoCanFailThePlayMidLine()
+        {
+            var beatmap = syntheticMap(lineCount: 2, cellsPerLine: 10);
+            var engine = new TypingEngine(beatmap);
+            var bridge = new HealthBridge(engine);
+
+            engine.Update(0);
+
+            // Less than one typo left in the bar. How it got that low is not what this pins; when
+            // the next typo is charged is.
+            bridge.Health.Health.Value = TypeBeatHealthProcessor.MISS_HEALTH_DRAIN / 2;
+
+            double t = engine.Lines[0].Cells[0].TargetTime;
+            engine.Update(t);
+            engine.ProcessKey('z', t);
+
+            Assert.IsTrue(bridge.Health.HasFailed, "the typo that empties the bar kills on the keypress");
+            Assert.AreEqual(0, engine.ActiveLineIndex, "and it dies mid-line");
+            Assert.Less(t, beatmap.Lines[0].EndTime, "with the line's own seal still ahead of it");
+        }
+
+        /// <summary>
+        /// Plays the first line of a 3-cell synthetic map from a half-full bar, either straight
+        /// through or with the first cell typed wrong, backspaced and retyped correctly at the same
+        /// time the clean run typed it. Returns the health left once the line has sealed.
+        /// </summary>
+        private static double playFirstLine(bool typoOnFirstCell)
+        {
+            var beatmap = syntheticMap(lineCount: 2, cellsPerLine: 3);
+            var engine = new TypingEngine(beatmap);
+            var bridge = new HealthBridge(engine);
+
+            engine.Update(0);
+            bridge.Health.Health.Value = 0.5;
+
+            var cells = engine.Lines[0].Cells;
+
+            for (int i = 0; i < cells.Count; i++)
+            {
+                double t = cells[i].TargetTime;
+                engine.Update(t);
+
+                if (i == 0 && typoOnFirstCell)
+                {
+                    engine.ProcessKey('z', t);
+                    Assert.IsTrue(engine.ProcessBackspace());
+                }
+
+                engine.ProcessKey(cells[i].Expected, t);
+            }
+
+            sealFirstLine(engine, beatmap);
+            Assert.IsFalse(bridge.Health.HasFailed);
+
+            return bridge.Health.Health.Value;
+        }
+
+        /// <summary>
+        /// Runs the engine on past the first line's end so it seals, stopping before the second line
+        /// can seal too (whose misses would swamp the numbers these tests pin).
+        /// </summary>
+        private static void sealFirstLine(TypingEngine engine, LyricBeatmap beatmap)
+        {
+            bool done = false;
+
+            void handler(LineSealResult r)
+            {
+                if (r.LineIndex == 0)
+                    done = true;
+            }
+
+            engine.LineSealed += handler;
+
+            for (double t = beatmap.Lines[0].EndTime; !done && t <= beatmap.Lines[1].StartTime; t += frame)
+                engine.Update(t);
+
+            engine.LineSealed -= handler;
+
+            Assert.IsTrue(done, "the first line must have sealed");
         }
 
         #endregion
@@ -330,8 +568,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// Mirrors <see cref="UI.TypeBeatPlayfield"/>'s health wiring: a correct char reaches health
-        /// as its Great/Ok/Meh result, every cell that seals untyped as a Miss, and a rejected wrong
-        /// key through the mash-streak drain; the same paths the drawable bridge takes in gameplay.
+        /// as its Great/Ok/Meh result, a wrong char typed into a cell as the keypress drain and its
+        /// erase as the refund (backlog 166), every cell that seals untyped as a Miss, every cell
+        /// left sitting wrong as the <c>UNFIXED_TYPO</c> its drawable takes at the seal, and a
+        /// rejected wrong key through the mash-streak drain; the same paths the drawable bridge
+        /// takes in gameplay.
         /// </summary>
         private sealed class HealthBridge
         {
@@ -339,12 +580,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             public HealthBridge(TypingEngine engine)
             {
-                engine.CharJudged += j => TypeBeatHealthTest.apply(Health, toHitResult(j.Type));
+                engine.CharJudged += j =>
+                {
+                    // A wrong char applies NO osu result (its cell's is deferred), so what the
+                    // playfield does here is drain HP directly.
+                    if (j.Type == JudgementType.WrongChar)
+                    {
+                        Health.ApplyTypoDrain();
+                        return;
+                    }
+
+                    TypeBeatHealthTest.apply(Health, toHitResult(j.Type));
+                };
+
+                engine.TypoErased += Health.RefundTypoDrain;
+
                 engine.LineSealed += r =>
                 {
                     for (int i = 0; i < r.MissedCells; i++)
                         TypeBeatHealthTest.apply(Health, HitResult.Miss);
+
+                    // Deliberately applied rather than skipped: this is the result the playfield
+                    // really hands an unfixed typo's cell at the seal, so a seal that started
+                    // draining again would show up in these numbers instead of hiding here.
+                    var cells = engine.Lines[r.LineIndex].Cells;
+
+                    for (int i = 0; i < cells.Count; i++)
+                    {
+                        if (engine.CellLeftWrong(r.LineIndex, i))
+                            TypeBeatHealthTest.apply(Health, TypeBeatResultMapping.UNFIXED_TYPO);
+                    }
                 };
+
                 engine.WrongKeyRejected += _ => Health.ApplyWrongKeyStreak(engine.ConsecutiveWrongKeys);
             }
 
@@ -362,6 +629,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                         return HitResult.Meh;
 
                     default:
+                        // Premature / Lagging / Miss. WrongChar never reaches here (handled above).
                         return HitResult.Miss;
                 }
             }

@@ -519,11 +519,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// Repeated wrong/fix cycles on ONE cell therefore break and restore each time, each cycle
         /// snapshotting whatever the run had grown back to.</para>
         ///
-        /// <para>Nothing else about a typo changes: the wrong keypress is still counted
-        /// (<see cref="Mistyped"/>), still costs the accuracy denominator, and health is untouched
-        /// in both directions.</para>
+        /// <para>Nothing else about a typo changes here: the wrong keypress is still counted
+        /// (<see cref="Mistyped"/>) and still costs the accuracy denominator. Health does move for a
+        /// typo since backlog 166, but on its own pair of seams and not on this one: the keypress
+        /// drains it and the ERASE refunds it (<see cref="TypoErased"/>), so HP is settled the same
+        /// way whether or not the correction that follows has a streak left to claim.</para>
         /// </summary>
         public event Action<int>? ComboRestored;
+
+        /// <summary>
+        /// A backspace just erased a typed-through WRONG character (backlog 166): the cell held the
+        /// <see cref="JudgementType.WrongChar"/> a keypress wrote and is empty again. The mirror
+        /// image of that keypress, and the only way a cell ever leaves <see cref="CellState.Wrong"/>,
+        /// so the two bracket the typo exactly.
+        ///
+        /// <para>HEALTH is what listens (see <c>TypeBeatPlayfield.onTypoErased</c>): a typo drains
+        /// HP the moment it is typed rather than at the line seal, and erasing it refunds that
+        /// drain, so typing a character wrong, backspacing and retyping it correctly leaves the bar
+        /// exactly where typing it right first time would have. Nothing else moves: the mistype
+        /// COUNT is spent for good, and the streak the keypress broke comes back at the corrected
+        /// RETYPE (<see cref="ComboRestored"/>), not here, because an erase alone fixes nothing.</para>
+        ///
+        /// <para>Raised from <see cref="ProcessBackspace"/> with the cell already cleared. Erasing a
+        /// CORRECT character raises nothing: there was no drain to give back.</para>
+        /// </summary>
+        public event Action? TypoErased;
 
         private readonly List<TypingLine> lines;
         private readonly bool[] lineSealed;
@@ -1503,11 +1523,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             var cell = cells[target];
+
+            // Read BEFORE the cell is cleared: a wrong character is being taken back, which is the
+            // one erase anything downstream has to hear about (backlog 166, see TypoErased).
+            bool erasedTypo = cell.State == CellState.Wrong;
+
             cell.State = CellState.Untyped;
             cell.TypedChar = null;
             cell.JudgedDelta = null;
 
             caretIndex = target;
+
+            // Announced with the engine already settled, like every other event here.
+            if (erasedTypo)
+                TypoErased?.Invoke();
+
             return true;
         }
 

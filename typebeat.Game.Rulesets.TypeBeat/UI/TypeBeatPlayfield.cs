@@ -234,6 +234,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             Engine.WrongKeyRejected += onWrongKeyRejected;
             Engine.Mistyped += onMistyped;
             Engine.ComboRestored += onComboRestored;
+            Engine.TypoErased += onTypoErased;
         }
 
         protected override void Update()
@@ -259,16 +260,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private void onCharJudged(CharJudgement judgement)
         {
-            // The accepted char reaches the health processor as its own Great/Ok/Meh result via
-            // ApplyCharJudgement below, which is what recovers HP; no separate reset needed. A WRONG
-            // char reaches it as nothing at all (backlog 109): its cell's result is deferred, so a
-            // typo the player fixes costs no HP, which is the same statement the score account
-            // makes. An uncorrected one resolves at the seal as a Meh, so it RECOVERS HP like any
-            // other hit (backlog 124), which is the documented health philosophy read literally:
-            // death comes from sustained not-typing, and a typo is typing.
-            //
+            // An accepted char reaches the health processor as its own Great/Ok/Meh result via
+            // ApplyCharJudgement below, which is what recovers HP. A WRONG char reaches it as no
+            // result at all (backlog 109): its cell's result is deferred until the cell is corrected
+            // or sealed on, so there is nothing there to carry HP either.
             if (lineDrawables.TryGetValue(judgement.LineIndex, out var line))
                 line.ApplyCharJudgement(judgement);
+
+            // So HP is settled for a typo separately from its result (backlog 166), and at the same
+            // moment every other judgement settles it: the keypress. Waiting for the seal made the
+            // one account a typist watches while typing lag a line behind the mistake it was
+            // reporting. The drain is given back if the player backspaces the character away (see
+            // onTypoErased), which is what keeps a FIXED typo costing exactly what it did before:
+            // nothing beyond what the corrected retype earns.
+            //
+            // The rejection model needs nothing here: a rejected key writes no cell, raises no
+            // CharJudged, and already drains at its own keypress (see onWrongKeyRejected).
+            if (judgement.Type == JudgementType.WrongChar)
+                (healthProcessor as TypeBeatHealthProcessor)?.ApplyTypoDrain();
 
             // Fletcher's rush cap breaks combo on a press that is still judged Great/Ok/Meh, so the
             // hit result alone (a Great/Ok/Meh, which INCREMENTS osu's combo) cannot carry the break.
@@ -325,6 +334,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         private void onComboRestored(int streak) => (scoreProcessor as TypeBeatScoreProcessor)?.RestoreCombo(streak);
 
+        /// <summary>
+        /// A backspace took a wrong character back out of its cell (backlog 140's other half, made
+        /// visible by backlog 166): refund the HP its keypress drained. HEALTH only, and health is
+        /// the only account with anything to give back here: the mistype count is spent, and the
+        /// combo the keypress broke is restored by the corrected RETYPE (see
+        /// <see cref="onComboRestored"/>), not by the erase.
+        ///
+        /// <para>The refund rides on the ERASE rather than on the fix so that erasing a typo and
+        /// leaving the cell empty is priced as the miss it then is (one drain at the seal) instead
+        /// of as a typo plus a miss.</para>
+        /// </summary>
+        private void onTypoErased() => (healthProcessor as TypeBeatHealthProcessor)?.RefundTypoDrain();
+
         private void onWrongKeyRejected(char c)
         {
             // The combo break rides on Mistyped (see onMistyped), which fires for this key too, one
@@ -345,6 +367,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// of it. The mark is written immediately before the result is applied, and
         /// <see cref="DrawableTypeBeatHitObject.ApplySealResults"/> only asks about cells it is
         /// actually going to resolve.</para>
+        ///
+        /// <para>It is HP-neutral for the same shape of reason, and since backlog 166: the typo's HP
+        /// was taken at the keypress too (see <see cref="onCharJudged"/>), so
+        /// <see cref="TypeBeatHealthProcessor"/> gives its result no health increase either way. The
+        /// seal still owns the MISS drain, because a cell nobody typed cannot be known missed before
+        /// its line runs out of time on it.</para>
         /// </summary>
         private void onLineSealed(LineSealResult sealResult)
         {
@@ -369,6 +397,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             Engine.WrongKeyRejected -= onWrongKeyRejected;
             Engine.Mistyped -= onMistyped;
             Engine.ComboRestored -= onComboRestored;
+            Engine.TypoErased -= onTypoErased;
             base.Dispose(isDisposing);
         }
 
