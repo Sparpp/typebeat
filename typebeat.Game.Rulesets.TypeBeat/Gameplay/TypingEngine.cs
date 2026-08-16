@@ -525,6 +525,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public event Action<int>? ComboRestored;
 
+        /// <summary>
+        /// The engine has been re-derived to an EARLIER time (see <see cref="Rebuild"/>): every piece
+        /// of state a subscriber tracks incrementally, cell states included, has just changed
+        /// underneath it and must be re-read.
+        ///
+        /// <para>This is the ONE event a rebuild raises. The keystrokes it walked back over are not
+        /// re-announced, so a subscriber must not treat this as a stream of judgements: it is a
+        /// single "everything you knew is stale" edge.</para>
+        /// </summary>
+        public event Action? Rewound;
+
+        /// <summary>
+        /// True while <see cref="Rebuild"/> is re-deriving state, which is the whole of how a rebuild
+        /// stays silent: every event goes through <see cref="raise(Action?)"/>.
+        /// </summary>
+        private bool rebuilding;
+
+        private void raise(Action? handler)
+        {
+            if (!rebuilding)
+                handler?.Invoke();
+        }
+
+        private void raise<T>(Action<T>? handler, T argument)
+        {
+            if (!rebuilding)
+                handler?.Invoke(argument);
+        }
+
         private readonly List<TypingLine> lines;
         private readonly bool[] lineSealed;
         private readonly Dictionary<JudgementType, int> counts = new Dictionary<JudgementType, int>();
@@ -666,6 +695,110 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // targets are at or before this time".
             targets.Sort();
             countableTargets = targets.ToArray();
+        }
+
+        /// <summary>
+        /// Re-derive the whole run from the beginning: wipe every piece of progress, let
+        /// <paramref name="replay"/> feed the engine back up to wherever it should now be, then raise
+        /// <see cref="Rewound"/> exactly once. The seam a BACKWARDS SEEK during replay or autoplay
+        /// playback goes through (see <c>TypeBeatPlayfield.EngineTicker</c>), and the only supported
+        /// way to move this engine's state backwards: <see cref="Update"/> is monotonic by
+        /// construction, so nothing else can.
+        ///
+        /// <para>The feed is EXACT rather than approximate, because a replay holds the whole
+        /// keystroke sequence and judgement is a pure function of it (the argument
+        /// <see cref="Scoring.TypeBeatReplayScorer"/> is built on). Re-deriving to time T therefore
+        /// lands on the state a run watched straight to T would have been in.</para>
+        ///
+        /// <para>The feed is also SILENT: not one <see cref="CharJudged"/>, <see cref="LineSealed"/>,
+        /// <see cref="Mistyped"/> or <see cref="ComboRestored"/> escapes it. Re-announcing thousands
+        /// of keystrokes would be wrong in both directions at once: a cell takes exactly ONE osu
+        /// result (<c>DrawableTypeBeatCharObject.ApplyEngineResult</c> drops every later one), so the
+        /// re-announced judgements of the cells that were NOT rewound past would be silently dropped,
+        /// while the hand-mirrored counters that ride on <see cref="Mistyped"/> would take a second
+        /// copy of every wrong keypress in the run. <see cref="Rewound"/> replaces the whole stream
+        /// with one "re-read everything" edge instead.</para>
+        ///
+        /// <para>IN PLACE, never by constructing a fresh engine: <see cref="Lines"/> and every
+        /// <see cref="TypingCell"/> in them are handed out once and held for the life of the play by
+        /// the stage's line displays, so a replacement engine would leave the display bound to cells
+        /// nothing writes to any more.</para>
+        /// </summary>
+        /// <param name="replay">Feeds this engine forward to the new time, normally with
+        /// <c>ReplayEngineFeed</c>. Runs exactly once.</param>
+        public void Rebuild(Action<TypingEngine> replay)
+        {
+            ArgumentNullException.ThrowIfNull(replay);
+
+            reset();
+
+            rebuilding = true;
+
+            try
+            {
+                replay(this);
+            }
+            finally
+            {
+                rebuilding = false;
+            }
+
+            Rewound?.Invoke();
+        }
+
+        /// <summary>
+        /// Every piece of RUN state back to the moment before the first frame: cell states, the
+        /// caret, the seals, the counters, the WPM clock, the rolling-WPM ring and the sync timeline.
+        ///
+        /// <para>What is deliberately NOT touched is everything that describes the run rather than
+        /// its progress, i.e. everything set from outside after construction: the two replay CONFIG
+        /// bits (<see cref="AllowWrongInput"/>, <see cref="SpaceSkipsWord"/>), the mod flags
+        /// (<see cref="FletcherEnabled"/>, <see cref="MashingEnabled"/>, <see cref="Literate"/>,
+        /// <see cref="CaseSensitive"/>), <see cref="WindowScale"/> and the two era rules
+        /// (<see cref="ComboRestore"/>, <see cref="SpaceTiming"/>). A rebuild re-judges the same run,
+        /// not a different one. The CONFIG frame is re-fed anyway, being the first frame of every
+        /// replay, so the two bits land on the same values a second time.</para>
+        /// </summary>
+        private void reset()
+        {
+            foreach (var line in lines)
+            {
+                foreach (var cell in line.Cells)
+                {
+                    cell.State = CellState.Untyped;
+                    cell.TypedChar = null;
+                    cell.JudgedDelta = null;
+                    cell.FirstCorrectDelta = null;
+                }
+            }
+
+            Array.Clear(lineSealed);
+            Array.Clear(rollingSamples);
+            syncTimeline.Clear();
+
+            foreach (JudgementType type in Enum.GetValues<JudgementType>())
+                counts[type] = 0;
+
+            nextSealIndex = 0;
+            activeLineIndex = -1;
+            caretIndex = 0;
+            isFinished = false;
+
+            score = 0;
+            combo = 0;
+            maxCombo = 0;
+            totalKeypresses = 0;
+            correctKeypresses = 0;
+            errorCount = 0;
+            consecutiveWrongKeys = 0;
+
+            activeRealTimeMs = 0;
+            lastUpdateTime = null;
+
+            rollingCount = 0;
+            rollingNext = 0;
+
+            restorable = null;
         }
 
         /// <summary>
@@ -830,9 +963,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 }
 
                 if (broke)
-                    ComboBroken?.Invoke();
+                    raise(ComboBroken);
 
-                LineSealed?.Invoke(new LineSealResult(index, missed, broke));
+                raise(LineSealed, new LineSealResult(index, missed, broke));
             }
 
             // (3) Activate strictly by time: the first unsealed line, while it is judgeable
@@ -847,7 +980,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     isFinished = true;
                     activeLineIndex = -1;
                     caretIndex = 0;
-                    Finished?.Invoke();
+                    raise(Finished);
                 }
             }
             else if (activeLineIndex == -1)
@@ -859,14 +992,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     activeLineIndex = nextSealIndex;
                     caretIndex = 0;
                     autoSkipForward();
-                    LineActivated?.Invoke(activeLineIndex);
+                    raise(LineActivated, activeLineIndex);
                 }
             }
             else if (pendingActivation)
             {
                 // Fletcher drag cutoff (see the seal loop): the caret already moved, announce it once.
                 autoSkipForward();
-                LineActivated?.Invoke(activeLineIndex);
+                raise(LineActivated, activeLineIndex);
             }
         }
 
@@ -1069,15 +1202,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     // mode, and since backlog 109 it ACCOUNTS exactly as strict mode does too: the
                     // mistype carries the combo break by hand (TypeBeatPlayfield.onMistyped) and the
                     // cell hands the score processor nothing at all.
-                    Mistyped?.Invoke();
-                    ComboBroken?.Invoke();
+                    raise(Mistyped);
+                    raise(ComboBroken);
                     // The CELL's judgement still travels here, for the stage's red/shake feedback,
                     // but DrawableTypeBeatHitObject.ApplyCharJudgement deliberately applies no osu
                     // result for a WrongChar: the cell's result is DEFERRED. Backspace and retype it
                     // correctly and it earns its real Great/Ok/Meh, plus the streak this press
                     // just broke (backlog 140, see ComboRestored); leave it and the seal
                     // resolves it as an unfixed typo, which is a hit and not a miss (backlog 124).
-                    CharJudged?.Invoke(new CharJudgement(activeLineIndex, wrongCellIndex, JudgementType.WrongChar, delta, 0, combo));
+                    raise(CharJudged, new CharJudgement(activeLineIndex, wrongCellIndex, JudgementType.WrongChar, delta, 0, combo));
                     rollForwardIfFinishedEarly();
                     return true;
                 }
@@ -1096,9 +1229,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // break is final, and it ends any older cell's claim on the streak.
                 discardRestorableStreak();
                 counts[JudgementType.WrongChar]++;
-                Mistyped?.Invoke();
-                ComboBroken?.Invoke();
-                WrongKeyRejected?.Invoke(c);
+                raise(Mistyped);
+                raise(ComboBroken);
+                raise(WrongKeyRejected, c);
                 return true;
             }
 
@@ -1201,7 +1334,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                         if (hadCombo)
                         {
                             discardRestorableStreak();
-                            ComboBroken?.Invoke();
+                            raise(ComboBroken);
                         }
                     }
                     else
@@ -1215,7 +1348,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     // Premature / Lagging: 0 points, combo break, char still accepted.
                     combo = 0;
                     discardRestorableStreak();
-                    ComboBroken?.Invoke();
+                    raise(ComboBroken);
                 }
 
                 cell.State = CellState.Correct;
@@ -1247,7 +1380,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             caretIndex++;
             autoSkipForward();
 
-            CharJudged?.Invoke(new CharJudgement(activeLineIndex, judgedCellIndex, type, delta, points, combo));
+            raise(CharJudged, new CharJudgement(activeLineIndex, judgedCellIndex, type, delta, points, combo));
             rollForwardIfFinishedEarly();
             return true;
         }
@@ -1324,14 +1457,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             combo = 0;
             discardRestorableStreak();
-            ComboBroken?.Invoke();
+            raise(ComboBroken);
 
             // Announce the misses AFTER the break so every judgement carries the post-break combo,
             // and one per cell so the stage repaints it and its scoring drawable takes its Miss now
             // rather than at seal time (which would leave osu's combo counting on past a break the
             // engine has already taken).
             foreach (int i in abandoned)
-                CharJudged?.Invoke(new CharJudgement(activeLineIndex, i, JudgementType.Miss, time - cells[i].TargetTime, 0, combo));
+                raise(CharJudged, new CharJudgement(activeLineIndex, i, JudgementType.Miss, time - cells[i].TargetTime, 0, combo));
         }
 
         /// <summary>
@@ -1368,7 +1501,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             combo += streak;
             maxCombo = Math.Max(maxCombo, combo);
 
-            ComboRestored?.Invoke(streak);
+            raise(ComboRestored, streak);
         }
 
         /// <summary>
@@ -1409,7 +1542,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             activeLineIndex++;
             caretIndex = 0;
             autoSkipForward();
-            LineActivated?.Invoke(activeLineIndex);
+            raise(LineActivated, activeLineIndex);
         }
 
         /// <summary>
