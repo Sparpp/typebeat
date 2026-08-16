@@ -71,6 +71,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// it (<c>onWrongKeyRejected</c>, which is where the break lived before backlog 109).</item>
     /// <item><c>ComboRestored</c> puts back the streak a CORRECTED typo's keypress broke, under
     /// <see cref="ComboRestoreRule.OnFix"/> only (<c>onComboRestored</c>, backlog 140).</item>
+    /// <item><c>WordAbandoned</c> carries a word skip's one combo break by hand, and
+    /// <c>AbandonSealed</c> marks the cells it gave up combo-neutral so the Misses they finally take
+    /// cannot take that break a second time, under <see cref="WordSkipRule.Reclaimable"/> only
+    /// (<c>onWordAbandoned</c> / <c>onAbandonSealed</c>, backlog 167). <c>AbandonReclaimed</c> is
+    /// deliberately not wired: it carries health alone, and health is not simulated.</item>
     /// </list>
     ///
     /// <para><b>What it does not do.</b> No health, so PASS/FAIL is not re-derived: a replay ends
@@ -120,6 +125,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// predating backlog 150 were played under <see cref="RateWindowRule.Unscaled"/>. Only
         /// reaches a run that carries a rate mod, so it is the one era axis most rows are indifferent
         /// to.</param>
+        /// <param name="skipRule">Whether an abandoned word stays re-typeable. Stored scores
+        /// predating backlog 167 were played under <see cref="WordSkipRule.ImmediateMiss"/>, where
+        /// the skip spent each abandoned cell's one result on a Miss then and there. Narrower still
+        /// than <paramref name="rateRule"/>: it only reaches a run played with the space-skip setting
+        /// on that actually skipped a word.</param>
         public static TypeBeatReplayAccount Score(
             IBeatmap playable,
             IReadOnlyList<Mod> mods,
@@ -127,7 +137,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             TypoRule rule,
             ComboRestoreRule comboRule,
             SpaceTimingRule spaceRule = SpaceTimingRule.Untimed,
-            RateWindowRule rateRule = RateWindowRule.ScaledByRate)
+            RateWindowRule rateRule = RateWindowRule.ScaledByRate,
+            WordSkipRule skipRule = WordSkipRule.Reclaimable)
         {
             ArgumentNullException.ThrowIfNull(playable);
             ArgumentNullException.ThrowIfNull(replay);
@@ -155,6 +166,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // Backlog 148 is the widest of the four axes, because every map has spaces, and it is
             // the one that decides whether a pre-148 row can be reproduced at all.
             engine.SpaceTiming = spaceRule;
+
+            // Same shape a third time (backlog 167): the reclaim is implemented inside
+            // skipCurrentWord, so selecting it here is the whole of that era gate. With it off no
+            // cell ever enters the phantom state, so the three handlers below are dead and the skip
+            // misses its cells at the keypress exactly as a pre-167 client did.
+            engine.WordSkip = skipRule;
 
             var ruleset = new TypeBeatRuleset();
 
@@ -189,9 +206,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 scoreProcessor.RecordMistype();
             }
 
-            // TypeBeatPlayfield.onComboRestored: a corrected typo resumes the streak its keypress
-            // broke, mirrored by hand because no result carries it (backlog 140).
+            // TypeBeatPlayfield.onComboRestored: a corrected typo, or a reclaimed word skip, resumes
+            // the streak its break cost, mirrored by hand because no result carries it (backlog 140,
+            // widened by 167).
             void onComboRestored(int streak) => scoreProcessor.RestoreCombo(streak);
+
+            // TypeBeatPlayfield.onWordAbandoned: the skip's one combo break, by hand, because under
+            // the live rule the cells it gave up resolve nothing at the skip (backlog 167). Health is
+            // the other half of that seam and is not simulated here.
+            void onWordAbandoned(AbandonedCells abandoned) => scoreProcessor.Combo.Value = 0;
+
+            // TypeBeatPlayfield.onAbandonSealed: the cells the player never came back for are about
+            // to take their Misses, and each one's break was taken at the skip, so the result must
+            // leave combo where it found it.
+            void onAbandonSealed(AbandonedCells abandoned)
+            {
+                foreach (int cellIndex in abandoned.CellIndices)
+                    scoreProcessor.MarkComboNeutral(abandoned.LineIndex, cellIndex);
+            }
 
             // Pre-109 the break for a REJECTED key lived here, and a typed-through wrong char broke
             // combo through the Miss its cell took. The mash-guard half of this seam is health only,
@@ -207,6 +239,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             engine.Mistyped += onMistyped;
             engine.WrongKeyRejected += onWrongKeyRejected;
             engine.ComboRestored += onComboRestored;
+            engine.WordAbandoned += onWordAbandoned;
+            engine.AbandonSealed += onAbandonSealed;
 
             int consumed = feed(engine, replay);
 
@@ -215,6 +249,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             engine.Mistyped -= onMistyped;
             engine.WrongKeyRejected -= onWrongKeyRejected;
             engine.ComboRestored -= onComboRestored;
+            engine.WordAbandoned -= onWordAbandoned;
+            engine.AbandonSealed -= onAbandonSealed;
 
             var populated = new ScoreInfo { Ruleset = ruleset.RulesetInfo };
             scoreProcessor.PopulateScore(populated);

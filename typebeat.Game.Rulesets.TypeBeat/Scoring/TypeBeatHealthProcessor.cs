@@ -14,7 +14,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <item><b>Not typing it right.</b> Every cell that scrolls past untyped seals as a
     /// <see cref="HitResult.Miss"/>, and every wrong character typed into a cell drains at the
     /// KEYPRESS (<see cref="ApplyTypoDrain"/>, refunded by <see cref="RefundTypoDrain"/> if it is
-    /// backspaced away); both cost <see cref="MISS_HEALTH_DRAIN"/>. Typing recovers HP
+    /// backspaced away), as does every cell a word skip abandons
+    /// (<see cref="ApplyAbandonDrain"/> / <see cref="RefundAbandonDrain"/>, backlog 167); all of
+    /// them cost <see cref="MISS_HEALTH_DRAIN"/>. Typing recovers HP
     /// (<see cref="GREAT_HEALTH_INCREASE"/>/<see cref="OK_HEALTH_INCREASE"/>/<see cref="MEH_HEALTH_INCREASE"/>),
     /// so imperfect play with scattered misses stays healthy, but sustained AFK never recovers and
     /// dies once the accumulated drain empties the bar (default fail condition: health &lt;= 0).</item>
@@ -115,19 +117,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// the player-visible consequence of the whole change: death can now land mid-line, on the
         /// keypress that empties the bar, rather than only at a seal.</para>
         /// </summary>
-        public void ApplyTypoDrain()
-        {
-            // Mirrors ApplyResultInternal: once the play has failed, nothing moves the bar again.
-            if (HasFailed)
-                return;
+        public void ApplyTypoDrain() => applyDeferredDrain(1);
 
-            Health.Value -= MISS_HEALTH_DRAIN;
-
-            // CheckDefaultFailCondition's test, which cannot be called directly here because it
-            // takes the JudgementResult this drain deliberately does not have.
-            if (Precision.AlmostBigger(Health.MinValue, Health.Value))
-                TriggerFailure();
-        }
+        /// <summary>
+        /// A word skip abandoned <paramref name="cells"/> typeable cells (backlog 167): drain the bar
+        /// NOW, one <see cref="MISS_HEALTH_DRAIN"/> per cell, for backlog 166's reason. The bar is
+        /// the account a typist reads while typing, and a skip whose cost only appeared at the seal
+        /// read as unresponsive in precisely the moment the player was deciding whether to go back.
+        ///
+        /// <para>The abandoned cells are the same shape as the typo above: the cell's osu RESULT is
+        /// deferred (it is re-typeable), so the HP is settled separately from it. It is given back
+        /// the moment a cell leaves the abandoned state, by <see cref="RefundAbandonDrain"/>, and
+        /// there are exactly two exits (the backspace that reclaims it, and the seal that resolves
+        /// it as a Miss carrying this same drain of its own). Each cell is therefore charged exactly
+        /// once, by construction: charged on entry, refunded on exit, and whatever the exit is
+        /// prices it from there.</para>
+        /// </summary>
+        public void ApplyAbandonDrain(int cells) => applyDeferredDrain(cells);
 
         /// <summary>
         /// The player backspaced a wrong character away (backlog 166): give back what
@@ -141,15 +147,54 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// then one the player did not finish, and it seals as an ordinary miss, so the play ends up
         /// paying exactly one drain for it, as it always did.</para>
         /// </summary>
-        public void RefundTypoDrain()
+        public void RefundTypoDrain() => refundDeferredDrain(1);
+
+        /// <summary>
+        /// <paramref name="cells"/> abandoned cells left that state (backlog 167): give back exactly
+        /// what <see cref="ApplyAbandonDrain"/> took for them, and nothing else. Both exits refund
+        /// here, which is what makes the accounting a construction rather than a ledger:
+        ///
+        /// <list type="bullet">
+        /// <item>BACKSPACE reclaimed them, so they are ordinary untyped cells again and owe exactly
+        /// what an untyped cell owes: nothing yet. Re-typing them earns their own recovery, so a
+        /// skip, a backspace and a full retype leave the bar where typing the word straight through
+        /// would have.</item>
+        /// <item>The SEAL is about to resolve them as misses, and a Miss carries
+        /// <see cref="MISS_HEALTH_DRAIN"/> of its own. The refund and that drain cancel to one
+        /// charge per cell, which is what a skipped word has always cost.</item>
+        /// </list>
+        /// </summary>
+        public void RefundAbandonDrain(int cells) => refundDeferredDrain(cells);
+
+        /// <summary>
+        /// The shared body of <see cref="ApplyTypoDrain"/> and <see cref="ApplyAbandonDrain"/>: one
+        /// <see cref="MISS_HEALTH_DRAIN"/> per cell whose osu result is deferred, taken at the
+        /// keypress rather than at the seal.
+        /// </summary>
+        private void applyDeferredDrain(int cells)
+        {
+            // Mirrors ApplyResultInternal: once the play has failed, nothing moves the bar again.
+            if (HasFailed || cells <= 0)
+                return;
+
+            Health.Value -= MISS_HEALTH_DRAIN * cells;
+
+            // CheckDefaultFailCondition's test, which cannot be called directly here because it
+            // takes the JudgementResult this drain deliberately does not have.
+            if (Precision.AlmostBigger(Health.MinValue, Health.Value))
+                TriggerFailure();
+        }
+
+        /// <summary>The shared body of the two refunds.</summary>
+        private void refundDeferredDrain(int cells)
         {
             // The bar is frozen after a fail, so an erase cannot resurrect a dead play. Health is
             // clamped to [0, 1], so a refund into a bar already refilled by later correct characters
             // stops at full rather than banking credit.
-            if (HasFailed)
+            if (HasFailed || cells <= 0)
                 return;
 
-            Health.Value += MISS_HEALTH_DRAIN;
+            Health.Value += MISS_HEALTH_DRAIN * cells;
         }
 
         protected override double GetHealthIncreaseFor(JudgementResult result)

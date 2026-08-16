@@ -109,6 +109,77 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// Three two-word lines, so a space pressed inside a word has something to abandon
+        /// (backlog 167). Same shape and timings as <see cref="beatmap"/> otherwise.
+        /// </summary>
+        private static LyricBeatmap skipBeatmap()
+        {
+            var lines = new List<LyricLine>();
+
+            for (int k = 0; k < line_text.Length; k++)
+            {
+                double start = k * line_ms;
+                string text = line_text[k];
+
+                lines.Add(new LyricLine
+                {
+                    RawText = text[..2] + " " + text[2..],
+                    StartTime = start,
+                    EndTime = start + line_ms,
+                    SingEndTime = start + 3000,
+                    Units = new[]
+                    {
+                        new TimedUnit { Text = text[..2], StartTime = start, EndTime = start + 1500 },
+                        new TimedUnit { Text = text[2..], StartTime = start + 1500, EndTime = start + 3000 },
+                    },
+                });
+            }
+
+            return new LyricBeatmap
+            {
+                Metadata = new LyricBeatmapMetadata { Artist = "a", Title = "rewind", FolderPath = string.Empty, AudioFileName = "a.mp3" },
+                Lines = lines,
+                Granularity = TimingGranularity.Line,
+            };
+        }
+
+        /// <summary>
+        /// A run through <see cref="skipBeatmap"/> that exercises both fates of an abandoned word:
+        /// line 0's second word is skipped and RECLAIMED (backspaced back into and typed out), line
+        /// 1's is skipped and left, so it seals as misses. The CONFIG frame carries the setting, as a
+        /// real recording does.
+        /// </summary>
+        private static Replay skipRun(LyricBeatmap map)
+        {
+            var frames = new List<ReplayFrame> { TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true, spaceSkipsWord: true) };
+
+            void press(double time, char c) => frames.Add(new TypeBeatReplayFrame(Math.Round(time), c));
+
+            // Line 0 is "ab cd": type "ab", skip the gap into "cd", abandoning it, then go back for
+            // it and type it out.
+            var first = targets(map, 0);
+            press(first[0], 'a');
+            press(first[1], 'b');
+            press(first[2], ' '); // ON the gap: an ordinary typed space
+            press(first[3] + 100, ' '); // inside "cd": abandons it, and the line is complete
+            press(first[3] + 200, TypeBeatReplayFrame.BACKSPACE); // back into the word, over the gap it lands on
+            press(first[3] + 250, ' '); // the gap again (scoring-inert: it was already earned)
+            press(first[3] + 300, 'c');
+            press(first[3] + 400, 'd');
+
+            // Line 1 is "ef gh": type "e", skip the rest of the word and never come back.
+            var second = targets(map, 1);
+            press(second[0], 'e');
+            press(second[1] + 100, ' '); // abandons 'f', lands on the gap and types it
+            press(second[3], 'g');
+            press(second[4], 'h');
+
+            var replay = new Replay();
+            replay.Frames.AddRange(frames);
+            return replay;
+        }
+
+        /// <summary>
         /// The engine ticker's loop, headless, and the same one <see cref="ReplayEngineFeed.RebuildTo"/>
         /// runs: per-display-frame Updates with each due frame applied as Update(frameTime) + the
         /// keystroke, then a final Update landing exactly on <paramref name="time"/>. Written out by
@@ -274,6 +345,96 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// The same property with a WORD SKIP in the run (backlog 167). The phantom state is cell
+        /// state like any other, so a rebuild has to land on it exactly: the targets here bracket a
+        /// word while it is abandoned, after it has been reclaimed, and after a second one has sealed
+        /// as misses without ever being reclaimed.
+        /// </summary>
+        [TestCase(0)]
+        [TestCase(1650)]
+        [TestCase(1780)]
+        [TestCase(2000)]
+        [TestCase(5000)]
+        [TestCase(9000)]
+        [TestCase(11500)]
+        public void RewindLandsOnTheStateAStraightWatchWouldHaveWithASkipInTheRun(double seekTarget)
+        {
+            var map = skipBeatmap();
+            var replay = skipRun(map);
+
+            var straight = new TypingEngine(map);
+            int consumedStraight = playTo(straight, replay, seekTarget);
+
+            var rewound = new TypingEngine(map);
+            playTo(rewound, replay, past_the_end);
+
+            Assert.That(snapshot(rewound), Is.Not.EqualTo(snapshot(straight)), "fixture must actually distinguish the two states");
+
+            int consumedRewound = ReplayEngineFeed.RebuildTo(rewound, replay.Frames, seekTarget);
+
+            Assert.That(snapshot(rewound), Is.EqualTo(snapshot(straight)));
+            Assert.That(consumedRewound, Is.EqualTo(consumedStraight), "the feeder must resume from the same frame");
+        }
+
+        /// <summary>
+        /// The fixture really does put a word into the phantom state and take it out again by both
+        /// exits, which is what makes the seek targets above worth their run time.
+        /// </summary>
+        [Test]
+        public void TheSkipFixtureAbandonsReclaimsAndSeals()
+        {
+            var map = skipBeatmap();
+            var replay = skipRun(map);
+
+            // A fresh engine per checkpoint: playTo always feeds from the first frame.
+            var abandoned = new TypingEngine(map);
+            playTo(abandoned, replay, 1650);
+            Assert.That(abandoned.Lines[0].Cells[3].State, Is.EqualTo(CellState.Abandoned), "abandoned by the skip");
+
+            var reclaimed = new TypingEngine(map);
+            playTo(reclaimed, replay, 1900);
+            Assert.That(reclaimed.Lines[0].Cells[3].State, Is.EqualTo(CellState.Correct), "reclaimed and typed for real");
+
+            var finished = new TypingEngine(map);
+            playTo(finished, replay, past_the_end);
+            Assert.That(finished.Lines[1].Cells[1].State, Is.EqualTo(CellState.Missed), "the skip nobody came back for");
+            // That one cell, plus the whole of the third line, which the run never touches.
+            Assert.That(finished.BuildResults().Counts[JudgementType.Miss], Is.EqualTo(6));
+        }
+
+        /// <summary>
+        /// The three seams a word skip announces on are gated by the same rebuild silence every other
+        /// event is (backlog 165). They carry HP by hand, in both directions, so an ungated one would
+        /// drain or refund per skip in the whole prefix a backwards seek walks over.
+        /// </summary>
+        [Test]
+        public void ARebuildIsSilentAboutAnAbandonedWordToo()
+        {
+            var map = skipBeatmap();
+            var replay = skipRun(map);
+
+            var engine = new TypingEngine(map);
+            playTo(engine, replay, past_the_end);
+
+            int announced = 0;
+            int rewound = 0;
+
+            engine.WordAbandoned += _ => announced++;
+            engine.AbandonReclaimed += _ => announced++;
+            engine.AbandonSealed += _ => announced++;
+            engine.CharJudged += _ => announced++;
+            engine.LineSealed += _ => announced++;
+            engine.ComboBroken += () => announced++;
+            engine.ComboRestored += _ => announced++;
+            engine.Rewound += () => rewound++;
+
+            ReplayEngineFeed.RebuildTo(engine, replay.Frames, 6000);
+
+            Assert.That(announced, Is.Zero, "the rebuild must not re-announce the skips it walked back over");
+            Assert.That(rewound, Is.EqualTo(1));
+        }
+
+        /// <summary>
         /// The engine's own mistype count is what the score processor's hand-mirrored counter is
         /// re-derived from after a rewind (<c>TypeBeatScoreProcessor.ResyncAfterRewind</c>), so the
         /// two have to mean the same thing: one count per announced <c>Mistyped</c>. Pinned here
@@ -319,6 +480,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 WindowScale = 1.4,
                 ComboRestore = ComboRestoreRule.Never,
                 SpaceTiming = SpaceTimingRule.Timed,
+                WordSkip = WordSkipRule.ImmediateMiss,
             };
 
             playTo(engine, replay, past_the_end);
@@ -329,6 +491,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(engine.WindowScale, Is.EqualTo(1.4));
             Assert.That(engine.ComboRestore, Is.EqualTo(ComboRestoreRule.Never));
             Assert.That(engine.SpaceTiming, Is.EqualTo(SpaceTimingRule.Timed));
+            Assert.That(engine.WordSkip, Is.EqualTo(WordSkipRule.ImmediateMiss));
         }
 
         /// <summary>

@@ -845,8 +845,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Correct cells = 3 => 0.6 words => WPM = 0.6 / 0.05 = 12.
             Assert.AreEqual(12.0, results.Wpm, 1e-9);
 
-            // Counts: all 7 keys present, exact values.
-            Assert.AreEqual(7, results.Counts.Count);
+            // Counts: all 8 keys present, exact values.
+            Assert.AreEqual(8, results.Counts.Count);
             Assert.AreEqual(1, results.Counts[JudgementType.Great]);
             Assert.AreEqual(1, results.Counts[JudgementType.Ok]);
             Assert.AreEqual(1, results.Counts[JudgementType.Meh]);
@@ -854,6 +854,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, results.Counts[JudgementType.Lagging]);
             Assert.AreEqual(0, results.Counts[JudgementType.WrongChar]);
             Assert.AreEqual(1, results.Counts[JudgementType.Miss]);
+            // Nothing was abandoned, and nothing ever counts one anyway: the key exists so the
+            // dictionary is total over the enum, and a skip's cells are counted as the Misses they
+            // turn out to be at the seal (backlog 167).
+            Assert.AreEqual(0, results.Counts[JudgementType.Abandoned]);
 
             Assert.AreEqual(3, results.SyncTimeline.Count);
             Assert.AreEqual(new SyncSample(1200, 200), results.SyncTimeline[0]);

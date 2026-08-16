@@ -161,17 +161,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// the combo it found. The cell's combo consequence was already taken, by hand, at the
         /// keypress that spoiled it (<c>TypeBeatPlayfield.onMistyped</c>).
         ///
-        /// <para>Only <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/> is ever marked, and it is
-        /// marked at the seam that applies it (the seal), not at the keypress. That is what keeps a
-        /// CORRECTED typo working: its cell is resolved by the retype's own Great/Ok/Meh, which is
-        /// an ordinary combo-increasing hit and never passes through here, even though the same cell
-        /// carried a wrong char earlier in the play.</para>
+        /// <para>Two results are ever marked, and both are marked at the seam that applies them (the
+        /// seal), never at the keypress: <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>, and since
+        /// backlog 167 the <see cref="TypeBeatResultMapping.SEAL_MISS"/> of a cell a word skip
+        /// abandoned. That timing is what keeps a CORRECTED typo and a RECLAIMED skip working: such
+        /// a cell is resolved by the retype's own Great/Ok/Meh, which is an ordinary combo-increasing
+        /// hit and never passes through here, even though the same cell was spoiled earlier in the
+        /// play.</para>
         ///
         /// <para>Backlog 122 built this ledger to suppress a second combo BREAK, because the
-        /// deferred result was a Miss. Backlog 124 made that result a hit, so there is no second
-        /// break left to suppress; what is left is the mirror-image problem, a hit that would hand
+        /// deferred result was a Miss. Backlog 124 made that result a hit, so there was no second
+        /// break left to suppress; what was left was the mirror-image problem, a hit that would hand
         /// back a combo increment the player did not earn, and it is the same ledger redeemed in the
-        /// same place.</para>
+        /// same place. Backlog 167 brings the original case back alongside it: an abandoned cell
+        /// really does seal as a Miss, and its break really was taken at the skip, so BOTH
+        /// directions are now live and <see cref="GetComboScoreChange"/> has to tell them apart.</para>
         ///
         /// <para>Idempotent. A mark on a cell that turns out to be already judged (its seal result
         /// is dropped) is simply never redeemed, and is cleared with the rest at
@@ -191,10 +195,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// contribution has already been banked. Weighting an uncorrected typo as though it had
         /// extended the run, while its combo does not, is the one incoherence available here, and
         /// this is where it is avoided.</para>
+        ///
+        /// <para>Gated on <see cref="HitResultExtensions.IncreasesCombo"/>, which is the whole of the
+        /// difference between the ledger's two marked results (backlog 167). A marked HIT is one that
+        /// is not going to be allowed to extend the run, so it is weighted by the combo it found. A
+        /// marked MISS, the seal result of an abandoned cell, is a result the base implementation
+        /// already values at nothing (it weights by the combo AFTER the judgement, which a miss
+        /// leaves at zero); pricing it by the combo it found instead would pay a full combo-weighted
+        /// portion for a character the player never typed.</para>
         /// </summary>
         protected override double GetComboScoreChange(JudgementResult result)
         {
-            if (result.HitObject is TypeBeatCharObject cell && comboNeutralCells.Contains((cell.LineIndex, cell.CellIndex)))
+            if (result.Type.IncreasesCombo() && result.HitObject is TypeBeatCharObject cell && comboNeutralCells.Contains((cell.LineIndex, cell.CellIndex)))
                 return GetBaseScoreForResult(result.Judgement.MaxResult) * Math.Pow(result.ComboAtJudgement, COMBO_EXPONENT);
 
             return base.GetComboScoreChange(result);
@@ -223,7 +235,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <c>ApplyResultInternal</c> pushes <c>HighestCombo</c> up from the incremented value two
         /// lines before this hook runs, so an uncorrected typo would otherwise inflate the submitted
         /// <c>max_combo</c> by one per typo. It is restored to
-        /// <see cref="JudgementResult.HighestComboAtJudgement"/>, captured before anything moved.</para>
+        /// <see cref="JudgementResult.HighestComboAtJudgement"/>, captured before anything moved.
+        /// For a marked MISS (an abandoned cell's seal result, backlog 167) that write is a no-op by
+        /// construction, exactly as it was in 122: a break cannot have raised the maximum. Only the
+        /// <c>Combo</c> line does any work there, and putting back the run the player was holding is
+        /// the whole point of the mark.</para>
         ///
         /// <para><see cref="JudgementResult.ComboAfterJudgement"/> and
         /// <see cref="JudgementResult.HighestComboAfterJudgement"/> are deliberately left reading the
