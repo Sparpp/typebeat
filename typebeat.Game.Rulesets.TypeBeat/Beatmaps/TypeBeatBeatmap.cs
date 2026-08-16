@@ -29,10 +29,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private const float max_display_words = 600;
 
         /// <summary>
-        /// Bar cap for the average word length. English typing-test text sits around 5 cells per
-        /// word (the constant WPM is defined on), and lyrics with their short words and many line
-        /// breaks sit a little under, so 10 puts a typical map near half a bar and leaves room above
-        /// for the genuinely long-worded maps rather than pinning everything full.
+        /// Bar cap for the average word length. English typing-test text sits at 5 cells per word
+        /// (the constant WPM is defined on) and lyrics sit under it: the shipped maps measure 4.1
+        /// to 4.6. A cap of 10 puts them a little under half a bar, which reads as "short words"
+        /// at a glance and still leaves the top half for the long-worded outliers instead of
+        /// pinning every map full.
         /// </summary>
         private const float max_display_chars_per_word = 10;
 
@@ -119,8 +120,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // the 5 the unit assumes. It is the ratio the old real-word WPM used to encode
             // implicitly (CPM:WPM), now printed rather than left to be divided out.
             //
-            // One decimal, because the interesting spread across maps is about 3.5 to 6.5 cells and
-            // rounding to whole characters would flatten most of it into "5".
+            // One decimal is not decoration: the five shipped maps measure 4.13, 4.31, 4.57, 4.11
+            // and 4.47 cells per word, so rounding to whole characters would print "4" for every
+            // single one of them and the statistic would carry no information at all.
             //
             // Rate-independent, exactly like the word count: a speed mod changes when the
             // characters arrive, not how many of them make up a word. Hence no RateAdjusted.
