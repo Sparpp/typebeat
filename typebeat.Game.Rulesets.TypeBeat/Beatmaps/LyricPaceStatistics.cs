@@ -135,4 +135,3 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
     }
 }
-
