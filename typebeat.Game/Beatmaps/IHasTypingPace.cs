@@ -21,9 +21,10 @@ namespace typebeat.Game.Beatmaps
     }
 
     /// <summary>
-    /// Peak and average typing pace for a beatmap, plus a WPM curve over its length. WPM is in real
-    /// words (no "1 word = 5 characters" estimate), so the peak and the average are directly
-    /// comparable with each other.
+    /// Peak and average typing pace for a beatmap, plus a WPM curve over its length. WPM is in the
+    /// typing-test unit of 5 characters to the word, the same unit the in-game counter and the
+    /// results screen use, so every WPM the game ever shows a player means one thing. Peak and
+    /// average are therefore comparable both with each other and with any other typing test.
     /// </summary>
     public sealed class TypingPaceProfile
     {
@@ -33,7 +34,7 @@ namespace typebeat.Game.Beatmaps
         /// <summary>Highest WPM over any rolling window of the map.</summary>
         public required double PeakWpm { get; init; }
 
-        /// <summary>Highest characters-per-minute over any rolling window; maximised independently of <see cref="PeakWpm"/>.</summary>
+        /// <summary>Highest characters-per-minute over any rolling window; <see cref="PeakWpm"/> times 5.</summary>
         public required double PeakCpm { get; init; }
 
         /// <summary>Mean per-line WPM across the map.</summary>

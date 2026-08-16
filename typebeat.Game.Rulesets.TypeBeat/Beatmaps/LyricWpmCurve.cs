@@ -34,21 +34,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>Curve resolution used by song select (one point per graph bar).</summary>
         public const int DEFAULT_CURVE_POINTS = 100;
 
+        /// <summary>
+        /// Typeable cells per word, the typing-test convention, and the same 5 as
+        /// <c>TypingEngine.LiveRollingWpm</c> and <c>LyricPaceStatistics.CHARS_PER_WORD</c>.
+        /// Restated here rather than referenced so this file keeps depending on nothing but
+        /// <see cref="LyricLine"/>, <see cref="TimedUnit"/> and <see cref="Typeability"/> and stays
+        /// mirrorable; the three must agree.
+        /// </summary>
+        public const double CHARS_PER_WORD = 5.0;
+
         private readonly double[]? curve;
 
         /// <summary>
-        /// Highest WPM of any window. In REAL FRACTIONAL WORDS (see <see cref="Compute"/>), not the
-        /// HUD's chars/5 estimate, so this will NOT equal the highest number the in-game counter
-        /// ever showed on the map. That is deliberate: it is the price of quoting peak and average
-        /// in one unit.
+        /// Highest WPM of any window, in the typing-test unit of <see cref="CHARS_PER_WORD"/> cells
+        /// to the word, hence exactly <see cref="PeakCpm"/> / 5. This class used to count REAL
+        /// fractional words here, which made the peak a number the in-game counter could never have
+        /// shown; it now IS that number, the highest reading a perfect player would have seen on the
+        /// HUD's rolling counter (which averages over the same <see cref="WINDOW_CELLS"/> presses
+        /// and divides by the same 5).
         /// </summary>
         public double PeakWpm { get; }
 
         /// <summary>
-        /// Highest CPM of any window. Maximised INDEPENDENTLY of <see cref="PeakWpm"/>: one measures
-        /// word density and the other keystroke density, so the two peaks may sit in different
-        /// windows (a burst of long words peaks the CPM, a burst of short ones the WPM), and pinning
-        /// them to a single window would misreport at least one of them.
+        /// Highest CPM of any window. Under the old real-word convention this was maximised
+        /// INDEPENDENTLY of <see cref="PeakWpm"/>, since a burst of long words peaked the CPM and a
+        /// burst of short ones the WPM. With every cell now worth exactly 1/5 of a word the two are
+        /// proportional, so they always peak in the same window and the independent maximisation has
+        /// nothing left to find. Both are still reported: one is the unit players compare across
+        /// typing tests, the other the raw keystroke rate.
         /// </summary>
         public double PeakCpm { get; }
 
@@ -90,9 +103,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         {
             var lineList = lines as IReadOnlyList<LyricLine> ?? lines.ToList();
 
-            // Cell target times in typing order, and the WORD SHARE each cell carries (below).
+            // Cell target times in typing order. That is the whole state this needs: every cell is
+            // worth 1/CHARS_PER_WORD of a word, so counting cells IS counting words and the
+            // per-cell fractional word shares this used to carry alongside (1/k for each of a
+            // token's k chars, 0 for an inter-word space) were deleted with the real-word
+            // convention that needed them.
             var targets = new List<double>();
-            var shares = new List<double>();
 
             for (int li = 0; li < lineList.Count; li++)
             {
@@ -139,24 +155,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                             continue;
 
                         targets.Add(unitStart + (double)j * (unitEnd - unitStart) / k);
-
-                        // THE WORD CONVENTION, and it is the point of this class. The HUD counter
-                        // estimates words as chars/5 (TypingEngine.cs:188); this instead gives each
-                        // of a token's k typeable chars a share of 1/k of one REAL word, exactly the
-                        // "no 1 word = 5 chars estimate" rule LyricPaceStatistics measures the map's
-                        // averages under. That is what lets peak and average be printed side by side
-                        // in the same panel and actually be read against each other. The cost is that
-                        // PeakWpm is not the highest number the HUD ever showed on the map.
-                        shares.Add(1.0 / k);
                         j++;
                     }
 
                     if (m < tokens.Length - 1)
                     {
-                        // Inter-word space cell: a keypress (so it bounds a gap and counts towards
-                        // CPM) but no part of any word (so it carries no word share).
+                        // Inter-word space cell: a keypress, so it bounds a gap and counts towards
+                        // both rates. It used to count towards CPM only, being no part of any word;
+                        // under the typing-test convention it is a fifth of a word like every other
+                        // keystroke, which is exactly why AverageCharsPerWord counts spaces too.
                         targets.Add(unitEnd);
-                        shares.Add(0);
                     }
                 }
 
@@ -181,12 +189,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (mapSpanMs <= 0)
                 return new LyricWpmCurve(null, 0, 0, 0, 0);
 
-            // Prefix sums so a window's word total is one subtraction.
-            double[] prefix = new double[cellCount + 1];
-
-            for (int i = 0; i < cellCount; i++)
-                prefix[i + 1] = prefix[i] + shares[i];
-
             double[] result = new double[points];
             double peakWpm = 0;
             double peakCpm = 0;
@@ -205,9 +207,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // (TypingEngine.cs:185-188), kept here so the two readouts agree in scale.
                 double cpm = (WINDOW_CELLS - 1) / minutes;
 
-                // Words over the SAME 29 cells that bound the 29 gaps, [i, i + WINDOW_CELLS - 2].
-                double words = prefix[i + WINDOW_CELLS - 1] - prefix[i];
-                double wpm = words / minutes;
+                // The same 29 cells, in words: 29/5 of one. Both peaks are still tracked separately
+                // even though wpm is now a fixed multiple of cpm, so that the invariant
+                // PeakWpm == PeakCpm / CHARS_PER_WORD is a consequence of the loop rather than an
+                // assumption written into it.
+                double wpm = cpm / CHARS_PER_WORD;
 
                 if (wpm > peakWpm)
                     peakWpm = wpm;

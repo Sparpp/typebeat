@@ -12,8 +12,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
     /// The playable typebeat beatmap: exposes typing-pace statistics (word count, boundary-window
-    /// WPM/CPM) which song select's statistics display computes live from the hit objects,
-    /// always correct, never stale realm data.
+    /// WPM/CPM, average word length) which song select's statistics display computes live from the
+    /// hit objects, always correct, never stale realm data.
     /// </summary>
     public class TypeBeatBeatmap : Beatmap<TypeBeatHitObject>, IHasTypingPace
     {
@@ -27,6 +27,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// where reusing 100 would pin it full on every map longer than twenty lines.
         /// </summary>
         private const float max_display_words = 600;
+
+        /// <summary>
+        /// Bar cap for the average word length. English typing-test text sits at 5 cells per word
+        /// (the constant WPM is defined on) and lyrics sit under it: the shipped maps measure 4.1
+        /// to 4.6. A cap of 10 puts them a little under half a bar, which reads as "short words"
+        /// at a glance and still leaves the top half for the long-worded outliers instead of
+        /// pinning every map full.
+        /// </summary>
+        private const float max_display_chars_per_word = 10;
 
         /// <summary>
         /// Peak (rolling-window) and average (per-line) pace for song select's metadata wedge, both
@@ -104,6 +113,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 CreateIcon = () => new SpriteIcon { Icon = FontAwesome.Solid.Font },
                 BarDisplayLength = (float)Math.Min(1, baseCpm / (max_display_wpm * 5)),
                 RateAdjusted = rate => ((baseCpm * rate).ToString("0"), (float?)Math.Min(1, baseCpm * rate / (max_display_wpm * 5))),
+            };
+
+            // Sits immediately right of Average CPM because it is what turns that number into the
+            // one left of it: WPM is CPM/5 flat, so this says how far the map's own words are from
+            // the 5 the unit assumes. It is the ratio the old real-word WPM used to encode
+            // implicitly (CPM:WPM), now printed rather than left to be divided out.
+            //
+            // One decimal is not decoration: the five shipped maps measure 4.13, 4.31, 4.57, 4.11
+            // and 4.47 cells per word, so rounding to whole characters would print "4" for every
+            // single one of them and the statistic would carry no information at all.
+            //
+            // Rate-independent, exactly like the word count: a speed mod changes when the
+            // characters arrive, not how many of them make up a word. Hence no RateAdjusted.
+            double baseCharsPerWord = pace.AverageCharsPerWord;
+
+            yield return new BeatmapStatistic
+            {
+                Name = "Chars/word",
+                Content = baseCharsPerWord.ToString("0.0"),
+                CreateIcon = () => new SpriteIcon { Icon = FontAwesome.Solid.TextWidth },
+                BarDisplayLength = (float)Math.Min(1, baseCharsPerWord / max_display_chars_per_word),
             };
         }
     }

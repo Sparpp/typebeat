@@ -112,10 +112,42 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var statistics = makeBeatmap(mixedFixture()).GetStatistics().ToList();
 
             // A rate mod changes when the words arrive, not how many there are, so the word count
-            // carries no RateAdjusted. The pace statistics beneath it must still carry one.
+            // carries no RateAdjusted. Nor does the average word LENGTH, for the same reason. The
+            // two rate statistics between them must still carry one.
             Assert.IsNull(statistics.Single(s => s.Name.ToString() == "Words").RateAdjusted);
             Assert.IsNotNull(statistics.Single(s => s.Name.ToString() == "Average WPM").RateAdjusted);
             Assert.IsNotNull(statistics.Single(s => s.Name.ToString() == "Average CPM").RateAdjusted);
+            Assert.IsNull(statistics.Single(s => s.Name.ToString() == "Chars/word").RateAdjusted);
+        }
+
+        [Test]
+        public void CharsPerWordSitsRightOfAverageCpmAndRendersOneDecimal()
+        {
+            // Order is the wedge's left-to-right order, and this one belongs immediately right of
+            // Average CPM: it is the number that converts CPM into the WPM two places left of it.
+            var statistics = makeBeatmap(mixedFixture()).GetStatistics().ToList();
+
+            Assert.AreEqual(new[] { "Words", "Average WPM", "Average CPM", "Chars/word" }, statistics.Select(s => s.Name.ToString()).ToArray());
+
+            // The fixture types as "the bad cat sat" (15 cells, 4 words), "hey   you" (9 cells,
+            // 2 words) and "oh oh oh" (8 cells, 3 words): 32 cells over 9 words = 3.555..., which
+            // renders to one decimal as 3.6. Rounded to whole characters it would read "4" and every
+            // map in the library would read 3, 4 or 5.
+            Assert.AreEqual(32, LyricPaceStatistics.Compute(mixedFixture()).TypeableCellCount);
+            Assert.AreEqual("3.6", statistics.Single(s => s.Name.ToString() == "Chars/word").Content);
+        }
+
+        [Test]
+        public void CharsPerWordIsTheRatioOfTheTwoCounts()
+        {
+            // Rendered from pace.AverageCharsPerWord, not re-derived, so it cannot contradict the
+            // "Words" total sitting three places to its left.
+            var lines = mixedFixture();
+            var pace = LyricPaceStatistics.Compute(lines);
+            var stat = makeBeatmap(lines).GetStatistics().Single(s => s.Name.ToString() == "Chars/word");
+
+            Assert.AreEqual(((double)pace.TypeableCellCount / pace.WordCount).ToString("0.0"), stat.Content);
+            Assert.AreEqual((float)(pace.AverageCharsPerWord / 10), stat.BarDisplayLength);
         }
 
         [Test]
