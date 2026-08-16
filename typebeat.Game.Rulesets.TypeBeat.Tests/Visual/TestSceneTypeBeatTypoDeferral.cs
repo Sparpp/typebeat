@@ -3,6 +3,7 @@
 
 using System.Collections.Generic;
 using NUnit.Framework;
+using osu.Framework.Utils;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
@@ -53,6 +54,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private TypingEngine engine => playfield.Engine;
 
         private IReadOnlyDictionary<HitResult, int> statistics => Player.ScoreProcessor.Statistics;
+
+        /// <summary>
+        /// The real HP bar the real <c>TypeBeatPlayfield</c> is driving, which is the only place the
+        /// keypress drain and the erase refund (backlog 166) are actually wired up: everything else
+        /// about them is pinned headlessly in <c>TypeBeatHealthTest</c>.
+        /// </summary>
+        private double health => Player.GameplayState.HealthProcessor.Health.Value;
+
+        private static double afterOneTypo => 1 - TypeBeatHealthProcessor.MISS_HEALTH_DRAIN;
 
         /// <summary>
         /// Line 0 is a single twelve-letter word over [0, 240000], so its cells sit on 0, 20000,
@@ -158,6 +168,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && statistics.GetValueOrDefault(HitResult.Miss) == 0
                 && statistics.GetValueOrDefault(HitResult.ComboBreak) == 1);
 
+            // Backlog 166: no result, but the HP is charged anyway, HERE, on the keypress. The two
+            // Greats before it left the bar at the cap, so this is the drain and nothing else.
+            AddAssert("HP is charged on the keypress, with no result to carry it", () =>
+                Precision.AlmostEquals(health, afterOneTypo, 1e-9));
+
             typeCorrectly(3, 12);
 
             // Nine cells after the typo, so the submitted max_combo is 9. Had the break not been
@@ -203,6 +218,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // Meh value, so backlog 126 changes completion, rank and health and nothing else.
             AddAssert("accuracy pays exactly what it paid before", () =>
                 Player.ScoreProcessor.Accuracy.Value == (11 * 300 + 50) / (12 * 300.0));
+
+            // And the typo is charged ONCE (backlog 166): the nine Greats after it put the bar back
+            // at the cap, and the seal resolving the cell as a typo takes nothing more. A seal that
+            // drained it a second time would leave the bar one MISS_HEALTH_DRAIN below full.
+            AddAssert("the seal bills the typo no second time", () => Precision.AlmostEquals(health, 1, 1e-9));
         }
 
         /// <summary>
@@ -331,9 +351,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             typeCorrectly(0, 2);
             typeTypoOnCell(2);
 
-            AddStep("backspace and type it right", () =>
+            AddAssert("the typo charged HP on the keypress", () => Precision.AlmostEquals(health, afterOneTypo, 1e-9));
+
+            // Split from the retype below so the refund is observable: after the erase alone the bar
+            // must be back at the cap it was at before the typo. Rolled together with the retype it
+            // would prove nothing, because the retype's own Great recovery is larger than the drain
+            // and the clamp would hide a missing refund.
+            AddStep("backspace", () => engine.ProcessBackspace());
+            AddAssert("erasing the wrong char refunds its drain", () => Precision.AlmostEquals(health, 1, 1e-9));
+
+            AddStep("type it right", () =>
             {
-                engine.ProcessBackspace();
                 var cell = engine.Lines[0].Cells[2];
                 engine.ProcessKey(cell.Expected, cell.TargetTime);
             });

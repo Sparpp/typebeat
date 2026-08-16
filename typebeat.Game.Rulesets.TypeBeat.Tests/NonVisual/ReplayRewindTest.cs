@@ -261,6 +261,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             engine.ComboRestored += _ => announced++;
             engine.WrongKeyRejected += _ => announced++;
             engine.Finished += () => announced++;
+            // The fixture backspaces over a typo, so this one is not a formality: its drain rides on
+            // CharJudged and is therefore already silent here, and an ungated erase would refund a
+            // drain that a rebuild never took (backlog 166 landing on top of this).
+            engine.TypoErased += () => announced++;
             engine.Rewound += () => rewound++;
 
             ReplayEngineFeed.RebuildTo(engine, replay.Frames, 6000);
