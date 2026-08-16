@@ -101,6 +101,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             => ScoreResultCounts[MISTYPE_RESULT] = ScoreResultCounts.GetValueOrDefault(MISTYPE_RESULT) + 1;
 
         /// <summary>
+        /// Reconciles the state this processor holds that a REWIND cannot reach, after the engine has
+        /// been re-derived to an earlier time (<c>TypeBeatPlayfield.onRewound</c>, which documents the
+        /// ordering that makes this safe). Reachable only while watching a replay or autoplay: live
+        /// play cannot seek, and nothing here touches the stored score being watched.
+        ///
+        /// <para><see cref="ScoreProcessor.RevertResultInternal"/> undoes a result, and every count
+        /// this processor keeps rides on one EXCEPT these two. The mistype count is written by
+        /// <see cref="RecordMistype"/> off <see cref="Gameplay.TypingEngine.Mistyped"/>, deliberately
+        /// not through <c>ApplyResult</c>, so a rewind leaves it at its high-water mark and playing
+        /// the same stretch again would count every wrong keypress in it twice. It is therefore
+        /// re-derived from the rebuilt engine rather than decremented: the engine counts exactly the
+        /// keypresses it announces, one for one, so its own count IS the right value at the seek
+        /// target.</para>
+        ///
+        /// <para>The combo-neutral ledger is dropped wholesale. It is only ever read at the moment a
+        /// cell's result is applied, so clearing it cannot disturb a result already taken, and every
+        /// cell that is still owed a mark gets it again when its line seals a second time. Keeping
+        /// stale entries would be the harmful direction: a cell that was an unfixed typo before the
+        /// seek can be corrected on the way back through, and its retype's ordinary combo-increasing
+        /// hit would then be silently neutralised.</para>
+        /// </summary>
+        public void ResyncAfterRewind(int engineMistypes)
+        {
+            ScoreResultCounts[MISTYPE_RESULT] = engineMistypes;
+            comboNeutralCells.Clear();
+        }
+
+        /// <summary>
         /// Puts back the streak a corrected typo's wrong keypress broke (backlog 140): osu's combo
         /// resumes at what it was before that keypress, plus everything earned since. The engine
         /// decides WHETHER and BY HOW MUCH (<see cref="Gameplay.TypingEngine.ComboRestored"/>); this is the
@@ -200,9 +228,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <para><see cref="JudgementResult.ComboAfterJudgement"/> and
         /// <see cref="JudgementResult.HighestComboAfterJudgement"/> are deliberately left reading the
         /// moved values. They are what a REVERT subtracts, and rewriting them would make it subtract
-        /// a contribution that was never added. Rewind is not supported by this ruleset at all
-        /// (results come only from the monotonic engine), and the hand-written breaks this pairs
-        /// with have always been invisible to it.</para>
+        /// a contribution that was never added. Rewind DOES now reach this processor, but only while
+        /// watching a replay or autoplay, and only through results: a backwards seek rebuilds the
+        /// engine (see <see cref="ResyncAfterRewind"/>) and the framework reverts the results whose
+        /// time is now in the future, which is exactly the subtraction these two fields are for. The
+        /// hand-written breaks this pairs with remain invisible to it, which is the residue that
+        /// method documents.</para>
         /// </summary>
         protected override void ApplyScoreChange(JudgementResult result)
         {

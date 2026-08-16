@@ -234,6 +234,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             Engine.WrongKeyRejected += onWrongKeyRejected;
             Engine.Mistyped += onMistyped;
             Engine.ComboRestored += onComboRestored;
+            Engine.Rewound += onRewound;
         }
 
         protected override void Update()
@@ -362,6 +363,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             });
         }
 
+        /// <summary>
+        /// The engine has been re-derived to an earlier time after a backwards seek during replay or
+        /// autoplay playback (see <see cref="TypingEngine.Rebuild"/>). Reconciles the only part of
+        /// the submitted account the framework's own rewind cannot reach.
+        ///
+        /// <para>ORDERING, which is what makes this safe rather than a double-count.
+        /// <see cref="Playfield.Update"/> pops <c>judgedEntries</c> and reverts every result whose
+        /// <c>JudgementResult.RawTime</c> is now in the future, and a composite drawable's own
+        /// <c>Update</c> runs before its children's, so that revert loop has already fully drained
+        /// by the time the engine ticker (a child of this
+        /// playfield's lyric-clock subtree) can notice the seek and rebuild. Reverting resets the
+        /// result (<c>JudgementResult.Reset</c>), so the cells that were rewound past read
+        /// <c>Judged == false</c> again and take a fresh result when playback reaches them a second
+        /// time, while the cells BEFORE the seek target keep the one they already have. That is why
+        /// the rebuild itself must stay silent: its judgements would be dropped for the first group
+        /// and duplicated for the second.</para>
+        ///
+        /// <para>What the revert cannot reach is the pair of quantities that never travelled on a
+        /// result at all (see <see cref="onMistyped"/>): the MISTYPE COUNT, a pure counter, and the
+        /// combo-neutral ledger. The count is re-derived from the rebuilt engine, which is
+        /// authoritative for exactly the interval that survives the seek
+        /// (<see cref="TypingEngine.Mistypes"/> counts the same wrong keypresses
+        /// <see cref="TypingEngine.Mistyped"/> announces, one for one). The ledger is dropped, since
+        /// every entry that is still owed will be re-marked at its line's seal.</para>
+        ///
+        /// <para>KNOWN RESIDUE: the hand-mirrored combo BREAKS are not undone, so
+        /// <see cref="ScoreProcessor.Combo"/> can read low between the seek target and the first
+        /// break after it, at which point the next hand-mirrored break (an absolute write of 0) puts
+        /// it back on the engine's value. It is not overwritten from the engine here on purpose: the
+        /// two counters are kept equal by mirroring every move, never by one dictating to the other,
+        /// and a watched replay's HUD combo is the only thing this reaches. Nothing here can mutate
+        /// or re-submit the stored score being watched.</para>
+        /// </summary>
+        private void onRewound() => (scoreProcessor as TypeBeatScoreProcessor)?.ResyncAfterRewind(Engine.Mistypes);
+
         protected override void Dispose(bool isDisposing)
         {
             Engine.CharJudged -= onCharJudged;
@@ -369,6 +405,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             Engine.WrongKeyRejected -= onWrongKeyRejected;
             Engine.Mistyped -= onMistyped;
             Engine.ComboRestored -= onComboRestored;
+            Engine.Rewound -= onRewound;
             base.Dispose(isDisposing);
         }
 
@@ -398,9 +435,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// attached (watching a replay, or the Autoplay mod), every due frame is fed straight into
         /// the engine as <c>Update(frame.Time)</c> followed by the recorded keystroke at that exact
         /// time, which is the identical call sequence live play makes (see
-        /// <see cref="TypeBeatKeyHandler"/>). Judgement therefore depends only on the recorded
-        /// (char, time) sequence, never on playback frame rate or the local lyric-offset setting.
-        /// The lyric clock only schedules WHEN due frames are applied and drives the visuals.</para>
+        /// <see cref="TypeBeatKeyHandler"/>). That sequence lives in
+        /// <see cref="ReplayEngineFeed.Apply"/>, shared with the headless recalculation harness so
+        /// the two cannot drift. Judgement therefore depends only on the recorded (char, time)
+        /// sequence, never on playback frame rate or the local lyric-offset setting. The lyric clock
+        /// only schedules WHEN due frames are applied and drives the visuals.</para>
+        ///
+        /// <para>A BACKWARDS SEEK is handled by rebuilding rather than by unwinding: see the comment
+        /// on <see cref="lastFedTime"/> and <see cref="ReplayEngineFeed.RebuildTo"/>.</para>
         /// </summary>
         private partial class EngineTicker : Drawable
         {
@@ -409,6 +451,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             private Game.Replays.Replay? activeReplay;
             private int nextFrameIndex;
+
+            /// <summary>
+            /// The lyric time the last fed frame was clocked at, i.e. the high-water mark
+            /// <see cref="nextFrameIndex"/> was advanced under. Anything earlier arriving next frame
+            /// is a BACKWARDS SEEK. Negative infinity until the first tick, so the first frame of a
+            /// play is never mistaken for one.
+            /// </summary>
+            private double lastFedTime = double.NegativeInfinity;
 
             // Cached by Player (via GameplayClockContainer / FrameStabilityContainer); absent in bare
             // drawable-ruleset test scenes, where there is no rate mod to report anyway.
@@ -426,6 +476,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 base.Update();
 
                 var replay = drawableRuleset?.ReplayScore?.Replay;
+                double clockRate = wpmClockRate(gameplayClock);
 
                 if (replay != null)
                 {
@@ -434,45 +485,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     {
                         activeReplay = replay;
                         nextFrameIndex = 0;
+                        lastFedTime = double.NegativeInfinity;
                     }
 
                     var frames = replay.Frames;
 
+                    // BACKWARDS SEEK. Both this index and the engine only ever move forwards, so a
+                    // clock that has gone back leaves every keystroke between the new time and the
+                    // old one already consumed and every cell, the caret and the active line frozen
+                    // at their pre-seek values while the song plays on. Rebuilding is the only way
+                    // back, and it is exact rather than an unwind (see ReplayEngineFeed.RebuildTo).
+                    //
+                    // Reachable only with a replay attached, which is the whole of the "replay and
+                    // autoplay only" scope: live play cannot seek, so TypeBeatKeyHandler is not in
+                    // this at all.
+                    if (Time.Current < lastFedTime)
+                        nextFrameIndex = ReplayEngineFeed.RebuildTo(engine, frames, Time.Current, clockRate);
+
+                    lastFedTime = Time.Current;
+
                     while (nextFrameIndex < frames.Count && frames[nextFrameIndex].Time <= Time.Current)
                     {
                         if (frames[nextFrameIndex] is TypeBeatReplayFrame frame)
-                            applyFrame(frame);
+                            ReplayEngineFeed.Apply(engine, frame, clockRate);
 
                         nextFrameIndex++;
                     }
                 }
 
-                engine.Update(Time.Current, wpmClockRate(gameplayClock));
-            }
-
-            private void applyFrame(TypeBeatReplayFrame frame)
-            {
-                if (frame.IsConfig)
-                {
-                    // Recorded machine's judgement-relevant settings win over local config, both of
-                    // them: a replay of a run played WITHOUT space-skip must not start skipping words
-                    // because the watcher turned the setting on, and vice versa. Every replay recorded
-                    // before the setting existed carries bit 1 = 0, which decodes to false, i.e. to
-                    // exactly the model those runs were played under.
-                    engine.AllowWrongInput = frame.AllowWrongInput;
-                    engine.SpaceSkipsWord = frame.SpaceSkipsWord;
-                    return;
-                }
-
-                // Exactly the live sequence: state advances to the keystroke's timestamp, then the
-                // keystroke applies. Update is monotonic/idempotent, so the ticker's own per-frame
-                // updates interleaving at other times cannot change any judgement outcome.
-                engine.Update(frame.Time, wpmClockRate(gameplayClock));
-
-                if (frame.IsBackspace)
-                    engine.ProcessBackspace();
-                else
-                    engine.ProcessKey(frame.Character, frame.Time);
+                engine.Update(Time.Current, clockRate);
             }
         }
 

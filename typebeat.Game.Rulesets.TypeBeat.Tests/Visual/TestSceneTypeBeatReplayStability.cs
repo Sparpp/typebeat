@@ -247,6 +247,67 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("clear mods", () => SelectedMods.SetDefault());
         }
 
+        /// <summary>
+        /// Backlog 165: seeking BACKWARDS while watching a replay used to freeze gameplay. The engine
+        /// has no reverse gear and the feeder's frame index only grew, so every keystroke between the
+        /// seek target and the old position was already spent: the lyric stack and caret stopped dead
+        /// while the song played on. The end-to-end pin for the ticker seam that fixes it (the unit
+        /// pins for the rebuild itself are in <c>ReplayRewindTest</c>).
+        ///
+        /// <para>The scripted replay's rejected 'x' is what makes the second half of this a real
+        /// test. Its MISTYPE is counted by hand off <c>TypingEngine.Mistyped</c> and never travels on
+        /// a judgement result, so the framework's rewind cannot undo it; re-watching the same stretch
+        /// would count it twice were it not re-derived from the rebuilt engine
+        /// (<c>TypeBeatScoreProcessor.ResyncAfterRewind</c>).</para>
+        /// </summary>
+        [Test]
+        public void TestBackwardsSeekRebuildsRatherThanFreezing()
+        {
+            IBeatmap beatmap = createBeatmap();
+
+            AddStep("set beatmap", () => Beatmap.Value = CreateWorkingBeatmap(beatmap));
+            AddStep("set ruleset", () => Ruleset.Value = beatmap.BeatmapInfo.Ruleset);
+            AddStep("push player", () => pushNewPlayer(new Score { Replay = createReplay(), ScoreInfo = new ScoreInfo() }));
+
+            AddUntilStep("wait until player is loaded", () => currentPlayer.IsCurrentScreen());
+            skipIntroIfPresent();
+            AddUntilStep("wait for completion", () => currentPlayer.GameplayState.HasCompleted);
+
+            AddAssert("the whole run played", () => playbackEngine.IsFinished && playbackEngine.Mistypes == 1);
+            AddAssert("one mistype was counted", () => mistypeStat(), () => Is.EqualTo(1));
+
+            // 1500 sits after line 0 is fully typed ('a'@500 through 'b'@1000) and before line 1's
+            // only keystroke ('c'@2500), so a correct rebuild has to keep line 0 and drop line 1.
+            AddStep("seek back over line 1", () => currentPlayer.Seek(1500));
+
+            AddUntilStep("line 1 rewound", () => playbackEngine.Lines[1].Cells.All(c => c.State == CellState.Untyped));
+
+            AddAssert("the run is live again, not finished", () => !playbackEngine.IsFinished && playbackEngine.NextUnsealedLineIndex == 0);
+
+            AddAssert("line 0 kept what it earned", () =>
+                playbackEngine.Lines[0].Cells.All(c => c.State == CellState.Correct)
+                && playbackEngine.Mistypes == 1);
+
+            // The freeze itself: everything below this line only happens if the engine resumed.
+            AddUntilStep("line 1 replays forward", () => playbackEngine.Lines[1].Cells[0].State == CellState.Correct);
+            AddUntilStep("wait for completion again", () => currentPlayer.GameplayState.HasCompleted);
+
+            AddAssert("the rewatched mistype was not counted twice", () => mistypeStat(), () => Is.EqualTo(1));
+
+            AddAssert("the run finished again", () => playbackEngine.IsFinished);
+            AddAssert("the untyped cell missed again", () => playbackEngine.Lines[1].Cells[1].State, () => Is.EqualTo(CellState.Missed));
+
+            // Four scoring keypresses ('a', the rejected 'x', 'b', 'c'; the backspaced retype of 'a'
+            // is inert and counts in neither term), three of them correct. A rebuild that replayed
+            // the prefix twice, or dropped part of it, moves both terms.
+            AddAssert("accuracy is the whole run's, counted once", () => playbackEngine.LiveAccuracy, () => Is.EqualTo(3 / 4d));
+
+            AddStep("exit player", () => currentPlayer.Exit());
+            AddUntilStep("player exited", () => !currentPlayer.IsCurrentScreen());
+        }
+
+        private int mistypeStat() => currentPlayer.GameplayState.ScoreProcessor.Statistics.GetValueOrDefault(HitResult.ComboBreak);
+
         private TypingEngine playbackEngine => currentPlayer.ChildrenOfType<TypeBeatPlayfield>().Single().Engine;
 
         private static IBeatmap createBeatmap()

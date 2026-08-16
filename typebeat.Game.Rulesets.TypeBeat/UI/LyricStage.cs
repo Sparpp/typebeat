@@ -211,6 +211,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             engine.CharJudged += onCharJudged;
             engine.LineSealed += onLineSealed;
             engine.WrongKeyRejected += onWrongKeyRejected;
+            engine.Rewound += onRewound;
         }
 
         /// <summary>
@@ -267,6 +268,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             if (result.LineIndex >= 0 && result.LineIndex < displays.Length)
                 refreshDisplayCells(result.LineIndex);
+        }
+
+        /// <summary>
+        /// The engine was re-derived to an earlier time (a backwards seek during replay or autoplay
+        /// playback, see <see cref="TypingEngine.Rebuild"/>). None of the keystrokes it walked back
+        /// over were announced, so every incremental thing this stage tracks is stale: which line it
+        /// laid out, and every cell it has rendered.
+        ///
+        /// <para>Invalidating <see cref="laidOutFocus"/> is the whole of the repair. It forces
+        /// <see cref="Update"/>'s own safety net to relayout on the very next frame whichever line
+        /// the rebuilt engine is now on, and both relayout paths end in
+        /// <see cref="refreshVisible"/>, which re-reads every cell of the visible stack straight off
+        /// the engine's (in-place, identity-preserving) cells. Lines outside that window are refreshed
+        /// as they scroll into it. The carets are snapped rather than flown, because the seek is a
+        /// jump and interpolating across it would drag the caret over lines it never typed.</para>
+        /// </summary>
+        private void onRewound()
+        {
+            laidOutFocus = int.MinValue;
+            pendingSnap = true;
         }
 
         protected override void Update()
@@ -718,6 +739,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             engine.CharJudged -= onCharJudged;
             engine.LineSealed -= onLineSealed;
             engine.WrongKeyRejected -= onWrongKeyRejected;
+            engine.Rewound -= onRewound;
             base.Dispose(isDisposing);
         }
 

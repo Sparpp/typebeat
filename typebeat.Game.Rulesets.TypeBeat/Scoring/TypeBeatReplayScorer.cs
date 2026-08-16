@@ -86,7 +86,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     public static class TypeBeatReplayScorer
     {
         /// <summary>The display-frame cadence the engine ticker runs at; keystrokes interleave.</summary>
-        private const double frame_ms = 1000.0 / 60;
+        private const double frame_ms = ReplayEngineFeed.FRAME_MS;
 
         /// <summary>
         /// How far past the last line's end the engine is ticked so every line seals. The engine
@@ -348,22 +348,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             return next;
         }
 
-        private static void apply(TypingEngine engine, TypeBeatReplayFrame frame)
-        {
-            if (frame.IsConfig)
-            {
-                engine.AllowWrongInput = frame.AllowWrongInput;
-                engine.SpaceSkipsWord = frame.SpaceSkipsWord;
-                return;
-            }
-
-            engine.Update(frame.Time);
-
-            if (frame.IsBackspace)
-                engine.ProcessBackspace();
-            else
-                engine.ProcessKey(frame.Character, frame.Time);
-        }
+        /// <summary>
+        /// Shared with the live feeder so the claim above (that this reproduces the drawable layer's
+        /// call sequence exactly) is structural rather than a comment two files apart.
+        /// </summary>
+        private static void apply(TypingEngine engine, TypeBeatReplayFrame frame) => ReplayEngineFeed.Apply(engine, frame);
 
         /// <summary>
         /// The nested per-cell scoring objects, indexed the way the playfield indexes their
