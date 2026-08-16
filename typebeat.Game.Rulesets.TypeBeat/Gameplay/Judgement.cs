@@ -45,7 +45,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         Lagging,
 
         WrongChar,
-        Miss
+        Miss,
+
+        /// <summary>
+        /// A cell a word skip ABANDONED (backlog 167): announced so the stage repaints the character
+        /// and so the break the skip took is visible at the moment it is taken, and resolving
+        /// NOTHING, exactly as <see cref="WrongChar"/> resolves nothing
+        /// (<see cref="TypeBeat.Scoring.TypeBeatResultMapping.CellResult"/> answers null for both).
+        /// The cell is re-typeable until its line seals, and applying a result now is precisely what
+        /// would make re-earning it impossible: a cell takes only its FIRST result.
+        ///
+        /// <para>Its <c>Counts</c> entry therefore stays at zero for the whole of a run. The miss a
+        /// never-reclaimed skip finally costs is counted at the SEAL, as an ordinary
+        /// <see cref="Miss"/>, for the same reason the result is: until the line runs out of time
+        /// nobody can say whether the character was given up or merely deferred.</para>
+        /// </summary>
+        Abandoned
+    }
+
+    /// <summary>
+    /// The typeable cells one word skip left in <see cref="CellState.Abandoned"/>, or the ones a
+    /// single event has just taken back out of it (see <see cref="TypingEngine.WordAbandoned"/>,
+    /// <see cref="TypingEngine.AbandonReclaimed"/> and <see cref="TypingEngine.AbandonSealed"/>).
+    /// Carried as the cell INDICES rather than a bare count because the seal's consumer has to
+    /// address the cells one by one, and as one payload because every consumer of all three events
+    /// prices the whole group at once.
+    /// </summary>
+    public readonly record struct AbandonedCells(int LineIndex, IReadOnlyList<int> CellIndices)
+    {
+        public int Count => CellIndices.Count;
     }
 
     public sealed class SyncWindows
@@ -214,7 +242,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         public required int MaxCombo { get; init; }
 
-        /// <summary>All 7 <see cref="JudgementType"/> keys always present.</summary>
+        /// <summary>All 8 <see cref="JudgementType"/> keys always present.</summary>
         public required IReadOnlyDictionary<JudgementType, int> Counts { get; init; }
 
         public required IReadOnlyList<SyncSample> SyncTimeline { get; init; }

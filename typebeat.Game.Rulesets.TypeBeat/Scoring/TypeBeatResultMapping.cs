@@ -76,6 +76,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     }
 
     /// <summary>
+    /// The rule deciding what a word skip does to the cells it gives up (see
+    /// <see cref="TypingEngine.SpaceSkipsWord"/>). Same reason as the rules above: a stored score has
+    /// to be re-derived under the rule it was PLAYED under. Live play is always
+    /// <see cref="Reclaimable"/>.
+    ///
+    /// <para>It reaches only rows played with the space-skip SETTING on, which is off by default, so
+    /// it is the narrowest of the axes: a row that never abandoned a word is graded identically under
+    /// both arms, because the branch it gates is never entered.</para>
+    /// </summary>
+    public enum WordSkipRule
+    {
+        /// <summary>
+        /// The rule since backlog 167, and the only one live play uses: an abandoned cell enters
+        /// <see cref="CellState.Abandoned"/> and resolves NOTHING at the skip. Backspacing into the
+        /// word puts the cells back to <see cref="CellState.Untyped"/>, and re-typing them earns
+        /// their ordinary judgements plus the streak the skip broke (the same snapshot machinery a
+        /// corrected typo redeems, see <see cref="ComboRestoreRule.OnFix"/>). Left alone, the seal
+        /// resolves them as the misses they turned out to be.
+        ///
+        /// <para>The skip still takes exactly ONE combo break, at the skip, and the miss count and
+        /// the osu results are what moved to the seal. So a skip nobody goes back for costs precisely
+        /// what it cost before: the same cells, the same one break, the same rank.</para>
+        /// </summary>
+        Reclaimable,
+
+        /// <summary>
+        /// The rule every score stored BEFORE backlog 167 was played under: an abandoned cell was
+        /// marked <see cref="CellState.Missed"/> and took its <see cref="HitResult.Miss"/> at the
+        /// skip itself, spending the cell's one result there, so no amount of backspacing could ever
+        /// earn it back.
+        ///
+        /// <para>Only score RECALCULATION selects this. Nothing in gameplay may.</para>
+        /// </summary>
+        ImmediateMiss,
+    }
+
+    /// <summary>
     /// The rule deciding whether a space typed on a space cell is part of the TIMING challenge. Same
     /// reason as <see cref="TypoRule"/> and <see cref="ComboRestoreRule"/>: a stored score has to be
     /// re-derived under the rule it was PLAYED under. Live play is always <see cref="Untimed"/>.
@@ -227,8 +264,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// as the osu result they are named for), and Premature/Lagging/Miss-&gt;Miss. Premature and
         /// Lagging accept the char with 0 engine points plus a combo break, and an osu Miss breaks
         /// combo too, so the mapping is behaviour-coherent for combo (the score weights differ).
-        /// Miss reaches here only from a word abandoned by the space-skip setting, which announces
-        /// the cells it gives up immediately instead of leaving them to the seal.</para>
+        /// Miss reaches here only from a word abandoned by the space-skip setting under
+        /// <see cref="WordSkipRule.ImmediateMiss"/>, the pre-167 rule, which spent the cell's one
+        /// result at the skip instead of leaving it to the seal.</para>
+        ///
+        /// <para>Abandoned joins WrongChar on the DEFERRED side (backlog 167), and for the same
+        /// reason it is deferred: the cell is still re-typeable, and a cell takes only its first
+        /// result, so applying one now is exactly what would make earning it back impossible. Under
+        /// the live rule an abandoned cell reaches the score processor either as its retype's own
+        /// Great/Ok/Meh or as a <see cref="SEAL_MISS"/> at the seal, never here.</para>
         ///
         /// <para>WrongChar is the one that moved (backlog 109). A miss is a character the line ran
         /// out of time on; a typo is a typo, and in the default input model the player can still
@@ -253,6 +297,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
                 case JudgementType.WrongChar:
                     return rule == TypoRule.Deferred ? null : HitResult.Miss;
+
+                case JudgementType.Abandoned:
+                    return null;
 
                 default:
                     // Premature, Lagging and Miss.
@@ -291,6 +338,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <see cref="FixRestoresTheComboBreak"/> has, and for the same reason.</para>
         /// </summary>
         public static bool SpacesAreUntimed(SpaceTimingRule rule) => rule == SpaceTimingRule.Untimed;
+
+        /// <summary>
+        /// Whether a word skip leaves its cells RE-TYPEABLE rather than missing them on the spot
+        /// (backlog 167).
+        ///
+        /// <para>Read in exactly one place, <c>TypingEngine.skipCurrentWord</c>, so the rule
+        /// is IMPLEMENTED once and only SELECTED twice: live play takes the engine's default and
+        /// <see cref="TypeBeatReplayScorer"/> sets the era's. The same shape as
+        /// <see cref="FixRestoresTheComboBreak"/> and <see cref="SpacesAreUntimed"/>, and for the
+        /// same reason. Everything downstream (the backspace's transparent step-back, the seal's
+        /// resolution, the phantom state itself) is unreachable under the pre-167 arm without a
+        /// switch of its own, because no cell ever enters <see cref="CellState.Abandoned"/>.</para>
+        /// </summary>
+        public static bool SkippedWordIsReclaimable(WordSkipRule rule) => rule == WordSkipRule.Reclaimable;
 
         /// <summary>
         /// Whether a rate-adjusting mod multiplies the judgement windows by its clock rate

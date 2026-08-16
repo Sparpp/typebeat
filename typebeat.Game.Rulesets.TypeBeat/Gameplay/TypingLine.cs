@@ -16,7 +16,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         Correct,
         Wrong,
         Missed,
-        AutoSkipped
+        AutoSkipped,
+
+        /// <summary>
+        /// A typeable cell the player ABANDONED with a word skip (backlog 167, see
+        /// <see cref="TypingEngine.SpaceSkipsWord"/>): given up, but not yet lost. Nothing has been
+        /// typed into it and nothing has been resolved for it, exactly as for
+        /// <see cref="Untyped"/>; what the state adds is that a BACKSPACE steps transparently back
+        /// over it and resets it to Untyped, so ONE press re-enters the word and the characters can
+        /// then be earned for real.
+        ///
+        /// <para>It is the same shape <see cref="Wrong"/> has, which is why it is a state and not a
+        /// resolution: a cell whose one osu result is DEFERRED because the play is not finished with
+        /// it. A cell leaves this state in exactly two ways, that backspace or the line seal (where
+        /// it resolves as the miss an untyped cell resolves as), which is what lets the skip's cost
+        /// be charged on entry and given back on exit, and therefore paid exactly once.</para>
+        /// </summary>
+        Abandoned
     }
 
     public sealed class TypingCell

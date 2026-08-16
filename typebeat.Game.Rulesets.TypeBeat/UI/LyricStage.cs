@@ -211,7 +211,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             engine.CharJudged += onCharJudged;
             engine.LineSealed += onLineSealed;
             engine.WrongKeyRejected += onWrongKeyRejected;
+            engine.AbandonReclaimed += onAbandonReclaimed;
             engine.Rewound += onRewound;
+        }
+
+        /// <summary>
+        /// A backspace re-opened a skipped word (backlog 167). The cells went back to Untyped with no
+        /// judgement behind them, so nothing else would repaint them, and they would keep wearing the
+        /// abandoned dimming while the player typed straight over them. The two other transitions of
+        /// that state need nothing here: the skip announces a judgement per cell (which
+        /// <see cref="onCharJudged"/> repaints) and the seal refreshes the whole line.
+        /// </summary>
+        private void onAbandonReclaimed(AbandonedCells abandoned)
+        {
+            if (abandoned.LineIndex < 0 || abandoned.LineIndex >= displays.Length)
+                return;
+
+            var d = displays[abandoned.LineIndex];
+
+            foreach (int cellIndex in abandoned.CellIndices)
+                d.RefreshCell(cellIndex);
         }
 
         /// <summary>
@@ -739,6 +758,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             engine.CharJudged -= onCharJudged;
             engine.LineSealed -= onLineSealed;
             engine.WrongKeyRejected -= onWrongKeyRejected;
+            engine.AbandonReclaimed -= onAbandonReclaimed;
             engine.Rewound -= onRewound;
             base.Dispose(isDisposing);
         }

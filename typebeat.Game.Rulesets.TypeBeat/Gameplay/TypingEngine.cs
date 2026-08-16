@@ -63,6 +63,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public ComboRestoreRule ComboRestore { get; set; } = ComboRestoreRule.OnFix;
 
         /// <summary>
+        /// Whether a word abandoned by <see cref="SpaceSkipsWord"/> stays re-typeable (see
+        /// <see cref="WordAbandoned"/>). <see cref="WordSkipRule.Reclaimable"/> is the live rule
+        /// (backlog 167) and the default; only <see cref="Scoring.TypeBeatReplayScorer"/> ever sets
+        /// the other one, to re-derive a score from before the reclaim existed. Set BEFORE the first
+        /// keypress and left alone afterwards, exactly like <see cref="ComboRestore"/>: cells already
+        /// given up are never revisited.
+        /// </summary>
+        public WordSkipRule WordSkip { get; set; } = WordSkipRule.Reclaimable;
+
+        /// <summary>
         /// Whether the spacebar is inside the timing challenge (see <see cref="ProcessKey"/>).
         /// <see cref="SpaceTimingRule.Untimed"/> is the live rule (backlog 148) and the default; only
         /// <see cref="Scoring.TypeBeatReplayScorer"/> ever sets the other one, to re-derive a score
@@ -398,20 +408,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// When on, a space pressed while the caret sits inside a word abandons the rest of that word
         /// and lands the caret on the word gap, so one bad character costs a word instead of the run.
         ///
-        /// <para>What "abandons" means precisely: every <see cref="CellState.Untyped"/> cell of that
-        /// word takes a <see cref="JudgementType.Miss"/> right now, exactly as the seal loop's misses
-        /// do. Nothing else does. A cell typed CORRECTLY has handed its Great over and there is no
-        /// un-apply (<c>DrawableTypeBeatCharObject.ApplyEngineResult</c> drops every later result on
-        /// an already-judged cell). A cell typed WRONG is a cell the player finished, so abandoning
-        /// the word cannot make it a miss (backlog 124); its deferred result is decided at the seal
-        /// like every other unfixed typo, and until then backspacing back into the word can still
-        /// fix it.</para>
+        /// <para>What "abandons" means precisely, since backlog 167: every
+        /// <see cref="CellState.Untyped"/> cell of that word enters
+        /// <see cref="CellState.Abandoned"/>, which is a PHANTOM state and not a resolution. Nothing
+        /// else does. A cell typed CORRECTLY has handed its Great over and there is no un-apply
+        /// (<c>DrawableTypeBeatCharObject.ApplyEngineResult</c> drops every later result on an
+        /// already-judged cell). A cell typed WRONG is a cell the player finished, so abandoning the
+        /// word cannot make it a miss (backlog 124); its deferred result is decided at the seal like
+        /// every other unfixed typo.</para>
+        ///
+        /// <para><b>Abandoning is not giving up (backlog 167).</b> A skipped word is RE-TYPEABLE:
+        /// one backspace steps transparently back over the phantom cells, resetting them to
+        /// <see cref="CellState.Untyped"/> and landing the caret on the last character actually
+        /// typed, and re-typing them earns their ordinary judgements, their ordinary HP recovery and
+        /// the streak the skip broke. The setting therefore means "I will come back to this" rather
+        /// than "I give up on this word", which is the accepted consequence of making the cells
+        /// earnable at all: a cell takes exactly ONE osu result, so applying a Miss at the skip is
+        /// precisely what made re-earning impossible.</para>
+        ///
+        /// <para>What the skip takes IMMEDIATELY is the one thing that cannot wait: a single combo
+        /// break, snapshotted against the first abandoned cell through the same backlog 140
+        /// machinery a typo's break uses, so the run resumes when that cell is finally typed. The
+        /// miss COUNT and the osu RESULTS wait for the seal, where any cell still phantom resolves
+        /// exactly as an untyped cell does. So a skip nobody goes back for costs precisely what it
+        /// always cost, and one the player returns to costs nothing beyond the detour.</para>
         ///
         /// <para>The press itself is NOT a keypress judgement: it never enters the accuracy counters
         /// and never counts as a <see cref="Mistyped"/>, because it is a deliberate control action
-        /// rather than a typo. It costs the abandoned cells (completion, sync and the osu-side
-        /// accuracy) plus one combo break, and it can only ever LOSE cells, never earn any, which is
-        /// why it needs no score or pp multiplier despite being judgement-relevant.</para>
+        /// rather than a typo. It can only ever LOSE cells, never earn any, which is why it needs no
+        /// score or pp multiplier despite being judgement-relevant.</para>
         ///
         /// <para>Orthogonal to <see cref="AllowWrongInput"/>: Gatekeeper is about wrong LETTERS (is a
         /// mistyped char written into the cell or refused), this is about abandoning a WORD, so both
@@ -511,12 +536,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         ///
         /// <para><b>What is restorable, and for how long.</b> A wrong keypress SNAPSHOTS the streak
         /// it breaks against the cell it spoiled, and correcting that cell redeems the snapshot:
-        /// the run resumes at the snapshot plus everything earned since. Exactly one snapshot is
-        /// ever outstanding, because ANY other combo break (a sealed line's misses, an abandoned
-        /// word, a Premature/Lagging press, a rejected key, Fletcher's rush cap, or a wrong keypress
-        /// on another cell) takes ownership of the streak and discards it: an intervening break is a
-        /// run the player has already lost, and going back to fix the older cell cannot un-lose it.
-        /// Repeated wrong/fix cycles on ONE cell therefore break and restore each time, each cycle
+        /// the run resumes at the snapshot plus everything earned since. Since backlog 167 a WORD
+        /// SKIP takes the same snapshot, against the first cell it abandons, because it is the same
+        /// kind of break: one the player can walk back into and undo. Exactly one snapshot is ever
+        /// outstanding, because ANY other combo break (a sealed line's misses, a Premature/Lagging
+        /// press, a rejected key, Fletcher's rush cap, or a wrong keypress or skip on another cell)
+        /// takes ownership of the streak and discards it: an intervening break is a run the player
+        /// has already lost, and going back to fix the older cell cannot un-lose it. Repeated
+        /// wrong/fix cycles on ONE cell therefore break and restore each time, each cycle
         /// snapshotting whatever the run had grown back to.</para>
         ///
         /// <para>Nothing else about a typo changes here: the wrong keypress is still counted
@@ -544,6 +571,54 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// CORRECT character raises nothing: there was no drain to give back.</para>
         /// </summary>
         public event Action? TypoErased;
+
+        /// <summary>
+        /// A word skip just put cells into <see cref="CellState.Abandoned"/> (backlog 167). The
+        /// mirror image of <see cref="TypoErased"/>'s partner drain, one word wide instead of one
+        /// character: raised once per skip, carrying every cell it gave up.
+        ///
+        /// <para>TWO things ride on it, and neither can travel on a result, because the skip applies
+        /// none (see <see cref="JudgementType.Abandoned"/>). HEALTH drains
+        /// <see cref="Scoring.TypeBeatHealthProcessor.MISS_HEALTH_DRAIN"/> per cell, NOW, because the
+        /// bar is the account a typist reads while typing (backlog 166's rule); it is given back the
+        /// moment a cell leaves the phantom state, by either exit. And osu's incrementally-maintained
+        /// <c>Combo</c> is zeroed by hand, exactly as <see cref="Mistyped"/> zeroes it, because the
+        /// engine has taken its break here and the Miss results that used to carry it now arrive at
+        /// the seal, a whole line later.</para>
+        ///
+        /// <para>Raised AFTER <see cref="ComboBroken"/> and BEFORE the per-cell
+        /// <see cref="CharJudged"/> announcements, with the engine already settled.</para>
+        /// </summary>
+        public event Action<AbandonedCells>? WordAbandoned;
+
+        /// <summary>
+        /// A backspace stepped back into an abandoned word and put its cells back to
+        /// <see cref="CellState.Untyped"/> (backlog 167): they are ordinary untyped characters again
+        /// and the caret is inside the word. One of the two exits from the phantom state, so HEALTH
+        /// refunds exactly what <see cref="WordAbandoned"/> drained for them and nothing else moves:
+        /// the combo the skip broke comes back at the RETYPE (<see cref="ComboRestored"/>), not here,
+        /// because an erase alone fixes nothing. This is <see cref="TypoErased"/>'s rule, one word
+        /// wide.
+        /// </summary>
+        public event Action<AbandonedCells>? AbandonReclaimed;
+
+        /// <summary>
+        /// The line sealed on cells the player never came back for (backlog 167): they are
+        /// <see cref="CellState.Missed"/> now and their line is about to resolve them as ordinary
+        /// misses. The other exit from the phantom state, raised from <see cref="Update"/>'s seal
+        /// loop immediately BEFORE <see cref="LineSealed"/>, so a consumer can settle them before the
+        /// results land.
+        ///
+        /// <para>Two things ride on it, and together they are what makes a never-reclaimed skip cost
+        /// exactly what it cost before backlog 167. HEALTH refunds the skip's drain, because the Miss
+        /// each cell is about to take carries the very same drain; the pair nets to one charge per
+        /// cell, by construction rather than by bookkeeping. And each cell is marked COMBO-NEUTRAL
+        /// (<see cref="Scoring.TypeBeatScoreProcessor.MarkComboNeutral"/>), because its break was
+        /// taken at the skip: a Miss landing here would otherwise break osu's combo a second time,
+        /// wiping a run the player rebuilt through the rest of the line while the engine's own combo
+        /// kept it.</para>
+        /// </summary>
+        public event Action<AbandonedCells>? AbandonSealed;
 
         /// <summary>
         /// The engine has been re-derived to an EARLIER time (see <see cref="Rebuild"/>): every piece
@@ -639,9 +714,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>
         /// The one outstanding combo snapshot (see <see cref="ComboRestored"/>): the cell a wrong
-        /// keypress spoiled and the streak that keypress broke, or null when there is nothing to go
-        /// back for. Set by the wrong keypress, redeemed by the correction of that same cell, and
-        /// discarded by any other combo break (<see cref="discardRestorableStreak"/>).
+        /// keypress spoiled or a word skip abandoned, and the streak that break cost, or null when
+        /// there is nothing to go back for. Set by that keypress or skip, redeemed by typing that
+        /// same cell correctly, and discarded by any other combo break
+        /// (<see cref="discardRestorableStreak"/>).
         /// </summary>
         private (int lineIndex, int cellIndex, int streak)? restorable;
 
@@ -774,10 +850,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// its progress, i.e. everything set from outside after construction: the two replay CONFIG
         /// bits (<see cref="AllowWrongInput"/>, <see cref="SpaceSkipsWord"/>), the mod flags
         /// (<see cref="FletcherEnabled"/>, <see cref="MashingEnabled"/>, <see cref="Literate"/>,
-        /// <see cref="CaseSensitive"/>), <see cref="WindowScale"/> and the two era rules
-        /// (<see cref="ComboRestore"/>, <see cref="SpaceTiming"/>). A rebuild re-judges the same run,
-        /// not a different one. The CONFIG frame is re-fed anyway, being the first frame of every
-        /// replay, so the two bits land on the same values a second time.</para>
+        /// <see cref="CaseSensitive"/>), <see cref="WindowScale"/> and the three era rules
+        /// (<see cref="ComboRestore"/>, <see cref="SpaceTiming"/>, <see cref="WordSkip"/>). A rebuild
+        /// re-judges the same run, not a different one. The CONFIG frame is re-fed anyway, being the
+        /// first frame of every replay, so the two bits land on the same values a second time.</para>
+        ///
+        /// <para>The PHANTOM state backlog 167 added needs nothing of its own here: it lives on the
+        /// cells, which are all put back to <see cref="CellState.Untyped"/> by the loop below, and
+        /// the snapshot a skip leaves is the same <c>restorable</c> field a typo leaves.</para>
         /// </summary>
         private void reset()
         {
@@ -919,9 +999,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 int missed = 0;
 
-                foreach (var cell in line.Cells)
+                // Of those, the ones the line really did run out of time on: the only group whose
+                // break has not been taken yet, and therefore the only one that can break combo here.
+                int unforeseen = 0;
+
+                // Cells a word skip had abandoned and the player never came back for (backlog 167),
+                // in ascending cell order. Null while there are none, which is every seal on a run
+                // that never skipped a word.
+                List<int>? abandoned = null;
+
+                for (int i = 0; i < line.Cells.Count; i++)
                 {
-                    // MISSED at seal: a typeable cell the line ran out of time on, and ONLY that.
+                    var cell = line.Cells[i];
+
+                    // MISSED at seal: a typeable cell nobody typed, and ONLY that. Two states
+                    // qualify, and they differ in one thing only, whether the break has been taken.
+                    //
                     // A cell left sitting WRONG is not one (backlog 124, reversing the predicate
                     // backlog 109 widened): the player finished that character, they just got it
                     // wrong, which is a mistype and not a miss. It keeps CellState.Wrong so the line
@@ -930,16 +1023,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     // keypress. That is what puts the HUD combo back in agreement with the submitted
                     // max_combo (backlog 123); the cell's own osu result is decided on the drawable
                     // side by TypeBeatResultMapping.UnresolvedCellResult.
-                    if (!cell.IsTypeable || cell.State != CellState.Untyped)
+                    //
+                    // An ABANDONED cell (backlog 167) is a miss, and this is where it becomes one:
+                    // the player skipped its word and never reclaimed it, so it turned out to be a
+                    // character they never typed. It counts and resolves exactly as an untyped cell
+                    // does, and the ONE thing it does not do is break combo, for precisely the
+                    // reason a still-Wrong cell does not: that break was taken at the skip.
+                    if (!cell.IsTypeable)
+                        continue;
+
+                    bool phantom = cell.State == CellState.Abandoned;
+
+                    if (cell.State != CellState.Untyped && !phantom)
                         continue;
 
                     cell.State = CellState.Missed;
 
                     missed++;
                     counts[JudgementType.Miss]++;
+
+                    if (phantom)
+                        (abandoned ??= new List<int>()).Add(i);
+                    else
+                        unforeseen++;
                 }
 
-                bool broke = missed >= 1;
+                bool broke = unforeseen >= 1;
 
                 if (broke)
                 {
@@ -981,6 +1090,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                         caretIndex = 0;
                     }
                 }
+
+                // BEFORE the seal itself, so a consumer settles the phantom cells before their Miss
+                // results land on them: health gives the skip's drain back into the very drain those
+                // misses are about to take, and the ledger that keeps them from breaking osu's combo
+                // a second time has to be written before the result consults it.
+                if (abandoned != null)
+                    raise(AbandonSealed, new AbandonedCells(index, abandoned));
 
                 if (broke)
                     raise(ComboBroken);
@@ -1087,12 +1203,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             return !hasUntypedTypeable(line);
         }
 
-        /// <summary>Whether the line still holds a typeable cell nobody has put anything into.</summary>
+        /// <summary>
+        /// Whether the line still holds a typeable cell nobody has put anything into. An ABANDONED
+        /// cell is one of those (backlog 167): the player owes that character exactly as much as one
+        /// they simply have not reached, and it is re-typeable until the line seals, so the early
+        /// seal ("nothing left to type, do not hold the next line up") must not fire on a line the
+        /// player can still come back into. That keeps the reclaim window running to the line's own
+        /// deadline, which is the window the grace exists to grant.
+        /// </summary>
         private static bool hasUntypedTypeable(TypingLine line)
         {
             foreach (var cell in line.Cells)
             {
-                if (cell.IsTypeable && cell.State == CellState.Untyped)
+                if (cell.IsTypeable && (cell.State == CellState.Untyped || cell.State == CellState.Abandoned))
                     return true;
             }
 
@@ -1294,12 +1417,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (untimedSpace)
                 delta = 0;
 
-            // COMBO RESTORE (backlog 140), before anything about this press is judged: if this is
-            // the correction of the cell a wrong keypress spoiled, the run resumes at the streak
-            // that keypress broke plus everything earned since. Placed here so the press below is
-            // scored, and announced, at the RESUMED streak. Not a scoring-inert operation even for
-            // an inert retype: the streak belongs to the fix, not to the cell's judgement.
-            resumeStreakIfThisFixesTheTypo(caretIndex);
+            // COMBO RESTORE (backlog 140, widened to the word skip by backlog 167), before anything
+            // about this press is judged: if this is the cell a wrong keypress spoiled or a skip
+            // abandoned, the run resumes at the streak that break cost plus everything earned since.
+            // Placed here so the press below is scored, and announced, at the RESUMED streak. Not a
+            // scoring-inert operation even for an inert retype: the streak belongs to the return, not
+            // to the cell's judgement.
+            resumeStreakIfThisRedeemsTheBreak(caretIndex);
 
             // Correctly re-typing a cell that was EVER judged correct (reached again via backspace,
             // which resets State but not FirstCorrectDelta) is scoring-inert: no counters, no
@@ -1409,10 +1533,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// "Space to skip current word" (see <see cref="SpaceSkipsWord"/>): abandon the word the caret
         /// is inside and leave the caret on the word gap that follows it (or at the end of the line,
         /// for a word with no gap after it). Every typeable cell of that word nobody has typed
-        /// ANYTHING into takes a Miss, the way the seal loop misses an untyped cell, and the whole
-        /// abandonment costs AT MOST ONE combo break no matter how many characters were given up,
-        /// which is the same rule a sealed line's misses follow. There is always at least one such
-        /// cell, the one the caret is sitting on, so the break always has a miss behind it.
+        /// ANYTHING into enters <see cref="CellState.Abandoned"/>, and the whole abandonment costs AT
+        /// MOST ONE combo break no matter how many characters were given up, which is the same rule a
+        /// sealed line's misses follow. There is always at least one such cell, the one the caret is
+        /// sitting on, so the break always has a cell behind it.
+        ///
+        /// <para>Backlog 167 moved everything except that break out of this method and on to the two
+        /// places a phantom cell can end up: the backspace that reclaims it, and the seal that
+        /// resolves it as a miss. What is left here is the entry into the phantom state, the break,
+        /// and the SNAPSHOT of the streak that break cost, taken against the first abandoned cell so
+        /// that typing it later resumes the run through the backlog 140 machinery (see
+        /// <see cref="ComboRestored"/>). That replaces the outright discard the skip used to do, and
+        /// it is why the skip is one of the breaks that can be redeemed rather than one that takes
+        /// ownership of the streak.</para>
         ///
         /// <para>Non-typeable cells inside the run are marked <see cref="CellState.AutoSkipped"/>,
         /// which is exactly what <see cref="autoSkipForward"/> would have done to them had the caret
@@ -1421,6 +1554,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private void skipCurrentWord(double time)
         {
             var cells = lines[activeLineIndex].Cells;
+
+            // The era switch (backlog 167), read once: the whole of the difference between today's
+            // reclaimable skip and the immediate-miss one every score stored before it was played
+            // under. Nothing else in the engine needs a switch, because the phantom state is what
+            // every other part of the behaviour hangs off and the other arm never creates one.
+            bool reclaimable = TypeBeatResultMapping.SkippedWordIsReclaimable(WordSkip);
 
             // The WHOLE word the caret is inside: the run of cells between the word gaps either side
             // of it (a word gap being a typeable SPACE cell), or the ends of the line. Deliberately
@@ -1464,9 +1603,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 if (cell.State != CellState.Untyped)
                     continue;
 
-                cell.State = CellState.Missed;
+                // The phantom state (backlog 167) or, under the pre-167 era rule, the Miss the cell
+                // used to take here. Nothing else in this method differs between the two arms: the
+                // count and the announced judgement type follow from this, and every downstream
+                // consequence of the phantom state is unreachable when no cell is ever in it.
+                cell.State = reclaimable ? CellState.Abandoned : CellState.Missed;
 
-                counts[JudgementType.Miss]++;
+                // The miss COUNT is the cell's resolution, so under the live rule it waits for the
+                // seal exactly as the osu result does. Counting it now would say the character is
+                // lost while the player can still walk back into it and type it.
+                if (!reclaimable)
+                    counts[JudgementType.Miss]++;
+
                 abandoned.Add(i);
             }
 
@@ -1475,24 +1623,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (abandoned.Count == 0)
                 return;
 
+            int brokenStreak = combo;
+
             combo = 0;
-            discardRestorableStreak();
+
+            // The break is IMMEDIATE under both rules, and under the live one it is also the only
+            // thing the skip spends. Snapshotted against the FIRST abandoned cell, so re-typing that
+            // cell resumes the run: the skip is a break the player can come back for, which is
+            // exactly what a typo's break is (see ComboRestored). Written unconditionally, so a skip
+            // discards an older cell's claim the way any other intervening break would.
+            restorable = reclaimable && TypeBeatResultMapping.FixRestoresTheComboBreak(ComboRestore)
+                ? (activeLineIndex, abandoned[0], brokenStreak)
+                : null;
+
             raise(ComboBroken);
 
-            // Announce the misses AFTER the break so every judgement carries the post-break combo,
-            // and one per cell so the stage repaints it and its scoring drawable takes its Miss now
-            // rather than at seal time (which would leave osu's combo counting on past a break the
-            // engine has already taken).
+            // The break rides here rather than on a result, and this is the seam it rides on. The
+            // ORIGINAL argument for announcing the abandoned cells immediately was that leaving them
+            // to the seal would let osu's combo count on past a break the engine had already taken.
+            // That argument survives backlog 167 intact, because the BREAK is still taken here; only
+            // the RESULTS moved. What moved with them is the obligation: with no Miss result left to
+            // carry the break, WordAbandoned carries it by hand (TypeBeatPlayfield.onWordAbandoned),
+            // and the seal marks the deferred misses combo-neutral so they cannot take it a second
+            // time (see AbandonSealed).
+            if (reclaimable)
+                raise(WordAbandoned, new AbandonedCells(activeLineIndex, abandoned));
+
+            // Announce the cells AFTER the break so every judgement carries the post-break combo, and
+            // one per cell so the stage repaints it. Under the live rule the judgement resolves
+            // nothing (JudgementType.Abandoned maps to no osu result, exactly as a typed-through
+            // wrong char does); under the pre-167 rule it IS the cell's Miss, taken now.
             foreach (int i in abandoned)
-                raise(CharJudged, new CharJudgement(activeLineIndex, i, JudgementType.Miss, time - cells[i].TargetTime, 0, combo));
+            {
+                var type = reclaimable ? JudgementType.Abandoned : JudgementType.Miss;
+                raise(CharJudged, new CharJudgement(activeLineIndex, i, type, time - cells[i].TargetTime, 0, combo));
+            }
         }
 
         /// <summary>
         /// A combo break that is nobody's fixable typo happened, so the outstanding snapshot (if
         /// any) is discarded: the streak it was holding has been lost to THIS break, and correcting
         /// the older cell later cannot bring back a run that ended after it. Called at every
-        /// <see cref="ComboBroken"/> seam except the wrong keypress's own, which takes the snapshot
-        /// instead.
+        /// <see cref="ComboBroken"/> seam except the two that can be walked back into and are
+        /// therefore snapshotted instead: a wrong keypress, and (since backlog 167) a word skip.
         /// </summary>
         private void discardRestorableStreak() => restorable = null;
 
@@ -1502,8 +1675,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// exactly <c>combo + streak</c> because no break has landed in between (any that had would
         /// have discarded the snapshot). The claim is spent either way, so a second correct retype
         /// of the same cell restores nothing.
+        ///
+        /// <para>Two breaks can be waiting here, and the redemption is identical for both: the wrong
+        /// keypress that spoiled the cell (backlog 140), and the word skip that abandoned it
+        /// (backlog 167). In both cases the cell is the one the player has to come back to, so
+        /// typing it is what says they came back.</para>
         /// </summary>
-        private void resumeStreakIfThisFixesTheTypo(int cellIndex)
+        private void resumeStreakIfThisRedeemsTheBreak(int cellIndex)
         {
             if (restorable is not (int lineIndex, int typoCellIndex, int streak))
                 return;
@@ -1629,8 +1807,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>
         /// Erase the most recent typed cell within the active line, stepping back transparently
-        /// over AutoSkipped punctuation (which is un-skipped so retyping re-marks it).
+        /// over AutoSkipped punctuation (which is un-skipped so retyping re-marks it) and, since
+        /// backlog 167, over the ABANDONED cells of a skipped word (which go back to
+        /// <see cref="CellState.Untyped"/> for the same reason: retyping them re-earns them).
         /// Returns false if nothing to erase. The erased keypress stays in the accuracy counts.
+        ///
+        /// <para>Both step-overs are transparent because neither cell holds anything the player put
+        /// there, so neither is an erase. That is what makes ONE press re-enter a skipped word and
+        /// land on the last character actually typed, however many characters were given up.</para>
         /// </summary>
         public bool ProcessBackspace()
         {
@@ -1639,20 +1823,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             var cells = lines[activeLineIndex].Cells;
 
-            // Find the nearest non-auto-skipped cell behind the caret (scan first, mutate after).
+            // Find the nearest cell behind the caret holding something the player typed, stepping
+            // over the two transparent states (scan first, mutate after).
             int target = caretIndex - 1;
 
-            while (target >= 0 && cells[target].State == CellState.AutoSkipped)
+            while (target >= 0 && (cells[target].State == CellState.AutoSkipped || cells[target].State == CellState.Abandoned))
                 target--;
 
-            if (target < 0)
-                return false;
+            // Which of the stepped-over cells are abandoned ones being RECLAIMED, still without
+            // mutating: the answer decides whether a press with nothing typed behind it did anything
+            // at all.
+            List<int>? reclaimed = null;
 
-            // Un-skip the punctuation cells we stepped back over.
             for (int i = target + 1; i < caretIndex; i++)
             {
-                if (cells[i].State == CellState.AutoSkipped)
+                if (cells[i].State == CellState.Abandoned)
+                    (reclaimed ??= new List<int>()).Add(i);
+            }
+
+            if (target < 0 && reclaimed == null)
+                return false;
+
+            // Un-skip the punctuation and re-open the abandoned cells we stepped back over.
+            for (int i = target + 1; i < caretIndex; i++)
+            {
+                if (cells[i].State == CellState.AutoSkipped || cells[i].State == CellState.Abandoned)
                     cells[i].State = CellState.Untyped;
+            }
+
+            if (target < 0)
+            {
+                // Nothing typed is left behind the caret. Ordinarily that is "nothing to erase", but
+                // a word skipped at the very start of a line leaves phantom cells and no keypress
+                // before them, and refusing here would make that one word the only unreclaimable one
+                // on the map. The reclaim IS the state change, so the press did something: put the
+                // caret back at the head of the word it just re-opened. (Non-null by the guard
+                // above: with nothing typed behind the caret, a reclaim is the only thing left.)
+                caretIndex = 0;
+                autoSkipForward();
+                raise(AbandonReclaimed, new AbandonedCells(activeLineIndex, reclaimed!));
+                return true;
             }
 
             var cell = cells[target];
@@ -1671,6 +1881,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // during a rebuild for the same reason every other one is (backlog 165): a backwards
             // seek re-walks the whole prefix, so a raw invoke here would refund a drain per
             // backspace in the run while the matching drains, riding on CharJudged, stayed silent.
+            if (reclaimed != null)
+                raise(AbandonReclaimed, new AbandonedCells(activeLineIndex, reclaimed));
+
             if (erasedTypo)
                 raise(TypoErased);
 

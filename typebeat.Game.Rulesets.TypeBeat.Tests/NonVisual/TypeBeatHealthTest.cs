@@ -428,6 +428,185 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
+        #region Abandoned-word HP: charged at the skip, refunded on the way out (backlog 167)
+
+        /// <summary>
+        /// Backlog 166's rule applied to the other deferred judgement: the bar reacts to the SKIP,
+        /// not to the seal a line later. The skipped word here is the last of its line, so the press
+        /// judges no word gap and the only thing moving the bar is the abandonment itself.
+        /// </summary>
+        [Test]
+        public void ASkippedWordDrainsAtTheSkipNotAtTheSeal()
+        {
+            var beatmap = skipMap();
+            var engine = new TypingEngine(beatmap) { SpaceSkipsWord = true };
+            var bridge = new HealthBridge(engine);
+
+            engine.Update(0);
+            bridge.Health.Health.Value = 0.5;
+
+            typeFirstWord(engine); // "ab " on target: three Greats
+
+            double beforeSkip = bridge.Health.Health.Value;
+            Assert.AreEqual(0.5 + 3 * TypeBeatHealthProcessor.GREAT_HEALTH_INCREASE, beforeSkip, 1e-9);
+
+            engine.Update(1100);
+            Assert.IsTrue(engine.ProcessKey(' ', 1100)); // abandons "cd", the last word of the line
+
+            Assert.AreEqual(beforeSkip - 2 * TypeBeatHealthProcessor.MISS_HEALTH_DRAIN, bridge.Health.Health.Value, 1e-9,
+                "one drain per abandoned cell, on the press that abandoned them");
+            Assert.AreEqual(0, engine.ActiveLineIndex, "and while the line is still open to come back into");
+            Assert.Less(1100, beatmap.Lines[0].EndTime);
+        }
+
+        /// <summary>
+        /// The no-double-drain pin for a skip nobody comes back for: each abandoned cell costs ONE
+        /// <c>MISS_HEALTH_DRAIN</c> in total, although two accounts hear about it (the skip, and the
+        /// Miss its cell finally seals with). The refund at the seal is what makes that a
+        /// construction rather than a ledger: the cell is charged on entry to the phantom state and
+        /// released on exit, whatever the exit turns out to be.
+        /// </summary>
+        [Test]
+        public void AnAbandonedCellIsChargedOnceAcrossTheSkipAndTheSeal()
+        {
+            var beatmap = skipMap();
+            var engine = new TypingEngine(beatmap) { SpaceSkipsWord = true };
+            var bridge = new HealthBridge(engine);
+
+            engine.Update(0);
+            bridge.Health.Health.Value = 0.5;
+
+            typeFirstWord(engine);
+
+            engine.Update(1100);
+            Assert.IsTrue(engine.ProcessKey(' ', 1100));
+
+            double afterSkip = bridge.Health.Health.Value;
+
+            sealFirstLine(engine, beatmap);
+
+            Assert.AreEqual(2, engine.BuildResults().Counts[JudgementType.Miss], "the cells did seal as misses");
+            Assert.AreEqual(afterSkip, bridge.Health.Health.Value, 1e-9,
+                "the seal charges nothing more: it refunds the skip's drain into the Misses it applies");
+            Assert.AreEqual(0.5 + 3 * TypeBeatHealthProcessor.GREAT_HEALTH_INCREASE - 2 * TypeBeatHealthProcessor.MISS_HEALTH_DRAIN,
+                bridge.Health.Health.Value, 1e-9);
+        }
+
+        /// <summary>
+        /// And the mirror image: a skip the player DOES come back for leaves the bar exactly where
+        /// typing the word straight through would have. Compared run against run rather than against
+        /// a hand-computed number, from a half-full bar so neither the drain nor the refund can hide
+        /// under the clamp.
+        /// </summary>
+        [Test]
+        public void ReclaimingASkippedWordLeavesHealthWhereTypingItWouldHave()
+        {
+            double reclaimed = playSkipLine(skipTheLastWord: true);
+            double clean = playSkipLine(skipTheLastWord: false);
+
+            Assert.AreEqual(clean, reclaimed, 1e-9, "the detour is refunded, and pays no bonus");
+
+            // Non-vacuous: the run really did climb from the starting bar, so the retyped cells'
+            // own recovery is in the number rather than everything having cancelled to nothing.
+            Assert.Greater(clean, 0.5);
+            TestContext.WriteLine($"skipped-then-reclaimed: {reclaimed:0.######}, typed straight through: {clean:0.######}.");
+        }
+
+        /// <summary>
+        /// Plays the first line of <see cref="skipMap"/> from a half-full bar, either straight
+        /// through or by abandoning the last word, backspacing straight back into it and typing it
+        /// out. Returns the health left once the line has sealed.
+        /// </summary>
+        private static double playSkipLine(bool skipTheLastWord)
+        {
+            var beatmap = skipMap();
+            var engine = new TypingEngine(beatmap) { SpaceSkipsWord = true };
+            var bridge = new HealthBridge(engine);
+
+            engine.Update(0);
+            bridge.Health.Health.Value = 0.5;
+
+            typeFirstWord(engine);
+
+            if (skipTheLastWord)
+            {
+                engine.Update(1100);
+                Assert.IsTrue(engine.ProcessKey(' ', 1100));
+                Assert.IsTrue(engine.ProcessBackspace(), "one press re-opens the whole abandoned word");
+                Assert.IsTrue(engine.ProcessKey(' ', 1000), "the erased word gap, retyped (scoring-inert)");
+            }
+
+            var cells = engine.Lines[0].Cells;
+
+            for (int i = 3; i < cells.Count; i++)
+            {
+                engine.Update(cells[i].TargetTime);
+                Assert.IsTrue(engine.ProcessKey(cells[i].Expected, cells[i].TargetTime));
+            }
+
+            sealFirstLine(engine, beatmap);
+
+            Assert.IsFalse(bridge.Health.HasFailed);
+            Assert.AreEqual(0, engine.BuildResults().Counts[JudgementType.Miss], "every cell was typed in the end");
+
+            return bridge.Health.Health.Value;
+        }
+
+        /// <summary>"ab " of the first line, every cell dead on its target.</summary>
+        private static void typeFirstWord(TypingEngine engine)
+        {
+            var cells = engine.Lines[0].Cells;
+
+            for (int i = 0; i < 3; i++)
+            {
+                engine.Update(cells[i].TargetTime);
+                Assert.IsTrue(engine.ProcessKey(cells[i].Expected, cells[i].TargetTime));
+            }
+        }
+
+        /// <summary>
+        /// Two lines of "ab cd", so there is a word to abandon and a following word to keep typing.
+        /// Line k spans [k*3000, k*3000 + 2000] with units "ab" and "cd" taking half each, so the
+        /// cells target start, +500, +1000 (the gap), +1000 and +1500.
+        /// </summary>
+        private static LyricBeatmap skipMap()
+        {
+            var lines = new List<LyricLine>();
+
+            for (int i = 0; i < 2; i++)
+            {
+                double start = i * 3000;
+
+                lines.Add(new LyricLine
+                {
+                    RawText = "ab cd",
+                    StartTime = start,
+                    EndTime = start + 2000,
+                    SingEndTime = start + 2000,
+                    Units = new[]
+                    {
+                        new TimedUnit { Text = "ab", StartTime = start, EndTime = start + 1000 },
+                        new TimedUnit { Text = "cd", StartTime = start + 1000, EndTime = start + 2000 },
+                    },
+                });
+            }
+
+            return new LyricBeatmap
+            {
+                Metadata = new LyricBeatmapMetadata
+                {
+                    Artist = "Test",
+                    Title = "Skip",
+                    FolderPath = @"X:\nowhere",
+                    AudioFileName = "a.mp3",
+                },
+                Lines = lines,
+                Granularity = TimingGranularity.Line,
+            };
+        }
+
+        #endregion
+
         #region Real Spectator map pins
 
         [Test]
@@ -578,6 +757,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             public readonly TypeBeatHealthProcessor Health = new TypeBeatHealthProcessor();
 
+            /// <summary>
+            /// Cells that have already taken their one osu result, which
+            /// <c>DrawableTypeBeatCharObject.ApplyEngineResult</c> owns in the real playfield: every
+            /// later result on a judged cell is dropped. Modelled here because a reclaimed word (and
+            /// any backspace-and-retype) announces a judgement for a cell that may already hold one,
+            /// and a bridge that applied both would hand back health the game never gives.
+            /// </summary>
+            private readonly HashSet<(int line, int cell)> judged = new HashSet<(int, int)>();
+
             public HealthBridge(TypingEngine engine)
             {
                 engine.CharJudged += j =>
@@ -590,10 +778,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                         return;
                     }
 
+                    // An abandoned cell applies no result either (backlog 167), and its drain rides
+                    // on WordAbandoned below for exactly the same reason.
+                    if (j.Type == JudgementType.Abandoned)
+                        return;
+
+                    if (!judged.Add((j.LineIndex, j.CellIndex)))
+                        return;
+
                     TypeBeatHealthTest.apply(Health, toHitResult(j.Type));
                 };
 
                 engine.TypoErased += Health.RefundTypoDrain;
+
+                // Backlog 167, the three seams of an abandoned cell: charged per cell at the skip,
+                // and refunded per cell on whichever of the two exits it takes. The seal's own Miss
+                // results then arrive through MissedCells below, which is what leaves each cell
+                // charged exactly once.
+                engine.WordAbandoned += a => Health.ApplyAbandonDrain(a.Count);
+                engine.AbandonReclaimed += a => Health.RefundAbandonDrain(a.Count);
+                engine.AbandonSealed += a => Health.RefundAbandonDrain(a.Count);
 
                 engine.LineSealed += r =>
                 {

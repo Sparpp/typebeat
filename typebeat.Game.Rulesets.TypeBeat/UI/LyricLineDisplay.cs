@@ -460,6 +460,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         public const double SYNC_TINT_FLOOR = 0.35;
 
+        /// <summary>Alpha of a cell the line ran out of time on: the untyped grey, dimmed.</summary>
+        public const float MISSED_ALPHA = 0.4f;
+
+        /// <summary>
+        /// Alpha of a cell a word skip ABANDONED (backlog 167). Deliberately BETWEEN full brightness
+        /// and <see cref="MISSED_ALPHA"/>, because that is exactly where the state sits: the player
+        /// has given the character up, and one backspace takes it back, so it must read neither as an
+        /// untouched character nor as a lost one.
+        /// </summary>
+        public const float ABANDONED_ALPHA = 0.7f;
+
         /// <summary>
         /// The fill a CORRECT character is painted in, given the sync quality of the keypress that
         /// scored it (<see cref="SyncWindows.SyncQuality"/>, asymmetric, already in [0, 1]): a point
@@ -535,7 +546,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 case CellState.Missed:
                     cell.Colour = TypeBeatStyle.UntypedChar;
-                    cellStateAlpha[cellIndex] = 0.4f;
+                    cellStateAlpha[cellIndex] = MISSED_ALPHA;
+                    break;
+
+                case CellState.Abandoned:
+                    // A skipped word is dimmed, but NOT to the missed dimming: the character has
+                    // been given up and not yet lost, and one backspace re-opens it (backlog 167).
+                    // Painting it as a miss would say the opposite of what the state means, and
+                    // leaving it at full untyped brightness would hide that the skip happened at
+                    // all, so it takes the step between the two.
+                    cell.Colour = TypeBeatStyle.UntypedChar;
+                    cellStateAlpha[cellIndex] = ABANDONED_ALPHA;
                     break;
 
                 default: // Untyped, AutoSkipped
@@ -564,7 +585,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private void refreshFreestyleCell(int cellIndex, OsuSpriteText cell, TypingCell source)
         {
             cell.Colour = TypeBeatStyle.FreestyleChar;
-            cellStateAlpha[cellIndex] = source.State == CellState.Missed ? 0.4f : 1f;
+
+            cellStateAlpha[cellIndex] = source.State switch
+            {
+                CellState.Missed => MISSED_ALPHA,
+                CellState.Abandoned => ABANDONED_ALPHA,
+                _ => 1f,
+            };
 
             if (source.State == CellState.Untyped)
                 cell.Text = FreestyleGlyphs.Glyph(shimmerPool, shimmerTick, cellIndex).ToString();

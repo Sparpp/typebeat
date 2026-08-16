@@ -16,6 +16,7 @@ using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
+using typebeat.Game.Scoring;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
@@ -115,10 +116,53 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Granularity = TimingGranularity.Line,
         };
 
+        /// <summary>
+        /// Two lines: "abc def" over [0, 20000] (cells a = 0, b = 2000, c = 4000, ' ' = 6000,
+        /// d = 6000, e = 8000, f = 10000) and "ghi" over [20000, 40000] (g = 20000, h = 24000,
+        /// i = 28000). The second line is what makes a combo break at the FIRST line's seal visible:
+        /// it is a run the player is still building when that seal lands.
+        /// </summary>
+        private static TypeBeatBeatmap skipMap()
+        {
+            var first = new LyricLine
+            {
+                RawText = "abc def",
+                StartTime = 0,
+                EndTime = 20000,
+                SingEndTime = 12000,
+                Units = new[]
+                {
+                    new TimedUnit { Text = "abc", StartTime = 0, EndTime = 6000 },
+                    new TimedUnit { Text = "def", StartTime = 6000, EndTime = 12000 },
+                },
+            };
+
+            var second = new LyricLine
+            {
+                RawText = "ghi",
+                StartTime = 20000,
+                EndTime = 40000,
+                SingEndTime = 32000,
+                Units = new[] { new TimedUnit { Text = "ghi", StartTime = 20000, EndTime = 32000 } },
+            };
+
+            var map = new TypeBeatBeatmap();
+            map.HitObjects.Add(new TypeBeatHitObject { StartTime = 0, LineIndex = 0, Line = first, Granularity = TimingGranularity.Line });
+            map.HitObjects.Add(new TypeBeatHitObject { StartTime = 20000, LineIndex = 1, Line = second, Granularity = TimingGranularity.Line });
+
+            foreach (var hitObject in map.HitObjects)
+                hitObject.ApplyDefaults(new ControlPointInfo(), new BeatmapDifficulty(), CancellationToken.None);
+
+            return map;
+        }
+
         private static Replay replay(params (double time, char c)[] presses)
+            => replay(false, presses);
+
+        private static Replay replay(bool spaceSkipsWord, params (double time, char c)[] presses)
         {
             var r = new Replay();
-            r.Frames.Add(TypeBeatReplayFrame.CreateConfigFrame(0, true));
+            r.Frames.Add(TypeBeatReplayFrame.CreateConfigFrame(0, true, spaceSkipsWord));
 
             foreach ((double time, char c) in presses)
                 r.Frames.Add(new TypeBeatReplayFrame(time, c));
@@ -157,7 +201,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var implicitEra = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix);
 
             var explicitLive = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
-                SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate);
+                SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate, WordSkipRule.Reclaimable);
 
             Assert.Multiple(() =>
             {
@@ -165,8 +209,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(implicitEra.MaxCombo, Is.EqualTo(explicitLive.MaxCombo));
                 Assert.That(implicitEra.TotalScore, Is.EqualTo(explicitLive.TotalScore));
 
-                // ...and the engine's own default agrees, which is what live play takes.
+                // ...and the engine's own defaults agree, which is what live play takes.
                 Assert.That(new TypingEngine(lyricBeatmap()).SpaceTiming, Is.EqualTo(SpaceTimingRule.Untimed));
+                Assert.That(new TypingEngine(lyricBeatmap()).WordSkip, Is.EqualTo(WordSkipRule.Reclaimable));
             });
         }
 
@@ -323,6 +368,92 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(scaled.Statistics, Is.EquivalentTo(unscaled.Statistics));
                 Assert.That(scaled.MaxCombo, Is.EqualTo(unscaled.MaxCombo));
                 Assert.That(scaled.TotalScore, Is.EqualTo(unscaled.TotalScore));
+            });
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // Backlog 167: the abandoned word, reclaimable or missed on the spot.
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// The SUBMITTED account of a skip nobody goes back for is IDENTICAL under the two rules,
+        /// which is the whole claim backlog 167 rests on: the reclaim moved when the abandoned cells
+        /// are written off, never what they cost. Every quantity the recalculation tool compares
+        /// against a stored row is checked, so a row played before the reclaim reproduces exactly.
+        ///
+        /// <para>Nothing about that is free, and this fixture is built to prove it. The run keeps
+        /// typing into a SECOND line, so the two things the live rule has to do by hand are both
+        /// visible in <c>max_combo</c>: the skip's own break is mirrored by hand (without it the run
+        /// would never break at all and the maximum would read 8), and the deferred Misses are
+        /// applied combo-neutral at the seal (without that they would break the run the player had
+        /// rebuilt, and the maximum would read 4).</para>
+        /// </summary>
+        [Test]
+        public void ASkipNobodyGoesBackForCostsTheSameUnderBothEras()
+        {
+            var map = skipMap();
+
+            // Type 'a', abandon "bc", then carry on with "def" and the whole of the next line.
+            var r = replay(true,
+                (0, 'a'), (2500, ' '), (6100, 'd'), (8000, 'e'), (10000, 'f'),
+                (20000, 'g'), (24000, 'h'), (28000, 'i'));
+
+            var live = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix);
+            var stored = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
+                SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate, WordSkipRule.ImmediateMiss);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(count(live, HitResult.Miss), Is.EqualTo(2), "the two abandoned cells, written off at the seal");
+                Assert.That(count(live, HitResult.Great), Is.EqualTo(8));
+                Assert.That(live.MaxCombo, Is.EqualTo(7), "one break, at the skip, and none at the seal");
+
+                Assert.That(live.Statistics, Is.EquivalentTo(stored.Statistics));
+                Assert.That(live.MaxCombo, Is.EqualTo(stored.MaxCombo));
+                Assert.That(live.TotalScore, Is.EqualTo(stored.TotalScore));
+                Assert.That(live.Accuracy, Is.EqualTo(stored.Accuracy));
+                Assert.That(live.Rank, Is.EqualTo(stored.Rank));
+            });
+        }
+
+        /// <summary>
+        /// And the switch is load-bearing the moment the player DOES go back. Under today's rule the
+        /// abandoned cells are still unresolved, so the retype earns them and the map ends fully
+        /// typed; under the rule a stored row was played on, they spent their one result at the skip,
+        /// the backspaces land somewhere else entirely and the same keystrokes produce a mangled run.
+        /// Re-deriving such a row under today's rule would invent a score its fingers never earned.
+        /// </summary>
+        [Test]
+        public void ThePreReclaimEraCannotEarnASkippedWordBack()
+        {
+            var map = skipMap();
+
+            // 'a', abandon "bc", two backspaces straight back into the word, then type it all out.
+            var r = replay(true,
+                (0, 'a'), (2500, ' '),
+                (2600, TypeBeatReplayFrame.BACKSPACE), (2700, TypeBeatReplayFrame.BACKSPACE),
+                (2800, 'a'), (3000, 'b'), (3200, 'c'),
+                (6000, ' '), (6100, 'd'), (8000, 'e'), (10000, 'f'),
+                (20000, 'g'), (24000, 'h'), (28000, 'i'));
+
+            var live = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix);
+            var stored = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
+                SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate, WordSkipRule.ImmediateMiss);
+
+            Assert.Multiple(() =>
+            {
+                // Today: every cell of the map ends up typed, so nothing is missed and the play is
+                // complete. The two reclaimed cells are graded on the clock like any other, which is
+                // late here (the player went back for them), so they are not Greats.
+                Assert.That(count(live, HitResult.Miss), Is.Zero);
+                Assert.That(live.Completion, Is.EqualTo(1).Within(1e-9));
+                Assert.That(live.Rank, Is.EqualTo(ScoreRank.X));
+
+                // Pre-167: the cells were missed at the skip and can never be earned back.
+                Assert.That(count(stored, HitResult.Miss), Is.EqualTo(2));
+                Assert.That(stored.Completion, Is.LessThan(1));
+                Assert.That(stored.Rank, Is.Not.EqualTo(ScoreRank.X));
+                Assert.That(stored.TotalScore, Is.LessThan(live.TotalScore));
             });
         }
 
