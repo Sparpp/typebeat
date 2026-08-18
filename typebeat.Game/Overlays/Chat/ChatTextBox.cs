@@ -2,6 +2,8 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using osu.Framework.Bindables;
+using osu.Framework.Graphics.Sprites;
+using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Resources.Localisation.Web;
 
@@ -14,6 +16,8 @@ namespace typebeat.Game.Overlays.Chat
         public override bool HandleLeftRightArrows => !ShowSearch.Value;
 
         protected override bool ClearTextOnBackKey => false;
+
+        protected override FontUsage Font => OsuFont.Inter.With(size: FontSize);
 
         protected override void LoadComplete()
         {
