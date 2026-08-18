@@ -291,6 +291,8 @@ namespace typebeat.Game
             largeStore.AddTextureSource(Host.CreateTextureLoaderStore(CreateOnlineStore()));
             dependencies.Cache(largeStore);
 
+            dependencies.Cache(new OnlineAssetCachingStore(Host, realm));
+
             dependencies.CacheAs(LocalConfig);
             dependencies.CacheAs<IGameplaySettings>(LocalConfig);
 
