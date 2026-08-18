@@ -6,14 +6,17 @@
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Sprites;
 using typebeat.Game.Graphics;
+using typebeat.Game.Input.Bindings;
+using typebeat.Game.Localisation;
 
 namespace typebeat.Game.Rulesets.Edit.Tools
 {
-    public class SelectTool : CompositionTool
+    public class SelectTool : CompositionTool<GlobalAction>
     {
         public SelectTool()
-            : base("Select")
+            : base(EditorStrings.SelectTool)
         {
+            Action = GlobalAction.EditorSelectTool;
         }
 
         public override Drawable CreateIcon() => new SpriteIcon { Icon = OsuIcon.EditorSelect };
