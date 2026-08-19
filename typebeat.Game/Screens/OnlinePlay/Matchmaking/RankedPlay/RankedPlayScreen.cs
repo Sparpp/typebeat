@@ -25,6 +25,7 @@ using typebeat.Game.Online.Multiplayer.MatchTypes.RankedPlay;
 using typebeat.Game.Online.Rooms;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Dialog;
+using typebeat.Game.Overlays.Profile;
 using typebeat.Game.Overlays.Volume;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Screens.OnlinePlay.Components;
@@ -153,6 +154,7 @@ namespace typebeat.Game.Screens.OnlinePlay.Matchmaking.RankedPlay
                                     new HamburgerMenu
                                     {
                                         Size = new Vector2(56),
+                                        ReportRequested = () => dialogOverlay.Push(new ReportUserDialog(opponentUser)),
                                     }
                                 }
                             }
