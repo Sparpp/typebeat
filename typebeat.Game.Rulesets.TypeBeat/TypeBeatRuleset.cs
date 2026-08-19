@@ -142,11 +142,19 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// The editor setup screen for type!beat: song metadata, audio/background resources, and a
         /// type!beat section (global offset + in-editor auto-timing). The circle-game sections
         /// (difficulty, combo colours, design) are dropped; they are meaningless for lyrics.
+        ///
+        /// <para>None of these may set <see cref="Drawable.RelativeSizeAxes"/> on X.
+        /// <see cref="SetupScreen"/> assigns every section it is handed
+        /// <c>Width = SetupScreen.COLUMN_WIDTH</c>, which a relative-X section reads as a MULTIPLE of
+        /// its parent (450 columns wide, ~417000px), pushing the section's captions and controls
+        /// hundreds of thousands of pixels off both edges of the screen. The base ruleset can set it
+        /// because it nests its ResourcesSection inside a plain container that takes the width
+        /// instead; type!beat lists the section directly, so the section itself must be the 450.</para>
         /// </summary>
         public override IEnumerable<Drawable> CreateEditorSetupSections() => new Drawable[]
         {
             new MetadataSection(),
-            new ResourcesSection { RelativeSizeAxes = Axes.X },
+            new ResourcesSection(),
             new TypeBeatSetupSection(),
         };
 

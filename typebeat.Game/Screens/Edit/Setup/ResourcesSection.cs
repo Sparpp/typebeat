@@ -83,6 +83,7 @@ namespace typebeat.Game.Screens.Edit.Setup
                 {
                     Caption = EditorSetupStrings.AudioTrack,
                     PlaceholderText = EditorSetupStrings.ClickToSelectTrack,
+                    HintText = EditorSetupStrings.AudioTrackHint,
                 },
                 new FormSampleSetChooser
                 {
@@ -182,26 +183,50 @@ namespace typebeat.Game.Screens.Edit.Setup
 
             changeResource(source, applyToAllDifficulties, @"audio",
                 working => working.BeatmapInfo.Metadata.AudioFile,
-                (working, name) =>
-                {
-                    working.BeatmapInfo.Metadata.AudioFile = name.AsNonNull();
-
-                    if (!string.IsNullOrWhiteSpace(artist))
-                    {
-                        working.BeatmapInfo.Metadata.ArtistUnicode = artist;
-                        working.BeatmapInfo.Metadata.Artist = MetadataUtils.StripNonRomanisedCharacters(working.BeatmapInfo.Metadata.ArtistUnicode);
-                    }
-
-                    if (!string.IsNullOrEmpty(title))
-                    {
-                        working.BeatmapInfo.Metadata.TitleUnicode = title;
-                        working.BeatmapInfo.Metadata.Title = MetadataUtils.StripNonRomanisedCharacters(working.BeatmapInfo.Metadata.TitleUnicode);
-                    }
-                });
+                (working, name) => ApplyAudioTrackChange(working.BeatmapInfo.Metadata, name.AsNonNull(), artist, title));
 
             music.ReloadCurrentTrack();
             setupScreen.MetadataChanged?.Invoke();
             return true;
+        }
+
+        /// <summary>
+        /// Points a beatmap's metadata at a newly chosen audio file, seeding artist and title from
+        /// that file's tags ONLY when the beatmap had no audio at all.
+        /// </summary>
+        /// <remarks>
+        /// The tag seeding exists for the moment a brand new (empty) beatmap is given its song: the
+        /// audio file's tags are then the only thing that knows what the song is. On a beatmap that
+        /// already HAS a track this is a SWAP (a re-encode, a cleaner master, a different mix), and
+        /// the mapper's authored artist and title must survive it: silently renaming the map to
+        /// whatever the replacement file's tags happen to say (frequently blank, mojibake, or a rip
+        /// tool's boilerplate) is a destructive edit nobody asked for, and it changes what the map
+        /// is called on song select and on the leaderboards.
+        /// </remarks>
+        /// <param name="metadata">The metadata to update. Read before written, so pass it as-is.</param>
+        /// <param name="newAudioFilename">The filename the audio now lives under in the beatmap set.</param>
+        /// <param name="tagArtist">Artist read from the new file's tags, if any.</param>
+        /// <param name="tagTitle">Title read from the new file's tags, if any.</param>
+        public static void ApplyAudioTrackChange(BeatmapMetadata metadata, string newAudioFilename, string? tagArtist, string? tagTitle)
+        {
+            bool seedFromTags = string.IsNullOrEmpty(metadata.AudioFile);
+
+            metadata.AudioFile = newAudioFilename;
+
+            if (!seedFromTags)
+                return;
+
+            if (!string.IsNullOrWhiteSpace(tagArtist))
+            {
+                metadata.ArtistUnicode = tagArtist;
+                metadata.Artist = MetadataUtils.StripNonRomanisedCharacters(metadata.ArtistUnicode);
+            }
+
+            if (!string.IsNullOrEmpty(tagTitle))
+            {
+                metadata.TitleUnicode = tagTitle;
+                metadata.Title = MetadataUtils.StripNonRomanisedCharacters(metadata.TitleUnicode);
+            }
         }
 
         private void changeResource(
