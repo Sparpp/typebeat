@@ -52,6 +52,14 @@ namespace typebeat.Game.Screens.Edit
             // The native encoder captures beatmap-level fields (metadata, preview time, audio
             // lead-in) into every state, so undo/redo must restore them too, otherwise a metadata
             // or preview-time edit is silently unreverted (and HasUnsavedChanges goes stale).
+            //
+            // The two RESOURCE filenames (audio, background) are deliberately excluded. They are not
+            // editable text: the only thing that writes them is the setup screen's resource flow,
+            // which copies the new file into the beatmap set, DELETES the file the old name pointed
+            // at, and saves immediately. Restoring an older state's filename would therefore point
+            // the map at a file that no longer exists on disk, silently breaking its audio (or
+            // background) as collateral damage of undoing some unrelated lyric edit. There is
+            // nothing to undo back to, so the current filenames are left alone.
             var target = decoded.BeatmapInfo.Metadata;
             var current = editorBeatmap.Metadata;
 
@@ -60,8 +68,6 @@ namespace typebeat.Game.Screens.Edit
             current.Title = target.Title;
             current.TitleUnicode = target.TitleUnicode;
             current.Author.Username = target.Author.Username;
-            current.AudioFile = target.AudioFile;
-            current.BackgroundFile = target.BackgroundFile;
 
             editorBeatmap.PreviewTime.Value = target.PreviewTime;
             editorBeatmap.AudioLeadIn = decoded.AudioLeadIn;

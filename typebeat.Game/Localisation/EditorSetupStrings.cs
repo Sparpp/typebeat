@@ -190,6 +190,11 @@ namespace typebeat.Game.Localisation
         public static LocalisableString AudioTrack => new TranslatableString(getKey(@"audio_track"), @"Audio Track");
 
         /// <summary>
+        /// "Pick another file to replace the song without re-importing the map. Existing timing is left exactly as it is."
+        /// </summary>
+        public static LocalisableString AudioTrackHint => new TranslatableString(getKey(@"audio_track_hint"), @"Pick another file to replace the song without re-importing the map. Existing timing is left exactly as it is.");
+
+        /// <summary>
         /// "Video"
         /// </summary>
         public static LocalisableString Video => new TranslatableString(getKey(@"video"), @"Video");
