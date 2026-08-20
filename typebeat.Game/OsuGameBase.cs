@@ -207,6 +207,7 @@ namespace typebeat.Game
 
         private BeatmapDifficultyCache difficultyCache;
         private IBeatmapUpdater beatmapUpdater;
+        private OnlineAssetCachingStore onlineAssetStore;
 
         private UserLookupCache userCache;
         private BeatmapLookupCache beatmapCache;
@@ -291,7 +292,7 @@ namespace typebeat.Game
             largeStore.AddTextureSource(Host.CreateTextureLoaderStore(CreateOnlineStore()));
             dependencies.Cache(largeStore);
 
-            dependencies.Cache(new OnlineAssetCachingStore(Host, realm));
+            dependencies.Cache(onlineAssetStore = new OnlineAssetCachingStore(Host, realm));
 
             dependencies.CacheAs(LocalConfig);
             dependencies.CacheAs<IGameplaySettings>(LocalConfig);
@@ -790,6 +791,8 @@ namespace typebeat.Game
             LocalConfig?.Dispose();
 
             beatmapUpdater?.Dispose();
+
+            onlineAssetStore?.Dispose();
 
             realm?.Dispose();
 
