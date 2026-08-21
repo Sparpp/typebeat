@@ -3,10 +3,12 @@
 
 using System;
 using System.IO;
+using System.Linq;
 using NUnit.Framework;
 using osu.Framework.Platform;
 using typebeat.Game.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
+using typebeat.Game.Rulesets.TypeBeat.UI;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
@@ -80,6 +82,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(rulesetConfig.GetBindable<CaretStyle>(TypeBeatRulesetSetting.SungCaretStyle).Default,
                     Is.EqualTo(CaretStyle.Line));
             }
+        }
+
+        /// <summary>
+        /// <see cref="CaretStyle.Highlight"/> is offered by the SUNG playhead dropdown only. It is
+        /// not a caret shape: it means "draw no head, light the sung syllable group instead", which
+        /// the typing caret (whose whole job is to mark where YOU are) cannot express. The typing
+        /// dropdown therefore lists its items explicitly rather than taking the enum wholesale, and
+        /// this pins that list against the enum in BOTH directions, so a sixth style added later
+        /// either reaches the typing caret or is a deliberate second exclusion.
+        /// </summary>
+        [Test]
+        public void OnlyTheSungPlayheadIsOfferedTheHighlightStyle()
+        {
+            Assert.That(TypeBeatSettingsSubsection.TYPING_CARET_STYLES, Does.Not.Contain(CaretStyle.Highlight));
+
+            var everythingElse = Enum.GetValues<CaretStyle>().Where(s => s != CaretStyle.Highlight);
+            Assert.That(TypeBeatSettingsSubsection.TYPING_CARET_STYLES, Is.EquivalentTo(everythingElse),
+                "every style that is not Highlight must still reach the typing caret dropdown");
         }
 
         /// <summary>

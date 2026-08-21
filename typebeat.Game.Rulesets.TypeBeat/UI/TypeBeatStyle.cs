@@ -38,11 +38,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public static Color4 FreestyleChar { get; } = new Color4((byte)199, (byte)146, (byte)234, (byte)255); // #c792ea
 
         /// <summary>
-        /// A CORRECTLY typed character under the syllable-timing experiment (backlog 174). Flat,
-        /// deliberately with no sync tint: in syllable mode every press inside its group's sung span
+        /// A CORRECTLY typed character while the sung playhead style is
+        /// <see cref="Configuration.CaretStyle.Highlight"/> (backlog 174/175). Flat, deliberately with
+        /// no sync tint: a highlighted syllable group reads as one unit, and under
+        /// <see cref="Gameplay.TypingEngine.SyllableTiming"/> every press inside its sung span really
         /// is judged delta 0, so the classic grey-to-white quality ramp would collapse to a single
-        /// point and mean nothing; the green says only "you got this one" (the classic mode keeps
-        /// its ramp untouched). #98c379 is the green monkeytype's own theme family reaches for (the
+        /// point and mean nothing; the green says only "you got this one" (the classic playhead
+        /// styles keep their ramp untouched). #98c379 is the green monkeytype's own theme family reaches for (the
         /// One Dark green): about 6.2:1 against <see cref="Background"/> #323437, comfortably past
         /// the 4.5:1 body-text bar, and its ~95 degree hue is unmistakable beside every other voice
         /// on the field, the blue <see cref="SungAccent"/> #7ec8e3 (~197), the yellow

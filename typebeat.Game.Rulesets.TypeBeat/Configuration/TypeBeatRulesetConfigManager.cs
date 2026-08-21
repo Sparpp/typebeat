@@ -88,13 +88,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         LyricFont
     }
 
-    /// <summary>Monkeytype's caret styles. <see cref="Line"/> is the classic 3px beam.</summary>
+    /// <summary>
+    /// Monkeytype's caret styles. <see cref="Line"/> is the classic 3px beam.
+    ///
+    /// <para><see cref="Highlight"/> is the odd one out: it is not a caret shape at all, it is the
+    /// choice to have NO sung playhead, so it is offered by the SUNG playhead dropdown only (see
+    /// <see cref="TypeBeatRulesetSetting.SungCaretStyle"/>) and deliberately left out of the typing
+    /// caret's dropdown, which builds its item list explicitly for that reason. The enum is shared
+    /// because both heads are the same <c>Caret</c> class; the restriction lives in the UI.</para>
+    ///
+    /// <para>APPEND ONLY. Values are databased by member NAME, exactly as the lookup keys are (see
+    /// <see cref="TypeBeatRulesetSetting.CaretStyle"/>), so renaming or reordering a member would
+    /// reset stored player choices. Adding one at the end is free.</para>
+    /// </summary>
     public enum CaretStyle
     {
         Line,
         Block,
         Outline,
-        Underline
+        Underline,
+
+        /// <summary>
+        /// Sung playhead only: no playhead at all. The sung caret and the underline sweep are both
+        /// hidden and the syllable group the vocals are on lights up instead, so "where the song is"
+        /// is carried by the characters themselves rather than by a head between two of them.
+        ///
+        /// <para>Independent of <see cref="Gameplay.TypingEngine.SyllableTiming"/>, which is a
+        /// JUDGEMENT rule: <see cref="Gameplay.TypingLine.Syllables"/> is built for every line
+        /// whatever the engine is judging on, so this style renders identically under classic
+        /// judgement. Keeping the two apart is what stops the setting from silently doing nothing in
+        /// a Release build.</para>
+        /// </summary>
+        Highlight
     }
 
     public class TypeBeatRulesetConfigManager : RulesetConfigManager<TypeBeatRulesetSetting>

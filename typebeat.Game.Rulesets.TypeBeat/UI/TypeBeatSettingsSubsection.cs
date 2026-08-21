@@ -44,6 +44,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private SettingsButton installButton = null!;
 
+        /// <summary>
+        /// The caret shapes the PLAYER's typing caret may wear: every <see cref="CaretStyle"/> except
+        /// <see cref="CaretStyle.Highlight"/>, which is a sung-playhead-only choice (it means "draw no
+        /// head and light the sung syllable group instead", and the typing caret marks where YOU are,
+        /// which no syllable group can stand in for). Public so a test can pin the exclusion against
+        /// the enum rather than against a copied list.
+        /// </summary>
+        public static readonly IReadOnlyList<CaretStyle> TYPING_CARET_STYLES = new[]
+        {
+            CaretStyle.Line, CaretStyle.Block, CaretStyle.Outline, CaretStyle.Underline,
+        };
+
         public TypeBeatSettingsSubsection(Ruleset ruleset)
             : base(ruleset)
         {
@@ -58,16 +70,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             Children = new Drawable[]
             {
-                new SettingsEnumDropdown<CaretStyle>
+                // A plain SettingsDropdown, not a SettingsEnumDropdown: the enum one lists EVERY
+                // member, and CaretStyle.Highlight is not a shape the typing caret can wear (it
+                // means "no head, light the sung syllable instead", which is only meaningful for the
+                // playhead). Listing the four shapes explicitly is what keeps it off this dropdown.
+                new SettingsDropdown<CaretStyle>
                 {
                     LabelText = "Typing caret style",
                     TooltipText = "Shape of the head that follows YOUR typing along the lyric line. Cosmetic only: it never changes where a character is judged.",
+                    Items = TYPING_CARET_STYLES,
                     Current = config.GetBindable<CaretStyle>(TypeBeatRulesetSetting.CaretStyle),
                 },
+                // The playhead keeps the full enum, Highlight included.
                 new SettingsEnumDropdown<CaretStyle>
                 {
                     LabelText = "Song playhead style",
-                    TooltipText = "Shape of the second head on the same line: the song's playhead, which follows the VOCALS rather than you. It stays the accent colour and never blinks, so the two are easy to tell apart whatever shapes you pick.",
+                    TooltipText = "Shape of the second head on the same line: the song's playhead, which follows the VOCALS rather than you. It stays the accent colour and never blinks, so the two are easy to tell apart whatever shapes you pick. Highlight removes the playhead altogether and lights up the syllable being sung instead.",
                     Current = config.GetBindable<CaretStyle>(TypeBeatRulesetSetting.SungCaretStyle),
                 },
                 new SettingsEnumDropdown<KeyboardLayout>

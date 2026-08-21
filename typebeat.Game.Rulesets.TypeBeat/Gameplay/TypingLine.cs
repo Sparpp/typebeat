@@ -99,6 +99,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// [<see cref="StartTime"/>, <see cref="EndTime"/>] it is sung over. Under
     /// <see cref="TypingEngine.SyllableTiming"/> a keypress on one of its cells is judged against
     /// that span: delta 0 anywhere inside it, distance to the nearer edge outside it.
+    ///
+    /// <para>Groups are also what the <see cref="Configuration.CaretStyle.Highlight"/> playhead style
+    /// lights on screen. That is a SEPARATE switch from the judgement flag above (backlog 175), and
+    /// both readings work off this same always-built list.</para>
     /// </summary>
     public readonly record struct SyllableGroup(int StartCell, int EndCellExclusive, double StartTime, double EndTime);
 
@@ -152,7 +156,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// The line's SYLLABLE groups (backlog 174): ordered, non-overlapping cell ranges, one per
         /// syllable of each whitespace token, with the time span each syllable is sung over. Built
         /// ALWAYS (cheap, pure) regardless of engine mode, so rendering and tests can read them even
-        /// when <see cref="TypingEngine.SyllableTiming"/> is off. Every typeable non-space cell
+        /// when <see cref="TypingEngine.SyllableTiming"/> is off. That is load-bearing, not merely
+        /// tidy: the <see cref="Configuration.CaretStyle.Highlight"/> playhead style renders off these
+        /// groups whatever the engine is judging on, which is what lets a Release build offer the
+        /// setting honestly. Every typeable non-space cell
         /// belongs to exactly one group; a SPACE cell (the inter-word gap, or a hyphen turned into a
         /// typed space) belongs to none, so membership must be read through
         /// <see cref="SyllableIndexOf"/> rather than by range: a mid-token hyphen-space can sit
