@@ -37,6 +37,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         public static Color4 FreestyleChar { get; } = new Color4((byte)199, (byte)146, (byte)234, (byte)255); // #c792ea
 
+        /// <summary>
+        /// A CORRECTLY typed character under the syllable-timing experiment (backlog 174). Flat,
+        /// deliberately with no sync tint: in syllable mode every press inside its group's sung span
+        /// is judged delta 0, so the classic grey-to-white quality ramp would collapse to a single
+        /// point and mean nothing; the green says only "you got this one" (the classic mode keeps
+        /// its ramp untouched). #98c379 is the green monkeytype's own theme family reaches for (the
+        /// One Dark green): about 6.2:1 against <see cref="Background"/> #323437, comfortably past
+        /// the 4.5:1 body-text bar, and its ~95 degree hue is unmistakable beside every other voice
+        /// on the field, the blue <see cref="SungAccent"/> #7ec8e3 (~197), the yellow
+        /// <see cref="Caret"/> #e2b714 (~47), the violet <see cref="FreestyleChar"/> #c792ea (~285)
+        /// and the red <see cref="ErrorChar"/> #ca4754 (~355).
+        /// </summary>
+        public static Color4 SyllableCorrectChar { get; } = new Color4((byte)152, (byte)195, (byte)121, (byte)255); // #98c379
+
         /// <summary>Near-opaque black drop shadow applied to gameplay text so glyphs stay legible
         /// over a beatmap background image or video (not just the flat serika-dark panel).</summary>
         public static Color4 TextShadow { get; } = new Color4((byte)0, (byte)0, (byte)0, (byte)200);
