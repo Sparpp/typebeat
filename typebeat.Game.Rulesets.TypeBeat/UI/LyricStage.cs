@@ -84,7 +84,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// caret's own <see cref="Caret.Style"/> rides straight off this bindable.
         ///
         /// <para>It decides NOTHING about the lit syllable group. Since backlog 177 the group the
-        /// vocals are on lights its untyped cells under every style, fed by <see cref="Update"/>
+        /// vocals are on lifts its untyped cells to <see cref="TypeBeatStyle.SungChar"/> under every style, fed by <see cref="Update"/>
         /// every frame, so the playhead and the highlight are complements rather than two
         /// presentations to pick between, and this bindable only subtracts.</para>
         ///
@@ -815,6 +815,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// have been; -1 between spans (nothing is being sung, so nothing lights). Groups are
         /// ordered with monotonic spans and there are at most a few dozen per line, so a linear
         /// scan per frame is nothing.
+        ///
+        /// <para>Gaps between spans are ordinary here, and one more kind opened up in backlog 178:
+        /// a token that is not a syllabifiable English word gets no group, so the whole time it is
+        /// sung this returns -1 and nothing lights. That is the intent, a stylised word keeps the
+        /// plain per-character presentation, and it needs no code change because "between spans" and
+        /// "over a word with no spans" are the same answer.</para>
         /// </summary>
         private int currentSyllableIn(TypingLine line)
         {

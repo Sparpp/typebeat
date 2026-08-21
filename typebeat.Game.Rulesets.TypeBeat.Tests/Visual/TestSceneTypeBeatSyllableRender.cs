@@ -24,7 +24,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     ///
     /// <para>Each frame the stage finds the group whose sung span contains the current time (exactly
     /// where the playhead sits) and feeds it to the display's <c>SetSungSyllable</c> seam, so the
-    /// group's untyped cells light white and move group by group as the song advances. That happens
+    /// group's untyped cells lift to <see cref="TypeBeatStyle.SungChar"/> (a lighter grey since
+    /// backlog 178 demoted the highlight off the palette white) and move group by group as the song
+    /// advances. That happens
     /// on the shipped DEFAULT style, with the caret and the underline sweep alive at the same time,
     /// which is the case backlog 175 asserted the opposite of. Under None the same group lights and
     /// the playhead is gone: caret hidden, sweep unfed.</para>
@@ -63,7 +65,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         /// moves on; what must never happen is the highlight going dark because the playhead style
         /// changed under it.
         /// </summary>
-        private bool aGroupIsLitAndWhite()
+        private bool aGroupIsLit()
         {
             int g = display.SungSyllable;
 
@@ -71,12 +73,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 return false;
 
             // Nothing is typed in this test, so every cell of the lit group is Untyped and must be
-            // wearing the highlight white.
+            // wearing the highlight grey.
             var group = display.Line.Syllables[g];
 
             for (int c = group.StartCell; c < group.EndCellExclusive; c++)
             {
-                if (display.Line.SyllableIndexOf(c) == g && !same(colour(c), TypeBeatStyle.TypedChar))
+                if (display.Line.SyllableIndexOf(c) == g && !same(colour(c), TypeBeatStyle.SungChar))
                     return false;
             }
 
@@ -159,8 +161,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("line 0 active", () => playfield.Engine.ActiveLineIndex == 0);
             AddAssert("syllable judgement stayed off", () => !playfield.Engine.SyllableTiming);
 
-            // Group 0, just "o": its one untyped cell lights white; nothing else does.
-            AddUntilStep("'o' lights white while sung", () => same(colour(0), TypeBeatStyle.TypedChar) && now < 4300);
+            // Group 0, just "o": its one untyped cell lifts to the highlight grey; nothing else does.
+            AddUntilStep("'o' lights while sung", () => same(colour(0), TypeBeatStyle.SungChar) && now < 4300);
             AddAssert("its own word's later cells stay grey", () =>
                 same(colour(1), TypeBeatStyle.UntypedChar)
                 && same(colour(2), TypeBeatStyle.UntypedChar)
@@ -174,7 +176,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // Group 1: the highlight moves to "pen" and releases the still-untyped "o" back to grey
             // (already sung past reads exactly like not yet sung).
             AddUntilStep("'pen' lights and 'o' releases", () =>
-                same(colour(1), TypeBeatStyle.TypedChar)
+                same(colour(1), TypeBeatStyle.SungChar)
                 && same(colour(0), TypeBeatStyle.UntypedChar)
                 && now < 8600);
 
@@ -189,15 +191,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             });
             AddUntilStep("'o' is Correct", () => display.Line.Cells[0].State == Gameplay.CellState.Correct);
             AddAssert("'o' painted at exactly the sync tint it earned", () => same(colour(0), earnedTint(0)));
+            // Backlog 178: the ramp sits entirely above the highlight, so typing a char always
+            // promotes it out of the group colour rather than blending into it.
+            AddAssert("and that tint is neither the highlight nor the untyped grey", () =>
+                !same(colour(0), TypeBeatStyle.SungChar) && !same(colour(0), TypeBeatStyle.UntypedChar));
             AddAssert("'p' painted the classic error red", () => same(colour(1), TypeBeatStyle.ErrorChar));
 
             // Group 2: a whole multi-cell group lights at once; the space cell, in no group, never
             // lights.
             AddUntilStep("'door' lights as one group", () =>
-                same(colour(5), TypeBeatStyle.TypedChar)
-                && same(colour(6), TypeBeatStyle.TypedChar)
-                && same(colour(7), TypeBeatStyle.TypedChar)
-                && same(colour(8), TypeBeatStyle.TypedChar));
+                same(colour(5), TypeBeatStyle.SungChar)
+                && same(colour(6), TypeBeatStyle.SungChar)
+                && same(colour(7), TypeBeatStyle.SungChar)
+                && same(colour(8), TypeBeatStyle.SungChar));
             AddAssert("the space cell stays grey", () => same(colour(4), TypeBeatStyle.UntypedChar));
             AddAssert("still no playhead", () => !stage.SungCaretVisible && display.SweepFillWidth == 0);
         }
@@ -225,8 +231,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // instead of it, and cells outside the group stay grey.
             AddUntilStep("well inside the first sung group", () => now > 3300 && now < 4300);
             AddAssert("group 0 is lit", () => display.SungSyllable == 0);
-            AddAssert("'o' lights white while the playhead is still drawn", () =>
-                same(colour(0), TypeBeatStyle.TypedChar) && stage.SungCaretVisible && display.SweepFillWidth > 0);
+            AddAssert("'o' lights while the playhead is still drawn", () =>
+                same(colour(0), TypeBeatStyle.SungChar) && stage.SungCaretVisible && display.SweepFillWidth > 0);
             AddAssert("cells outside the group stay the untyped grey", () =>
                 same(colour(1), TypeBeatStyle.UntypedChar)
                 && same(colour(5), TypeBeatStyle.UntypedChar));
@@ -244,13 +250,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // never having been fed at all), and a stale fill would otherwise freeze on screen.
             AddUntilStep("playhead is live", () => stage.SungCaretVisible && display.SweepFillWidth > 0);
             AddUntilStep("group 0 is already lit under Line", () =>
-                display.SungSyllable == 0 && same(colour(0), TypeBeatStyle.TypedChar) && now < 4300);
+                display.SungSyllable == 0 && same(colour(0), TypeBeatStyle.SungChar) && now < 4300);
 
             setSungStyle(CaretStyle.None);
             AddAssert("the stale sweep was zeroed at once", () => display.SweepFillWidth == 0);
             AddUntilStep("sung caret hides", () => !stage.SungCaretVisible);
             AddAssert("typing caret is untouched", () => stage.PlayerCaretVisible);
-            AddAssert("a group is still lit across the switch", aGroupIsLitAndWhite);
+            AddAssert("a group is still lit across the switch", aGroupIsLit);
 
             setSungStyle(CaretStyle.Line);
             AddUntilStep("sung caret returns", () => stage.SungCaretVisible);
@@ -260,7 +266,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // the style meant leaving the highlight. It no longer does, so nothing may go dark.
             // Deliberately group-AGNOSTIC: several seconds of real time pass across these steps, so
             // which group is being sung by now is not the contract; that one still is, is.
-            AddAssert("a group is still lit on the way back", aGroupIsLitAndWhite);
+            AddAssert("a group is still lit on the way back", aGroupIsLit);
         }
     }
 }

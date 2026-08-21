@@ -22,6 +22,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// small table pins very common lyric words the rules cannot get right (people, every,
     /// something and friends).</para>
     ///
+    /// <para>The analysis assumes a real English spelling, so it does not answer for a STYLISED
+    /// one: <see cref="IsSyllabifiable"/> is the gate that says whether a token is one of those, and
+    /// a caller that cares about junk splits asks it FIRST. <see cref="CountSyllables"/> and
+    /// <see cref="SplitPoints"/> themselves answer for every input, gate or no gate, because a
+    /// mapper's hand-authored subtimings must still be honoured on a word that looks stylised.</para>
+    ///
     /// <para>Non-letter input is defensive territory: punctuation (apostrophes, the freestyle
     /// marker <c>&amp;</c>, anything else) is transparent, it attaches to the surrounding syllable
     /// and never starts one. A maximal digit run is ONE syllable of its own (a number is read as
@@ -30,6 +36,56 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// </summary>
     public static class Syllabifier
     {
+        /// <summary>
+        /// Whether <paramref name="word"/> looks like an English word the orthographic rules above
+        /// can actually analyse, rather than a STYLISED spelling. Pure and side-effect free, and the
+        /// gate <see cref="TypingLine"/> uses to decide whether a token gets syllable groups at all:
+        /// lyrics are full of "wooooooords", "heyyyyy", "naaaah" and "ohhh", and the phonotactics
+        /// here were built for real English, so on those they produce junk splits and a confidence
+        /// they have not earned. A word that fails this test is left UNGROUPED, keeping the classic
+        /// per-character presentation and judgement, which is the honest answer.
+        ///
+        /// <para>ONE rule, deliberately: a run of THREE OR MORE identical LETTERS is not a standard
+        /// English spelling, so the word fails. That covers the whole stylised family (a held vowel,
+        /// a dragged consonant, a hummed or hushed noise) and it steals nothing, because DOUBLED
+        /// letters are ordinary English and pass: little, good, hello, ooh, aah, la, na, and every
+        /// word of the <c>SyllabifierTest</c> corpus. Case is folded, so WOOOO fails too.</para>
+        ///
+        /// <para>The scope is narrow on purpose. DIGITS are never a reason to fail (a digit run
+        /// already has its own defined behaviour, one spoken chunk, so "1000" and "b2b" stay
+        /// grouped), and punctuation only ever BREAKS a run, it never makes one. A vowel-less
+        /// consonant noise ("brr", "pfft", "tsk") was considered and deliberately NOT added: "hmm"
+        /// is pinned in the corpus at one syllable, which is also the right answer, so that rule
+        /// would have cost a correct grouping to buy nothing. Short or common words are never
+        /// rejected: there is no dictionary here and adding one is not the job.</para>
+        ///
+        /// <para>Null/empty is false, matching <see cref="CountSyllables"/> returning 0 for it:
+        /// there is nothing to syllabify.</para>
+        /// </summary>
+        public static bool IsSyllabifiable(string word)
+        {
+            if (string.IsNullOrEmpty(word))
+                return false;
+
+            // Compare against the PREVIOUS character rather than carrying a sentinel: a run only
+            // ever extends when both ends are the same letter, so a digit or a punctuation mark
+            // simply fails the test and resets the count.
+            int run = 1;
+
+            for (int i = 1; i < word.Length; i++)
+            {
+                char c = char.ToLowerInvariant(word[i]);
+                char previous = char.ToLowerInvariant(word[i - 1]);
+
+                run = char.IsLetter(c) && c == previous ? run + 1 : 1;
+
+                if (run >= 3)
+                    return false;
+            }
+
+            return true;
+        }
+
         /// <summary>
         /// Number of syllables in an English word. Never less than 1 for a non-empty word
         /// (a vowel-less or all-punctuation token counts as one group); 0 for null/empty.

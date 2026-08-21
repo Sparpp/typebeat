@@ -73,6 +73,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static LyricBeatmap probably() => map(line("probably", 1000, 60000, 1800,
             unit("probably", 1000, 1800, 1250, 1500)));
 
+        /// <summary>
+        /// "say wooooooords now" (backlog 178): an ordinary word, a STYLISED one, an ordinary word.
+        /// Cells s0 a1 y2 _3 w4 o5..o11 r12 d13 s14 _15 n16 o17 w18, units [1000, 2000],
+        /// [2000, 4000], [4000, 5000]. "say" and "now" are one syllable each; the middle token has
+        /// seven consecutive o's, so the syllabifier refuses it and it gets NO groups unless the
+        /// caller passes mapper boundaries for it.
+        /// </summary>
+        private static LyricBeatmap sayStylisedNow(params double[] stylisedBoundaries) => map(line("say wooooooords now", 1000, 60000, 5000,
+            unit("say", 1000, 2000), unit("wooooooords", 2000, 4000, stylisedBoundaries), unit("now", 4000, 5000)));
+
         private static TypingEngine started(LyricBeatmap beatmap, bool syllableTiming)
         {
             var engine = new TypingEngine(beatmap) { SyllableTiming = syllableTiming };
@@ -118,6 +128,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(-1, tl.SyllableIndexOf(9));
 
             assertLineInvariants(tl);
+            assertEveryTypeableCellIsGrouped(tl);
         }
 
         [Test]
@@ -142,6 +153,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(2, tl.SyllableIndexOf(5), "cell 5 ('b' of |bly) belongs to the THIRD syllable under the syllabifier split");
 
             assertLineInvariants(tl);
+            assertEveryTypeableCellIsGrouped(tl);
         }
 
         [Test]
@@ -158,6 +170,58 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(new SyllableGroup(1, 2, 1200, 2000), tl.Syllables[1]);
 
             assertLineInvariants(tl);
+            assertEveryTypeableCellIsGrouped(tl);
+        }
+
+        [Test]
+        public void AStylisedWordGetsNoGroupsWhileItsNeighboursKeepTheirs()
+        {
+            var tl = TypingLine.FromLyricLine(sayStylisedNow().Lines[0]);
+
+            // Two groups for a nineteen-cell line: "say" and "now". The stylised token contributes
+            // nothing, so the groups are not even adjacent in cell terms.
+            Assert.AreEqual(2, tl.Syllables.Count);
+            Assert.AreEqual(new SyllableGroup(0, 3, 1000, 2000), tl.Syllables[0]);
+            Assert.AreEqual(new SyllableGroup(16, 19, 4000, 5000), tl.Syllables[1]);
+
+            for (int i = 0; i < 3; i++)
+                Assert.AreEqual(0, tl.SyllableIndexOf(i), $"cell {i} of say");
+
+            // Every cell of the stylised word, and both spaces around it, are in no group at all.
+            for (int i = 3; i <= 15; i++)
+                Assert.AreEqual(-1, tl.SyllableIndexOf(i), $"cell {i} must be ungrouped");
+
+            for (int i = 16; i <= 18; i++)
+                Assert.AreEqual(1, tl.SyllableIndexOf(i), $"cell {i} of now");
+
+            // The gap is in TIME as well as in cells: between 2000 and 4000 no group is being sung,
+            // which is exactly what makes LyricStage light nothing while the word is on screen.
+            Assert.IsFalse(tl.Syllables.Any(g => g.StartTime <= 3000 && 3000 <= g.EndTime),
+                "nothing is sung while the stylised word is");
+
+            assertLineInvariants(tl);
+        }
+
+        [Test]
+        public void MapperSubtimingsOverrideTheStylisedGate()
+        {
+            // The mapper hand-authored two boundaries inside "wooooooords", so it is subtimed and
+            // the gate does not apply: 174's rule is that an authored count is authoritative,
+            // whatever the word looks like. The syllabifier is force-split to 3 groups,
+            // w|ooooooo|rds (the added splits land on the C-to-V and V-to-C edges).
+            var tl = TypingLine.FromLyricLine(sayStylisedNow(2500, 3000).Lines[0]);
+
+            Assert.AreEqual(5, tl.Syllables.Count);
+            Assert.AreEqual(new SyllableGroup(4, 5, 2000, 2500), tl.Syllables[1]);
+            Assert.AreEqual(new SyllableGroup(5, 12, 2500, 3000), tl.Syllables[2]);
+            Assert.AreEqual(new SyllableGroup(12, 15, 3000, 4000), tl.Syllables[3]);
+
+            Assert.AreEqual(1, tl.SyllableIndexOf(4));
+            Assert.AreEqual(2, tl.SyllableIndexOf(11));
+            Assert.AreEqual(3, tl.SyllableIndexOf(14));
+
+            assertLineInvariants(tl);
+            assertEveryTypeableCellIsGrouped(tl);
         }
 
         #endregion
@@ -339,6 +403,78 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(500, engine.Lines[0].Cells[4].JudgedDelta!.Value, 1e-9);
         }
 
+        /// <summary>
+        /// The judgement half of backlog 178: an ungrouped cell falls through the existing "cell in
+        /// no group" arm of <c>TypingEngine.judgedDeltaFor</c> and keeps the classic POINT delta
+        /// even with the flag on, while its grouped neighbours do not. No new code path, which is
+        /// the point of leaving the word ungrouped rather than special-casing the engine.
+        /// </summary>
+        [Test]
+        public void AnUngroupedStylisedWordIsJudgedOnPointDeltasUnderTheFlag()
+        {
+            var engine = started(sayStylisedNow(), syllableTiming: true);
+            var judged = record(engine);
+
+            // "say" IS grouped, span [1000, 2000]: three different chars pressed at the same
+            // in-span time are all delta 0, the syllable rule.
+            Assert.IsTrue(engine.ProcessKey('s', 1900));
+            Assert.IsTrue(engine.ProcessKey('a', 1900));
+            Assert.IsTrue(engine.ProcessKey('y', 1900));
+            Assert.IsTrue(engine.ProcessKey(' ', 1900)); // untimed space, delta 0
+
+            // The stylised word is not. Its 11 chars carry the flat ramp over [2000, 4000], so
+            // char j is targeted at 2000 + j * 2000 / 11. Cross-checks: 'w' (j = 0) at 2600 is 600
+            // late -> Ok; the first 'o' (j = 1, target 2181.8181...) at the same 2600 is 418.1818...
+            // late -> Ok as well but a DIFFERENT delta, which is the per-character rule showing.
+            Assert.IsTrue(engine.ProcessKey('w', 2600));
+            Assert.IsTrue(engine.ProcessKey('o', 2600));
+
+            Assert.AreEqual(new[] { JudgementType.Great, JudgementType.Great, JudgementType.Great, JudgementType.Great, JudgementType.Ok, JudgementType.Ok },
+                judged.Select(j => j.Type).ToArray());
+
+            Assert.AreEqual(0, judged[0].Delta, 1e-9);
+            Assert.AreEqual(0, judged[2].Delta, 1e-9);
+            Assert.AreEqual(600, judged[4].Delta, 1e-9);
+            Assert.AreEqual(600 - 2000.0 / 11, judged[5].Delta, 1e-9);
+
+            // Had the word been grouped, both of the last two would have been delta 0 Great.
+            Assert.AreNotEqual(judged[4].Delta, judged[5].Delta, "two chars of an ungrouped word cannot share a delta");
+
+            // And the stored deltas agree, so every readout that re-reads them agrees too.
+            Assert.AreEqual(600, engine.Lines[0].Cells[4].JudgedDelta!.Value, 1e-9);
+            Assert.AreEqual(600 - 2000.0 / 11, engine.Lines[0].Cells[5].JudgedDelta!.Value, 1e-9);
+        }
+
+        /// <summary>
+        /// Flag OFF over the same line, for completeness: the gate is a GROUPING decision, so it
+        /// cannot have moved a single target time or judgement on the rule Release actually ships.
+        /// </summary>
+        [Test]
+        public void TheStylisedGateMovesNothingUnderClassicJudgement()
+        {
+            var gated = TypingLine.FromLyricLine(sayStylisedNow().Lines[0]);
+            var subtimed = TypingLine.FromLyricLine(sayStylisedNow(2500, 3000).Lines[0]);
+
+            Assert.AreEqual("say wooooooords now", gated.DisplayText);
+
+            // The un-subtimed line's targets are the flat ramp, gate or no gate.
+            for (int j = 0; j < 11; j++)
+                Assert.AreEqual(2000 + j * 2000.0 / 11, gated.Cells[4 + j].TargetTime, 1e-9, $"cell {4 + j}");
+
+            // ...and the SUBTIMED one's are the piecewise spread, which the gate never reaches.
+            Assert.AreNotEqual(gated.Cells[8].TargetTime, subtimed.Cells[8].TargetTime);
+
+            var engine = started(sayStylisedNow(), syllableTiming: false);
+            var judged = record(engine);
+
+            Assert.IsTrue(engine.ProcessKey('s', 1900)); // point target 1000, delta 900 -> Ok
+            Assert.IsTrue(engine.ProcessKey('a', 1900)); // point target 1333.33..., delta 566.66... -> Ok
+
+            Assert.AreEqual(900, judged[0].Delta, 1e-9);
+            Assert.AreEqual(1900 - (1000 + 1000.0 / 3), judged[1].Delta, 1e-9);
+            Assert.AreEqual(new[] { JudgementType.Ok, JudgementType.Ok }, judged.Select(j => j.Type).ToArray());
+        }
+
         #endregion
 
         #region Line-level invariants, incl. real maps
@@ -362,6 +498,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 prevCellEnd = grp.EndCellExclusive;
             }
 
+            // Group coverage is PARTIAL since backlog 178: the cells of a token the syllabifier
+            // refuses (a stylised spelling) are in no group at all. So the invariant is no longer
+            // "every typeable non-space cell is grouped"; it is that a cell is either correctly
+            // inside its own group's range, or part of a whole run the gate would refuse. Runs are
+            // accumulated and checked at each break, which also pins that an ungrouped run is a
+            // WHOLE token: grouping is all-or-nothing per token, so a half-grouped word would show
+            // up here as a run the gate happily accepts.
+            var ungrouped = new StringBuilder();
+
             for (int i = 0; i < tl.Cells.Count; i++)
             {
                 var cell = tl.Cells[i];
@@ -369,12 +514,53 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 if (cell.IsTypeable && cell.Expected != ' ')
                 {
-                    Assert.GreaterOrEqual(s, 0, $"typeable non-space cell {i} ('{cell.Expected}') must be in a group");
+                    if (s < 0)
+                    {
+                        ungrouped.Append(cell.Expected);
+                        continue;
+                    }
+
                     Assert.GreaterOrEqual(i, groups[s].StartCell, $"cell {i} inside its group's range");
                     Assert.Less(i, groups[s].EndCellExclusive, $"cell {i} inside its group's range");
                 }
                 else
                     Assert.AreEqual(-1, s, $"cell {i} ('{cell.Expected}') must be in no group");
+
+                assertRefusedByTheGate(ungrouped);
+            }
+
+            assertRefusedByTheGate(ungrouped);
+        }
+
+        /// <summary>
+        /// A completed run of ungrouped typeable non-space cells is only legal when the syllabifier
+        /// would refuse that word outright. Clears the run.
+        /// </summary>
+        private static void assertRefusedByTheGate(StringBuilder run)
+        {
+            if (run.Length == 0)
+                return;
+
+            string word = run.ToString();
+            run.Clear();
+
+            Assert.IsFalse(Syllabifier.IsSyllabifiable(word),
+                $"cell run \"{word}\" is in no syllable group, which is only allowed for a word the syllabifier refuses");
+        }
+
+        /// <summary>
+        /// The STRONGER coverage claim, for the fixture lines whose every token is ordinary English:
+        /// nothing is left ungrouped there. Kept separate from the general invariants so that the
+        /// backlog 178 gate cannot quietly start dropping groups on normal words.
+        /// </summary>
+        private static void assertEveryTypeableCellIsGrouped(TypingLine tl)
+        {
+            for (int i = 0; i < tl.Cells.Count; i++)
+            {
+                var cell = tl.Cells[i];
+
+                if (cell.IsTypeable && cell.Expected != ' ')
+                    Assert.GreaterOrEqual(tl.SyllableIndexOf(i), 0, $"typeable non-space cell {i} ('{cell.Expected}') must be in a group");
             }
         }
 

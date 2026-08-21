@@ -131,8 +131,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// is never fed, so where the song is up to is carried by the lit syllable group alone.
         ///
         /// <para>This member selects nothing but that absence. The lit group is NOT part of it:
-        /// since backlog 177 the group the vocals are on lights its untyped cells white under EVERY
-        /// style, alongside the caret and the sweep, so picking this one subtracts the playhead and
+        /// since backlog 177 the group the vocals are on lifts its untyped cells to a lighter grey
+        /// under EVERY style, alongside the caret and the sweep, so picking this one subtracts the playhead and
         /// adds nothing. It was called <c>Highlight</c> while the two were one presentation.</para>
         ///
         /// <para>Independent of <see cref="Gameplay.TypingEngine.SyllableTiming"/>, which is a
