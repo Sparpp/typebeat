@@ -17,16 +17,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     ///
     /// <para>There is ONE rule now rather than two presentations to choose between, which is why
     /// this fixture no longer sweeps a mode axis: the pre-174 painting, sync-tint ramp included,
-    /// plus the currently sung group's UNTYPED cells lighting the palette white. A player who never
-    /// opens the playhead dropdown therefore sees exactly today's colours with the lit group added,
-    /// and the one who sets the playhead to <c>CaretStyle.None</c> sees the same colours again: that
-    /// style subtracts the caret and the sweep, neither of which is decided here.</para>
+    /// plus the currently sung group's UNTYPED cells lifting to <see cref="TypeBeatStyle.SungChar"/>.
+    /// A player who never opens the playhead dropdown therefore sees exactly today's colours with
+    /// the lit group added, and the one who sets the playhead to <c>CaretStyle.None</c> sees the
+    /// same colours again: that style subtracts the caret and the sweep, neither of which is decided
+    /// here.</para>
     ///
-    /// <para>The Correct state deliberately has NO highlight colour of its own (backlog 176a removed
-    /// the flat green it briefly had). It rides the sync-tint ramp wherever it sits, and the ramp at
-    /// quality 1 is the palette white exactly, so a char typed on the beat inside the sung span
-    /// already matches the highlight. That equality is pinned below rather than left as a reading of
-    /// the ramp maths.</para>
+    /// <para>Backlog 178 DEMOTED that highlight from the palette white to a lighter grey. The pin
+    /// below inverted with it: the highlight used to be asserted EQUAL to the typed white and to an
+    /// on-the-beat correct char, and is now asserted DISTINCT from the untyped grey, the typed white
+    /// and the sync ramp's floor, in contrast terms rather than by restating a hex. The Correct state
+    /// still has no highlight colour of its own (backlog 176a removed the flat green it briefly had):
+    /// it rides the ramp wherever it sits, and the whole ramp now sits above the highlight, so typing
+    /// a char always promotes it out of the highlight.</para>
     /// </summary>
     [TestFixture]
     public class SyllableRenderColourTest
@@ -37,13 +40,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static Color4 fill(CellState state, bool inSung, double? quality = null, bool freestyle = false)
             => LyricLineDisplay.CellFillColour(state, freestyle, inSung, quality);
 
+        // Colour measurement (sRGB IEC 61966-2-1 / WCAG 2.x), the same helpers SyncTintTest uses to
+        // state design constraints in terms a human can check against a contrast checker.
+        private static double toLinear(double channel)
+            => channel <= 0.04045 ? channel / 12.92 : Math.Pow((channel + 0.055) / 1.055, 2.4);
+
+        private static double luminance(Color4 c)
+            => 0.2126 * toLinear(c.R) + 0.7152 * toLinear(c.G) + 0.0722 * toLinear(c.B);
+
+        private static double contrast(Color4 a, Color4 b)
+        {
+            double la = luminance(a);
+            double lb = luminance(b);
+            return (Math.Max(la, lb) + 0.05) / (Math.Min(la, lb) + 0.05);
+        }
+
+        private static void assertBrighterThan(Color4 brighter, Color4 duller, string what)
+        {
+            Assert.That(luminance(brighter), Is.GreaterThan(luminance(duller)), what);
+            Assert.That(brighter.R, Is.GreaterThan(duller.R), $"{what} (R)");
+            Assert.That(brighter.G, Is.GreaterThan(duller.G), $"{what} (G)");
+            Assert.That(brighter.B, Is.GreaterThan(duller.B), $"{what} (B)");
+        }
+
         // --- the lit group ---
 
         [Test]
-        public void SungSyllablesUntypedCellsAreThePaletteWhite()
+        public void SungSyllablesUntypedCellsWearTheDemotedGrey()
         {
             Assert.That(fill(CellState.Untyped, inSung: true),
-                Is.EqualTo(TypeBeatStyle.TypedChar), "the sung group's untyped cells light white");
+                Is.EqualTo(TypeBeatStyle.SungChar), "the sung group's untyped cells lift to the highlight grey");
+
+            // Backlog 178 in one line: it is NOT the white any more.
+            Assert.That(fill(CellState.Untyped, inSung: true), Is.Not.EqualTo(TypeBeatStyle.TypedChar));
         }
 
         [Test]
@@ -54,19 +83,55 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Is.EqualTo(TypeBeatStyle.UntypedChar));
         }
 
+        /// <summary>
+        /// The inverted pin (backlog 178). The highlight is a THIRD colour and must be readable as
+        /// one against all three things it sits near, stated as contrast ratios so the assertion
+        /// survives a retune of any of them. The margins are asymmetric on purpose: the band between
+        /// the untyped grey and the ramp floor is only about 1.94:1 wide in total, so nothing inside
+        /// it can clear both ends by more than about 1.39:1, and the split is weighted towards the
+        /// untyped end because "the song is HERE" is the read the highlight exists for.
+        /// </summary>
         [Test]
-        public void TheHighlightAndAnOnTheBeatCorrectCharAreTheSameWhite()
+        public void TheHighlightIsAThirdColourDistinctFromEveryStateItSitsBetween()
         {
-            // Backlog 176a, made explicit: "it is OK for the highlight and correct colours to both
-            // be white". There is no separate correct colour to keep in step with the highlight,
-            // because the ramp's top IS the highlight's white, and under syllable judgement every
-            // press inside the sung span is delta 0 and therefore quality 1. So the two readings of
-            // "white" agree by construction rather than by a constant copied between them.
-            Assert.That(LyricLineDisplay.CorrectCharColour(1), Is.EqualTo(TypeBeatStyle.TypedChar),
-                "the top of the sync ramp is the palette white exactly");
-            Assert.That(fill(CellState.Correct, inSung: true, quality: 1),
-                Is.EqualTo(fill(CellState.Untyped, inSung: true)),
-                "a correct on-the-beat char inside the sung group matches the group's own white");
+            var highlight = fill(CellState.Untyped, inSung: true);
+            var floor = LyricLineDisplay.CorrectCharColour(0);
+
+            Assert.That(highlight, Is.Not.EqualTo(TypeBeatStyle.UntypedChar));
+            Assert.That(highlight, Is.Not.EqualTo(TypeBeatStyle.TypedChar));
+            Assert.That(highlight, Is.Not.EqualTo(floor));
+
+            // Ordered, on every channel as well as on luminance: untyped < highlight < floor < typed.
+            assertBrighterThan(highlight, TypeBeatStyle.UntypedChar, "highlight vs the untyped grey");
+            assertBrighterThan(floor, highlight, "the sync ramp floor vs the highlight");
+            assertBrighterThan(TypeBeatStyle.TypedChar, floor, "the typed white vs the ramp floor");
+
+            // Against the untyped grey the yardstick is the untyped-versus-Missed step the game
+            // already ships and asks players to read, about 1.47:1; the highlight matches it.
+            Assert.That(contrast(highlight, TypeBeatStyle.UntypedChar), Is.GreaterThan(1.4),
+                "a sung cell must be tellable from a not-yet-sung one at a glance");
+
+            // Against the typed white the margin is wide, which is the demotion itself: an untyped
+            // char can never be misread as one the player already typed.
+            Assert.That(contrast(TypeBeatStyle.TypedChar, highlight), Is.GreaterThan(2.4),
+                "the highlight must not read as typed");
+
+            // And it clears the ramp floor, the collision the old white had no room for at all.
+            Assert.That(contrast(floor, highlight), Is.GreaterThan(1.25),
+                "the worst correct char must stay tellable from a highlighted untyped one");
+        }
+
+        [Test]
+        public void TypingACharAlwaysPromotesItOutOfTheHighlight()
+        {
+            // The consequence of putting the whole ramp above the highlight: however badly timed the
+            // press was, a Correct cell is brighter than the highlight it replaced. Before 178 the
+            // ramp's TOP was the highlight, so a dead-on press was invisible against it.
+            foreach (double q in new[] { 0, 0.25, 0.5, 0.75, 1 })
+            {
+                assertBrighterThan(fill(CellState.Correct, inSung: true, quality: q),
+                    fill(CellState.Untyped, inSung: true), $"a correct char at quality {q} vs the highlight");
+            }
         }
 
         [Test]

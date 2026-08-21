@@ -93,8 +93,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// (edge-inclusive) and the signed distance to the nearer edge outside it, fed through the
         /// same <see cref="SyncWindows.Classify"/> ladder and stored in
         /// <see cref="TypingCell.JudgedDelta"/> like any point delta, so points, combo, the sync
-        /// readouts and the results screen all work unmodified. A cell in no group (space cells;
-        /// any line with no groups) keeps the classic point delta.
+        /// readouts and the results screen all work unmodified. A cell in no group keeps the
+        /// classic point delta: space cells, any line with no groups, and since backlog 178 every
+        /// cell of a token that is not a syllabifiable English word ("wooooooords", "ohhh"), which
+        /// is how a stylised spelling keeps the per-character rule it is actually timed on.
         ///
         /// <para>FALSE by default, and era-styled like <see cref="SpaceTiming"/>: set before the
         /// first keypress and left alone afterwards, judgements already made are never revisited.
@@ -1852,8 +1854,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// anywhere inside [StartTime, EndTime] (edge-inclusive), the signed distance to the nearer
         /// edge outside it (negative early, positive late), so the same asymmetric
         /// <see cref="SyncWindows.Classify"/> ladder grades distance from the syllable's edge. A
-        /// cell in no group (space cells; any line without groups) keeps the point delta under
-        /// either rule.
+        /// cell in no group keeps the point delta under either rule, and that fallback is what gives
+        /// a stylised word its classic per-character judgement (backlog 178 leaves such a token
+        /// ungrouped rather than adding a second rule here): space cells, lines without groups, and
+        /// the cells of an unsyllabifiable token all land in the same arm.
         /// </summary>
         private double judgedDeltaFor(TypingLine line, int cellIndex, double time)
         {

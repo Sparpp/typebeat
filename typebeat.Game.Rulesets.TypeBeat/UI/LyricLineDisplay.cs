@@ -516,7 +516,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// cannot-arise fallback), Wrong is <see cref="TypeBeatStyle.ErrorChar"/>,
         /// Missed/Abandoned/AutoSkipped are the untyped grey (their alphas, unchanged, carry the
         /// state), and an Untyped cell is the untyped grey UNLESS <paramref name="inSungSyllable"/>,
-        /// in which case it wears the palette's white <see cref="TypeBeatStyle.TypedChar"/>.</para>
+        /// in which case it wears <see cref="TypeBeatStyle.SungChar"/>, a LIGHTER grey.</para>
+        ///
+        /// <para>Lighter grey, not white (backlog 178 demoted it): the highlight says "sing this
+        /// now", not "you typed this", and painting it <see cref="TypeBeatStyle.TypedChar"/> said
+        /// both at once. The new grey clears the untyped grey by about as much as the shipped
+        /// untyped-versus-Missed step and sits well below both the typed white and the sync ramp's
+        /// floor, so the three readings stay separable; the arithmetic is in
+        /// <see cref="TypeBeatStyle.SungChar"/>'s own doc.</para>
         ///
         /// <para>The lit group therefore shows under EVERY sung playhead style, not just one: the
         /// highlight and the playhead are complements rather than alternatives, and
@@ -530,12 +537,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         ///
         /// <para>A Correct cell deliberately has NO highlight colour of its own (backlog 176a
         /// removed the flat green that briefly gave it one). It rides the ramp everywhere, and the
-        /// ramp at quality 1 IS <see cref="TypeBeatStyle.TypedChar"/> white, exactly: under
-        /// <see cref="TypingEngine.SyllableTiming"/> every press inside its sung span is delta 0 and
-        /// so quality 1, which means a char typed on the beat already paints the same white the
-        /// highlight asks for. Keeping the ramp costs nothing there, keeps the signal that an
-        /// off-span press was off-span, and leaves classic judgement's ramp untouched by
-        /// construction.</para>
+        /// whole ramp, floor included, now sits ABOVE the highlight grey, so typing a character
+        /// visibly promotes it out of the highlight however badly timed the press was. Keeping the
+        /// ramp keeps the signal that an off-span press was off-span, and leaves classic
+        /// judgement's ramp untouched by construction.</para>
         ///
         /// <para>A FREESTYLE cell wears <see cref="TypeBeatStyle.FreestyleChar"/> in every state:
         /// the violet is an identity signal ("this slot was free"), and neither the sync ramp nor
@@ -559,10 +564,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     return TypeBeatStyle.ErrorChar;
 
                 case CellState.Untyped:
-                    // The one addition to the classic painting: the group the vocals are on lights
-                    // white, so where the song is up to stays legible from the characters even when
-                    // the playhead is switched off.
-                    return inSungSyllable ? TypeBeatStyle.TypedChar : TypeBeatStyle.UntypedChar;
+                    // The one addition to the classic painting: the group the vocals are on lifts to
+                    // a lighter grey, so where the song is up to stays legible from the characters
+                    // even when the playhead is switched off, without claiming they were typed.
+                    return inSungSyllable ? TypeBeatStyle.SungChar : TypeBeatStyle.UntypedChar;
 
                 default: // Missed, Abandoned, AutoSkipped
                     // Lost or given up, and the highlight is only for characters that can still be
@@ -712,12 +717,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// of the group currently being sung (-1 = none) each frame, alongside the sweep position
         /// rather than instead of it (backlog 177: the lit group shows under every playhead style,
         /// and CaretStyle.None only stops the sweep being fed), and
-        /// the Untyped cells of that group light up white (see <see cref="CellFillColour"/>).
+        /// the Untyped cells of that group lift to <see cref="TypeBeatStyle.SungChar"/>
+        /// (see <see cref="CellFillColour"/>).
         /// Cheap to call every frame: nothing repaints until the index CHANGES, and then only the
         /// cells whose colour actually depends on it, the untyped non-freestyle cells of the old
         /// and new groups, not the whole line. Membership is read through
         /// <see cref="TypingLine.SyllableIndexOf"/>, never by range: a hyphen-turned-space cell can
-        /// sit positionally inside a group's cell range while being in no group.
+        /// sit positionally inside a group's cell range while being in no group. Coverage is partial
+        /// by design since backlog 178 (a stylised word gets no groups at all), which this loop
+        /// already tolerates: it walks a group's own cell range and skips anything not in the group.
         /// </summary>
         public void SetSungSyllable(int index)
         {

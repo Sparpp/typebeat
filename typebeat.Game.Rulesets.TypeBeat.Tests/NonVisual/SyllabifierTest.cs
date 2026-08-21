@@ -265,6 +265,92 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             }
         }
 
+        // ---- IsSyllabifiable: the stylised-word gate (backlog 178) ----
+
+        // Ordinary English, including every doubled-letter family the rule must not steal.
+        [TestCase("little")]
+        [TestCase("good")]
+        [TestCase("hello")]
+        [TestCase("still")]
+        [TestCase("all")]
+        [TestCase("see")]
+        [TestCase("too")]
+        [TestCase("ooh")] // a held vowel spelled the ordinary way: two letters, not three
+        [TestCase("aah")]
+        [TestCase("la")]
+        [TestCase("na")]
+        [TestCase("hmm")] // deliberately passes: it is pinned above at one syllable, which is right
+        [TestCase("a")]
+        [TestCase("&")]
+        [TestCase("24")]
+        [TestCase("1000")] // three identical DIGITS are not three identical letters
+        [TestCase("b2b")]
+        [TestCase("don't")]
+        [TestCase("sh-h-h")] // punctuation breaks the run rather than making one
+        public void SyllabifiableWordsPassTheGate(string word)
+        {
+            Assert.IsTrue(Syllabifier.IsSyllabifiable(word), word);
+        }
+
+        // Stylised spellings: three or more of the same letter in a row is not standard English.
+        [TestCase("wooooooords")]
+        [TestCase("heyyyyy")]
+        [TestCase("naaaah")]
+        [TestCase("ohhh")]
+        [TestCase("hmmmm")]
+        [TestCase("shhh")]
+        [TestCase("aaa")]
+        [TestCase("yeahhh")]
+        [TestCase("noooo")]
+        [TestCase("WOOOO")] // case is folded before the run is measured
+        [TestCase("Ohhh")]
+        public void StylisedWordsFailTheGate(string word)
+        {
+            Assert.IsFalse(Syllabifier.IsSyllabifiable(word), word);
+        }
+
+        [Test]
+        public void NullAndEmptyAreNotSyllabifiable()
+        {
+            // Matches CountSyllables returning 0 for them: there is nothing to syllabify.
+            Assert.IsFalse(Syllabifier.IsSyllabifiable(""));
+            Assert.IsFalse(Syllabifier.IsSyllabifiable(null!));
+        }
+
+        /// <summary>
+        /// The gate must not steal a single word this fixture already pins, so the pass list is read
+        /// off the pinned corpus itself rather than retyped: adding a TestCase to
+        /// <see cref="OneSyllable"/> or <see cref="PinnedSplits"/> extends this automatically, and a
+        /// gate rule that ever rejected one of them would fail here rather than silently degrade a
+        /// real map's grouping.
+        /// </summary>
+        [Test]
+        public void TheGateStealsNothingFromThePinnedCorpus()
+        {
+            string[] pinned = typeof(SyllabifierTest)
+                              .GetMethods()
+                              .Where(m => m.Name == nameof(OneSyllable) || m.Name == nameof(PinnedSplits))
+                              .SelectMany(m => m.GetCustomAttributes(typeof(TestCaseAttribute), false))
+                              .Cast<TestCaseAttribute>()
+                              .Select(a => (string)a.Arguments[0]!)
+                              .ToArray()!;
+
+            Assert.Greater(pinned.Length, 100, "the corpus should be the whole pinned word list");
+
+            foreach (string word in pinned)
+                Assert.IsTrue(Syllabifier.IsSyllabifiable(word), word);
+        }
+
+        [Test]
+        public void TheGateDoesNotChangeWhatTheSyllabifierAnswers()
+        {
+            // IsSyllabifiable is a CALLER'S gate, not a mode: CountSyllables and SplitPoints still
+            // answer for a stylised word, because a mapper's hand-authored subtimings have to be
+            // honoured on one (TypingLine's forced arm skips the gate entirely).
+            Assert.GreaterOrEqual(Syllabifier.CountSyllables("wooooooords"), 1);
+            Assert.AreEqual(new[] { 1, 8 }, Syllabifier.SplitPoints("wooooooords", 3).ToArray());
+        }
+
         [Test]
         public void NaturalInvariantsHoldForArbitraryJunk()
         {
@@ -277,6 +363,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.IsTrue(splits.SequenceEqual(splits.Distinct().OrderBy(x => x)), word);
                 Assert.IsTrue(splits.All(x => x >= 1 && x <= word.Length - 1), word);
                 Assert.GreaterOrEqual(Syllabifier.CountSyllables(word), 1, word);
+
+                // None of this is stylised, so the gate leaves punctuation and digit junk grouped.
+                Assert.IsTrue(Syllabifier.IsSyllabifiable(word), word);
             }
         }
     }

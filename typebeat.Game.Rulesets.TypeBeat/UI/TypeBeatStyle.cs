@@ -29,10 +29,42 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public static Color4 PanelBackground { get; } = new Color4((byte)44, (byte)46, (byte)49, (byte)255); // #2c2e31
 
         /// <summary>
+        /// An UNTYPED character of the syllable the vocals are on right now (the sung-group
+        /// highlight, backlog 174 stage 3). Not a monkeytype palette colour: the palette has one
+        /// untyped grey and one typed off-white, and this state is a third thing, "not typed yet,
+        /// but sing it NOW", so it takes a grey of its own BETWEEN the two.
+        ///
+        /// <para>#7e8083 is the untyped grey #646669 lifted 26 points on every channel, so it stays
+        /// the same faintly cool grey rather than drifting warm the way a step along the sync ramp
+        /// would. Warmth is exactly what this colour must not borrow: the character has not been
+        /// typed, and the palette spends its warmth on characters that have.</para>
+        ///
+        /// <para>The hex was chosen on contrast, not by eye (WCAG relative luminance, sRGB):</para>
+        /// <list type="bullet">
+        /// <item>1.45:1 against <see cref="UntypedChar"/>, so "the song is here" reads at a glance.
+        /// The yardstick is the untyped-versus-Missed step the game already ships and asks players
+        /// to read, 1.47:1, which this effectively matches.</item>
+        /// <item>2.55:1 against <see cref="TypedChar"/>, so a sung-but-untyped character can never
+        /// be mistaken for one the player has already typed. That is the demotion backlog 178 asked
+        /// for: the highlight used to BE <see cref="TypedChar"/>.</item>
+        /// <item>1.33:1 below the sync ramp's floor, roughly #969692 (see
+        /// <c>LyricLineDisplay.SYNC_TINT_FLOOR</c>), and darker on every channel, so the worst
+        /// correct character stays brighter than the highlight rather than colliding with it. That
+        /// step is the tightest of the three because the band between the untyped grey and the ramp
+        /// floor is only 1.94:1 wide in total, so no colour in it can clear both ends by more than
+        /// about 1.39:1; the split is deliberately weighted towards the untyped end, which is the
+        /// read the feature exists for. What is left over is reinforced by hue (this grey is cool,
+        /// the ramp floor warm) and by position: everything behind the caret is typed and everything
+        /// ahead of it is not, so a ramp-floor character and a highlighted one are not neighbours.</item>
+        /// </list>
+        /// </summary>
+        public static Color4 SungChar { get; } = new Color4((byte)126, (byte)128, (byte)131, (byte)255); // #7e8083
+
+        /// <summary>
         /// FREESTYLE characters (the mapper's '&amp;' slots, where any key but space is accepted): a bright
         /// violet that reads clearly on the dark playfield and is unmistakable against every other
-        /// character state, untyped grey #646669, typed off-white #d1d0c5, error red #ca4754, the
-        /// yellow caret and the blue sung accent. Worn both while the glyph shimmers and after the
+        /// character state, untyped grey #646669, the sung highlight grey #7e8083, typed off-white
+        /// #d1d0c5, error red #ca4754, the yellow caret and the blue sung accent. Worn both while the glyph shimmers and after the
         /// player has filled it in, so a finished line still shows which chars were free.
         /// </summary>
         public static Color4 FreestyleChar { get; } = new Color4((byte)199, (byte)146, (byte)234, (byte)255); // #c792ea

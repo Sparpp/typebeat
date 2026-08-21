@@ -159,11 +159,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// ALWAYS (cheap, pure) regardless of engine mode, so rendering and tests can read them even
         /// when <see cref="TypingEngine.SyllableTiming"/> is off. That is load-bearing, not merely
         /// tidy: the sung-group highlight renders off these groups whatever the engine is judging
-        /// on, which is what lets a Release build show it at all. Every typeable non-space cell
-        /// belongs to exactly one group; a SPACE cell (the inter-word gap, or a hyphen turned into a
-        /// typed space) belongs to none, so membership must be read through
-        /// <see cref="SyllableIndexOf"/> rather than by range: a mid-token hyphen-space can sit
-        /// positionally inside a group's cell range while being in no group.
+        /// on, which is what lets a Release build show it at all.
+        ///
+        /// <para>Coverage is PARTIAL, and every consumer must tolerate a gap (backlog 178 weakened
+        /// this from "every typeable non-space cell belongs to exactly one group"). Three kinds of
+        /// cell belong to no group: a SPACE cell (the inter-word gap, or a hyphen turned into a
+        /// typed space), a cell the default stream produced from punctuation a forced split
+        /// isolated, and every cell of a token that is not a syllabifiable English word
+        /// (<see cref="Syllabifier.IsSyllabifiable"/>: "wooooooords", "heyyyyy", "ohhh"). Membership
+        /// must therefore be read through <see cref="SyllableIndexOf"/> rather than by range: a
+        /// mid-token hyphen-space, and now a whole stylised word, can sit positionally inside a
+        /// group's cell range while being in no group. Groups themselves never straddle a token, so
+        /// an ungrouped token leaves a gap BETWEEN groups rather than a hole inside one.</para>
         /// </summary>
         public IReadOnlyList<SyllableGroup> Syllables { get; }
 
@@ -491,6 +498,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// where the next group starts (last group of the token: the unit's EndTime), so this case
         /// is exactly "group the chars you already timed" and nothing moves.</para>
         ///
+        /// <para>That natural arm is GATED on <see cref="Syllabifier.IsSyllabifiable"/> (backlog
+        /// 178). A token that fails it, a stylised spelling like "wooooooords" or "ohhh", gets NO
+        /// groups at all and its cells stay at <see cref="SyllableIndexOf"/> -1, because the
+        /// rule-based syllabifier was built for real English and on those words invents boundaries
+        /// it cannot defend. The consequences are both the ones wanted: an ungrouped cell keeps the
+        /// classic per-character point-delta judgement even under
+        /// <see cref="TypingEngine.SyllableTiming"/> (see <c>TypingEngine.judgedDeltaFor</c>, which
+        /// already falls back for a cell in no group), and it never wears the sung-group highlight,
+        /// because the stage lights GROUPS. The playhead still sweeps across it, so a stylised word
+        /// simply presents the way every word did before 174.</para>
+        ///
+        /// <para>The gate does NOT apply to a subtimed token: whatever it looks like, the mapper
+        /// hand-authored its syllable count and boundary times, and that is authoritative (174's
+        /// rule). A mapper who subtimes "heyyyyy" into three held syllables gets three groups.</para>
+        ///
         /// <para>Split indices index the TOKEN string and are mapped to cells through the same
         /// projection that assigned the targets, so punctuation (and, under Literate, its extra
         /// cells) lands inside the syllable of the letter it attaches to. A SPACE cell (the
@@ -522,10 +544,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 double unitEnd = unit?.EndTime ?? line.SingEndTime;
                 var boundaries = unit?.SyllableBoundaries ?? Array.Empty<double>();
 
-                if (token.Length > 0)
-                {
-                    bool subtimed = boundaries.Count > 0;
+                bool subtimed = boundaries.Count > 0;
 
+                // A stylised spelling gets no groups at all UNLESS the mapper subtimed it, in which
+                // case the hand-authored count wins over anything the rules would have guessed.
+                if (token.Length > 0 && (subtimed || Syllabifier.IsSyllabifiable(token)))
+                {
                     var splits = subtimed
                         ? Syllabifier.SplitPoints(token, boundaries.Count + 1)
                         : Syllabifier.SplitPoints(token);
