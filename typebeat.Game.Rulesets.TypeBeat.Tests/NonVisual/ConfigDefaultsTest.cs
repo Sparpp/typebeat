@@ -85,21 +85,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// <see cref="CaretStyle.Highlight"/> is offered by the SUNG playhead dropdown only. It is
-        /// not a caret shape: it means "draw no head, light the sung syllable group instead", which
-        /// the typing caret (whose whole job is to mark where YOU are) cannot express. The typing
-        /// dropdown therefore lists its items explicitly rather than taking the enum wholesale, and
-        /// this pins that list against the enum in BOTH directions, so a sixth style added later
-        /// either reaches the typing caret or is a deliberate second exclusion.
+        /// <see cref="CaretStyle.None"/> is offered by the SUNG playhead dropdown only. It is not a
+        /// caret shape: it means "draw no head at all", which the typing caret (whose whole job is
+        /// to mark where YOU are) cannot express, and unlike the playhead it has no lit syllable
+        /// group standing in for it. The typing dropdown therefore lists its items explicitly rather
+        /// than taking the enum wholesale, and this pins that list against the enum in BOTH
+        /// directions, so a sixth style added later either reaches the typing caret or is a
+        /// deliberate second exclusion.
         /// </summary>
         [Test]
-        public void OnlyTheSungPlayheadIsOfferedTheHighlightStyle()
+        public void OnlyTheSungPlayheadIsOfferedTheNoPlayheadStyle()
         {
-            Assert.That(TypeBeatSettingsSubsection.TYPING_CARET_STYLES, Does.Not.Contain(CaretStyle.Highlight));
+            Assert.That(TypeBeatSettingsSubsection.TYPING_CARET_STYLES, Does.Not.Contain(CaretStyle.None));
 
-            var everythingElse = Enum.GetValues<CaretStyle>().Where(s => s != CaretStyle.Highlight);
+            var everythingElse = Enum.GetValues<CaretStyle>().Where(s => s != CaretStyle.None);
             Assert.That(TypeBeatSettingsSubsection.TYPING_CARET_STYLES, Is.EquivalentTo(everythingElse),
-                "every style that is not Highlight must still reach the typing caret dropdown");
+                "every style that is not None must still reach the typing caret dropdown");
         }
 
         /// <summary>

@@ -91,15 +91,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
     /// <summary>
     /// Monkeytype's caret styles. <see cref="Line"/> is the classic 3px beam.
     ///
-    /// <para><see cref="Highlight"/> is the odd one out: it is not a caret shape at all, it is the
+    /// <para><see cref="None"/> is the odd one out: it is not a caret shape at all, it is the
     /// choice to have NO sung playhead, so it is offered by the SUNG playhead dropdown only (see
     /// <see cref="TypeBeatRulesetSetting.SungCaretStyle"/>) and deliberately left out of the typing
     /// caret's dropdown, which builds its item list explicitly for that reason. The enum is shared
     /// because both heads are the same <c>Caret</c> class; the restriction lives in the UI.</para>
     ///
     /// <para>APPEND ONLY. Values are databased by member NAME, exactly as the lookup keys are (see
-    /// <see cref="TypeBeatRulesetSetting.CaretStyle"/>), so renaming or reordering a member would
-    /// reset stored player choices. Adding one at the end is free.</para>
+    /// <see cref="TypeBeatRulesetSetting.CaretStyle"/>), so renaming or reordering a member does not
+    /// merely reset stored player choices, it can take the game down:
+    /// <c>RulesetConfigManager.AddBindable</c> hands the stored string to <c>Bindable.Parse</c>,
+    /// which routes an enum through <c>Enum.Parse</c> and THROWS <c>ArgumentException</c> on a name
+    /// that no longer exists (measured against the framework build this repo pins, not assumed).
+    /// Adding a member at the end is free.</para>
+    ///
+    /// <para>WHY <see cref="None"/> COULD STILL BE RENAMED from <c>Highlight</c> (backlog 177), the
+    /// one exception to the paragraph above: the member was ADDED by backlog 175 earlier the same
+    /// day and the client has not been shipped since, so no install anywhere can hold a
+    /// <c>RealmRulesetSetting</c> row reading "Highlight" except a developer's own working install,
+    /// and only then if they opened the dropdown and picked it (everyone else's row was written from
+    /// <see cref="TypeBeatRulesetConfigManager.DEFAULT_SUNG_CARET_STYLE"/> and says "Line"). Keeping
+    /// the old name as an alias member was NOT the safer option it looks like: two members sharing a
+    /// value makes <c>Enum.GetValues</c> return both, and <c>OsuEnumDropdown</c> feeds exactly that
+    /// into <c>Dropdown.Items</c>, which throws on a duplicate, so the alias would break the settings
+    /// panel for everybody in order to protect one machine. The residual risk is covered at the READ
+    /// instead: a stored value that no longer parses now falls back to the default rather than
+    /// throwing (see <c>RulesetConfigManager.AddBindable</c>), which also retires this landmine for
+    /// any future rename.</para>
     /// </summary>
     public enum CaretStyle
     {
@@ -109,17 +127,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         Underline,
 
         /// <summary>
-        /// Sung playhead only: no playhead at all. The sung caret and the underline sweep are both
-        /// hidden and the syllable group the vocals are on lights up instead, so "where the song is"
-        /// is carried by the characters themselves rather than by a head between two of them.
+        /// Sung playhead only: NO playhead at all. The sung caret is hidden and the underline sweep
+        /// is never fed, so where the song is up to is carried by the lit syllable group alone.
+        ///
+        /// <para>This member selects nothing but that absence. The lit group is NOT part of it:
+        /// since backlog 177 the group the vocals are on lights its untyped cells white under EVERY
+        /// style, alongside the caret and the sweep, so picking this one subtracts the playhead and
+        /// adds nothing. It was called <c>Highlight</c> while the two were one presentation.</para>
         ///
         /// <para>Independent of <see cref="Gameplay.TypingEngine.SyllableTiming"/>, which is a
         /// JUDGEMENT rule: <see cref="Gameplay.TypingLine.Syllables"/> is built for every line
-        /// whatever the engine is judging on, so this style renders identically under classic
-        /// judgement. Keeping the two apart is what stops the setting from silently doing nothing in
-        /// a Release build.</para>
+        /// whatever the engine is judging on, so the lit group renders identically under classic
+        /// judgement. Keeping the two apart is what stops the highlight from silently doing nothing
+        /// in a Release build.</para>
         /// </summary>
-        Highlight
+        None
     }
 
     public class TypeBeatRulesetConfigManager : RulesetConfigManager<TypeBeatRulesetSetting>
