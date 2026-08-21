@@ -63,6 +63,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public ComboRestoreRule ComboRestore { get; set; } = ComboRestoreRule.OnFix;
 
         /// <summary>
+        /// Which break owns the streak when a redeemable one lands on top of an outstanding claim
+        /// (see <see cref="ComboRestored"/>). <see cref="ComboClaimRule.StreakedBreakWins"/> is the
+        /// live rule (backlog 176) and the default: a break takes ownership only if it HAS a streak
+        /// to own. Only <see cref="Scoring.TypeBeatReplayScorer"/> ever sets the other one, to
+        /// re-derive a score from before that was true. Set BEFORE the first keypress and left alone
+        /// afterwards, exactly like <see cref="ComboRestore"/>, whose companion it is: it decides
+        /// nothing at all under <see cref="ComboRestoreRule.Never"/>, where no snapshot is ever
+        /// taken.
+        /// </summary>
+        public ComboClaimRule ComboClaim { get; set; } = ComboClaimRule.StreakedBreakWins;
+
+        /// <summary>
         /// Whether a word abandoned by <see cref="SpaceSkipsWord"/> stays re-typeable (see
         /// <see cref="WordAbandoned"/>). <see cref="WordSkipRule.Reclaimable"/> is the live rule
         /// (backlog 167) and the default; only <see cref="Scoring.TypeBeatReplayScorer"/> ever sets
@@ -559,12 +571,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// the run resumes at the snapshot plus everything earned since. Since backlog 167 a WORD
         /// SKIP takes the same snapshot, against the first cell it abandons, because it is the same
         /// kind of break: one the player can walk back into and undo. Exactly one snapshot is ever
-        /// outstanding, because ANY other combo break (a sealed line's misses, a Premature/Lagging
-        /// press, a rejected key, Fletcher's rush cap, or a wrong keypress or skip on another cell)
-        /// takes ownership of the streak and discards it: an intervening break is a run the player
-        /// has already lost, and going back to fix the older cell cannot un-lose it. Repeated
-        /// wrong/fix cycles on ONE cell therefore break and restore each time, each cycle
-        /// snapshotting whatever the run had grown back to.</para>
+        /// outstanding, because a combo break TAKES OWNERSHIP OF THE STREAK IF IT HAS A STREAK TO
+        /// OWN, and discards whatever claim was outstanding when it does: an intervening break is a
+        /// run the player has already lost, and going back to fix the older cell cannot un-lose it.
+        /// That covers a sealed line's misses, a Premature/Lagging press, a rejected key, Fletcher's
+        /// rush cap, and a wrong keypress or skip on another cell. Repeated wrong/fix cycles on ONE
+        /// cell therefore break and restore each time, each cycle snapshotting whatever the run had
+        /// grown back to.</para>
+        ///
+        /// <para>The "if it has a streak to own" is backlog 176, and it is the whole of the
+        /// difference from the rule as backlog 140 shipped it. A break landing while the run is
+        /// ALREADY at zero costs nothing, so there is nothing for it to take: it leaves the
+        /// outstanding claim alone, and correcting the older cell still resumes the run. Without
+        /// that, a player who fumbled two adjacent characters and then went back and fixed both got
+        /// nothing back, because the second wrong key had rewritten a 447-deep claim with its own
+        /// empty one. A zero-streak break with NOTHING outstanding still snapshots its own empty
+        /// claim, which restores nothing when it is redeemed, exactly as it always did. The old arm
+        /// is <see cref="ComboClaimRule.LatestBreakWins"/>, which is what every stored row was
+        /// played under.</para>
         ///
         /// <para>Nothing else about a typo changes here: the wrong keypress is still counted
         /// (<see cref="Mistyped"/>) and still costs the accuracy denominator. Health does move for a
@@ -735,9 +759,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// The one outstanding combo snapshot (see <see cref="ComboRestored"/>): the cell a wrong
         /// keypress spoiled or a word skip abandoned, and the streak that break cost, or null when
-        /// there is nothing to go back for. Set by that keypress or skip, redeemed by typing that
-        /// same cell correctly, and discarded by any other combo break
-        /// (<see cref="discardRestorableStreak"/>).
+        /// there is nothing to go back for. Set by that keypress or skip (through
+        /// <see cref="snapshotRedeemableBreak"/>, the one write site the two share), redeemed by
+        /// typing that same cell correctly, and discarded by any other combo break that had a streak
+        /// to take (<see cref="discardRestorableStreak"/>).
         /// </summary>
         private (int lineIndex, int cellIndex, int streak)? restorable;
 
@@ -1341,9 +1366,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     errorCount++;
 
                     // The streak this keypress is about to break, snapshotted against the cell it
-                    // spoils: correcting that cell resumes it (backlog 140, see ComboRestored).
-                    // Written unconditionally, so a wrong key on a SECOND cell discards the first
-                    // cell's claim exactly as any other intervening break would.
+                    // spoils: correcting that cell resumes it (backlog 140, see ComboRestored). A
+                    // wrong key on a SECOND cell discards the first cell's claim the way any other
+                    // intervening break would, but only if it broke a streak of its own (backlog
+                    // 176, see snapshotRedeemableBreak).
                     int brokenStreak = combo;
 
                     combo = 0;
@@ -1354,9 +1380,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                     int wrongCellIndex = caretIndex;
 
-                    restorable = TypeBeatResultMapping.FixRestoresTheComboBreak(ComboRestore)
-                        ? (activeLineIndex, wrongCellIndex, brokenStreak)
-                        : null;
+                    snapshotRedeemableBreak(wrongCellIndex, brokenStreak);
 
                     caretIndex++;
                     autoSkipForward();
@@ -1650,11 +1674,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // The break is IMMEDIATE under both rules, and under the live one it is also the only
             // thing the skip spends. Snapshotted against the FIRST abandoned cell, so re-typing that
             // cell resumes the run: the skip is a break the player can come back for, which is
-            // exactly what a typo's break is (see ComboRestored). Written unconditionally, so a skip
-            // discards an older cell's claim the way any other intervening break would.
-            restorable = reclaimable && TypeBeatResultMapping.FixRestoresTheComboBreak(ComboRestore)
-                ? (activeLineIndex, abandoned[0], brokenStreak)
-                : null;
+            // exactly what a typo's break is (see ComboRestored). A skip discards an older cell's
+            // claim the way any other intervening break would, but only if it broke a streak of its
+            // own (backlog 176): a skip taken over a typo that has already zeroed the run leaves
+            // that typo's claim redeemable, because the skip itself cost nothing.
+            //
+            // Under the pre-167 rule nothing is left to come back to, so the skip is a plain break
+            // and ends any outstanding claim outright, exactly as it did then.
+            if (reclaimable)
+                snapshotRedeemableBreak(abandoned[0], brokenStreak);
+            else
+                discardRestorableStreak();
 
             raise(ComboBroken);
 
@@ -1688,6 +1718,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// therefore snapshotted instead: a wrong keypress, and (since backlog 167) a word skip.
         /// </summary>
         private void discardRestorableStreak() => restorable = null;
+
+        /// <summary>
+        /// Take the snapshot for a REDEEMABLE break (a wrong keypress, or a word skip): the streak
+        /// it cost, against the cell the player has to come back to. The one write site for
+        /// <see cref="restorable"/> other than the discards, so the two breaks that can be walked
+        /// back into cannot drift apart.
+        ///
+        /// <para>A break takes ownership of the streak only if it HAS a streak to own (backlog 176).
+        /// One landing at a combo of zero costs the player nothing, so it does not get to end an
+        /// older cell's claim on a run that is still redeemable: the claim it would write is empty,
+        /// and swapping a live claim for an empty one is a pure loss to a player who then goes back
+        /// and fixes both cells. With NOTHING outstanding it still writes its own empty claim, so
+        /// that redeeming it restores nothing, which is what
+        /// <see cref="resumeStreakIfThisRedeemsTheBreak"/> has always done with a zero.</para>
+        ///
+        /// <para>Under <see cref="ComboRestoreRule.Never"/> no snapshot exists at all, so the break
+        /// is as final here as it is everywhere else.</para>
+        /// </summary>
+        private void snapshotRedeemableBreak(int cellIndex, int brokenStreak)
+        {
+            if (!TypeBeatResultMapping.FixRestoresTheComboBreak(ComboRestore))
+            {
+                restorable = null;
+                return;
+            }
+
+            if (brokenStreak <= 0 && restorable is not null && TypeBeatResultMapping.OnlyABreakWithAStreakTakesTheClaim(ComboClaim))
+                return;
+
+            restorable = (activeLineIndex, cellIndex, brokenStreak);
+        }
 
         /// <summary>
         /// Redeem the outstanding snapshot if the cell about to be typed correctly is the cell it

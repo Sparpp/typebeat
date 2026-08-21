@@ -11,6 +11,19 @@
 //
 // TypeBeatReplayScorerTest.AFixedTypoResumesTheStreakOnlyUnderTheLiveRule is the fourth: the same
 // keystrokes re-derived under both eras, through the real score processor.
+//
+// The last three PAIRS are backlog 176, which traced a player report that a corrected typo did not
+// restore. The report was accurate: two wrong keys landed on ADJACENT cells 447 combo deep, and the
+// second one rewrote the snapshot the first had taken, with the combo AT THAT MOMENT, which the
+// first wrong key had already zeroed. The player then corrected both cells and got nothing back.
+//
+// The rule that fixes it is that a break takes ownership of the streak only if it HAS a streak to
+// own: a break landing while the run is already at zero costs nothing, so it leaves an outstanding
+// claim alone instead of replacing it with an empty one. The three shapes that reach it are a wrong
+// key on the next cell, a wrong key on the same cell, and a word skip over a typo, and each is
+// pinned twice: once live, once under ComboClaimRule.LatestBreakWins, the arm every score stored
+// before 176 was played under. JudgementEraTest.ABreakThatCostNothing... holds the same split for a
+// whole submitted account, through the real score processor.
 
 using System.Collections.Generic;
 using NUnit.Framework;
@@ -84,6 +97,122 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(engine.ProcessBackspace(), Is.True);
 
             Assert.That(engine.ProcessKey(word[cellIndex], target(cellIndex)), Is.True);
+        }
+
+        /// <summary>
+        /// "abcd efg" on one line, for the pins that need a word a skip can abandon something out of:
+        /// a = 1000, b = 2000, c = 3000, d = 4000, ' ' = 5000 (the first unit's end), e = 5000,
+        /// f = 6000, g = 7000.
+        /// </summary>
+        private static LyricBeatmap twoWordMap() => new LyricBeatmap
+        {
+            Metadata = new LyricBeatmapMetadata
+            {
+                Artist = "Test",
+                Title = "Song",
+                FolderPath = @"X:\nowhere",
+                AudioFileName = "a.mp3",
+            },
+            Lines = new List<LyricLine>
+            {
+                new LyricLine
+                {
+                    RawText = "abcd efg",
+                    StartTime = 1000,
+                    EndTime = 60000,
+                    SingEndTime = 8000,
+                    Units = new[]
+                    {
+                        new TimedUnit { Text = "abcd", StartTime = 1000, EndTime = 5000 },
+                        new TimedUnit { Text = "efg", StartTime = 5000, EndTime = 8000 },
+                    },
+                },
+            },
+            Granularity = TimingGranularity.Line,
+        };
+
+        /// <summary>
+        /// The reported shape: a run, a wrong key on one cell, a wrong key on the NEXT cell while
+        /// the run is already at zero, then both corrected oldest first. Cells 0-3 are the run, 4
+        /// and 5 are the two spoiled cells.
+        /// </summary>
+        private static (TypingEngine engine, List<int> restored) twoAdjacentTyposBothFixed(ComboClaimRule claim)
+        {
+            var engine = started();
+            engine.ComboClaim = claim;
+
+            var restored = new List<int>();
+            engine.ComboRestored += restored.Add;
+
+            typeCorrectly(engine, 0, 4);
+            Assert.That(engine.Combo, Is.EqualTo(4));
+
+            typo(engine, 4);   // snapshots 4 against cell 4
+            typo(engine, 5);   // breaks a run of 0, so it has nothing to take the claim with
+
+            fix(engine, 4);
+            Assert.That(engine.ProcessKey(word[5], target(5)), Is.True);
+
+            return (engine, restored);
+        }
+
+        /// <summary>
+        /// The same-cell sibling: fumble cell 2, erase it, fumble it AGAIN, then correct it. The
+        /// second wrong key breaks a run of zero, exactly as the adjacent-cell one does.
+        /// </summary>
+        private static (TypingEngine engine, List<int> restored) sameCellFumbledTwiceThenFixed(ComboClaimRule claim)
+        {
+            var engine = started();
+            engine.ComboClaim = claim;
+
+            var restored = new List<int>();
+            engine.ComboRestored += restored.Add;
+
+            typeCorrectly(engine, 0, 2);
+            Assert.That(engine.Combo, Is.EqualTo(2));
+
+            typo(engine, 2);                                   // snapshots 2 against cell 2
+            Assert.That(engine.ProcessBackspace(), Is.True);   // erases it, caret back on cell 2
+            typo(engine, 2);                                   // breaks a run of 0, on the SAME cell
+
+            fix(engine, 2);
+
+            return (engine, restored);
+        }
+
+        /// <summary>
+        /// The skip sibling, on <see cref="twoWordMap"/>: type "ab", fumble 'c', give up on the word
+        /// with a space (abandoning 'd'), then backspace into it and type both cells out.
+        /// </summary>
+        private static (TypingEngine engine, List<int> restored) wordSkippedOverATypoThenReclaimed(ComboClaimRule claim)
+        {
+            var engine = new TypingEngine(twoWordMap()) { SpaceSkipsWord = true, ComboClaim = claim };
+            engine.Update(1000);
+
+            var restored = new List<int>();
+            engine.ComboRestored += restored.Add;
+
+            Assert.That(engine.ProcessKey('a', 1000), Is.True);
+            Assert.That(engine.ProcessKey('b', 2000), Is.True);
+            Assert.That(engine.Combo, Is.EqualTo(2));
+
+            // The typo on 'c', which snapshots the run of 2 against cell 2.
+            Assert.That(engine.ProcessKey('z', 3000), Is.True);
+            Assert.That(engine.Combo, Is.Zero);
+
+            // Space inside the word: 'd' is abandoned, on a run the typo has already zeroed.
+            Assert.That(engine.ProcessKey(' ', 4000), Is.True);
+            Assert.That(engine.CaretIndex, Is.EqualTo(5), "the space landed on the word gap");
+
+            // Back into the word (one press reclaims 'd' and erases the typo) and type it out.
+            Assert.That(engine.ProcessBackspace(), Is.True); // erases the typed space
+            Assert.That(engine.ProcessBackspace(), Is.True); // steps over 'd', erases the typo
+            Assert.That(engine.CaretIndex, Is.EqualTo(2));
+
+            Assert.That(engine.ProcessKey('c', 3000), Is.True);
+            Assert.That(engine.ProcessKey('d', 4000), Is.True);
+
+            return (engine, restored);
         }
 
         #endregion
@@ -247,6 +376,131 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(restores, Is.Zero);
                 Assert.That(engine.Combo, Is.EqualTo(1), "the corrected cell starts a fresh run");
                 Assert.That(engine.Mistypes, Is.EqualTo(1), "the typo itself is rule-independent");
+            });
+        }
+
+        /// <summary>
+        /// BACKLOG 176, and the shape a real submitted run took: score 6212 on "Joji - PIXELATED
+        /// KISSES [Insane]", 447 combo deep into "if you never hear from me", where the player typed
+        /// 'a' onto the 'm' cell and then 'm' onto the 'e' cell, backspaced twice and typed "me" out
+        /// correctly. The second wrong key broke a run of ZERO, because the first one had already
+        /// taken the 447, so it has nothing to take the claim with and the 'm' cell keeps it: fixing
+        /// that cell resumes the run, and the run the player rebuilt from there is the one they
+        /// typed.
+        ///
+        /// <para>Deliberately stronger than
+        /// <see cref="AnInterveningBreakOwnsTheStreakSoTheOlderFixRestoresNothing"/>, which is the
+        /// same two wrong keys with a run REBUILT between them, so the second break really does cost
+        /// something and really does take the claim. Nothing is lost between these two, which is
+        /// exactly why the older claim survives.</para>
+        /// </summary>
+        [Test]
+        public void TwoWrongKeysOnAdjacentCellsKeepTheStreakWhenBothAreFixed()
+        {
+            (var engine, var restored) = twoAdjacentTyposBothFixed(ComboClaimRule.StreakedBreakWins);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(restored, Is.EqualTo(new[] { 4 }), "the empty break left cell 4's claim alone");
+                Assert.That(engine.Combo, Is.EqualTo(6), "4 restored + the two fixes");
+                Assert.That(engine.MaxCombo, Is.EqualTo(6));
+
+                // The two wrong KEYPRESSES are still spent: the fix buys back the streak, never the
+                // typo count.
+                Assert.That(engine.Mistypes, Is.EqualTo(2));
+            });
+        }
+
+        /// <summary>
+        /// The same keystrokes under the arm every score stored before backlog 176 was played under,
+        /// which is what a re-derivation of one of those rows has to reproduce: the second wrong key
+        /// took the claim anyway, with the empty streak it broke, so both fixes restored nothing.
+        /// </summary>
+        [Test]
+        public void ThePre176RuleLetsTheEmptyBreakTakeTheAdjacentCellsClaim()
+        {
+            (var engine, var restored) = twoAdjacentTyposBothFixed(ComboClaimRule.LatestBreakWins);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(restored, Is.Empty, "cell 4's claim was replaced by an empty one and cell 5's redeemed nothing");
+                Assert.That(engine.Combo, Is.EqualTo(2), "the two fixes earn their own cells and nothing more");
+                Assert.That(engine.MaxCombo, Is.EqualTo(4), "the run of 4 is never resumed");
+                Assert.That(engine.Mistypes, Is.EqualTo(2));
+            });
+        }
+
+        /// <summary>
+        /// Fumbling the SAME cell twice before correcting it keeps the streak the FIRST wrong key
+        /// broke, for the same reason: the second one breaks a run of zero. It differs from
+        /// <see cref="RepeatedWrongFixCyclesOnOneCellBreakAndRestoreEachTime"/> only in that no
+        /// successful fix separates the two wrong keys, so there is no second streak to snapshot,
+        /// and the first one's claim is the only one there has ever been.
+        /// </summary>
+        [Test]
+        public void ASecondWrongKeyOnTheSameCellKeepsTheStreakTheFirstOneSnapshotted()
+        {
+            (var engine, var restored) = sameCellFumbledTwiceThenFixed(ComboClaimRule.StreakedBreakWins);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(restored, Is.EqualTo(new[] { 2 }), "the first wrong key's claim survived the second");
+                Assert.That(engine.Combo, Is.EqualTo(3), "2 restored + the fix");
+                Assert.That(engine.MaxCombo, Is.EqualTo(3));
+                Assert.That(engine.Mistypes, Is.EqualTo(2));
+            });
+        }
+
+        /// <summary>The pre-176 arm of the same-cell shape: the second wrong key overwrote the claim.</summary>
+        [Test]
+        public void ThePre176RuleLetsTheSecondWrongKeyOnACellDropItsOwnClaim()
+        {
+            (var engine, var restored) = sameCellFumbledTwiceThenFixed(ComboClaimRule.LatestBreakWins);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(restored, Is.Empty, "the second wrong key overwrote the snapshot with an empty streak");
+                Assert.That(engine.Combo, Is.EqualTo(1), "the fix earns its own cell and nothing more");
+                Assert.That(engine.MaxCombo, Is.EqualTo(2), "the run of 2 is never resumed");
+                Assert.That(engine.Mistypes, Is.EqualTo(2));
+            });
+        }
+
+        /// <summary>
+        /// A word skip taken while a typo is still sitting in that word leaves the typo's claim
+        /// alone: the skip's own break costs nothing (the typo zeroed the run), so it has no streak
+        /// to claim the cell with. The same principle as the two above, applied to the OTHER
+        /// redeemable break, and it keeps backlog 167's promise intact in the case that promise is
+        /// worth most: the player who fumbles, gives up on the word, then goes back and types the
+        /// whole thing out has undone everything they did wrong.
+        ///
+        /// <para>A skip that DOES break a streak still takes the claim, exactly as any other break
+        /// with something to own does: only the empty one is passive.</para>
+        /// </summary>
+        [Test]
+        public void AWordSkipOverATypoLeavesThatTyposSnapshotAlone()
+        {
+            (var engine, var restored) = wordSkippedOverATypoThenReclaimed(ComboClaimRule.StreakedBreakWins);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(restored, Is.EqualTo(new[] { 2 }), "the skip had no streak to take the claim with");
+                Assert.That(engine.Combo, Is.EqualTo(5), "the space, 2 restored at the 'c', then both cells");
+                Assert.That(engine.MaxCombo, Is.EqualTo(5));
+            });
+        }
+
+        /// <summary>The pre-176 arm of the skip shape: the skip's empty claim replaced the typo's.</summary>
+        [Test]
+        public void ThePre176RuleLetsAWordSkipTakeOverATyposSnapshot()
+        {
+            (var engine, var restored) = wordSkippedOverATypoThenReclaimed(ComboClaimRule.LatestBreakWins);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(restored, Is.Empty, "the skip's own empty claim replaced the typo's");
+                Assert.That(engine.Combo, Is.EqualTo(3), "the space, then the two cells typed out");
+                Assert.That(engine.MaxCombo, Is.EqualTo(3), "the run of 2 is never resumed");
             });
         }
     }

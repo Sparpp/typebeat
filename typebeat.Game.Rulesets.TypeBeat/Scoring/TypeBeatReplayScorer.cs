@@ -70,7 +70,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// (<c>onCharJudged</c>), and under <see cref="TypoRule.ImmediateMiss"/> a REJECTED key breaks
     /// it (<c>onWrongKeyRejected</c>, which is where the break lived before backlog 109).</item>
     /// <item><c>ComboRestored</c> puts back the streak a CORRECTED typo's keypress broke, under
-    /// <see cref="ComboRestoreRule.OnFix"/> only (<c>onComboRestored</c>, backlog 140).</item>
+    /// <see cref="ComboRestoreRule.OnFix"/> only (<c>onComboRestored</c>, backlog 140), and WHICH
+    /// break's streak that is follows <see cref="ComboClaimRule"/> (backlog 176).</item>
     /// <item><c>WordAbandoned</c> carries a word skip's one combo break by hand, and
     /// <c>AbandonSealed</c> marks the cells it gave up combo-neutral so the Misses they finally take
     /// cannot take that break a second time, under <see cref="WordSkipRule.Reclaimable"/> only
@@ -130,6 +131,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// the skip spent each abandoned cell's one result on a Miss then and there. Narrower still
         /// than <paramref name="rateRule"/>: it only reaches a run played with the space-skip setting
         /// on that actually skipped a word.</param>
+        /// <param name="claimRule">Which break owns the streak when a redeemable one lands on an
+        /// outstanding claim. Stored scores predating backlog 176 were played under
+        /// <see cref="ComboClaimRule.LatestBreakWins"/>, where a break that cost nothing took the
+        /// claim anyway, so re-deriving one under the live rule would hand it combo its fingers
+        /// never earned. Reaches only a run that fumbled twice before correcting, but that is a
+        /// max_combo difference wherever it lands, which is one of the quantities the
+        /// recalculation tool reproduces.</param>
         public static TypeBeatReplayAccount Score(
             IBeatmap playable,
             IReadOnlyList<Mod> mods,
@@ -138,7 +146,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             ComboRestoreRule comboRule,
             SpaceTimingRule spaceRule = SpaceTimingRule.Untimed,
             RateWindowRule rateRule = RateWindowRule.ScaledByRate,
-            WordSkipRule skipRule = WordSkipRule.Reclaimable)
+            WordSkipRule skipRule = WordSkipRule.Reclaimable,
+            ComboClaimRule claimRule = ComboClaimRule.StreakedBreakWins)
         {
             ArgumentNullException.ThrowIfNull(playable);
             ArgumentNullException.ThrowIfNull(replay);
@@ -160,6 +169,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // fires, and the handler below is dead. That is deliberately the same shape the mods
             // use, and it is why live play and this cannot restore differently.
             engine.ComboRestore = comboRule;
+
+            // The fifth axis, and ComboRestore's companion (backlog 176): who owns the streak when a
+            // second break lands on an outstanding claim. Implemented in the engine's one snapshot
+            // site, so selecting it here is the whole of that era gate, and it is inert under
+            // ComboRestoreRule.Never, where no snapshot is ever taken.
+            engine.ComboClaim = claimRule;
 
             // Same shape again, and set before a single frame is fed: the space exemption is
             // implemented inside ProcessKey, so selecting it here is the whole of that era gate.

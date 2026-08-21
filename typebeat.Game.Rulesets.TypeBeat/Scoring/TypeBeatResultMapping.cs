@@ -54,9 +54,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <summary>
         /// The rule since backlog 140, and the only one live play uses: backspacing and correctly
         /// retyping a wrong cell RESUMES the streak that cell's wrong keypress broke (the streak it
-        /// broke, plus whatever has been earned since), provided no other combo break landed in
-        /// between. See <see cref="TypingEngine.ComboRestored"/> for the mechanism and for why an
-        /// intervening break ends the claim.
+        /// broke, plus whatever has been earned since), provided no other combo break WITH A STREAK
+        /// OF ITS OWN landed in between (see <see cref="ComboClaimRule"/> for that qualifier, which
+        /// is backlog 176). See <see cref="TypingEngine.ComboRestored"/> for the mechanism and for
+        /// why an intervening break ends the claim.
         ///
         /// <para>It is what makes fixing a typo worth anything once typos are counted as EVENTS:
         /// the count is spent the moment the wrong key lands and no correction can take it back, so
@@ -73,6 +74,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <para>Only score RECALCULATION selects this. Nothing in gameplay may.</para>
         /// </summary>
         Never,
+    }
+
+    /// <summary>
+    /// The rule deciding WHICH break owns the streak when a redeemable one lands while an older
+    /// claim is still outstanding (see <see cref="TypingEngine.ComboRestored"/>). Kept as its own
+    /// axis rather than folded into <see cref="ComboRestoreRule"/> for the reason
+    /// <see cref="RateWindowRule"/> is kept out of <see cref="SpaceTimingRule"/>: they are two
+    /// independent facts (whether a fix restores at all, and who the claim belongs to), and the next
+    /// change to either has no reason to move the other. Live play is always
+    /// <see cref="StreakedBreakWins"/>, and the axis is inert under
+    /// <see cref="ComboRestoreRule.Never"/>, where no snapshot is ever taken.
+    /// </summary>
+    public enum ComboClaimRule
+    {
+        /// <summary>
+        /// The rule since backlog 176, and the only one live play uses: a break takes ownership of
+        /// the streak only if it HAS a streak to own. A wrong keypress or a word skip that lands
+        /// while the run is already at zero costs nothing, so it leaves the outstanding claim where
+        /// it is instead of replacing it with an empty one, and correcting the older cell still
+        /// resumes the run.
+        ///
+        /// <para>Nothing else about the claim moves: a break that really does cost a streak takes
+        /// ownership exactly as before, and a zero-streak break with NOTHING outstanding still
+        /// snapshots its own empty claim, so redeeming a 0 restores nothing where nothing better was
+        /// pending.</para>
+        /// </summary>
+        StreakedBreakWins,
+
+        /// <summary>
+        /// The rule every score stored BEFORE backlog 176 was played under: the LATEST redeemable
+        /// break owns the claim unconditionally, so a second wrong key (on the next cell, or on the
+        /// same one) or a skip over an existing typo overwrote the snapshot with the streak at that
+        /// moment, which the first break had already zeroed. Correcting both cells then restored
+        /// nothing at all.
+        ///
+        /// <para>Only score RECALCULATION selects this. Nothing in gameplay may.</para>
+        /// </summary>
+        LatestBreakWins,
     }
 
     /// <summary>
@@ -326,6 +365,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// then follow from the one decision, which is what stops the two drifting.</para>
         /// </summary>
         public static bool FixRestoresTheComboBreak(ComboRestoreRule rule) => rule == ComboRestoreRule.OnFix;
+
+        /// <summary>
+        /// Whether a redeemable break that cost NO streak leaves an outstanding claim alone rather
+        /// than taking it over (backlog 176).
+        ///
+        /// <para>Read in exactly one place, <c>TypingEngine.snapshotRedeemableBreak</c>, which both
+        /// write sites funnel through, so the rule is IMPLEMENTED once and only SELECTED twice: live
+        /// play takes the engine's default and <see cref="TypeBeatReplayScorer"/> sets the era's.
+        /// The same shape as <see cref="FixRestoresTheComboBreak"/>, and for the same reason.</para>
+        /// </summary>
+        public static bool OnlyABreakWithAStreakTakesTheClaim(ComboClaimRule rule) => rule == ComboClaimRule.StreakedBreakWins;
 
         /// <summary>
         /// Whether a space typed on a space cell is judged on a zeroed delta rather than on the clock
