@@ -301,6 +301,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             var engine = new TypingEngine(lyricBeatmap, literate);
 
+            // SyllableTiming stays FALSE for every re-derivation, explicitly and forever: stored
+            // scores were judged under the classic point-delta rule, and re-deriving them must
+            // reproduce them (the same era reasoning SpaceTiming's switch below exists for). The
+            // dev-build experiment (DrawableTypeBeatRuleset.createEngine) never reaches here.
+            engine.SyllableTiming = false;
+
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the three arms below compose in any order. A replay
             // carries KEYSTROKES and is re-judged from scratch, so missing any one of them would
