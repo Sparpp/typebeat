@@ -16,10 +16,13 @@ using osu.Framework.Graphics.Cursor;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.UserInterface;
+using osu.Framework.Input.Bindings;
+using osu.Framework.Input.Events;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Graphics.UserInterfaceV2;
+using typebeat.Game.Input.Bindings;
 using typebeat.Game.Localisation;
 using typebeat.Game.Overlays;
 using typebeat.Game.Rulesets.Objects;
@@ -28,7 +31,7 @@ using osuTK;
 
 namespace typebeat.Game.Screens.Edit.Components.TernaryButtons
 {
-    public partial class NewComboTernaryButton : CompositeDrawable, IHasCurrentValue<TernaryState>
+    public partial class NewComboTernaryButton : CompositeDrawable, IHasCurrentValue<TernaryState>, IKeyBindingHandler<GlobalAction>
     {
         public Func<Drawable>? CreateIcon { get; init; }
 
@@ -60,11 +63,13 @@ namespace typebeat.Game.Screens.Edit.Components.TernaryButtons
                 {
                     RelativeSizeAxes = Axes.X,
                     AutoSizeAxes = Axes.Y,
-                    Child = mainButton = new DrawableTernaryButton
+                    Child = mainButton = new DrawableTernaryButton<GlobalAction>
                     {
                         Current = Current,
                         Description = EditorStrings.NewCombo,
                         CreateIcon = CreateIcon,
+                        Action = GlobalAction.EditorToggleNewCombo,
+                        Hotkey = new Hotkey(GlobalAction.EditorToggleNewCombo),
                     },
                 },
                 pickerButton = new ColourPickerButton
@@ -113,6 +118,19 @@ namespace typebeat.Game.Screens.Edit.Components.TernaryButtons
                 mainButtonContainer.TransformTo(nameof(mainButtonContainer.Padding), new MarginPadding(), ExpandingContainer.TRANSITION_DURATION, Easing.OutQuint);
                 mainButton.Icon.MoveToX(10, ExpandingContainer.TRANSITION_DURATION, Easing.OutQuint);
             }
+        }
+
+        public bool OnPressed(KeyBindingPressEvent<GlobalAction> e)
+        {
+            if (e.Action != GlobalAction.EditorToggleNewCombo || e.Repeat)
+                return false;
+
+            mainButton.Toggle();
+            return true;
+        }
+
+        public void OnReleased(KeyBindingReleaseEvent<GlobalAction> e)
+        {
         }
 
         private partial class ColourPickerButton : OsuButton, IHasPopover
