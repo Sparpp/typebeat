@@ -7,8 +7,12 @@ There is **no `DESIGN.md`** in this repo, despite what older notes say. Two sepa
 looking for it. The canonical sources are the code itself:
 
 - **Judgement policy and the window ladder**: `Gameplay/Judgement.cs`, which says in its own header
-  that it is the single tuning point. A keypress is graded on MILLISECONDS between the press and the
-  cell's target time, in three tiers (250/400, 600/1000, 1200/2000 at Line granularity). Backlog 133
+  that it is the single tuning point. A keypress is graded on MILLISECONDS, in three tiers
+  (250/400, 600/1000, 1200/2000 at Line granularity). WHICH milliseconds is decided by
+  `TypingEngine.judgedDeltaFor`: since backlog 179 a cell inside a syllable group is graded on
+  distance from that syllable's SUNG SPAN (0 anywhere inside it), and only a cell in no group (a
+  space, a stylised token) is graded on distance from its own point target. The point rule survives
+  as the ERA a stored replay re-derives under, selected by its CONFIG frame's flags bit 2. Backlog 133
   replaced that with a four-tier character-distance ladder and backlog 147 reverted the whole arc, so
   a note dated between the two describing a character axis, a `SyncMeasure`, a fourth `Perfect` tier
   or a Rhythmic mod is describing code that no longer exists. What backlog 133 left behind on

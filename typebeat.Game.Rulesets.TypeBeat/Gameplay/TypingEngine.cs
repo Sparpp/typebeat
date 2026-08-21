@@ -85,8 +85,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public WordSkipRule WordSkip { get; set; } = WordSkipRule.Reclaimable;
 
         /// <summary>
-        /// EXPERIMENT (backlog 174): judge each keypress against its cell's SYLLABLE time span
-        /// instead of the cell's point target. Characters belong to a syllable
+        /// THE live judgement rule (backlog 174, graduated by backlog 179): judge each keypress
+        /// against its cell's SYLLABLE time span instead of the cell's point target. Characters
+        /// belong to a syllable
         /// (<see cref="TypingLine.Syllables"/>), and any character of a syllable is perfectly timed
         /// while that syllable is being sung: the judged delta is 0 anywhere inside
         /// [<see cref="SyllableGroup.StartTime"/>, <see cref="SyllableGroup.EndTime"/>]
@@ -100,9 +101,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         ///
         /// <para>FALSE by default, and era-styled like <see cref="SpaceTiming"/>: set before the
         /// first keypress and left alone afterwards, judgements already made are never revisited.
-        /// <see cref="Scoring.TypeBeatReplayScorer"/> always leaves it false, because every stored
-        /// score was judged under the classic point rule; only the live dev build turns it on
-        /// (<c>DrawableTypeBeatRuleset.createEngine</c>).</para>
+        /// Live play turns it on unconditionally (<c>DrawableTypeBeatRuleset.createEngine</c>); the
+        /// default is the CLASSIC era, which is what a bare engine and every replay recorded before
+        /// backlog 179 must judge under. Which one a re-derivation gets is decided by the replay's
+        /// own CONFIG frame (<see cref="Replays.TypeBeatReplayFrame.SyllableTiming"/>, flags bit 2)
+        /// and applied in <see cref="Replays.ReplayEngineFeed.Apply"/>, so a stored score always
+        /// reproduces the rule its fingers were graded on.</para>
         /// </summary>
         public bool SyllableTiming { get; set; }
 

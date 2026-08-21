@@ -290,9 +290,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <summary>
         /// The engine <c>DrawableTypeBeatRuleset.createEngine</c> would build for this beatmap,
         /// plus the engine flags the mods set through <c>ApplyToDrawableRuleset</c>.
-        /// <c>AllowWrongInput</c> and <c>SpaceSkipsWord</c> are deliberately NOT set from the mods
-        /// or from any config: the replay's CONFIG frame carries what the run was judged under and
-        /// overwrites both, which is the only thing that judges a pre-Gatekeeper strict run right.
+        /// <c>AllowWrongInput</c>, <c>SpaceSkipsWord</c> and <c>SyllableTiming</c> are deliberately
+        /// NOT set from the mods or from any config: the replay's CONFIG frame carries what the run
+        /// was judged under and overwrites all three, which is the only thing that judges a
+        /// pre-Gatekeeper strict run right.
         /// </summary>
         private static TypingEngine createEngine(IBeatmap playable, IReadOnlyList<TypeBeatHitObject> lineObjects, IReadOnlyList<Mod> mods, RateWindowRule rateRule)
         {
@@ -316,11 +317,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             var engine = new TypingEngine(lyricBeatmap, literate);
 
-            // SyllableTiming stays FALSE for every re-derivation, explicitly and forever: stored
-            // scores were judged under the classic point-delta rule, and re-deriving them must
-            // reproduce them (the same era reasoning SpaceTiming's switch below exists for). The
-            // dev-build experiment (DrawableTypeBeatRuleset.createEngine) never reaches here.
-            engine.SyllableTiming = false;
+            // SyllableTiming is NOT selected here, and deliberately not: it is the one era axis
+            // that travels in the replay itself (CONFIG frame, bit 2), so ReplayEngineFeed.Apply
+            // sets it from the run's own header before a single keystroke is judged. The engine
+            // default is false, which is exactly what a replay with no CONFIG frame, and every
+            // replay written before backlog 179, must re-derive under: those runs were judged on
+            // point targets. A replay recorded by the live client carries the bit set and
+            // re-derives on syllable spans, which is what it was played on.
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the three arms below compose in any order. A replay

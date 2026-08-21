@@ -4,7 +4,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
-using osu.Framework.Development;
 using osu.Framework.Input;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Mods;
@@ -114,15 +113,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             return new TypingEngine(lyricBeatmap, literate)
             {
-                // Backlog 174 experiment: the LOCAL DEV BUILD judges each press against its cell's
-                // syllable span; a Release build keeps the classic point-target rule untouched.
+                // THE live judgement rule since backlog 179, in every build and for every player: a
+                // character typed while its syllable is being sung is perfectly timed. Backlog 174
+                // shipped this as a debug-only experiment and this seam was its gate; there is no
+                // gate any more, and the flag survives only as the ERA arm every stored replay
+                // needs (TypeBeatReplayScorer re-derives on the CONFIG frame's bit 2, and a replay
+                // written before this landed re-derives on point targets forever).
                 // JUDGEMENT ONLY, since backlog 175: the lit-syllable look is unconditional
                 // rendering off TypingLine.Syllables (backlog 177) and this flag does not gate it.
-                // The NUnit host is not the dev client: the visual scenes (sync tint, replay
-                // recording) pin the classic ladder Release ships, so the experiment must not
-                // reach them through this seam. Flag-on behaviour is tested at the engine level
-                // (SyllableTimingTest), where the flag is set explicitly.
-                SyllableTiming = DebugUtils.IsDebugBuild && !DebugUtils.IsNUnitRunning,
+                SyllableTiming = true,
             };
         }
     }

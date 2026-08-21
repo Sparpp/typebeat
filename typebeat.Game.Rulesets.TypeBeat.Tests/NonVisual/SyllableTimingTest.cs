@@ -6,8 +6,10 @@
 // keypress on a cell of a syllable is perfectly timed anywhere inside that syllable's sung span:
 // judged delta 0 in [StartTime, EndTime] (edge-inclusive), signed distance to the nearer edge
 // outside it, graded through the unchanged SyncWindows ladder and stored in JudgedDelta so
-// points, combo, sync and results all keep working unmodified. Flag off (the default, a Release
-// build, and every replay re-derivation) is byte-identical to the classic point-target rule.
+// points, combo, sync and results all keep working unmodified. Flag off (the default of a bare
+// engine, and the era every replay recorded before backlog 179 re-derives under) is byte-identical
+// to the classic point-target rule; backlog 179 made flag ON the live rule in every build, carried
+// per replay by the CONFIG frame's flags bit 2.
 //
 // The hand-computed deltas, points and sync figures in this fixture are CROSS-CHECKS, worked out
 // independently from the window constants (Line tier: Great [-250, 400], Ok [-600, 1000],

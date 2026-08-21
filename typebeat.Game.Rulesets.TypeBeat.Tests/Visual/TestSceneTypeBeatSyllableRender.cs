@@ -31,11 +31,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// which is the case backlog 175 asserted the opposite of. Under None the same group lights and
     /// the playhead is gone: caret hidden, sweep unfed.</para>
     ///
-    /// <para>The engine's <c>TypingEngine.SyllableTiming</c> flag is asserted to move nothing, in
-    /// both directions, because the highlight and the flag used to be the same switch: the default
-    /// test turns the flag ON and gets the ordinary playhead, and the None test leaves it OFF
-    /// (NUnit's default) and still gets the whole lit-group rendering, off
-    /// <c>TypingLine.Syllables</c>, which is built for every line regardless of mode.</para>
+    /// <para>The engine's <c>TypingEngine.SyllableTiming</c> flag is asserted to move nothing,
+    /// because the highlight and the flag used to be the same switch. Since backlog 179 the flag is
+    /// simply ON in every build, so both tests below assert it is on and get the whole lit-group
+    /// rendering anyway, off <c>TypingLine.Syllables</c>, which is built for every line regardless
+    /// of what the engine is judging on.</para>
     ///
     /// <para>A real player scene (not a bare drawable ruleset) because the assertions are WALL-TIME
     /// windows: they need a gameplay clock that starts at zero, like the cue-after-gap scene. The
@@ -153,13 +153,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void TestTheNoPlayheadStyleKeepsTheLitGroupAndDropsThePlayhead()
         {
-            // The engine flag is deliberately NOT touched: NUnit leaves the syllable-judgement
-            // experiment off (DrawableTypeBeatRuleset.createEngine), so everything below is produced
-            // without it, under the classic point-target judgement. That is the decoupling.
+            // The engine flag is deliberately NOT touched: since backlog 179 the live seam turns
+            // syllable-span judgement on for every build and every player, so everything below is
+            // produced with it on and the playhead still comes away. That is the decoupling, now
+            // asserted from the side that actually ships.
             setSungStyle(CaretStyle.None);
             AddUntilStep("gameplay started", () => now > 0);
             AddUntilStep("line 0 active", () => playfield.Engine.ActiveLineIndex == 0);
-            AddAssert("syllable judgement stayed off", () => !playfield.Engine.SyllableTiming);
+            AddAssert("the live seam judges on syllable spans", () => playfield.Engine.SyllableTiming);
 
             // Group 0, just "o": its one untyped cell lifts to the highlight grey; nothing else does.
             AddUntilStep("'o' lights while sung", () => same(colour(0), TypeBeatStyle.SungChar) && now < 4300);
@@ -182,8 +183,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             // The player's own state paints over the time highlight: a correct char rides the sync
             // ramp (no highlight colour of its own since backlog 176a), a typed-through typo the
-            // classic red. The press below is far outside its cell's point target under classic
-            // judgement, so what is pinned is that it is ON the ramp, not white.
+            // classic red. The press below lands 500ms past the end of 'o's sung span [3000, 4500],
+            // so it is off the beat under the live rule too, and what is pinned is that it is ON the
+            // ramp, not white.
             AddStep("type 'o' correctly, then 'x' for 'p'", () =>
             {
                 playfield.Engine.ProcessKey('o', 5000);
@@ -212,13 +214,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void TestTheDefaultStyleKeepsThePlayheadAndLightsTheGroupTooEvenUnderSyllableJudgement()
         {
             // Two regressions in one, and they pull opposite ways. Backlog 174 let the engine flag
-            // force the whole rendering, so a dev build lost its playhead whether or not anyone
-            // asked: the flag is a judgement rule, so the caret and sweep must be alive here with it
-            // ON. Backlog 175 then made the highlight a style, so the shipped default lost the lit
-            // group: since 177 the two ride together, and this asserts BOTH at once on the style
-            // every player actually gets.
+            // force the whole rendering, so the build that judged on spans lost its playhead whether
+            // or not anyone asked: the flag is a judgement rule, so the caret and sweep must be alive
+            // here with it ON, which since backlog 179 is the only state there is. Backlog 175 then
+            // made the highlight a style, so the shipped default lost the lit group: since 177 the
+            // two ride together, and this asserts BOTH at once on the style every player actually
+            // gets.
             setSungStyle(TypeBeatRulesetConfigManager.DEFAULT_SUNG_CARET_STYLE);
-            AddStep("judge on syllable spans", () => playfield.Engine.SyllableTiming = true);
+            AddAssert("the engine is judging on syllable spans", () => playfield.Engine.SyllableTiming);
             AddUntilStep("gameplay started", () => now > 0);
             AddUntilStep("line 0 active", () => playfield.Engine.ActiveLineIndex == 0);
 
