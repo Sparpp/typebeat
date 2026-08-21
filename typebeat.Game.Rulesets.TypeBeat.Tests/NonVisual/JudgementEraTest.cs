@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using NUnit.Framework;
 using typebeat.Game.Beatmaps;
@@ -33,6 +34,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// <item><b>Backlog 150</b>, rate mods scaling the windows (<see cref="RateWindowRule"/>). This
     /// reaches every stored DT / NC / HT row.</item>
     /// </list>
+    ///
+    /// <para>Backlog 167 (<see cref="WordSkipRule"/>) and backlog 176
+    /// (<see cref="ComboClaimRule"/>) added an axis each on the same pattern, and are pinned here
+    /// too.</para>
     ///
     /// <para>The properties pinned here are the ones the tool rests on: the switches DEFAULT to
     /// today's rules (so nothing that does not ask for an era changes meaning), each one actually
@@ -156,6 +161,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return map;
         }
 
+        /// <summary>
+        /// "hear from me all" as four word units over [0, 40000], the fragment backlog 176 came out
+        /// of ("if you never hear from me, all the satellites are down"). Sixteen cells, so a clean
+        /// run of it is a max_combo of 16.
+        /// </summary>
+        private static LyricLine typoShapeLine() => new LyricLine
+        {
+            RawText = "hear from me all",
+            StartTime = 0,
+            EndTime = 40000,
+            SingEndTime = 20000,
+            Units = new[]
+            {
+                new TimedUnit { Text = "hear", StartTime = 0, EndTime = 5000 },
+                new TimedUnit { Text = "from", StartTime = 5000, EndTime = 10000 },
+                new TimedUnit { Text = "me", StartTime = 10000, EndTime = 15000 },
+                new TimedUnit { Text = "all", StartTime = 15000, EndTime = 20000 },
+            },
+        };
+
+        /// <summary>
+        /// Each cell's own target time, read off the engine that builds them rather than recomputed
+        /// here, so the presses below are struck on target whatever the subdivision rule is.
+        /// </summary>
+        private static double[] cellTargets(LyricLine line)
+            => new TypingEngine(lyricBeatmap(line)).Lines[0].Cells.Select(c => c.TargetTime).ToArray();
+
         private static Replay replay(params (double time, char c)[] presses)
             => replay(false, presses);
 
@@ -201,7 +233,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var implicitEra = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix);
 
             var explicitLive = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
-                SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate, WordSkipRule.Reclaimable);
+                SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate, WordSkipRule.Reclaimable, ComboClaimRule.StreakedBreakWins);
 
             Assert.Multiple(() =>
             {
@@ -212,6 +244,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // ...and the engine's own defaults agree, which is what live play takes.
                 Assert.That(new TypingEngine(lyricBeatmap()).SpaceTiming, Is.EqualTo(SpaceTimingRule.Untimed));
                 Assert.That(new TypingEngine(lyricBeatmap()).WordSkip, Is.EqualTo(WordSkipRule.Reclaimable));
+                Assert.That(new TypingEngine(lyricBeatmap()).ComboClaim, Is.EqualTo(ComboClaimRule.StreakedBreakWins));
             });
         }
 
@@ -454,6 +487,123 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(stored.Completion, Is.LessThan(1));
                 Assert.That(stored.Rank, Is.Not.EqualTo(ScoreRank.X));
                 Assert.That(stored.TotalScore, Is.LessThan(live.TotalScore));
+            });
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // Backlog 176: which break owns the claim when one costs nothing.
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// The whole submitted account of the shape backlog 176 came out of, under both arms. A real
+        /// row is what forced it: score 6212 on "Joji - PIXELATED KISSES [Insane]", 447 combo deep
+        /// into "if you never hear from me", where the player typed 'a' onto the 'm' cell and 'm'
+        /// onto the 'e' cell, backspaced twice and typed "me" out correctly. That run re-derives to
+        /// 796,939 and a max_combo of 447 under <see cref="ComboClaimRule.LatestBreakWins"/>, which
+        /// is exactly what the server stored, and to 904,166 and a max_combo of 592 (every judged
+        /// cell of the map: it is a full combo) under the live rule, with the statistics and the
+        /// accuracy identical on both arms. This fixture is that shape in miniature, on sixteen
+        /// cells instead of 592.
+        ///
+        /// <para>Which is why the change needs an era switch at all. It moves nothing about how a
+        /// cell is JUDGED, so the statistics and the accuracy are bit-identical under both arms;
+        /// what it moves is max_combo and therefore total_score, and those are two of the quantities
+        /// the recalculation tool reproduces against the stored row.</para>
+        /// </summary>
+        [Test]
+        public void ABreakThatCostNothingKeepsTheOlderClaimOnlyUnderTheLiveRule()
+        {
+            var map = built(typoShapeLine());
+            double[] targets = cellTargets(typoShapeLine());
+
+            const string text = "hear from me all";
+
+            var presses = new List<(double, char)>();
+
+            // "hear from " struck on target: a run of ten.
+            for (int i = 0; i < 10; i++)
+                presses.Add((targets[i], text[i]));
+
+            // The reported fumble: 'a' onto the 'm' of "me", then 'm' onto the 'e', the second one
+            // landing on a run the first has already zeroed.
+            presses.Add((targets[10], 'a'));
+            presses.Add((targets[11], 'm'));
+
+            // Two backspaces and "me" typed out, then the rest of the line.
+            presses.Add((targets[11] + 100, TypeBeatReplayFrame.BACKSPACE));
+            presses.Add((targets[11] + 200, TypeBeatReplayFrame.BACKSPACE));
+            presses.Add((targets[10] + 300, 'm'));
+            presses.Add((targets[11] + 300, 'e'));
+
+            for (int i = 12; i < text.Length; i++)
+                presses.Add((targets[i], text[i]));
+
+            var r = replay(presses.ToArray());
+
+            var live = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix);
+            var stored = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
+                SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate, WordSkipRule.Reclaimable, ComboClaimRule.LatestBreakWins);
+
+            Assert.Multiple(() =>
+            {
+                // Today: the 'm' cell keeps its claim, so correcting it resumes the ten and the run
+                // finishes as the full combo the player's fingers actually typed.
+                Assert.That(live.MaxCombo, Is.EqualTo(16), "every cell of the line, exactly as the real row becomes a 592 full combo");
+                Assert.That(count(live, HitResult.Miss), Is.Zero);
+
+                // Pre-176: the second wrong key took the claim with the empty streak it broke, so
+                // the run ends at the ten typed before the fumble.
+                Assert.That(stored.MaxCombo, Is.EqualTo(10));
+                Assert.That(stored.TotalScore, Is.LessThan(live.TotalScore));
+
+                // Nothing about the JUDGEMENTS moves, which is the shape of the real row too.
+                Assert.That(stored.Statistics, Is.EquivalentTo(live.Statistics));
+                Assert.That(stored.Accuracy, Is.EqualTo(live.Accuracy));
+                Assert.That(stored.Mistypes, Is.EqualTo(2));
+                Assert.That(live.Mistypes, Is.EqualTo(2));
+            });
+        }
+
+        /// <summary>
+        /// The claim axis is INERT for a run that never fumbles twice in a row, which is nearly every
+        /// row there is: with at most one redeemable break outstanding at a time there is never an
+        /// older claim for an empty break to spare. Worth pinning for the same reason
+        /// <see cref="TheRateEraChangesNothingWithoutARateMod"/> is: it is what lets the
+        /// recalculation tool set the stored-era arm unconditionally.
+        /// </summary>
+        [Test]
+        public void TheClaimEraChangesNothingWithoutASecondBreak()
+        {
+            var map = built(typoShapeLine());
+            double[] targets = cellTargets(typoShapeLine());
+
+            const string text = "hear from me all";
+
+            var presses = new List<(double, char)>();
+
+            for (int i = 0; i < 10; i++)
+                presses.Add((targets[i], text[i]));
+
+            // ONE wrong key, corrected: the plain backlog 140 shape, with no second break at all.
+            presses.Add((targets[10], 'a'));
+            presses.Add((targets[10] + 100, TypeBeatReplayFrame.BACKSPACE));
+            presses.Add((targets[10] + 200, 'm'));
+
+            for (int i = 11; i < text.Length; i++)
+                presses.Add((targets[i], text[i]));
+
+            var r = replay(presses.ToArray());
+
+            var live = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix);
+            var stored = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
+                SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate, WordSkipRule.Reclaimable, ComboClaimRule.LatestBreakWins);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(live.MaxCombo, Is.EqualTo(16), "the correction resumes the run under backlog 140 alone");
+                Assert.That(stored.MaxCombo, Is.EqualTo(live.MaxCombo));
+                Assert.That(stored.Statistics, Is.EquivalentTo(live.Statistics));
+                Assert.That(stored.TotalScore, Is.EqualTo(live.TotalScore));
             });
         }
 
