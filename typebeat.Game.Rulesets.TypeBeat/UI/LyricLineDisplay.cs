@@ -178,26 +178,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             return cellAdvances[lo] + (cellAdvances[hi] - cellAdvances[lo]) * (float)(f - lo);
         }
 
-        /// <summary>Live view of <see cref="TypingEngine.SyllableTiming"/> (backlog 174), supplied by
-        /// the owning stage; null = classic mode forever. A delegate rather than a snapshot because
-        /// the flag is era-set on the ENGINE (before the first keypress), which can be after this
-        /// display has already loaded and painted its initial cells; reading it at each repaint keeps
-        /// the display's notion of the mode identical to the judge's without holding the engine.</summary>
-        private readonly Func<bool>? syllableTiming;
+        /// <summary>Live view of whether the SUNG PLAYHEAD STYLE is
+        /// <see cref="Configuration.CaretStyle.Highlight"/>, supplied by the owning stage; null =
+        /// classic painting forever. That setting, and NOT
+        /// <see cref="TypingEngine.SyllableTiming"/>, is what decides this rendering: the flag is a
+        /// judgement rule, and <see cref="TypingLine.Syllables"/> is built for every line either way,
+        /// so the highlight is just as correct under classic judgement. A delegate rather than a
+        /// snapshot because the setting is live-bindable (a player can move the dropdown mid-play),
+        /// so reading it at each repaint is what makes the switch apply without a restart.</summary>
+        private readonly Func<bool>? highlightMode;
 
-        private bool syllableMode => syllableTiming?.Invoke() ?? false;
+        private bool highlightActive => highlightMode?.Invoke() ?? false;
 
         /// <summary>Index into <see cref="TypingLine.Syllables"/> of the group currently being sung,
         /// -1 = none. Stage-fed (see <see cref="SetSungSyllable"/>); time-driven state, so it lives
         /// beside the sung sweep rather than in the pull-based cell states.</summary>
         private int sungSyllable = -1;
 
-        public LyricLineDisplay(TypingLine line, float fontSize = TypeBeatStyle.LYRIC_FONT_SIZE, string? fontFamily = null, Func<bool>? syllableTiming = null)
+        public LyricLineDisplay(TypingLine line, float fontSize = TypeBeatStyle.LYRIC_FONT_SIZE, string? fontFamily = null, Func<bool>? highlightMode = null)
         {
             Line = line;
             requestedFontSize = fontSize;
             this.fontFamily = fontFamily;
-            this.syllableTiming = syllableTiming;
+            this.highlightMode = highlightMode;
             AutoSizeAxes = Axes.Both;
         }
 
@@ -516,36 +519,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
-        /// The fill a cell is painted in, in either timing mode; every colour decision the display
-        /// makes routes through here, so pinning this function pins the rendering. Pure, so it is
-        /// unit-testable beside <see cref="CorrectCharColour"/>.
+        /// The fill a cell is painted in, under either sung presentation; every colour decision the
+        /// display makes routes through here, so pinning this function pins the rendering. Pure, so
+        /// it is unit-testable beside <see cref="CorrectCharColour"/>.
         ///
-        /// <para>Classic mode (<paramref name="syllableMode"/> false) is EXACTLY the pre-174
+        /// <para>Classic playhead (<paramref name="highlightMode"/> false) is EXACTLY the pre-174
         /// painting: Correct rides the sync-tint ramp on <paramref name="syncQuality"/> (flat
         /// <see cref="TypeBeatStyle.TypedChar"/> when null, the cannot-arise fallback), Wrong is
         /// <see cref="TypeBeatStyle.ErrorChar"/>, everything else the untyped grey, and
         /// <paramref name="inSungSyllable"/> has no effect at all.</para>
         ///
-        /// <para>Syllable mode (backlog 174): the playhead is gone, so "where the song is" is
-        /// carried by the characters themselves. An Untyped cell of the group currently being sung
-        /// wears <see cref="TypeBeatStyle.TypedChar"/> (the palette's white); Untyped anywhere else
-        /// (not yet sung, or already sung past) stays the untyped grey. Correct is the flat
-        /// <see cref="TypeBeatStyle.SyllableCorrectChar"/> green regardless of quality (in-span
-        /// presses are all delta 0, so a quality ramp would be meaningless here; see the colour's
-        /// own doc). Wrong keeps the classic error red, and Missed/Abandoned/AutoSkipped keep the
-        /// grey (their alphas, unchanged, carry the state).</para>
+        /// <para><see cref="Configuration.CaretStyle.Highlight"/> playhead style: there IS no
+        /// playhead, so "where the song is" is carried by the characters themselves. An Untyped cell
+        /// of the group currently being sung wears <see cref="TypeBeatStyle.TypedChar"/> (the
+        /// palette's white); Untyped anywhere else (not yet sung, or already sung past) stays the
+        /// untyped grey. Correct is the flat <see cref="TypeBeatStyle.SyllableCorrectChar"/> green
+        /// regardless of quality (a highlighted group reads as one unit, and under
+        /// <see cref="TypingEngine.SyllableTiming"/> its presses really are all delta 0, so a quality
+        /// ramp across it would be meaningless; see the colour's own doc). Wrong keeps the classic
+        /// error red, and Missed/Abandoned/AutoSkipped keep the grey (their alphas, unchanged, carry
+        /// the state).</para>
         ///
-        /// <para>A FREESTYLE cell wears <see cref="TypeBeatStyle.FreestyleChar"/> in BOTH modes and
-        /// every state: the violet is an identity signal ("this slot was free"), and neither the
-        /// sync ramp nor the syllable highlight may repaint it (see
+        /// <para>A FREESTYLE cell wears <see cref="TypeBeatStyle.FreestyleChar"/> under BOTH
+        /// presentations and in every state: the violet is an identity signal ("this slot was free"),
+        /// and neither the sync ramp nor the syllable highlight may repaint it (see
         /// <see cref="refreshFreestyleCell"/>; an exclusion, not an oversight).</para>
         /// </summary>
-        public static Color4 CellFillColour(CellState state, bool isFreestyle, bool syllableMode, bool inSungSyllable, double? syncQuality)
+        public static Color4 CellFillColour(CellState state, bool isFreestyle, bool highlightMode, bool inSungSyllable, double? syncQuality)
         {
             if (isFreestyle)
                 return TypeBeatStyle.FreestyleChar;
 
-            if (syllableMode)
+            if (highlightMode)
             {
                 switch (state)
                 {
@@ -611,7 +616,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             bool inSungSyllable = sungSyllable >= 0 && Line.SyllableIndexOf(cellIndex) == sungSyllable;
 
-            cell.Colour = CellFillColour(source.State, isFreestyle: false, syllableMode, inSungSyllable, syncQuality);
+            cell.Colour = CellFillColour(source.State, isFreestyle: false, highlightActive, inSungSyllable, syncQuality);
 
             switch (source.State)
             {
@@ -654,7 +659,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             // Routed through CellFillColour so the exclusion is the rendered path, not a parallel
             // truth: freestyle identity wins in both timing modes.
-            cell.Colour = CellFillColour(source.State, isFreestyle: true, syllableMode,
+            cell.Colour = CellFillColour(source.State, isFreestyle: true, highlightActive,
                 inSungSyllable: sungSyllable >= 0 && Line.SyllableIndexOf(cellIndex) == sungSyllable, syncQuality: null);
 
             cellStateAlpha[cellIndex] = source.State switch
@@ -716,8 +721,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
-        /// Syllable mode's sibling of <see cref="SetSungPosition"/>: the stage feeds the index of
-        /// the group currently being sung (-1 = none) each frame instead of a sweep position, and
+        /// The Highlight style's sibling of <see cref="SetSungPosition"/>: the stage feeds the index
+        /// of the group currently being sung (-1 = none) each frame instead of a sweep position, and
         /// the Untyped cells of that group light up white (see <see cref="CellFillColour"/>).
         /// Cheap to call every frame: nothing repaints until the index CHANGES, and then only the
         /// cells whose colour actually depends on it, the untyped non-freestyle cells of the old

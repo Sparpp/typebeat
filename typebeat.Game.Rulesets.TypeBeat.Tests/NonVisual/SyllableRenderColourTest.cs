@@ -10,17 +10,19 @@ using osuTK.Graphics;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
-    /// The colour half of the syllable-timing experiment's rendering (backlog 174 stage 3):
-    /// <see cref="LyricLineDisplay.CellFillColour"/> is the single pure function every cell fill
-    /// routes through, in BOTH timing modes, so pinning it pins the painting.
+    /// The colour half of the lit-syllable rendering (backlog 174 stage 3, rekeyed off the sung
+    /// playhead style by backlog 175): <see cref="LyricLineDisplay.CellFillColour"/> is the single
+    /// pure function every cell fill routes through, under BOTH sung presentations, so pinning it
+    /// pins the painting.
     ///
-    /// <para>Two contracts live here. In syllable mode: an Untyped cell of the group currently
-    /// being sung is the palette white, Untyped anywhere else the untyped grey, Correct the flat
-    /// green (no sync ramp: in-span presses are all delta 0, a quality ramp would be meaningless),
-    /// Wrong the classic red, and freestyle keeps its violet identity. Flag OFF: the function is
-    /// byte-identical to the pre-174 painting, sync-tint ramp included, and the sung-syllable input
-    /// has no effect whatsoever, which is what guarantees the experiment cannot leak into a Release
-    /// build's rendering.</para>
+    /// <para>Two contracts live here. Under the <c>CaretStyle.Highlight</c> playhead style: an
+    /// Untyped cell of the group currently being sung is the palette white, Untyped anywhere else
+    /// the untyped grey, Correct the flat green (no sync ramp: a highlighted group reads as one
+    /// unit, and under syllable judgement its presses are all delta 0), Wrong the classic red, and
+    /// freestyle keeps its violet identity. Highlight OFF, which is every other playhead style: the
+    /// function is byte-identical to the pre-174 painting, sync-tint ramp included, and the
+    /// sung-syllable input has no effect whatsoever, which is what guarantees a player who never
+    /// picks the style sees exactly today's rendering.</para>
     /// </summary>
     [TestFixture]
     public class SyllableRenderColourTest
@@ -28,15 +30,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static readonly CellState[] all_states =
             (CellState[])Enum.GetValues(typeof(CellState));
 
-        private static Color4 fill(CellState state, bool syllableMode, bool inSung, double? quality = null, bool freestyle = false)
-            => LyricLineDisplay.CellFillColour(state, freestyle, syllableMode, inSung, quality);
+        private static Color4 fill(CellState state, bool highlightMode, bool inSung, double? quality = null, bool freestyle = false)
+            => LyricLineDisplay.CellFillColour(state, freestyle, highlightMode, inSung, quality);
 
-        // --- Syllable mode ---
+        // --- Highlight playhead style ---
 
         [Test]
         public void SungSyllablesUntypedCellsAreThePaletteWhite()
         {
-            Assert.That(fill(CellState.Untyped, syllableMode: true, inSung: true),
+            Assert.That(fill(CellState.Untyped, highlightMode: true, inSung: true),
                 Is.EqualTo(TypeBeatStyle.TypedChar), "the sung group's untyped cells light white");
         }
 
@@ -44,7 +46,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void UntypedCellsOutsideTheSungGroupStayTheUntypedGrey()
         {
             // Not yet sung and already sung past are the same input here: not the current group.
-            Assert.That(fill(CellState.Untyped, syllableMode: true, inSung: false),
+            Assert.That(fill(CellState.Untyped, highlightMode: true, inSung: false),
                 Is.EqualTo(TypeBeatStyle.UntypedChar));
         }
 
@@ -53,9 +55,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var green = TypeBeatStyle.SyllableCorrectChar;
 
-            // Flat: no sync-tint ramp in syllable mode. In-span presses are all delta 0, so a
-            // quality ramp would collapse to one point; out-of-span deltas exist but grading them
-            // by brightness would contradict "the whole span is perfect".
+            // Flat: no sync-tint ramp under the highlight. In-span presses (under syllable
+            // judgement) are all delta 0, so a quality ramp would collapse to one point; out-of-span
+            // deltas exist but grading them by brightness would contradict "the whole span is
+            // perfect".
             foreach (bool inSung in new[] { true, false })
             {
                 Assert.That(fill(CellState.Correct, true, inSung, quality: null), Is.EqualTo(green));
@@ -75,7 +78,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void TheLostAndGivenUpStatesKeepTheGreyEvenInsideTheSungGroup()
         {
-            // Their alphas (unchanged in syllable mode) carry the state; the sung highlight is only
+            // Their alphas (unchanged under the highlight) carry the state; the sung highlight is only
             // for characters that can still be typed on time.
             foreach (var state in new[] { CellState.Missed, CellState.Abandoned, CellState.AutoSkipped })
             {
@@ -91,36 +94,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // ramp nor the syllable highlight may repaint it. An exclusion, not an oversight.
             foreach (var state in all_states)
             {
-                foreach (bool mode in new[] { true, false })
+                foreach (bool highlight in new[] { true, false })
                 {
                     foreach (bool inSung in new[] { true, false })
                     {
-                        Assert.That(fill(state, mode, inSung, quality: 0.5, freestyle: true),
-                            Is.EqualTo(TypeBeatStyle.FreestyleChar), $"{state}, syllableMode={mode}, inSung={inSung}");
+                        Assert.That(fill(state, highlight, inSung, quality: 0.5, freestyle: true),
+                            Is.EqualTo(TypeBeatStyle.FreestyleChar), $"{state}, highlightMode={highlight}, inSung={inSung}");
                     }
                 }
             }
         }
 
-        // --- Flag OFF: byte-identical to the pre-174 painting ---
+        // --- Highlight OFF (every other playhead style): byte-identical to the pre-174 painting ---
 
         [Test]
-        public void FlagOffCorrectRidesTheSyncTintRampExactly()
+        public void HighlightOffCorrectRidesTheSyncTintRampExactly()
         {
             foreach (double q in new[] { 0, 0.25, 0.5, 0.75, 1 })
             {
-                Assert.That(fill(CellState.Correct, syllableMode: false, inSung: false, quality: q),
+                Assert.That(fill(CellState.Correct, highlightMode: false, inSung: false, quality: q),
                     Is.EqualTo(LyricLineDisplay.CorrectCharColour(q)), $"quality {q}");
             }
 
             // The cannot-arise fallback (a Correct cell with no delta): the flat typed colour, not
             // the dull ramp floor.
-            Assert.That(fill(CellState.Correct, syllableMode: false, inSung: false, quality: null),
+            Assert.That(fill(CellState.Correct, highlightMode: false, inSung: false, quality: null),
                 Is.EqualTo(TypeBeatStyle.TypedChar));
         }
 
         [Test]
-        public void FlagOffPaintsEveryOtherStateExactlyAsToday()
+        public void HighlightOffPaintsEveryOtherStateExactlyAsToday()
         {
             Assert.That(fill(CellState.Wrong, false, false), Is.EqualTo(TypeBeatStyle.ErrorChar));
 
@@ -129,10 +132,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void FlagOffTheSungSyllableInputHasNoEffectAtAll()
+        public void HighlightOffTheSungSyllableInputHasNoEffectAtAll()
         {
-            // The one input the experiment added must be inert with the flag down, for every state
-            // and along the ramp; this is what keeps flag-off rendering byte-identical to today.
+            // The one input the experiment added must be inert under every other playhead style, for
+            // every state and along the ramp; this is what keeps their rendering byte-identical to
+            // today.
             foreach (var state in all_states)
             {
                 foreach (double? q in new double?[] { null, 0, 0.5, 1 })

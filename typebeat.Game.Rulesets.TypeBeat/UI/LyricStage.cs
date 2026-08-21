@@ -76,6 +76,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private bool playerCaretVisible;
         private bool sungCaretVisible;
 
+        /// <summary>
+        /// The user's SUNG playhead style, held here rather than read off <see cref="sungCaret"/>
+        /// because it decides the whole sung PRESENTATION, not just one drawable's shape:
+        /// <see cref="CaretStyle.Highlight"/> means there is no playhead, so the caret hides, the
+        /// underline sweep stops being fed, and the displays light the syllable group the vocals are
+        /// on instead. Every other value is the classic playhead. The caret's own
+        /// <see cref="Caret.Style"/> rides this, and the displays read it through a predicate handed
+        /// to them at construction, which is before the caret exists.
+        ///
+        /// <para>Deliberately independent of <see cref="TypingEngine.SyllableTiming"/>: that flag is
+        /// a judgement rule, this is a look. <see cref="TypingLine.Syllables"/> is built for every
+        /// line either way, so Highlight renders the same under classic judgement, which is what
+        /// keeps the setting from silently doing nothing in a Release build.</para>
+        ///
+        /// <para>Defaults to <see cref="CaretStyle.Line"/> (matching <see cref="Caret.Style"/>'s own
+        /// initialiser) so a stage built with no config, which is every bare test scene, gets the
+        /// classic playhead rather than an accidental highlight.</para>
+        /// </summary>
+        private readonly Bindable<CaretStyle> sungCaretStyle = new Bindable<CaretStyle>(CaretStyle.Line);
+
+        /// <summary>Whether the sung presentation is currently the lit-syllable one.</summary>
+        private bool highlightStyle => sungCaretStyle.Value == CaretStyle.Highlight;
+
         public LyricStage(TypingEngine engine)
         {
             this.engine = engine;
@@ -117,7 +140,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             for (int i = 0; i < lines.Count; i++)
             {
-                var d = new LyricLineDisplay(lines[i], fontFamily: lyricFont, syllableTiming: () => engine.SyllableTiming)
+                var d = new LyricLineDisplay(lines[i], fontFamily: lyricFont, highlightMode: () => highlightStyle)
                 {
                     Anchor = Anchor.Centre,
                     Origin = Anchor.Centre,
@@ -150,7 +173,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // Underline in particular runs near-parallel to the sung sweep rail the display draws just
             // under the glyphs). Both bind live, so either dropdown applies without a restart.
             config?.BindWith(TypeBeatRulesetSetting.CaretStyle, playerCaret.Style);
-            config?.BindWith(TypeBeatRulesetSetting.SungCaretStyle, sungCaret.Style);
+            config?.BindWith(TypeBeatRulesetSetting.SungCaretStyle, sungCaretStyle);
+            sungCaret.Style.BindTo(sungCaretStyle);
+
+            // A style change mid-play switches between two presentations that own different pieces of
+            // state, so each direction has one thing to hand back that Update alone would not.
+            //
+            // INTO Highlight: the sweep stops being fed, so whatever fill it was last handed would
+            // freeze on screen under the lit group. Zero it on every display (not just the sung one:
+            // the sung line can change while the style stays put).
+            //
+            // OUT OF Highlight: no group may stay lit, so clear it here rather than waiting for a
+            // frame that happens to move the group. Going through setSungSyllable(-1, -1) is what
+            // repaints the lit group's untyped cells back to grey, and by now this bindable already
+            // holds the new value, so the displays repaint in classic colours. The sweep needs no
+            // help: the next Update feeds it again.
+            sungCaretStyle.BindValueChanged(e =>
+            {
+                if (e.NewValue == CaretStyle.Highlight)
+                {
+                    foreach (var d in displays)
+                        d.SetSungPosition(0);
+                }
+                else
+                {
+                    setSungSyllable(-1, -1);
+                }
+            });
 
             // Line spacing is user-adjustable and applies live: a change invalidates the laid-out
             // focus so the next Update re-runs the layout with the new gap.
@@ -351,14 +400,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 int sungLine = sungLineFor(active);
                 var sd = displays[sungLine];
 
-                if (engine.SyllableTiming)
+                if (highlightStyle)
                 {
-                    // Syllable mode (backlog 174): the map playhead goes away. Any press inside the
-                    // sung group's span is judged delta 0, so a caret and sweep marking one exact
-                    // position would advertise a precision the judge no longer asks for; instead the
-                    // display lights the whole group the song is on. The sweep fill/glow are simply
-                    // never fed a position, so they hold the zero SetSungPosition(0) initialised
-                    // them to at load, and the sung caret is forced hidden below; the typing caret,
+                    // Highlight playhead style: the map playhead goes away, and the display lights
+                    // the whole syllable group the song is on instead of marking one exact position
+                    // between two characters. The sweep fill/glow are simply never fed a position, so
+                    // they hold the zero they were last set to (at load, or by the style change that
+                    // got us here), and the sung caret is forced hidden below; the typing caret,
                     // approach cue and boundary bar are untouched.
                     setSungSyllable(sungLine, currentSyllableIn(sd.Line));
                 }
@@ -380,7 +428,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 refreshVisible(active);
 
                 bool show = !engine.IsLineComplete && !engine.IsFinished;
-                setCaretsVisible(show, show && !engine.SyllableTiming && Math.Abs(sungLine - active) <= 1);
+                setCaretsVisible(show, show && !highlightStyle && Math.Abs(sungLine - active) <= 1);
             }
             else if (!engine.IsFinished)
             {
@@ -740,15 +788,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         // Which display currently carries a lit sung syllable; -1 = none. Stage-tracked so the one
-        // line leaving the sung role is cleared explicitly, the syllable-mode mirror of how the sung
-        // sweep only ever rides the current sung line.
+        // line leaving the sung role is cleared explicitly, the Highlight-style mirror of how the
+        // sung sweep only ever rides the current sung line.
         private int syllableLitLine = -1;
 
         /// <summary>
-        /// Syllable mode: route the currently sung group to the display that should carry it and
+        /// Highlight style: route the currently sung group to the display that should carry it and
         /// clear the display that carried one before. <paramref name="lineIndex"/> -1 = nothing is
-        /// sung anywhere (pre-roll, dead zones, finished). Cheap every frame: the displays repaint
-        /// only on an index change.
+        /// sung anywhere (pre-roll, dead zones, finished, or the style just left Highlight). Cheap
+        /// every frame: the displays repaint only on an index change.
         /// </summary>
         private void setSungSyllable(int lineIndex, int syllable)
         {
