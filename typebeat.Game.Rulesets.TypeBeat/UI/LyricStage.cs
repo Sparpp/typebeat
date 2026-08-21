@@ -117,7 +117,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             for (int i = 0; i < lines.Count; i++)
             {
-                var d = new LyricLineDisplay(lines[i], fontFamily: lyricFont)
+                var d = new LyricLineDisplay(lines[i], fontFamily: lyricFont, syllableTiming: () => engine.SyllableTiming)
                 {
                     Anchor = Anchor.Centre,
                     Origin = Anchor.Centre,
@@ -350,22 +350,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // stack, so the sung caret hides rather than parking at a phantom position.
                 int sungLine = sungLineFor(active);
                 var sd = displays[sungLine];
-                double sung = sd.Line.SungPositionAt(Time.Current);
-                sd.SetSungPosition(sung);
-                Vector2 sungPoint = sd.ToSpaceOfOtherDrawable(sd.SungPositionPoint(sung), this);
-                sungCaret.Height = sd.LineHeight;
-                // Unlike the player caret, the playhead sits at a FRACTIONAL cell index, so a
-                // cell-covering style takes the interpolated advance: exactly the sung character's
-                // width at each onset, morphing across the gap in step with the underline sweep the
-                // display draws from the same fractional position. Fed every frame regardless of
-                // style so switching to a cell style always has a live measurement to build on.
-                sungCaret.SetCellWidth(sd.CellWidthAtFraction(sung));
-                sungCaret.MoveToTarget(sungPoint);
+
+                if (engine.SyllableTiming)
+                {
+                    // Syllable mode (backlog 174): the map playhead goes away. Any press inside the
+                    // sung group's span is judged delta 0, so a caret and sweep marking one exact
+                    // position would advertise a precision the judge no longer asks for; instead the
+                    // display lights the whole group the song is on. The sweep fill/glow are simply
+                    // never fed a position, so they hold the zero SetSungPosition(0) initialised
+                    // them to at load, and the sung caret is forced hidden below; the typing caret,
+                    // approach cue and boundary bar are untouched.
+                    setSungSyllable(sungLine, currentSyllableIn(sd.Line));
+                }
+                else
+                {
+                    double sung = sd.Line.SungPositionAt(Time.Current);
+                    sd.SetSungPosition(sung);
+                    Vector2 sungPoint = sd.ToSpaceOfOtherDrawable(sd.SungPositionPoint(sung), this);
+                    sungCaret.Height = sd.LineHeight;
+                    // Unlike the player caret, the playhead sits at a FRACTIONAL cell index, so a
+                    // cell-covering style takes the interpolated advance: exactly the sung character's
+                    // width at each onset, morphing across the gap in step with the underline sweep the
+                    // display draws from the same fractional position. Fed every frame regardless of
+                    // style so switching to a cell style always has a live measurement to build on.
+                    sungCaret.SetCellWidth(sd.CellWidthAtFraction(sung));
+                    sungCaret.MoveToTarget(sungPoint);
+                }
 
                 refreshVisible(active);
 
                 bool show = !engine.IsLineComplete && !engine.IsFinished;
-                setCaretsVisible(show, show && Math.Abs(sungLine - active) <= 1);
+                setCaretsVisible(show, show && !engine.SyllableTiming && Math.Abs(sungLine - active) <= 1);
             }
             else if (!engine.IsFinished)
             {
@@ -382,6 +397,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     laidOutFocus = encoded;
                 }
 
+                // No line is being sung, so no group may stay lit (mirrors the sung caret hiding).
+                setSungSyllable(-1, -1);
                 setCaretsVisible(false, false);
             }
             else
@@ -393,6 +410,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     laidOutFocus = int.MaxValue;
                 }
 
+                setSungSyllable(-1, -1);
                 setCaretsVisible(false, false);
             }
 
@@ -719,6 +737,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             int songLine = engine.NextUnsealedLineIndex;
 
             return songLine >= 0 && songLine < displays.Length ? songLine : active;
+        }
+
+        // Which display currently carries a lit sung syllable; -1 = none. Stage-tracked so the one
+        // line leaving the sung role is cleared explicitly, the syllable-mode mirror of how the sung
+        // sweep only ever rides the current sung line.
+        private int syllableLitLine = -1;
+
+        /// <summary>
+        /// Syllable mode: route the currently sung group to the display that should carry it and
+        /// clear the display that carried one before. <paramref name="lineIndex"/> -1 = nothing is
+        /// sung anywhere (pre-roll, dead zones, finished). Cheap every frame: the displays repaint
+        /// only on an index change.
+        /// </summary>
+        private void setSungSyllable(int lineIndex, int syllable)
+        {
+            if (syllableLitLine != lineIndex && syllableLitLine >= 0 && syllableLitLine < displays.Length)
+                displays[syllableLitLine].SetSungSyllable(-1);
+
+            syllableLitLine = lineIndex;
+
+            if (lineIndex >= 0 && lineIndex < displays.Length)
+                displays[lineIndex].SetSungSyllable(syllable);
+        }
+
+        /// <summary>
+        /// The group of <paramref name="line"/> being sung right now: the one whose
+        /// [StartTime, EndTime] span contains the current time, i.e. where the old playhead would
+        /// have been; -1 between spans (nothing is being sung, so nothing lights). Groups are
+        /// ordered with monotonic spans and there are at most a few dozen per line, so a linear
+        /// scan per frame is nothing.
+        /// </summary>
+        private int currentSyllableIn(TypingLine line)
+        {
+            double t = Time.Current;
+            var groups = line.Syllables;
+
+            for (int g = 0; g < groups.Count; g++)
+            {
+                if (t >= groups[g].StartTime && t <= groups[g].EndTime)
+                    return g;
+            }
+
+            return -1;
         }
 
         private void setCaretsVisible(bool showPlayer, bool showSung)

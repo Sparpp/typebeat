@@ -178,11 +178,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             return cellAdvances[lo] + (cellAdvances[hi] - cellAdvances[lo]) * (float)(f - lo);
         }
 
-        public LyricLineDisplay(TypingLine line, float fontSize = TypeBeatStyle.LYRIC_FONT_SIZE, string? fontFamily = null)
+        /// <summary>Live view of <see cref="TypingEngine.SyllableTiming"/> (backlog 174), supplied by
+        /// the owning stage; null = classic mode forever. A delegate rather than a snapshot because
+        /// the flag is era-set on the ENGINE (before the first keypress), which can be after this
+        /// display has already loaded and painted its initial cells; reading it at each repaint keeps
+        /// the display's notion of the mode identical to the judge's without holding the engine.</summary>
+        private readonly Func<bool>? syllableTiming;
+
+        private bool syllableMode => syllableTiming?.Invoke() ?? false;
+
+        /// <summary>Index into <see cref="TypingLine.Syllables"/> of the group currently being sung,
+        /// -1 = none. Stage-fed (see <see cref="SetSungSyllable"/>); time-driven state, so it lives
+        /// beside the sung sweep rather than in the pull-based cell states.</summary>
+        private int sungSyllable = -1;
+
+        public LyricLineDisplay(TypingLine line, float fontSize = TypeBeatStyle.LYRIC_FONT_SIZE, string? fontFamily = null, Func<bool>? syllableTiming = null)
         {
             Line = line;
             requestedFontSize = fontSize;
             this.fontFamily = fontFamily;
+            this.syllableTiming = syllableTiming;
             AutoSizeAxes = Axes.Both;
         }
 
@@ -500,6 +515,70 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 TypeBeatStyle.UntypedChar, TypeBeatStyle.TypedChar, 0d, 1d);
         }
 
+        /// <summary>
+        /// The fill a cell is painted in, in either timing mode; every colour decision the display
+        /// makes routes through here, so pinning this function pins the rendering. Pure, so it is
+        /// unit-testable beside <see cref="CorrectCharColour"/>.
+        ///
+        /// <para>Classic mode (<paramref name="syllableMode"/> false) is EXACTLY the pre-174
+        /// painting: Correct rides the sync-tint ramp on <paramref name="syncQuality"/> (flat
+        /// <see cref="TypeBeatStyle.TypedChar"/> when null, the cannot-arise fallback), Wrong is
+        /// <see cref="TypeBeatStyle.ErrorChar"/>, everything else the untyped grey, and
+        /// <paramref name="inSungSyllable"/> has no effect at all.</para>
+        ///
+        /// <para>Syllable mode (backlog 174): the playhead is gone, so "where the song is" is
+        /// carried by the characters themselves. An Untyped cell of the group currently being sung
+        /// wears <see cref="TypeBeatStyle.TypedChar"/> (the palette's white); Untyped anywhere else
+        /// (not yet sung, or already sung past) stays the untyped grey. Correct is the flat
+        /// <see cref="TypeBeatStyle.SyllableCorrectChar"/> green regardless of quality (in-span
+        /// presses are all delta 0, so a quality ramp would be meaningless here; see the colour's
+        /// own doc). Wrong keeps the classic error red, and Missed/Abandoned/AutoSkipped keep the
+        /// grey (their alphas, unchanged, carry the state).</para>
+        ///
+        /// <para>A FREESTYLE cell wears <see cref="TypeBeatStyle.FreestyleChar"/> in BOTH modes and
+        /// every state: the violet is an identity signal ("this slot was free"), and neither the
+        /// sync ramp nor the syllable highlight may repaint it (see
+        /// <see cref="refreshFreestyleCell"/>; an exclusion, not an oversight).</para>
+        /// </summary>
+        public static Color4 CellFillColour(CellState state, bool isFreestyle, bool syllableMode, bool inSungSyllable, double? syncQuality)
+        {
+            if (isFreestyle)
+                return TypeBeatStyle.FreestyleChar;
+
+            if (syllableMode)
+            {
+                switch (state)
+                {
+                    case CellState.Correct:
+                        return TypeBeatStyle.SyllableCorrectChar;
+
+                    case CellState.Wrong:
+                        return TypeBeatStyle.ErrorChar;
+
+                    case CellState.Untyped:
+                        return inSungSyllable ? TypeBeatStyle.TypedChar : TypeBeatStyle.UntypedChar;
+
+                    default: // Missed, Abandoned, AutoSkipped
+                        return TypeBeatStyle.UntypedChar;
+                }
+            }
+
+            switch (state)
+            {
+                case CellState.Correct:
+                    // A Correct cell with no delta cannot arise from the engine; if one ever does,
+                    // fall back to the flat typed colour rather than to the dull ramp floor.
+                    return syncQuality is double q ? CorrectCharColour(q) : TypeBeatStyle.TypedChar;
+
+                case CellState.Wrong:
+                    // Expected glyph shown in error red (not the typed char).
+                    return TypeBeatStyle.ErrorChar;
+
+                default: // Untyped, Missed, Abandoned, AutoSkipped
+                    return TypeBeatStyle.UntypedChar;
+            }
+        }
+
         public void RefreshCell(int cellIndex)
         {
             if (cellIndex < 0 || cellIndex >= cells.Length)
@@ -514,38 +593,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 return;
             }
 
+            // The classic Correct colour is tinted by how in sync the press was (see
+            // CorrectCharColour). Two properties of the delta this reads are load-bearing:
+            //
+            // ORDERING: TypingEngine.ProcessKey writes JudgedDelta BEFORE it raises
+            // CharJudged, and LyricStage's handler for that event is what calls RefreshCell,
+            // so the delta is always present by the time the cell first repaints. Reversed,
+            // every char would paint at the floor colour on the frame it was typed.
+            //
+            // ANTI-FARMING: JudgedDelta on a Correct cell is always the delta that actually
+            // SCORED. A scoring-inert retype (backspace over a cell that was ever correct)
+            // has the first correct delta written back into it, so a player cannot
+            // backspace-retype to brighten a char beyond what it earned.
+            double? syncQuality = source.JudgedDelta is double delta
+                ? SyncWindows.For(source.JudgeGranularity).SyncQuality(delta)
+                : null;
+
+            bool inSungSyllable = sungSyllable >= 0 && Line.SyllableIndexOf(cellIndex) == sungSyllable;
+
+            cell.Colour = CellFillColour(source.State, isFreestyle: false, syllableMode, inSungSyllable, syncQuality);
+
             switch (source.State)
             {
-                case CellState.Correct:
-                    // Tinted by how in sync the press was (see CorrectCharColour). Two properties of
-                    // the delta this reads are load-bearing:
-                    //
-                    // ORDERING: TypingEngine.ProcessKey writes JudgedDelta BEFORE it raises
-                    // CharJudged, and LyricStage's handler for that event is what calls RefreshCell,
-                    // so the delta is always present by the time the cell first repaints. Reversed,
-                    // every char would paint at the floor colour on the frame it was typed.
-                    //
-                    // ANTI-FARMING: JudgedDelta on a Correct cell is always the delta that actually
-                    // SCORED. A scoring-inert retype (backspace over a cell that was ever correct)
-                    // has the first correct delta written back into it, so a player cannot
-                    // backspace-retype to brighten a char beyond what it earned.
-                    //
-                    // A Correct cell with no delta cannot arise from the engine; if one ever does,
-                    // fall back to the flat typed colour rather than to the dull floor.
-                    cell.Colour = source.JudgedDelta is double delta
-                        ? CorrectCharColour(SyncWindows.For(source.JudgeGranularity).SyncQuality(delta))
-                        : TypeBeatStyle.TypedChar;
-                    cellStateAlpha[cellIndex] = 1f;
-                    break;
-
-                case CellState.Wrong:
-                    // Expected glyph shown in error red (not the typed char).
-                    cell.Colour = TypeBeatStyle.ErrorChar;
-                    cellStateAlpha[cellIndex] = 1f;
-                    break;
-
                 case CellState.Missed:
-                    cell.Colour = TypeBeatStyle.UntypedChar;
                     cellStateAlpha[cellIndex] = MISSED_ALPHA;
                     break;
 
@@ -555,12 +625,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // Painting it as a miss would say the opposite of what the state means, and
                     // leaving it at full untyped brightness would hide that the skip happened at
                     // all, so it takes the step between the two.
-                    cell.Colour = TypeBeatStyle.UntypedChar;
                     cellStateAlpha[cellIndex] = ABANDONED_ALPHA;
                     break;
 
-                default: // Untyped, AutoSkipped
-                    cell.Colour = TypeBeatStyle.UntypedChar;
+                default: // Untyped, Correct, Wrong, AutoSkipped
                     cellStateAlpha[cellIndex] = 1f;
                     break;
             }
@@ -584,7 +652,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         private void refreshFreestyleCell(int cellIndex, OsuSpriteText cell, TypingCell source)
         {
-            cell.Colour = TypeBeatStyle.FreestyleChar;
+            // Routed through CellFillColour so the exclusion is the rendered path, not a parallel
+            // truth: freestyle identity wins in both timing modes.
+            cell.Colour = CellFillColour(source.State, isFreestyle: true, syllableMode,
+                inSungSyllable: sungSyllable >= 0 && Line.SyllableIndexOf(cellIndex) == sungSyllable, syncQuality: null);
 
             cellStateAlpha[cellIndex] = source.State switch
             {
@@ -642,6 +713,52 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             sweepFill.Width = localX;
             sweepGlow.X = localX;
             sweepGlow.Alpha = localX > 0.5f ? 0.9f : 0f;
+        }
+
+        /// <summary>
+        /// Syllable mode's sibling of <see cref="SetSungPosition"/>: the stage feeds the index of
+        /// the group currently being sung (-1 = none) each frame instead of a sweep position, and
+        /// the Untyped cells of that group light up white (see <see cref="CellFillColour"/>).
+        /// Cheap to call every frame: nothing repaints until the index CHANGES, and then only the
+        /// cells whose colour actually depends on it, the untyped non-freestyle cells of the old
+        /// and new groups, not the whole line. Membership is read through
+        /// <see cref="TypingLine.SyllableIndexOf"/>, never by range: a hyphen-turned-space cell can
+        /// sit positionally inside a group's cell range while being in no group.
+        /// </summary>
+        public void SetSungSyllable(int index)
+        {
+            if (index == sungSyllable)
+                return;
+
+            int previous = sungSyllable;
+            sungSyllable = index;
+
+            repaintUntypedCellsOf(previous);
+            repaintUntypedCellsOf(index);
+        }
+
+        /// <summary>The group index last fed to <see cref="SetSungSyllable"/>; test support.</summary>
+        public int SungSyllable => sungSyllable;
+
+        private void repaintUntypedCellsOf(int group)
+        {
+            if (group < 0 || group >= Line.Syllables.Count)
+                return;
+
+            var g = Line.Syllables[group];
+
+            for (int i = g.StartCell; i < g.EndCellExclusive && i < cells.Length; i++)
+            {
+                if (Line.SyllableIndexOf(i) != group)
+                    continue;
+
+                var source = Line.Cells[i];
+
+                // Only Untyped non-freestyle cells wear the highlight, so nothing else can have
+                // changed colour with the index.
+                if (source.State == CellState.Untyped && !source.IsFreestyle)
+                    RefreshCell(i);
+            }
         }
 
         public void SetLineDim(float dimAmount)
