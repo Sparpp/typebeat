@@ -21,7 +21,6 @@ using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Localisation;
 using typebeat.Game.Overlays;
-using osuTK.Input;
 
 namespace typebeat.Game.Screens.Edit.Components
 {
@@ -110,21 +109,6 @@ namespace typebeat.Game.Screens.Edit.Components
                 editorClock.AudioAdjustments.RemoveAdjustment(AdjustableProperty.Tempo, tempoAdjustment);
 
             base.Dispose(isDisposing);
-        }
-
-        protected override bool OnKeyDown(KeyDownEvent e)
-        {
-            if (e.Repeat)
-                return false;
-
-            switch (e.Key)
-            {
-                case Key.Space:
-                    togglePause();
-                    return true;
-            }
-
-            return base.OnKeyDown(e);
         }
 
         private void togglePause()
