@@ -116,8 +116,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 // Backlog 174 experiment: the LOCAL DEV BUILD judges each press against its cell's
                 // syllable span; a Release build keeps the classic point-target rule untouched.
-                // JUDGEMENT ONLY, since backlog 175: the lit-syllable look is the separate
-                // CaretStyle.Highlight playhead setting, and neither one implies the other.
+                // JUDGEMENT ONLY, since backlog 175: the lit-syllable look is unconditional
+                // rendering off TypingLine.Syllables (backlog 177) and this flag does not gate it.
                 // The NUnit host is not the dev client: the visual scenes (sync tint, replay
                 // recording) pin the classic ladder Release ships, so the experiment must not
                 // reach them through this seam. Flag-on behaviour is tested at the engine level

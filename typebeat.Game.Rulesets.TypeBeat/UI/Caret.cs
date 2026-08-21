@@ -24,8 +24,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// <see cref="Style"/>, and the two are fed from separate user settings, so the heads can
     /// differ in shape as well as in identity.
     ///
-    /// <para><see cref="CaretStyle.Highlight"/> is the one member this class cannot draw, because it
-    /// is not a shape: it is the sung playhead's "no head at all" choice, handled by hiding this
+    /// <para><see cref="CaretStyle.None"/> is the one member this class cannot draw, because it is
+    /// not a shape: it is the sung playhead's "no head at all" choice, handled by hiding this
     /// drawable in <c>LyricStage</c>. It is still accepted here, drawing nothing.</para>
     /// </summary>
     public partial class Caret : CompositeDrawable
@@ -148,14 +148,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     });
                     break;
 
-                case CaretStyle.Highlight:
-                    // Defensive only. Highlight means "no head at all, light the sung syllable
-                    // group instead", so a caret should never be ASKED to draw it: LyricStage hides
-                    // the sung head outright while that style is selected, and the typing caret's
-                    // dropdown does not offer it. If one does arrive here anyway it must draw
-                    // NOTHING rather than fall out of the switch onto whatever the previous style
-                    // left behind, hence the alpha-0 child: Update() drives the container's own
-                    // alpha, so the invisibility has to live on the shape.
+                case CaretStyle.None:
+                    // Defensive only. None means "no head at all", so a caret should never be ASKED
+                    // to draw it: LyricStage hides the sung head outright while that style is
+                    // selected, and the typing caret's dropdown does not offer it. If one does
+                    // arrive here anyway it must draw NOTHING rather than fall out of the switch
+                    // onto whatever the previous style left behind, hence the alpha-0 child:
+                    // Update() drives the container's own alpha, so the invisibility has to live on
+                    // the shape.
                     visual.X = 0;
                     visual.Width = beam_width;
                     visual.Add(new Box { RelativeSizeAxes = Axes.Both, Alpha = 0f });

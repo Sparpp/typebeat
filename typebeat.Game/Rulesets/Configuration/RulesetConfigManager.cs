@@ -10,6 +10,7 @@ using System.Linq;
 using osu.Framework.Bindables;
 using osu.Framework.Configuration;
 using osu.Framework.Extensions;
+using osu.Framework.Logging;
 using typebeat.Game.Configuration;
 using typebeat.Game.Database;
 
@@ -84,7 +85,20 @@ namespace typebeat.Game.Rulesets.Configuration
 
             if (setting != null)
             {
-                bindable.Parse(setting.Value, CultureInfo.InvariantCulture);
+                try
+                {
+                    bindable.Parse(setting.Value, CultureInfo.InvariantCulture);
+                }
+                catch (Exception e)
+                {
+                    // A databased value that no longer parses must not take the game down on boot.
+                    // The realistic cause is an enum member renamed or removed after a row holding
+                    // its old name was written: Bindable.Parse routes an enum through Enum.Parse,
+                    // which throws ArgumentException on an unknown name rather than falling back.
+                    // Keep the default the bindable already holds, and log rather than swallow it;
+                    // the stale row is overwritten with that fallback on the next save.
+                    Logger.Log($"Ruleset setting {rulesetName}.{lookup} could not be read from its stored value \"{setting.Value}\" ({e.Message}); falling back to the default.", level: LogLevel.Important);
+                }
             }
             else
             {

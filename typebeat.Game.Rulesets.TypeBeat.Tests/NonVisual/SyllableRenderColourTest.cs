@@ -11,18 +11,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
     /// The colour half of the lit-syllable rendering (backlog 174 stage 3, rekeyed off the sung
-    /// playhead style by backlog 175): <see cref="LyricLineDisplay.CellFillColour"/> is the single
-    /// pure function every cell fill routes through, under BOTH sung presentations, so pinning it
-    /// pins the painting.
+    /// playhead style by 175, made unconditional by 177):
+    /// <see cref="LyricLineDisplay.CellFillColour"/> is the single pure function every cell fill
+    /// routes through, so pinning it pins the painting.
     ///
-    /// <para>Two contracts live here. Under the <c>CaretStyle.Highlight</c> playhead style: an
-    /// Untyped cell of the group currently being sung is the palette white, Untyped anywhere else
-    /// the untyped grey, Correct the flat green (no sync ramp: a highlighted group reads as one
-    /// unit, and under syllable judgement its presses are all delta 0), Wrong the classic red, and
-    /// freestyle keeps its violet identity. Highlight OFF, which is every other playhead style: the
-    /// function is byte-identical to the pre-174 painting, sync-tint ramp included, and the
-    /// sung-syllable input has no effect whatsoever, which is what guarantees a player who never
-    /// picks the style sees exactly today's rendering.</para>
+    /// <para>There is ONE rule now rather than two presentations to choose between, which is why
+    /// this fixture no longer sweeps a mode axis: the pre-174 painting, sync-tint ramp included,
+    /// plus the currently sung group's UNTYPED cells lighting the palette white. A player who never
+    /// opens the playhead dropdown therefore sees exactly today's colours with the lit group added,
+    /// and the one who sets the playhead to <c>CaretStyle.None</c> sees the same colours again: that
+    /// style subtracts the caret and the sweep, neither of which is decided here.</para>
+    ///
+    /// <para>The Correct state deliberately has NO highlight colour of its own (backlog 176a removed
+    /// the flat green it briefly had). It rides the sync-tint ramp wherever it sits, and the ramp at
+    /// quality 1 is the palette white exactly, so a char typed on the beat inside the sung span
+    /// already matches the highlight. That equality is pinned below rather than left as a reading of
+    /// the ramp maths.</para>
     /// </summary>
     [TestFixture]
     public class SyllableRenderColourTest
@@ -30,15 +34,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static readonly CellState[] all_states =
             (CellState[])Enum.GetValues(typeof(CellState));
 
-        private static Color4 fill(CellState state, bool highlightMode, bool inSung, double? quality = null, bool freestyle = false)
-            => LyricLineDisplay.CellFillColour(state, freestyle, highlightMode, inSung, quality);
+        private static Color4 fill(CellState state, bool inSung, double? quality = null, bool freestyle = false)
+            => LyricLineDisplay.CellFillColour(state, freestyle, inSung, quality);
 
-        // --- Highlight playhead style ---
+        // --- the lit group ---
 
         [Test]
         public void SungSyllablesUntypedCellsAreThePaletteWhite()
         {
-            Assert.That(fill(CellState.Untyped, highlightMode: true, inSung: true),
+            Assert.That(fill(CellState.Untyped, inSung: true),
                 Is.EqualTo(TypeBeatStyle.TypedChar), "the sung group's untyped cells light white");
         }
 
@@ -46,140 +50,98 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void UntypedCellsOutsideTheSungGroupStayTheUntypedGrey()
         {
             // Not yet sung and already sung past are the same input here: not the current group.
-            Assert.That(fill(CellState.Untyped, highlightMode: true, inSung: false),
+            Assert.That(fill(CellState.Untyped, inSung: false),
                 Is.EqualTo(TypeBeatStyle.UntypedChar));
         }
 
         [Test]
-        public void CorrectIsTheFlatGreenRegardlessOfSyllableOrQuality()
+        public void TheHighlightAndAnOnTheBeatCorrectCharAreTheSameWhite()
         {
-            var green = TypeBeatStyle.SyllableCorrectChar;
+            // Backlog 176a, made explicit: "it is OK for the highlight and correct colours to both
+            // be white". There is no separate correct colour to keep in step with the highlight,
+            // because the ramp's top IS the highlight's white, and under syllable judgement every
+            // press inside the sung span is delta 0 and therefore quality 1. So the two readings of
+            // "white" agree by construction rather than by a constant copied between them.
+            Assert.That(LyricLineDisplay.CorrectCharColour(1), Is.EqualTo(TypeBeatStyle.TypedChar),
+                "the top of the sync ramp is the palette white exactly");
+            Assert.That(fill(CellState.Correct, inSung: true, quality: 1),
+                Is.EqualTo(fill(CellState.Untyped, inSung: true)),
+                "a correct on-the-beat char inside the sung group matches the group's own white");
+        }
 
-            // Flat: no sync-tint ramp under the highlight. In-span presses (under syllable
-            // judgement) are all delta 0, so a quality ramp would collapse to one point; out-of-span
-            // deltas exist but grading them by brightness would contradict "the whole span is
-            // perfect".
-            foreach (bool inSung in new[] { true, false })
+        [Test]
+        public void CorrectRidesTheSyncTintRampWhereverItSits()
+        {
+            // The ramp is not overridden inside the sung group either: an off-span press still reads
+            // as the dimmer colour it earned, which is exactly the signal a flat fill would have
+            // thrown away, and classic judgement keeps its whole ramp untouched.
+            foreach (double q in new[] { 0, 0.25, 0.5, 0.75, 1 })
             {
-                Assert.That(fill(CellState.Correct, true, inSung, quality: null), Is.EqualTo(green));
-                Assert.That(fill(CellState.Correct, true, inSung, quality: 0), Is.EqualTo(green));
-                Assert.That(fill(CellState.Correct, true, inSung, quality: 0.5), Is.EqualTo(green));
-                Assert.That(fill(CellState.Correct, true, inSung, quality: 1), Is.EqualTo(green));
+                foreach (bool inSung in new[] { true, false })
+                {
+                    Assert.That(fill(CellState.Correct, inSung, quality: q),
+                        Is.EqualTo(LyricLineDisplay.CorrectCharColour(q)), $"quality {q}, inSung={inSung}");
+                }
             }
+
+            // The cannot-arise fallback (a Correct cell with no delta): the flat typed colour, not
+            // the dull ramp floor.
+            Assert.That(fill(CellState.Correct, inSung: false, quality: null), Is.EqualTo(TypeBeatStyle.TypedChar));
+            Assert.That(fill(CellState.Correct, inSung: true, quality: null), Is.EqualTo(TypeBeatStyle.TypedChar));
         }
 
         [Test]
         public void WrongIsTheClassicErrorRedInBothPositions()
         {
-            Assert.That(fill(CellState.Wrong, true, inSung: true), Is.EqualTo(TypeBeatStyle.ErrorChar));
-            Assert.That(fill(CellState.Wrong, true, inSung: false), Is.EqualTo(TypeBeatStyle.ErrorChar));
+            Assert.That(fill(CellState.Wrong, inSung: true), Is.EqualTo(TypeBeatStyle.ErrorChar));
+            Assert.That(fill(CellState.Wrong, inSung: false), Is.EqualTo(TypeBeatStyle.ErrorChar));
         }
 
         [Test]
         public void TheLostAndGivenUpStatesKeepTheGreyEvenInsideTheSungGroup()
         {
-            // Their alphas (unchanged under the highlight) carry the state; the sung highlight is only
-            // for characters that can still be typed on time.
+            // Their alphas (unchanged) carry the state; the highlight is only for characters that
+            // can still be typed on time.
             foreach (var state in new[] { CellState.Missed, CellState.Abandoned, CellState.AutoSkipped })
             {
-                Assert.That(fill(state, true, inSung: true), Is.EqualTo(TypeBeatStyle.UntypedChar), $"{state} inside the sung group");
-                Assert.That(fill(state, true, inSung: false), Is.EqualTo(TypeBeatStyle.UntypedChar), $"{state} outside it");
+                Assert.That(fill(state, inSung: true), Is.EqualTo(TypeBeatStyle.UntypedChar), $"{state} inside the sung group");
+                Assert.That(fill(state, inSung: false), Is.EqualTo(TypeBeatStyle.UntypedChar), $"{state} outside it");
             }
         }
 
         [Test]
-        public void FreestyleKeepsItsVioletIdentityInEveryStateAndBothModes()
+        public void FreestyleKeepsItsVioletIdentityInEveryState()
         {
-            // The violet says "this slot was free", an identity, not a state; neither the sync
-            // ramp nor the syllable highlight may repaint it. An exclusion, not an oversight.
+            // The violet says "this slot was free", an identity, not a state; neither the sync ramp
+            // nor the syllable highlight may repaint it. An exclusion, not an oversight.
             foreach (var state in all_states)
             {
-                foreach (bool highlight in new[] { true, false })
+                foreach (bool inSung in new[] { true, false })
                 {
-                    foreach (bool inSung in new[] { true, false })
-                    {
-                        Assert.That(fill(state, highlight, inSung, quality: 0.5, freestyle: true),
-                            Is.EqualTo(TypeBeatStyle.FreestyleChar), $"{state}, highlightMode={highlight}, inSung={inSung}");
-                    }
+                    Assert.That(fill(state, inSung, quality: 0.5, freestyle: true),
+                        Is.EqualTo(TypeBeatStyle.FreestyleChar), $"{state}, inSung={inSung}");
                 }
             }
         }
 
-        // --- Highlight OFF (every other playhead style): byte-identical to the pre-174 painting ---
-
         [Test]
-        public void HighlightOffCorrectRidesTheSyncTintRampExactly()
+        public void TheSungGroupOnlyEverRepaintsUntypedCells()
         {
-            foreach (double q in new[] { 0, 0.25, 0.5, 0.75, 1 })
-            {
-                Assert.That(fill(CellState.Correct, highlightMode: false, inSung: false, quality: q),
-                    Is.EqualTo(LyricLineDisplay.CorrectCharColour(q)), $"quality {q}");
-            }
-
-            // The cannot-arise fallback (a Correct cell with no delta): the flat typed colour, not
-            // the dull ramp floor.
-            Assert.That(fill(CellState.Correct, highlightMode: false, inSung: false, quality: null),
-                Is.EqualTo(TypeBeatStyle.TypedChar));
-        }
-
-        [Test]
-        public void HighlightOffPaintsEveryOtherStateExactlyAsToday()
-        {
-            Assert.That(fill(CellState.Wrong, false, false), Is.EqualTo(TypeBeatStyle.ErrorChar));
-
-            foreach (var state in new[] { CellState.Untyped, CellState.Missed, CellState.Abandoned, CellState.AutoSkipped })
-                Assert.That(fill(state, false, false), Is.EqualTo(TypeBeatStyle.UntypedChar), state.ToString());
-        }
-
-        [Test]
-        public void HighlightOffTheSungSyllableInputHasNoEffectAtAll()
-        {
-            // The one input the experiment added must be inert under every other playhead style, for
-            // every state and along the ramp; this is what keeps their rendering byte-identical to
-            // today.
+            // The one input the highlight added is inert in every OTHER state, along the whole ramp.
+            // That is what keeps the rest of the rendering byte-identical to the pre-174 painting
+            // now that the highlight is on under every playhead style rather than under one.
             foreach (var state in all_states)
             {
+                if (state == CellState.Untyped)
+                    continue;
+
                 foreach (double? q in new double?[] { null, 0, 0.5, 1 })
                 {
-                    Assert.That(fill(state, false, inSung: true, quality: q),
-                        Is.EqualTo(fill(state, false, inSung: false, quality: q)),
+                    Assert.That(fill(state, inSung: true, quality: q),
+                        Is.EqualTo(fill(state, inSung: false, quality: q)),
                         $"{state}, quality {q?.ToString() ?? "null"}");
                 }
             }
-        }
-
-        // --- The green itself: legible and unmistakable ---
-
-        private static double toLinear(double channel)
-            => channel <= 0.04045 ? channel / 12.92 : Math.Pow((channel + 0.055) / 1.055, 2.4);
-
-        private static double luminance(Color4 c)
-            => 0.2126 * toLinear(c.R) + 0.7152 * toLinear(c.G) + 0.0722 * toLinear(c.B);
-
-        private static double contrast(Color4 a, Color4 b)
-        {
-            double la = luminance(a);
-            double lb = luminance(b);
-            return (Math.Max(la, lb) + 0.05) / (Math.Min(la, lb) + 0.05);
-        }
-
-        [Test]
-        public void TheGreenReadsAgainstThePlayfieldAndMatchesNoOtherVoice()
-        {
-            var green = TypeBeatStyle.SyllableCorrectChar;
-
-            // Body-text legibility on the serika-dark panel (measured ~6.2:1; the >= 4.5 is the
-            // contract, WCAG's AA bar for text).
-            Assert.That(contrast(green, TypeBeatStyle.Background), Is.GreaterThanOrEqualTo(4.5));
-
-            // Every colour a character (or the sweep/caret beside it) can wear must stay
-            // unmistakable from it.
-            foreach (var other in new[]
-                     {
-                         TypeBeatStyle.UntypedChar, TypeBeatStyle.TypedChar, TypeBeatStyle.ErrorChar,
-                         TypeBeatStyle.Caret, TypeBeatStyle.SungAccent, TypeBeatStyle.FreestyleChar,
-                     })
-                Assert.That(green, Is.Not.EqualTo(other));
         }
     }
 }
