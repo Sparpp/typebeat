@@ -4,6 +4,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
+using osu.Framework.Development;
 using osu.Framework.Input;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Mods;
@@ -111,7 +112,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // cells and the nested scoring objects are flattened identically by construction.
             bool literate = Mods?.Any(m => m is TypeBeatModLiterate) == true;
 
-            return new TypingEngine(lyricBeatmap, literate);
+            return new TypingEngine(lyricBeatmap, literate)
+            {
+                // Backlog 174 experiment: the LOCAL DEV BUILD judges each press against its cell's
+                // syllable span; a Release build keeps the classic point-target rule untouched.
+                // The NUnit host is not the dev client: the visual scenes (sync tint, replay
+                // recording) pin the classic ladder Release ships, so the experiment must not
+                // reach them through this seam. Flag-on behaviour is tested at the engine level
+                // (SyllableTimingTest), where the flag is set explicitly.
+                SyllableTiming = DebugUtils.IsDebugBuild && !DebugUtils.IsNUnitRunning,
+            };
         }
     }
 }

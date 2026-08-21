@@ -73,6 +73,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public WordSkipRule WordSkip { get; set; } = WordSkipRule.Reclaimable;
 
         /// <summary>
+        /// EXPERIMENT (backlog 174): judge each keypress against its cell's SYLLABLE time span
+        /// instead of the cell's point target. Characters belong to a syllable
+        /// (<see cref="TypingLine.Syllables"/>), and any character of a syllable is perfectly timed
+        /// while that syllable is being sung: the judged delta is 0 anywhere inside
+        /// [<see cref="SyllableGroup.StartTime"/>, <see cref="SyllableGroup.EndTime"/>]
+        /// (edge-inclusive) and the signed distance to the nearer edge outside it, fed through the
+        /// same <see cref="SyncWindows.Classify"/> ladder and stored in
+        /// <see cref="TypingCell.JudgedDelta"/> like any point delta, so points, combo, the sync
+        /// readouts and the results screen all work unmodified. A cell in no group (space cells;
+        /// any line with no groups) keeps the classic point delta.
+        ///
+        /// <para>FALSE by default, and era-styled like <see cref="SpaceTiming"/>: set before the
+        /// first keypress and left alone afterwards, judgements already made are never revisited.
+        /// <see cref="Scoring.TypeBeatReplayScorer"/> always leaves it false, because every stored
+        /// score was judged under the classic point rule; only the live dev build turns it on
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c>).</para>
+        /// </summary>
+        public bool SyllableTiming { get; set; }
+
+        /// <summary>
         /// Whether the spacebar is inside the timing challenge (see <see cref="ProcessKey"/>).
         /// <see cref="SpaceTimingRule.Untimed"/> is the live rule (backlog 148) and the default; only
         /// <see cref="Scoring.TypeBeatReplayScorer"/> ever sets the other one, to re-derive a score
@@ -1291,7 +1311,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 cell = line.Cells[caretIndex];
             }
 
-            double delta = time - cell.TargetTime;
+            double delta = judgedDeltaFor(line, caretIndex, time);
             // FREESTYLE cell: every char EXCEPT SPACE matches, in any case, under every mod (so the
             // Literate mod's exact-case rule and the allow-wrong-input path are both bypassed for
             // it). The press is then judged exactly like a correct char: same windows, points,
@@ -1762,6 +1782,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             return (uint)index < (uint)windowsByGranularity.Length
                 ? windowsByGranularity[index]
                 : windowsByGranularity[(int)TimingGranularity.Line];
+        }
+
+        /// <summary>
+        /// The delta a press on cell <paramref name="cellIndex"/> is judged, stored and announced
+        /// on. Classic rule: time minus the cell's point target. Under <see cref="SyllableTiming"/>
+        /// a cell inside a syllable group is judged against the group's sung SPAN instead: 0
+        /// anywhere inside [StartTime, EndTime] (edge-inclusive), the signed distance to the nearer
+        /// edge outside it (negative early, positive late), so the same asymmetric
+        /// <see cref="SyncWindows.Classify"/> ladder grades distance from the syllable's edge. A
+        /// cell in no group (space cells; any line without groups) keeps the point delta under
+        /// either rule.
+        /// </summary>
+        private double judgedDeltaFor(TypingLine line, int cellIndex, double time)
+        {
+            if (SyllableTiming)
+            {
+                int syllable = line.SyllableIndexOf(cellIndex);
+
+                if (syllable >= 0)
+                {
+                    var group = line.Syllables[syllable];
+
+                    if (time < group.StartTime)
+                        return time - group.StartTime;
+
+                    if (time > group.EndTime)
+                        return time - group.EndTime;
+
+                    return 0;
+                }
+            }
+
+            return time - line.Cells[cellIndex].TargetTime;
         }
 
         /// <summary>Rebuild the per-granularity ladders (and <see cref="Windows"/>) at the current scale.</summary>

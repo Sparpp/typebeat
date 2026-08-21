@@ -93,6 +93,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
     }
 
+    /// <summary>
+    /// One sung syllable of a <see cref="TypingLine"/> (backlog 174): the half-open cell range
+    /// [<see cref="StartCell"/>, <see cref="EndCellExclusive"/>) it owns and the time span
+    /// [<see cref="StartTime"/>, <see cref="EndTime"/>] it is sung over. Under
+    /// <see cref="TypingEngine.SyllableTiming"/> a keypress on one of its cells is judged against
+    /// that span: delta 0 anywhere inside it, distance to the nearer edge outside it.
+    /// </summary>
+    public readonly record struct SyllableGroup(int StartCell, int EndCellExclusive, double StartTime, double EndTime);
+
     public sealed class TypingLine
     {
         public LyricLine Source { get; }
@@ -140,15 +149,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public int TypeableCount { get; }
 
         /// <summary>
+        /// The line's SYLLABLE groups (backlog 174): ordered, non-overlapping cell ranges, one per
+        /// syllable of each whitespace token, with the time span each syllable is sung over. Built
+        /// ALWAYS (cheap, pure) regardless of engine mode, so rendering and tests can read them even
+        /// when <see cref="TypingEngine.SyllableTiming"/> is off. Every typeable non-space cell
+        /// belongs to exactly one group; a SPACE cell (the inter-word gap, or a hyphen turned into a
+        /// typed space) belongs to none, so membership must be read through
+        /// <see cref="SyllableIndexOf"/> rather than by range: a mid-token hyphen-space can sit
+        /// positionally inside a group's cell range while being in no group.
+        /// </summary>
+        public IReadOnlyList<SyllableGroup> Syllables { get; }
+
+        /// <summary>Per display cell, the index into <see cref="Syllables"/> or -1 (space cells; punctuation-only groups the default stream deleted).</summary>
+        private readonly int[] cellSyllable;
+
+        /// <summary>
+        /// Index into <see cref="Syllables"/> of the group that judges cell
+        /// <paramref name="cellIndex"/>, or -1 when the cell is in no group (space cells, and any
+        /// out-of-range index).
+        /// </summary>
+        public int SyllableIndexOf(int cellIndex)
+            => cellIndex >= 0 && cellIndex < cellSyllable.Length ? cellSyllable[cellIndex] : -1;
+
+        /// <summary>
         /// Piecewise-linear anchor points for <see cref="SungPositionAt"/>:
         /// (StartTime, 0), each typeable cell's (TargetTime, displayIndex), (SingEndTime, Cells.Count).
         /// Times are clamped monotonic non-decreasing at construction.
         /// </summary>
         private readonly List<(double time, double index)> sungPoints;
 
-        private TypingLine(LyricLine source, IReadOnlyList<TypingCell> cells, double sealGraceMs)
+        private TypingLine(LyricLine source, IReadOnlyList<TypingCell> cells, double sealGraceMs, SyllableGroup[] syllables, int[] cellSyllable)
         {
             Source = source;
+            Syllables = syllables;
+            this.cellSyllable = cellSyllable;
 
             var display = new System.Text.StringBuilder(cells.Count);
 
@@ -380,6 +414,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             TypingCell[] cells;
+            List<int>? defaultSources = null;
 
             if (literate)
             {
@@ -399,6 +434,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 var sb = new System.Text.StringBuilder(n);
                 var sources = new List<int>(n);
                 Typeability.ProjectDefault(text, sb, sources);
+                defaultSources = sources;
 
                 cells = new TypingCell[sources.Count];
 
@@ -424,7 +460,178 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 break;
             }
 
-            return new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms));
+            var (syllables, cellSyllable) = buildSyllables(line, tokens, cells, defaultSources);
+
+            return new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), syllables, cellSyllable);
+        }
+
+        /// <summary>
+        /// Groups the line's cells into SYLLABLES (backlog 174): per whitespace token, the
+        /// <see cref="Syllabifier"/> decides WHICH characters form each syllable and the timing
+        /// data decides WHEN it is sung. Pure derivation: no <see cref="TypingCell.TargetTime"/>
+        /// moves, the classic sweep and every readout built on it stay byte-identical.
+        ///
+        /// <para>A token whose unit carries mapper subtimings
+        /// (<see cref="TimedUnit.SyllableBoundaries"/>, N boundaries = N + 1 syllables) is split
+        /// with the count FORCED to N + 1: the mapper's boundary times are the window edges, so
+        /// syllable i spans [edge_i, edge_i+1] with edge_0 the unit's StartTime, the interior edges
+        /// the boundary times themselves, and the last edge the unit's EndTime. When the
+        /// syllabifier degrades to G &lt; N + 1 groups (an over-forced short word) the first G - 1
+        /// boundary times are the interior edges and the last group runs to the unit's EndTime.</para>
+        ///
+        /// <para>A token WITHOUT subtimings is split naturally and each group's span is read off
+        /// the EXISTING flat-ramp char targets: it starts at its first cell's TargetTime and ends
+        /// where the next group starts (last group of the token: the unit's EndTime), so this case
+        /// is exactly "group the chars you already timed" and nothing moves.</para>
+        ///
+        /// <para>Split indices index the TOKEN string and are mapped to cells through the same
+        /// projection that assigned the targets, so punctuation (and, under Literate, its extra
+        /// cells) lands inside the syllable of the letter it attaches to. A SPACE cell (the
+        /// inter-word gap, or a hyphen turned into a typed space) belongs to NO group. A group
+        /// whose every character the default stream deleted (forced splits can isolate punctuation)
+        /// is dropped. Kept spans are clamped monotonic non-decreasing across the line, the same
+        /// guard the targets themselves get against inverted data.</para>
+        /// </summary>
+        private static (SyllableGroup[] groups, int[] cellSyllable) buildSyllables(LyricLine line, string[] tokens, TypingCell[] cells, List<int>? defaultSources)
+        {
+            var units = line.Units;
+            int[] rawGroup = new int[line.RawText.Length];
+            Array.Fill(rawGroup, -1);
+
+            // Provisional groups in token order: span edges, and whether the span is still to be
+            // resolved from cell targets (NaN start; NaN end = "the next group's start").
+            var starts = new List<double>();
+            var ends = new List<double>();
+            int tokStart = 0;
+
+            for (int m = 0; m < tokens.Length; m++)
+            {
+                string token = tokens[m];
+
+                // Same malformed-data clamp as the target-time walk above.
+                TimedUnit? unit = units.Count > 0 ? units[Math.Min(m, units.Count - 1)] : null;
+
+                double unitStart = unit?.StartTime ?? line.StartTime;
+                double unitEnd = unit?.EndTime ?? line.SingEndTime;
+                var boundaries = unit?.SyllableBoundaries ?? Array.Empty<double>();
+
+                if (token.Length > 0)
+                {
+                    bool subtimed = boundaries.Count > 0;
+
+                    var splits = subtimed
+                        ? Syllabifier.SplitPoints(token, boundaries.Count + 1)
+                        : Syllabifier.SplitPoints(token);
+
+                    int groupBase = starts.Count;
+                    int groupCount = splits.Count + 1;
+
+                    for (int g = 0; g < groupCount; g++)
+                    {
+                        if (subtimed)
+                        {
+                            starts.Add(g == 0 ? unitStart : boundaries[g - 1]);
+                            ends.Add(g == groupCount - 1 ? unitEnd : boundaries[g]);
+                        }
+                        else
+                        {
+                            starts.Add(double.NaN);
+                            ends.Add(g == groupCount - 1 ? unitEnd : double.NaN);
+                        }
+                    }
+
+                    // Token char t belongs to the group of the last split at or before it, so
+                    // punctuation (transparent to the syllabifier) attaches to the syllable that
+                    // surrounds it.
+                    int inGroup = 0;
+
+                    for (int t = 0; t < token.Length; t++)
+                    {
+                        if (inGroup < splits.Count && t == splits[inGroup])
+                            inGroup++;
+
+                        rawGroup[tokStart + t] = groupBase + inGroup;
+                    }
+                }
+
+                tokStart += token.Length + 1; // the inter-word space raw char stays in no group
+            }
+
+            // Map raw-index groups onto cells through the same projection that assigned the
+            // targets. A SPACE cell is in no group whatever raw char produced it (hyphens too).
+            int[] cellSyllable = new int[cells.Length];
+            Array.Fill(cellSyllable, -1);
+
+            for (int i = 0; i < cells.Length; i++)
+            {
+                if (!cells[i].IsTypeable || cells[i].Expected == ' ')
+                    continue;
+
+                int src = defaultSources?[i] ?? i;
+                cellSyllable[i] = rawGroup[src];
+            }
+
+            int provisional = starts.Count;
+            int[] firstCell = new int[provisional];
+            int[] lastCell = new int[provisional];
+            Array.Fill(firstCell, -1);
+
+            for (int i = 0; i < cellSyllable.Length; i++)
+            {
+                int g = cellSyllable[i];
+
+                if (g < 0)
+                    continue;
+
+                if (firstCell[g] < 0)
+                    firstCell[g] = i;
+
+                lastCell[g] = i;
+            }
+
+            // Resolve the target-derived spans. Starts first (a group starts at its first cell's
+            // target), then the NaN ends: only a non-last group of an un-subtimed token has one,
+            // and its successor sits in the same token and always owns a letter or digit cell
+            // (natural splits land on letters/digits, which every projection keeps), so its start
+            // is known; the fallback degenerate span is defensive only.
+            for (int g = 0; g < provisional; g++)
+            {
+                if (double.IsNaN(starts[g]) && firstCell[g] >= 0)
+                    starts[g] = cells[firstCell[g]].TargetTime;
+            }
+
+            for (int g = 0; g < provisional; g++)
+            {
+                if (!double.IsNaN(ends[g]))
+                    continue;
+
+                double next = g + 1 < provisional ? starts[g + 1] : double.NaN;
+                ends[g] = double.IsNaN(next) ? starts[g] : next;
+            }
+
+            // Compact to the groups that own at least one cell, clamping spans monotonic.
+            var groups = new List<SyllableGroup>(provisional);
+            int[] remap = new int[provisional];
+            Array.Fill(remap, -1);
+            double clock = double.NegativeInfinity;
+
+            for (int g = 0; g < provisional; g++)
+            {
+                if (firstCell[g] < 0 || double.IsNaN(starts[g]))
+                    continue;
+
+                double start = Math.Max(starts[g], clock);
+                double end = Math.Max(double.IsNaN(ends[g]) ? start : ends[g], start);
+                clock = end;
+
+                remap[g] = groups.Count;
+                groups.Add(new SyllableGroup(firstCell[g], lastCell[g] + 1, start, end));
+            }
+
+            for (int i = 0; i < cellSyllable.Length; i++)
+                cellSyllable[i] = cellSyllable[i] >= 0 ? remap[cellSyllable[i]] : -1;
+
+            return (groups.ToArray(), cellSyllable);
         }
 
         /// <summary>
