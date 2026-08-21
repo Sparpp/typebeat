@@ -21,6 +21,7 @@ using NUnit.Framework;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Beatmaps.ControlPoints;
 using typebeat.Game.Replays;
+using typebeat.Game.Replays.Legacy;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Objects;
 using typebeat.Game.Rulesets.Scoring;
@@ -47,6 +48,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private const string word = "abcdefghijkl";
 
         private const double line_zero_end = 300000;
+
+        /// <summary>The clean run's submitted total, hardcoded because the point of
+        /// <see cref="AStoredRunReDerivesToItsStoredTotals"/> is that no era arm may move it.</summary>
+        private const long clean_run_total_score = 1000000;
 
         private static TypeBeatBeatmap beatmap()
         {
@@ -108,6 +113,57 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         private static int count(TypeBeatReplayAccount account, HitResult result)
             => account.Statistics.GetValueOrDefault(result);
+
+        /// <summary>
+        /// The user's own example (backlog 179): "cake", ONE word and ONE syllable (the final e is
+        /// silent, so the syllabifier does not split it), sung over [1000, 3000]. The flat char ramp
+        /// puts the point targets at 1000 / 1500 / 2000 / 2500, and the group's span runs from its
+        /// first cell's target to the unit's end, so it is [1000, 3000]: every one of those targets
+        /// sits inside it, which is what makes the same four keystrokes classify differently under
+        /// the two rules.
+        /// </summary>
+        private static TypeBeatBeatmap cake()
+        {
+            var line = new LyricLine
+            {
+                RawText = "cake",
+                StartTime = 0,
+                EndTime = 60000,
+                SingEndTime = 3000,
+                Units = new[] { new TimedUnit { Text = "cake", StartTime = 1000, EndTime = 3000 } },
+            };
+
+            var map = new TypeBeatBeatmap();
+            map.HitObjects.Add(new TypeBeatHitObject { StartTime = 0, LineIndex = 0, Line = line, Granularity = TimingGranularity.Line });
+
+            foreach (var hitObject in map.HitObjects)
+                hitObject.ApplyDefaults(new ControlPointInfo(), new BeatmapDifficulty(), CancellationToken.None);
+
+            return map;
+        }
+
+        /// <summary>
+        /// The four presses that spell "cake" in one flurry near the top of the syllable: on the
+        /// beat, then 300, 550 and 900 milliseconds AHEAD of each following cell's point target,
+        /// and all four inside the sung span. <paramref name="flags"/> is the CONFIG frame's flags
+        /// word, taken through the LEGACY DECODE so the era arm is the one a stored .osr really
+        /// produces rather than one the test constructs.
+        /// </summary>
+        private static Replay cakeRun(int flags)
+        {
+            var config = new TypeBeatReplayFrame();
+            config.FromLegacy(new LegacyReplayFrame(0, (float)TypeBeatReplayFrame.CONFIG, flags, ReplayButtonState.None), new Beatmap());
+            config.Time = 0;
+
+            return replay(new List<TypeBeatReplayFrame>
+            {
+                config,
+                new TypeBeatReplayFrame(1000, 'c'), // target 1000: delta 0 under either rule
+                new TypeBeatReplayFrame(1200, 'a'), // target 1500: 300 early
+                new TypeBeatReplayFrame(1450, 'k'), // target 2000: 550 early
+                new TypeBeatReplayFrame(1600, 'e'), // target 2500: 900 early
+            });
+        }
 
         #endregion
 
@@ -689,5 +745,115 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(HitResult.IgnoreHit.AffectsAccuracy(), Is.False);
             });
         }
+
+        #region Backlog 179: the syllable span is the live rule, and the replay carries its era
+
+        /// <summary>
+        /// The rule in one word. Every character of "cake" is typed while "cake" is being sung, so
+        /// every one of them is PERFECT: four Greats, delta 0, and the osu-side accuracy that
+        /// follows from a statistics dictionary with nothing but Greats in it. Three of the four
+        /// presses are hundreds of milliseconds ahead of the cell's own point target, which is the
+        /// whole difference: the classic rule prices that distance, the live rule does not, because
+        /// the syllable is what the player is hearing.
+        ///
+        /// <para>The era arrives the way it does in production, on the replay's own CONFIG frame
+        /// (flags bit 2), not as an argument to the scorer.</para>
+        /// </summary>
+        [Test]
+        public void AWordTypedWhileItsSyllableIsSungIsPerfect()
+        {
+            // 1 = allow wrong input, 4 = syllable timing: exactly what the live client records.
+            var account = score(cake(), cakeRun(5), TypoRule.Deferred);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(count(account, HitResult.Great), Is.EqualTo(4));
+                Assert.That(count(account, HitResult.Ok), Is.Zero);
+                Assert.That(count(account, HitResult.Meh), Is.Zero);
+                Assert.That(count(account, HitResult.Miss), Is.Zero);
+                Assert.That(account.Accuracy, Is.EqualTo(1));
+                Assert.That(account.TotalScore, Is.EqualTo(1000000));
+                Assert.That(account.MaxCombo, Is.EqualTo(4));
+                Assert.That(account.Completion, Is.EqualTo(1));
+                Assert.That(account.Rank, Is.EqualTo(ScoreRank.X));
+                Assert.That(account.UnconsumedFrames, Is.Zero);
+            });
+        }
+
+        /// <summary>
+        /// The other side of the same seam, and the reason stored rows are safe: the SAME four
+        /// keystrokes, re-derived from a replay whose flags word is one of the four that existed
+        /// before backlog 179, are classified by point deltas exactly as they always were. 0 is a
+        /// Great, 300 and 550 early are Oks (the Line tier's Great window is 250 early), 900 early
+        /// is a Meh (its Ok window is 600 early), so the run is worth less than an SS and its
+        /// accuracy is below 1. Bit 2 is absent from every one of those words, and absent means
+        /// classic.
+        /// </summary>
+        [TestCase(0)]
+        [TestCase(1)]
+        [TestCase(2)]
+        [TestCase(3)]
+        public void ALegacyFlagsWordReDerivesOnPointDeltasExactlyAsBefore(int storedFlags)
+        {
+            var account = score(cake(), cakeRun(storedFlags), TypoRule.Deferred);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(count(account, HitResult.Great), Is.EqualTo(1));
+                Assert.That(count(account, HitResult.Ok), Is.EqualTo(2));
+                Assert.That(count(account, HitResult.Meh), Is.EqualTo(1));
+                Assert.That(count(account, HitResult.Miss), Is.Zero);
+                // 300 + 100 + 100 + 50 out of 4 * 300, the osu weights the four results carry.
+                Assert.That(account.Accuracy, Is.EqualTo(550 / 1200.0).Within(1e-9));
+                // The whole submitted total, hardcoded: this is the number a stored row holds,
+                // where the same four keystrokes under the live rule are worth the full 1000000.
+                Assert.That(account.TotalScore, Is.EqualTo(239280));
+                Assert.That(account.MaxCombo, Is.EqualTo(4));
+                Assert.That(account.UnconsumedFrames, Is.Zero);
+            });
+        }
+
+        /// <summary>
+        /// The identity pin, on a fixture that predates the rule: the twelve-cell clean run's
+        /// account is BIT-FOR-BIT what it was before syllable-span judgement existed, for every
+        /// flags word a stored replay can carry. This is the guarantee the recalculation tool rests
+        /// on, so it is asserted on the whole submitted account (statistics, max combo, total score,
+        /// completion, rank), not just on the parts this change could plausibly have moved.
+        /// </summary>
+        [TestCase(0)]
+        [TestCase(1)]
+        [TestCase(2)]
+        [TestCase(3)]
+        public void AStoredRunReDerivesToItsStoredTotals(int storedFlags)
+        {
+            var map = beatmap();
+            var targets = lineZeroTargets(map);
+
+            var config = new TypeBeatReplayFrame();
+            config.FromLegacy(new LegacyReplayFrame(0, (float)TypeBeatReplayFrame.CONFIG, storedFlags, ReplayButtonState.None), new Beatmap());
+            config.Time = 0;
+
+            var frames = new List<TypeBeatReplayFrame> { config };
+
+            for (int i = 0; i < word.Length; i++)
+                frames.Add(new TypeBeatReplayFrame(targets[i], word[i]));
+
+            frames.Add(new TypeBeatReplayFrame(line_zero_end, 'z'));
+
+            var account = score(map, replay(frames), TypoRule.Deferred);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(count(account, HitResult.Great), Is.EqualTo(13));
+                Assert.That(count(account, HitResult.Miss), Is.Zero);
+                Assert.That(account.MaxCombo, Is.EqualTo(13));
+                Assert.That(account.TotalScore, Is.EqualTo(clean_run_total_score));
+                Assert.That(account.Completion, Is.EqualTo(1));
+                Assert.That(account.Rank, Is.EqualTo(ScoreRank.X));
+                Assert.That(account.UnconsumedFrames, Is.Zero);
+            });
+        }
+
+        #endregion
     }
 }

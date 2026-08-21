@@ -19,8 +19,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <c>RecordFrame(true)</c> calls find no pending event and record nothing.
     ///
     /// The first recorded event is preceded by a CONFIG frame capturing the engine's
-    /// judgement-relevant settings (allow-wrong-input and space-skips-word), so playback can
-    /// reproduce judgement regardless of the watching machine's local config.
+    /// judgement-relevant settings (allow-wrong-input, space-skips-word and syllable-span timing),
+    /// so playback can reproduce judgement regardless of the watching machine's local config, and
+    /// regardless of which JUDGEMENT ERA the client watching it ships.
     /// </summary>
     public partial class TypeBeatReplayRecorder : ReplayRecorder<TypeBeatAction>
     {
@@ -45,7 +46,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             if (!configEmitted)
             {
                 configEmitted = true;
-                emit(TypeBeatReplayFrame.CreateConfigFrame(time, engine.AllowWrongInput, engine.SpaceSkipsWord));
+                emit(TypeBeatReplayFrame.CreateConfigFrame(time, engine.AllowWrongInput, engine.SpaceSkipsWord, engine.SyllableTiming));
             }
 
             emit(new TypeBeatReplayFrame(time, character));

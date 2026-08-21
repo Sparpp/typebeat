@@ -38,6 +38,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// manager, because the whole point is a controlled delta and the real input path can only press
     /// "now". The event chain under test (ProcessKey writes the delta, raises CharJudged, the stage
     /// repaints the cell) is entirely unchanged by that.</para>
+    ///
+    /// <para>WHERE a controlled delta lives moved with backlog 179, which made syllable-span
+    /// judgement the live rule this scene's real drawable ruleset builds: a press anywhere inside a
+    /// grouped cell's sung span is delta 0, so "target time plus an offset" no longer names an
+    /// offset at all here (this line's one group covers the whole song). The presses below are
+    /// therefore measured from the SPAN's edge instead, see <see cref="judgeTimeFor"/>. The subject
+    /// is untouched: what is pinned is still the SHAPE of the ramp between the two ends, and the
+    /// deltas that produce it are the ones the live rule actually produces.</para>
     /// </summary>
     public partial class TestSceneTypeBeatSyncTint : OsuTestScene
     {
@@ -60,9 +68,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         private static bool same(Color4 a, Color4 b) => ((ColourInfo)a).Equals((ColourInfo)b);
 
-        /// <summary>Feed one key into cell <paramref name="index"/> at a chosen offset from its target
-        /// time, so the delta the engine judges is exactly <paramref name="delta"/>.</summary>
-        private void press(int index, char c, double delta) => engine.ProcessKey(c, cell(index).TargetTime + delta);
+        /// <summary>Feed one key into cell <paramref name="index"/> so the delta the engine judges
+        /// is exactly <paramref name="delta"/>.</summary>
+        private void press(int index, char c, double delta) => engine.ProcessKey(c, judgeTimeFor(index, delta));
+
+        /// <summary>
+        /// The press time that earns cell <paramref name="index"/> a judged delta of exactly
+        /// <paramref name="delta"/> under the LIVE rule (backlog 179). A cell inside a syllable
+        /// group is judged on that group's sung SPAN, so lateness is measured from the span's end
+        /// and earliness from its start, and a delta of 0 is the edge itself (the span is
+        /// edge-inclusive). A cell in no group keeps the classic point target, so this reduces to
+        /// the old expression for one.
+        ///
+        /// <para>The engine is not being ticked to these times, only judged at them, exactly as
+        /// before: the scene's own clock stays near zero throughout, which is what keeps the line's
+        /// one group lit for the untyped-colour assertions.</para>
+        /// </summary>
+        private double judgeTimeFor(int index, double delta)
+        {
+            var line = engine.Lines[0];
+            int group = line.SyllableIndexOf(index);
+
+            if (group < 0)
+                return cell(index).TargetTime + delta;
+
+            var span = line.Syllables[group];
+
+            return delta < 0 ? span.StartTime + delta : span.EndTime + delta;
+        }
 
         /// <summary>A late offset worth exactly half sync quality at whatever tier the cell is judged
         /// at: q = 1 - OkLate/MehLate, and the two scale together, so this is 0.5 on every tier.</summary>

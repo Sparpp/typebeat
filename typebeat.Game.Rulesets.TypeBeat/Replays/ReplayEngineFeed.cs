@@ -39,13 +39,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         {
             if (frame.IsConfig)
             {
-                // The recorded machine's judgement-relevant settings win over local config, both of
-                // them: a replay of a run played WITHOUT space-skip must not start skipping words
-                // because the watcher turned the setting on, and vice versa. Every replay recorded
-                // before the setting existed carries bit 1 = 0, which decodes to false, i.e. to
-                // exactly the model those runs were played under.
+                // The recorded machine's judgement-relevant settings win over local config, all
+                // three of them: a replay of a run played WITHOUT space-skip must not start skipping
+                // words because the watcher turned the setting on, and vice versa. Every replay
+                // recorded before a setting existed carries its bit clear, which decodes to false,
+                // i.e. to exactly the model those runs were played under.
+                //
+                // SyllableTiming (backlog 179) is the same seam doing ERA work: the live client
+                // records the bit set, so a new replay re-derives on syllable spans, and every
+                // replay written before it re-derives on the classic point targets it was judged on.
+                // Applied here rather than at each of the three call sites for the same reason the
+                // other two are: this is the one place a recorded frame reaches an engine.
                 engine.AllowWrongInput = frame.AllowWrongInput;
                 engine.SpaceSkipsWord = frame.SpaceSkipsWord;
+                engine.SyllableTiming = frame.SyllableTiming;
                 return;
             }
 

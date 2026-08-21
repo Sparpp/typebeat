@@ -153,11 +153,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 frames.All(f => f.Time == Math.Round(f.Time))
                 && frames.Zip(frames.Skip(1)).All(pair => pair.First.Time <= pair.Second.Time));
 
-            // The recorded time IS the judged time: cell 'z' was judged at target + delta.
-            AddAssert("frame time matches the engine's judged time", () =>
+            // The config frame is the ERA carrier (backlog 179, flags bit 2): live play judges on
+            // syllable spans, and the header has to say so or every re-derivation of this run would
+            // fall back to the point-target rule it was not played under.
+            AddAssert("config frame captures syllable-span judgement", () =>
+                frames[0].IsConfig && frames[0].SyllableTiming && playfield.Engine.SyllableTiming);
+
+            // The recorded time IS the time the cell was judged at. Under the live span rule that no
+            // longer reads as "target + delta": 'z' is typed while its syllable is being sung, so
+            // the judged delta is 0 and the recorded time is what carries the press. The determinism
+            // assertion below is what turns that back into a check, by re-deriving every delta from
+            // these times alone.
+            AddAssert("the recorded press landed inside the syllable it was judged on", () =>
             {
-                var cell = playfield.Engine.Lines[0].Cells[0];
-                return frames[1].Time == cell.TargetTime + cell.JudgedDelta!.Value;
+                var line = playfield.Engine.Lines[0];
+                var span = line.Syllables[line.SyllableIndexOf(0)];
+
+                return frames[1].Time >= span.StartTime
+                       && frames[1].Time <= span.EndTime
+                       && line.Cells[0].JudgedDelta == 0;
             });
 
             // Determinism: replaying the recorded frames into a fresh engine (the exact call
@@ -185,6 +199,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                     if (frame.IsConfig)
                     {
                         replayed.AllowWrongInput = frame.AllowWrongInput;
+                        // Backlog 179: the judgement ERA travels in the same header. A fresh engine
+                        // defaults to the classic point-target rule, so without this the replayed
+                        // deltas would be the ones this run was NOT judged under, which is exactly
+                        // the divergence the JudgedDelta comparison below exists to catch.
+                        replayed.SyllableTiming = frame.SyllableTiming;
                         continue;
                     }
 

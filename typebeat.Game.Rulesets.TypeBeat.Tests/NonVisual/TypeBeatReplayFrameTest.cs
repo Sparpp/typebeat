@@ -64,22 +64,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// Both judgement-relevant settings travel in the one flags word, and all four combinations
-        /// must survive: bit 0 = allow-wrong-input, bit 1 = space-skips-word.
+        /// Every judgement-relevant setting travels in the one flags word, and all eight combinations
+        /// must survive: bit 0 = allow-wrong-input, bit 1 = space-skips-word, bit 2 = syllable-span
+        /// timing (backlog 179).
         /// </summary>
-        [TestCase(true, true)]
-        [TestCase(true, false)]
-        [TestCase(false, true)]
-        [TestCase(false, false)]
-        public void ConfigFrameRoundTripsBothSettingBits(bool allowWrongInput, bool spaceSkipsWord)
+        [TestCase(true, true, true)]
+        [TestCase(true, true, false)]
+        [TestCase(true, false, true)]
+        [TestCase(true, false, false)]
+        [TestCase(false, true, true)]
+        [TestCase(false, true, false)]
+        [TestCase(false, false, true)]
+        [TestCase(false, false, false)]
+        public void ConfigFrameRoundTripsEverySettingBit(bool allowWrongInput, bool spaceSkipsWord, bool syllableTiming)
         {
-            var frame = roundTrip(TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput, spaceSkipsWord));
+            var frame = roundTrip(TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput, spaceSkipsWord, syllableTiming));
 
             Assert.AreEqual(500, frame.Time);
             Assert.IsTrue(frame.IsConfig);
             Assert.IsFalse(frame.IsBackspace);
             Assert.AreEqual(allowWrongInput, frame.AllowWrongInput);
             Assert.AreEqual(spaceSkipsWord, frame.SpaceSkipsWord);
+            Assert.AreEqual(syllableTiming, frame.SyllableTiming);
+        }
+
+        /// <summary>The bits are at the positions the format names, so the encoded word is readable
+        /// as a number: a replay of live play (wrong input allowed, no word skipping, syllable
+        /// judgement) is exactly 1 | 4 = 5.</summary>
+        [Test]
+        public void TheFlagsWordIsExactlyTheDocumentedBitPositions()
+        {
+            Assert.AreEqual(5f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, spaceSkipsWord: false, syllableTiming: true).ToLegacy(dummy_beatmap).MouseY);
+            Assert.AreEqual(7f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, spaceSkipsWord: true, syllableTiming: true).ToLegacy(dummy_beatmap).MouseY);
+            Assert.AreEqual(0f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: false).ToLegacy(dummy_beatmap).MouseY);
         }
 
         /// <summary>
@@ -99,11 +116,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsFalse(decoded.SpaceSkipsWord, "a replay from before the setting existed was played without it");
         }
 
+        /// <summary>
+        /// The same guarantee one bit up, and the one that carries a JUDGEMENT ERA (backlog 179):
+        /// 0..3 are the only flags words that existed before syllable-span timing, and every one of
+        /// them must decode with bit 2 clear, i.e. to the classic point-target rule those runs were
+        /// actually judged on. The two older bits must still read exactly what they always did.
+        /// </summary>
+        [TestCase(0, false, false)]
+        [TestCase(1, true, false)]
+        [TestCase(2, false, true)]
+        [TestCase(3, true, true)]
+        public void ReplaysRecordedBeforeSyllableTimingDecodeAsClassic(int storedFlags, bool expectedAllowWrongInput, bool expectedSpaceSkipsWord)
+        {
+            var decoded = new TypeBeatReplayFrame();
+            decoded.FromLegacy(new LegacyReplayFrame(500, (float)TypeBeatReplayFrame.CONFIG, storedFlags, ReplayButtonState.None), dummy_beatmap);
+
+            Assert.IsTrue(decoded.IsConfig);
+            Assert.AreEqual(expectedAllowWrongInput, decoded.AllowWrongInput);
+            Assert.AreEqual(expectedSpaceSkipsWord, decoded.SpaceSkipsWord);
+            Assert.IsFalse(decoded.SyllableTiming, "a replay from before the rule existed was played on point targets");
+        }
+
         /// <summary>A non-CONFIG frame carries no flags: the character's own frame must not smuggle settings.</summary>
         [Test]
         public void CharacterFramesCarryNoConfigFlags()
         {
-            var frame = new TypeBeatReplayFrame(1234, 'a') { AllowWrongInput = true, SpaceSkipsWord = true };
+            var frame = new TypeBeatReplayFrame(1234, 'a') { AllowWrongInput = true, SpaceSkipsWord = true, SyllableTiming = true };
 
             Assert.AreEqual(0f, frame.ToLegacy(dummy_beatmap).MouseY ?? -1f);
         }
