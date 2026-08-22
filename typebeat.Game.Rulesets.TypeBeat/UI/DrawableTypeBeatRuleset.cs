@@ -111,17 +111,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // cells and the nested scoring objects are flattened identically by construction.
             bool literate = Mods?.Any(m => m is TypeBeatModLiterate) == true;
 
+            // HARD ROCK REVERTS THE JUDGEMENT RULE (backlog 180): under HR every window is halved,
+            // and a rule that hands out delta 0 anywhere inside a syllable's whole sung span
+            // undercuts that halving, because most of the presses the tightened ladder is meant to
+            // price never reach it. So HR alone judges on the classic per-character point targets.
+            // Read off the mod list here rather than written by TypeBeatModHardRock.ApplyToDrawableRuleset
+            // (which is where the window scale is applied) for the same reason Literate is: mod
+            // application has no guaranteed order against the first Engine read, and deciding it at
+            // construction means the flag is never momentarily wrong. The window scale can be
+            // applied late because it is re-read per judgement; an era flag read by the replay
+            // recorder's CONFIG frame cannot.
+            bool hardRock = Mods?.Any(m => m is TypeBeatModHardRock) == true;
+
             return new TypingEngine(lyricBeatmap, literate)
             {
-                // THE live judgement rule since backlog 179, in every build and for every player: a
-                // character typed while its syllable is being sung is perfectly timed. Backlog 174
-                // shipped this as a debug-only experiment and this seam was its gate; there is no
-                // gate any more, and the flag survives only as the ERA arm every stored replay
-                // needs (TypeBeatReplayScorer re-derives on the CONFIG frame's bit 2, and a replay
-                // written before this landed re-derives on point targets forever).
+                // THE live judgement rule since backlog 179, for every player and (since backlog
+                // 180) every mod stack but Hard Rock: a character typed while its syllable is being
+                // sung is perfectly timed. Backlog 174 shipped this as a debug-only experiment and
+                // this seam was its gate; there is no build gate any more, and the flag doubles as
+                // the ERA arm every stored replay needs (TypeBeatReplayScorer re-derives on the
+                // CONFIG frame's bit 2, and a replay written before backlog 179, or any HR replay,
+                // re-derives on point targets forever, with no mod inspection in the scorer).
                 // JUDGEMENT ONLY, since backlog 175: the lit-syllable look is unconditional
-                // rendering off TypingLine.Syllables (backlog 177) and this flag does not gate it.
-                SyllableTiming = true,
+                // rendering off TypingLine.Syllables (backlog 177) and this flag does not gate it,
+                // so an HR run still SEES the sung syllable light up while being graded per char.
+                SyllableTiming = !hardRock,
             };
         }
     }

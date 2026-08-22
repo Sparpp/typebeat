@@ -85,7 +85,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public WordSkipRule WordSkip { get; set; } = WordSkipRule.Reclaimable;
 
         /// <summary>
-        /// THE live judgement rule (backlog 174, graduated by backlog 179): judge each keypress
+        /// THE live judgement rule (backlog 174, graduated by backlog 179, narrowed by backlog 180
+        /// to every mod stack except Hard Rock): judge each keypress
         /// against its cell's SYLLABLE time span instead of the cell's point target. Characters
         /// belong to a syllable
         /// (<see cref="TypingLine.Syllables"/>), and any character of a syllable is perfectly timed
@@ -101,9 +102,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         ///
         /// <para>FALSE by default, and era-styled like <see cref="SpaceTiming"/>: set before the
         /// first keypress and left alone afterwards, judgements already made are never revisited.
-        /// Live play turns it on unconditionally (<c>DrawableTypeBeatRuleset.createEngine</c>); the
-        /// default is the CLASSIC era, which is what a bare engine and every replay recorded before
-        /// backlog 179 must judge under. Which one a re-derivation gets is decided by the replay's
+        /// Live play turns it on for every mod stack but Hard Rock
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c>), which reverts to the classic rule because
+        /// a span that grants delta 0 over hundreds of milliseconds undercuts HR's halved windows
+        /// (see <see cref="Mods.TypeBeatModHardRock"/>). The default is the CLASSIC era, which is
+        /// what a bare engine, every replay recorded before backlog 179, and every HR replay must
+        /// judge under. Which one a re-derivation gets is decided by the replay's
         /// own CONFIG frame (<see cref="Replays.TypeBeatReplayFrame.SyllableTiming"/>, flags bit 2)
         /// and applied in <see cref="Replays.ReplayEngineFeed.Apply"/>, so a stored score always
         /// reproduces the rule its fingers were graded on.</para>

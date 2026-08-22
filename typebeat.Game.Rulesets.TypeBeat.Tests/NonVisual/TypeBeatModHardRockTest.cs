@@ -7,6 +7,11 @@
 // that a replay is re-judged on the tightened ladder, the shipping surface (acronym, type, ranked
 // flag, score multiplier, pp), the one incompatibility, and the score-multiplier headroom the
 // server's stack cap depends on.
+//
+// Backlog 180 gave HR a SECOND half: it reverts the judgement rule to the classic per-character
+// point targets, because backlog 179's syllable-span rule (delta 0 anywhere inside the sung span)
+// undercuts the halved windows. The region at the bottom of this fixture covers that, live and
+// through a replay round trip.
 
 using System;
 using System.Collections.Generic;
@@ -24,6 +29,7 @@ using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
+using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Utils;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
@@ -99,6 +105,69 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         private static TypeBeatScoreMultiplierCalculator calculator()
             => new TypeBeatScoreMultiplierCalculator(new ScoreMultiplierContext(new BeatmapDifficulty()));
+
+        /// <summary>
+        /// "cake" (backlog 179's own fixture): ONE word and ONE syllable, the final e being silent,
+        /// sung over [1000, 3000]. The flat char ramp puts the point targets at 1000/1500/2000/2500
+        /// and the group's span is [1000, 3000], so every target sits inside it. That is the shape
+        /// backlog 180 needs: a press can be IN SPAN and OFF TARGET at the same time, which is the
+        /// only way the two rules are distinguishable.
+        /// </summary>
+        private static TypeBeatBeatmap cakeMap()
+        {
+            var line = new LyricLine
+            {
+                RawText = "cake",
+                StartTime = 0,
+                EndTime = 60000,
+                SingEndTime = 3000,
+                Units = new[] { new TimedUnit { Text = "cake", StartTime = 1000, EndTime = 3000 } },
+            };
+
+            var map = new TypeBeatBeatmap();
+            map.HitObjects.Add(new TypeBeatHitObject { StartTime = 0, LineIndex = 0, Line = line, Granularity = TimingGranularity.Line });
+
+            foreach (var hitObject in map.HitObjects)
+                hitObject.ApplyDefaults(new ControlPointInfo(), new BeatmapDifficulty(), CancellationToken.None);
+
+            return map;
+        }
+
+        /// <summary>
+        /// A drawable ruleset built over <see cref="cakeMap"/> exactly as gameplay builds it, mods
+        /// and all, then handed the mods the framework's <c>applyRulesetMods</c> would hand it. It
+        /// is never loaded into a hierarchy and does not need to be: the engine is a lazy property
+        /// off the constructor's beatmap and mod list, which is precisely why backlog 180 decides
+        /// the judgement ERA there rather than in
+        /// <see cref="TypeBeatModHardRock.ApplyToDrawableRuleset"/>. The window scale, which is
+        /// re-read per judgement and so has no ordering hazard, still arrives from the mod.
+        /// </summary>
+        private static TypingEngine liveEngine(params Mod[] mods)
+        {
+            var drawable = new DrawableTypeBeatRuleset(new TypeBeatRuleset(), cakeMap(), mods);
+
+            foreach (var mod in mods.OfType<IApplicableToDrawableRuleset<TypeBeatHitObject>>())
+                mod.ApplyToDrawableRuleset(drawable);
+
+            return drawable.Engine;
+        }
+
+        /// <summary>Press one char and hand back the judgement it raised.</summary>
+        private static CharJudgement press(TypingEngine engine, char character, double time)
+        {
+            CharJudgement? seen = null;
+            Action<CharJudgement> capture = judgement => seen = judgement;
+
+            engine.CharJudged += capture;
+
+            engine.Update(time);
+            Assert.IsTrue(engine.ProcessKey(character, time));
+            Assert.IsNotNull(seen);
+
+            engine.CharJudged -= capture;
+
+            return seen!.Value;
+        }
 
         #endregion
 
@@ -283,5 +352,157 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(7, difficulty.DrainRate, 1e-9);
             Assert.AreEqual(8, difficulty.OverallDifficulty, 1e-9);
         }
+
+        #region Backlog 180: Hard Rock reverts the judgement rule to point targets
+
+        /// <summary>
+        /// The flag itself, read off a real drawable ruleset built the way gameplay builds it: HR
+        /// and only HR turns the syllable rule off. Easy is explicitly NOT symmetric here, which is
+        /// the one place the Easy/Hard Rock mirror does not hold: widening the windows is a help,
+        /// and the syllable rule is already a help, so they compose instead of cancelling.
+        /// </summary>
+        [Test]
+        public void OnlyHardRockBuildsTheEngineOnTheClassicRule()
+        {
+            Assert.IsFalse(liveEngine(new TypeBeatModHardRock()).SyllableTiming,
+                "Hard Rock must judge on per-character point targets, or the halved windows grade almost nothing.");
+
+            Assert.IsTrue(liveEngine().SyllableTiming, "a no-mod play keeps the backlog 179 syllable rule");
+            Assert.IsTrue(liveEngine(new TypeBeatModEasy()).SyllableTiming, "Easy keeps it");
+            Assert.IsTrue(liveEngine(new TypeBeatModDoubleTime()).SyllableTiming, "a rate mod keeps it");
+            Assert.IsTrue(liveEngine(new TypeBeatModLiterate(), new TypeBeatModFlashlight()).SyllableTiming, "the rest of the stack keeps it");
+
+            // Composed with something else, HR still wins: the arm is "any HR in the list".
+            Assert.IsFalse(liveEngine(new TypeBeatModDoubleTime(), new TypeBeatModHardRock()).SyllableTiming);
+        }
+
+        /// <summary>
+        /// The rule where it can be seen: 'c' pressed at 1300 is INSIDE the span "cake" is sung
+        /// over ([1000, 3000]) and 300 ms past its own point target (1000). Under every other stack
+        /// that is delta 0 and a Great; under Hard Rock it is delta 300, which the halved ladder
+        /// prices as an Ok (its Great window ends 200 ms late). One press, two rules, and the mod
+        /// is the only difference between the two engines.
+        /// </summary>
+        [Test]
+        public void AnInSpanOffTargetPressIsJudgedOnItsPointTargetUnderHardRock()
+        {
+            const double press_time = 1300;
+
+            var hard = liveEngine(new TypeBeatModHardRock());
+            var plain = liveEngine();
+
+            // The press really is in span, so this is a test of the RULE and not of a press that
+            // would have been graded the same either way.
+            var line = hard.Lines[0];
+            var span = line.Syllables[line.SyllableIndexOf(0)];
+
+            Assert.AreEqual(1000, span.StartTime, 1e-9);
+            Assert.AreEqual(3000, span.EndTime, 1e-9);
+            Assert.AreEqual(1000, line.Cells[0].TargetTime, 1e-9);
+            Assert.GreaterOrEqual(press_time, span.StartTime);
+            Assert.LessOrEqual(press_time, span.EndTime);
+
+            var hardJudgement = press(hard, 'c', press_time);
+            var plainJudgement = press(plain, 'c', press_time);
+
+            Assert.AreEqual(300, hardJudgement.Delta, 1e-9, "Hard Rock judges the distance to the point target");
+            Assert.AreEqual(JudgementType.Ok, hardJudgement.Type);
+
+            Assert.AreEqual(0, plainJudgement.Delta, 1e-9, "every other stack judges the distance to the sung span");
+            Assert.AreEqual(JudgementType.Great, plainJudgement.Type);
+
+            // Stored, not just announced, so every readout that re-reads JudgedDelta agrees.
+            Assert.AreEqual(300, hard.Lines[0].Cells[0].JudgedDelta!.Value, 1e-9);
+            Assert.AreEqual(0, plain.Lines[0].Cells[0].JudgedDelta!.Value, 1e-9);
+        }
+
+        /// <summary>
+        /// The era survives the round trip with no scorer change, which is the whole reason the flag
+        /// is decided at engine construction: the recorder stamps the LIVE engine's flag into the
+        /// CONFIG frame (bit 2), so an HR run records the bit CLEAR and every re-derivation of it,
+        /// forever, judges on point targets from the frame alone. Fed back through
+        /// <see cref="ReplayEngineFeed"/> the run reproduces bit-exactly, cell states, stored deltas,
+        /// score, combo and accuracy alike.
+        /// </summary>
+        [Test]
+        public void AHardRockRunRecordsTheClassicEraAndReDerivesBitExact()
+        {
+            var live = liveEngine(new TypeBeatModHardRock());
+
+            // Four in-span presses, each off its own point target (1000/1500/2000/2500) by a
+            // different amount. Cross-checks against the halved ladder (Great [-125, 200],
+            // Ok [-300, 500]): +300 Ok, -100 Great, +400 Ok, +100 Great.
+            (double time, char character)[] presses = { (1300, 'c'), (1400, 'a'), (2400, 'k'), (2600, 'e') };
+
+            // Exactly what TypeBeatReplayRecorder writes: one CONFIG header off the live engine's
+            // own settings, ahead of the first input, then one frame per effective input.
+            var frames = new List<TypeBeatReplayFrame>
+            {
+                TypeBeatReplayFrame.CreateConfigFrame(presses[0].time, live.AllowWrongInput, live.SpaceSkipsWord, live.SyllableTiming),
+            };
+
+            foreach ((double time, char character) in presses)
+            {
+                live.Update(time);
+                Assert.IsTrue(live.ProcessKey(character, time));
+                frames.Add(new TypeBeatReplayFrame(time, character));
+            }
+
+            Assert.IsTrue(frames[0].IsConfig);
+            Assert.IsFalse(frames[0].SyllableTiming, "an HR run records flags bit 2 CLEAR: the classic era");
+
+            // The live run really was graded on point deltas, so the comparison below is not two
+            // copies of the syllable rule agreeing with each other.
+            Assert.AreEqual(new double?[] { 300, -100, 400, 100 }, live.Lines[0].Cells.Select(c => c.JudgedDelta).ToArray());
+
+            // The watching engine deliberately starts in the SYLLABLE era, which is what a no-mod
+            // client builds, so the frame's bit is the only thing that can put it back on point
+            // targets. The ladder arrives from the score's mods, as it always does.
+            var replayed = liveEngine();
+            replayed.WindowScale *= TypeBeatModHardRock.WINDOW_SCALE;
+
+            Assert.IsTrue(replayed.SyllableTiming, "the watcher's own default is the live rule");
+
+            foreach (var frame in frames)
+                ReplayEngineFeed.Apply(replayed, frame);
+
+            Assert.IsFalse(replayed.SyllableTiming, "the replay's own header wins over the watching client's era");
+
+            assertSameJudgements(live, replayed);
+
+            // And the recorded bit is load-bearing rather than decorative: the SAME keystrokes under
+            // a header with bit 2 set are four in-span Greats at delta 0 and a different total.
+            var wrongEra = liveEngine();
+            wrongEra.WindowScale *= TypeBeatModHardRock.WINDOW_SCALE;
+            frames[0] = TypeBeatReplayFrame.CreateConfigFrame(presses[0].time, live.AllowWrongInput, live.SpaceSkipsWord, true);
+
+            foreach (var frame in frames)
+                ReplayEngineFeed.Apply(wrongEra, frame);
+
+            Assert.AreEqual(new double?[] { 0, 0, 0, 0 }, wrongEra.Lines[0].Cells.Select(c => c.JudgedDelta).ToArray());
+            Assert.AreNotEqual(live.Score, wrongEra.Score, "the two eras must not score the same run alike");
+        }
+
+        private static void assertSameJudgements(TypingEngine expected, TypingEngine actual)
+        {
+            Assert.AreEqual(expected.Score, actual.Score, "score");
+            Assert.AreEqual(expected.MaxCombo, actual.MaxCombo, "max combo");
+            Assert.AreEqual(expected.CaretIndex, actual.CaretIndex, "caret");
+            Assert.AreEqual(expected.LiveAccuracy, actual.LiveAccuracy, 1e-12, "accuracy");
+
+            var expectedCells = expected.Lines[0].Cells;
+            var actualCells = actual.Lines[0].Cells;
+
+            Assert.AreEqual(expectedCells.Count, actualCells.Count);
+
+            for (int i = 0; i < expectedCells.Count; i++)
+            {
+                Assert.AreEqual(expectedCells[i].State, actualCells[i].State, $"cell {i} state");
+                Assert.AreEqual(expectedCells[i].TypedChar, actualCells[i].TypedChar, $"cell {i} char");
+                Assert.AreEqual(expectedCells[i].JudgedDelta, actualCells[i].JudgedDelta, $"cell {i} delta");
+            }
+        }
+
+        #endregion
     }
 }
