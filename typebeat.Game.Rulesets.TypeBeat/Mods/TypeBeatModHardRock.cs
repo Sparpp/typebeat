@@ -27,6 +27,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// mirroring Easy exactly. Symmetry was chosen, by the user, on 2026-08-13: Easy doubles,
     /// Hard Rock halves, and the pair reads as one lever with two ends. Do not "correct" this back
     /// toward osu's ratio.</para>
+    ///
+    /// <para>HARD ROCK ALSO REVERTS THE JUDGEMENT RULE (backlog 180), and that half is applied in
+    /// <c>DrawableTypeBeatRuleset.createEngine</c>, not here. Since backlog 179 a press is graded on
+    /// distance from its syllable's whole SUNG SPAN, delta 0 anywhere inside it
+    /// (<see cref="Gameplay.TypingEngine.SyllableTiming"/>). That undercuts the halved windows:
+    /// a span is typically hundreds of milliseconds wide, so most presses land at delta 0 and never
+    /// reach the ladder the mod just tightened, which is how high accuracy stayed easy under HR.
+    /// Under HR alone the engine keeps the classic per-character point targets, so the halved ladder
+    /// actually grades something. Easy and every other stack keep the syllable rule. The flag is set
+    /// at engine construction rather than written from <see cref="ApplyToDrawableRuleset"/> because
+    /// it is an ERA bit the replay recorder stamps into its CONFIG frame (bit 2), so it must be
+    /// right from the first frame; the window scale below is re-read per judgement and can safely be
+    /// applied later. An HR replay therefore records bit 2 CLEAR and re-derives on point targets
+    /// forever, with no mod inspection in <see cref="Scoring.TypeBeatReplayScorer"/>. The sung
+    /// syllable still lights up on screen: that is a look, not the rule.</para>
     /// </summary>
     public class TypeBeatModHardRock : ModHardRock, IApplicableToDrawableRuleset<TypeBeatHitObject>
     {

@@ -6,8 +6,10 @@ using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.UI;
@@ -24,12 +26,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// <see cref="TypingEngine"/> (the same call sequence replay playback makes) must then
     /// reproduce the live engine's state, which is the determinism contract that makes both replay
     /// watching and future score recalculation possible.
+    ///
+    /// <para>Since backlog 180 it also covers the one live mod stack that records a DIFFERENT
+    /// judgement era: Hard Rock reverts to the classic point-target rule, so its CONFIG frame
+    /// carries flags bit 2 clear. That is why the player is loaded per test rather than by the base
+    /// fixture's automatic step (<see cref="HasCustomSteps"/>), and why the shared invariants take
+    /// the era as an argument.</para>
     /// </summary>
     public partial class TestSceneTypeBeatReplayRecording : PlayerTestScene
     {
         private LyricLine recordedLine = null!;
 
         protected override Ruleset CreatePlayerRuleset() => new TypeBeatRuleset();
+
+        // Each test loads its own player, because one of them loads it under Hard Rock.
+        protected override bool HasCustomSteps => true;
 
         private TypeBeatPlayfield playfield => (TypeBeatPlayfield)Player.DrawableRuleset.Playfield;
 
@@ -72,6 +83,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void TestKeystrokesAreRecordedAndReproduceTheLiveRun()
         {
+            CreateTest();
+
             AddUntilStep("line 0 active", () => playfield.Engine.ActiveLineIndex == 0);
 
             AddAssert("typing wrong chars through is the default", () => playfield.Engine.AllowWrongInput);
@@ -104,7 +117,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("frame sequence recorded", () =>
                 string.Concat(frames.Select(f => f.Character)) == "\0zxa b");
 
-            assertCommonRecordingInvariants();
+            assertCommonRecordingInvariants(syllableEra: true);
         }
 
         /// <summary>
@@ -115,6 +128,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void TestBackspaceIsRecordedWhenWrongInputIsAllowed()
         {
+            CreateTest();
+
             AddUntilStep("line 0 active", () => playfield.Engine.ActiveLineIndex == 0);
 
             AddStep("allow wrong input", () => playfield.Engine.AllowWrongInput = true);
@@ -141,10 +156,65 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("config frame carries allow-wrong-input on", () => frames[0].IsConfig && frames[0].AllowWrongInput);
 
-            assertCommonRecordingInvariants();
+            assertCommonRecordingInvariants(syllableEra: true);
         }
 
-        private void assertCommonRecordingInvariants()
+        /// <summary>
+        /// Backlog 180, end to end: a Hard Rock run really is judged on the classic per-character
+        /// point targets, and the CONFIG frame it records says so (flags bit 2 CLEAR), so every
+        /// future re-derivation of it grades the run the way the player's fingers were graded. The
+        /// mod list is the only difference from
+        /// <see cref="TestBackspaceIsRecordedWhenWrongInputIsAllowed"/>.
+        /// </summary>
+        [Test]
+        public void TestHardRockRecordsAndReproducesTheClassicEra()
+        {
+            AddStep("load player under Hard Rock", () => LoadPlayer(new Mod[] { new TypeBeatModHardRock() }));
+            AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
+
+            AddUntilStep("line 0 active", () => playfield.Engine.ActiveLineIndex == 0);
+
+            AddAssert("Hard Rock is live", () => Player.GameplayState.Mods.OfType<TypeBeatModHardRock>().Any());
+            AddAssert("the engine judges on point targets", () => !playfield.Engine.SyllableTiming);
+            AddAssert("the halved ladder is applied too", () =>
+                playfield.Engine.WindowScale == TypeBeatModHardRock.WINDOW_SCALE);
+
+            AddStep("allow wrong input", () => playfield.Engine.AllowWrongInput = true);
+
+            AddStep("press Z (correct)", () => InputManager.Key(Key.Z));
+            AddStep("press A (correct)", () => InputManager.Key(Key.A));
+            AddStep("press Space (correct)", () => InputManager.Key(Key.Space));
+            AddStep("press B (correct)", () => InputManager.Key(Key.B));
+
+            AddAssert("line complete", () => playfield.Engine.IsLineComplete);
+            AddAssert("frame sequence recorded", () => string.Concat(frames.Select(f => f.Character)) == "\0za b");
+
+            // The load-bearing difference, on a cell whose point target is nowhere near the press:
+            // 'a' is timed at 75000 and is typed within a second of the line starting, yet it sits
+            // inside the span "za" is sung over ([0, 150000]). The syllable rule would call that
+            // delta 0; Hard Rock prices the whole 75 seconds, which is emphatically not 0.
+            AddAssert("an in-span press is judged tens of seconds off its point target", () =>
+            {
+                var line = playfield.Engine.Lines[0];
+                var span = line.Syllables[line.SyllableIndexOf(1)];
+                double pressed = frames[2].Time;
+
+                return pressed >= span.StartTime
+                       && pressed <= span.EndTime
+                       && line.Cells[1].JudgedDelta == pressed - line.Cells[1].TargetTime
+                       && line.Cells[1].JudgedDelta < -1000;
+            });
+
+            assertCommonRecordingInvariants(syllableEra: false);
+        }
+
+        /// <summary>
+        /// <paramref name="syllableEra"/> is the judgement rule the run was played under, which
+        /// since backlog 180 is a property of the MOD STACK: every stack but Hard Rock judges on
+        /// syllable spans, Hard Rock on classic point targets. It decides what the CONFIG frame must
+        /// say and what ladder the re-derivation below has to use.
+        /// </summary>
+        private void assertCommonRecordingInvariants(bool syllableEra)
         {
             AddAssert("config frame leads and captures allow-wrong-input", () =>
                 frames[0].IsConfig && frames[0].AllowWrongInput == playfield.Engine.AllowWrongInput);
@@ -153,25 +223,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 frames.All(f => f.Time == Math.Round(f.Time))
                 && frames.Zip(frames.Skip(1)).All(pair => pair.First.Time <= pair.Second.Time));
 
-            // The config frame is the ERA carrier (backlog 179, flags bit 2): live play judges on
-            // syllable spans, and the header has to say so or every re-derivation of this run would
-            // fall back to the point-target rule it was not played under.
-            AddAssert("config frame captures syllable-span judgement", () =>
-                frames[0].IsConfig && frames[0].SyllableTiming && playfield.Engine.SyllableTiming);
+            // The config frame is the ERA carrier (backlog 179, flags bit 2), and since backlog 180
+            // the era is whatever the mod stack selected: the header has to say which, or every
+            // re-derivation of this run would judge it on a rule it was not played under.
+            AddAssert($"config frame records the {(syllableEra ? "syllable-span" : "classic point-target")} era", () =>
+                frames[0].IsConfig
+                && frames[0].SyllableTiming == syllableEra
+                && playfield.Engine.SyllableTiming == syllableEra);
 
-            // The recorded time IS the time the cell was judged at. Under the live span rule that no
+            // The recorded time IS the time the cell was judged at. Under the span rule that no
             // longer reads as "target + delta": 'z' is typed while its syllable is being sung, so
-            // the judged delta is 0 and the recorded time is what carries the press. The determinism
-            // assertion below is what turns that back into a check, by re-deriving every delta from
-            // these times alone.
-            AddAssert("the recorded press landed inside the syllable it was judged on", () =>
+            // the judged delta is 0 and the recorded time is what carries the press. Under Hard Rock
+            // the same in-span press is priced by its distance from the cell's own point target
+            // instead, which is the whole of backlog 180. The determinism assertion below is what
+            // turns either into a check, by re-deriving every delta from these times alone.
+            AddAssert("the recorded press landed inside its syllable and was judged on the era's rule", () =>
             {
                 var line = playfield.Engine.Lines[0];
                 var span = line.Syllables[line.SyllableIndexOf(0)];
 
-                return frames[1].Time >= span.StartTime
-                       && frames[1].Time <= span.EndTime
-                       && line.Cells[0].JudgedDelta == 0;
+                bool inSpan = frames[1].Time >= span.StartTime && frames[1].Time <= span.EndTime;
+
+                return inSpan && line.Cells[0].JudgedDelta == (syllableEra ? 0 : frames[1].Time - line.Cells[0].TargetTime);
             });
 
             // Determinism: replaying the recorded frames into a fresh engine (the exact call
@@ -193,6 +266,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                     Lines = new List<LyricLine> { recordedLine },
                     Granularity = TimingGranularity.Word,
                 });
+
+                // The ladder comes from the score's mods, exactly as the headless scorer takes it,
+                // and it is not carried by any frame: only the ERA is.
+                if (!syllableEra)
+                    replayed.WindowScale *= TypeBeatModHardRock.WINDOW_SCALE;
 
                 foreach (var frame in frames)
                 {

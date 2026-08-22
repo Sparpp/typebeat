@@ -12,7 +12,9 @@ looking for it. The canonical sources are the code itself:
   `TypingEngine.judgedDeltaFor`: since backlog 179 a cell inside a syllable group is graded on
   distance from that syllable's SUNG SPAN (0 anywhere inside it), and only a cell in no group (a
   space, a stylised token) is graded on distance from its own point target. The point rule survives
-  as the ERA a stored replay re-derives under, selected by its CONFIG frame's flags bit 2. Backlog 133
+  as the ERA a stored replay re-derives under, selected by its CONFIG frame's flags bit 2, and since
+  backlog 180 as the LIVE rule under Hard Rock, which reverts to point targets because span
+  judgement undercuts its halved windows (so an HR replay records bit 2 clear). Backlog 133
   replaced that with a four-tier character-distance ladder and backlog 147 reverted the whole arc, so
   a note dated between the two describing a character axis, a `SyncMeasure`, a fourth `Perfect` tier
   or a Rhythmic mod is describing code that no longer exists. What backlog 133 left behind on

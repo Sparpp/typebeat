@@ -324,6 +324,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // replay written before backlog 179, must re-derive under: those runs were judged on
             // point targets. A replay recorded by the live client carries the bit set and
             // re-derives on syllable spans, which is what it was played on.
+            //
+            // A HARD ROCK replay is the one live run that carries the bit CLEAR (backlog 180: HR
+            // reverts the judgement rule, because span judgement undercuts its halved windows). It
+            // still needs no arm here, and deliberately: the frame already says so, and adding a
+            // mod check would give the same run two answers that could disagree.
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the three arms below compose in any order. A replay
