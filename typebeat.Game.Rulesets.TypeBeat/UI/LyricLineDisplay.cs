@@ -560,7 +560,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     return syncQuality is double q ? CorrectCharColour(q) : TypeBeatStyle.TypedChar;
 
                 case CellState.Wrong:
-                    // Expected glyph shown in error red (not the typed char).
+                    // Error red, over the expected glyph on a lyric cell and over the TYPED one on a
+                    // word gap (see CellGlyph): the colour decision is the same either way.
                     return TypeBeatStyle.ErrorChar;
 
                 case CellState.Untyped:
@@ -575,6 +576,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     return TypeBeatStyle.UntypedChar;
             }
         }
+
+        /// <summary>
+        /// The GLYPH a non-freestyle cell shows, the companion of <see cref="CellFillColour"/> and
+        /// pure for the same reason. Almost always the cell's own expected character, which is what
+        /// the sprite was built with: a lyric cell shows its lyric character in every state, and a
+        /// WRONG one shows that character in the error red rather than the char the player pressed,
+        /// so a mistyped line still reads as the line it was meant to be.
+        ///
+        /// <para>The one exception is a WRONG WORD GAP (backlog 181, when
+        /// <see cref="TypingEngine.WrongInputOnWordGaps"/> let a typo land on a space cell at all):
+        /// there the expected character is a space, and a space painted red is nothing at all, so
+        /// the cell shows the TYPED character instead. That is the whole of the difference, and it
+        /// is forced rather than chosen: the state has to be visible, and the gap has no glyph of
+        /// its own to make visible. A gap in any other state, the typo once backspaced included, is
+        /// a space again.</para>
+        ///
+        /// <para>Layout does not move with it. The advances were measured once at load, so the
+        /// letter is drawn centred in the gap's own slot and every cell after it stays exactly where
+        /// it was; a word gap is never a line's first or last cell, so the auto-sized box cannot
+        /// grow either. The alternative, re-measuring the line, would shuffle every character to the
+        /// right of the caret at the instant of a mistake, which is the worst possible moment to
+        /// move the text a player is reading.</para>
+        /// </summary>
+        public static char CellGlyph(char expected, CellState state, char? typedChar)
+            => expected == ' ' && state == CellState.Wrong && typedChar is char typo ? typo : expected;
 
         public void RefreshCell(int cellIndex)
         {
@@ -609,6 +635,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             bool inSungSyllable = sungSyllable >= 0 && Line.SyllableIndexOf(cellIndex) == sungSyllable;
 
             cell.Colour = CellFillColour(source.State, isFreestyle: false, inSungSyllable, syncQuality);
+            // A WORD GAP is the one cell whose glyph is not fixed at construction: a typo landing on
+            // it shows the typed char, and every other state shows the space back (see CellGlyph).
+            // Scoped to the gap rather than asserted for every cell so a lyric character's Text is
+            // still written exactly once, at construction, and this cannot become a per-refresh
+            // string allocation across the whole line.
+            if (source.Expected == ' ')
+                cell.Text = CellGlyph(source.Expected, source.State, source.TypedChar).ToString();
 
             switch (source.State)
             {

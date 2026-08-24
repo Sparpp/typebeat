@@ -136,6 +136,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // rendering off TypingLine.Syllables (backlog 177) and this flag does not gate it,
                 // so an HR run still SEES the sung syllable light up while being graded per char.
                 SyllableTiming = !hardRock,
+
+                // THE live input model since backlog 181, for every player and EVERY mod stack,
+                // Hard Rock included: a wrong letter pressed on a word gap is typed through exactly
+                // as one pressed on a lyric character is. Unconditional on purpose, and the
+                // contrast with the line above is the argument: HR reverts a judgement rule because
+                // it halves the judgement WINDOWS, and this is not a window, it is which cells the
+                // wrong-input model reaches. HR runs already type wrong letters through everywhere
+                // else, so gating this on it would leave the word gap as the one cell in the map
+                // behaving differently under one mod, for no reason the mod is about.
+                //
+                // It is still an ERA flag, because every replay recorded before this shipped holds
+                // rejected wrong-key-on-gap frames that must stay rejected forever
+                // (TypeBeatReplayScorer re-derives on the CONFIG frame's bit 3, with no mod
+                // inspection anywhere in the scorer).
+                WrongInputOnWordGaps = true,
             };
         }
     }

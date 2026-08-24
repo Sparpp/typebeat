@@ -115,6 +115,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool SyllableTiming { get; set; }
 
         /// <summary>
+        /// Whether <see cref="AllowWrongInput"/> reaches the WORD GAP as well as the lyric
+        /// characters (backlog 181). With it on, a wrong (non-space) key pressed while the caret
+        /// sits on a space cell is typed THROUGH exactly like a wrong letter on a lyric cell: the
+        /// gap takes the typo character, shows it in the error red instead of an invisible red space
+        /// (see <c>LyricLineDisplay.CellGlyph</c>), the caret advances, backspace erases it, and
+        /// retyping the space earns the cell's real judgement plus any streak the typo broke. With
+        /// it off, that same press is REJECTED by the gatekeeper branch, which is the strict outcome
+        /// the word gap has always had.
+        ///
+        /// <para>It moves the CELL side only. The space KEY stays strict under both arms: no wrong
+        /// space is ever typed into any cell, because the spacebar is the word-advance key and not a
+        /// glyph a player means to leave in a lyric (backlog 50, and <see cref="SpaceSkipsWord"/>'s
+        /// interception of a space on a lyric character is untouched). It is also inert under
+        /// <see cref="AllowWrongInput"/> = false, being an extension of that flag and not a
+        /// competitor to it: Gatekeeper rejects every wrong key, gap or no gap.</para>
+        ///
+        /// <para>FALSE by default, and era-styled exactly like <see cref="SyllableTiming"/>: set
+        /// before the first keypress and left alone afterwards, judgements already made are never
+        /// revisited. Live play turns it on UNCONDITIONALLY, Hard Rock included
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c>): HR halves the judgement windows, and this
+        /// is not a window, it is the input model, which HR does not touch (its runs already type
+        /// wrong LETTERS through). The default is the CLASSIC era, which every replay recorded
+        /// before backlog 181 must re-derive under: those runs contain wrong-key-on-gap frames that
+        /// were REJECTED at record time, and typing them through would move the caret, the cells and
+        /// the whole account. Which arm a re-derivation gets is decided by the replay's own CONFIG
+        /// frame (<see cref="Replays.TypeBeatReplayFrame.WrongInputOnWordGaps"/>, flags bit 3) and
+        /// applied in <see cref="Replays.ReplayEngineFeed.Apply"/>, so a stored score always
+        /// reproduces the model its fingers were graded on.</para>
+        /// </summary>
+        public bool WrongInputOnWordGaps { get; set; }
+
+        /// <summary>
         /// Whether the spacebar is inside the timing challenge (see <see cref="ProcessKey"/>).
         /// <see cref="SpaceTimingRule.Untimed"/> is the live rule (backlog 148) and the default; only
         /// <see cref="Scoring.TypeBeatReplayScorer"/> ever sets the other one, to re-derive a score
@@ -442,6 +474,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// combo break it took at the keypress; what it no longer costs is rank and the miss
         /// count.</item>
         /// </list>
+        ///
+        /// <para>WHICH CELLS it reaches is a second axis, <see cref="WrongInputOnWordGaps"/>: the
+        /// lyric characters always, the word gap only under that era flag (backlog 181). This one
+        /// stays the gate on both, so Gatekeeper is still a single "no wrong key lands anywhere".</para>
         /// </summary>
         public bool AllowWrongInput { get; set; } = true;
 
@@ -902,13 +938,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// caret, the seals, the counters, the WPM clock, the rolling-WPM ring and the sync timeline.
         ///
         /// <para>What is deliberately NOT touched is everything that describes the run rather than
-        /// its progress, i.e. everything set from outside after construction: the two replay CONFIG
-        /// bits (<see cref="AllowWrongInput"/>, <see cref="SpaceSkipsWord"/>), the mod flags
+        /// its progress, i.e. everything set from outside after construction: the replay CONFIG bits
+        /// (<see cref="AllowWrongInput"/>, <see cref="SpaceSkipsWord"/>,
+        /// <see cref="SyllableTiming"/>, <see cref="WrongInputOnWordGaps"/>), the mod flags
         /// (<see cref="FletcherEnabled"/>, <see cref="MashingEnabled"/>, <see cref="Literate"/>,
         /// <see cref="CaseSensitive"/>), <see cref="WindowScale"/> and the three era rules
         /// (<see cref="ComboRestore"/>, <see cref="SpaceTiming"/>, <see cref="WordSkip"/>). A rebuild
         /// re-judges the same run, not a different one. The CONFIG frame is re-fed anyway, being the
-        /// first frame of every replay, so the two bits land on the same values a second time.</para>
+        /// first frame of every replay, so those bits land on the same values a second time.</para>
         ///
         /// <para>The PHANTOM state backlog 167 added needs nothing of its own here: it lives on the
         /// cells, which are all put back to <see cref="CellState.Untyped"/> by the loop below, and
@@ -1286,7 +1323,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// A wrong char is TYPED THROUGH by default (<see cref="AllowWrongInput"/>), or REJECTED
         /// under Gatekeeper. Either way it breaks combo, counts as a mistype, stays in the accuracy
         /// denominator forever, and resolves NO cell against the score processor; only the rejection
-        /// path grows <see cref="ConsecutiveWrongKeys"/>.
+        /// path grows <see cref="ConsecutiveWrongKeys"/>. On a SPACE cell the type-through needs
+        /// <see cref="WrongInputOnWordGaps"/> as well (live play sets it; a stored replay says so in
+        /// its own header), and a wrong SPACE key is rejected on every cell under every arm.
         /// </summary>
         public bool ProcessKey(char c, double time)
         {
@@ -1347,6 +1386,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             double delta = judgedDeltaFor(line, caretIndex, time);
+
+            // SPACES ARE UNTIMED (backlog 148), decided here rather than after the match so that
+            // EVERY reading of this press agrees on what its cell was worth: the correct press
+            // below, and the wrong one typed through it since backlog 181, whose CharJudgement
+            // carries exactly the delta a correct press on the same cell would have carried. The
+            // rule and its argument are on the untimed-space block further down; only the position
+            // moved, and the move reaches nothing new: the predicate is false for every LYRIC cell,
+            // so the only press it can newly touch is the gap typo it was moved for.
+            bool untimedSpace = cell.Expected == ' ' && TypeBeatResultMapping.SpacesAreUntimed(spaceTiming);
+
+            if (untimedSpace)
+                delta = 0;
+
             // FREESTYLE cell: every char EXCEPT SPACE matches, in any case, under every mod (so the
             // Literate mod's exact-case rule and the allow-wrong-input path are both bypassed for
             // it). The press is then judged exactly like a correct char: same windows, points,
@@ -1354,8 +1406,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // SPACE is carved out (backlog 50): it is the word-advance key, not a glyph a player
             // means to leave sitting in a lyric, so it falls through to the ordinary non-match path
             // below and is judged exactly as a wrong key on any other cell would be. The strict
-            // rejection is the only outcome available to it, because the allow-wrong-input path
-            // already refuses to type a space through (c != ' '). Unless SpaceSkipsWord is on, in
+            // rejection is the only outcome available to it, because neither allow-wrong-input path
+            // will type a space through (c != ' ' guards both arms). Unless SpaceSkipsWord is on, in
             // which case the space never reaches here at all: it was consumed by the word skip above,
             // freestyle slot included (a freestyle cell is a lyric character like any other, so a
             // space pressed on one is the player abandoning the word it sits in).
@@ -1367,10 +1419,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (!matched)
             {
                 // DEFAULT: a wrong LETTER is typed through, marked red, backspaceable, instead of
-                // rejected. The space key stays strict (no wrong space, and no wrong char consuming
-                // a word boundary), and this path never feeds the mash-fail streak
-                // (consecutiveWrongKeys is left at 0, which is why that guard is Gatekeeper-only).
-                if (AllowWrongInput && c != ' ' && cell.Expected != ' ')
+                // rejected. The space KEY stays strict everywhere (c != ' '): there is no cell a
+                // wrong space is typed into, because it is the word-advance key and not a glyph a
+                // player means to leave sitting in a lyric. What the WORD GAP does with a wrong
+                // letter is the era switch (see WrongInputOnWordGaps): it takes the typo exactly as
+                // a lyric cell does, which is the live rule, or it drops to the strict branch below,
+                // which is what every stored replay was played under. This path never feeds the
+                // mash-fail streak (consecutiveWrongKeys is left at 0, which is why that guard is
+                // Gatekeeper-only).
+                if (AllowWrongInput && c != ' ' && (WrongInputOnWordGaps || cell.Expected != ' '))
                 {
                     totalKeypresses++;
                     errorCount++;
@@ -1434,9 +1491,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             consecutiveWrongKeys = 0;
 
-            // SPACES ARE UNTIMED (backlog 148). Reaching here on a space CELL means a SPACE was
-            // typed on it: Fold is only ToLowerInvariant, so nothing but ' ' folds onto ' ', a
-            // freestyle cell refuses space outright, and under Mashing the press was already
+            // SPACES ARE UNTIMED (backlog 148); the zeroing itself is done above the match, where a
+            // typed-through gap typo can read the same value. Reaching HERE on a space CELL means a
+            // SPACE was typed on it: Fold is only ToLowerInvariant, so nothing but ' ' folds onto
+            // ' ', a freestyle cell refuses space outright, and under Mashing the press was already
             // rewritten to the cell's expected char, which is the space it stood for anyway. The
             // spacebar is deliberately outside the timing challenge (the word gap is where a
             // typist's hands reset, not a note to hit), so the press is judged as though it landed
@@ -1460,16 +1518,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // break before the caret ever reaches the gap. And an untimed space is not a FREE one:
             // a space cell nobody pressed is still a character of the map left untyped, and seals a
             // Miss alongside every other one (the seal loop in Update tests IsTypeable, which a
-            // space cell is; only IsCountable excludes it).
+            // space cell is; only IsCountable excludes it). Since backlog 181 the cell has a fourth
+            // way of being resolved, a wrong LETTER typed into it, and that one takes the zeroed
+            // delta too, for the reason the block above states: a typo is priced at what a correct
+            // press on the same cell would have been priced at.
             //
             // Gated on SpaceTiming, the era switch, for the same reason ComboRestore is: a replay is
             // re-judged from scratch, so a run stored before backlog 148 has to be graded with the
             // spacebar back inside the timing challenge or its tier counts and its max_combo come
             // back as a ladder it was never played on. Live play never selects the other arm.
-            bool untimedSpace = cell.Expected == ' ' && TypeBeatResultMapping.SpacesAreUntimed(spaceTiming);
-
-            if (untimedSpace)
-                delta = 0;
 
             // COMBO RESTORE (backlog 140, widened to the word skip by backlog 167), before anything
             // about this press is judged: if this is the cell a wrong keypress spoiled or a skip

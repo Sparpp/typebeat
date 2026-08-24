@@ -20,6 +20,14 @@ looking for it. The canonical sources are the code itself:
   or a Rhythmic mod is describing code that no longer exists. What backlog 133 left behind on
   purpose: `JudgementType`'s tiers are named `Great`/`Ok`/`Meh` for the osu results they map to, so
   `TypeBeatResultMapping.CellResult` is the identity and "Perfect" no longer means two things.
+  A second, orthogonal axis is the INPUT MODEL: which cells a wrong key lands in rather than what a
+  landed key is worth. `AllowWrongInput` (off only under Gatekeeper) types a wrong letter through on
+  a lyric cell, and since backlog 181 `WrongInputOnWordGaps` extends that to the SPACE cell, where a
+  typo now takes the gap, renders as the typed char in error red (`LyricLineDisplay.CellGlyph`) and
+  is backspaceable. That is a second ERA, CONFIG flags bit 3, because a stored replay's rejected
+  gap keystroke must stay rejected or its caret desynchronises; unlike bit 2 it is set for EVERY
+  live stack, Hard Rock included, since HR halves windows and not the input model. The space KEY
+  stays strict on every cell under every arm.
 - **The timing schema** (per-character target times, syllable subdivision, space cells):
   `Gameplay/TypingLine.cs`, `FromLyricLine`.
 - **How a judgement becomes a stored osu result**: `Scoring/TypeBeatResultMapping.cs`, which also

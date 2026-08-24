@@ -231,6 +231,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && frames[0].SyllableTiming == syllableEra
                 && playfield.Engine.SyllableTiming == syllableEra);
 
+            // Backlog 181's era bit (flags bit 3), which unlike the one above is NOT a property of
+            // the mod stack: live play types a wrong letter on a word gap through under every stack,
+            // Hard Rock included, because it is the input model rather than a judgement window. A
+            // replay written before it exists carries the bit clear and keeps its rejections.
+            AddAssert("config frame records the gap-typo input model", () =>
+                frames[0].IsConfig
+                && frames[0].WrongInputOnWordGaps
+                && playfield.Engine.WrongInputOnWordGaps);
+
             // The recorded time IS the time the cell was judged at. Under the span rule that no
             // longer reads as "target + delta": 'z' is typed while its syllable is being sung, so
             // the judged delta is 0 and the recorded time is what carries the press. Under Hard Rock
@@ -282,6 +291,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                         // deltas would be the ones this run was NOT judged under, which is exactly
                         // the divergence the JudgedDelta comparison below exists to catch.
                         replayed.SyllableTiming = frame.SyllableTiming;
+                        // Backlog 181: the input MODEL travels in the same header, and it has to be
+                        // applied for the same reason, one step harder. A fresh engine rejects a
+                        // wrong key on a word gap, so a run that typed one through would replay with
+                        // its caret a cell behind from that keystroke on.
+                        replayed.WrongInputOnWordGaps = frame.WrongInputOnWordGaps;
                         continue;
                     }
 

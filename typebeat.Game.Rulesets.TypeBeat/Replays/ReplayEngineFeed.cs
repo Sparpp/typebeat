@@ -40,7 +40,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             if (frame.IsConfig)
             {
                 // The recorded machine's judgement-relevant settings win over local config, all
-                // three of them: a replay of a run played WITHOUT space-skip must not start skipping
+                // four of them: a replay of a run played WITHOUT space-skip must not start skipping
                 // words because the watcher turned the setting on, and vice versa. Every replay
                 // recorded before a setting existed carries its bit clear, which decodes to false,
                 // i.e. to exactly the model those runs were played under.
@@ -48,11 +48,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // SyllableTiming (backlog 179) is the same seam doing ERA work: the live client
                 // records the bit set, so a new replay re-derives on syllable spans, and every
                 // replay written before it re-derives on the classic point targets it was judged on.
-                // Applied here rather than at each of the three call sites for the same reason the
-                // other two are: this is the one place a recorded frame reaches an engine.
+                // WrongInputOnWordGaps (backlog 181) is the second such bit, and the one that has to
+                // be applied HERE rather than anywhere later: an old replay's wrong key on a word
+                // gap was rejected, so the caret did not move, and typing it through instead would
+                // shift every keystroke after it onto the wrong cell. Applied here rather than at
+                // each of the three call sites for the same reason the others are: this is the one
+                // place a recorded frame reaches an engine.
                 engine.AllowWrongInput = frame.AllowWrongInput;
                 engine.SpaceSkipsWord = frame.SpaceSkipsWord;
                 engine.SyllableTiming = frame.SyllableTiming;
+                engine.WrongInputOnWordGaps = frame.WrongInputOnWordGaps;
                 return;
             }
 

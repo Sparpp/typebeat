@@ -290,9 +290,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <summary>
         /// The engine <c>DrawableTypeBeatRuleset.createEngine</c> would build for this beatmap,
         /// plus the engine flags the mods set through <c>ApplyToDrawableRuleset</c>.
-        /// <c>AllowWrongInput</c>, <c>SpaceSkipsWord</c> and <c>SyllableTiming</c> are deliberately
+        /// <c>AllowWrongInput</c>, <c>SpaceSkipsWord</c>, <c>SyllableTiming</c> and
+        /// <c>WrongInputOnWordGaps</c> are deliberately
         /// NOT set from the mods or from any config: the replay's CONFIG frame carries what the run
-        /// was judged under and overwrites all three, which is the only thing that judges a
+        /// was judged under and overwrites all four, which is the only thing that judges a
         /// pre-Gatekeeper strict run right.
         /// </summary>
         private static TypingEngine createEngine(IBeatmap playable, IReadOnlyList<TypeBeatHitObject> lineObjects, IReadOnlyList<Mod> mods, RateWindowRule rateRule)
@@ -329,6 +330,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // reverts the judgement rule, because span judgement undercuts its halved windows). It
             // still needs no arm here, and deliberately: the frame already says so, and adding a
             // mod check would give the same run two answers that could disagree.
+            //
+            // WrongInputOnWordGaps (backlog 181) is not selected here either, for exactly the same
+            // reasons: it travels in the CONFIG frame (bit 3), the engine default is the classic
+            // strict word gap every pre-181 replay was played on, and HR carries the bit SET like
+            // every other live stack, because it is an input-model axis and not a window one.
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the three arms below compose in any order. A replay
