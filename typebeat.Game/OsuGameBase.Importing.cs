@@ -16,6 +16,13 @@ namespace typebeat.Game
         /// <summary>
         /// Register a global handler for file imports. Most recently registered will have precedence.
         /// </summary>
+        /// <remarks>
+        /// Precedence means EXCLUSIVITY, not just ordering: a group of dropped files goes to the first
+        /// registered handler that claims their extension and to no other. Handlers whose extension sets
+        /// overlap are registered at different times on purpose, so that a transient one (an editor file
+        /// chooser, alive only while its screen is) shadows the permanent one underneath it for as long
+        /// as it is on screen, then hands the extension straight back when it is disposed.
+        /// </remarks>
         /// <param name="handler">The handler to register.</param>
         public void RegisterImportHandler(ICanAcceptFiles handler) => fileImporters.Insert(0, handler);
 
@@ -34,11 +41,15 @@ namespace typebeat.Game
 
             foreach (var groups in filesPerExtension)
             {
-                foreach (var importer in fileImporters)
-                {
-                    if (importer.HandledExtensions.Contains(groups.Key))
-                        await importer.Import(groups.ToArray()).ConfigureAwait(false);
-                }
+                // First match only, matching the ImportTask overload below and the precedence
+                // RegisterImportHandler documents. Handing a group to EVERY matching handler meant one
+                // dropped .mp4 was consumed twice while the editor's setup screen was open: the video
+                // chooser applied it to the map AND the lyric importer opened a new-song import screen
+                // over the top of it, which then failed on a file that had already been dealt with.
+                var importer = fileImporters.FirstOrDefault(i => i.HandledExtensions.Contains(groups.Key));
+
+                if (importer != null)
+                    await importer.Import(groups.ToArray()).ConfigureAwait(false);
             }
         }
 
