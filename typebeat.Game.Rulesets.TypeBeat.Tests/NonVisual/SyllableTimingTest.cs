@@ -365,9 +365,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// Under mapper subtimings a cell's flat-ramp target can sit OUTSIDE its syllable's span
         /// when the syllabifier's char split disagrees with the old even spread ("probably": cell 5
-        /// is timed at 1468.75 inside segment 2 but belongs to syllable 3, [1500, 1800]). Autoplay
-        /// presses at the target, so the press judges on the 31.25 ms distance to the edge: still
-        /// comfortably Great, which is what keeps autoplay perfect with no generator change.
+        /// is timed at 1468.75 inside segment 2 but belongs to syllable 3, [1500, 1800]). A press
+        /// at the target then judges on the 31.25 ms distance to the edge, which is still
+        /// comfortably Great.
+        ///
+        /// <para>That is an ENGINE fact and it still holds. What it no longer justifies is the
+        /// generator: backlog 179 read this 31.25 ms as evidence that autoplay stays perfect with
+        /// no generator change, but the distance is a FRACTION of the mapper's segment duration
+        /// ("probably" is sung in 800 ms), so a slower or more heavily held word scales it straight
+        /// past the Great window. Real subtimings did exactly that, autoplay scored 99.23% with 24
+        /// Oks, and backlog 181 taught the generator to clamp each press into its cell's span (see
+        /// <see cref="AutoplayPressesTheSpanEdgeWhereASubtimedTargetFallsOutsideIt"/> and the
+        /// fixture beside it, which prices the same disagreement at 400 ms and 555.56 ms).</para>
         /// </summary>
         [Test]
         public void TargetTimePressesStayGreatWhenTargetSitsOutsideTheSpan()
@@ -625,18 +634,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// Autoplay under SyllableTiming still perfects a real map with NO generator change: the
-        /// first char of a syllable is pressed at the span's start (edge-inclusive) and every other
-        /// press lands inside or within a few ms of its span, so every press judges Great.
+        /// Runs the whole autoplay path exactly the way the playfield's engine ticker does:
+        /// generator to frames, then per-display-frame Updates with each due frame applied as
+        /// Update(frameTime) plus the keystroke. Asserts only that the play MECHANICALLY works
+        /// (every press reaches a live cell, every frame is consumed, the map finishes); what the
+        /// presses are worth is left to the caller.
+        ///
+        /// <para>The two eras are separate parameters on purpose, so a test can mismatch them:
+        /// <paramref name="generatorEra"/> is the rule the frames are aimed at,
+        /// <paramref name="engineEra"/> the rule that grades them. Backlog 181 is exactly that
+        /// mismatch, classic frames into a span engine, and the fixture below reproduces it.</para>
         /// </summary>
-        [TestCase("wii-shop.osu")]
-        [TestCase("immortal-flame.osu")]
-        [TestCase("neon-rain.osu")]
-        public void AutoplayIsAllGreatUnderSyllableTiming(string fileName)
+        private static (TypingEngine engine, IReadOnlyList<TypeBeatReplayFrame> frames) autoplay(
+            IReadOnlyList<TypeBeatHitObject> lineObjects, string title, bool generatorEra, bool engineEra, double windowScale = 1)
         {
             const double frame_ms = 1000.0 / 60;
-
-            var lineObjects = realPipelineLineObjects(requireOsu(fileName));
 
             var beatmap = new TypeBeatBeatmap();
 
@@ -645,15 +657,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var lyricBeatmap = new LyricBeatmap
             {
-                Metadata = new LyricBeatmapMetadata { Artist = "a", Title = fileName, FolderPath = string.Empty, AudioFileName = "a.mp3" },
+                Metadata = new LyricBeatmapMetadata { Artist = "a", Title = title, FolderPath = string.Empty, AudioFileName = "a.mp3" },
                 Lines = lineObjects.Select(h => h.Line).ToList(),
                 Granularity = lineObjects[0].Granularity,
             };
 
-            var frames = new TypeBeatAutoGenerator(beatmap).Generate().Frames.Cast<TypeBeatReplayFrame>().ToList();
+            var frames = new TypeBeatAutoGenerator(beatmap, syllableTiming: generatorEra).Generate().Frames.Cast<TypeBeatReplayFrame>().ToList();
             Assert.That(frames, Is.Not.Empty);
 
-            var engine = new TypingEngine(lyricBeatmap) { SyllableTiming = true };
+            var engine = new TypingEngine(lyricBeatmap) { SyllableTiming = engineEra, WindowScale = windowScale };
 
             int next = 0;
             double end = lyricBeatmap.LastLineEnd + 10000;
@@ -677,13 +689,216 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(frames.Count, next, "every generated frame must be consumed before the map ends");
             Assert.IsTrue(engine.IsFinished);
 
+            return (engine, frames);
+        }
+
+        /// <summary>
+        /// Every press of a run judged Great, nothing missed, and every delta zero to within
+        /// <paramref name="tolerance"/>. The delta claim is the strong half: "inside the Great
+        /// window" leaves 250 ms of room to rot in, "zero give or take the integral rounding of a
+        /// fractional edge" does not.
+        /// </summary>
+        private static void assertPerfectRun(TypingEngine engine, int pressCount, double tolerance)
+        {
             var results = engine.BuildResults();
-            Assert.AreEqual(frames.Count, results.Counts[JudgementType.Great], "every autoplay press judges Great");
+            Assert.AreEqual(pressCount, results.Counts[JudgementType.Great], "every autoplay press judges Great");
             Assert.AreEqual(0, results.Counts[JudgementType.Ok]);
             Assert.AreEqual(0, results.Counts[JudgementType.Meh]);
             Assert.AreEqual(0, results.Counts[JudgementType.Premature]);
             Assert.AreEqual(0, results.Counts[JudgementType.Lagging]);
             Assert.AreEqual(0, engine.Lines.Sum(l => l.Cells.Count(c => c.State == CellState.Missed)));
+
+            foreach (var l in engine.Lines)
+            {
+                foreach (var cell in l.Cells)
+                {
+                    if (cell.IsTypeable)
+                        Assert.AreEqual(0, cell.JudgedDelta!.Value, tolerance, $"cell '{cell.Expected}' @ {cell.TargetTime} in \"{l.DisplayText}\"");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Autoplay perfects a real map under the era it is generated for. Since backlog 181 the
+        /// claim is stronger than "every press judges Great": every press is judged on a delta of
+        /// ZERO, because a grouped cell is pressed inside its own syllable's span.
+        ///
+        /// <para>The one millisecond of slack is the generator's two integral-time steps, both of
+        /// which real (fractional) map data exercises: rounding a press to whole milliseconds can
+        /// step off a fractional span edge by up to half a millisecond, and rounding a line's
+        /// activation UP to the millisecond it genuinely opens (the backlog 51 fix) can push the
+        /// line's first press up to one millisecond past a span that opens with it. Neither is
+        /// worth fighting against a 112.5 ms Great window, and neither may grow: this pin is what
+        /// says so.</para>
+        /// </summary>
+        [TestCase("wii-shop.osu")]
+        [TestCase("immortal-flame.osu")]
+        [TestCase("neon-rain.osu")]
+        public void AutoplayIsAllGreatUnderSyllableTiming(string fileName)
+        {
+            var (engine, frames) = autoplay(realPipelineLineObjects(requireOsu(fileName)), fileName, generatorEra: true, engineEra: true);
+
+            assertPerfectRun(engine, frames.Count, 1.0);
+        }
+
+        /// <summary>
+        /// The backlog 181 fixture: "aviation seventeen", both words mapper-subtimed so the
+        /// syllabifier's character split disagrees with the even-by-index target spread far enough
+        /// to throw a cell clean out of its own syllable's span, once in each direction.
+        ///
+        /// <para>"aviation" is sung over [1000, 4000] with boundaries at 1800 and 2600, and the
+        /// syllabifier cuts the forced three groups a|via|tion at "avi" / "a" / "tion", so cell 4
+        /// ('t', the first char of the last group) is timed at 2200 by the even spread while its
+        /// group is not sung until 2600: 400 ms EARLY, outside the 250 ms Great window and inside
+        /// the 600 ms Ok one. "seventeen" is sung over [4000, 11000] with boundaries at 4500, 5000
+        /// and 6000, a mapper holding the last syllable for five seconds, and the same
+        /// disagreement runs the other way: cell 16 (the second 'e', last char of the "tee" group,
+        /// span [5000, 6000]) is timed at 6555.56, which is 555.56 ms LATE against the 400 ms
+        /// Great window.</para>
+        ///
+        /// <para>Two more cells fall just outside their spans the same way and still judge Great
+        /// (cell 5, 100 ms early, and cell 11, 55.56 ms early), which is the backlog 179 situation
+        /// that the old comment generalised from. They are pinned too: the fix has to move them as
+        /// well, because "inside the Great window" is not the claim autoplay makes.</para>
+        /// </summary>
+        private static IReadOnlyList<TypeBeatHitObject> subtimedDisagreement()
+        {
+            var lyric = line("aviation seventeen", 1000, 20000, 11000,
+                unit("aviation", 1000, 4000, 1800, 2600),
+                unit("seventeen", 4000, 11000, 4500, 5000, 6000));
+
+            return new[] { new TypeBeatHitObject { StartTime = lyric.StartTime, LineIndex = 0, Line = lyric, Granularity = TimingGranularity.Line } };
+        }
+
+        /// <summary>Cells of <see cref="subtimedDisagreement"/> whose target is outside their own span, and by how far.</summary>
+        private static readonly (int cell, double distance)[] out_of_span = { (4, -400), (5, -100), (11, -55.555555555555557), (16, 555.55555555555557) };
+
+        /// <summary>
+        /// The fixture's structure, asserted before anything is played, so the tests below are
+        /// pinned to a real disagreement rather than to whatever the syllabifier happens to do.
+        /// </summary>
+        [Test]
+        public void TheSubtimedFixtureTimesFourCellsOutsideTheirSpans()
+        {
+            var tl = TypingLine.FromLyricLine(subtimedDisagreement()[0].Line);
+
+            Assert.AreEqual(18, tl.Cells.Count);
+            Assert.AreEqual("aviation seventeen", tl.DisplayText);
+
+            // Early: 't' of "aviation", timed 400 ms before its group is sung.
+            Assert.AreEqual(2200, tl.Cells[4].TargetTime, 1e-9);
+            Assert.AreEqual(new SyllableGroup(4, 8, 2600, 4000), tl.Syllables[tl.SyllableIndexOf(4)]);
+
+            // Late: second 'e' of "seventeen", timed 555.56 ms after its group has finished.
+            Assert.AreEqual(6555.5555555555557, tl.Cells[16].TargetTime, 1e-6);
+            Assert.AreEqual(new SyllableGroup(14, 17, 5000, 6000), tl.Syllables[tl.SyllableIndexOf(16)]);
+
+            // Exactly those four cells are out of span, by exactly those distances; the rest are
+            // timed inside their own group (the inter-word space is in no group at all).
+            for (int i = 0; i < tl.Cells.Count; i++)
+            {
+                int s = tl.SyllableIndexOf(i);
+
+                if (s < 0)
+                {
+                    Assert.AreEqual(8, i, "the inter-word space is the only ungrouped cell");
+                    continue;
+                }
+
+                double target = tl.Cells[i].TargetTime;
+                var group = tl.Syllables[s];
+
+                double distance = target < group.StartTime ? target - group.StartTime
+                    : target > group.EndTime ? target - group.EndTime
+                    : 0;
+
+                Assert.AreEqual(out_of_span.FirstOrDefault(o => o.cell == i).distance, distance, 1e-6, $"cell {i}");
+            }
+        }
+
+        /// <summary>
+        /// THE BUG (backlog 181): classic point-target frames fed to the live span engine. Backlog
+        /// 179 shipped the span rule without touching the generator, on the strength of a 31.25 ms
+        /// worked example (see <see cref="TargetTimePressesStayGreatWhenTargetSitsOutsideTheSpan"/>),
+        /// but the gap scales with the mapper's segment durations and real subtimings blow straight
+        /// past the Great window. On the user's map that cost 24 Oks and 99.23% accuracy; here it
+        /// costs exactly the two presses the fixture is built to price.
+        /// </summary>
+        [Test]
+        public void TargetPressesLoseGreatsWhereASubtimedTargetFallsOutsideItsSpan()
+        {
+            var (engine, frames) = autoplay(subtimedDisagreement(), "subtimed", generatorEra: false, engineEra: true);
+
+            var results = engine.BuildResults();
+            Assert.AreEqual(2, results.Counts[JudgementType.Ok], "the two out-of-span targets drop to Ok");
+            Assert.AreEqual(frames.Count - 2, results.Counts[JudgementType.Great]);
+
+            // Pressed at the rounded target, judged against the span edge it never reached.
+            Assert.AreEqual(2200, frames[4].Time, 1e-9);
+            Assert.AreEqual(-400, engine.Lines[0].Cells[4].JudgedDelta!.Value, 1e-9);
+
+            Assert.AreEqual(6556, frames[16].Time, 1e-9);
+            Assert.AreEqual(556, engine.Lines[0].Cells[16].JudgedDelta!.Value, 1e-9);
+
+            // The other two out-of-span targets survive as Greats, which is precisely why the
+            // 31.25 ms worked example read as reassuring: the rule only breaks once the mapper's
+            // segments are long enough for the same fraction to clear the window.
+            Assert.AreEqual(-100, engine.Lines[0].Cells[5].JudgedDelta!.Value, 1e-9);
+            Assert.AreEqual(-56, engine.Lines[0].Cells[11].JudgedDelta!.Value, 1e-9);
+        }
+
+        /// <summary>
+        /// THE FIX: told which era it is generating for, the generator clamps each grouped cell's
+        /// press into that cell's syllable span, so all four out-of-span presses land on the nearer
+        /// edge, nothing else moves, and the whole line judges on a delta of exactly zero.
+        /// </summary>
+        [Test]
+        public void AutoplayPressesTheSpanEdgeWhereASubtimedTargetFallsOutsideIt()
+        {
+            var (engine, frames) = autoplay(subtimedDisagreement(), "subtimed", generatorEra: true, engineEra: true);
+
+            // The early press waits for its span to open, the late one is taken before it closes.
+            Assert.AreEqual(2600, frames[4].Time, 1e-9);
+            Assert.AreEqual(6000, frames[16].Time, 1e-9);
+
+            // The two Great-but-not-zero presses are pulled onto their edges too.
+            Assert.AreEqual(2600, frames[5].Time, 1e-9);
+            Assert.AreEqual(4500, frames[11].Time, 1e-9);
+
+            // Every other press is unmoved: the clamp only touches a target outside its span.
+            var tl = TypingLine.FromLyricLine(subtimedDisagreement()[0].Line);
+            double[] targets = tl.Cells.Where(c => c.IsTypeable).Select(c => Math.Round(c.TargetTime)).ToArray();
+
+            for (int i = 0; i < frames.Count; i++)
+            {
+                if (out_of_span.All(o => o.cell != i))
+                    Assert.AreEqual(targets[i], frames[i].Time, 1e-9, $"frame {i} must not move");
+            }
+
+            assertPerfectRun(engine, frames.Count, 1e-9);
+        }
+
+        /// <summary>
+        /// The classic arm, which is what Hard Rock plays under since backlog 180: the era flag off
+        /// keeps the point-target presses byte for byte, and a classic engine at HR's halved
+        /// windows still judges every one of them Great on a delta of zero (bar the integral
+        /// rounding of a fractional target). Autoplay must be perfect in BOTH eras, not just the
+        /// one it was last taught.
+        /// </summary>
+        [Test]
+        public void HardRockEraKeepsTheTargetPressesAndStillPerfects()
+        {
+            var lineObjects = subtimedDisagreement();
+            var tl = TypingLine.FromLyricLine(lineObjects[0].Line);
+
+            double[] targets = tl.Cells.Where(c => c.IsTypeable).Select(c => Math.Round(c.TargetTime)).ToArray();
+
+            var (engine, frames) = autoplay(lineObjects, "subtimed", generatorEra: false, engineEra: false,
+                windowScale: Mods.TypeBeatModHardRock.WINDOW_SCALE);
+
+            Assert.That(frames.Select(f => f.Time).ToArray(), Is.EqualTo(targets), "the classic era presses the point targets");
+
+            assertPerfectRun(engine, frames.Count, 0.5);
         }
 
         #endregion

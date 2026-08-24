@@ -1,11 +1,16 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Replays;
+using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
 
@@ -27,10 +32,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// never happened (no active line, or a line already complete), and it silently shifts every
         /// later press on that line onto the wrong cell.
         /// </summary>
-        private static TypingEngine playPerfectly(TypeBeatBeatmap map)
+        private static TypingEngine playPerfectly(TypeBeatBeatmap map, bool syllableTiming = false)
         {
-            var replay = new TypeBeatAutoGenerator(map).Generate();
-            var engine = new TypingEngine(lyricBeatmap(map));
+            var replay = new TypeBeatAutoGenerator(map, syllableTiming: syllableTiming).Generate();
+            var engine = new TypingEngine(lyricBeatmap(map)) { SyllableTiming = syllableTiming };
 
             foreach (var frame in replay.Frames.Cast<TypeBeatReplayFrame>())
             {
@@ -60,8 +65,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static LyricLine line(string text, double start, double end, double singEnd, params TimedUnit[] units)
             => new LyricLine { RawText = text, StartTime = start, EndTime = end, SingEndTime = singEnd, Units = units };
 
-        private static TimedUnit unit(string text, double start, double end)
-            => new TimedUnit { Text = text, StartTime = start, EndTime = end };
+        private static TimedUnit unit(string text, double start, double end, params double[] syllables)
+            => new TimedUnit { Text = text, StartTime = start, EndTime = end, SyllableBoundaries = syllables };
 
         private static TypeBeatBeatmap beatmap(params LyricLine[] lines)
         {
@@ -196,5 +201,123 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             playPerfectly(map);
         }
+
+        #region Judgement era (backlog 181)
+
+        /// <summary>
+        /// Two mapper-subtimed words whose syllabifier split disagrees with the even-by-index
+        /// target spread hard enough to throw a cell clean out of its own syllable's span in each
+        /// direction (see <see cref="SyllableTimingTest"/> for the judgement arithmetic; this
+        /// fixture is used here only for the FRAME times, which are granularity-independent).
+        /// Cell 4 ('t' of "aviation") is timed 400 ms before its span opens and cell 16 (the second
+        /// 'e' of "seventeen") 555.56 ms after its span closes.
+        /// </summary>
+        private static TypeBeatBeatmap createSubtimedMap() => beatmap(
+            line("aviation seventeen", 1000, 20000, 11000,
+                unit("aviation", 1000, 4000, 1800, 2600),
+                unit("seventeen", 4000, 11000, 4500, 5000, 6000)));
+
+        private static double[] frameTimes(Replay replay)
+            => replay.Frames.Cast<TypeBeatReplayFrame>().Select(f => f.Time).ToArray();
+
+        /// <summary>Rounded point targets: the frames every era before backlog 181 emitted.</summary>
+        private static double[] targetPresses(TypeBeatBeatmap map)
+            => map.HitObjects.OfType<TypeBeatHitObject>()
+                  .OrderBy(h => h.LineIndex)
+                  .SelectMany(h => TypingLine.FromLyricLine(h.Line, h.Granularity).Cells)
+                  .Where(c => c.IsTypeable)
+                  .Select(c => Math.Round(c.TargetTime))
+                  .ToArray();
+
+        /// <summary>
+        /// The era flag defaults to the CLASSIC rule, so a bare construction is byte-identical to
+        /// the pre-backlog-181 generator: every press on its cell's own point target, subtimings or
+        /// no subtimings. That is what a Hard Rock play needs (backlog 180 reverted HR to point
+        /// targets), and what every caller that never heard of the flag keeps getting.
+        /// </summary>
+        [Test]
+        public void ClassicEraPressesTheTargetsAndIsTheDefault()
+        {
+            var map = createSubtimedMap();
+
+            double[] targets = targetPresses(map);
+
+            Assert.That(frameTimes(new TypeBeatAutoGenerator(map).Generate()), Is.EqualTo(targets), "bare construction");
+            Assert.That(frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: false).Generate()), Is.EqualTo(targets), "era off");
+
+            // Non-vacuity: the span era really does move presses on this fixture, so the equality
+            // above is a claim about the flag and not about the map.
+            Assert.That(frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: true).Generate()), Is.Not.EqualTo(targets), "era on");
+
+            // Classic generator judged by a classic engine: still a perfect play, every delta zero
+            // to within the integral rounding of a fractional target.
+            var engine = playPerfectly(map);
+
+            foreach (var cell in engine.Lines.SelectMany(l => l.Cells).Where(c => c.IsTypeable))
+                Assert.AreEqual(0, cell.JudgedDelta!.Value, 0.5, $"cell '{cell.Expected}' @ {cell.TargetTime}");
+        }
+
+        /// <summary>
+        /// Under the span era every GROUPED cell is pressed at its target clamped into its
+        /// syllable's span, and every UNGROUPED cell (the inter-word space here) keeps its point
+        /// target, because that is what each of them is still judged against.
+        /// </summary>
+        [Test]
+        public void SyllableEraClampsEachGroupedPressIntoItsSpan()
+        {
+            var map = createSubtimedMap();
+            var typingLine = TypingLine.FromLyricLine(map.HitObjects.OfType<TypeBeatHitObject>().Single().Line, TimingGranularity.Word);
+
+            var expected = new List<double>();
+
+            for (int i = 0; i < typingLine.Cells.Count; i++)
+            {
+                var cell = typingLine.Cells[i];
+
+                if (!cell.IsTypeable)
+                    continue;
+
+                int syllable = typingLine.SyllableIndexOf(i);
+
+                expected.Add(syllable < 0
+                    ? Math.Round(cell.TargetTime)
+                    : Math.Round(Math.Clamp(cell.TargetTime, typingLine.Syllables[syllable].StartTime, typingLine.Syllables[syllable].EndTime)));
+            }
+
+            Assert.That(frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: true).Generate()), Is.EqualTo(expected.ToArray()));
+
+            // Span generator judged by a span engine: perfect, and every delta EXACTLY zero rather
+            // than merely inside a window.
+            var engine = playPerfectly(map, syllableTiming: true);
+
+            foreach (var cell in engine.Lines.SelectMany(l => l.Cells).Where(c => c.IsTypeable))
+                Assert.AreEqual(0, cell.JudgedDelta!.Value, 1e-9, $"cell '{cell.Expected}' @ {cell.TargetTime}");
+        }
+
+        /// <summary>
+        /// The mod is the only production caller, and the era it asks for must be the era
+        /// <c>DrawableTypeBeatRuleset.createEngine</c> will judge in: span for every mod stack,
+        /// point targets under Hard Rock alone. Literate stays carried through beside it.
+        /// </summary>
+        [Test]
+        public void AutoplayModMirrorsTheLiveEraCondition()
+        {
+            var map = createSubtimedMap();
+
+            double[] span = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: true).Generate());
+            double[] classic = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: false).Generate());
+            double[] literateSpan = frameTimes(new TypeBeatAutoGenerator(map, literate: true, syllableTiming: true).Generate());
+
+            Assert.That(span, Is.Not.EqualTo(classic), "the fixture must distinguish the two eras");
+
+            var mod = new TypeBeatModAutoplay();
+
+            Assert.That(frameTimes(mod.CreateReplayData(map, Array.Empty<Mod>()).Replay), Is.EqualTo(span), "no mods");
+            Assert.That(frameTimes(mod.CreateReplayData(map, new Mod[] { new TypeBeatModEasy() }).Replay), Is.EqualTo(span), "a mod that is not Hard Rock");
+            Assert.That(frameTimes(mod.CreateReplayData(map, new Mod[] { new TypeBeatModHardRock() }).Replay), Is.EqualTo(classic), "Hard Rock reverts to point targets");
+            Assert.That(frameTimes(mod.CreateReplayData(map, new Mod[] { new TypeBeatModLiterate() }).Replay), Is.EqualTo(literateSpan), "Literate is still carried through");
+        }
+
+        #endregion
     }
 }

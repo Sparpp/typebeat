@@ -12,12 +12,13 @@ using typebeat.Game.Rulesets.TypeBeat.Objects;
 namespace typebeat.Game.Rulesets.TypeBeat.Replays
 {
     /// <summary>
-    /// Generates a perfect play: every typeable cell's expected character pressed exactly at its
-    /// target time (delta 0 = Great), using the same <see cref="TypingLine.FromLyricLine"/>
-    /// flattening the engine itself is built from, so the frames line up with the engine's cells by
-    /// construction. The literate flag must match the play's mods, because Literate changes which
-    /// cells exist at all (punctuation becomes typed) and the case they are typed in; without it
-    /// case is emitted as authored anyway and simply folded away.
+    /// Generates a perfect play: every typeable cell's expected character pressed at the moment
+    /// that cell judges delta 0 under the era the play is graded in, using the same
+    /// <see cref="TypingLine.FromLyricLine"/> flattening the engine itself is built from, so the
+    /// frames line up with the engine's cells by construction. The literate flag must match the
+    /// play's mods, because Literate changes which cells exist at all (punctuation becomes typed)
+    /// and the case they are typed in; without it case is emitted as authored anyway and simply
+    /// folded away.
     ///
     /// Times are clamped into each line's typeable window (never before its activation, never past
     /// its seal deadline) and kept monotonic, then rounded to integral milliseconds like recorded
@@ -31,11 +32,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         private const double seal_margin_ms = 10;
 
         private readonly bool literate;
+        private readonly bool syllableTiming;
 
-        public TypeBeatAutoGenerator(IBeatmap beatmap, bool literate = false)
+        /// <param name="beatmap">The map to perfect.</param>
+        /// <param name="literate">
+        /// Whether the play is under the Literate mod, which changes the cell list itself.
+        /// </param>
+        /// <param name="syllableTiming">
+        /// Which judgement ERA the generated presses must be perfect under, era-styled exactly like
+        /// <see cref="Gameplay.TypingEngine.SyllableTiming"/> and defaulting to the same CLASSIC
+        /// era, so a bare construction keeps the pre-backlog-181 frames (every press on its cell's
+        /// own point target). Set it to match the engine that will grade the replay: live play is
+        /// span-judged for every mod stack but Hard Rock
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c>), and
+        /// <see cref="Mods.TypeBeatModAutoplay.CreateReplayData"/> mirrors that condition.
+        /// </param>
+        public TypeBeatAutoGenerator(IBeatmap beatmap, bool literate = false, bool syllableTiming = false)
             : base(beatmap)
         {
             this.literate = literate;
+            this.syllableTiming = syllableTiming;
         }
 
         protected override void GenerateFrames()
@@ -73,12 +89,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // fails the play. So round UP to the open, never past it.
                 double openMs = Math.Ceiling(windowStart);
 
-                foreach (var cell in line.Cells)
+                for (int i = 0; i < line.Cells.Count; i++)
                 {
+                    var cell = line.Cells[i];
+
                     if (!cell.IsTypeable)
                         continue;
 
-                    double time = Math.Clamp(cell.TargetTime, windowStart, windowEnd);
+                    double time = Math.Clamp(perfectTimeFor(line, i), windowStart, windowEnd);
 
                     // Monotonic, integral (matches live capture; lossless in .osr).
                     time = Math.Max(Math.Round(Math.Max(time, lastTime)), openMs);
@@ -91,6 +109,52 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                     Frames.Add(new TypeBeatReplayFrame(time, cell.IsFreestyle ? Typeability.FREESTYLE_AUTO_CHAR : cell.Expected));
                 }
             }
+        }
+
+        /// <summary>
+        /// The instant cell <paramref name="cellIndex"/> is judged delta 0 at, before the window,
+        /// monotonic and rounding machinery in <see cref="GenerateFrames"/> gets to it.
+        ///
+        /// <para>Classic era: the cell's own point target, which is what
+        /// <c>TypingEngine.judgedDeltaFor</c> measures against. Under
+        /// <see cref="syllableTiming"/> a cell inside a syllable group is measured against that
+        /// group's sung SPAN instead, so the perfect instant is the target CLAMPED into
+        /// [<see cref="SyllableGroup.StartTime"/>, <see cref="SyllableGroup.EndTime"/>]: inside the
+        /// span the target is already perfect and nothing moves, outside it the nearer edge is the
+        /// only choice that judges 0. The clamp is not cosmetic. Under mapper subtimings a cell's
+        /// flat-ramp target routinely sits OUTSIDE its own syllable's span, because the target
+        /// spread walks the characters evenly BY INDEX across the mapper's segments while the
+        /// groups are cut where the <see cref="Gameplay.Syllabifier"/> says the syllable breaks,
+        /// and the two disagree (see <c>TypingLine.buildSyllables</c>). Backlog 179 assumed that
+        /// gap was always small enough to stay Great; on a real map it reached the Ok window and
+        /// autoplay scored 99.23%.</para>
+        ///
+        /// <para>A cell in NO group keeps its point target under both eras, because that is exactly
+        /// what the engine keeps judging it on: space cells, lines with no groups, and every cell
+        /// of a stylised token the syllabifier refuses (backlog 178).</para>
+        ///
+        /// <para>The integral rounding applied afterwards can still step off a FRACTIONAL span edge
+        /// by up to half a millisecond, which is left alone deliberately: rounding into the span
+        /// instead is not always possible (a span shorter than a millisecond, or one whose edges
+        /// round to the same integer, has no integral instant inside it at all), and half a
+        /// millisecond against the tightest Great window in the game (112.5 ms, Syllable
+        /// granularity) is not a judgement anyone can lose.</para>
+        /// </summary>
+        private double perfectTimeFor(TypingLine line, int cellIndex)
+        {
+            double target = line.Cells[cellIndex].TargetTime;
+
+            if (!syllableTiming)
+                return target;
+
+            int syllable = line.SyllableIndexOf(cellIndex);
+
+            if (syllable < 0)
+                return target;
+
+            var group = line.Syllables[syllable];
+
+            return Math.Clamp(target, group.StartTime, group.EndTime);
         }
     }
 }
