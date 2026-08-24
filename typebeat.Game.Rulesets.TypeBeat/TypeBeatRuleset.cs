@@ -328,10 +328,22 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// </summary>
         public override IConvertibleReplayFrame CreateConvertibleReplayFrame() => new TypeBeatReplayFrame();
 
+        /// <summary>
+        /// The ruleset's rebindable actions, as shown in the key configuration screen's type!beat
+        /// section. Z/X are vestigial (typing is taken from raw key events, so they never fire while
+        /// a line is being typed); the two WORD-LEVEL GESTURES are the real content, defaulting to
+        /// the chords every other typing site uses for them.
+        ///
+        /// <para>Appended to <see cref="TypeBeatAction"/> rather than inserted, because the stored
+        /// binding rows key off the enum's INTEGER value: renumbering Button1/Button2 would silently
+        /// re-point every existing user's saved rows.</para>
+        /// </summary>
         public override IEnumerable<KeyBinding> GetDefaultKeyBindings(int variant = 0) => new[]
         {
             new KeyBinding(InputKey.Z, TypeBeatAction.Button1),
             new KeyBinding(InputKey.X, TypeBeatAction.Button2),
+            new KeyBinding(new KeyCombination(InputKey.Control, InputKey.BackSpace), TypeBeatAction.EraseWord),
+            new KeyBinding(new KeyCombination(InputKey.Control, InputKey.A), TypeBeatAction.SelectBackToTypo),
         };
 
         public override Drawable CreateIcon() => new Icon();

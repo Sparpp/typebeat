@@ -5,12 +5,14 @@ using System;
 using System.Collections.Generic;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
+using osu.Framework.Extensions;
 using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
+using osu.Framework.Input.Bindings;
 using osu.Framework.Input.Events;
 using osu.Framework.Timing;
 using typebeat.Game.Beatmaps;
@@ -678,9 +680,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// for backspace (hold to erase); a held character key never machine-guns judgements at the
         /// keyboard's own repeat rate, and holding it produces nothing at all beyond the initial
         /// press. Ctrl/Alt combos fall through to framework shortcuts, EXCEPT the two word-level
-        /// editing gestures every typing site has and backlog 182 brought here: CTRL+BACKSPACE
-        /// (erase the previous word, key repeat honoured like the plain key) and CTRL+A (select back
-        /// to the mistake that has to be retyped).
+        /// editing gestures every typing site has and backlog 182 brought here: ERASE WORD (default
+        /// Ctrl+Backspace, key repeat honoured like the plain key) and SELECT BACK TO TYPO (default
+        /// Ctrl+A, select back to the mistake that has to be retyped).
+        ///
+        /// <para>Since backlog 183 those two are REBINDABLE ruleset actions
+        /// (<see cref="TypeBeatAction.EraseWord"/> / <see cref="TypeBeatAction.SelectBackToTypo"/>),
+        /// so the chords above are defaults rather than constants, and every press is resolved
+        /// against the user's current bindings through
+        /// <see cref="TypeBeatInputManager.ResolveGesture"/>. This handler stays the single owner of
+        /// gameplay input: the actions are never PRESSED (nothing implements
+        /// <c>IKeyBindingHandler</c> for them), so the replay recorder, the key counters and the
+        /// clicks-per-second counter cannot see them, and one precedence order decides everything.
+        /// That order, top down: a gesture rebound onto a bare or shifted TYPEABLE key is shadowed
+        /// and types (nothing else is survivable mid-run: the whole lyric surface is typeable);
+        /// otherwise a matched gesture wins, ahead of the plain backspace and ahead of the
+        /// instrumental-skip fall-throughs; anything unmatched behaves exactly as it did before.</para>
         ///
         /// <para>Both gestures are COMPOSED out of engine calls that already exist: a run of
         /// <see cref="TypingEngine.ProcessBackspace"/> plus at most one
@@ -745,15 +760,47 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             public override bool RequestsFocus => true;
 
+            /// <summary>
+            /// The ruleset input manager this handler sits inside, which owns the live (realm-backed)
+            /// binding list the two gestures are resolved against. Found once at load;
+            /// <c>DrawableRuleset</c> always wraps the playfield in one.
+            /// </summary>
+            private TypeBeatInputManager? rulesetInput;
+
+            /// <summary>Ruleset defaults, used only if this playfield were ever hosted outside a
+            /// <see cref="TypeBeatInputManager"/>: a dead gesture would be a far worse failure than
+            /// an unconfigurable one.</summary>
+            private IEnumerable<IKeyBinding>? fallbackBindings;
+
+            protected override void LoadComplete()
+            {
+                base.LoadComplete();
+                rulesetInput = this.FindClosestParent<TypeBeatInputManager>();
+            }
+
             protected override bool OnKeyDown(KeyDownEvent e)
             {
-                // The two word-level gestures this handler owns (backlog 182). Carved out BEFORE the
-                // fall-through below, and deliberately narrow: Control without Alt, on exactly two
-                // keys, so every other framework shortcut still reaches the framework.
-                bool wordGesture = e.ControlPressed && !e.AltPressed && (e.Key == Key.BackSpace || e.Key == Key.A);
+                // Which word-level gesture (if any) this press triggers under the user's CURRENT
+                // bindings (backlog 183; backlog 182 hardcoded Ctrl+Backspace and Ctrl+A here).
+                // Resolved before anything else, so a gesture rebound onto a key this handler would
+                // otherwise own outright (Backspace, Shift+Backspace) still reaches its gesture.
+                var gesture = TypeBeatInputManager.ResolveGesture(e, rulesetInput?.CurrentGestureBindings
+                                                                    ?? (fallbackBindings ??= new TypeBeatRuleset().GetDefaultKeyBindings()));
 
-                // Let framework shortcuts (every other Ctrl/Alt combo) fall through.
-                if ((e.ControlPressed || e.AltPressed) && !wordGesture)
+                // TYPING ALWAYS WINS. A gesture rebound onto a bare (or shifted) typeable key is
+                // shadowed for as long as the key would type, and types. Nothing else is survivable:
+                // the whole lyric surface is typeable, so a letter that silently stopped typing
+                // mid-run could not be recovered from without leaving gameplay. No modifier chord
+                // types, so no modifier chord is ever shadowed.
+                if (gesture != null
+                    && !e.ControlPressed && !e.AltPressed && !e.SuperPressed
+                    && KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, engine.Literate, out _))
+                {
+                    gesture = null;
+                }
+
+                // Let framework shortcuts (every Ctrl/Alt combo that is not a bound gesture) fall through.
+                if ((e.ControlPressed || e.AltPressed) && gesture == null)
                     return false;
 
                 // Millisecond-quantised keystroke time: what the engine judges at, what gets
@@ -780,10 +827,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // the SONG itself is in a dead zone, and only before the player has started the parked
                 // line. One keystroke into the line, or anywhere the song is actually playing a line,
                 // Space is a typing key again, so rushing into the next line is never blocked.
-                if (engine.FletcherEnabled && e.Key == Key.Space && !engine.SongWindowOpen && engine.ActiveLineUntouched)
+                // (Gated on there being no bound gesture on this press, so binding one onto a Space
+                // chord is not swallowed by the skip fall-through.)
+                if (engine.FletcherEnabled && gesture == null && e.Key == Key.Space && !engine.SongWindowOpen && engine.ActiveLineUntouched)
                     return false;
 
-                if (e.Key == Key.BackSpace)
+                if (gesture == TypeBeatAction.EraseWord || (gesture == null && e.Key == Key.BackSpace))
                 {
                     // Erasing only ever has something to undo in ALLOW-WRONG-INPUT mode: that is the
                     // one model where a wrong char lands in a cell. Under GATEKEEPER a wrong
@@ -810,12 +859,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // how typed-through wrong chars get fixed in allow-wrong-input mode). Only an
                     // erase that actually changed state is recorded.
                     //
-                    // CTRL takes the whole word (backlog 182). A live SELECTION takes precedence over
-                    // either width: an erase key over one collapses it and types nothing, which is
-                    // the same mass erase a letter would do before landing.
+                    // The ERASE WORD binding takes the whole word (backlog 182). A live SELECTION
+                    // takes precedence over either width: an erase key over one collapses it and
+                    // types nothing, which is the same mass erase a letter would do before landing.
                     if (!collapseSelection(time))
                     {
-                        if (wordGesture)
+                        if (gesture == TypeBeatAction.EraseWord)
                             eraseBackTo(engine.WordBackspaceTarget, time);
                         else if (engine.ProcessBackspace())
                             drawableRuleset?.RecordTypingInput(TypeBeatReplayFrame.BACKSPACE, time);
@@ -824,13 +873,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     return true;
                 }
 
-                if (wordGesture)
+                if (gesture == TypeBeatAction.SelectBackToTypo)
                 {
-                    // CTRL+A: offer the run back to the nearest unfixed typo for retyping. Gated on
-                    // the same flag the erase is, and for the same reason: under Gatekeeper no wrong
+                    // Offer the run back to the nearest unfixed typo for retyping. Gated on the same
+                    // flag the erase is, and for the same reason: under Gatekeeper no wrong
                     // character ever lands, so there is never a typo to select and the key is
-                    // swallowed rather than passed on (Ctrl+A carries meaning elsewhere in the game
-                    // that gameplay must not start triggering just because the model is strict).
+                    // swallowed rather than passed on (the default Ctrl+A carries meaning elsewhere
+                    // in the game that gameplay must not start triggering just because the model is
+                    // strict).
                     if (!engine.AllowWrongInput)
                         return true;
 

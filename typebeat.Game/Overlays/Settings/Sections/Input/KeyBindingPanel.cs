@@ -4,6 +4,7 @@
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using typebeat.Game.Localisation;
+using typebeat.Game.Rulesets;
 
 namespace typebeat.Game.Overlays.Settings.Sections.Input
 {
@@ -12,11 +13,15 @@ namespace typebeat.Game.Overlays.Settings.Sections.Input
         protected override Drawable CreateHeader() => new SettingsHeader(InputSettingsStrings.KeyBindingPanelHeader, InputSettingsStrings.KeyBindingPanelDescription);
 
         [BackgroundDependencyLoader(permitNulls: true)]
-        private void load()
+        private void load(RulesetStore rulesets)
         {
-            // Per-ruleset binding sections are not surfaced: the sole ruleset's variant bindings
-            // are the two default buttons, which are not worth a section of their own.
             AddSection(new GlobalKeyBindingsSection());
+
+            // The ruleset section was dropped once, when its only rows were the two vestigial
+            // buttons. It is back because backlog 183 gave type!beat rebindable rows worth showing:
+            // the two word-level typing gestures (erase word, select back to typo).
+            foreach (var ruleset in rulesets.AvailableRulesets)
+                AddSection(new RulesetBindingsSection(ruleset));
         }
     }
 }

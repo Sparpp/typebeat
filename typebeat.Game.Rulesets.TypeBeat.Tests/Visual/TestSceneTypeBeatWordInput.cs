@@ -5,8 +5,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
+using osu.Framework.Allocation;
+using osu.Framework.Input.Bindings;
 using osu.Framework.Testing;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Database;
+using typebeat.Game.Input.Bindings;
 using typebeat.Game.Replays.Legacy;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
@@ -406,7 +410,221 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             });
         }
 
+        // -----------------------------------------------------------------------------------------
+        // Backlog 183: the gestures are rebindable ruleset actions, not hardcoded chords
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// The whole point of backlog 183: the gesture follows the USER'S binding. Rebound through
+        /// realm exactly as the key configuration screen rebinds it, the old chord goes inert (it is
+        /// an unclaimed Ctrl combo again, so it falls through to the framework untouched) and the new
+        /// one erases the word. What it records is unchanged by any of that, because the binding only
+        /// decides WHICH press starts the gesture, never what the gesture then does.
+        /// </summary>
+        [Test]
+        public void TestEraseWordFollowsARebind()
+        {
+            waitForLine();
+
+            type("ab cd");
+
+            rebind(TypeBeatAction.EraseWord, new KeyCombination(InputKey.Shift, InputKey.BackSpace));
+
+            int recorded = 0;
+            AddStep("capture frame count", () => recorded = frames.Count);
+
+            AddStep("press the OLD chord (Ctrl+Backspace)", () =>
+            {
+                InputManager.PressKey(Key.ControlLeft);
+                InputManager.Key(Key.BackSpace);
+                InputManager.ReleaseKey(Key.ControlLeft);
+            });
+
+            AddAssert("the old chord did nothing", () => engine.CaretIndex == 5);
+            AddAssert("and recorded nothing", () => frames.Count == recorded);
+
+            AddStep("press the NEW chord (Shift+Backspace)", () =>
+            {
+                InputManager.PressKey(Key.ShiftLeft);
+                InputManager.Key(Key.BackSpace);
+                InputManager.ReleaseKey(Key.ShiftLeft);
+            });
+
+            AddAssert("the new chord erased the word", () => engine.CaretIndex == 3);
+
+            AddAssert("through the ordinary frames, at one timestamp", () =>
+            {
+                var burst = frames.Skip(recorded).ToList();
+                return burst.Count == 2 && burst.All(f => f.IsBackspace) && burst[0].Time == burst[1].Time;
+            });
+
+            AddAssert("and the recorded run still re-derives to the live one", reDerivedMatchesLive);
+        }
+
+        /// <summary>
+        /// The other half of the same rebind, on the other gesture, and the proof that the OLD chord
+        /// really is inert rather than merely quiet: Ctrl+A no longer selects, and the chord it moved
+        /// to does.
+        /// </summary>
+        [Test]
+        public void TestSelectBackToTypoFollowsARebind()
+        {
+            waitForLine();
+
+            type("a");
+            AddStep("press X (wrong for 'b')", () => InputManager.Key(Key.X));
+            type(" c");
+
+            rebind(TypeBeatAction.SelectBackToTypo, new KeyCombination(InputKey.Control, InputKey.Q));
+
+            ctrl(Key.A);
+            AddAssert("the old chord selects nothing", () => playfield.CurrentRetypeSelection == null);
+
+            ctrl(Key.Q);
+            AddAssert("the new chord selects the run back to the typo", () =>
+                playfield.CurrentRetypeSelection is TypeBeatPlayfield.RetypeSelection { LineIndex: 0, StartCell: 0, EndCell: 4 });
+        }
+
+        /// <summary>
+        /// TYPING ALWAYS WINS. A gesture rebound onto a bare typeable key is shadowed for as long as
+        /// that key would type, which is the only survivable answer: the whole lyric surface is
+        /// typeable, so a letter that silently stopped typing could not be recovered from mid-run.
+        ///
+        /// <para>Non-vacuous by construction: 'a' is the first cell of this line, so if the gesture
+        /// won the press the line could never be completed at all.</para>
+        /// </summary>
+        [Test]
+        public void TestAGestureReboundOntoALetterIsShadowedByTyping()
+        {
+            waitForLine();
+
+            rebind(TypeBeatAction.SelectBackToTypo, new KeyCombination(InputKey.A));
+
+            type("ab cd ef");
+
+            AddAssert("every key typed", () =>
+                engine.IsLineComplete && engine.Lines[0].Cells.All(c => c.State == CellState.Correct));
+            AddAssert("and no selection was ever offered", () => playfield.CurrentRetypeSelection == null);
+        }
+
+        /// <summary>
+        /// Hold to erase, still by the WORD (backlog 182's repeat behaviour, unchanged by the binding
+        /// rework: repeats are handled on the raw key path exactly as the plain backspace's are).
+        /// Proved from the recording rather than by watching the caret, because that is what
+        /// distinguishes word erases from character ones: each gesture invocation stamps its whole
+        /// burst with the one timestamp it was judged at, so three presses of a fully typed
+        /// "ab cd ef" leave three groups of 2, 3 and 3 backspaces, not eight groups of one.
+        /// </summary>
+        [Test]
+        public void TestHoldingEraseWordRepeatsWordByWord()
+        {
+            waitForLine();
+
+            type("ab cd ef");
+
+            int recorded = 0;
+            AddStep("capture frame count", () => recorded = frames.Count);
+
+            AddStep("hold Ctrl+Backspace", () =>
+            {
+                InputManager.PressKey(Key.ControlLeft);
+                InputManager.PressKey(Key.BackSpace);
+            });
+
+            AddUntilStep("the line was erased", () => engine.CaretIndex == 0);
+
+            AddStep("release", () =>
+            {
+                InputManager.ReleaseKey(Key.BackSpace);
+                InputManager.ReleaseKey(Key.ControlLeft);
+            });
+
+            AddAssert("in three word-sized bursts", () =>
+            {
+                var burst = frames.Skip(recorded).ToList();
+
+                return burst.All(f => f.IsBackspace)
+                       && burst.GroupBy(f => f.Time).Select(g => g.Count()).SequenceEqual(new[] { 2, 3, 3 });
+            });
+        }
+
         #region Harness
+
+        [Resolved]
+        private RealmAccess realm { get; set; } = null!;
+
+        /// <summary>
+        /// The key bindings live in the shared test realm, so a rebind made by one test would
+        /// otherwise be inherited by every test after it (and by every other fixture in the run).
+        /// Put back on both sides of each test rather than one, so a test that fails part way through
+        /// still leaves the defaults behind.
+        /// </summary>
+        [SetUpSteps]
+        public void RestoreBindingsBefore() => restoreDefaultBindings();
+
+        [TearDownSteps]
+        public void RestoreBindingsAfter() => restoreDefaultBindings();
+
+        private void restoreDefaultBindings() => AddStep("restore default bindings", () => realm.Write(r =>
+        {
+            foreach (var binding in new TypeBeatRuleset().GetDefaultKeyBindings())
+            {
+                int actionInt = (int)(TypeBeatAction)binding.Action;
+
+                var row = r.All<RealmKeyBinding>()
+                           .FirstOrDefault(b => b.RulesetName == "typebeat" && b.ActionInt == actionInt);
+
+                if (row != null)
+                    row.KeyCombination = binding.KeyCombination;
+            }
+        }));
+
+        private TypeBeatInputManager rulesetInput => Player.ChildrenOfType<TypeBeatInputManager>().Single();
+
+        /// <summary>
+        /// Move <paramref name="action"/> onto <paramref name="combination"/> the way the key
+        /// configuration screen does: write the ruleset's realm row and let the gameplay key-binding
+        /// container's own realm subscription pick it up. Waits on the container actually holding the
+        /// new binding, which is also what proves gameplay is reading THAT list and not a hardcoded
+        /// chord or a stale copy of the defaults.
+        /// </summary>
+        private void rebind(TypeBeatAction action, KeyCombination combination)
+        {
+            AddStep($"rebind {action} to {combination}", () => realm.Write(r =>
+            {
+                var row = r.All<RealmKeyBinding>()
+                           .First(b => b.RulesetName == "typebeat" && b.ActionInt == (int)action);
+
+                row.KeyCombination = combination;
+            }));
+
+            AddUntilStep("gameplay picked the rebind up", () => rulesetInput.CurrentGestureBindings
+                                                                           .Any(b => b.GetAction<TypeBeatAction>() == action && b.KeyCombination.Equals(combination)));
+        }
+
+        /// <summary>
+        /// Whether re-deriving the recorded frames through the legacy encode/decode reproduces the
+        /// live engine. The same contract <see cref="TestBothGesturesRecordAndReDeriveExactly"/>
+        /// pins under the default binds, reused to show a rebind changes none of it.
+        /// </summary>
+        private bool reDerivedMatchesLive()
+        {
+            var live = engine;
+            var replayed = reDerive();
+
+            bool cellsMatch = live.Lines[0].Cells.Zip(replayed.Lines[0].Cells)
+                                  .All(pair => pair.First.State == pair.Second.State
+                                               && pair.First.TypedChar == pair.Second.TypedChar
+                                               && Nullable.Equals(pair.First.JudgedDelta, pair.Second.JudgedDelta));
+
+            return cellsMatch
+                   && replayed.CaretIndex == live.CaretIndex
+                   && replayed.Score == live.Score
+                   && replayed.MaxCombo == live.MaxCombo
+                   && replayed.Combo == live.Combo
+                   && replayed.Mistypes == live.Mistypes
+                   && replayed.LiveAccuracy == live.LiveAccuracy;
+        }
 
         private void waitForLine() => AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0);
 

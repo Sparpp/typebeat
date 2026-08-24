@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
@@ -172,13 +173,18 @@ namespace typebeat.Game.Rulesets.UI
 
         #region Key Counter Attachment
 
+        /// <summary>
+        /// Which actions the gameplay key counter shows. Virtual so a ruleset whose action set
+        /// includes things that are not input KEYS (type!beat's word-level editing gestures) can keep
+        /// them out of a display that counts keystrokes.
+        /// </summary>
+        protected virtual IEnumerable<T> CountedActions => KeyBindingContainer.DefaultKeyBindings.Select(b => b.GetAction<T>()).Distinct();
+
         public void Attach(InputCountController inputCountController)
         {
-            var triggers = KeyBindingContainer.DefaultKeyBindings
-                                              .Select(b => b.GetAction<T>())
-                                              .Distinct()
-                                              .Select(action => new KeyCounterActionTrigger<T>(action))
-                                              .ToArray();
+            var triggers = CountedActions
+                           .Select(action => new KeyCounterActionTrigger<T>(action))
+                           .ToArray();
 
             KeyBindingContainer.AddRange(triggers);
             inputCountController.AddRange(triggers);
