@@ -207,7 +207,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 if (!TypeBeatEditorOperations.SetLineText(editorBeatmap, HitObject, textBox.Text))
                 {
                     // Normalized to empty; refuse and flash (delete the line instead).
-                    textBox.Text = HitObject.Line.RawText;
+                    textBox.Text = TypeBeatEditorOperations.PipeDisplayText(HitObject.Line);
                     background.FlashColour(TypeBeatStyle.ErrorChar, 400, Easing.OutQuint);
                 }
             }
@@ -219,8 +219,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 indexText.Text = (HitObject.LineIndex + 1).ToString();
                 timeText.Text = formatTime(HitObject.Line.StartTime);
 
-                if (!textBox.HasFocus && textBox.Text != HitObject.Line.RawText)
-                    textBox.Text = HitObject.Line.RawText;
+                // The box shows the line in its PIPE form: a subdivided word carries a '|' at each
+                // of its syllable splits ("ap|ple"), which is both how the split is displayed and
+                // how it is edited (see TypeBeatEditorOperations.SetLineText). The pipe is a
+                // reserved character of this surface only; it is stripped on commit and never
+                // reaches the stored lyric or a gameplay cell.
+                string display = TypeBeatEditorOperations.PipeDisplayText(HitObject.Line);
+
+                if (!textBox.HasFocus && textBox.Text != display)
+                    textBox.Text = display;
 
                 bool active = state.ActiveLine.Value == HitObject;
                 bool multiSelected = state.MultiSelectedLines.Contains(HitObject);

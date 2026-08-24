@@ -351,7 +351,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // and the k chars are spread evenly across the segments in index-space, so the caret
                 // reaches each boundary time at that boundary's proportional char and moves linearly
                 // (but at a per-segment speed) between them. Empty boundaries => the flat ramp.
+                //
+                // An AUTHORED char split (backlog 181, "ap|ple") replaces that even distribution:
+                // the mapper's own cut says how many chars ride each segment, so the same split
+                // drives the targets here and the judgement groups in buildSyllables. Derived
+                // (empty, or stale) keeps the index-even spread untouched, which is what makes a
+                // map with no authored split flatten byte-identically to before.
                 var boundaries = unit?.SyllableBoundaries ?? System.Array.Empty<double>();
+
+                int[]? cellCuts = unit != null && SyllableSegments.IsAuthoredValid(token, boundaries.Count + 1, unit.SyllableSplits)
+                    ? SyllableSegments.CellCuts(token, unit.SyllableSplits)
+                    : null;
 
                 int j = 0;
 
@@ -365,7 +375,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                         isTypeable[pos] = true;
                         // Typeable char j of k in unit u: first char AT unit start, piecewise across
                         // syllable boundaries (degenerates to u.Start + j*(u.End-u.Start)/k when undivided).
-                        targets[pos] = syllableCharTarget(unitStart, unitEnd, boundaries, k, j);
+                        targets[pos] = syllableCharTarget(unitStart, unitEnd, boundaries, k, j, cellCuts);
                         j++;
                     }
                     // else: punctuation, resolved in the second pass.
@@ -513,6 +523,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// hand-authored its syllable count and boundary times, and that is authoritative (174's
         /// rule). A mapper who subtimes "heyyyyy" into three held syllables gets three groups.</para>
         ///
+        /// <para>WHICH characters a subtimed token's groups take is <see cref="SyllableSegments"/>'s
+        /// answer, not the syllabifier's directly: an AUTHORED split (backlog 181) wins over the
+        /// forced analysis, and the SAME split feeds the per-char targets above. On an authored word
+        /// that makes every cell's target fall inside its own group's span by construction, because
+        /// both sides read the same cut of the same edges.</para>
+        ///
         /// <para>Split indices index the TOKEN string and are mapped to cells through the same
         /// projection that assigned the targets, so punctuation (and, under Literate, its extra
         /// cells) lands inside the syllable of the letter it attaches to. A SPACE cell (the
@@ -551,7 +567,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 if (token.Length > 0 && (subtimed || Syllabifier.IsSyllabifiable(token)))
                 {
                     var splits = subtimed
-                        ? Syllabifier.SplitPoints(token, boundaries.Count + 1)
+                        ? SyllableSegments.SplitsFor(token, boundaries.Count + 1, unit?.SyllableSplits)
                         : Syllabifier.SplitPoints(token);
 
                     int groupBase = starts.Count;
@@ -673,8 +689,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// segment s covers char-index range [s*k/S, (s+1)*k/S] mapped linearly onto its time range,
         /// where S = segment count. With no boundaries this is exactly unitStart + j*(unitEnd-unitStart)/k;
         /// char j = 0 always lands on unitStart. Monotonic non-decreasing in j because boundaries are sorted.
+        ///
+        /// <para><paramref name="cellCuts"/>, when given (<see cref="SyllableSegments.CellCuts"/> of
+        /// an AUTHORED split, backlog 181), replaces that even distribution with the mapper's own:
+        /// segment s covers cell-index range [cuts[s], cuts[s+1]) instead of [s*k/S, (s+1)*k/S], so
+        /// "ap|ple" puts two chars on the first syllable and three on the second however long the
+        /// word is. Null means derived, and the arithmetic below is then untouched.</para>
         /// </summary>
-        internal static double syllableCharTarget(double unitStart, double unitEnd, IReadOnlyList<double> boundaries, int k, int j)
+        internal static double syllableCharTarget(double unitStart, double unitEnd, IReadOnlyList<double> boundaries, int k, int j, IReadOnlyList<int>? cellCuts = null)
         {
             if (k <= 0)
                 return unitStart;
@@ -683,15 +705,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 return unitStart + (double)j * (unitEnd - unitStart) / k;
 
             int segments = boundaries.Count + 1;
+            int s;
+            double segIndexLo;
+            double segIndexHi;
 
-            // Which segment holds char index j (floor of j scaled into segment-space), clamped to the last.
-            int s = (int)Math.Floor((double)j * segments / k);
+            if (cellCuts != null && cellCuts.Count == segments + 1)
+            {
+                s = SyllableSegments.SegmentOf(cellCuts, j);
+                segIndexLo = cellCuts[s];
+                segIndexHi = cellCuts[s + 1];
+            }
+            else
+            {
+                // Which segment holds char index j (floor of j scaled into segment-space), clamped to the last.
+                s = (int)Math.Floor((double)j * segments / k);
 
-            if (s >= segments)
-                s = segments - 1;
+                if (s >= segments)
+                    s = segments - 1;
 
-            double segIndexLo = (double)s * k / segments;
-            double segIndexHi = (double)(s + 1) * k / segments;
+                segIndexLo = (double)s * k / segments;
+                segIndexHi = (double)(s + 1) * k / segments;
+            }
+
             double timeLo = s == 0 ? unitStart : boundaries[s - 1];
             double timeHi = s == segments - 1 ? unitEnd : boundaries[s];
 

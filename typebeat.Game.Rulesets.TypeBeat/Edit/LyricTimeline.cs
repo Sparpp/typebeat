@@ -15,6 +15,7 @@ using osu.Framework.Input.Events;
 using typebeat.Game.Graphics.Cursor;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Screens.Edit;
@@ -407,7 +408,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             private readonly Box body;
             private readonly Box progress;
-            private readonly OsuSpriteText label;
+
+            // One label per SYLLABLE SEGMENT, positioned between the word's dotted lines: an
+            // undivided word has exactly one (the whole word, centred, as it always was).
+            private readonly Container labels;
+            private readonly List<TruncatingSpriteText> segmentLabels = new List<TruncatingSpriteText>();
 
             [Resolved]
             private EditorBeatmap editorBeatmap { get; set; } = null!;
@@ -444,13 +449,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 {
                     body = new Box { RelativeSizeAxes = Axes.Both, Colour = TypeBeatStyle.UntypedChar },
                     progress = new Box { RelativeSizeAxes = Axes.Both, Width = 0, Colour = TypeBeatStyle.SungAccent, Alpha = 0.45f },
-                    label = new TruncatingSpriteText
-                    {
-                        Anchor = Anchor.Centre,
-                        Origin = Anchor.Centre,
-                        Font = TypeBeatStyle.Mono(16),
-                        Colour = TypeBeatStyle.TypedChar,
-                    },
+                    labels = new Container { RelativeSizeAxes = Axes.Both },
                 };
             }
 
@@ -469,14 +468,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     return;
                 }
 
-                X = parent.PositionOf(unit.StartTime);
-                Width = Math.Max(4, parent.PositionOf(unit.EndTime) - parent.PositionOf(unit.StartTime));
+                float blockX = parent.PositionOf(unit.StartTime);
+                X = blockX;
+                Width = Math.Max(4, parent.PositionOf(unit.EndTime) - blockX);
+
                 // Freestyle slots shimmer in the word strip too (fixed-width label font, so the
-                // substitution cannot change the word's measured width). The block label is a
-                // single sprite, so unlike the line preview it cannot colour the slot separately.
-                label.Text = FreestyleGlyphs.Substitute(unit.Text, FreestyleGlyphs.FIXED_WIDTH_POOL, FreestyleGlyphs.TickFor(Time.Current));
-                label.MaxWidth = Math.Max(1, Width - 6);
-                label.Alpha = Width < 16 ? 0 : 1;
+                // substitution cannot change the word's measured width). Substituted on the WHOLE
+                // word before it is cut, so the per-index glyph choice is unaffected by the cut.
+                string display = FreestyleGlyphs.Substitute(unit.Text, FreestyleGlyphs.FIXED_WIDTH_POOL, FreestyleGlyphs.TickFor(Time.Current));
+
+                // The characters are cut at the word's EFFECTIVE syllable split, authored or
+                // derived, so "ap" sits left of the dotted line and "ple" right of it. Derived is
+                // shown as readily as authored on purpose: it is the split gameplay's judgement
+                // groups already use, so the strip shows the real grouping rather than a blank.
+                var segments = SyllableSegments.SegmentTexts(display, SyllableSegments.SplitsFor(unit));
+                ensureLabels(segments.Count);
+
+                for (int i = 0; i < segments.Count; i++)
+                {
+                    // Same edge rule buildSyllables uses, including the degraded case where the
+                    // syllabifier hands back fewer segments than there are boundaries: the last
+                    // segment runs to the word's end.
+                    double lo = i == 0 ? unit.StartTime : unit.SyllableBoundaries[i - 1];
+                    double hi = i == segments.Count - 1 ? unit.EndTime : unit.SyllableBoundaries[i];
+
+                    float loX = parent.PositionOf(lo) - blockX;
+                    float hiX = parent.PositionOf(hi) - blockX;
+
+                    var text = segmentLabels[i];
+                    text.Text = segments[i];
+                    text.X = (loX + hiX) / 2;
+                    text.MaxWidth = Math.Max(1, hiX - loX - 6);
+                    text.Alpha = hiX - loX < 16 ? 0 : 1;
+                }
 
                 bool activeLine = state.ActiveLine.Value == hitObject;
                 bool selected = activeLine && state.SelectedUnitIndices.Contains(index);
@@ -493,6 +517,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 double now = editorClock.CurrentTime;
                 float fill = (float)Math.Clamp((now - unit.StartTime) / Math.Max(1, unit.EndTime - unit.StartTime), 0, 1);
                 progress.Width = fill;
+            }
+
+            /// <summary>Grows/shrinks the per-segment label pool to <paramref name="count"/>.</summary>
+            private void ensureLabels(int count)
+            {
+                while (segmentLabels.Count < count)
+                {
+                    var text = new TruncatingSpriteText
+                    {
+                        Anchor = Anchor.CentreLeft,
+                        Origin = Anchor.Centre,
+                        Font = TypeBeatStyle.Mono(16),
+                        Colour = TypeBeatStyle.TypedChar,
+                    };
+
+                    segmentLabels.Add(text);
+                    labels.Add(text);
+                }
+
+                for (int i = count; i < segmentLabels.Count; i++)
+                    segmentLabels[i].Alpha = 0;
             }
 
             /// <summary>Which part of the block a local X hits: window-style edge zones.</summary>

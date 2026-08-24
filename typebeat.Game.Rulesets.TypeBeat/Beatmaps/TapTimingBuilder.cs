@@ -353,6 +353,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     double e = Math.Clamp(end[p], s, ceiling);
                     cursor = e;
 
+                    var boundaries = boundariesFor(source, retimed[p], syllableTaps[p],
+                        syllablesTapped[p] >= syllablesWanted[p], s, e);
+
                     units[u] = new TimedUnit
                     {
                         Text = source.Text,
@@ -362,8 +365,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         // says so, exactly as the aligner's interpolated words do.
                         Source = retimed[p] ? (paced[p] ? TimingSource.Interpolated : TimingSource.Explicit) : source.Source,
                         Confidence = retimed[p] ? (paced[p] ? 0.5 : 1) : source.Confidence,
-                        SyllableBoundaries = boundariesFor(source, retimed[p], syllableTaps[p],
-                            syllablesTapped[p] >= syllablesWanted[p], s, e),
+                        SyllableBoundaries = boundaries,
+                        // The word's text never changes here, so an authored character split
+                        // survives as long as the SEGMENT COUNT does; a re-tap that adds or drops a
+                        // syllable leaves every later split paired with the wrong segment, so the
+                        // word falls back to the derived split.
+                        SyllableSplits = boundaries.Count == source.SyllableBoundaries.Count ? source.SyllableSplits : Array.Empty<int>(),
                     };
                 }
 

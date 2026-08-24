@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using typebeat.Game.Screens.Edit;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
@@ -66,6 +67,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 SyllableBoundaries = u.SyllableBoundaries.Count == 0
                     ? u.SyllableBoundaries
                     : u.SyllableBoundaries.Select(b => b + deltaMs).ToArray(),
+                // Splits are CHAR indices: a time shift cannot invalidate one, so they ride
+                // through every shift/offset operation untouched.
+                SyllableSplits = u.SyllableSplits,
             }).ToArray(),
         };
 
@@ -135,17 +139,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             };
 
         private static TimedUnit retime(TimedUnit unit, double start, double end, TimingSource? source = null, double? confidence = null)
-            => new TimedUnit
+        {
+            // Syllable subdivisions ride along, clamped to the new span (any that fall outside the
+            // re-timed window are dropped: the word shrank past them).
+            var boundaries = clampBoundaries(unit.SyllableBoundaries, start, end);
+
+            return new TimedUnit
             {
                 Text = unit.Text,
                 StartTime = start,
                 EndTime = end,
                 Source = source ?? unit.Source,
                 Confidence = confidence ?? unit.Confidence,
-                // Syllable subdivisions ride along, clamped to the new span (any that fall outside
-                // the re-timed window are dropped: the word shrank past them).
-                SyllableBoundaries = clampBoundaries(unit.SyllableBoundaries, start, end),
+                SyllableBoundaries = boundaries,
+                // An authored char split is only meaningful against the boundary count it was
+                // authored for: if the clamp dropped one, every remaining split would pair with the
+                // wrong segment, so the word falls back to the derived split rather than lie.
+                SyllableSplits = boundaries.Count == unit.SyllableBoundaries.Count ? unit.SyllableSplits : Array.Empty<int>(),
             };
+        }
 
         /// <summary>Keeps only boundaries strictly inside (start, end), sorted; empty stays empty.</summary>
         private static IReadOnlyList<double> clampBoundaries(IReadOnlyList<double> boundaries, double start, double end)
@@ -480,19 +492,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         /// <summary>
         /// Replaces a line's typed text ("yeah" -> "yeaaaaaaaah"). The raw input is normalized
-        /// through the game's typeability rules, except that each '&amp;'
-        /// (<see cref="Typeability.FREESTYLE_MARKER"/>) survives as a FREESTYLE cell: a slot the
-        /// player may fill with any key but space. When the token count is unchanged, each word
+        /// through the game's typeability rules, except for two authoring seams that survive it:
+        /// each '&amp;' (<see cref="Typeability.FREESTYLE_MARKER"/>) is STORED as a FREESTYLE cell,
+        /// a slot the player may fill with any key but space; each '|'
+        /// (<see cref="Typeability.SPLIT_MARKER"/>) is READ as a syllable split and then stripped,
+        /// so it never reaches the stored lyric. When the token count is unchanged, each word
         /// keeps its timing; otherwise timings are redistributed (char-weighted) across the sung
         /// window. Returns false (no change) when the text normalizes to empty; an empty line
         /// cannot exist in the format; delete the line instead.
+        ///
+        /// <para>The pipe matrix, per word (see <see cref="splitsFromPipes"/> for the code):</para>
+        /// <list type="bullet">
+        /// <item>a word with NO subdivisions: pipes are stripped and ignored (there is no segment
+        /// for them to cut).</item>
+        /// <item>B boundaries, B or more pipes: the first B pipe positions become the authored
+        /// split; surplus pipes are dropped.</item>
+        /// <item>B boundaries, fewer pipes: the pipes given replace the leading splits and the
+        /// remaining ones keep the value the word already showed (authored or derived).</item>
+        /// <item>a pipe that would leave a segment EMPTY (at the start or end of the word, or on
+        /// top of another pipe): the whole word keeps its previous split, so a typo cannot silently
+        /// re-cut it.</item>
+        /// <item>a result equal to the DERIVED split is stored as derived (empty), so committing a
+        /// line the mapper did not actually re-split writes no <c>split_chars</c> at all.</item>
+        /// </list>
+        ///
+        /// <para>A word count change re-interpolates and therefore drops every subdivision, splits
+        /// included; there is no per-word mapping to carry them through.</para>
         /// </summary>
         public static bool SetLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText)
         {
-            // The one authoring seam for FREESTYLE cells: an ampersand the mapper types is kept
-            // (every other untypeable char is still stripped) and becomes a cell any key but space
-            // satisfies.
-            string normalized = Typeability.Normalize(Typeability.StripBackingVocals(rawUserText), keepFreestyleMarkers: true);
+            // Both authoring seams survive Normalize here; every other untypeable char is stripped.
+            string withMarkers = Typeability.Normalize(Typeability.StripBackingVocals(rawUserText),
+                keepFreestyleMarkers: true, keepSplitMarkers: true);
+
+            var (normalized, pipes) = stripSplitMarkers(withMarkers);
 
             // Rejected when there is nothing to TYPE, measured on the default stream: text that is
             // only punctuation ("...") normalizes non-empty but would give the player no cell, and
@@ -501,22 +534,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return false;
 
             var line = hitObject.Line;
-
-            if (normalized == line.RawText)
-                return true;
+            bool textUnchanged = normalized == line.RawText;
 
             string[] tokens = normalized.Split(' ');
             IReadOnlyList<TimedUnit> units;
 
             if (hitObject.Granularity == TimingGranularity.Line)
             {
+                if (textUnchanged)
+                    return true;
+
                 // Line-granularity maps persist no word data; units are always the loader's
                 // interpolation, which is text-weight-dependent, so re-derive with the new text.
                 units = LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime);
             }
             else if (tokens.Length == line.Units.Count)
             {
-                // Same word count: keep every word's timing (and its subdivisions), swap the text.
+                // Same word count: keep every word's timing (and its subdivisions), swap the text,
+                // and re-read each word's split from where its pipes now sit.
                 units = line.Units.Select((u, i) => new TimedUnit
                 {
                     Text = tokens[i],
@@ -525,7 +560,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     Source = u.Source,
                     Confidence = u.Confidence,
                     SyllableBoundaries = u.SyllableBoundaries,
+                    SyllableSplits = splitsFromPipes(tokens[i], u.SyllableBoundaries.Count + 1, u.SyllableSplits, pipes[i]),
                 }).ToArray();
+
+                // A commit that moved neither the text nor a single pipe is a no-op, so a map with
+                // no authored splits does not start carrying them just because a box lost focus.
+                if (textUnchanged && !units.Where((u, i) => !sameSplits(u.SyllableSplits, line.Units[i].SyllableSplits)).Any())
+                    return true;
             }
             else
             {
@@ -539,6 +580,135 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             editorBeatmap.EndChange();
             return true;
         }
+
+        #region Syllable splits on the line text ("ap|ple")
+
+        /// <summary>
+        /// A line's text as the editor's line box SHOWS it: the stored text with a
+        /// <see cref="Typeability.SPLIT_MARKER"/> at every subdivided word's EFFECTIVE split, the
+        /// authored one where there is one and the derived one otherwise. Showing the derived split
+        /// is deliberate: it is the split gameplay's judgement groups already use, so the mapper
+        /// edits what the game does rather than an empty field. Identical to the stored text for a
+        /// line with no subdivisions at all, and for a line whose tokens and units have drifted
+        /// apart (nothing there can be paired safely).
+        /// </summary>
+        public static string PipeDisplayText(LyricLine line)
+        {
+            string[] tokens = line.RawText.Split(' ');
+
+            if (tokens.Length != line.Units.Count || !line.Units.Any(u => u.SyllableBoundaries.Count > 0))
+                return line.RawText;
+
+            var pieces = new string[tokens.Length];
+
+            for (int i = 0; i < tokens.Length; i++)
+            {
+                var unit = line.Units[i];
+
+                pieces[i] = unit.SyllableBoundaries.Count == 0
+                    ? tokens[i]
+                    : string.Join(Typeability.SPLIT_MARKER,
+                        SyllableSegments.SegmentTexts(tokens[i], SyllableSegments.SplitsFor(tokens[i], unit.SyllableBoundaries.Count + 1, unit.SyllableSplits)));
+            }
+
+            return string.Join(' ', pieces);
+        }
+
+        /// <summary>
+        /// Splits pipe-bearing normalized text into the text that gets STORED and, per surviving
+        /// token, the character positions the pipes sat at (measured in the stripped token, so a
+        /// pipe before the first char is 0 and one after the last is the token's length: both are
+        /// rejected downstream as empty segments). A token that was nothing but pipes disappears
+        /// entirely rather than becoming an empty word.
+        /// </summary>
+        private static (string text, IReadOnlyList<IReadOnlyList<int>> pipes) stripSplitMarkers(string withMarkers)
+        {
+            var texts = new List<string>();
+            var pipes = new List<IReadOnlyList<int>>();
+
+            foreach (string token in withMarkers.Split(' '))
+            {
+                if (token.IndexOf(Typeability.SPLIT_MARKER) < 0)
+                {
+                    if (token.Length == 0)
+                        continue;
+
+                    texts.Add(token);
+                    pipes.Add(Array.Empty<int>());
+                    continue;
+                }
+
+                var sb = new System.Text.StringBuilder(token.Length);
+                var positions = new List<int>();
+
+                foreach (char c in token)
+                {
+                    if (c == Typeability.SPLIT_MARKER)
+                        positions.Add(sb.Length);
+                    else
+                        sb.Append(c);
+                }
+
+                if (sb.Length == 0)
+                    continue;
+
+                texts.Add(sb.ToString());
+                pipes.Add(positions);
+            }
+
+            return (string.Join(' ', texts), pipes);
+        }
+
+        /// <summary>
+        /// One word's authored split after a text commit: see the matrix on
+        /// <see cref="SetLineText"/>. Returns <paramref name="current"/> unchanged when the pipes
+        /// do not describe a valid split, so a typo costs the mapper nothing.
+        /// </summary>
+        private static IReadOnlyList<int> splitsFromPipes(string token, int segments, IReadOnlyList<int> current, IReadOnlyList<int> pipes)
+        {
+            if (segments < 2)
+                return Array.Empty<int>();
+
+            int wanted = segments - 1;
+
+            // Start from what the word currently SHOWS, so moving one pipe of a three-way split
+            // leaves the other two where the mapper saw them.
+            var target = SyllableSegments.SplitsFor(token, segments, current).ToList();
+
+            // The derived split degrades to fewer than `wanted` on an over-forced short word; pad
+            // with an impossible index so the validity check below rejects it rather than guessing.
+            while (target.Count < wanted)
+                target.Add(-1);
+
+            if (target.Count > wanted)
+                target.RemoveRange(wanted, target.Count - wanted);
+
+            for (int i = 0; i < wanted && i < pipes.Count; i++)
+                target[i] = pipes[i];
+
+            if (!SyllableSegments.IsAuthoredValid(token, segments, target))
+                return current;
+
+            // Landing exactly on the derived split stays DERIVED: the result is identical and the
+            // map keeps no split_chars it does not need.
+            return sameSplits(target, SyllableSegments.Derived(token, segments)) ? Array.Empty<int>() : target;
+        }
+
+        private static bool sameSplits(IReadOnlyList<int> a, IReadOnlyList<int> b)
+        {
+            if (a.Count != b.Count)
+                return false;
+
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (a[i] != b[i])
+                    return false;
+            }
+
+            return true;
+        }
+
+        #endregion
 
         /// <summary>Placeholder text a freshly inserted word carries until the mapper types over it.</summary>
         public const string NEW_WORD_TEXT = "word";
@@ -901,6 +1071,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             double mid = double.NaN;
             double widest = 0;
+            int widestSegment = -1;
 
             for (int i = 0; i < edges.Count - 1; i++)
             {
@@ -909,6 +1080,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 if (width > widest)
                 {
                     widest = width;
+                    widestSegment = i;
                     mid = (edges[i] + edges[i + 1]) / 2;
                 }
             }
@@ -918,8 +1090,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return null;
 
             var boundaries = unit.SyllableBoundaries.Append(mid).OrderBy(b => b).ToArray();
-            replaceUnitBoundaries(editorBeatmap, hitObject, unitIndex, boundaries);
+            replaceUnitBoundaries(editorBeatmap, hitObject, unitIndex, boundaries, bisectSplit(unit, widestSegment));
             return mid;
+        }
+
+        /// <summary>
+        /// The authored split a word keeps when <see cref="AddSyllableBoundary"/> bisects segment
+        /// <paramref name="segment"/> in TIME: its characters are bisected too, so the new dotted
+        /// line lands between "ap" and "ple" rather than re-cutting the whole word.
+        ///
+        /// <para>A word still on the DERIVED split keeps deriving (empty): the syllabifier simply
+        /// re-answers for the higher count, which is exactly what happened before splits existed.
+        /// A segment of fewer than two characters cannot be bisected, so the word falls back to
+        /// derived rather than authoring an empty segment.</para>
+        /// </summary>
+        private static IReadOnlyList<int> bisectSplit(TimedUnit unit, int segment)
+        {
+            int segments = unit.SyllableBoundaries.Count + 1;
+
+            if (segment < 0 || !SyllableSegments.IsAuthoredValid(unit.Text, segments, unit.SyllableSplits))
+                return Array.Empty<int>();
+
+            var splits = unit.SyllableSplits.ToList();
+            int lo = segment > 0 ? splits[segment - 1] : 0;
+            int hi = segment < splits.Count ? splits[segment] : unit.Text.Length;
+
+            if (hi - lo < 2)
+                return Array.Empty<int>();
+
+            splits.Insert(segment, lo + (hi - lo) / 2);
+            return splits;
         }
 
         /// <summary>
@@ -951,7 +1151,77 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             var boundaries = unit.SyllableBoundaries.ToArray();
             boundaries[boundaryIndex] = newTime;
-            replaceUnitBoundaries(editorBeatmap, hitObject, unitIndex, boundaries);
+            // The boundary COUNT is unchanged, so the authored split still describes this word.
+            replaceUnitBoundaries(editorBeatmap, hitObject, unitIndex, boundaries, unit.SyllableSplits);
+        }
+
+        /// <summary>
+        /// Moves ONE syllable split of a word: character <paramref name="charIndex"/> becomes the
+        /// first character of segment <paramref name="boundaryIndex"/> + 1, so "apple" with
+        /// charIndex 2 on boundary 0 reads "ap|ple". Clamped to stay strictly between its
+        /// neighbouring splits and inside the word, so no segment is ever emptied; a word with no
+        /// legal slot left is a no-op.
+        ///
+        /// <para>A word still on the DERIVED split is MATERIALISED first (the split it currently
+        /// shows becomes the split it stores), so moving one dotted line leaves every other one
+        /// exactly where the mapper saw it. A result that happens to equal the derived split is
+        /// stored as derived, so nothing is pinned that did not need pinning.</para>
+        ///
+        /// <para>Only the character split moves: no time, no boundary count, so granularity is
+        /// untouched. Single undo step.</para>
+        /// </summary>
+        public static void SetSyllableSplit(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int boundaryIndex, int charIndex)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < 0 || unitIndex >= line.Units.Count)
+                return;
+
+            var unit = line.Units[unitIndex];
+            int segments = unit.SyllableBoundaries.Count + 1;
+
+            if (boundaryIndex < 0 || boundaryIndex >= segments - 1)
+                return;
+
+            var splits = SyllableSegments.SplitsFor(unit.Text, segments, unit.SyllableSplits).ToList();
+
+            // The syllabifier could not even produce this many segments (an over-forced short
+            // word); there is nothing coherent to author against.
+            if (splits.Count != segments - 1)
+                return;
+
+            int lower = (boundaryIndex > 0 ? splits[boundaryIndex - 1] : 0) + 1;
+            int upper = (boundaryIndex < splits.Count - 1 ? splits[boundaryIndex + 1] : unit.Text.Length) - 1;
+
+            if (upper < lower)
+                return;
+
+            splits[boundaryIndex] = Math.Clamp(charIndex, lower, upper);
+
+            var stored = sameSplits(splits, SyllableSegments.Derived(unit.Text, segments))
+                ? Array.Empty<int>()
+                : splits.ToArray();
+
+            if (sameSplits(stored, unit.SyllableSplits))
+                return;
+
+            var units = line.Units.ToArray();
+
+            units[unitIndex] = new TimedUnit
+            {
+                Text = unit.Text,
+                StartTime = unit.StartTime,
+                EndTime = unit.EndTime,
+                Source = unit.Source,
+                Confidence = unit.Confidence,
+                SyllableBoundaries = unit.SyllableBoundaries,
+                SyllableSplits = stored,
+            };
+
+            editorBeatmap.BeginChange();
+            hitObject.Line = rebuild(line, units: units);
+            editorBeatmap.Update(hitObject);
+            editorBeatmap.EndChange();
         }
 
         /// <summary>
@@ -972,7 +1242,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return;
 
             var boundaries = unit.SyllableBoundaries.Where((_, i) => i != boundaryIndex).ToArray();
-            replaceUnitBoundaries(editorBeatmap, hitObject, unitIndex, boundaries);
+
+            // The split that cut the two merged segments apart goes with the boundary; the rest
+            // still describe the same characters. A derived word stays derived.
+            var splits = SyllableSegments.IsAuthoredValid(unit.Text, unit.SyllableBoundaries.Count + 1, unit.SyllableSplits)
+                ? unit.SyllableSplits.Where((_, i) => i != boundaryIndex).ToArray()
+                : Array.Empty<int>();
+
+            replaceUnitBoundaries(editorBeatmap, hitObject, unitIndex, boundaries, splits);
         }
 
         /// <summary>
@@ -981,11 +1258,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// beatmap's granularity is reconciled (up to Syllable while any boundary survives, back to
         /// Word when the last one is removed). Single undo step.
         /// </summary>
-        private static void replaceUnitBoundaries(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, IReadOnlyList<double> boundaries)
+        private static void replaceUnitBoundaries(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex,
+                                                  IReadOnlyList<double> boundaries, IReadOnlyList<int> splits)
         {
             var line = hitObject.Line;
             var units = line.Units.ToArray();
             var unit = units[unitIndex];
+
+            // Last gate on the authored split: it must be a valid cut of THIS word into the new
+            // segment count, or the word goes back to the derived split.
+            bool keepSplits = SyllableSegments.IsAuthoredValid(unit.Text, boundaries.Count + 1, splits);
 
             units[unitIndex] = new TimedUnit
             {
@@ -995,6 +1277,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Source = TimingSource.Explicit,
                 Confidence = 1,
                 SyllableBoundaries = boundaries.Count == 0 ? Array.Empty<double>() : boundaries.ToArray(),
+                SyllableSplits = keepSplits ? splits.ToArray() : Array.Empty<int>(),
             };
 
             editorBeatmap.BeginChange();
@@ -1166,6 +1449,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// where it sits; its internal rhythm is overwritten). Spans past the end of the line's
         /// word list are dropped; the result is clamped monotonically into the line window (words
         /// after the pasted run are pushed, never reordered). Single undo step.
+        ///
+        /// <para>SYLLABLE SPLITS DO NOT TRAVEL, and neither do subdivision boundaries: the payload
+        /// is word SPANS only. Each target word keeps its own boundaries (re-clamped into the
+        /// pasted span) and therefore its own split, dropped to derived only when the clamp cost it
+        /// a boundary. That is the only defensible choice for a char index: the payload carries no
+        /// text, so a split copied off "apple" would land on whatever word sits at that position in
+        /// the target line and cut it somewhere meaningless.</para>
         /// </summary>
         public static void PasteUnitTimings(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int anchorIndex, LyricTimingClipboard.UnitTimingsPayload payload)
         {

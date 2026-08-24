@@ -164,6 +164,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             var words = new List<(string Text, double Start, double End, double Score, List<double> Syllables)>();
 
+            // Parallel to words[]: word i's authored char splits (empty = derived). Kept beside the
+            // word tuple rather than inside it so every existing RawLine construction still compiles.
+            var wordSplits = new List<List<int>>();
+
             if (lineElement.TryGetProperty("words", out JsonElement wordsElement)
                 && wordsElement.ValueKind == JsonValueKind.Array)
             {
@@ -201,7 +205,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         }
                     }
 
+                    // Optional AUTHORED character split (type!beat editor extension, backlog 181):
+                    // the char indices at which each syllable segment starts. Read RAW here and
+                    // validated in buildExplicitUnits, which is the only place that knows how many
+                    // boundaries actually survived clamping.
+                    var splitChars = new List<int>();
+
+                    if (wordElement.TryGetProperty("split_chars", out JsonElement splitsEl) && splitsEl.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (JsonElement splitEl in splitsEl.EnumerateArray())
+                        {
+                            if (tryGetInt(splitEl, out int split))
+                                splitChars.Add(split);
+                        }
+                    }
+
                     words.Add((wordText, ws, we, score, syllables));
+                    wordSplits.Add(splitChars);
                 }
             }
 
@@ -216,7 +236,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 sealGraceMs = parsedSealGrace;
             }
 
-            rawLine = new RawLine(normalized, startMs, endMs, estimated, words, sealGraceMs);
+            rawLine = new RawLine(normalized, startMs, endMs, estimated, words, sealGraceMs,
+                wordSplits.Exists(s => s.Count > 0) ? wordSplits : null);
             return true;
         }
 
@@ -267,7 +288,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 if (tokens.Length == line.Words.Count && tokens.Length > 0)
                 {
-                    units = buildExplicitUnits(tokens, line.Words, start, end);
+                    units = buildExplicitUnits(tokens, line.Words, line.WordSplits, start, end);
                 }
                 else
                 {
@@ -290,9 +311,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return result;
         }
 
+        /// <summary>
+        /// Word units from the aligner's (or the editor's) words[]. <paramref name="wordSplits"/>
+        /// carries the optional AUTHORED char splits, validated HERE rather than at parse time
+        /// because only this method knows how many boundaries actually survived clamping.
+        ///
+        /// <para>The rule is deliberately strict, because a split is a char index and a wrong one
+        /// would silently re-cut a word rather than fail: the split is kept only when the clamping
+        /// above DROPPED NOTHING (a boundary lost to a narrowed word would re-pair every later
+        /// split with the wrong segment) and the indices themselves are a valid split of this
+        /// token. Anything else falls back to derived, never to a crash.</para>
+        /// </summary>
         private static IReadOnlyList<TimedUnit> buildExplicitUnits(
             string[] tokens,
             List<(string Text, double Start, double End, double Score, List<double> Syllables)> words,
+            List<List<int>>? wordSplits,
             double lineStart,
             double lineEnd)
         {
@@ -313,6 +346,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // Keep only subdivisions that stayed strictly inside the (possibly clamped) word.
                 var syllables = words[m].Syllables.Where(b => b > ws && b < we).Distinct().OrderBy(b => b).ToArray();
 
+                // Authored split, kept only when nothing was dropped above AND the indices are a
+                // valid split of this token into (boundaries + 1) segments.
+                var splits = wordSplits != null && m < wordSplits.Count ? wordSplits[m] : null;
+
+                int[] keptSplits = splits != null
+                                   && syllables.Length == words[m].Syllables.Count
+                                   && Gameplay.SyllableSegments.IsAuthoredValid(tokens[m], syllables.Length + 1, splits)
+                    ? splits.ToArray()
+                    : System.Array.Empty<int>();
+
                 units.Add(new TimedUnit
                 {
                     Text = tokens[m],
@@ -321,6 +364,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     Source = TimingSource.Explicit,
                     Confidence = Math.Clamp(words[m].Score, 0, 1),
                     SyllableBoundaries = syllables.Length == 0 ? System.Array.Empty<double>() : syllables,
+                    SyllableSplits = keptSplits,
                 });
 
                 prevEnd = we;
@@ -358,12 +402,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return false;
         }
 
+        /// <summary>
+        /// One parsed timing.json line. <paramref name="WordSplits"/> is PARALLEL to
+        /// <paramref name="Words"/> (entry i holds word i's authored char splits, empty for a
+        /// derived word) and is null when the line authored none, which is every line of every map
+        /// written before backlog 181. It rides beside the word tuple rather than inside it so the
+        /// tuple's shape, and therefore every existing construction of this struct, is unchanged.
+        /// </summary>
         public readonly record struct RawLine(
             string Text,
             double StartMs,
             double EndMs,
             bool Estimated,
             List<(string Text, double Start, double End, double Score, List<double> Syllables)> Words,
-            double? SealGraceMs = null);
+            double? SealGraceMs = null,
+            List<List<int>>? WordSplits = null);
     }
 }

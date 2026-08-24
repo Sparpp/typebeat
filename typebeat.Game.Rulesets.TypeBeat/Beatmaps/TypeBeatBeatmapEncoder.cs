@@ -117,6 +117,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                                 json.WriteEndArray();
                             }
 
+                            // The AUTHORED character split (backlog 181), written ADDITIVELY beside
+                            // syllables[] and only when the mapper actually authored one: a word
+                            // left on the derived split persists exactly as it always did, so no
+                            // existing map's bytes move.
+                            if (unit.SyllableSplits.Count > 0)
+                            {
+                                json.WriteStartArray("split_chars");
+
+                                foreach (int split in unit.SyllableSplits)
+                                    json.WriteNumberValue(split);
+
+                                json.WriteEndArray();
+                            }
+
                             json.WriteEndObject();
                         }
 
@@ -139,6 +153,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// word's characters are split across the segments as evenly as possible so each syllable
         /// carries some text; only the segment TIMES round-trip (the loader derives boundaries from
         /// each syllable's start_ms), so the text split is just a sensible default.
+        ///
+        /// <para>A word carrying an AUTHORED split (backlog 181) prints THAT split instead, so the
+        /// saved JSON reads "ap"/"ple" rather than the even halves. Cosmetic either way: the loader
+        /// reads the split back from <c>split_chars</c> and never from these strings, which is what
+        /// keeps every pre-181 map (whose texts are the even default) splitting exactly as before.
+        /// The even default is likewise left untouched for a derived word, so no existing map's
+        /// bytes move.</para>
         /// </summary>
         private static void writeSyllables(Utf8JsonWriter json, TimedUnit unit)
         {
@@ -149,6 +170,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             string text = unit.Text;
             int segments = edges.Count - 1;
 
+            IReadOnlyList<string>? authored = Gameplay.SyllableSegments.IsAuthoredValid(text, segments, unit.SyllableSplits)
+                ? Gameplay.SyllableSegments.SegmentTexts(text, unit.SyllableSplits)
+                : null;
+
             for (int i = 0; i < segments; i++)
             {
                 int from = (int)System.Math.Round((double)i * text.Length / segments);
@@ -157,7 +182,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 to = System.Math.Clamp(to, from, text.Length);
 
                 json.WriteStartObject();
-                json.WriteString("text", System.MemoryExtensions.AsSpan(text, from, to - from));
+                json.WriteString("text", authored != null ? authored[i] : System.MemoryExtensions.AsSpan(text, from, to - from).ToString());
                 json.WriteNumber("start_ms", edges[i]);
                 json.WriteNumber("end_ms", edges[i + 1]);
                 json.WriteEndObject();

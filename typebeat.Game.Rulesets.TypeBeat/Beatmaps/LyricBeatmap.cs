@@ -49,6 +49,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         public const char FREESTYLE_AUTO_CHAR = 'a';
 
+        /// <summary>
+        /// Authoring marker for a SYLLABLE SPLIT (backlog 181): where inside a subdivided word the
+        /// characters are cut, typed straight into the editor's line text ("ap|ple"). A RESERVED
+        /// character of the editing surface only: it is neither typeable nor supported punctuation,
+        /// so <see cref="Normalize"/> strips it exactly like any other junk char unless the caller
+        /// opts in, and it therefore never reaches a stored lyric, a cell, or the aligner. The
+        /// stored form of the split is <see cref="TimedUnit.SyllableSplits"/>, not this glyph.
+        /// </summary>
+        public const char SPLIT_MARKER = '|';
+
         // INVARIANT: the accepted set must be a subset of what KeyCharMap can produce
         // (ASCII letters/digits/space after Fold); anything else must classify as
         // non-typeable so it auto-skips instead of stranding the caret on an
@@ -154,8 +164,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// flagged as carrying freestyle cells. Every legacy path keeps the default, so an
         /// ampersand that merely occurs in a song's lyrics ("R&amp;B") still disappears exactly as
         /// it always has.</para>
+        ///
+        /// <para><paramref name="keepSplitMarkers"/> does the same for
+        /// <see cref="SPLIT_MARKER"/>s. Exactly ONE caller opts in, the editor's line-text entry,
+        /// where a typed '|' is the authoring gesture for a syllable split; it strips them itself
+        /// once it has read their positions, so no stored lyric ever carries one. Every other path
+        /// keeps the default and drops them like any other unsupported char.</para>
         /// </summary>
-        public static string Normalize(string raw, bool keepFreestyleMarkers = false)
+        public static string Normalize(string raw, bool keepFreestyleMarkers = false, bool keepSplitMarkers = false)
         {
             if (string.IsNullOrEmpty(raw))
                 return string.Empty;
@@ -191,8 +207,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // Supported punctuation survives into the stored line (the author's form); every
                 // other untypeable non-whitespace char is dropped from the game text entirely.
                 // Freestyle markers survive only for the callers that asked for them.
-                if (!char.IsWhiteSpace(c) && !IsTypeable(c) && !IsPunctuation(c) && !(keepFreestyleMarkers && IsFreestyle(c)))
+                if (!char.IsWhiteSpace(c) && !IsTypeable(c) && !IsPunctuation(c)
+                    && !(keepFreestyleMarkers && IsFreestyle(c)) && !(keepSplitMarkers && c == SPLIT_MARKER))
+                {
                     continue;
+                }
 
                 if (char.IsWhiteSpace(c))
                 {
@@ -403,6 +422,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// timing.json <c>words[].syllables[]</c>.
         /// </summary>
         public IReadOnlyList<double> SyllableBoundaries { get; init; } = Array.Empty<double>();
+
+        /// <summary>
+        /// Optional AUTHORED character split of <see cref="Text"/> into its syllable segments
+        /// (backlog 181): the char indices at which a new segment STARTS, strictly ascending, each
+        /// strictly inside (0, Text.Length), and exactly <see cref="SyllableBoundaries"/>.Count of
+        /// them ("ap|ple" on a one-boundary word is <c>[2]</c>).
+        ///
+        /// <para>EMPTY means DERIVED: the <see cref="Gameplay.Syllabifier"/> picks the split, which
+        /// is what every map written before this field carries and therefore the case that must
+        /// stay byte-identical. Never read this property directly; go through
+        /// <see cref="Gameplay.SyllableSegments.SplitsFor(TimedUnit)"/>, which falls back to the
+        /// derived split whenever an authored one has gone stale (a retyped word, a boundary
+        /// added or removed).</para>
+        ///
+        /// <para>Persisted ADDITIVELY beside the existing per-syllable objects as the word-level
+        /// <c>split_chars</c> array; the per-syllable <c>text</c> fields stay cosmetic and are
+        /// never read back.</para>
+        /// </summary>
+        public IReadOnlyList<int> SyllableSplits { get; init; } = Array.Empty<int>();
     }
 
     public sealed class LyricLine
