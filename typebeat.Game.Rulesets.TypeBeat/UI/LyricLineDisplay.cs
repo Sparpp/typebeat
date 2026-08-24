@@ -90,6 +90,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private Box sweepTrack = null!;
         private Box sweepFill = null!;
         private Box sweepGlow = null!;
+        private Box selectionBox = null!;
         private OsuSpriteText[] cells = Array.Empty<OsuSpriteText>();
         private float[] advances = Array.Empty<float>();
 
@@ -225,9 +226,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 Alpha = 0,
             };
 
+            // The retype selection (backlog 182). Added BEFORE the glyphs so it is drawn behind
+            // them, and left out of the auto-size box (alpha 0, no AlwaysPresent) so showing it can
+            // never move the line: its extent is inside the glyph row's anyway.
+            selectionBox = new Box
+            {
+                Colour = TypeBeatStyle.Selection,
+                Anchor = Anchor.TopLeft,
+                Origin = Anchor.TopLeft,
+                Alpha = 0f,
+            };
+
             content.Add(sweepTrack);
             content.Add(sweepFill);
             content.Add(sweepGlow);
+            content.Add(selectionBox);
 
             var freestyle = new List<int>();
 
@@ -433,6 +446,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>Display-local point for a fractional (sung) cell index.</summary>
         public Vector2 SungPositionPoint(double fractionalCellIndex) => new Vector2(localXFor(fractionalCellIndex) * contentScale, 0f);
+
+        /// <summary>
+        /// Paint (or, for an empty range, clear) the RETYPE SELECTION over the half-open cell range
+        /// [<paramref name="startCell"/>, <paramref name="endCellExclusive"/>): the cells a Ctrl+A
+        /// has offered to erase and retype (backlog 182, see
+        /// <see cref="Gameplay.TypingEngine.RetypeSelectionAnchor"/>). Purely a highlight; the cells
+        /// themselves keep the colours and glyphs their own states give them, because the selection
+        /// says "these are about to go", not "these are wrong".
+        ///
+        /// <para>Driven by the playfield, which owns the gesture, rather than pulled from cell state
+        /// like everything else here: a selection is not a property of any cell, it is a thing the
+        /// player is holding open between two keystrokes. The range is clamped, so a stale one can
+        /// only ever under-paint, never throw.</para>
+        /// </summary>
+        public void SetSelection(int startCell, int endCellExclusive)
+        {
+            if (selectionBox.IsNull())
+                return;
+
+            int lo = Math.Clamp(startCell, 0, cellX.Length - 1);
+            int hi = Math.Clamp(endCellExclusive, lo, cellX.Length - 1);
+
+            SelectionStart = lo;
+            SelectionEnd = hi;
+
+            float width = cellX[hi] - cellX[lo];
+
+            selectionBox.X = cellX[lo];
+            selectionBox.Width = width;
+            selectionBox.Height = glyphHeight;
+            selectionBox.Alpha = width > 0f ? 1f : 0f;
+        }
 
         private float localXFor(double fractionalCellIndex)
         {
@@ -1099,5 +1144,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// move as the flashlight window changes.</summary>
         public Vector2 CellScreenPosition(int index) =>
             index >= 0 && index < cells.Length ? cells[index].ScreenSpaceDrawQuad.Centre : Vector2.Zero;
+
+        /// <summary>First cell of the painted retype selection (see <see cref="SetSelection"/>).</summary>
+        public int SelectionStart { get; private set; }
+
+        /// <summary>One past the last cell of the painted retype selection; equal to
+        /// <see cref="SelectionStart"/> when nothing is selected.</summary>
+        public int SelectionEnd { get; private set; }
+
+        /// <summary>Whether the selection highlight is actually being drawn right now.</summary>
+        public bool SelectionVisible => selectionBox.IsNotNull() && selectionBox.Alpha > 0f;
     }
 }

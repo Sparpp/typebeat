@@ -59,6 +59,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private LyricStage stage = null!;
 
+        /// <summary>
+        /// A live RETYPE SELECTION (backlog 182): the half-open cell range
+        /// [<see cref="StartCell"/>, <see cref="EndCell"/>) of line <see cref="LineIndex"/> that a
+        /// Ctrl+A has offered to erase and retype. <see cref="EndCell"/> is always the caret index it
+        /// was taken at, which is what makes the selection self-invalidating: any caret move that did
+        /// not go through the consume path leaves it stale, and the playfield drops it.
+        /// </summary>
+        public readonly record struct RetypeSelection(int LineIndex, int StartCell, int EndCell);
+
+        private RetypeSelection? retypeSelection;
+
+        /// <summary>
+        /// The retype selection currently held, or null. Pure UI state: the engine knows nothing
+        /// about it, and consuming it is composed out of ordinary engine calls (see
+        /// <see cref="TypeBeatKeyHandler"/>). Public for cross-assembly tests.
+        /// </summary>
+        public RetypeSelection? CurrentRetypeSelection => retypeSelection;
+
+        /// <summary>
+        /// Set or clear the retype selection, repainting whichever line displays are affected. The
+        /// one write site: the highlight and the state it is drawn from cannot drift apart.
+        /// </summary>
+        private void applyRetypeSelection(RetypeSelection? selection)
+        {
+            var previous = retypeSelection;
+            retypeSelection = selection;
+
+            if (stage.IsNull())
+                return;
+
+            // Clear the old line's highlight when the selection has moved off it (or gone entirely).
+            if (previous is RetypeSelection old && (selection is not RetypeSelection now || now.LineIndex != old.LineIndex))
+                stage.DisplayAt(old.LineIndex)?.SetSelection(0, 0);
+
+            if (selection is RetypeSelection current)
+                stage.DisplayAt(current.LineIndex)?.SetSelection(current.StartCell, current.EndCell);
+        }
+
         /// <summary>Screen-space centre of the typing caret when it is visible: the Flashlight mod's
         /// reveal point. Returns false while no line is active (caret hidden), so the mod can fade.</summary>
         public bool TryGetCaretScreenPosition(out osuTK.Vector2 position)
@@ -184,7 +222,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         new EngineTicker(Engine, drawableRuleset),
                         stage = new LyricStage(Engine),
                         new TypeBeatHudOverlay(Engine),
-                        new TypeBeatKeyHandler(Engine, keyboardLayout, drawableRuleset),
+                        new TypeBeatKeyHandler(Engine, keyboardLayout, drawableRuleset, this),
                     },
                 },
             });
@@ -252,6 +290,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             // Live-applied (M7 will surface a slider; the setting already works end-to-end).
             lyricClock.Offset = -lyricOffset.Value;
+
+            // A retype selection is a gesture held open on the ACTIVE line between two keystrokes,
+            // so anything that moves out from under it drops it: the line deactivating or sealing
+            // (the index changes, or goes to -1), and any caret move that did not go through the
+            // consume path. Checked per frame because both of those can happen on a plain clock
+            // tick, with no key event to notice them.
+            if (retypeSelection is RetypeSelection selection
+                && (Engine.ActiveLineIndex != selection.LineIndex || Engine.CaretIndex != selection.EndCell))
+            {
+                applyRetypeSelection(null);
+            }
         }
 
         protected override void OnNewDrawableHitObject(DrawableHitObject drawableHitObject)
@@ -628,7 +677,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// wins over the vestigial Z/X action bindings). OS/framework key-repeat is honoured ONLY
         /// for backspace (hold to erase); a held character key never machine-guns judgements at the
         /// keyboard's own repeat rate, and holding it produces nothing at all beyond the initial
-        /// press. Ctrl/Alt combos fall through to framework shortcuts.
+        /// press. Ctrl/Alt combos fall through to framework shortcuts, EXCEPT the two word-level
+        /// editing gestures every typing site has and backlog 182 brought here: CTRL+BACKSPACE
+        /// (erase the previous word, key repeat honoured like the plain key) and CTRL+A (select back
+        /// to the mistake that has to be retyped).
+        ///
+        /// <para>Both gestures are COMPOSED out of engine calls that already exist: a run of
+        /// <see cref="TypingEngine.ProcessBackspace"/> plus at most one
+        /// <see cref="TypingEngine.ProcessKey"/>, each recorded through the same seam a single
+        /// keystroke is. The engine gains only two PURE QUERIES saying where to stop
+        /// (<see cref="TypingEngine.WordBackspaceTarget"/> and
+        /// <see cref="TypingEngine.RetypeSelectionAnchor"/>). That is what lets a whole word
+        /// disappear with no new replay frame vocabulary and no new era bit: a stored run holds
+        /// exactly the calls the live engine made, in the order it made them, stamped with the one
+        /// timestamp it judged them at. Both are gated on
+        /// <see cref="TypingEngine.AllowWrongInput"/> exactly as the plain backspace is, and both are
+        /// LIVE input only: replay playback feeds recorded frames straight into the engine and never
+        /// reaches this class.</para>
+        ///
+        /// <para>The SELECTION a Ctrl+A computes is pure UI state held on the playfield
+        /// (<see cref="TypeBeatPlayfield.CurrentRetypeSelection"/>); the engine never learns it
+        /// exists. The next effective input CONSUMES it: a typeable key collapses it (a mass
+        /// backspace to the anchor) and then types at the anchor through the normal
+        /// <see cref="TypingEngine.ProcessKey"/> path, a plain backspace collapses it and types
+        /// nothing.</para>
         ///
         /// <para>Backspace is live ONLY in allow-wrong-input mode, the only model where a wrong char
         /// lands in a cell and is thus worth erasing; under Gatekeeper the key is swallowed and does
@@ -651,17 +723,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             private readonly TypingEngine engine;
             private readonly IBindable<KeyboardLayout> keyboardLayout;
             private readonly DrawableTypeBeatRuleset? drawableRuleset;
+            private readonly TypeBeatPlayfield playfield;
 
             // Cached by Player (via GameplayClockContainer / FrameStabilityContainer); absent in bare
             // drawable-ruleset test scenes, where there is no rate mod to report anyway.
             [Resolved]
             private IGameplayClock? gameplayClock { get; set; }
 
-            public TypeBeatKeyHandler(TypingEngine engine, IBindable<KeyboardLayout> keyboardLayout, DrawableTypeBeatRuleset? drawableRuleset)
+            public TypeBeatKeyHandler(TypingEngine engine, IBindable<KeyboardLayout> keyboardLayout, DrawableTypeBeatRuleset? drawableRuleset, TypeBeatPlayfield playfield)
             {
                 this.engine = engine;
                 this.keyboardLayout = keyboardLayout;
                 this.drawableRuleset = drawableRuleset;
+                this.playfield = playfield;
                 RelativeSizeAxes = Axes.Both;
             }
 
@@ -673,8 +747,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             protected override bool OnKeyDown(KeyDownEvent e)
             {
-                // Let framework shortcuts (Ctrl/Alt combos) fall through.
-                if (e.ControlPressed || e.AltPressed)
+                // The two word-level gestures this handler owns (backlog 182). Carved out BEFORE the
+                // fall-through below, and deliberately narrow: Control without Alt, on exactly two
+                // keys, so every other framework shortcut still reaches the framework.
+                bool wordGesture = e.ControlPressed && !e.AltPressed && (e.Key == Key.BackSpace || e.Key == Key.A);
+
+                // Let framework shortcuts (every other Ctrl/Alt combo) fall through.
+                if ((e.ControlPressed || e.AltPressed) && !wordGesture)
                     return false;
 
                 // Millisecond-quantised keystroke time: what the engine judges at, what gets
@@ -730,8 +809,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // line-complete fall-through: backspacing at line end must keep working (it is
                     // how typed-through wrong chars get fixed in allow-wrong-input mode). Only an
                     // erase that actually changed state is recorded.
-                    if (engine.ProcessBackspace())
-                        drawableRuleset?.RecordTypingInput(TypeBeatReplayFrame.BACKSPACE, time);
+                    //
+                    // CTRL takes the whole word (backlog 182). A live SELECTION takes precedence over
+                    // either width: an erase key over one collapses it and types nothing, which is
+                    // the same mass erase a letter would do before landing.
+                    if (!collapseSelection(time))
+                    {
+                        if (wordGesture)
+                            eraseBackTo(engine.WordBackspaceTarget, time);
+                        else if (engine.ProcessBackspace())
+                            drawableRuleset?.RecordTypingInput(TypeBeatReplayFrame.BACKSPACE, time);
+                    }
+
+                    return true;
+                }
+
+                if (wordGesture)
+                {
+                    // CTRL+A: offer the run back to the nearest unfixed typo for retyping. Gated on
+                    // the same flag the erase is, and for the same reason: under Gatekeeper no wrong
+                    // character ever lands, so there is never a typo to select and the key is
+                    // swallowed rather than passed on (Ctrl+A carries meaning elsewhere in the game
+                    // that gameplay must not start triggering just because the model is strict).
+                    if (!engine.AllowWrongInput)
+                        return true;
+
+                    int anchor = engine.RetypeSelectionAnchor;
+
+                    // No typo behind the caret: a genuine no-op, nothing to select and nothing to
+                    // clear (a selection can only exist where the query just answered). Pressing it
+                    // again with one already open simply recomputes the same range.
+                    if (anchor >= 0)
+                        playfield.applyRetypeSelection(new RetypeSelection(engine.ActiveLineIndex, anchor, engine.CaretIndex));
 
                     return true;
                 }
@@ -744,7 +853,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // overlay on any real map. While the line is active and INCOMPLETE every typeable
                 // key (Space included) is still consumed for typing, so a skip can never eat a
                 // live keystroke.
-                if (engine.IsLineComplete)
+                //
+                // A live retype SELECTION suspends that fall-through (backlog 182): collapsing it
+                // re-opens the cells it covers, so the key consuming it is a typing key again rather
+                // than a skip, even though the line reads complete at the instant it arrives.
+                if (engine.IsLineComplete && playfield.CurrentRetypeSelection is null)
                     return false;
 
                 // Pass Shift through so held-Shift keys produce capitals, required for the
@@ -758,6 +871,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // physical press, never a machine-gun run at the keyboard's repeat rate.
                     if (!e.Repeat)
                     {
+                        // A retype selection is consumed FIRST, so this key lands on the anchor
+                        // cell: mass backspace, then the ordinary judged keypress. Space is not
+                        // special here, nor is any other typeable key: "collapse, then process
+                        // normally" is the whole rule.
+                        collapseSelection(time);
+
                         if (engine.ProcessKey(c, time))
                             drawableRuleset?.RecordTypingInput(c, time);
                     }
@@ -766,6 +885,52 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 }
 
                 return false;
+            }
+
+            /// <summary>
+            /// Erase back to <paramref name="target"/> with ordinary
+            /// <see cref="TypingEngine.ProcessBackspace"/> calls, recording every one that mutated
+            /// state at <paramref name="time"/>: the same (char, time) pairs a player holding the
+            /// plain key down would have produced, so a replay re-derives the run bit for bit.
+            ///
+            /// <para>All of them carry the ONE timestamp the live engine judged them at, which is
+            /// what makes the equal-time run safe: the legacy .osr encoding stores integral frame
+            /// deltas (a run of zeroes here) and its decoder keeps frames of equal time in the order
+            /// they were written, so playback performs the identical call sequence.</para>
+            /// </summary>
+            private void eraseBackTo(int target, double time)
+            {
+                while (engine.CaretIndex > target)
+                {
+                    int before = engine.CaretIndex;
+
+                    if (!engine.ProcessBackspace())
+                        break;
+
+                    drawableRuleset?.RecordTypingInput(TypeBeatReplayFrame.BACKSPACE, time);
+
+                    // Defensive termination only. Every erase that reports a mutation moves the
+                    // caret back, but one that reclaimed abandoned cells at the head of a line can
+                    // land on 0 and be auto-skipped forward again, and a gesture must never spin.
+                    if (engine.CaretIndex >= before)
+                        break;
+                }
+            }
+
+            /// <summary>
+            /// Collapse a live retype selection: a mass backspace to its anchor, recorded like any
+            /// other erase run. Returns whether there was one to collapse, so the caller can tell
+            /// "the selection ate this key" from "there was nothing there". The selection is dropped
+            /// BEFORE the erases so the playfield's own staleness check cannot race them.
+            /// </summary>
+            private bool collapseSelection(double time)
+            {
+                if (playfield.CurrentRetypeSelection is not RetypeSelection selection)
+                    return false;
+
+                playfield.applyRetypeSelection(null);
+                eraseBackTo(selection.StartCell, time);
+                return true;
             }
         }
     }

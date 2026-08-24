@@ -69,6 +69,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         public static Color4 FreestyleChar { get; } = new Color4((byte)199, (byte)146, (byte)234, (byte)255); // #c792ea
 
+        /// <summary>
+        /// The RETYPE SELECTION wash (backlog 182): the block a Ctrl+A paints behind the characters
+        /// it has offered to erase and retype. The caret's own yellow at 22% alpha, so the highlight
+        /// reads as "the caret is holding this run" rather than as a sixth character state, and so it
+        /// cannot be confused with the error red (which says a cell IS wrong) or with the blue sung
+        /// accent (which says where the song is). Drawn BEHIND the glyphs at a low enough alpha that
+        /// every character state above it, the untyped grey included, keeps its own contrast against
+        /// the serika-dark panel.
+        /// </summary>
+        public static Color4 Selection { get; } = new Color4((byte)226, (byte)183, (byte)20, (byte)56); // #e2b714 at 22%
+
         /// <summary>Near-opaque black drop shadow applied to gameplay text so glyphs stay legible
         /// over a beatmap background image or video (not just the flat serika-dark panel).</summary>
         public static Color4 TextShadow { get; } = new Color4((byte)0, (byte)0, (byte)0, (byte)200);

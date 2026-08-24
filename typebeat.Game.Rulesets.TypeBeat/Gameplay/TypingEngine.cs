@@ -1683,10 +1683,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             int start = caretIndex;
             int end = caretIndex;
 
-            while (start > 0 && !(cells[start - 1].IsTypeable && cells[start - 1].Expected == ' '))
+            while (start > 0 && !isWordGap(cells[start - 1]))
                 start--;
 
-            while (end < cells.Count && !(cells[end].IsTypeable && cells[end].Expected == ' '))
+            while (end < cells.Count && !isWordGap(cells[end]))
                 end++;
 
             var abandoned = new List<int>();
@@ -2071,6 +2071,119 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 raise(TypoErased);
 
             return true;
+        }
+
+        /// <summary>
+        /// A WORD GAP: the typeable SPACE cell that separates two words. The one boundary both
+        /// word-level queries below are written against, and the same test
+        /// <see cref="skipCurrentWord"/> scans a word with, so "word" means one thing in this file.
+        /// A non-typeable cell (punctuation the default stream kept, and every mark under the
+        /// Literate mod) is NOT a boundary: it rides inside the word it is attached to.
+        /// </summary>
+        private static bool isWordGap(TypingCell cell) => cell.IsTypeable && cell.Expected == ' ';
+
+        /// <summary>
+        /// Where a CTRL+BACKSPACE (backlog 182, the typing-site "erase the previous word" gesture)
+        /// should leave the caret: a PURE QUERY, mutating nothing. The caller composes the gesture
+        /// out of ordinary <see cref="ProcessBackspace"/> calls
+        /// (<c>while (CaretIndex &gt; target &amp;&amp; ProcessBackspace()) record();</c>), which is
+        /// what keeps the whole gesture inside the existing replay vocabulary: a stored run holds the
+        /// same run of backspace frames the live engine consumed, and nothing here has to be
+        /// re-derived by a replay at all.
+        ///
+        /// <para>The rule is the one every typing site implements. Walk back over the word GAPS
+        /// immediately behind the caret, then over the word behind them, and stop at that word's
+        /// first cell. So a caret sitting mid-word erases back to the start of the word it is inside,
+        /// and a caret sitting at the head of a word (the gap immediately behind it) erases that gap
+        /// AND the whole word before it. At the head of the line the answer is
+        /// <see cref="CaretIndex"/> itself, which makes the composed gesture a no-op: it never calls
+        /// the engine and therefore never records anything.</para>
+        ///
+        /// <para>The target is a FLOOR, not a promise: a single <see cref="ProcessBackspace"/> steps
+        /// transparently back over auto-skipped and abandoned cells, so one press over a word that
+        /// was entirely given up to a word skip can land the caret further back than this, exactly as
+        /// a plain backspace there would. That is the existing reclaim behaviour and is deliberately
+        /// not fought here.</para>
+        ///
+        /// <para>Answers <see cref="CaretIndex"/> unchanged when no line is active or the run has
+        /// finished, so the caller needs no second guard.</para>
+        /// </summary>
+        public int WordBackspaceTarget
+        {
+            get
+            {
+                if (isFinished || activeLineIndex == -1)
+                    return caretIndex;
+
+                var cells = lines[activeLineIndex].Cells;
+                int target = Math.Min(caretIndex, cells.Count);
+
+                // The gaps directly behind the caret (normally one; a map never authors two in a
+                // row, and the loop costs nothing for being written to survive one that did).
+                while (target > 0 && isWordGap(cells[target - 1]))
+                    target--;
+
+                // Then the word they follow, back to the gap that opens it or to the line's head.
+                while (target > 0 && !isWordGap(cells[target - 1]))
+                    target--;
+
+                return target;
+            }
+        }
+
+        /// <summary>
+        /// Where a CTRL+A (backlog 182, "select back to the mistake I have to retype") should put the
+        /// start of its selection: the first cell of the nearest run at or behind the caret holding
+        /// an UNFIXED TYPO, or -1 when there is no typo behind the caret at all (the gesture is then
+        /// a no-op). The selection itself is the half-open range [this, <see cref="CaretIndex"/>),
+        /// and it is pure UI state: nothing in the engine knows it exists. Consuming it is composed,
+        /// like the gesture above, out of ordinary <see cref="ProcessBackspace"/> calls back to this
+        /// index plus at most one <see cref="ProcessKey"/>, so a replay stores exactly the engine
+        /// calls that were made.
+        ///
+        /// <para>A typo is a cell in <see cref="CellState.Wrong"/>: a wrong character typed through
+        /// and not yet backspaced away. The scan runs backwards from the caret and stops at the FIRST
+        /// one it meets, which is why a typo in the word the player is halfway through typing anchors
+        /// on that word's start rather than on some earlier one.</para>
+        ///
+        /// <para>WHICH run the typo's cell opens has two cases, and they are the same rule stated
+        /// twice: the selection starts at the first cell the player must retype to fix the typo. For
+        /// an ordinary lyric character that is its WORD's first cell (walk back to the gap before
+        /// it). For a WORD GAP holding a typo (possible since backlog 181, see
+        /// <see cref="WrongInputOnWordGaps"/>) the gap IS the cell to retype and it belongs to no
+        /// word, so the selection starts on the gap itself; walking back from it would swallow the
+        /// perfectly good word in front of it for nothing.</para>
+        ///
+        /// <para>The answer is never equal to <see cref="CaretIndex"/> when it is non-negative: the
+        /// typo is strictly behind the caret (a cell ahead of it has nothing typed in it), so a
+        /// selection always covers at least one cell.</para>
+        /// </summary>
+        public int RetypeSelectionAnchor
+        {
+            get
+            {
+                if (isFinished || activeLineIndex == -1)
+                    return -1;
+
+                var cells = lines[activeLineIndex].Cells;
+                int typo = Math.Min(caretIndex, cells.Count) - 1;
+
+                while (typo >= 0 && cells[typo].State != CellState.Wrong)
+                    typo--;
+
+                if (typo < 0)
+                    return -1;
+
+                if (isWordGap(cells[typo]))
+                    return typo;
+
+                int anchor = typo;
+
+                while (anchor > 0 && !isWordGap(cells[anchor - 1]))
+                    anchor--;
+
+                return anchor;
+            }
         }
 
         /// <summary>
