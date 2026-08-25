@@ -45,5 +45,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(TrustedDomains.IsTrustedUrl("http://localhost:5089/beatmapsets/123", devEndpoints), Is.True);
             Assert.That(TrustedDomains.IsTrustedUrl("https://evil.com/", devEndpoints), Is.False);
         }
+
+        /// <summary>
+        /// Production beatmap submission is pinned to the direct-origin host that bypasses
+        /// Cloudflare (see <see cref="TypebeatEndpointConfiguration.PRODUCTION_BSS_ROOT"/>),
+        /// not the CF-proxied website/API root.
+        /// </summary>
+        [Test]
+        public void ProductionBeatmapSubmissionUsesDirectOriginHost()
+        {
+            var endpoints = new TypebeatEndpointConfiguration();
+
+            Assert.That(endpoints.BeatmapSubmissionServiceUrl, Is.EqualTo("https://bss.typebeat.mingda.sh/bss"));
+        }
+
+        /// <summary>
+        /// Regression guard for the dev / TYPEBEAT_API_URL-override path: a non-production
+        /// apiRoot must keep deriving BeatmapSubmissionServiceUrl from itself rather than
+        /// silently targeting production's direct-origin BSS host.
+        /// </summary>
+        [Test]
+        public void NonProductionApiRootDerivesOwnBeatmapSubmissionUrl()
+        {
+            var endpoints = new TypebeatEndpointConfiguration("http://localhost:5089");
+
+            Assert.That(endpoints.BeatmapSubmissionServiceUrl, Is.EqualTo("http://localhost:5089/bss"));
+        }
     }
 }
