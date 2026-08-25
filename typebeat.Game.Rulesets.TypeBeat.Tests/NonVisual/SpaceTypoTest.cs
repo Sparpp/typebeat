@@ -597,6 +597,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(LyricLineDisplay.CellGlyph(' ', CellState.Wrong, null), Is.EqualTo(' '), "and so does a wrong one with nothing typed in it");
         }
 
+        /// <summary>
+        /// And that glyph is DIMMED (backlog 185), because a full-brightness letter sitting in a word
+        /// gap closes the boundary: after eight or nine consecutive typos a player could no longer see
+        /// where words started and ended. The ladder is the whole content of the constant, and both
+        /// steps of it are a judgement about what the state MEANS, so both are pinned here rather than
+        /// only in the scene that renders them (<c>TestSceneTypeBeatGapTypoDim</c>).
+        /// </summary>
+        [Test]
+        public void AWrongWordGapIsDimmedBetweenAFullWrongAndAMissedCell()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(LyricLineDisplay.WRONG_GAP_ALPHA, Is.EqualTo(0.55f));
+
+                Assert.That(LyricLineDisplay.WRONG_GAP_ALPHA, Is.LessThan(1f),
+                    "dimmer than a wrong LYRIC cell, which keeps full brightness because it still shows the character the line is made of");
+
+                Assert.That(LyricLineDisplay.WRONG_GAP_ALPHA, Is.GreaterThan(LyricLineDisplay.MISSED_ALPHA),
+                    "and brighter than a missed one, because the gap is not lost: one backspace takes the typo back");
+
+                Assert.That(LyricLineDisplay.MISSED_ALPHA, Is.EqualTo(0.4f), "the dimming it is measured against, unmoved");
+            });
+        }
+
         // -----------------------------------------------------------------------------------------
         // The ERA: every replay on disk keeps its rejections
         // -----------------------------------------------------------------------------------------

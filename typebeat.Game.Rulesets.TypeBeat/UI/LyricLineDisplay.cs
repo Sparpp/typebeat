@@ -522,6 +522,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public const float ABANDONED_ALPHA = 0.7f;
 
         /// <summary>
+        /// Alpha of a typo that landed on a WORD GAP (backlog 185): a Wrong cell whose expected
+        /// character is a space, so the glyph on screen is the typed character rather than the space
+        /// (see <see cref="CellGlyph"/>). Purely a display dimming, nothing about the keystroke, the
+        /// judgement or the replay changes.
+        ///
+        /// <para>The gap typo is the one error the game draws INSIDE a word boundary, and at full
+        /// brightness a burst of them closes every boundary in the line: after eight or nine
+        /// consecutive typos playtesters could no longer see where words started and ended, because
+        /// the red glyphs filling the gaps read as ordinary characters. Dimming the gap typo alone
+        /// leaves the boundary legible as a boundary through the burst while the error is still
+        /// plainly there.</para>
+        ///
+        /// <para>Placed BETWEEN the two dimmings that already exist, and for the reason each of them
+        /// sits where it does. Dimmer than a full-brightness Wrong LYRIC cell, which keeps its 1,
+        /// because that cell still shows the character the line is MADE of and dimming it would dim
+        /// the lyric itself; brighter than <see cref="MISSED_ALPHA"/> because this is not a lost
+        /// character but a live, fixable claim on the gap, exactly the standing
+        /// <see cref="ABANDONED_ALPHA"/> reasoning, and one backspace takes it back.</para>
+        ///
+        /// <para>Carried on the per-cell STATE ALPHA lane, not the fill colour: the colour stays
+        /// <see cref="TypeBeatStyle.ErrorChar"/>, identical to a lyric typo's, so the error still
+        /// reads as an error, and the state alpha composes multiplicatively with the flashlight
+        /// window in <c>applyCellAlpha</c> instead of fighting it. Backspacing the typo returns the
+        /// cell to <see cref="CellState.Untyped"/>, which restores the default 1 on its own.</para>
+        /// </summary>
+        public const float WRONG_GAP_ALPHA = 0.55f;
+
+        /// <summary>
         /// The fill a CORRECT character is painted in, given the sync quality of the keypress that
         /// scored it (<see cref="SyncWindows.SyncQuality"/>, asymmetric, already in [0, 1]): a point
         /// on the ramp from <see cref="TypeBeatStyle.UntypedChar"/> to
@@ -703,7 +731,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     cellStateAlpha[cellIndex] = ABANDONED_ALPHA;
                     break;
 
-                default: // Untyped, Correct, Wrong, AutoSkipped
+                case CellState.Wrong when source.Expected == ' ':
+                    // A typo sitting IN a word gap (backlog 185). Scoped to the gap and nothing else:
+                    // a Wrong LYRIC cell, including one a space key was typed through onto, still
+                    // shows its own lyric character and keeps full brightness below. See
+                    // WRONG_GAP_ALPHA for why the boundary has to keep reading as a boundary.
+                    cellStateAlpha[cellIndex] = WRONG_GAP_ALPHA;
+                    break;
+
+                default: // Untyped, Correct, Wrong on a lyric cell, AutoSkipped
                     cellStateAlpha[cellIndex] = 1f;
                     break;
             }
