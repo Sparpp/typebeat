@@ -161,6 +161,93 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void ChunkTransportFailuresAreRetried()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.IsChunkTransportFailure(new HttpRequestException("Error while copying content to a stream.")), Is.True);
+                Assert.That(UploadRetryPolicy.IsChunkTransportFailure(new IOException("The response ended prematurely.")), Is.True);
+                Assert.That(UploadRetryPolicy.IsChunkTransportFailure(
+                    new HttpRequestException("aborted", new IOException("Unable to write data to the transport connection."))), Is.True);
+                Assert.That(UploadRetryPolicy.IsChunkTransportFailure(new AggregateException(new IOException("aborted"))), Is.True);
+            });
+        }
+
+        [Test]
+        public void ChunkTimeoutsAreRetriedUnlikeWholeUploads()
+        {
+            // this is the whole reason the chunk arm exists as a separate predicate: a black-holed request
+            // surfaces as an idle timeout, and an 8KB idempotent chunk is worth repeating where a 600s
+            // monolithic upload is not.
+            var timeout = new WebException("Request timed out after 60 seconds idle", WebExceptionStatus.Timeout);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.IsChunkTransportFailure(timeout), Is.True);
+                Assert.That(UploadRetryPolicy.IsTransportFailure(timeout), Is.False);
+
+                // the logged-out queue failure lands here too. It just fails again instantly, which is harmless.
+                Assert.That(UploadRetryPolicy.IsChunkTransportFailure(new WebException(@"User not logged in")), Is.True);
+                Assert.That(UploadRetryPolicy.IsTransportFailure(new WebException(@"User not logged in")), Is.False);
+            });
+        }
+
+        [Test]
+        public void ChunkCancellationAndServerErrorsAreNotRetried()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.IsChunkTransportFailure(new OperationCanceledException(@"Request cancelled")), Is.False);
+                Assert.That(UploadRetryPolicy.IsChunkTransportFailure(new TaskCanceledException()), Is.False);
+
+                // the cancel path wins over an inner transport failure, exactly as on the upload predicate.
+                Assert.That(UploadRetryPolicy.IsChunkTransportFailure(new OperationCanceledException("cancelled", new WebException("timed out"))), Is.False);
+
+                Assert.That(UploadRetryPolicy.IsChunkTransportFailure(new APIException("chunk hash mismatch", null, HttpStatusCode.BadRequest)), Is.False);
+                Assert.That(UploadRetryPolicy.IsChunkTransportFailure(
+                    new APIException("upload session expired", new WebException("timed out"), HttpStatusCode.Gone)), Is.False);
+
+                Assert.That(UploadRetryPolicy.IsChunkTransportFailure(null), Is.False);
+                Assert.That(UploadRetryPolicy.IsChunkTransportFailure(new InvalidOperationException("nope")), Is.False);
+            });
+        }
+
+        [Test]
+        public void ChunkAttemptScheduleBacksOffFaster()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.DelayBeforeChunkAttempt(1), Is.EqualTo(0));
+                Assert.That(UploadRetryPolicy.DelayBeforeChunkAttempt(2), Is.EqualTo(1000));
+                Assert.That(UploadRetryPolicy.DelayBeforeChunkAttempt(3), Is.EqualTo(3000));
+
+                // clamped past the table, same as the upload ladder.
+                Assert.That(UploadRetryPolicy.DelayBeforeChunkAttempt(4), Is.EqualTo(3000));
+
+                // a chunk is 8KB, so its whole ladder has to be cheaper than the upload one.
+                Assert.That(UploadRetryPolicy.DelayBeforeChunkAttempt(2), Is.LessThan(UploadRetryPolicy.DelayBeforeAttempt(2)));
+                Assert.That(UploadRetryPolicy.DelayBeforeChunkAttempt(3), Is.LessThan(UploadRetryPolicy.DelayBeforeAttempt(3)));
+            });
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => UploadRetryPolicy.DelayBeforeChunkAttempt(0));
+        }
+
+        [Test]
+        public void ChunkRetriesAreExhaustedAfterMaxAttempts()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.ShouldRetryChunkAfter(1, new WebException("timed out")), Is.True);
+                Assert.That(UploadRetryPolicy.ShouldRetryChunkAfter(2, new WebException("timed out")), Is.True);
+                Assert.That(UploadRetryPolicy.ShouldRetryChunkAfter(3, new WebException("timed out")), Is.False);
+
+                Assert.That(UploadRetryPolicy.ShouldRetryChunkAfter(1, new HttpRequestException("aborted")), Is.True);
+                Assert.That(UploadRetryPolicy.ShouldRetryChunkAfter(1, new APIException("chunk hash mismatch", null)), Is.False);
+                Assert.That(UploadRetryPolicy.ShouldRetryChunkAfter(1, new OperationCanceledException()), Is.False);
+            });
+        }
+
+        [Test]
         public void TransportFailureOnLaterAttemptStillStopsAtTheCap()
         {
             // a first attempt killed by a server error never reaches a retry, and a transport failure on

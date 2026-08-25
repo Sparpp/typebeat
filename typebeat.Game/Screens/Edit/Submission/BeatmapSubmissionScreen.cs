@@ -94,6 +94,18 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// </summary>
         private APIUploadRequest? activeUploadRequest;
 
+        /// <summary>
+        /// The same payload the single-request upload sends, assembled once per submission so the chunked
+        /// fallback can send it in pieces without recomputing anything.
+        /// </summary>
+        private ChunkedPackageUpload.UploadPayload? uploadSessionPayload;
+
+        /// <summary>
+        /// The chunked upload session in flight, if the direct upload has already been fallen back from.
+        /// Identity-gated for the same reason <see cref="activeUploadRequest"/> is.
+        /// </summary>
+        private ChunkedPackageUpload? chunkedUpload;
+
         private int uploadAttempt;
         private ScheduledDelegate? uploadRetryDelegate;
         private bool exiting;
@@ -310,7 +322,7 @@ namespace typebeat.Game.Screens.Edit.Submission
             if (response.Files.Count > 0)
                 await patchBeatmapSet(response.Files).ConfigureAwait(true);
             else
-                replaceBeatmapSet();
+                await replaceBeatmapSet().ConfigureAwait(true);
         }
 
         private async Task patchBeatmapSet(ICollection<BeatmapSetFile> onlineFiles)
@@ -364,6 +376,8 @@ namespace typebeat.Game.Screens.Edit.Submission
             foreach (string file in filesDeleted)
                 log($@"deleted file: {file}");
 
+            var sessionPayload = await ChunkedPackageUpload.BuildPatchPayloadAsync(changedFiles, filesDeleted).ConfigureAwait(true);
+
             beginPackageUpload(() =>
             {
                 var patchRequest = new PatchBeatmapPackageRequest(setId);
@@ -375,10 +389,10 @@ namespace typebeat.Game.Screens.Edit.Submission
                     patchRequest.FilesDeleted.Add(file);
 
                 return patchRequest;
-            });
+            }, sessionPayload);
         }
 
-        private void replaceBeatmapSet()
+        private async Task replaceBeatmapSet()
         {
             log("Performing full package upload...");
 
@@ -389,7 +403,9 @@ namespace typebeat.Game.Screens.Edit.Submission
             // snapshotted once so a retry does not depend on the package stream still being around.
             byte[] package = beatmapPackageStream.ToArray();
 
-            beginPackageUpload(() => new ReplaceBeatmapPackageRequest(setId, package));
+            var sessionPayload = await ChunkedPackageUpload.BuildFullPayloadAsync(package).ConfigureAwait(true);
+
+            beginPackageUpload(() => new ReplaceBeatmapPackageRequest(setId, package), sessionPayload);
         }
 
         /// <summary>
@@ -399,11 +415,16 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// Builds the request for one attempt. Called once per attempt, because an <see cref="APIRequest"/>
         /// is single-use, and must build from inputs already held in memory rather than recompute them.
         /// </param>
-        private void beginPackageUpload(Func<APIUploadRequest> requestFactory)
+        /// <param name="sessionPayload">
+        /// The same body assembled as a standalone payload, for the chunked fallback to send in pieces
+        /// if the first direct attempt dies in transport. See <see cref="ChunkedPackageUpload"/>.
+        /// </param>
+        private void beginPackageUpload(Func<APIUploadRequest> requestFactory, ChunkedPackageUpload.UploadPayload sessionPayload)
         {
             Debug.Assert(ThreadSafety.IsUpdateThread);
 
             uploadRequestFactory = requestFactory;
+            uploadSessionPayload = sessionPayload;
             uploadAttempt = 0;
             queueUploadAttempt();
         }
@@ -450,6 +471,18 @@ namespace typebeat.Game.Screens.Edit.Submission
 
             log($"Upload attempt {uploadAttempt}/{UploadRetryPolicy.MAX_ATTEMPTS} failed: {exception}");
 
+            // the first transport failure switches to a chunked upload session rather than repeating the
+            // same single request, because the failure this is most often is a per-connection byte
+            // ceiling that no amount of repeating gets past. Repeating stays the fallback's fallback.
+            if (!exiting
+                && uploadAttempt == 1
+                && uploadSessionPayload != null
+                && UploadRetryPolicy.IsTransportFailure(exception))
+            {
+                beginChunkedUpload();
+                return;
+            }
+
             if (exiting || !UploadRetryPolicy.ShouldRetryAfter(uploadAttempt, exception))
             {
                 uploadStep.SetFailed(uploadAttempt > 1
@@ -475,10 +508,95 @@ namespace typebeat.Game.Screens.Edit.Submission
             }, delay);
         }
 
+        /// <summary>
+        /// Switches the upload stage over to a chunked upload session after the direct upload failed in
+        /// transport. If the session flow fails in turn (an old server 404s the create route), the direct
+        /// retry ladder resumes where it left off, so behaviour degrades to what it was before this existed.
+        /// </summary>
+        private void beginChunkedUpload()
+        {
+            Debug.Assert(ThreadSafety.IsUpdateThread);
+            Debug.Assert(beatmapSetId != null);
+            Debug.Assert(uploadSessionPayload != null);
+
+            uploadRetryDelegate?.Cancel();
+
+            log("Upload failed in transport; switching to a chunked upload session.");
+            uploadStep.SetRetrying("upload failed, switching to chunked upload");
+
+            ChunkedPackageUpload upload = null!;
+
+            upload = new ChunkedPackageUpload(beatmapSetId.Value, uploadSessionPayload, api, (action, delay) =>
+            {
+                uploadRetryDelegate?.Cancel();
+                uploadRetryDelegate = Scheduler.AddDelayed(action, delay);
+            })
+            {
+                OnProgress = (done, total) =>
+                {
+                    if (!ReferenceEquals(chunkedUpload, upload))
+                        return;
+
+                    uploadStep.SetInProgress(total > 0 ? (float)done / total : null);
+                },
+                OnSucceeded = () =>
+                {
+                    if (!ReferenceEquals(chunkedUpload, upload))
+                        return;
+
+                    chunkedUpload = null;
+                    uploadCompleted();
+                },
+                OnFailed = exception =>
+                {
+                    if (!ReferenceEquals(chunkedUpload, upload))
+                        return;
+
+                    chunkedUpload = null;
+                    chunkedUploadFailed(exception);
+                },
+            };
+
+            chunkedUpload = upload;
+            upload.Start();
+        }
+
+        private void chunkedUploadFailed(Exception exception)
+        {
+            log($"Chunked upload failed: {exception}");
+
+            // the direct ladder never spent its second attempt, so hand back to it rather than giving up:
+            // a server without the session routes has to end up exactly where it would have without them.
+            // the failure that got here was already judged retryable, so only the cap and the exit gate remain.
+            if (exiting || uploadAttempt >= UploadRetryPolicy.MAX_ATTEMPTS)
+            {
+                uploadStep.SetFailed(exception.Message);
+                allowExit();
+                return;
+            }
+
+            int nextAttempt = uploadAttempt + 1;
+            double delay = UploadRetryPolicy.DelayBeforeAttempt(nextAttempt);
+
+            uploadStep.SetRetrying($"upload failed, retrying (attempt {nextAttempt}/{UploadRetryPolicy.MAX_ATTEMPTS})");
+            log($"Retrying direct upload in {delay / 1000:0.#}s");
+
+            uploadRetryDelegate?.Cancel();
+            uploadRetryDelegate = Scheduler.AddDelayed(() =>
+            {
+                if (exiting)
+                    return;
+
+                queueUploadAttempt();
+            }, delay);
+        }
+
         private void uploadCompleted()
         {
             activeUploadRequest = null;
             uploadRequestFactory = null;
+            uploadSessionPayload = null;
+            chunkedUpload = null;
             uploadRetryDelegate?.Cancel();
 
             uploadStep.SetCompleted();
@@ -565,6 +683,8 @@ namespace typebeat.Game.Screens.Edit.Submission
             // past this point the screen is on its way out, so a pending upload retry must not fire.
             exiting = true;
             uploadRetryDelegate?.Cancel();
+            chunkedUpload?.Cancel();
+            chunkedUpload = null;
 
             if (importedSet != null)
             {
@@ -603,6 +723,8 @@ namespace typebeat.Game.Screens.Edit.Submission
 
             exiting = true;
             uploadRetryDelegate?.Cancel();
+            chunkedUpload?.Cancel();
+            chunkedUpload = null;
 
             beatmapPackageStream?.Dispose();
         }

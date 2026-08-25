@@ -42,6 +42,13 @@ namespace typebeat.Game.Screens.Edit.Submission
         private static readonly double[] delays_before_attempt = { 2000, 5000 };
 
         /// <summary>
+        /// Delay before each chunk attempt after the first, in milliseconds.
+        /// Indexed the same way as <see cref="delays_before_attempt"/>, but shorter: a chunk is 8KB, so
+        /// waiting seconds to repeat one costs more than the repeat itself.
+        /// </summary>
+        private static readonly double[] delays_before_chunk_attempt = { 1000, 3000 };
+
+        /// <summary>
         /// How long to wait before starting <paramref name="attemptNumber"/> (1-based).
         /// The first attempt starts immediately; later attempts back off.
         /// </summary>
@@ -60,11 +67,34 @@ namespace typebeat.Game.Screens.Edit.Submission
         }
 
         /// <summary>
+        /// How long to wait before starting <paramref name="attemptNumber"/> (1-based) of a single
+        /// upload-session chunk. Same shape as <see cref="DelayBeforeAttempt"/> on a shorter table.
+        /// </summary>
+        /// <exception cref="ArgumentOutOfRangeException">If <paramref name="attemptNumber"/> is below 1.</exception>
+        public static double DelayBeforeChunkAttempt(int attemptNumber)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(attemptNumber, 1);
+
+            if (attemptNumber == 1)
+                return 0;
+
+            int index = Math.Min(attemptNumber - 2, delays_before_chunk_attempt.Length - 1);
+            return delays_before_chunk_attempt[index];
+        }
+
+        /// <summary>
         /// Whether an upload that has already made <paramref name="attemptsMade"/> attempts and failed
         /// with <paramref name="exception"/> should be attempted again.
         /// </summary>
         public static bool ShouldRetryAfter(int attemptsMade, Exception? exception)
             => attemptsMade < MAX_ATTEMPTS && IsTransportFailure(exception);
+
+        /// <summary>
+        /// Whether a single upload-session chunk that has already made <paramref name="attemptsMade"/>
+        /// attempts and failed with <paramref name="exception"/> should be sent again.
+        /// </summary>
+        public static bool ShouldRetryChunkAfter(int attemptsMade, Exception? exception)
+            => attemptsMade < MAX_ATTEMPTS && IsChunkTransportFailure(exception);
 
         /// <summary>
         /// Whether <paramref name="exception"/> represents a transport failure worth repeating the upload for,
@@ -110,6 +140,46 @@ namespace typebeat.Game.Screens.Edit.Submission
                     case WebException:
                         return false;
 
+                    case HttpRequestException:
+                    case IOException:
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Whether <paramref name="exception"/> is worth repeating a single upload-session chunk for.
+        /// </summary>
+        /// <remarks>
+        /// Identical to <see cref="IsTransportFailure"/> except that <see cref="WebException"/> is
+        /// RETRIED here. The failure this whole fallback exists for is a middlebox black-holing a
+        /// request once its body passes roughly 20KB: the send neither completes nor errors, so it
+        /// surfaces client-side as an idle timeout, which is a <see cref="WebException"/>. A chunk is
+        /// 8KB and the PUT that carries it is idempotent, so repeating one is cheap and correct.
+        /// That is not true of the monolithic upload, whose 600s timeout retry
+        /// <c>WebRequest.AllowRetryOnTimeout = false</c> deliberately disables, which is why
+        /// <see cref="IsTransportFailure"/> keeps refusing it.
+        ///
+        /// The offline-queue "User not logged in" failure is also a <see cref="WebException"/> and so
+        /// lands in the retried set here. That is harmless: it fails again immediately, without a
+        /// request leaving the machine, and the chunk attempt cap ends it after three tries.
+        ///
+        /// <see cref="OperationCanceledException"/> (the cancel path) and <see cref="APIException"/>
+        /// (a decoded server verdict) stay refused for exactly the reasons they are refused above.
+        /// </remarks>
+        public static bool IsChunkTransportFailure(Exception? exception)
+        {
+            for (var candidate = exception; candidate != null; candidate = candidate.InnerException)
+            {
+                switch (candidate)
+                {
+                    case OperationCanceledException:
+                    case APIException:
+                        return false;
+
+                    case WebException:
                     case HttpRequestException:
                     case IOException:
                         return true;
