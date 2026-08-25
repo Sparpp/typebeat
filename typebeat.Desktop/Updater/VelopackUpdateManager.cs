@@ -5,12 +5,14 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using osu.Framework.Allocation;
+using osu.Framework.Graphics.Sprites;
 using osu.Framework.Logging;
 using osu.Framework.Threading;
 using typebeat.Game;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Notifications;
 using typebeat.Game.Screens.Play;
+using typebeat.Game.Updater;
 using Velopack;
 using Velopack.Sources;
 using UpdateManager = typebeat.Game.Updater.UpdateManager;
@@ -31,6 +33,26 @@ namespace typebeat.Desktop.Updater
         private bool isInGameplay => localUserInfo?.PlayingState.Value != LocalUserPlayingState.NotPlaying;
 
         private ScheduledDelegate? scheduledBackgroundCheck;
+
+        /// <summary>
+        /// How often the stall watchdog is consulted while a download is in flight. Far finer than
+        /// <see cref="DownloadStallWatchdog.STALL_TIMEOUT_MS"/>, so the poll interval contributes
+        /// only a few seconds of slack to when a stall is noticed.
+        /// </summary>
+        private const double stall_poll_interval_ms = 5000;
+
+        /// <summary>
+        /// Set when the watchdog, not the user, cancelled the in-flight download. Written from the
+        /// update thread's poll and read from the download task, hence volatile.
+        /// </summary>
+        private volatile bool downloadStalled;
+
+        /// <summary>
+        /// Monotonic millisecond source for the stall watchdog. Deliberately not a wall clock (which
+        /// jumps) and not the drawable clock (which only advances on the update thread, while
+        /// velopack's progress callbacks arrive on its own download thread).
+        /// </summary>
+        private static double currentTimeMs() => Environment.TickCount64;
 
         private void scheduleNextUpdateCheck()
         {
@@ -55,16 +77,23 @@ namespace typebeat.Desktop.Updater
 
             try
             {
-                // type!beat's own velopack feed (the vpk pack output: RELEASES manifest + full
-                // packages, hosted by typebeat-web). MUST never point at upstream osu releases:
-                // an installed build would otherwise "update" itself into osu!lazer.
-                IUpdateSource updateSource = new SimpleWebSource(@"https://typebeat.mingda.sh/releases");
-                Velopack.UpdateManager updateManager = new Velopack.UpdateManager(updateSource, new UpdateOptions
-                {
-                    AllowVersionDowngrade = true
-                });
+                // the feed URLs and why there are two of them live in UpdateFeed.
+                Velopack.UpdateManager updateManager = createUpdateManager(UpdateFeed.PRIMARY_URL);
+                UpdateInfo? update;
 
-                UpdateInfo? update = await updateManager.CheckForUpdatesAsync().ConfigureAwait(false);
+                try
+                {
+                    update = await updateManager.CheckForUpdatesAsync().ConfigureAwait(false);
+                }
+                catch (Exception e)
+                {
+                    // the primary feed is the direct-origin host, which a network may block outright.
+                    // One retry against the Cloudflare-proxied root before giving up for this cycle.
+                    log($"Update check against the primary feed failed ({e.Message}), retrying against the fallback feed");
+
+                    updateManager = createUpdateManager(UpdateFeed.FALLBACK_URL);
+                    update = await updateManager.CheckForUpdatesAsync().ConfigureAwait(false);
+                }
 
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -96,6 +125,16 @@ namespace typebeat.Desktop.Updater
             }
         }
 
+        private static Velopack.UpdateManager createUpdateManager(string feedUrl)
+        {
+            IUpdateSource updateSource = new SimpleWebSource(feedUrl);
+
+            return new Velopack.UpdateManager(updateSource, new UpdateOptions
+            {
+                AllowVersionDowngrade = true
+            });
+        }
+
         private void downloadUpdate(Velopack.UpdateManager updateManager, UpdateInfo update, CancellationToken cancellationToken) => Task.Run(async () =>
         {
             log($"Beginning download of update {update.TargetFullRelease.Version}...");
@@ -109,31 +148,91 @@ namespace typebeat.Desktop.Updater
                 }
             };
 
+            downloadStalled = false;
+
+            var watchdog = new DownloadStallWatchdog(currentTimeMs());
+
+            // not wrapped in `using`: the poll delegate runs on the update thread and cancels this,
+            // so it is disposed there too (see the finally below) rather than racing a tick.
+            var stallCancellation = new CancellationTokenSource();
+            ScheduledDelegate? stallPoll = null;
+
             try
             {
-                using (var cts = CancellationTokenSource.CreateLinkedTokenSource(progressNotification.CancellationToken, cancellationToken))
+                using (var cts = CancellationTokenSource.CreateLinkedTokenSource(progressNotification.CancellationToken, cancellationToken, stallCancellation.Token))
                 {
                     progressNotification.StartDownload();
                     runOutsideOfGameplay(() => notificationOverlay.Post(progressNotification), cts.Token);
 
-                    await updateManager.DownloadUpdatesAsync(update, p => progressNotification.Progress = p / 100f, cts.Token).ConfigureAwait(false);
+                    stallPoll = Scheduler.AddDelayed(() =>
+                    {
+                        if (downloadStalled || !watchdog.IsStalled(currentTimeMs()))
+                            return;
+
+                        downloadStalled = true;
+                        log($"Update download made no progress for {DownloadStallWatchdog.STALL_TIMEOUT_MS / 1000} seconds, cancelling");
+                        stallCancellation.Cancel();
+                    }, stall_poll_interval_ms, true);
+
+                    await updateManager.DownloadUpdatesAsync(update, p =>
+                    {
+                        watchdog.ReportProgress(p, currentTimeMs());
+                        progressNotification.Progress = p / 100f;
+                    }, cts.Token).ConfigureAwait(false);
+
                     runOutsideOfGameplay(() => progressNotification.State = ProgressNotificationState.Completed, cts.Token);
                 }
             }
             catch (OperationCanceledException)
             {
                 progressNotification.FailDownload();
-                log(@"Update cancelled");
+
+                if (downloadStalled)
+                {
+                    // a stall is not the user's decision, so it gets a way back: an explicit retry
+                    // affordance (FailDownload closes the progress notification outright) plus the
+                    // usual background schedule, which velopack resumes the partial package with.
+                    log(@"Update download stalled");
+                    postStalledDownloadNotification(cancellationToken);
+                    scheduleNextUpdateCheck();
+                }
+                else
+                    log(@"Update cancelled");
             }
             catch (Exception e)
             {
                 // In the case of an error, a separate notification will be displayed.
                 progressNotification.FailDownload();
                 Logger.Error(e, @"Update failed!");
+
+                // without this the background check loop ends here, and a single failed download
+                // means the client never looks for an update again until it is restarted.
+                scheduleNextUpdateCheck();
+            }
+            finally
+            {
+                // both hop to the update thread so they cannot interleave with a poll tick that is
+                // already running and about to touch `stallCancellation`.
+                Scheduler.Add(() =>
+                {
+                    stallPoll?.Cancel();
+                    stallCancellation.Dispose();
+                });
             }
 
             return true;
         }, cancellationToken);
+
+        private void postStalledDownloadNotification(CancellationToken cancellationToken) => runOutsideOfGameplay(() => notificationOverlay.Post(new SimpleNotification
+        {
+            Text = @"Update download stalled. Click to retry.",
+            Icon = FontAwesome.Solid.Download,
+            Activated = () =>
+            {
+                CheckForUpdate();
+                return true;
+            }
+        }), cancellationToken);
 
         private void runOutsideOfGameplay(Action action, CancellationToken cancellationToken)
         {
