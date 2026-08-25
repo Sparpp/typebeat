@@ -3,8 +3,8 @@
 
 // Backlog 182: the two WORD-LEVEL editing gestures every typing site has, brought into live
 // gameplay. Ctrl+Backspace erases the previous word (the gaps behind the caret, then the word behind
-// them); Ctrl+A offers back the run from the caret to the start of the nearest word holding an
-// unfixed typo, so it can be retyped in one go.
+// them); Ctrl+A offers back the run from the caret to the start of the word holding the EARLIEST
+// unfixed typo (backlog 184 inverted that from the nearest), so every mistake is retyped in one go.
 //
 // The engine's whole share of that is TWO PURE QUERIES, TypingEngine.WordBackspaceTarget and
 // TypingEngine.RetypeSelectionAnchor, which say where each gesture stops and mutate nothing. This
@@ -322,8 +322,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// A typo in the word the player is HALFWAY THROUGH typing anchors on that word's start,
-        /// which is the common case and the one the backwards scan's "stop at the first typo" rule
-        /// exists for: an older, already-fixed word behind it must not be dragged in.
+        /// which is the common case. The word behind it was typed correctly, so it holds no typo and
+        /// the scan walks straight past it: "earliest" means the earliest UNFIXED one, and a word
+        /// already right is never dragged in.
         /// </summary>
         [Test]
         public void ATypoInTheCurrentWordAnchorsOnTheCurrentWord()
@@ -340,12 +341,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// With typos in two different words the NEAREST one wins, which is the whole meaning of
-        /// "select back to the mistake": the player is offered the shortest retype that fixes
-        /// something, not the longest.
+        /// With typos in two different words the EARLIEST one wins (backlog 184 inverted this): the
+        /// gesture is "fix my mistakes" and it is one keystroke, so the selection covers every unfixed
+        /// typo behind the caret rather than the shortest retype that fixes something. Offering the
+        /// nearest made the gesture a loop the player could not see the end of, and the cells in
+        /// between cost nothing to retype, since a correct cell re-typed is scoring-inert.
         /// </summary>
         [Test]
-        public void TheNearestTypoBehindTheCaretWins()
+        public void TheEarliestTypoBehindTheCaretWins()
         {
             var engine = started();
 
@@ -355,7 +358,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(engine.ProcessKey('z', 2000), Is.True, "wrong for 'c'");
             Assert.That(engine.ProcessKey('d', 2500), Is.True);
 
-            Assert.That(engine.RetypeSelectionAnchor, Is.EqualTo(3), "the later typo's word");
+            Assert.That(engine.RetypeSelectionAnchor, Is.Zero, "the head of \"ab\": the earlier typo's word");
+        }
+
+        /// <summary>
+        /// The same rule across the whole line, with a good word in the middle: typos in words one and
+        /// three anchor on word one, so a single consume walks back over "cd" (free, being correct
+        /// cells) and reaches both mistakes.
+        /// </summary>
+        [Test]
+        public void TyposInTheFirstAndLastWordsAnchorOnTheFirst()
+        {
+            var engine = started();
+
+            Assert.That(engine.ProcessKey('x', 1000), Is.True, "wrong for 'a'");
+            Assert.That(engine.ProcessKey('b', 1500), Is.True);
+            Assert.That(engine.ProcessKey(' ', 2000), Is.True);
+            Assert.That(engine.ProcessKey('c', 2000), Is.True);
+            Assert.That(engine.ProcessKey('d', 2500), Is.True);
+            Assert.That(engine.ProcessKey(' ', 3000), Is.True);
+            Assert.That(engine.ProcessKey('q', 3000), Is.True, "wrong for 'e'");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(cells(engine)[0].State, Is.EqualTo(CellState.Wrong));
+                Assert.That(cells(engine)[6].State, Is.EqualTo(CellState.Wrong));
+                Assert.That(engine.RetypeSelectionAnchor, Is.Zero, "the head of \"ab\", not of \"ef\"");
+            });
         }
 
         /// <summary>

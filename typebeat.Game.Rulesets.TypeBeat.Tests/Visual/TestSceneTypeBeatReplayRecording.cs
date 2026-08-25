@@ -240,6 +240,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && frames[0].WrongInputOnWordGaps
                 && playfield.Engine.WrongInputOnWordGaps);
 
+            // Backlog 184's era bit (flags bit 4), on the same terms as the one above: live play owes
+            // a space at every gap under every mod stack, and a replay written before it carries the
+            // bit clear so its misplaced spaces keep the caret they were played with.
+            AddAssert("config frame records the strict-space rules", () =>
+                frames[0].IsConfig
+                && frames[0].StrictSpaces
+                && playfield.Engine.StrictSpaces);
+
             // The recorded time IS the time the cell was judged at. Under the span rule that no
             // longer reads as "target + delta": 'z' is typed while its syllable is being sung, so
             // the judged delta is 0 and the recorded time is what carries the press. Under Hard Rock

@@ -474,10 +474,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// SpaceSkipsWord is orthogonal, and both halves are pinned here because the two rules meet
-        /// on the same cell. A SPACE inside a word still abandons it (the skip is keyed on the KEY
-        /// being a space, which a typo never is), and a wrong LETTER on the gap still types through
-        /// with the setting on.
+        /// SpaceSkipsWord is orthogonal to backlog 181, and both halves are pinned here because the
+        /// two rules meet on the same cell. A SPACE inside a word still abandons it (the skip is keyed
+        /// on the KEY being a space, which a typo never is), and a wrong LETTER on the gap still types
+        /// through with the setting on.
+        ///
+        /// <para>On the CLASSIC space era (<see cref="TypingEngine.StrictSpaces"/> false, the default
+        /// this fixture builds), where the gap typo also ADVANCES the caret. Backlog 184 parks it
+        /// instead when both flags are on, which is what stops the next space feeding a spoiled gap to
+        /// the skip gate; see <c>SpaceDisciplineTest</c> for that arm.</para>
         /// </summary>
         [Test]
         public void SpaceSkipsWordIsUnaffected()
@@ -501,6 +506,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(typo.ProcessKey('x', 2000), Is.True);
 
             Assert.That(cells(typo)[2].State, Is.EqualTo(CellState.Wrong), "a wrong LETTER on the gap is not a skip");
+            Assert.That(typo.CaretIndex, Is.EqualTo(3), "and on the classic space era it carries the caret past the gap");
         }
 
         /// <summary>

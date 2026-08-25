@@ -97,6 +97,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// With the setting off, a space pressed on a lyric character is REJECTED exactly as it
         /// always was, in every input model: nothing enters the cell and the caret does not move.
+        ///
+        /// <para>On the CLASSIC space era (<see cref="TypingEngine.StrictSpaces"/> false, which is
+        /// what this fixture builds and what every stored replay carries). Backlog 184 types that same
+        /// press through as an ordinary typo on the live arm, since with no word to skip a space
+        /// inside a word is nothing but a wrong character; see <c>SpaceDisciplineTest</c>.</para>
         /// </summary>
         [Test]
         public void SpaceInsideAWordIsStillRejectedWhenTheSettingIsOff()

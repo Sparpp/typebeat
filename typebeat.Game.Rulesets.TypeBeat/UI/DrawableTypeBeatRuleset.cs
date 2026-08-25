@@ -151,6 +151,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // (TypeBeatReplayScorer re-derives on the CONFIG frame's bit 3, with no mod
                 // inspection anywhere in the scorer).
                 WrongInputOnWordGaps = true,
+
+                // THE live space rule since backlog 184, and unconditional for the same reason the
+                // line above is: it is the input model, not a window, so no mod has an opinion about
+                // it. A gap typo parks the caret on the gap it spoiled (the space is still owed, and
+                // without the park the next space fed the skip gate a spoiled gap and gave up a whole
+                // word), and with word skipping off a mid-word space is a typo rather than a
+                // rejection. Deliberately NOT a user setting: it is what the spacebar MEANS here.
+                //
+                // An ERA flag as well, on CONFIG frame bit 4, because every replay recorded before it
+                // holds spaces whose caret consequence was the other one, and re-deriving those under
+                // this rule would shift every keystroke after the first of them.
+                StrictSpaces = true,
             };
         }
     }

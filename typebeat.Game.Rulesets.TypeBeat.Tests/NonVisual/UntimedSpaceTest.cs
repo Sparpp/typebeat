@@ -145,6 +145,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// Scoped to the CELL, hole 1: with <see cref="TypingEngine.SpaceSkipsWord"/> off (the
         /// default), a space pressed on a LYRIC character is still rejected outright. Keying the
         /// exemption off "the key was a space" instead would have made space-mashing free.
+        ///
+        /// <para>On the CLASSIC space era (<see cref="TypingEngine.StrictSpaces"/> false, the default
+        /// here). Backlog 184's live arm types that press through as a typo instead, which costs the
+        /// player the cell rather than nothing, so the exemption is not loosened either way.</para>
         /// </summary>
         [Test]
         public void ASpaceOnALyricCharacterIsStillRejected()
@@ -176,6 +180,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// rejected keys) accrues on that same rejection path, so it must still count a held-down
         /// spacebar. Note this is the DEFAULT input model: a wrong LETTER is typed through and never
         /// touches the streak, which makes the space one of the only keys that can build it here.
+        ///
+        /// <para>On the CLASSIC space era (<see cref="TypingEngine.StrictSpaces"/> false). Under
+        /// backlog 184's live arm a mid-word space is typed through, so it stops reaching this branch
+        /// and stops feeding the streak: a knock-on the feature accepts, since the guard exists for
+        /// Gatekeeper, where every wrong key is still rejected. See
+        /// <c>SpaceDisciplineTest.MidWordSpacesNoLongerFeedTheMashFailStreak</c>.</para>
         /// </summary>
         [Test]
         public void TheMashFailStreakStillAccruesOnRejectedSpaces()

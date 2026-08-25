@@ -147,6 +147,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool WrongInputOnWordGaps { get; set; }
 
         /// <summary>
+        /// MONKEYTYPE SPACE DISCIPLINE (backlog 184): the spacebar is the WORD BOUNDARY, a key the
+        /// player owes at every gap rather than one the caret glides over. Two rules, and
+        /// <see cref="SpaceSkipsWord"/> decides which of them a run gets, because each fixes what that
+        /// setting's own arm did with a misplaced space. Not a user setting: live play turns it on
+        /// unconditionally, exactly as <see cref="WrongInputOnWordGaps"/> is turned on.
+        ///
+        /// <para>With <see cref="SpaceSkipsWord"/> ON, a wrong letter typed on a WORD GAP spoils the
+        /// gap WITHOUT moving the caret. The gap takes the typo in every other particular
+        /// <see cref="WrongInputOnWordGaps"/> already gives it (the keypress, the error, the streak
+        /// snapshot, the deferred judgement and the error-red typed glyph), but the caret PARKS on it:
+        /// a second wrong letter overwrites that same cell instead of spoiling the next one, so one
+        /// parked gap is one unfixed typo however many letters land on it; SPACE steps over the gap
+        /// and leaves the typo standing; backspace clears it where it sits. Without the park, the
+        /// follow-up space met a gap whose <c>Expected</c> the skip gate no longer reads as a gap, and
+        /// one mistimed keystroke threw away the whole of the next word.</para>
+        ///
+        /// <para>With <see cref="SpaceSkipsWord"/> OFF, a SPACE typed on a lyric character is typed
+        /// THROUGH as an ordinary typo instead of being rejected: with no word to skip, that press is
+        /// nothing but a wrong character, so it takes the path every other wrong character takes (cell
+        /// <see cref="CellState.Wrong"/>, caret advances, backspace-correctable). Rendering needs no
+        /// arm: a wrong LYRIC cell shows its EXPECTED character in the error red
+        /// (<c>LyricLineDisplay.CellGlyph</c> substitutes the typed one for gaps only), which is what
+        /// this wants, since a red space is nothing at all to look at. The knock-on is deliberate:
+        /// mid-word spaces stop feeding the mash-fail streak in live play, because they no longer
+        /// reach the rejection branch that grows it.</para>
+        ///
+        /// <para>FALSE by default, and era-styled exactly like <see cref="WrongInputOnWordGaps"/>: set
+        /// before the first keypress and left alone afterwards. Both halves change what an
+        /// already-recorded keystroke MEANS, i.e. where the caret sits after it, so a replay written
+        /// before backlog 184 re-derived under the live rule would desynchronise every keystroke that
+        /// follows the first misplaced space in it. Which arm a re-derivation gets is decided by the
+        /// replay's own CONFIG frame (<see cref="Replays.TypeBeatReplayFrame.StrictSpaces"/>, flags
+        /// bit 4) and applied in <see cref="Replays.ReplayEngineFeed.Apply"/>.</para>
+        /// </summary>
+        public bool StrictSpaces { get; set; }
+
+        /// <summary>
         /// Whether the spacebar is inside the timing challenge (see <see cref="ProcessKey"/>).
         /// <see cref="SpaceTimingRule.Untimed"/> is the live rule (backlog 148) and the default; only
         /// <see cref="Scoring.TypeBeatReplayScorer"/> ever sets the other one, to re-derive a score
@@ -940,7 +977,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <para>What is deliberately NOT touched is everything that describes the run rather than
         /// its progress, i.e. everything set from outside after construction: the replay CONFIG bits
         /// (<see cref="AllowWrongInput"/>, <see cref="SpaceSkipsWord"/>,
-        /// <see cref="SyllableTiming"/>, <see cref="WrongInputOnWordGaps"/>), the mod flags
+        /// <see cref="SyllableTiming"/>, <see cref="WrongInputOnWordGaps"/>,
+        /// <see cref="StrictSpaces"/>), the mod flags
         /// (<see cref="FletcherEnabled"/>, <see cref="MashingEnabled"/>, <see cref="Literate"/>,
         /// <see cref="CaseSensitive"/>), <see cref="WindowScale"/> and the three era rules
         /// (<see cref="ComboRestore"/>, <see cref="SpaceTiming"/>, <see cref="WordSkip"/>). A rebuild
@@ -1325,7 +1363,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// denominator forever, and resolves NO cell against the score processor; only the rejection
         /// path grows <see cref="ConsecutiveWrongKeys"/>. On a SPACE cell the type-through needs
         /// <see cref="WrongInputOnWordGaps"/> as well (live play sets it; a stored replay says so in
-        /// its own header), and a wrong SPACE key is rejected on every cell under every arm.
+        /// its own header), and a wrong SPACE key is rejected on every cell except under
+        /// <see cref="StrictSpaces"/> with <see cref="SpaceSkipsWord"/> off, where it is a typo like
+        /// any other. <see cref="StrictSpaces"/> also PARKS the caret on a gap a typo spoiled, so the
+        /// space that gap was owed is still owed: pressing it steps over the typo, and backspace
+        /// clears the typo where it sits.
         /// </summary>
         public bool ProcessKey(char c, double time)
         {
@@ -1385,6 +1427,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 cell = line.Cells[caretIndex];
             }
 
+            // STEP OVER A SPOILED GAP (backlog 184, see StrictSpaces): the caret is PARKED on a word
+            // gap that a wrong letter took, and the space that gap was owed has arrived. It walks the
+            // caret past the gap and leaves the typo exactly as it is. The cell is NOT rewritten to
+            // Correct, because the character sitting in it is not the one that was owed: it stays an
+            // unfixed, backspace-redeemable claim, and the seal resolves it as UNFIXED_TYPO like every
+            // other one. It judges nothing: no tier, no points, no combo gained and none broken (the
+            // typo already took the break, and this press cannot be asked to pay for it twice).
+            //
+            // Counted as a CORRECT keypress, which is the same argument once more: the space IS the
+            // right key for the cell it lands on, the gap it was owed, and the typo has already paid
+            // an error and a break of its own. Charging accuracy for it as well would punish the same
+            // word twice, and the press a player must make to recover from a mistake is not itself a
+            // mistake. correctKeypresses feeds LiveAccuracy alone, so this credits accuracy and moves
+            // nothing else: the cell still resolves as an unfixed typo and still costs COMPLETION,
+            // which is where an unfixed typo is supposed to be paid for.
+            //
+            // Gated on the CELL STATE rather than on the era flags, which is exact rather than
+            // approximate: the caret can only come to rest on a Wrong cell through the park above, so
+            // a replay re-deriving with flags bit 4 CLEAR never reaches this branch at all. Everywhere
+            // else, resolving a cell is the only way the caret got past it.
+            if (c == ' ' && cell.Expected == ' ' && cell.State == CellState.Wrong)
+            {
+                totalKeypresses++;
+                correctKeypresses++;
+
+                caretIndex++;
+                autoSkipForward();
+
+                rollForwardIfFinishedEarly();
+                return true;
+            }
+
             double delta = judgedDeltaFor(line, caretIndex, time);
 
             // SPACES ARE UNTIMED (backlog 148), decided here rather than after the match so that
@@ -1419,15 +1493,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (!matched)
             {
                 // DEFAULT: a wrong LETTER is typed through, marked red, backspaceable, instead of
-                // rejected. The space KEY stays strict everywhere (c != ' '): there is no cell a
-                // wrong space is typed into, because it is the word-advance key and not a glyph a
-                // player means to leave sitting in a lyric. What the WORD GAP does with a wrong
-                // letter is the era switch (see WrongInputOnWordGaps): it takes the typo exactly as
-                // a lyric cell does, which is the live rule, or it drops to the strict branch below,
-                // which is what every stored replay was played under. This path never feeds the
-                // mash-fail streak (consecutiveWrongKeys is left at 0, which is why that guard is
-                // Gatekeeper-only).
-                if (AllowWrongInput && c != ' ' && (WrongInputOnWordGaps || cell.Expected != ' '))
+                // rejected. What the WORD GAP does with a wrong letter is the first era switch (see
+                // WrongInputOnWordGaps): it takes the typo exactly as a lyric cell does, which is the
+                // live rule, or it drops to the strict branch below, which is what every stored replay
+                // was played under. This path never feeds the mash-fail streak (consecutiveWrongKeys
+                // is left at 0, which is why that guard is Gatekeeper-only).
+                //
+                // The space KEY is the second era switch (see StrictSpaces). Classically it is strict
+                // on every cell: there is no cell a wrong space is typed into, because it is the
+                // word-advance key and not a glyph a player means to leave sitting in a lyric. Under
+                // StrictSpaces with SpaceSkipsWord OFF it is admitted on a lyric character, and the
+                // reason is that with no word to skip the press means nothing else: it is a wrong
+                // character, so it is treated as one, no differently from a wrong letter (the cell
+                // still renders its own expected character in the error red, since CellGlyph
+                // substitutes the typed char for GAPS only, which is what makes an invisible red space
+                // a non-problem). With SpaceSkipsWord ON the same press never arrives here: the skip
+                // gate above consumed it.
+                //
+                // A FREESTYLE slot keeps refusing the space key under every arm. Its promise is "any
+                // character except the word-advance key" (backlog 50) and it has no expected glyph to
+                // redden, so a space typed into one would blank the cell rather than mark it.
+                bool spaceMayLand = StrictSpaces && !SpaceSkipsWord && !cell.IsFreestyle;
+
+                if (AllowWrongInput && (c != ' ' || spaceMayLand) && (WrongInputOnWordGaps || cell.Expected != ' '))
                 {
                     totalKeypresses++;
                     errorCount++;
@@ -1449,8 +1537,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                     snapshotRedeemableBreak(wrongCellIndex, brokenStreak);
 
-                    caretIndex++;
-                    autoSkipForward();
+                    // PARK on a spoiled word gap under StrictSpaces (backlog 184), instead of moving
+                    // on: the space is still owed, so the player pays it (which steps over the typo,
+                    // see the branch above) or backspaces it away, rather than being carried into the
+                    // next word behind a gap the skip gate can no longer read as one. A further wrong
+                    // letter lands on this same cell and overwrites this same character, so one park
+                    // is one unfixed typo however many letters arrive; the snapshot above is idempotent
+                    // for the same reason (a break with no streak behind it leaves the standing claim
+                    // alone, see snapshotRedeemableBreak).
+                    //
+                    // Scoped to SpaceSkipsWord because that is where the damage was: with the setting
+                    // off, an advancing gap typo costs the player one cell, and with it on the next
+                    // space fed the skip gate a spoiled gap and gave up a whole word. Every typo on a
+                    // LYRIC cell advances exactly as it always has, under both arms.
+                    if (!(StrictSpaces && SpaceSkipsWord && cell.Expected == ' '))
+                    {
+                        caretIndex++;
+                        autoSkipForward();
+                    }
 
                     // The keypress was wrong, so it is a mistype exactly as it would be in strict
                     // mode, and since backlog 109 it ACCOUNTS exactly as strict mode does too: the
@@ -1998,6 +2102,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <para>Both step-overs are transparent because neither cell holds anything the player put
         /// there, so neither is an erase. That is what makes ONE press re-enter a skipped word and
         /// land on the last character actually typed, however many characters were given up.</para>
+        ///
+        /// <para>The one case that does not erase BEHIND the caret is a typo the caret is parked ON,
+        /// which only <see cref="StrictSpaces"/> can produce (backlog 184): that cell is cleared in
+        /// place and the caret does not move, because the gap it sits on is still owed its space.</para>
         /// </summary>
         public bool ProcessBackspace()
         {
@@ -2005,6 +2113,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 return false;
 
             var cells = lines[activeLineIndex].Cells;
+
+            // A typo the caret is PARKED ON (backlog 184, see StrictSpaces): cleared where it sits,
+            // not erased from behind. The gap is still owed its space, so the caret has no business
+            // retreating into the perfectly good word in front of it, and the character the player
+            // wants back is the one they are looking at. One press, one cell, caret unmoved.
+            //
+            // Keyed on the STATE rather than on the era flags, and the two are the same thing here:
+            // only the StrictSpaces + SpaceSkipsWord arm ever leaves the caret sitting on a Wrong
+            // cell, because everywhere else resolving a cell is how the caret got past it. A replay
+            // re-deriving with flags bit 4 clear therefore cannot reach this branch.
+            if (caretIndex < cells.Count && cells[caretIndex].State == CellState.Wrong)
+            {
+                var parked = cells[caretIndex];
+
+                parked.State = CellState.Untyped;
+                parked.TypedChar = null;
+                parked.JudgedDelta = null;
+
+                raise(TypoErased);
+                return true;
+            }
 
             // Find the nearest cell behind the caret holding something the player typed, stepping
             // over the two transparent states (scan first, mutate after).
@@ -2133,18 +2262,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>
         /// Where a CTRL+A (backlog 182, "select back to the mistake I have to retype") should put the
-        /// start of its selection: the first cell of the nearest run at or behind the caret holding
-        /// an UNFIXED TYPO, or -1 when there is no typo behind the caret at all (the gesture is then
-        /// a no-op). The selection itself is the half-open range [this, <see cref="CaretIndex"/>),
+        /// start of its selection: the first cell of the run holding the EARLIEST unfixed typo behind
+        /// the caret, or -1 when there is no typo behind the caret at all (the gesture is then a
+        /// no-op). The selection itself is the half-open range [this, <see cref="CaretIndex"/>),
         /// and it is pure UI state: nothing in the engine knows it exists. Consuming it is composed,
         /// like the gesture above, out of ordinary <see cref="ProcessBackspace"/> calls back to this
         /// index plus at most one <see cref="ProcessKey"/>, so a replay stores exactly the engine
         /// calls that were made.
         ///
         /// <para>A typo is a cell in <see cref="CellState.Wrong"/>: a wrong character typed through
-        /// and not yet backspaced away. The scan runs backwards from the caret and stops at the FIRST
-        /// one it meets, which is why a typo in the word the player is halfway through typing anchors
-        /// on that word's start rather than on some earlier one.</para>
+        /// and not yet backspaced away. The scan takes the EARLIEST one on the line, so the selection
+        /// covers every unfixed typo behind the caret rather than only the most recent (backlog 184).
+        /// The gesture is "fix my mistakes", and it is one keystroke: offering the shortest retype
+        /// would leave a player with two spoiled words pressing it, retyping, pressing it again, and
+        /// having no way to see from the caret how many rounds are left. Retyping the cells in between
+        /// costs nothing, since a correct cell re-typed is scoring-inert.</para>
         ///
         /// <para>WHICH run the typo's cell opens has two cases, and they are the same rule stated
         /// twice: the selection starts at the first cell the player must retype to fix the typo. For
@@ -2155,8 +2287,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// perfectly good word in front of it for nothing.</para>
         ///
         /// <para>The answer is never equal to <see cref="CaretIndex"/> when it is non-negative: the
-        /// typo is strictly behind the caret (a cell ahead of it has nothing typed in it), so a
-        /// selection always covers at least one cell.</para>
+        /// scan is over [0, <see cref="CaretIndex"/>), so a selection always covers at least one cell.
+        /// The one typo that can sit AT the caret, the gap a <see cref="StrictSpaces"/> park is
+        /// holding, is deliberately outside that range: it needs no selection, being one backspace
+        /// away under the same rule that parked it.</para>
         /// </summary>
         public int RetypeSelectionAnchor
         {
@@ -2166,10 +2300,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     return -1;
 
                 var cells = lines[activeLineIndex].Cells;
-                int typo = Math.Min(caretIndex, cells.Count) - 1;
+                int limit = Math.Min(caretIndex, cells.Count);
+                int typo = -1;
 
-                while (typo >= 0 && cells[typo].State != CellState.Wrong)
-                    typo--;
+                for (int i = 0; i < limit; i++)
+                {
+                    if (cells[i].State == CellState.Wrong)
+                    {
+                        typo = i;
+                        break;
+                    }
+                }
 
                 if (typo < 0)
                     return -1;

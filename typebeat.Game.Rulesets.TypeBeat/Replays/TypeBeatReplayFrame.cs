@@ -27,8 +27,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <see cref="AllowWrongInput"/> (the wrong-key model the run was judged under), bit 1
     /// <see cref="SpaceSkipsWord"/> (whether a space pressed inside a word abandoned it), bit 2
     /// <see cref="SyllableTiming"/> (whether a press was graded against its syllable's sung span or
-    /// against its cell's point target) and bit 3 <see cref="WrongInputOnWordGaps"/> (whether a
-    /// wrong letter on a word gap was typed through or rejected). Other mods
+    /// against its cell's point target), bit 3 <see cref="WrongInputOnWordGaps"/> (whether a
+    /// wrong letter on a word gap was typed through or rejected) and bit 4
+    /// <see cref="StrictSpaces"/> (whether the spacebar was the word boundary the player owed at
+    /// every gap). Other mods
     /// (Literate/Mashing/rate) travel in the score itself and need no frames.
     ///
     /// <para>Backlog 107 turned that model from a local SETTING into a mod (Gatekeeper), so it now
@@ -44,11 +46,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <para><b>Legacy (.osr) mapping</b>, chosen to round-trip through
     /// <see cref="typebeat.Game.Scoring.Legacy.LegacyScoreEncoder"/>/<c>Decoder</c> untouched:
     /// MouseX = character code, MouseY = config flags (bit 0 = allow-wrong-input, bit 1 =
-    /// space-skips-word, bit 2 = syllable-span timing, bit 3 = wrong-input-on-word-gaps; only
-    /// meaningful on CONFIG frames),
-    /// ButtonState = None, time = the integral frame time. A flags word of at most 15 is as harmless
+    /// space-skips-word, bit 2 = syllable-span timing, bit 3 = wrong-input-on-word-gaps, bit 4 =
+    /// strict-spaces; only meaningful on CONFIG frames),
+    /// ButtonState = None, time = the integral frame time. A flags word of at most 31 is as harmless
     /// to the encoder as the single bit was, and each new bit is appended ABOVE the existing ones,
-    /// never renumbered: bits 0 to 2 keep their meaning and their positions untouched, so every
+    /// never renumbered: bits 0 to 3 keep their meaning and their positions untouched, so every
     /// replay already on disk decodes identically and simply reads false for the newer bits. All
     /// typeable characters (a-z, A-Z, 0-9, space, plus the Literate mod's punctuation, whose
     /// highest code point is ']' at 0x5D) and both sentinels are far below the decoder's coordinate
@@ -115,6 +117,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// </summary>
         public bool WrongInputOnWordGaps;
 
+        /// <summary>
+        /// The engine's monkeytype space-discipline setting at record time (see
+        /// <see cref="Gameplay.TypingEngine.StrictSpaces"/>). Only meaningful on
+        /// <see cref="CONFIG"/> frames, and the ERA carrier for backlog 184: the live client records
+        /// it true, and every replay stored before it existed carries the bit clear, so a gap typo
+        /// its player made still carries the caret forward and a mid-word space its player pressed is
+        /// still rejected, exactly as they were when the run was played. Judgement relevant in the
+        /// strongest sense, on both halves: each of them decides where the caret ends up after an
+        /// already-recorded keystroke, so one frame decoded under the wrong arm desynchronises every
+        /// keystroke after it.
+        /// </summary>
+        public bool StrictSpaces;
+
         public bool IsBackspace => Character == BACKSPACE;
 
         public bool IsConfig => Character == CONFIG;
@@ -131,17 +146,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
 
         /// <summary>
         /// The header frame for a run. <paramref name="spaceSkipsWord"/>,
-        /// <paramref name="syllableTiming"/> and <paramref name="wrongInputOnWordGaps"/> are
-        /// optional so the older call sites keep meaning what they always did (bit clear = no word
-        /// skipping, classic point-target judgement, a wrong key on a word gap rejected), which is
-        /// also exactly how a replay recorded before each setting existed decodes.
+        /// <paramref name="syllableTiming"/>, <paramref name="wrongInputOnWordGaps"/> and
+        /// <paramref name="strictSpaces"/> are optional so the older call sites keep meaning what
+        /// they always did (bit clear = no word skipping, classic point-target judgement, a wrong key
+        /// on a word gap rejected, a gap typo carrying the caret forward and a mid-word space
+        /// rejected), which is also exactly how a replay recorded before each setting existed decodes.
         /// </summary>
-        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false) => new TypeBeatReplayFrame(time, CONFIG)
+        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false) => new TypeBeatReplayFrame(time, CONFIG)
         {
             AllowWrongInput = allowWrongInput,
             SpaceSkipsWord = spaceSkipsWord,
             SyllableTiming = syllableTiming,
             WrongInputOnWordGaps = wrongInputOnWordGaps,
+            StrictSpaces = strictSpaces,
         };
 
         /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>
@@ -156,6 +173,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <summary>Bit 3 of the CONFIG frame's flags word: a wrong letter on a word gap is typed through.</summary>
         private const int flag_wrong_input_on_word_gaps = 8;
 
+        /// <summary>Bit 4 of the CONFIG frame's flags word: the spacebar is the word boundary (a gap
+        /// typo parks the caret, a mid-word space is a typo rather than a rejection).</summary>
+        private const int flag_strict_spaces = 16;
+
         public void FromLegacy(LegacyReplayFrame currentFrame, IBeatmap beatmap, ReplayFrame? lastFrame = null)
         {
             Character = (char)(int)(currentFrame.MouseX ?? 0);
@@ -166,6 +187,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             SpaceSkipsWord = (flags & flag_space_skips_word) != 0;
             SyllableTiming = (flags & flag_syllable_timing) != 0;
             WrongInputOnWordGaps = (flags & flag_wrong_input_on_word_gaps) != 0;
+            StrictSpaces = (flags & flag_strict_spaces) != 0;
         }
 
         public LegacyReplayFrame ToLegacy(IBeatmap beatmap) =>
@@ -175,7 +197,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             (AllowWrongInput ? flag_allow_wrong_input : 0)
             | (SpaceSkipsWord ? flag_space_skips_word : 0)
             | (SyllableTiming ? flag_syllable_timing : 0)
-            | (WrongInputOnWordGaps ? flag_wrong_input_on_word_gaps : 0);
+            | (WrongInputOnWordGaps ? flag_wrong_input_on_word_gaps : 0)
+            | (StrictSpaces ? flag_strict_spaces : 0);
 
         /// <summary>
         /// Never equivalent: every frame is a discrete keystroke. Two identical characters at the

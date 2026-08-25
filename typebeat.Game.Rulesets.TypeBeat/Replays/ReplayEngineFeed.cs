@@ -40,7 +40,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             if (frame.IsConfig)
             {
                 // The recorded machine's judgement-relevant settings win over local config, all
-                // four of them: a replay of a run played WITHOUT space-skip must not start skipping
+                // five of them: a replay of a run played WITHOUT space-skip must not start skipping
                 // words because the watcher turned the setting on, and vice versa. Every replay
                 // recorded before a setting existed carries its bit clear, which decodes to false,
                 // i.e. to exactly the model those runs were played under.
@@ -51,13 +51,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // WrongInputOnWordGaps (backlog 181) is the second such bit, and the one that has to
                 // be applied HERE rather than anywhere later: an old replay's wrong key on a word
                 // gap was rejected, so the caret did not move, and typing it through instead would
-                // shift every keystroke after it onto the wrong cell. Applied here rather than at
-                // each of the three call sites for the same reason the others are: this is the one
-                // place a recorded frame reaches an engine.
+                // shift every keystroke after it onto the wrong cell. StrictSpaces (backlog 184) is
+                // the third, and the sharpest of the three on exactly that point: with it clear a gap
+                // typo carries the caret into the next word and a mid-word space is refused, with it
+                // set the caret parks and the space lands, so the two arms disagree about where the
+                // caret is from the first misplaced space onwards. Applied here rather than at each of
+                // the three call sites for the same reason the others are: this is the one place a
+                // recorded frame reaches an engine.
                 engine.AllowWrongInput = frame.AllowWrongInput;
                 engine.SpaceSkipsWord = frame.SpaceSkipsWord;
                 engine.SyllableTiming = frame.SyllableTiming;
                 engine.WrongInputOnWordGaps = frame.WrongInputOnWordGaps;
+                engine.StrictSpaces = frame.StrictSpaces;
                 return;
             }
 

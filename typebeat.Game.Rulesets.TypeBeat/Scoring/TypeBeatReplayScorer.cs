@@ -290,10 +290,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <summary>
         /// The engine <c>DrawableTypeBeatRuleset.createEngine</c> would build for this beatmap,
         /// plus the engine flags the mods set through <c>ApplyToDrawableRuleset</c>.
-        /// <c>AllowWrongInput</c>, <c>SpaceSkipsWord</c>, <c>SyllableTiming</c> and
-        /// <c>WrongInputOnWordGaps</c> are deliberately
+        /// <c>AllowWrongInput</c>, <c>SpaceSkipsWord</c>, <c>SyllableTiming</c>,
+        /// <c>WrongInputOnWordGaps</c> and <c>StrictSpaces</c> are deliberately
         /// NOT set from the mods or from any config: the replay's CONFIG frame carries what the run
-        /// was judged under and overwrites all four, which is the only thing that judges a
+        /// was judged under and overwrites all five, which is the only thing that judges a
         /// pre-Gatekeeper strict run right.
         /// </summary>
         private static TypingEngine createEngine(IBeatmap playable, IReadOnlyList<TypeBeatHitObject> lineObjects, IReadOnlyList<Mod> mods, RateWindowRule rateRule)
@@ -335,6 +335,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // reasons: it travels in the CONFIG frame (bit 3), the engine default is the classic
             // strict word gap every pre-181 replay was played on, and HR carries the bit SET like
             // every other live stack, because it is an input-model axis and not a window one.
+            //
+            // StrictSpaces (backlog 184, CONFIG frame bit 4) is the third of those, on the same
+            // terms: the default is the pre-184 space behaviour every stored replay was played on,
+            // and the bit is set for every live stack because the spacebar's meaning is not a mod's
+            // business.
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the three arms below compose in any order. A replay

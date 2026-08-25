@@ -26,8 +26,13 @@ looking for it. The canonical sources are the code itself:
   typo now takes the gap, renders as the typed char in error red (`LyricLineDisplay.CellGlyph`) and
   is backspaceable. That is a second ERA, CONFIG flags bit 3, because a stored replay's rejected
   gap keystroke must stay rejected or its caret desynchronises; unlike bit 2 it is set for EVERY
-  live stack, Hard Rock included, since HR halves windows and not the input model. The space KEY
-  stays strict on every cell under every arm.
+  live stack, Hard Rock included, since HR halves windows and not the input model. Backlog 184 adds
+  `StrictSpaces` (a third ERA, CONFIG flags bit 4, set for every live stack, not a user setting),
+  which makes the spacebar the WORD BOUNDARY: with `SpaceSkipsWord` ON a gap typo PARKS the caret on
+  the gap (space steps over it, backspace clears it in place) instead of carrying the caret into the
+  next word where the follow-up space fed a spoiled gap to the skip gate and gave up a whole word;
+  with `SpaceSkipsWord` OFF the space KEY is typed through on a lyric cell as an ordinary typo
+  instead of being rejected. The space key is still refused by a FREESTYLE slot under every arm.
 - **The timing schema** (per-character target times, syllable subdivision, space cells):
   `Gameplay/TypingLine.cs`, `FromLyricLine`.
 - **How a judgement becomes a stored osu result**: `Scoring/TypeBeatResultMapping.cs`, which also
