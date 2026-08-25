@@ -159,7 +159,8 @@ namespace typebeat.Desktop.Updater
 
             try
             {
-                using (var cts = CancellationTokenSource.CreateLinkedTokenSource(progressNotification.CancellationToken, cancellationToken, stallCancellation.Token))
+                using (var userCancellation = CancellationTokenSource.CreateLinkedTokenSource(progressNotification.CancellationToken, cancellationToken))
+                using (var cts = CancellationTokenSource.CreateLinkedTokenSource(userCancellation.Token, stallCancellation.Token))
                 {
                     progressNotification.StartDownload();
                     runOutsideOfGameplay(() => notificationOverlay.Post(progressNotification), cts.Token);
@@ -180,7 +181,12 @@ namespace typebeat.Desktop.Updater
                         progressNotification.Progress = p / 100f;
                     }, cts.Token).ConfigureAwait(false);
 
-                    runOutsideOfGameplay(() => progressNotification.State = ProgressNotificationState.Completed, cts.Token);
+                    // completion is guarded by the user/game token alone, NOT the stall token: velopack
+                    // verifies the package after the transfer with no progress callbacks, so the
+                    // watchdog can trip in the gap between the last percent change and the await
+                    // returning. The download still finished; skipping this line for that would
+                    // strand the notification at an active 100% forever.
+                    runOutsideOfGameplay(() => progressNotification.State = ProgressNotificationState.Completed, userCancellation.Token);
                 }
             }
             catch (OperationCanceledException)
