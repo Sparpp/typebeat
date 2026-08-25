@@ -37,6 +37,12 @@ namespace typebeat.Game.Screens.Edit.Submission
         private Container iconContainer = null!;
         private OsuTextFlowContainer errorMessage = null!;
 
+        /// <summary>
+        /// Whether <see cref="errorMessage"/> currently holds a retry notice rather than a failure,
+        /// which keeps it visible while the stage is still in progress.
+        /// </summary>
+        private bool showingRetryMessage;
+
         [Resolved]
         private OsuColour colours { get; set; } = null!;
 
@@ -153,7 +159,11 @@ namespace typebeat.Game.Screens.Edit.Submission
                 progressSampleChannel.ManualFree = true;
         }
 
-        public void SetNotStarted() => status.Value = StageStatusType.NotStarted;
+        public void SetNotStarted()
+        {
+            showingRetryMessage = false;
+            status.Value = StageStatusType.NotStarted;
+        }
 
         public void SetInProgress(float? progress = null)
         {
@@ -168,15 +178,41 @@ namespace typebeat.Game.Screens.Edit.Submission
             progressSampleChannel.Looping = true;
         }
 
-        public void SetCompleted() => status.Value = StageStatusType.Completed;
+        public void SetCompleted()
+        {
+            showingRetryMessage = false;
+            status.Value = StageStatusType.Completed;
+        }
 
         public void SetFailed(string reason)
         {
+            showingRetryMessage = false;
             status.Value = StageStatusType.Failed;
             errorMessage.Text = reason;
+            errorMessage.Colour = colours.Red1;
         }
 
-        public void SetCanceled() => status.Value = StageStatusType.Canceled;
+        /// <summary>
+        /// Shows a message on a stage that is still running, used when an attempt failed and another
+        /// one is about to start. Unlike <see cref="SetFailed"/> the stage stays in progress, so the
+        /// message is cleared again once the stage completes or finally fails.
+        /// </summary>
+        public void SetRetrying(string reason)
+        {
+            showingRetryMessage = true;
+            errorMessage.Text = reason;
+            errorMessage.Colour = colours.Orange1;
+            status.Value = StageStatusType.InProgress;
+
+            // the stage is usually already in progress here, in which case the bindable does not fire.
+            Scheduler.AddOnce(updateStatus);
+        }
+
+        public void SetCanceled()
+        {
+            showingRetryMessage = false;
+            status.Value = StageStatusType.Canceled;
+        }
 
         protected override void Dispose(bool isDisposing)
         {
@@ -222,7 +258,7 @@ namespace typebeat.Game.Screens.Edit.Submission
         private void updateStatus()
         {
             progressBarContainer.FadeTo(status.Value == StageStatusType.InProgress && progress.Value != null ? 1 : 0, transition_duration, Easing.OutQuint);
-            errorMessage.FadeTo(status.Value == StageStatusType.Failed ? 1 : 0, transition_duration, Easing.OutQuint);
+            errorMessage.FadeTo(status.Value == StageStatusType.Failed || showingRetryMessage ? 1 : 0, transition_duration, Easing.OutQuint);
 
             iconContainer.Clear();
             iconContainer.ClearTransforms();

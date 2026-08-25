@@ -1,0 +1,195 @@
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// See the LICENCE file in the repository root for full licence text.
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Threading.Tasks;
+using NUnit.Framework;
+using typebeat.Game.Online.API;
+using typebeat.Game.Screens.Edit.Submission;
+
+namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
+{
+    /// <summary>
+    /// Covers the retry decision the beatmap submission screen drives its package upload with.
+    /// A valid 11.7MB package repeatedly died with an <see cref="HttpRequestException"/>
+    /// ("Error while copying content to a stream"), an abort mid-body that never reached the origin,
+    /// so that class of failure is repeated automatically while a server answer is not.
+    /// </summary>
+    [TestFixture]
+    public class UploadRetryPolicyTest
+    {
+        [Test]
+        public void TransportFailuresAreRetried()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.IsTransportFailure(new HttpRequestException("Error while copying content to a stream.")), Is.True);
+                Assert.That(UploadRetryPolicy.IsTransportFailure(new IOException("The response ended prematurely.")), Is.True);
+
+                // the shape .NET actually produces for the observed failure: the IO error wrapped by the send.
+                Assert.That(UploadRetryPolicy.IsTransportFailure(
+                    new HttpRequestException("Error while copying content to a stream.", new IOException("Unable to write data to the transport connection."))), Is.True);
+            });
+        }
+
+        [Test]
+        public void WrappedTransportFailuresAreRetried()
+        {
+            Assert.Multiple(() =>
+            {
+                // an `InvalidOperationException` wrapper also pins that the base type of `APIException`
+                // is not itself treated as a server answer.
+                Assert.That(UploadRetryPolicy.IsTransportFailure(new InvalidOperationException("wrapper", new HttpRequestException("aborted"))), Is.True);
+                Assert.That(UploadRetryPolicy.IsTransportFailure(new AggregateException(new IOException("aborted"))), Is.True);
+
+                // arbitrarily deep, since the wrapping depth is not something callers control.
+                Assert.That(UploadRetryPolicy.IsTransportFailure(
+                    new InvalidOperationException("outer", new AggregateException(new HttpRequestException("aborted")))), Is.True);
+            });
+        }
+
+        [Test]
+        public void CancellationIsNotRetried()
+        {
+            // `APIRequest.Cancel()` fails the request with exactly this and runs the same failure path a
+            // real error does, so retrying it would resurrect a request the caller deliberately killed.
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.IsTransportFailure(new OperationCanceledException(@"Request cancelled")), Is.False);
+                Assert.That(UploadRetryPolicy.IsTransportFailure(new TaskCanceledException()), Is.False);
+                Assert.That(UploadRetryPolicy.IsTransportFailure(new OperationCanceledException("cancelled", new HttpRequestException("aborted"))), Is.False);
+            });
+        }
+
+        [Test]
+        public void ServerErrorsAreNotRetried()
+        {
+            // an `APIException` means a response body decoded into a displayable error, which proves the
+            // request reached the origin. That holds even though its inner exception is a transport one.
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.IsTransportFailure(new APIException("beatmap is too large", null, HttpStatusCode.BadRequest)), Is.False);
+                Assert.That(UploadRetryPolicy.IsTransportFailure(
+                    new APIException("beatmap is too large", new HttpRequestException("Bad Request"), HttpStatusCode.BadRequest)), Is.False);
+            });
+        }
+
+        [Test]
+        public void TimeoutsAreNotRetried()
+        {
+            // `WebRequest.AllowRetryOnTimeout` is set false for every request in `APIRequest.Perform`;
+            // retrying an idle timeout here would quietly undo that global decision.
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.IsTransportFailure(new WebException("Request timed out after 60 seconds idle", WebExceptionStatus.Timeout)), Is.False);
+                Assert.That(UploadRetryPolicy.IsTransportFailure(new WebException(@"User not logged in")), Is.False);
+            });
+        }
+
+        [Test]
+        public void UnrelatedFailuresAreNotRetried()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.IsTransportFailure(null), Is.False);
+                Assert.That(UploadRetryPolicy.IsTransportFailure(new NotSupportedException("Beatmap submission not supported in this configuration!")), Is.False);
+                Assert.That(UploadRetryPolicy.IsTransportFailure(new InvalidOperationException("nope")), Is.False);
+            });
+        }
+
+        [Test]
+        public void AttemptScheduleBacksOff()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.MAX_ATTEMPTS, Is.EqualTo(3));
+                Assert.That(UploadRetryPolicy.DelayBeforeAttempt(1), Is.EqualTo(0));
+                Assert.That(UploadRetryPolicy.DelayBeforeAttempt(2), Is.EqualTo(2000));
+                Assert.That(UploadRetryPolicy.DelayBeforeAttempt(3), Is.EqualTo(5000));
+
+                // past the table the longest backoff is reused rather than throwing mid-submission.
+                Assert.That(UploadRetryPolicy.DelayBeforeAttempt(4), Is.EqualTo(5000));
+            });
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => UploadRetryPolicy.DelayBeforeAttempt(0));
+        }
+
+        [Test]
+        public void RetriesAreExhaustedAfterMaxAttempts()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.ShouldRetryAfter(1, new HttpRequestException("aborted")), Is.True);
+                Assert.That(UploadRetryPolicy.ShouldRetryAfter(2, new HttpRequestException("aborted")), Is.True);
+                Assert.That(UploadRetryPolicy.ShouldRetryAfter(3, new HttpRequestException("aborted")), Is.False);
+
+                // a non-transport failure gives up immediately, with attempts still on the table.
+                Assert.That(UploadRetryPolicy.ShouldRetryAfter(1, new APIException("beatmap is too large", null)), Is.False);
+            });
+        }
+
+        /// <summary>
+        /// Drives the same loop the submission screen does, to pin the whole sequence a persistent
+        /// transport failure produces: three attempts total, separated by 2s then 5s.
+        /// </summary>
+        [Test]
+        public void PersistentTransportFailureRunsThreeAttempts()
+        {
+            var delays = new List<double>();
+            int attempts = 0;
+            var failure = new HttpRequestException("Error while copying content to a stream.");
+
+            while (true)
+            {
+                attempts++;
+
+                if (!UploadRetryPolicy.ShouldRetryAfter(attempts, failure))
+                    break;
+
+                delays.Add(UploadRetryPolicy.DelayBeforeAttempt(attempts + 1));
+            }
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(attempts, Is.EqualTo(3));
+                Assert.That(delays, Is.EqualTo(new[] { 2000d, 5000d }));
+            });
+        }
+
+        [Test]
+        public void TransportFailureOnLaterAttemptStillStopsAtTheCap()
+        {
+            // a first attempt killed by a server error never reaches a retry, and a transport failure on
+            // the last attempt is terminal, so the cap holds regardless of which failure lands where.
+            var delays = new List<double>();
+            int attempts = 0;
+            var failures = new Exception[]
+            {
+                new HttpRequestException("aborted"),
+                new IOException("The response ended prematurely."),
+                new HttpRequestException("aborted"),
+            };
+
+            while (true)
+            {
+                var failure = failures[attempts];
+                attempts++;
+
+                if (!UploadRetryPolicy.ShouldRetryAfter(attempts, failure))
+                    break;
+
+                delays.Add(UploadRetryPolicy.DelayBeforeAttempt(attempts + 1));
+            }
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(attempts, Is.EqualTo(3));
+                Assert.That(delays, Has.Count.EqualTo(2));
+            });
+        }
+    }
+}

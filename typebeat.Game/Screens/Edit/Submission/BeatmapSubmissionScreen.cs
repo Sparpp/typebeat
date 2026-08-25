@@ -18,6 +18,7 @@ using osu.Framework.Graphics.Shapes;
 using osu.Framework.Logging;
 using osu.Framework.Platform;
 using osu.Framework.Screens;
+using osu.Framework.Threading;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Beatmaps.Drawables.Cards;
 using typebeat.Game.Configuration;
@@ -79,6 +80,23 @@ namespace typebeat.Game.Screens.Edit.Submission
 
         private ProgressNotification? exportProgressNotification;
         private ProgressNotification? updateProgressNotification;
+
+        /// <summary>
+        /// Builds a fresh request for one package-upload attempt. An <see cref="APIRequest"/> is single-use,
+        /// so a retry has to construct a new one from the same in-memory inputs rather than requeue the old one.
+        /// </summary>
+        private Func<APIUploadRequest>? uploadRequestFactory;
+
+        /// <summary>
+        /// The request of the attempt currently in flight, used to gate completion handlers on request identity:
+        /// <see cref="APIRequest.Cancel"/> runs the same failure path a real failure does, so a stale or
+        /// cancelled attempt's handlers must not be allowed to touch the current one.
+        /// </summary>
+        private APIUploadRequest? activeUploadRequest;
+
+        private int uploadAttempt;
+        private ScheduledDelegate? uploadRetryDelegate;
+        private bool exiting;
 
         private Live<BeatmapSetInfo>? importedSet;
 
@@ -340,28 +358,24 @@ namespace typebeat.Game.Screens.Edit.Submission
             foreach (string file in filesToUpdate)
                 changedFiles.Add(file, await archiveReader.GetStream(file).ReadAllBytesToArrayAsync().ConfigureAwait(true));
 
-            var patchRequest = new PatchBeatmapPackageRequest(beatmapSetId.Value);
+            uint setId = beatmapSetId.Value;
+            string[] filesDeleted = onlineFilesByFilename.Keys.ToArray();
 
-            foreach ((string filename, byte[] contents) in changedFiles)
-                patchRequest.FilesChanged.Add(filename, contents);
-
-            foreach (string file in onlineFilesByFilename.Keys)
-                patchRequest.FilesDeleted.Add(file);
-
-            foreach (string file in patchRequest.FilesDeleted)
+            foreach (string file in filesDeleted)
                 log($@"deleted file: {file}");
 
-            patchRequest.Success += uploadCompleted;
-            patchRequest.Failure += ex =>
+            beginPackageUpload(() =>
             {
-                uploadStep.SetFailed(ex.Message);
-                log($"Upload failed: {ex}");
-                allowExit();
-            };
-            patchRequest.Progressed += (current, total) => uploadStep.SetInProgress(total > 0 ? (float)current / total : null);
+                var patchRequest = new PatchBeatmapPackageRequest(setId);
 
-            api.Queue(patchRequest);
-            uploadStep.SetInProgress();
+                foreach ((string filename, byte[] contents) in changedFiles)
+                    patchRequest.FilesChanged.Add(filename, contents);
+
+                foreach (string file in filesDeleted)
+                    patchRequest.FilesDeleted.Add(file);
+
+                return patchRequest;
+            });
         }
 
         private void replaceBeatmapSet()
@@ -371,23 +385,102 @@ namespace typebeat.Game.Screens.Edit.Submission
             Debug.Assert(beatmapSetId != null);
             Debug.Assert(beatmapPackageStream != null);
 
-            var uploadRequest = new ReplaceBeatmapPackageRequest(beatmapSetId.Value, beatmapPackageStream.ToArray());
+            uint setId = beatmapSetId.Value;
+            // snapshotted once so a retry does not depend on the package stream still being around.
+            byte[] package = beatmapPackageStream.ToArray();
 
-            uploadRequest.Success += uploadCompleted;
-            uploadRequest.Failure += ex =>
+            beginPackageUpload(() => new ReplaceBeatmapPackageRequest(setId, package));
+        }
+
+        /// <summary>
+        /// Starts the upload stage, retrying on transport failure per <see cref="UploadRetryPolicy"/>.
+        /// </summary>
+        /// <param name="requestFactory">
+        /// Builds the request for one attempt. Called once per attempt, because an <see cref="APIRequest"/>
+        /// is single-use, and must build from inputs already held in memory rather than recompute them.
+        /// </param>
+        private void beginPackageUpload(Func<APIUploadRequest> requestFactory)
+        {
+            Debug.Assert(ThreadSafety.IsUpdateThread);
+
+            uploadRequestFactory = requestFactory;
+            uploadAttempt = 0;
+            queueUploadAttempt();
+        }
+
+        private void queueUploadAttempt()
+        {
+            Debug.Assert(ThreadSafety.IsUpdateThread);
+            Debug.Assert(uploadRequestFactory != null);
+
+            uploadAttempt++;
+
+            var request = uploadRequestFactory();
+            activeUploadRequest = request;
+
+            request.Success += () =>
             {
-                uploadStep.SetFailed(ex.Message);
-                log($"Full package upload failed: {ex}");
-                allowExit();
-            };
-            uploadRequest.Progressed += (current, total) => uploadStep.SetInProgress((float)current / Math.Max(total, 1));
+                if (!ReferenceEquals(activeUploadRequest, request))
+                    return;
 
-            api.Queue(uploadRequest);
+                uploadCompleted();
+            };
+            request.Failure += ex => uploadAttemptFailed(request, ex);
+            request.Progressed += (current, total) =>
+            {
+                if (!ReferenceEquals(activeUploadRequest, request))
+                    return;
+
+                uploadStep.SetInProgress(total > 0 ? (float)current / total : null);
+            };
+
+            log($"Uploading package (attempt {uploadAttempt}/{UploadRetryPolicy.MAX_ATTEMPTS})...");
+
+            api.Queue(request);
             uploadStep.SetInProgress();
+        }
+
+        private void uploadAttemptFailed(APIUploadRequest request, Exception exception)
+        {
+            // a stale attempt's failure, or the cancellation of one, must not disturb the attempt in flight.
+            if (!ReferenceEquals(activeUploadRequest, request))
+                return;
+
+            activeUploadRequest = null;
+
+            log($"Upload attempt {uploadAttempt}/{UploadRetryPolicy.MAX_ATTEMPTS} failed: {exception}");
+
+            if (exiting || !UploadRetryPolicy.ShouldRetryAfter(uploadAttempt, exception))
+            {
+                uploadStep.SetFailed(uploadAttempt > 1
+                    ? $"{exception.Message} (upload failed after {uploadAttempt} attempts)"
+                    : exception.Message);
+                allowExit();
+                return;
+            }
+
+            int nextAttempt = uploadAttempt + 1;
+            double delay = UploadRetryPolicy.DelayBeforeAttempt(nextAttempt);
+
+            uploadStep.SetRetrying($"upload failed, retrying (attempt {nextAttempt}/{UploadRetryPolicy.MAX_ATTEMPTS})");
+            log($"Retrying upload in {delay / 1000:0.#}s");
+
+            uploadRetryDelegate?.Cancel();
+            uploadRetryDelegate = Scheduler.AddDelayed(() =>
+            {
+                if (exiting)
+                    return;
+
+                queueUploadAttempt();
+            }, delay);
         }
 
         private void uploadCompleted()
         {
+            activeUploadRequest = null;
+            uploadRequestFactory = null;
+            uploadRetryDelegate?.Cancel();
+
             uploadStep.SetCompleted();
             updateLocalBeatmap().ConfigureAwait(true);
         }
@@ -469,6 +562,10 @@ namespace typebeat.Game.Screens.Edit.Submission
             if (!BackButtonVisibility.Value)
                 return true;
 
+            // past this point the screen is on its way out, so a pending upload retry must not fire.
+            exiting = true;
+            uploadRetryDelegate?.Cancel();
+
             if (importedSet != null)
             {
                 game?.PerformFromScreen(s =>
@@ -503,6 +600,9 @@ namespace typebeat.Game.Screens.Edit.Submission
         protected override void Dispose(bool isDisposing)
         {
             base.Dispose(isDisposing);
+
+            exiting = true;
+            uploadRetryDelegate?.Cancel();
 
             beatmapPackageStream?.Dispose();
         }
