@@ -21,8 +21,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// <summary>
     /// The ruleset's section in Settings > Rulesets: the two monkeytype-style head choices (typing
     /// caret and song playhead, kept adjacent so the pair reads as a pair), the physical keyboard
-    /// layout, the typing surface's look, the one gameplay toggle (space to skip a word), and the
-    /// local auto-aligner install/enable controls.
+    /// layout, the typing surface's look, the one gameplay toggle (space to skip a word), the
+    /// optional space error dot (display only), and the local auto-aligner install/enable controls.
     /// (LyricOffsetMs/LyricLabPath surfacing remains deferred to M7.)
     /// </summary>
     public partial class TypeBeatSettingsSubsection : RulesetSettingsSubsection
@@ -112,6 +112,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     LabelText = "Space to skip current word",
                     TooltipText = "Press space in the middle of a word to give up on it and jump to the next one. Everything you had not typed of that word counts as a miss, so one bad character costs a word instead of your whole run. Applies from the next play.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.SpaceSkipsWord),
+                },
+                new SettingsCheckbox
+                {
+                    LabelText = "Use space error dot",
+                    TooltipText = "Mark a word you left with an error in it: once you space on past it, a small red dot appears in the gap after that word. Display only, nothing about your score or your judgements changes.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.UseSpaceErrorDot),
                 },
                 new SettingsCheckbox
                 {

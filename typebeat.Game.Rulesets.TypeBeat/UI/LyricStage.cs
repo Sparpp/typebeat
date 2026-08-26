@@ -33,6 +33,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private float lineGap = 96f;
         private readonly BindableFloat lineSpacing = new BindableFloat(96f);
 
+        // The optional space error dot (TypeBeatRulesetSetting.UseSpaceErrorDot, off by default), a
+        // display-only marker the lyric displays draw themselves. Held here so a live change reaches
+        // every display; see the binding in load() for why it never touches the replay CONFIG frame.
+        private readonly Bindable<bool> spaceErrorDot = new Bindable<bool>();
+
         // The "get ready" cue: two depleting bars under the upcoming line's first char. A solid
         // bar lands on the line BOUNDARY (StartTime) and a 50%-opaque bar lands on the FIRST
         // WORD; a mapper may set the boundary earlier than the first word, so the two can be
@@ -199,6 +204,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 foreach (var d in displays)
                     d.SetSungPosition(0);
             });
+
+            // The space error dot (backlog 197) is a DISPLAY setting, so it binds straight to the
+            // lyric displays here and deliberately never reaches the replay CONFIG frame the
+            // playfield writes for judgement-affecting settings: nothing about a keystroke, a
+            // judgement or a stored score moves with it. Live-bound like the caret styles, and fired
+            // immediately so a stage built with no config (every bare test scene) starts off.
+            config?.BindWith(TypeBeatRulesetSetting.UseSpaceErrorDot, spaceErrorDot);
+            spaceErrorDot.BindValueChanged(e =>
+            {
+                foreach (var d in displays)
+                    d.SetSpaceErrorDotsEnabled(e.NewValue);
+            }, true);
 
             // Line spacing is user-adjustable and applies live: a change invalidates the laid-out
             // focus so the next Update re-runs the layout with the new gap.

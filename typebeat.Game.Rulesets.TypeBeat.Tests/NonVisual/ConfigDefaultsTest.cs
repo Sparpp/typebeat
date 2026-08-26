@@ -116,5 +116,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(rulesetConfig.GetBindable<bool>(TypeBeatRulesetSetting.SpaceSkipsWord).Default, Is.False);
             }
         }
+
+        /// <summary>
+        /// The space error dot ships OFF (backlog 197). Unlike the setting above it changes nothing
+        /// about judgement, so the reason is the other one: it adds a mark to the lyric line, and
+        /// existing styling stays the only styling until a player asks for it.
+        /// </summary>
+        [Test]
+        public void SpaceErrorDotDefaultsToOff()
+        {
+            using (var rulesetConfig = new TypeBeatRulesetConfigManager(null, new TypeBeatRuleset().RulesetInfo))
+            {
+                Assert.That(rulesetConfig.GetBindable<bool>(TypeBeatRulesetSetting.UseSpaceErrorDot).Default, Is.False);
+            }
+        }
     }
 }

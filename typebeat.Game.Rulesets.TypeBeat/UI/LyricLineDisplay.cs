@@ -72,6 +72,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// <see cref="TypeBeatStyle.FreestyleChar"/> and, while still open, shimmer through
     /// width-matched glyphs; once filled they freeze on the char the player pressed. Their advance
     /// is measured from a pool glyph at load, so nothing about the effect can move the line.</para>
+    ///
+    /// <para>An opt-in SPACE ERROR DOT (see <see cref="ComputeSpaceErrorDots"/>) marks a word left
+    /// carrying an error once the player has spaced past it. It is an overlay drawable per word gap,
+    /// kept out of the auto-size box like the retype selection, so the setting can never move a
+    /// character; off by default, the state it reads is pulled like every other cell state.</para>
     /// </summary>
     public partial class LyricLineDisplay : CompositeDrawable
     {
@@ -93,6 +98,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private Box selectionBox = null!;
         private OsuSpriteText[] cells = Array.Empty<OsuSpriteText>();
         private float[] advances = Array.Empty<float>();
+
+        // --- Space error dots (backlog 197, opt-in) ---
+        // Display indices of this line's WORD GAPS, one overlay dot per gap, and the flag buffer the
+        // pure rule writes into (one entry per CELL, reused so a repaint allocates nothing). A line
+        // with no gap pays for none of this. The dots are recomputed at most once per frame, off a
+        // dirty flag RefreshCell sets, because the stage refreshes every visible cell every frame and
+        // the rule is a whole-line read.
+        private int[] gapCells = Array.Empty<int>();
+        private Circle[] gapDots = Array.Empty<Circle>();
+        private bool[] gapDotFlags = Array.Empty<bool>();
+        private bool spaceErrorDotsEnabled;
+        private bool spaceErrorDotsDirty;
 
         // --- Freestyle cells (see FreestyleGlyphs) ---
         // Display indices of this line's freestyle cells (empty for the overwhelming majority of
@@ -242,6 +259,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             content.Add(sweepGlow);
             content.Add(selectionBox);
 
+            addSpaceErrorDots(n);
+
             var freestyle = new List<int>();
 
             for (int i = 0; i < n; i++)
@@ -299,6 +318,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
+        /// One overlay dot per WORD GAP of this line (backlog 197). Added BEFORE the glyphs, exactly
+        /// as <see cref="selectionBox"/> is and for the same two reasons: it draws behind them (a gap
+        /// carrying a typo glyph is never dotted anyway, see
+        /// <see cref="ComputeSpaceErrorDots"/>), and it is left out of the auto-size box (alpha 0, no
+        /// <c>AlwaysPresent</c>), so turning the setting on can never move a character. Position and
+        /// size are written by <see cref="measureAndLayout"/>, off the same measured advances the
+        /// glyphs are placed from.
+        /// </summary>
+        private void addSpaceErrorDots(int n)
+        {
+            var gaps = new List<int>();
+
+            for (int i = 0; i < n; i++)
+            {
+                if (IsWordGap(Line.Cells[i]))
+                    gaps.Add(i);
+            }
+
+            gapCells = gaps.ToArray();
+            gapDots = new Circle[gapCells.Length];
+            gapDotFlags = new bool[n];
+
+            for (int k = 0; k < gapCells.Length; k++)
+            {
+                var dot = new Circle
+                {
+                    Colour = TypeBeatStyle.ErrorChar,
+                    Anchor = Anchor.TopLeft,
+                    Origin = Anchor.Centre,
+                    Alpha = 0f,
+                };
+
+                gapDots[k] = dot;
+                content.Add(dot);
+            }
+        }
+
+        /// <summary>
         /// Hidden one-glyph sprites, one per shimmer candidate, added purely so their advance can be
         /// measured in this display's real font at its real size. Alpha 0 without AlwaysPresent, so
         /// they never count towards the auto-size box; removed the moment they have been read.
@@ -349,6 +406,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         protected override void Update()
         {
             base.Update();
+
+            // Once per frame at most, and only when a cell actually repainted: the stage refreshes
+            // every visible cell every frame, and the dot rule is a whole-line read, so doing it
+            // inside RefreshCell would make it quadratic for nothing.
+            if (spaceErrorDotsDirty)
+            {
+                spaceErrorDotsDirty = false;
+                applySpaceErrorDots();
+            }
 
             if (freestyleCells.Length == 0)
                 return;
@@ -432,6 +498,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             for (int i = 0; i < n; i++)
                 cells[i].Position = new Vector2(cellX[i] + advances[i] * 0.5f, glyphHeight * 0.5f);
+
+            // The gap dots ride the same content-local coordinates the glyphs do (the auto-shrink
+            // scale is on the shared container, so neither multiplies it in): centred in the gap
+            // cell's own slot, on the glyph row's midline.
+            float dotSize = Math.Max(1f, glyphHeight * SPACE_ERROR_DOT_RADIUS * 2f);
+
+            for (int k = 0; k < gapCells.Length; k++)
+            {
+                int i = gapCells[k];
+                gapDots[k].Size = new Vector2(dotSize);
+                gapDots[k].Position = new Vector2(cellX[i] + advances[i] * 0.5f, glyphHeight * 0.5f);
+            }
 
             sweepTrack.Width = cellX[n];
             sweepTrack.Y = sweepFill.Y = sweepGlow.Y = glyphHeight + 6f;
@@ -675,10 +753,129 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public static char CellGlyph(char expected, CellState state, char? typedChar)
             => expected == ' ' && state == CellState.Wrong && typedChar is char typo ? typo : expected;
 
+        /// <summary>
+        /// Radius of a space error dot as a fraction of the glyph row height (so it tracks the font
+        /// size and the auto-shrink scale for free). Small on purpose: the dot is a margin note about
+        /// a word already behind the caret, not a sixth character state competing with the line.
+        /// </summary>
+        public const float SPACE_ERROR_DOT_RADIUS = 0.07f;
+
+        /// <summary>
+        /// A WORD GAP: the typeable SPACE cell that separates two words, the same definition the
+        /// engine's own <c>isWordGap</c> uses (a non-typeable cell rides inside the word it is
+        /// attached to and is never a boundary). Shared here so the display and the engine cannot
+        /// disagree about where a word ends.
+        /// </summary>
+        public static bool IsWordGap(TypingCell cell) => cell.IsTypeable && cell.Expected == ' ';
+
+        /// <summary>
+        /// The SPACE ERROR DOT rule (backlog 197), one flag per cell, true only on a gap that has
+        /// earned a dot: the player left the word before it carrying an error and then spaced onward
+        /// past it, so a small red interpunct is drawn in that gap (the TypeGG-style indicator). Off
+        /// by default, purely visual, and nothing about scoring, judgement, the replay or the wire
+        /// reads this.
+        ///
+        /// <para>Three decisions, each of which is what a repaint re-reads rather than something
+        /// remembered from when it happened:</para>
+        /// <list type="bullet">
+        /// <item>THE GAP IS ITS OWN CELL (<see cref="IsWordGap"/>), so the dot sits in the boundary
+        /// between two words rather than on either of them.</item>
+        /// <item>SPACED ONWARD means that gap cell is <see cref="CellState.Correct"/>: the space was
+        /// accepted. A gap still <see cref="CellState.Untyped"/> has not been passed yet, one holding
+        /// a typo is <see cref="CellState.Wrong"/> (and is already showing the offending character in
+        /// the error red, so a dot beside it would say the same thing twice), and backspacing an
+        /// accepted space puts the gap back to Untyped, which takes the dot away with it.</item>
+        /// <item>LEFT FLAWED means any TYPEABLE non-gap cell in the contiguous run before that gap
+        /// (back to the previous gap, or the line start) is <see cref="CellState.Wrong"/>,
+        /// <see cref="CellState.Missed"/> or <see cref="CellState.Abandoned"/>. Abandoned counts: a
+        /// word given up to a skip was left with an error in it. Because the state is re-read on
+        /// every repaint, reclaiming that word (backspacing into it, which returns those cells to
+        /// Untyped) clears its dot on its own. <see cref="CellState.AutoSkipped"/> cannot arise here:
+        /// the engine only ever sets it on NON-typeable cells, which are excluded anyway.</item>
+        /// </list>
+        ///
+        /// <para>A gap's own state never flaws the word AFTER it: the run restarts at each gap, so a
+        /// spoiled boundary is charged to the boundary and not to the next word. Pure, so it is
+        /// unit-testable beside <see cref="CellFillColour"/> and
+        /// <see cref="ComputeWindowAlphas(IReadOnlyList{TypingCell}, LineWindow, float)"/>.</para>
+        /// </summary>
+        public static bool[] ComputeSpaceErrorDots(IReadOnlyList<TypingCell> cells)
+        {
+            var result = new bool[cells.Count];
+            computeSpaceErrorDots(cells, result);
+            return result;
+        }
+
+        /// <summary>The rule itself, writing into a caller-owned buffer so the renderer's per-frame
+        /// path allocates nothing. <paramref name="into"/> must be at least as long as
+        /// <paramref name="cells"/>.</summary>
+        private static void computeSpaceErrorDots(IReadOnlyList<TypingCell> cells, bool[] into)
+        {
+            int n = cells.Count;
+            bool flawed = false;
+
+            for (int i = 0; i < n; i++)
+            {
+                var cell = cells[i];
+
+                if (IsWordGap(cell))
+                {
+                    into[i] = flawed && cell.State == CellState.Correct;
+                    flawed = false;
+                    continue;
+                }
+
+                into[i] = false;
+
+                if (cell.IsTypeable && isFlawState(cell.State))
+                    flawed = true;
+            }
+        }
+
+        /// <summary>A cell state that leaves its word flawed: typed wrong, run out of time on, or
+        /// given up to a word skip.</summary>
+        private static bool isFlawState(CellState state)
+            => state == CellState.Wrong || state == CellState.Missed || state == CellState.Abandoned;
+
+        /// <summary>
+        /// Turn the space error dots on or off for this line (the user setting, live-bound by
+        /// <see cref="LyricStage"/>). Nothing is painted here: the change is queued exactly like a
+        /// cell repaint and lands on the next frame, so a toggle mid-play costs one dirty flag.
+        /// </summary>
+        public void SetSpaceErrorDotsEnabled(bool enabled)
+        {
+            if (spaceErrorDotsEnabled == enabled)
+                return;
+
+            spaceErrorDotsEnabled = enabled;
+            spaceErrorDotsDirty = true;
+        }
+
+        private void applySpaceErrorDots()
+        {
+            if (gapCells.Length == 0)
+                return;
+
+            if (spaceErrorDotsEnabled)
+                computeSpaceErrorDots(Line.Cells, gapDotFlags);
+            else
+                Array.Fill(gapDotFlags, false);
+
+            for (int k = 0; k < gapCells.Length; k++)
+                gapDots[k].Alpha = gapDotFlags[gapCells[k]] ? 1f : 0f;
+        }
+
         public void RefreshCell(int cellIndex)
         {
             if (cellIndex < 0 || cellIndex >= cells.Length)
                 return;
+
+            // Any cell repaint can change a dot: the flaw it carries belongs to its whole word, and
+            // the gap that word ends at is somewhere to its right. Recomputing the line once on the
+            // next frame is cheaper than working out which gap this was, and it is what makes a
+            // backspaced gap or a reclaimed word clear its dot with no event of its own.
+            if (gapCells.Length > 0)
+                spaceErrorDotsDirty = true;
 
             var cell = cells[cellIndex];
             var source = Line.Cells[cellIndex];
@@ -1190,5 +1387,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>Whether the selection highlight is actually being drawn right now.</summary>
         public bool SelectionVisible => selectionBox.IsNotNull() && selectionBox.Alpha > 0f;
+
+        /// <summary>How many word gaps this line has a dot drawable for (see
+        /// <see cref="ComputeSpaceErrorDots"/>); test support.</summary>
+        public int SpaceErrorDotCount => gapDots.Length;
+
+        /// <summary>Whether the space error dot for the gap at <paramref name="cellIndex"/> is
+        /// actually being drawn right now; false for any cell that is not a gap. Test support.</summary>
+        public bool SpaceErrorDotVisibleAt(int cellIndex)
+        {
+            for (int k = 0; k < gapCells.Length; k++)
+            {
+                if (gapCells[k] == cellIndex)
+                    return gapDots[k].Alpha > 0f;
+            }
+
+            return false;
+        }
     }
 }

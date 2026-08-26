@@ -85,7 +85,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// is treated as an installed system-font family. Unknown or failed fonts fall back to the
         /// default. Only the typing surface is affected; the rest of the UI keeps its default fonts.
         /// </summary>
-        LyricFont
+        LyricFont,
+
+        /// <summary>
+        /// Whether a word left carrying an error, once the player has spaced past it, is marked with
+        /// a small red dot centred in the gap after it (the TypeGG-style error indicator). OFF by
+        /// default. Purely visual: it decides nothing about judgement, scoring, the replay or the
+        /// wire, which is why it binds straight to the lyric displays and never reaches the replay
+        /// CONFIG frame. See <see cref="UI.LyricLineDisplay.ComputeSpaceErrorDots"/> for the exact
+        /// rule.
+        /// </summary>
+        UseSpaceErrorDot
     }
 
     /// <summary>
@@ -205,6 +215,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.SpaceSkipsWord, false);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
+            SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, false);
         }
     }
 }
