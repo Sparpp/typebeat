@@ -83,6 +83,18 @@ namespace typebeat.Game.Screens.Edit.Submission
         }
 
         /// <summary>
+        /// How long to wait before starting <paramref name="attemptNumber"/> (1-based) of the request
+        /// that closes an upload session.
+        /// </summary>
+        /// <remarks>
+        /// The chunk ladder rather than the upload one: the body is empty, so the cost of repeating it is
+        /// the server's ingest work and not a transfer, and the user is already several minutes into a
+        /// submission by the time it runs.
+        /// </remarks>
+        /// <exception cref="ArgumentOutOfRangeException">If <paramref name="attemptNumber"/> is below 1.</exception>
+        public static double DelayBeforeCompleteAttempt(int attemptNumber) => DelayBeforeChunkAttempt(attemptNumber);
+
+        /// <summary>
         /// Whether an upload that has already made <paramref name="attemptsMade"/> attempts and failed
         /// with <paramref name="exception"/> should be attempted again.
         /// </summary>
@@ -95,6 +107,14 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// </summary>
         public static bool ShouldRetryChunkAfter(int attemptsMade, Exception? exception)
             => attemptsMade < MAX_ATTEMPTS && IsChunkTransportFailure(exception);
+
+        /// <summary>
+        /// Whether the request that closes an upload session, having already made
+        /// <paramref name="attemptsMade"/> attempts and failed with <paramref name="exception"/>,
+        /// should be sent again.
+        /// </summary>
+        public static bool ShouldRetryCompleteAfter(int attemptsMade, Exception? exception)
+            => attemptsMade < MAX_ATTEMPTS && IsCompleteTransportFailure(exception);
 
         /// <summary>
         /// Whether <paramref name="exception"/> represents a transport failure worth repeating the upload for,
@@ -166,6 +186,13 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// lands in the retried set here. That is harmless: it fails again immediately, without a
         /// request leaving the machine, and the chunk attempt cap ends it after three tries.
         ///
+        /// <see cref="APIAccess.WebRequestFlushedException"/> is retried for the same reason: it means
+        /// the API queue was emptied out from under a request that had not been sent yet (three
+        /// consecutive network failures put the API into <see cref="APIState.Failing"/>, which flushes),
+        /// so nothing was rejected and nothing left the machine. Since the black-hole this fallback
+        /// exists for produces exactly those consecutive failures, a flush is a NORMAL event here rather
+        /// than an exotic one, and refusing to retry it strands the flow.
+        ///
         /// <see cref="OperationCanceledException"/> (the cancel path) and <see cref="APIException"/>
         /// (a decoded server verdict) stay refused for exactly the reasons they are refused above.
         /// </remarks>
@@ -182,11 +209,34 @@ namespace typebeat.Game.Screens.Edit.Submission
                     case WebException:
                     case HttpRequestException:
                     case IOException:
+                    case APIAccess.WebRequestFlushedException:
                         return true;
                 }
             }
 
             return false;
         }
+
+        /// <summary>
+        /// Whether <paramref name="exception"/> is worth repeating the request that closes an upload
+        /// session for.
+        /// </summary>
+        /// <remarks>
+        /// The same set as <see cref="IsChunkTransportFailure"/>, named separately because the decision
+        /// it encodes is a different one: the completing request carries no body, so it cannot hit the
+        /// byte ceiling, but it is queued behind the chunks and is therefore the request most likely to
+        /// be sitting in the queue when a run of chunk failures flushes it. That flush, and a response
+        /// black-holed on the way back, are what strand an upload whose chunks all arrived.
+        ///
+        /// The ambiguity this accepts, deliberately: if the server DID process a complete and only its
+        /// response was lost, the retry finds the session gone (it is deleted on consumption) and the
+        /// flow fails with the server's own message. That is a worse error text than it could be, and it
+        /// is strictly better than the alternative, which is a submission that silently never lands.
+        /// It cannot double-submit, because the session is consumed exactly once.
+        ///
+        /// An <see cref="APIException"/> stays refused, as everywhere else here: the server answered
+        /// with a verdict on the assembled payload, and repeating the request cannot change it.
+        /// </remarks>
+        public static bool IsCompleteTransportFailure(Exception? exception) => IsChunkTransportFailure(exception);
     }
 }

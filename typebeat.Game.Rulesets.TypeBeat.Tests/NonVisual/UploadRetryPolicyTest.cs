@@ -248,6 +248,109 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void FlushedRequestsAreRetriedForChunksAndComplete()
+        {
+            // three consecutive network failures put the API into `Failing`, which empties the queue and
+            // fails everything in it with this. The request never left the machine, so it is transport
+            // class, and the completing request is the one most likely to be sitting in that queue.
+            var flushed = new APIAccess.WebRequestFlushedException(APIState.Failing);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.IsChunkTransportFailure(flushed), Is.True);
+                Assert.That(UploadRetryPolicy.IsCompleteTransportFailure(flushed), Is.True);
+
+                // wrapped just as deeply as any other transport failure is.
+                Assert.That(UploadRetryPolicy.IsCompleteTransportFailure(new AggregateException(flushed)), Is.True);
+
+                // the direct single-request ladder is untouched: it retries on its own predicate, whose
+                // set deliberately excludes anything the API queue itself did.
+                Assert.That(UploadRetryPolicy.IsTransportFailure(flushed), Is.False);
+            });
+        }
+
+        [Test]
+        public void CompleteSharesTheChunkTransportSet()
+        {
+            // the completing request carries no body, so it cannot hit the byte ceiling, but it can be
+            // black-holed on the way back and it can be flushed out of the queue. Both are worth repeating.
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.IsCompleteTransportFailure(new WebException("Request timed out after 600 seconds idle", WebExceptionStatus.Timeout)), Is.True);
+                Assert.That(UploadRetryPolicy.IsCompleteTransportFailure(new HttpRequestException("Error while copying content to a stream.")), Is.True);
+                Assert.That(UploadRetryPolicy.IsCompleteTransportFailure(new IOException("The response ended prematurely.")), Is.True);
+
+                // a server verdict on the assembled payload is final: repeating it cannot change it.
+                Assert.That(UploadRetryPolicy.IsCompleteTransportFailure(new APIException("beatmap is too large", null, HttpStatusCode.BadRequest)), Is.False);
+                Assert.That(UploadRetryPolicy.IsCompleteTransportFailure(new APIException("upload session expired", new WebException("timed out"), HttpStatusCode.Gone)), Is.False);
+
+                // and the cancel path stays the cancel path.
+                Assert.That(UploadRetryPolicy.IsCompleteTransportFailure(new OperationCanceledException(@"Request cancelled")), Is.False);
+                Assert.That(UploadRetryPolicy.IsCompleteTransportFailure(null), Is.False);
+                Assert.That(UploadRetryPolicy.IsCompleteTransportFailure(new InvalidOperationException("nope")), Is.False);
+            });
+        }
+
+        [Test]
+        public void CompleteRetriesAreExhaustedAfterMaxAttempts()
+        {
+            var flushed = new APIAccess.WebRequestFlushedException(APIState.Failing);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.ShouldRetryCompleteAfter(1, flushed), Is.True);
+                Assert.That(UploadRetryPolicy.ShouldRetryCompleteAfter(2, flushed), Is.True);
+                Assert.That(UploadRetryPolicy.ShouldRetryCompleteAfter(3, flushed), Is.False);
+
+                Assert.That(UploadRetryPolicy.ShouldRetryCompleteAfter(1, new APIException("beatmap is too large", null)), Is.False);
+                Assert.That(UploadRetryPolicy.ShouldRetryCompleteAfter(1, new OperationCanceledException()), Is.False);
+            });
+        }
+
+        [Test]
+        public void CompleteAttemptScheduleUsesTheChunkLadder()
+        {
+            // the body is empty, so the cost of repeating it is the server's ingest work, not a transfer.
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.DelayBeforeCompleteAttempt(1), Is.EqualTo(0));
+                Assert.That(UploadRetryPolicy.DelayBeforeCompleteAttempt(2), Is.EqualTo(1000));
+                Assert.That(UploadRetryPolicy.DelayBeforeCompleteAttempt(3), Is.EqualTo(3000));
+                Assert.That(UploadRetryPolicy.DelayBeforeCompleteAttempt(4), Is.EqualTo(3000));
+            });
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => UploadRetryPolicy.DelayBeforeCompleteAttempt(0));
+        }
+
+        /// <summary>
+        /// Drives the completing request's loop the way <c>ChunkedPackageUpload</c> does, to pin what a
+        /// session whose chunks all arrived actually costs before it gives up: three attempts, 1s then 3s.
+        /// </summary>
+        [Test]
+        public void PersistentCompleteFailureRunsThreeAttempts()
+        {
+            var delays = new List<double>();
+            int attempts = 0;
+            var failure = new APIAccess.WebRequestFlushedException(APIState.Failing);
+
+            while (true)
+            {
+                attempts++;
+
+                if (!UploadRetryPolicy.ShouldRetryCompleteAfter(attempts, failure))
+                    break;
+
+                delays.Add(UploadRetryPolicy.DelayBeforeCompleteAttempt(attempts + 1));
+            }
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(attempts, Is.EqualTo(3));
+                Assert.That(delays, Is.EqualTo(new[] { 1000d, 3000d }));
+            });
+        }
+
+        [Test]
         public void TransportFailureOnLaterAttemptStillStopsAtTheCap()
         {
             // a first attempt killed by a server error never reaches a retry, and a transport failure on

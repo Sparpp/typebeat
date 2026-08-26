@@ -599,6 +599,13 @@ namespace typebeat.Game.Online.API
             catch (Exception ex)
             {
                 Logger.Error(ex, "Error occurred while handling an API request.");
+
+                // the request has to be failed as well as logged. Without this it stays `Waiting`
+                // forever: it has left the queue, nothing will perform it again, and neither `Success`
+                // nor `Failure` ever fires, so any caller driving a multi-step flow off those callbacks
+                // simply stops. `Fail` is a no-op if the request already completed or failed, so the
+                // ordinary paths above are unaffected.
+                req.Fail(ex);
                 return false;
             }
         }
@@ -706,7 +713,17 @@ namespace typebeat.Game.Online.API
             cancellationToken.Cancel();
         }
 
-        internal class WebRequestFlushedException : Exception
+        /// <summary>
+        /// The failure a queued request is given when the queue is flushed out from under it, which
+        /// happens when the API goes <see cref="APIState.Failing"/> or the user logs out.
+        /// </summary>
+        /// <remarks>
+        /// Public because it is a TRANSPORT-class failure from a caller's point of view: the request
+        /// never left the machine and nothing about it was rejected, so a retry policy has to be able to
+        /// name it (see <c>UploadRetryPolicy.IsChunkTransportFailure</c>) instead of lumping it in with
+        /// the unknown exceptions it refuses.
+        /// </remarks>
+        public class WebRequestFlushedException : Exception
         {
             public WebRequestFlushedException(APIState state)
                 : base($@"Request failed from flush operation (state {state})")

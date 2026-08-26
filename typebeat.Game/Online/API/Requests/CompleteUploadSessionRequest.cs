@@ -50,8 +50,10 @@ namespace typebeat.Game.Online.API.Requests
             req.Method = HttpMethod.Post;
             req.Timeout = 600_000;
 
-            // an empty raw body rather than no body at all: without raw content the framework falls back
-            // to building an (empty) multipart form, which is not what the contract asks for.
+            // an empty raw body rather than no body at all. Without raw content the framework attaches no
+            // content whatsoever: its multipart fallback only builds a form when there are parameters or
+            // files to put in one, and there are neither here. This keeps a definite `Content-Length: 0`,
+            // which is what the contract asks for and what a proxy in the middle is least surprised by.
             req.AddRaw(Array.Empty<byte>());
 
             return req;

@@ -4,6 +4,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 using NUnit.Framework;
@@ -170,6 +172,143 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var second = await ChunkedPackageUpload.BuildFullPayloadAsync(Encoding.ASCII.GetBytes("two")).ConfigureAwait(false);
 
             Assert.That(first.Sha256, Is.Not.EqualTo(second.Sha256));
+        }
+
+        [Test]
+        public async Task IdenticalFullPayloadsAreByteIdentical()
+        {
+            // the whole point of deriving the boundary from the content: two builds of the same archive
+            // have to be the same bytes, or session creation (idempotent on the hash) never recognises a
+            // session left half-uploaded by a previous run and resume across runs cannot work at all.
+            byte[] package = Encoding.ASCII.GetBytes("PK-not-really-a-zip");
+
+            var first = await ChunkedPackageUpload.BuildFullPayloadAsync(package).ConfigureAwait(false);
+            var second = await ChunkedPackageUpload.BuildFullPayloadAsync(package.ToArray()).ConfigureAwait(false);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(second.Bytes, Is.EqualTo(first.Bytes));
+                Assert.That(second.Sha256, Is.EqualTo(first.Sha256));
+                Assert.That(second.ContentType, Is.EqualTo(first.ContentType));
+            });
+        }
+
+        [Test]
+        public async Task IdenticalPatchPayloadsAreByteIdentical()
+        {
+            var first = await buildPatch().ConfigureAwait(false);
+            var second = await buildPatch().ConfigureAwait(false);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(second.Bytes, Is.EqualTo(first.Bytes));
+                Assert.That(second.Sha256, Is.EqualTo(first.Sha256));
+                Assert.That(second.ContentType, Is.EqualTo(first.ContentType));
+            });
+
+            static Task<ChunkedPackageUpload.UploadPayload> buildPatch()
+            {
+                var changed = new Dictionary<string, byte[]>
+                {
+                    { "beatmap.typb", Encoding.ASCII.GetBytes("[General]") },
+                    { "audio.mp3", Encoding.ASCII.GetBytes("ID3") },
+                };
+
+                return ChunkedPackageUpload.BuildPatchPayloadAsync(changed, new[] { "old-background.jpg" });
+            }
+        }
+
+        [Test]
+        public async Task DifferentContentBuildsDifferentBoundaries()
+        {
+            // a shared boundary across different payloads would be harmless on the wire but would mean
+            // the boundary is not derived from the content, which is what makes the bytes reproducible.
+            var first = await ChunkedPackageUpload.BuildFullPayloadAsync(Encoding.ASCII.GetBytes("one")).ConfigureAwait(false);
+            var second = await ChunkedPackageUpload.BuildFullPayloadAsync(Encoding.ASCII.GetBytes("two")).ConfigureAwait(false);
+
+            var patchFirst = await ChunkedPackageUpload.BuildPatchPayloadAsync(
+                new Dictionary<string, byte[]> { { "a.txt", Encoding.ASCII.GetBytes("x") } }, Array.Empty<string>()).ConfigureAwait(false);
+            var patchSecond = await ChunkedPackageUpload.BuildPatchPayloadAsync(
+                new Dictionary<string, byte[]> { { "a.txt", Encoding.ASCII.GetBytes("x") } }, new[] { "gone.jpg" }).ConfigureAwait(false);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(second.ContentType, Is.Not.EqualTo(first.ContentType));
+
+                // a deletion with no changed file touched is still a different payload.
+                Assert.That(patchSecond.ContentType, Is.Not.EqualTo(patchFirst.ContentType));
+                Assert.That(patchSecond.Sha256, Is.Not.EqualTo(patchFirst.Sha256));
+            });
+        }
+
+        [Test]
+        public async Task BoundaryStaysWithinTheAllowedShape()
+        {
+            var payload = await ChunkedPackageUpload.BuildFullPayloadAsync(Encoding.ASCII.GetBytes("package")).ConfigureAwait(false);
+
+            var contentType = MediaTypeHeaderValue.Parse(payload.ContentType);
+            string boundary = contentType.Parameters.Single(p => p.Name == "boundary").Value!.Trim('"');
+
+            Assert.Multiple(() =>
+            {
+                // RFC 2046 caps a boundary at 70 characters from a restricted set; lowercase hex with an
+                // ASCII prefix is inside it, and the length has to stay inside it as the prefix changes.
+                Assert.That(boundary, Has.Length.LessThanOrEqualTo(70));
+                Assert.That(boundary, Does.Match("^typebeat-[0-9a-f]{40}$"));
+            });
+        }
+
+        [Test]
+        public void RemainingChunksDropsWhatTheServerHolds()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(ChunkedPackageUpload.RemainingChunks(5, new[] { 0, 2 }), Is.EqualTo(new[] { 1, 3, 4 }));
+
+                // ascending regardless of how the server ordered its answer.
+                Assert.That(ChunkedPackageUpload.RemainingChunks(5, new[] { 4, 1, 3 }), Is.EqualTo(new[] { 0, 2 }));
+
+                Assert.That(ChunkedPackageUpload.RemainingChunks(3, Array.Empty<int>()), Is.EqualTo(new[] { 0, 1, 2 }));
+                Assert.That(ChunkedPackageUpload.RemainingChunks(3, new[] { 0, 1, 2 }), Is.Empty);
+                Assert.That(ChunkedPackageUpload.RemainingChunks(0, new[] { 0 }), Is.Empty);
+            });
+        }
+
+        [Test]
+        public void RemainingChunksIgnoresIndexesItCannotAnswerFor()
+        {
+            // an index outside the local slicing cannot be mapped onto the payload, so it is dropped
+            // rather than trusted. Duplicates are harmless for the same reason.
+            Assert.Multiple(() =>
+            {
+                Assert.That(ChunkedPackageUpload.RemainingChunks(3, new[] { -1, 7, 1 }), Is.EqualTo(new[] { 0, 2 }));
+                Assert.That(ChunkedPackageUpload.RemainingChunks(3, new[] { 1, 1, 1 }), Is.EqualTo(new[] { 0, 2 }));
+                Assert.That(ChunkedPackageUpload.RemainingChunks(3, null), Is.EqualTo(new[] { 0, 1, 2 }));
+            });
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => ChunkedPackageUpload.RemainingChunks(-1, Array.Empty<int>()));
+        }
+
+        /// <summary>
+        /// Pins the reconciliation the chunk retry runs: a chunk whose RESPONSE was lost is already held
+        /// by the server, so re-fetching the session status has to skip it instead of re-sending it.
+        /// </summary>
+        [Test]
+        public void ReconciliationSkipsAChunkWhoseResponseWasLost()
+        {
+            const int total = 5;
+
+            // the client believes 2 failed; the server stored it and answered into a black hole.
+            var remaining = ChunkedPackageUpload.RemainingChunks(total, new[] { 0, 1, 2 });
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(remaining, Is.EqualTo(new[] { 3, 4 }));
+                Assert.That(remaining, Does.Not.Contain(2));
+
+                // and a chunk that genuinely never arrived stays at the front, so its attempt cap still runs out.
+                Assert.That(ChunkedPackageUpload.RemainingChunks(total, new[] { 0, 1 })[0], Is.EqualTo(2));
+            });
         }
     }
 }

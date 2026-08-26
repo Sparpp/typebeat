@@ -2,11 +2,14 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using osu.Framework.Extensions;
 using osu.Framework.Logging;
@@ -43,9 +46,18 @@ namespace typebeat.Game.Screens.Edit.Submission
     /// ordinary retry ladder: the fallback degrades to exactly the pre-existing behaviour.
     /// </para>
     /// <para>
-    /// Resume needs no separate route because session creation is idempotent on
+    /// Resume across RUNS needs no separate route, because session creation is idempotent on
     /// (kind, sha256, total_bytes) and reports what it already holds, so the flow is always
-    /// "create, upload the missing indices, complete".
+    /// "create, upload the missing indices, complete". That only works because the payload bytes are
+    /// reproducible: the multipart boundary is derived from the content rather than randomised, or the
+    /// same archive would hash differently on every launch and never match a session.
+    /// </para>
+    /// <para>
+    /// Resume WITHIN a run needs one, and that is what <see cref="GetUploadSessionRequest"/> is for. The
+    /// same middlebox that black-holes a request can black-hole a response, so a chunk the server stored
+    /// and answered 204 to can still fail on the client. Every chunk retry therefore asks what the
+    /// session holds before re-sending anything, which is what stops a lost response from burning the
+    /// attempt cap and, with it, the whole upload.
     /// </para>
     /// </remarks>
     public class ChunkedPackageUpload
@@ -95,7 +107,7 @@ namespace typebeat.Game.Screens.Edit.Submission
         {
             ArgumentNullException.ThrowIfNull(package);
 
-            using var content = new MultipartFormDataContent();
+            using var content = new MultipartFormDataContent(boundaryFor(new[] { package }));
 
             content.Add(filePart(package), @"beatmapArchive", @"package.osz");
 
@@ -112,15 +124,70 @@ namespace typebeat.Game.Screens.Edit.Submission
             ArgumentNullException.ThrowIfNull(filesChanged);
             ArgumentNullException.ThrowIfNull(filesDeleted);
 
-            using var content = new MultipartFormDataContent();
+            // materialised because both the boundary and the body are built from them, and an enumerable
+            // that yields differently on a second pass would produce a boundary the body does not use.
+            var changed = filesChanged.ToList();
+            var deleted = filesDeleted.ToList();
 
-            foreach ((string filename, byte[] contents) in filesChanged)
+            var pieces = new List<byte[]>();
+
+            foreach ((string filename, byte[] contents) in changed)
+            {
+                pieces.Add(Encoding.UTF8.GetBytes(filename));
+                pieces.Add(contents);
+            }
+
+            foreach (string filename in deleted)
+                pieces.Add(Encoding.UTF8.GetBytes(filename));
+
+            using var content = new MultipartFormDataContent(boundaryFor(pieces));
+
+            foreach ((string filename, byte[] contents) in changed)
                 content.Add(filePart(contents), @"filesChanged", filename);
 
-            foreach (string filename in filesDeleted)
+            foreach (string filename in deleted)
                 content.Add(new StringContent(filename), @"filesDeleted");
 
             return await payloadFrom(CreateUploadSessionRequest.KIND_PATCH, content).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// How many hex characters of the content digest go into the multipart boundary.
+        /// </summary>
+        private const int boundary_hex_chars = 40;
+
+        /// <summary>
+        /// Derives the multipart boundary from the content the payload will carry, so that identical
+        /// content assembles into byte-identical payload bytes on every run.
+        /// </summary>
+        /// <remarks>
+        /// This matters because session creation is idempotent on the payload's SHA-256. The BCL's
+        /// default boundary is a fresh GUID per payload, so the same archive hashed differently on every
+        /// run, and a session left half-uploaded by a dead network could never be resumed by relaunching
+        /// and submitting again: the second run always looked like a brand new payload.
+        ///
+        /// A boundary must be at most 70 characters from a restricted set (RFC 2046), which lowercase
+        /// hex with an ASCII prefix satisfies. 40 hex characters is 160 bits: a collision would need two
+        /// different payloads whose digests share that prefix, and the only consequence would be a
+        /// multipart body whose separator appears inside a part, which is exactly the risk the BCL's own
+        /// random boundary takes with fewer bits behind it.
+        /// </remarks>
+        private static string boundaryFor(IEnumerable<byte[]> pieces)
+        {
+            using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+
+            Span<byte> length = stackalloc byte[sizeof(int)];
+
+            foreach (byte[] piece in pieces)
+            {
+                // length-prefixed, so that two different splits of the same concatenated bytes (a rename
+                // that moves a character from one filename into the next) cannot digest identically.
+                BinaryPrimitives.WriteInt32LittleEndian(length, piece.Length);
+                digest.AppendData(length);
+                digest.AppendData(piece);
+            }
+
+            return @"typebeat-" + Convert.ToHexString(digest.GetHashAndReset()).ToLowerInvariant()[..boundary_hex_chars];
         }
 
         private static ByteArrayContent filePart(byte[] contents)
@@ -132,12 +199,37 @@ namespace typebeat.Game.Screens.Edit.Submission
 
         private static async Task<UploadPayload> payloadFrom(string kind, MultipartFormDataContent content)
         {
-            // the boundary is generated by the BCL and lives in the content type, which is why the
-            // content type has to be handed to the server rather than assumed by it.
+            // the boundary lives in the content type, which is why the content type has to be handed to
+            // the server rather than assumed by it.
             string contentType = content.Headers.ContentType!.ToString();
             byte[] bytes = await content.ReadAsByteArrayAsync().ConfigureAwait(false);
 
             return new UploadPayload(kind, contentType, bytes);
+        }
+
+        /// <summary>
+        /// The chunk indices of a <paramref name="totalChunks"/> chunk payload that the server does not
+        /// already hold, ascending.
+        /// </summary>
+        /// <remarks>
+        /// Indices outside <c>[0, totalChunks)</c> in <paramref name="received"/> are ignored rather than
+        /// trusted: they cannot be answered by the local payload, and a server that reports one is
+        /// talking about a different slicing than the one this flow verified at session creation.
+        /// </remarks>
+        public static List<int> RemainingChunks(int totalChunks, IEnumerable<int>? received)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(totalChunks);
+
+            var held = received?.ToHashSet() ?? new HashSet<int>();
+            var remaining = new List<int>(totalChunks);
+
+            for (int i = 0; i < totalChunks; i++)
+            {
+                if (!held.Contains(i))
+                    remaining.Add(i);
+            }
+
+            return remaining;
         }
 
         private readonly uint beatmapSetId;
@@ -174,6 +266,7 @@ namespace typebeat.Game.Screens.Edit.Submission
 
         private int pendingCursor;
         private int chunkAttempts;
+        private int completeAttempts;
         private bool canceled;
         private bool finished;
 
@@ -270,17 +363,10 @@ namespace typebeat.Game.Screens.Edit.Submission
             chunkBytes = response.ChunkBytes;
             totalChunks = expectedChunks;
 
-            var received = response.Received.ToHashSet();
-
             pending.Clear();
+            pending.AddRange(RemainingChunks(totalChunks, response.Received));
             pendingCursor = 0;
             chunkAttempts = 0;
-
-            for (int i = 0; i < totalChunks; i++)
-            {
-                if (!received.Contains(i))
-                    pending.Add(i);
-            }
 
             log($"Upload session {sessionId} open: {totalChunks} chunks of {chunkBytes} bytes, {totalChunks - pending.Count} already held");
 
@@ -346,13 +432,88 @@ namespace typebeat.Game.Screens.Edit.Submission
                 if (canceled)
                     return;
 
-                uploadNextChunk();
+                reconcileThenRetry(index);
             }, UploadRetryPolicy.DelayBeforeChunkAttempt(chunkAttempts + 1));
+        }
+
+        /// <summary>
+        /// Asks the server what the session holds before re-sending a chunk that failed.
+        /// </summary>
+        /// <remarks>
+        /// A chunk PUT can be STORED and still fail on the client, because the failure this whole
+        /// fallback exists for can black-hole the response instead of the request: the server logs its
+        /// 204 and the client sits out a 30s idle timeout. Re-sending that chunk blindly then spends the
+        /// attempt cap on work already done, and three of those in a row also trip the API's own
+        /// three-strike failure counter, which flushes the queue and takes the completing request with
+        /// it. Reconciling first turns a lost response into a no-op, and the successful status GET
+        /// resets that failure counter as a side effect, which is what keeps the queue alive.
+        /// </remarks>
+        private void reconcileThenRetry(int failedIndex)
+        {
+            var request = new GetUploadSessionRequest(sessionId);
+            activeRequest = request;
+
+            request.Success += response =>
+            {
+                if (!isCurrent(request))
+                    return;
+
+                activeRequest = null;
+                sessionReconciled(failedIndex, response);
+            };
+            request.Failure += exception =>
+            {
+                if (!isCurrent(request))
+                    return;
+
+                activeRequest = null;
+
+                // any failure at all falls through to the blind retry, including a decoded 404: a server
+                // that predates this route and a session that has genuinely gone away answer the same
+                // way, and only the chunk PUT itself can tell them apart. The attempt accounting is
+                // untouched, so this costs nothing beyond the request.
+                log($"Upload session status fetch failed, retrying chunk {failedIndex} blindly: {exception}");
+                uploadNextChunk();
+            };
+
+            api.Queue(request);
+        }
+
+        private void sessionReconciled(int failedIndex, UploadSessionResponse response)
+        {
+            if (response.TotalChunks != totalChunks)
+            {
+                // the session answered for a different slicing than the one creation agreed on, so its
+                // received list cannot be mapped onto the local payload. Retry blindly rather than
+                // rebuild the pending set from something this flow does not understand.
+                log($"Upload session status reports {response.TotalChunks} chunks, expected {totalChunks}; retrying chunk {failedIndex} blindly");
+                uploadNextChunk();
+                return;
+            }
+
+            var remaining = RemainingChunks(totalChunks, response.Received);
+            bool failedChunkLanded = !remaining.Contains(failedIndex);
+
+            pending.Clear();
+            pending.AddRange(remaining);
+            pendingCursor = 0;
+
+            // the per-index cap is what makes a genuinely broken chunk terminal, so the attempt count
+            // only resets when the server confirms the chunk that just failed actually landed.
+            if (failedChunkLanded)
+                chunkAttempts = 0;
+
+            log($"Upload session {sessionId} holds {totalChunks - pending.Count}/{totalChunks} chunks; chunk {failedIndex} {(failedChunkLanded ? "landed after all" : "still missing")}");
+
+            reportProgress();
+            uploadNextChunk();
         }
 
         private void complete()
         {
-            log($"Completing upload session {sessionId}");
+            completeAttempts++;
+
+            log($"Completing upload session {sessionId} (attempt {completeAttempts}/{UploadRetryPolicy.MAX_ATTEMPTS})");
 
             var request = new CompleteUploadSessionRequest(sessionId);
             activeRequest = request;
@@ -365,19 +526,49 @@ namespace typebeat.Game.Screens.Edit.Submission
                 activeRequest = null;
                 succeed();
             };
-            // deliberately not retried here: an `APIException` from this is the server's verdict on the
-            // assembled payload, and a transport failure on an empty-bodied request is not the ceiling
-            // this class exists for. Either way the caller's fallback ordering decides what happens next.
             request.Failure += exception =>
             {
                 if (!isCurrent(request))
                     return;
 
                 activeRequest = null;
-                fail(exception);
+                completeFailed(exception);
             };
 
             api.Queue(request);
+        }
+
+        /// <summary>
+        /// Decides whether the request that closes the session is worth sending again.
+        /// </summary>
+        /// <remarks>
+        /// An <see cref="APIException"/> is the server's verdict on the assembled payload and ends the
+        /// flow, as it always did. A transport-class failure does not: every chunk is already stored, so
+        /// giving up here throws away the entire upload over a request with an empty body. The one this
+        /// is most often is the queue flush that follows a run of chunk failures, where the request never
+        /// left the machine at all.
+        ///
+        /// The ambiguity accepted here: if the server DID run the ingest and only its response was lost,
+        /// the retry finds the session gone (it is consumed on complete) and the flow fails with the
+        /// server's message instead of this one. It cannot submit twice.
+        /// </remarks>
+        private void completeFailed(Exception exception)
+        {
+            log($"Complete attempt {completeAttempts}/{UploadRetryPolicy.MAX_ATTEMPTS} failed: {exception}");
+
+            if (!UploadRetryPolicy.ShouldRetryCompleteAfter(completeAttempts, exception))
+            {
+                fail(exception);
+                return;
+            }
+
+            schedule(() =>
+            {
+                if (canceled)
+                    return;
+
+                complete();
+            }, UploadRetryPolicy.DelayBeforeCompleteAttempt(completeAttempts + 1));
         }
 
         private void reportProgress()

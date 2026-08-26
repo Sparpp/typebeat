@@ -106,6 +106,16 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// </summary>
         private ChunkedPackageUpload? chunkedUpload;
 
+        /// <summary>
+        /// The failure that ended the last chunked upload session, if one has been tried.
+        /// </summary>
+        /// <remarks>
+        /// Kept because the direct ladder resumes after a chunked session fails, so the failure the user
+        /// eventually sees comes from a DIRECT attempt while the diagnosis lives in this one: the chunked
+        /// flow is the arm that knows how far the upload actually got.
+        /// </remarks>
+        private Exception? lastChunkedFailure;
+
         private int uploadAttempt;
         private ScheduledDelegate? uploadRetryDelegate;
         private bool exiting;
@@ -425,6 +435,7 @@ namespace typebeat.Game.Screens.Edit.Submission
 
             uploadRequestFactory = requestFactory;
             uploadSessionPayload = sessionPayload;
+            lastChunkedFailure = null;
             uploadAttempt = 0;
             queueUploadAttempt();
         }
@@ -485,9 +496,7 @@ namespace typebeat.Game.Screens.Edit.Submission
 
             if (exiting || !UploadRetryPolicy.ShouldRetryAfter(uploadAttempt, exception))
             {
-                uploadStep.SetFailed(uploadAttempt > 1
-                    ? $"{exception.Message} (upload failed after {uploadAttempt} attempts)"
-                    : exception.Message);
+                uploadStep.SetFailed(uploadFailureMessage(exception));
                 allowExit();
                 return;
             }
@@ -561,9 +570,31 @@ namespace typebeat.Game.Screens.Edit.Submission
             upload.Start();
         }
 
+        /// <summary>
+        /// Builds the message the upload step ends on.
+        /// </summary>
+        /// <remarks>
+        /// A chunked session that has already failed is the more informative of the two arms, because it
+        /// is the one that got as far as talking to the server about individual chunks, so its message
+        /// leads and the direct attempt's is appended. Without this the user is shown only the direct
+        /// failure, which describes a request that was abandoned in favour of the session path minutes
+        /// earlier and says nothing about why the session path gave up.
+        /// </remarks>
+        private string uploadFailureMessage(Exception directFailure)
+        {
+            if (lastChunkedFailure != null)
+                return $"{lastChunkedFailure.Message} (direct upload also failed: {directFailure.Message})";
+
+            return uploadAttempt > 1
+                ? $"{directFailure.Message} (upload failed after {uploadAttempt} attempts)"
+                : directFailure.Message;
+        }
+
         private void chunkedUploadFailed(Exception exception)
         {
             log($"Chunked upload failed: {exception}");
+
+            lastChunkedFailure = exception;
 
             // the direct ladder never spent its second attempt, so hand back to it rather than giving up:
             // a server without the session routes has to end up exactly where it would have without them.
@@ -597,6 +628,7 @@ namespace typebeat.Game.Screens.Edit.Submission
             uploadRequestFactory = null;
             uploadSessionPayload = null;
             chunkedUpload = null;
+            lastChunkedFailure = null;
             uploadRetryDelegate?.Cancel();
 
             uploadStep.SetCompleted();
