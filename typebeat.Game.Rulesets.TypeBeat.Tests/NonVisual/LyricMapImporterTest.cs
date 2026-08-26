@@ -8,6 +8,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
@@ -309,6 +310,119 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(result.Success, Is.False);
             Assert.That(result.Error, Does.Contain(LyricMapImporter.SetupScriptName));
         }
+
+        #region Authoring marks through the import (backlog 202)
+
+        [Test]
+        public void MarkFreeLyricsSynthesizeByteIdenticalTiming()
+        {
+            // The whole of backlog 202's import work is gated on a line carrying a mark. This is
+            // the pin on that gate: for lyrics with neither, the document is character for
+            // character the three-key line shape the synthesiser has always emitted.
+            string lyricsContent = File.ReadAllText(StandaloneMaps.Require("Friday Pilots Club - Spectator", "lyrics.txt"));
+
+            string? actual = LyricMapImporter.SynthesizeTimingJsonFromLrc(lyricsContent);
+            Assert.That(actual, Is.Not.Null);
+
+            var lines = LrcParser.Parse(lyricsContent);
+
+            string expected = JsonSerializer.Serialize(new
+            {
+                version = TimingJsonLoader.SUPPORTED_VERSION,
+                song_end_ms = lines[^1].EndTime,
+                lines = lines.Select(l => new
+                {
+                    text = l.RawText,
+                    start_ms = l.StartTime,
+                    end_ms = l.SingEndTime,
+                }).ToArray()
+            });
+
+            Assert.That(actual, Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void PipedLyricsPackageASubdividedMap()
+        {
+            // One pipe is a request for sub-word timing, so the packaged map leaves Line
+            // granularity behind and carries the subdivision the mapper asked for.
+            string audioPath = Path.Combine(tempRoot, "A - B.mp3");
+            File.WriteAllText(audioPath, "fake audio");
+
+            string? timing = LyricMapImporter.SynthesizeTimingJsonFromLrc("[00:01.00] ple|ase stay\n[00:05.00] plain line\n[00:07.00]\n");
+            Assert.That(timing, Is.Not.Null);
+
+            string oszPath = Path.Combine(tempRoot, "piped.osz");
+            var result = LyricMapImporter.PackageOsz(oszPath, "A", "B", audioPath, timing!, "unused");
+            Assert.That(result.Success, Is.True, result.Error);
+
+            using var archive = ZipFile.OpenRead(oszPath);
+            var beatmap = decode(readEntry(archive.Entries.Single(e => e.FullName.EndsWith(".osu", StringComparison.OrdinalIgnoreCase))));
+            var hitObjects = beatmap.HitObjects.OfType<TypeBeatHitObject>().ToList();
+
+            Assert.That(hitObjects.Count, Is.EqualTo(2));
+            Assert.That(hitObjects[0].Granularity, Is.EqualTo(TimingGranularity.Syllable));
+            Assert.That(hitObjects[0].Line.RawText, Is.EqualTo("please stay"), "the pipe never reaches the stored lyric");
+
+            var unit = hitObjects[0].Line.Units[0];
+            Assert.That(unit.SyllableSplits, Is.EqualTo(new[] { 3 }));
+            Assert.That(unit.SyllableBoundaries.Count, Is.EqualTo(1));
+            Assert.That(unit.SyllableBoundaries[0], Is.EqualTo((unit.StartTime + unit.EndTime) / 2).Within(1e-6));
+
+            // The pipe-free line carries no words[] of its own, so it is still interpolated.
+            Assert.That(hitObjects[1].Line.Units.All(u => u.SyllableBoundaries.Count == 0), Is.True);
+        }
+
+        [Test]
+        public void AMarkerOnlyLyricLineBecomesAFreestyleLine()
+        {
+            string audioPath = Path.Combine(tempRoot, "A - B.mp3");
+            File.WriteAllText(audioPath, "fake audio");
+
+            string? timing = LyricMapImporter.SynthesizeTimingJsonFromLrc("[00:01.00] real one\n[00:03.00] &&&\n[00:09.00] real two\n[00:11.00]\n");
+            Assert.That(timing, Is.Not.Null);
+            Assert.That(timing, Does.Contain("\"freestyle\":true"), "the decoder needs the opt-in before it reads '&' as a marker");
+
+            string oszPath = Path.Combine(tempRoot, "freestyle.osz");
+            var result = LyricMapImporter.PackageOsz(oszPath, "A", "B", audioPath, timing!, "unused");
+            Assert.That(result.Success, Is.True, result.Error);
+
+            using var archive = ZipFile.OpenRead(oszPath);
+            var beatmap = decode(readEntry(archive.Entries.Single(e => e.FullName.EndsWith(".osu", StringComparison.OrdinalIgnoreCase))));
+            var hitObjects = beatmap.HitObjects.OfType<TypeBeatHitObject>().ToList();
+
+            Assert.That(hitObjects.Count, Is.EqualTo(3));
+            Assert.That(hitObjects[1].Line.RawText, Is.EqualTo("&&&"));
+            Assert.That(hitObjects[1].StartTime, Is.EqualTo(3000));
+
+            var typingLine = Gameplay.TypingLine.FromLyricLine(hitObjects[1].Line, TimingGranularity.Line);
+            Assert.That(typingLine.Cells.Count(c => c.IsFreestyle), Is.EqualTo(3));
+        }
+
+        [Test]
+        public void FlagFreestyleLinesOnlyTouchesAmpersandLines()
+        {
+            const string plain = "{\"version\":2,\"lines\":[{\"text\":\"me you\",\"start_ms\":1000,\"end_ms\":2000}]}";
+            Assert.That(LyricMapImporter.FlagFreestyleLines(plain), Is.SameAs(plain), "an ampersand-free document is returned verbatim");
+
+            const string marked = "{\"version\":2,\"lines\":["
+                                  + "{\"text\":\"me & you\",\"start_ms\":1000,\"end_ms\":2000},"
+                                  + "{\"text\":\"plain\",\"start_ms\":3000,\"end_ms\":4000}]}";
+
+            string flagged = LyricMapImporter.FlagFreestyleLines(marked);
+
+            using var doc = JsonDocument.Parse(flagged);
+            var lines = doc.RootElement.GetProperty("lines").EnumerateArray().ToList();
+
+            Assert.That(lines[0].TryGetProperty("freestyle", out var flag), Is.True);
+            Assert.That(flag.GetBoolean(), Is.True);
+            Assert.That(lines[1].TryGetProperty("freestyle", out _), Is.False);
+
+            // Malformed input is a pass-through, not a failure: this is a polish pass.
+            Assert.That(LyricMapImporter.FlagFreestyleLines("{ not json &"), Is.EqualTo("{ not json &"));
+        }
+
+        #endregion
 
         [Test]
         public void MetadataEscapingRoundTrips()

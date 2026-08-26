@@ -19,10 +19,12 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Screens.ImportLyrics;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Import
@@ -380,7 +382,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                     if (alignerResult.Success && timingJson != null)
                     {
                         progress("alignment complete");
-                        return (LyricImportResult.Ok(string.Empty), timingJson);
+                        return (LyricImportResult.Ok(string.Empty), FlagFreestyleLines(timingJson));
                     }
 
                     if (token.IsCancellationRequested)
@@ -409,7 +411,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 if (outcome.Success && outcome.TimingJson != null)
                 {
                     progress("server alignment complete");
-                    return (LyricImportResult.Ok(string.Empty), outcome.TimingJson);
+                    return (LyricImportResult.Ok(string.Empty), FlagFreestyleLines(outcome.TimingJson));
                 }
 
                 token.ThrowIfCancellationRequested();
@@ -519,6 +521,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// line-stamped lyrics via the regression-anchored <see cref="LrcParser"/>. Returns null when
         /// the lyrics yield no lines. Text is emitted through a real JSON writer so punctuation,
         /// quotes and unicode escape correctly.
+        ///
+        /// <para>The two AUTHORING MARKS a line can carry are what break out of that shape
+        /// (backlog 202), and only for the lines that carry them, so lyrics with neither serialize
+        /// byte for byte as they always have:</para>
+        /// <list type="bullet">
+        /// <item>'&amp;' adds <c>"freestyle": true</c>, the opt-in the decoder needs before it will
+        /// read an ampersand as a freestyle cell rather than as lyric punctuation.</item>
+        /// <item>'|' adds a <c>words[]</c> for that line carrying the parser's interpolated word
+        /// spans plus <c>syllables[]</c> / <c>split_chars</c> for the subdivided words. Emitting
+        /// any words[] at all moves the WHOLE map off Line granularity (to Syllable, since the
+        /// subdivisions come with it), which is the point: a pipe is a request for sub-word
+        /// timing, and Line granularity persists none.</item>
+        /// </list>
         /// </summary>
         public static string? SynthesizeTimingJsonFromLrc(string lyricsContent)
         {
@@ -531,15 +546,132 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             {
                 version = TimingJsonLoader.SUPPORTED_VERSION,
                 song_end_ms = lines[^1].EndTime,
-                lines = lines.Select(l => new
-                {
-                    text = l.RawText,
-                    start_ms = l.StartTime,
-                    end_ms = l.SingEndTime,
-                }).ToArray()
+                lines = lines.Select(lrcLineJson).ToArray()
             };
 
             return JsonSerializer.Serialize(payload);
+        }
+
+        /// <summary>One synthesized line object; see <see cref="SynthesizeTimingJsonFromLrc"/>.</summary>
+        private static object lrcLineJson(LyricLine line)
+        {
+            bool freestyle = line.RawText.IndexOf(Typeability.FREESTYLE_MARKER) >= 0;
+            bool subdivided = line.Units.Any(u => u.SyllableBoundaries.Count > 0);
+
+            if (!freestyle && !subdivided)
+            {
+                // The shape every pipe-free, ampersand-free import has always had.
+                return new
+                {
+                    text = line.RawText,
+                    start_ms = line.StartTime,
+                    end_ms = line.SingEndTime,
+                };
+            }
+
+            var json = new JsonObject
+            {
+                ["text"] = line.RawText,
+                ["start_ms"] = line.StartTime,
+                ["end_ms"] = line.SingEndTime,
+            };
+
+            if (freestyle)
+                json["freestyle"] = true;
+
+            if (subdivided)
+            {
+                var words = new JsonArray();
+
+                foreach (var unit in line.Units)
+                {
+                    var word = new JsonObject
+                    {
+                        ["text"] = unit.Text,
+                        ["start_ms"] = unit.StartTime,
+                        ["end_ms"] = unit.EndTime,
+                    };
+
+                    if (unit.SyllableBoundaries.Count > 0)
+                    {
+                        var edges = new List<double> { unit.StartTime };
+                        edges.AddRange(unit.SyllableBoundaries);
+                        edges.Add(unit.EndTime);
+
+                        var segmentTexts = SyllableSegments.SegmentTexts(unit.Text, SyllableSegments.SplitsFor(unit));
+                        var syllables = new JsonArray();
+
+                        for (int i = 0; i < edges.Count - 1; i++)
+                        {
+                            syllables.Add(new JsonObject
+                            {
+                                ["text"] = i < segmentTexts.Count ? segmentTexts[i] : string.Empty,
+                                ["start_ms"] = edges[i],
+                                ["end_ms"] = edges[i + 1],
+                            });
+                        }
+
+                        word["syllables"] = syllables;
+
+                        var splitChars = new JsonArray();
+
+                        foreach (int split in unit.SyllableSplits)
+                            splitChars.Add(split);
+
+                        if (splitChars.Count > 0)
+                            word["split_chars"] = splitChars;
+                    }
+
+                    words.Add(word);
+                }
+
+                json["words"] = words;
+            }
+
+            return json;
+        }
+
+        /// <summary>
+        /// Marks every line of an ALIGNER-produced timing.json whose text carries a '&amp;' with
+        /// <c>"freestyle": true</c> (backlog 202). The aligner passes the mapper's markers through
+        /// in the line text but knows nothing about the flag, and without it the decoder reads the
+        /// ampersand as ordinary lyric punctuation and strips it. A document with no ampersand
+        /// anywhere is returned VERBATIM, so nothing an aligner has ever produced before moves.
+        /// Any parse problem also returns the input unchanged: this is a polish pass, not a gate.
+        /// </summary>
+        public static string FlagFreestyleLines(string timingJson)
+        {
+            if (string.IsNullOrEmpty(timingJson) || timingJson.IndexOf(Typeability.FREESTYLE_MARKER) < 0)
+                return timingJson;
+
+            try
+            {
+                if (JsonNode.Parse(timingJson) is not JsonObject root
+                    || root["lines"] is not JsonArray lines)
+                {
+                    return timingJson;
+                }
+
+                bool changed = false;
+
+                foreach (JsonNode? node in lines)
+                {
+                    if (node is not JsonObject line || line["freestyle"] != null)
+                        continue;
+
+                    if (line["text"]?.GetValue<string>() is not string text || text.IndexOf(Typeability.FREESTYLE_MARKER) < 0)
+                        continue;
+
+                    line["freestyle"] = true;
+                    changed = true;
+                }
+
+                return changed ? root.ToJsonString() : timingJson;
+            }
+            catch (Exception)
+            {
+                return timingJson;
+            }
         }
 
         /// <summary>

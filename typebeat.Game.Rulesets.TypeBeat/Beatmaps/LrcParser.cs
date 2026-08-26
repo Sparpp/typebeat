@@ -15,6 +15,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// Handles [mm:ss.xx]/[mm:ss.xxx] tags, multiple leading tags (duplicate the line),
     /// [offset:] shifting, a trailing bare terminator timestamp, the vocal-density cap,
     /// and char-weighted word-unit interpolation.
+    ///
+    /// <para>Both AUTHORING MARKS survive the LRC's normalization (backlog 202): a '|'
+    /// (<see cref="Typeability.SPLIT_MARKER"/>) subdivides its word, evenly, and is then stripped;
+    /// a '&amp;' (<see cref="Typeability.FREESTYLE_MARKER"/>) survives into the stored lyric as a
+    /// freestyle cell, which also makes a line of nothing but ampersands a real (freestyle) line
+    /// sitting exactly where the LRC put it rather than a vanished one. A line carrying neither
+    /// mark parses exactly as it always has, character for character.</para>
     /// </summary>
     public static class LrcParser
     {
@@ -105,7 +112,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 result.Add(new LyricLine
                 {
-                    RawText = text,
+                    // The pipes TIME the units (below) but are authoring marks, so the stored
+                    // lyric is the text without them.
+                    RawText = SplitMarkers.Carries(text) ? SplitMarkers.Strip(text).Text : text,
                     StartTime = start,
                     EndTime = end,
                     SingEndTime = singEnd,
@@ -172,12 +181,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// Distributes [start, end] over the whitespace tokens of <paramref name="normalizedText"/>,
         /// weighting each token by (typeableCount + 1). Source = Interpolated.
         /// Shared by the LRC path and TimingJsonLoader's per-line fallback.
+        ///
+        /// <para>A token carrying '|' (<see cref="Typeability.SPLIT_MARKER"/>) additionally AUTHORS
+        /// a syllable subdivision of its own word: the pipes are stripped from its text, its span is
+        /// cut into (pipes + 1) EQUAL segments, and the split is recorded at the characters the
+        /// pipes sat between. Text with no pipe in it takes the original path untouched, so every
+        /// caller that never sees one (which is every map written before backlog 202) is
+        /// byte-identical.</para>
         /// </summary>
         internal static IReadOnlyList<TimedUnit> InterpolateUnits(string normalizedText, double start, double end)
         {
             var units = new List<TimedUnit>();
             if (string.IsNullOrEmpty(normalizedText))
                 return units;
+
+            IReadOnlyList<IReadOnlyList<int>> pipes = Array.Empty<IReadOnlyList<int>>();
+
+            if (SplitMarkers.Carries(normalizedText))
+            {
+                (normalizedText, pipes) = SplitMarkers.Strip(normalizedText);
+
+                // Nothing but pipes: there is no word left to time.
+                if (normalizedText.Length == 0)
+                    return units;
+            }
 
             string[] tokens = normalizedText.Split(' ');
 
@@ -202,12 +229,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 cumulative += weights[i];
                 double unitEnd = start + span * (cumulative / totalWeight);
 
+                var authored = i < pipes.Count
+                    ? SplitMarkers.Authored(tokens[i], unitStart, unitEnd, pipes[i])
+                    : null;
+
                 units.Add(new TimedUnit
                 {
                     Text = tokens[i],
                     StartTime = unitStart,
                     EndTime = unitEnd,
-                    Source = TimingSource.Interpolated
+                    Source = TimingSource.Interpolated,
+                    SyllableBoundaries = authored?.Boundaries ?? Array.Empty<double>(),
+                    SyllableSplits = authored?.Splits ?? Array.Empty<int>(),
                 });
             }
 
@@ -280,7 +313,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return; // Non-timestamped line, skipped entirely.
 
             string rawText = rawLine.Substring(idx);
-            string text = Typeability.Normalize(Typeability.StripBackingVocals(rawText));
+
+            // Both authoring marks survive here (backlog 202): '&' becomes a freestyle cell of the
+            // stored lyric, '|' subdivides its word and is stripped once its position is read.
+            string text = Typeability.Normalize(Typeability.StripBackingVocals(rawText),
+                keepFreestyleMarkers: true, keepSplitMarkers: true);
+
+            // Emptiness is judged on what will actually be STORED, so a token of nothing but pipes
+            // cannot smuggle an empty line through.
+            string stored = SplitMarkers.Carries(text) ? SplitMarkers.Strip(text).Text : text;
 
             // A line with nothing to TYPE (a backing-vocal-only line, all bracketed, or one that is
             // nothing but punctuation) vanishes entirely; it must NOT linger as an empty entry, or
@@ -288,8 +329,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // terminators had no text to begin with and pass through unchanged. Emptiness is
             // measured on the DEFAULT stream, because punctuation now survives normalization while
             // still being nothing the player types.
-            if (Typeability.ToDefaultStream(text).Length == 0 && Typeability.Normalize(rawText).Length > 0)
-                return;
+            if (Typeability.ToDefaultStream(stored).Length == 0)
+            {
+                if (Typeability.Normalize(rawText).Length > 0)
+                    return;
+
+                // Junk that normalizes away entirely (including a bare "|") stays the empty
+                // boundary/terminator entry it has always been.
+                text = string.Empty;
+            }
 
             foreach (double t in times)
                 entries.Add((t, text));

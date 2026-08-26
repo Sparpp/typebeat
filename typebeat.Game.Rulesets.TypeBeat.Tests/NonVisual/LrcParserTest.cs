@@ -210,6 +210,119 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             }
         }
 
+        #region Authoring marks in the LRC (backlog 202)
+
+        [Test]
+        public void PipesAuthorSyllableSubdivisions()
+        {
+            // "ple|ase": one pipe, so two segments, and nothing in an LRC says where the vocal
+            // actually turns over, so the word's own span is divided EQUALLY.
+            var lines = LrcParser.Parse("[00:14.90]ple|ase\n[00:16.00]\n");
+
+            Assert.That(lines.Count, Is.EqualTo(1));
+            Assert.That(lines[0].RawText, Is.EqualTo("please"), "the pipe is an authoring mark, never lyric");
+
+            var unit = lines[0].Units.Single();
+            Assert.That(unit.Text, Is.EqualTo("please"));
+            Assert.That(unit.StartTime, Is.EqualTo(14900).Within(1e-6));
+            Assert.That(unit.EndTime, Is.EqualTo(16000).Within(1e-6));
+            Assert.That(unit.SyllableSplits, Is.EqualTo(new[] { 3 }));
+            Assert.That(unit.SyllableBoundaries.Count, Is.EqualTo(1));
+            Assert.That(unit.SyllableBoundaries[0], Is.EqualTo(15450).Within(1e-6));
+        }
+
+        [Test]
+        public void PipesDivideOnlyTheirOwnWord()
+        {
+            // Two pipes on the second word: three equal segments of THAT word, the first word
+            // untouched. Weights are unchanged too, because a pipe is not a typeable char.
+            var lines = LrcParser.Parse("[00:01.00] a b|c|d\n[00:05.00]\n");
+            var line = lines.Single();
+
+            Assert.That(line.RawText, Is.EqualTo("a bcd"));
+            Assert.That(line.Units[0].SyllableBoundaries, Is.Empty);
+
+            var second = line.Units[1];
+            Assert.That(second.Text, Is.EqualTo("bcd"));
+            Assert.That(second.SyllableSplits, Is.EqualTo(new[] { 1, 2 }));
+
+            double span = second.EndTime - second.StartTime;
+            Assert.That(second.SyllableBoundaries[0], Is.EqualTo(second.StartTime + span / 3).Within(1e-6));
+            Assert.That(second.SyllableBoundaries[1], Is.EqualTo(second.StartTime + 2 * span / 3).Within(1e-6));
+
+            // The weighting is exactly what the same line without pipes would have produced.
+            var plain = LrcParser.Parse("[00:01.00] a bcd\n[00:05.00]\n").Single();
+            Assert.That(second.StartTime, Is.EqualTo(plain.Units[1].StartTime).Within(1e-9));
+            Assert.That(second.EndTime, Is.EqualTo(plain.Units[1].EndTime).Within(1e-9));
+        }
+
+        [TestCase("|please", TestName = "IllegalPipe_LeadingEmptiesFirstSegment")]
+        [TestCase("please|", TestName = "IllegalPipe_TrailingEmptiesLastSegment")]
+        [TestCase("ple||ase", TestName = "IllegalPipe_DoubledEmptiesTheMiddle")]
+        public void AnIllegalPipePatternAuthorsNothing(string word)
+        {
+            var line = LrcParser.Parse($"[00:01.00]{word}\n[00:05.00]\n").Single();
+
+            Assert.That(line.RawText, Is.EqualTo("please"));
+            Assert.That(line.Units.Single().SyllableBoundaries, Is.Empty, "a pipe that would empty a segment is forgiven, not obeyed");
+            Assert.That(line.Units.Single().SyllableSplits, Is.Empty);
+        }
+
+        [Test]
+        public void ALineOfNothingButPipesStaysABoundaryMarker()
+        {
+            // It must not become an empty line; it is exactly the junk-only case the parser has
+            // always folded back into a bare terminator.
+            var lines = LrcParser.Parse("[00:01.00] real one\n[00:03.00] ||\n");
+
+            Assert.That(lines.Count, Is.EqualTo(1));
+            Assert.That(lines[0].RawText, Is.EqualTo("real one"));
+            Assert.That(lines[0].EndTime, Is.EqualTo(3000), "the pipe line still terminates the one before it");
+        }
+
+        [Test]
+        public void AmpersandsSurviveAsFreestyleMarkers()
+        {
+            var line = LrcParser.Parse("[00:01.00] me & you\n[00:05.00]\n").Single();
+
+            Assert.That(line.RawText, Is.EqualTo("me & you"));
+            Assert.That(line.Units.Count, Is.EqualTo(3));
+            Assert.That(line.Units[1].Text, Is.EqualTo("&"));
+
+            // The marker occupies a CELL, so it counts for the density cap and the weights.
+            Assert.That(Typeability.TypeableCount(line.RawText), Is.EqualTo(8));
+        }
+
+        [Test]
+        public void AMarkerOnlyLineBecomesItsOwnLineInTheGap()
+        {
+            // An ad-lib or instrumental stretch the mapper marked as freestyle: before backlog 202
+            // this line normalized to empty and vanished, leaving the previous line spanning the
+            // whole gap. It now sits exactly where the LRC put it.
+            var lines = LrcParser.Parse("[00:01.00] real one\n[00:03.00] &&&\n[00:09.00] real two\n[00:11.00]\n");
+
+            Assert.That(lines.Count, Is.EqualTo(3));
+            Assert.That(lines[1].RawText, Is.EqualTo("&&&"));
+            Assert.That(lines[1].StartTime, Is.EqualTo(3000));
+            Assert.That(lines[1].EndTime, Is.EqualTo(9000));
+
+            Assert.That(lines[0].EndTime, Is.EqualTo(3000), "the previous line no longer spans the gap");
+        }
+
+        [Test]
+        public void MarkFreeLyricsParseExactlyAsBefore()
+        {
+            // The whole blast radius is gated on a line actually carrying a mark, and the shipped
+            // file carries neither, so nothing about it moved.
+            var lines = LrcParser.Parse(spectator_lyrics);
+
+            Assert.That(lines.Count, Is.EqualTo(36));
+            Assert.That(lines.All(l => l.Units.All(u => u.SyllableBoundaries.Count == 0 && u.SyllableSplits.Count == 0)), Is.True);
+            Assert.That(lines.All(l => !l.RawText.Contains(Typeability.SPLIT_MARKER) && !l.RawText.Contains(Typeability.FREESTYLE_MARKER)), Is.True);
+        }
+
+        #endregion
+
         [Test]
         public void LastLineWithoutTerminatorGetsDefaultDuration()
         {

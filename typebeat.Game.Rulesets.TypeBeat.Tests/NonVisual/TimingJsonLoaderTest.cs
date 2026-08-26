@@ -212,6 +212,110 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(lines[1].Units[1].EndTime, Is.EqualTo(7000));
         }
 
+        #region Pipes in the aligner's display text (backlog 202)
+
+        /// <summary>
+        /// A one-line document whose single word "please" runs 1000..2000 and whose text is
+        /// <paramref name="text"/>; <paramref name="syllables"/> is spliced in as the aligner's own
+        /// subdivision of that word.
+        /// </summary>
+        private static string pipedJson(string text, string syllables = "")
+            => "{\"version\":2,\"song_end_ms\":20000,\"lines\":["
+               + $"{{\"text\":\"{text}\",\"start_ms\":1000,\"end_ms\":2000,\"words\":["
+               + $"{{\"text\":\"{text}\",\"start_ms\":1000,\"end_ms\":2000{syllables}}}]}}]}}";
+
+        [Test]
+        public void AMatchingPipeCountKeepsTheAlignerBoundaryTimes()
+        {
+            // The aligner heard the turnover at 1400; the pipe only says WHERE the characters cut,
+            // so its acoustic evidence must not be thrown away for an even division.
+            string json = pipedJson("ple|ase", ",\"syllables\":[{\"start_ms\":1000,\"end_ms\":1400},{\"start_ms\":1400,\"end_ms\":2000}]");
+
+            Assert.That(TimingJsonLoader.TryLoad(writeTemp(json), out var lines), Is.True);
+
+            var unit = lines.Single().Units.Single();
+            Assert.That(lines[0].RawText, Is.EqualTo("please"), "the pipe never reaches the stored lyric");
+            Assert.That(unit.Text, Is.EqualTo("please"));
+            Assert.That(unit.SyllableBoundaries, Is.EqualTo(new[] { 1400d }));
+            Assert.That(unit.SyllableSplits, Is.EqualTo(new[] { 3 }));
+        }
+
+        [Test]
+        public void APipeOnAnUnsubdividedWordDividesItEvenly()
+        {
+            Assert.That(TimingJsonLoader.TryLoad(writeTemp(pipedJson("ple|ase")), out var lines), Is.True);
+
+            var unit = lines.Single().Units.Single();
+            Assert.That(unit.SyllableBoundaries, Is.EqualTo(new[] { 1500d }));
+            Assert.That(unit.SyllableSplits, Is.EqualTo(new[] { 3 }));
+        }
+
+        [Test]
+        public void AMismatchedPipeCountRedividesTheWord()
+        {
+            // The aligner reported two turnovers, the mapper asked for two segments: its boundaries
+            // cannot be paired with the split, so the word is re-divided into what was asked for.
+            string json = pipedJson("ple|ase", ",\"syllables\":[{\"start_ms\":1000,\"end_ms\":1300},{\"start_ms\":1300,\"end_ms\":1700},{\"start_ms\":1700,\"end_ms\":2000}]");
+
+            Assert.That(TimingJsonLoader.TryLoad(writeTemp(json), out var lines), Is.True);
+
+            var unit = lines.Single().Units.Single();
+            Assert.That(unit.SyllableBoundaries, Is.EqualTo(new[] { 1500d }));
+            Assert.That(unit.SyllableSplits, Is.EqualTo(new[] { 3 }));
+        }
+
+        [Test]
+        public void AnIllegalPipePatternLeavesTheAlignerDataAlone()
+        {
+            string json = pipedJson("please|", ",\"syllables\":[{\"start_ms\":1000,\"end_ms\":1400},{\"start_ms\":1400,\"end_ms\":2000}]");
+
+            Assert.That(TimingJsonLoader.TryLoad(writeTemp(json), out var lines), Is.True);
+
+            var unit = lines.Single().Units.Single();
+            Assert.That(lines[0].RawText, Is.EqualTo("please"));
+            Assert.That(unit.SyllableBoundaries, Is.EqualTo(new[] { 1400d }), "the aligner's own subdivision survives a bad pipe");
+            Assert.That(unit.SyllableSplits, Is.Empty);
+        }
+
+        [Test]
+        public void APipeAlsoSubdividesOnTheInterpolationFallback()
+        {
+            // Token/word mismatch, so this line interpolates; the pipe is read there too.
+            string json = "{\"version\":2,\"song_end_ms\":20000,\"lines\":["
+                          + "{\"text\":\"ple|ase now\",\"start_ms\":1000,\"end_ms\":2000,\"words\":[{\"text\":\"ple|ase\",\"start_ms\":1000,\"end_ms\":2000}]}]}";
+
+            Assert.That(TimingJsonLoader.TryLoad(writeTemp(json), out var lines), Is.True);
+            Assert.That(lines[0].RawText, Is.EqualTo("please now"));
+
+            var unit = lines[0].Units[0];
+            Assert.That(unit.Source, Is.EqualTo(TimingSource.Interpolated));
+            Assert.That(unit.SyllableSplits, Is.EqualTo(new[] { 3 }));
+            Assert.That(unit.SyllableBoundaries[0], Is.EqualTo((unit.StartTime + unit.EndTime) / 2).Within(1e-6));
+        }
+
+        [Test]
+        public void ALineOfNothingButPipesIsDropped()
+        {
+            string json = "{\"version\":2,\"song_end_ms\":20000,\"lines\":["
+                          + "{\"text\":\"real one\",\"start_ms\":1000,\"end_ms\":2000},"
+                          + "{\"text\":\"||\",\"start_ms\":3000,\"end_ms\":4000}]}";
+
+            Assert.That(TimingJsonLoader.TryLoad(writeTemp(json), out var lines), Is.True);
+            Assert.That(lines.Count, Is.EqualTo(1));
+            Assert.That(lines[0].RawText, Is.EqualTo("real one"));
+        }
+
+        [Test]
+        public void PipeFreeDocumentsLoadExactlyAsBefore()
+        {
+            // The real shipped aligner output carries no pipe anywhere, so nothing in it moved.
+            Assert.That(TimingJsonLoader.TryLoad(realTimingJsonPath(), out var lines), Is.True);
+            Assert.That(lines.All(l => !l.RawText.Contains(Typeability.SPLIT_MARKER)), Is.True);
+            Assert.That(lines.SelectMany(l => l.Units).All(u => u.SyllableSplits.Count == 0), Is.True);
+        }
+
+        #endregion
+
         [Test]
         public void LastLineEndUsesTailAndSongEnd()
         {

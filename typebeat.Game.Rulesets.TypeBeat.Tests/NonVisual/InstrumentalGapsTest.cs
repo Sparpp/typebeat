@@ -169,6 +169,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, gaps.Count, "no long instrumental stretches");
         }
 
+        /// <summary>
+        /// Backlog 202's one gameplay-visible side effect: an LRC "&amp;" line inside a long
+        /// instrumental used to normalize to empty and vanish, so the stretch stayed one long
+        /// perceived gap with a skip on it. It is now a real (freestyle) line at its own
+        /// timestamp, which CUTS the perceived stretch in two, and neither half is long enough to
+        /// qualify. That is the intended reading (the mapper said there is something to play
+        /// there), and it moves identically on the server, whose InstrumentalGaps mirror computes
+        /// from the same stored line times, so the play-time gate subtracts the same allowance.
+        /// </summary>
+        [Test]
+        public void AFreestyleLineInsideAnInstrumentalClosesItsSkip()
+        {
+            const string lyrics = "[00:01.00] real one\n[00:16.00] real two\n[00:20.00]\n";
+            const string marked = "[00:01.00] real one\n[00:08.50] &\n[00:16.00] real two\n[00:20.00]\n";
+
+            var plain = importedLines(lyrics);
+            var withMarker = importedLines(marked);
+
+            Assert.AreEqual(2, plain.Count);
+            Assert.AreEqual(3, withMarker.Count, "the marker line now exists where the LRC put it");
+
+            var plainGaps = InstrumentalGaps.Compute(plain);
+            Assert.AreEqual(1, plainGaps.Count, "the whole 12.2s perceived stretch is one gap");
+
+            Assert.AreEqual(0, InstrumentalGaps.Compute(withMarker).Count,
+                "split into ~4.7s and ~7.2s, both under MIN_GAP_MS, so there is no skip left");
+        }
+
+        private static IReadOnlyList<TypingLine> importedLines(string lyrics)
+        {
+            string? timing = Import.LyricMapImporter.SynthesizeTimingJsonFromLrc(lyrics);
+            Assert.IsNotNull(timing);
+            Assert.IsTrue(TimingJsonLoader.TryParse(timing!, out var decoded));
+
+            return decoded.Select(l => TypingLine.FromLyricLine(l, TimingGranularity.Line)).ToList();
+        }
+
         [Test]
         public void EmptyOrSingleLineHasNoGaps()
         {

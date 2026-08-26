@@ -126,16 +126,78 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void PipesOnAWordWithNoSubdivisionsAreStrippedAndIgnored()
+        public void PipesOnAWordWithNoSubdivisionsAuthorThem()
         {
             var beatmap = createBeatmap();
 
+            // "orange" (1500..2600) has no subdivision at all; two pipes ask for three segments,
+            // and there is nothing else to say where they sit, so the word's span is cut evenly.
             Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, lineAt(beatmap, 0), "ap|ple or|an|ge"), Is.True);
 
             var units = lineAt(beatmap, 0).Line.Units;
-            Assert.That(lineAt(beatmap, 0).Line.RawText, Is.EqualTo("apple orange"));
-            Assert.That(units[1].SyllableSplits, Is.Empty, "no boundary, no segment for a pipe to cut");
-            Assert.That(units[1].SyllableBoundaries, Is.Empty);
+            Assert.That(lineAt(beatmap, 0).Line.RawText, Is.EqualTo("apple orange"), "the pipes never reach the stored lyric");
+
+            Assert.That(units[1].SyllableSplits, Is.EqualTo(new[] { 2, 4 }));
+            Assert.That(units[1].SyllableBoundaries.Count, Is.EqualTo(2));
+            Assert.That(units[1].SyllableBoundaries[0], Is.EqualTo(1500 + 1100 / 3.0).Within(1e-6));
+            Assert.That(units[1].SyllableBoundaries[1], Is.EqualTo(1500 + 2 * 1100 / 3.0).Within(1e-6));
+            Assert.That(units[1].Source, Is.EqualTo(TimingSource.Explicit), "a hand-placed cut is hand timing");
+
+            Assert.That(segmentTexts(units[1]), Is.EqualTo(new[] { "or", "an", "ge" }));
+
+            // The word that already had a boundary is untouched by the same commit.
+            Assert.That(units[0].SyllableBoundaries, Is.EqualTo(new[] { 1300d }));
+        }
+
+        [Test]
+        public void AnAuthoringPipePromotesALineGranularityMap()
+        {
+            // A Line map persists no word data, so the encoder would drop a subdivision that did
+            // not come with a granularity promotion. It also re-derives its units from the text,
+            // which is why the commit cannot early-out on "the stripped text did not change".
+            var beatmap = lineGranularityBeatmap();
+            var line = lineAt(beatmap, 0);
+
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "fri|ed rice"), Is.True);
+
+            Assert.That(line.Line.RawText, Is.EqualTo("fried rice"));
+            Assert.That(line.Granularity, Is.EqualTo(TimingGranularity.Syllable));
+
+            var unit = line.Line.Units[0];
+            Assert.That(unit.SyllableSplits, Is.EqualTo(new[] { 3 }));
+            Assert.That(unit.SyllableBoundaries.Count, Is.EqualTo(1));
+            Assert.That(unit.SyllableBoundaries[0], Is.EqualTo((unit.StartTime + unit.EndTime) / 2).Within(1e-6));
+
+            // And it survives the save it would otherwise have been dropped by.
+            var reopened = SyllableSplitTest.DecodeOsu(encode(beatmap));
+            Assert.That(reopened[0].Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 3 }));
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(reopened[0].Line), Is.EqualTo("fri|ed rice"));
+        }
+
+        [Test]
+        public void AnIllegalAuthoringPipeStillAuthorsNothing()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 0);
+
+            // A pipe at the very end of "orange" would leave an empty last segment.
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "apple orange|"), Is.True);
+
+            Assert.That(line.Line.RawText, Is.EqualTo("apple orange"));
+            Assert.That(line.Line.Units[1].SyllableBoundaries, Is.Empty);
+            Assert.That(line.Line.Units[1].SyllableSplits, Is.Empty);
+        }
+
+        [Test]
+        public void AnOrdinaryTextCommitDoesNotMoveGranularity()
+        {
+            // The promotion is keyed on a pipe having AUTHORED something, so retyping a line on a
+            // Line map (the common case) leaves the map exactly where it was.
+            var beatmap = lineGranularityBeatmap();
+            var line = lineAt(beatmap, 0);
+
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "boiled rice"), Is.True);
+            Assert.That(line.Granularity, Is.EqualTo(TimingGranularity.Line));
         }
 
         [Test]
@@ -228,17 +290,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void ThePipeIsReservedToTheEditingSurface()
+        public void ThePipeIsAnAuthoringMarkAndNeverALyricChar()
         {
-            // Every legacy path strips it exactly like any other unsupported character.
+            // It is not a character of the game's text surface, so nothing can ever type one, and
+            // the normalizer only lets it through for the callers that read it as a mark: the
+            // editor's line box, the LRC importer and the aligner's display text (backlog 202).
             Assert.That(Typeability.Normalize("ap|ple"), Is.EqualTo("apple"));
             Assert.That(Typeability.Normalize("ap|ple", keepFreestyleMarkers: true), Is.EqualTo("apple"));
             Assert.That(Typeability.Normalize("ap|ple", keepSplitMarkers: true), Is.EqualTo("ap|ple"));
             Assert.That(Typeability.IsTypeable(Typeability.SPLIT_MARKER), Is.False);
             Assert.That(Typeability.IsPunctuation(Typeability.SPLIT_MARKER), Is.False);
 
-            // Including the OTHER text-authoring op, which does not read pipes at all.
+            // Every one of those readers strips it once the position is read, so no stored lyric
+            // carries one, from the editor...
             var beatmap = createBeatmap();
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, lineAt(beatmap, 0), "ap|ple or|ange"), Is.True);
+            Assert.That(lineAt(beatmap, 0).Line.RawText, Is.EqualTo("apple orange"));
+
+            // ...or from LRC import, which authors the subdivision the pipe asked for.
+            var imported = LrcParser.Parse("[00:01.00]ap|ple\n[00:03.00]\n");
+            Assert.That(imported[0].RawText, Is.EqualTo("apple"));
+            Assert.That(imported[0].Units[0].SyllableSplits, Is.EqualTo(new[] { 2 }));
+
+            // The OTHER text-authoring op does not read pipes at all: a word is one token, and
+            // there is no timing to divide until it exists.
             Assert.That(TypeBeatEditorOperations.AddWord(beatmap, lineAt(beatmap, 0), 0, "wo|rd"), Is.True);
             Assert.That(lineAt(beatmap, 0).Line.RawText, Is.EqualTo("apple word orange"));
         }
@@ -557,6 +632,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             return new EditorBeatmap(beatmap);
         }
+
+        /// <summary>
+        /// A one-line LINE-granularity map: no persisted word data at all, units re-derived from
+        /// the text on every load, which is what an LRC-only import produces.
+        /// </summary>
+        private static EditorBeatmap lineGranularityBeatmap()
+        {
+            var beatmap = new Beatmap();
+            beatmap.BeatmapInfo.Ruleset = new TypeBeatRuleset().RulesetInfo;
+            beatmap.Metadata.Artist = "Op";
+            beatmap.Metadata.Title = "Line";
+            beatmap.Metadata.AudioFile = "audio.mp3";
+
+            beatmap.HitObjects.Add(new TypeBeatHitObject
+            {
+                StartTime = 1000,
+                LineIndex = 0,
+                Line = new LyricLine
+                {
+                    RawText = "fried rice",
+                    StartTime = 1000,
+                    EndTime = 5000,
+                    SingEndTime = 4000,
+                    // Char-weighted, exactly as the loader re-derives them: "fried"(6) / "rice"(5).
+                    Units = new[]
+                    {
+                        interpolatedUnit("fried", 1000, 1000 + 3000 * 6 / 11.0),
+                        interpolatedUnit("rice", 1000 + 3000 * 6 / 11.0, 4000),
+                    },
+                },
+                Granularity = TimingGranularity.Line,
+            });
+
+            return new EditorBeatmap(beatmap);
+        }
+
+        private static TimedUnit interpolatedUnit(string text, double start, double end)
+            => new TimedUnit { Text = text, StartTime = start, EndTime = end, Source = TimingSource.Interpolated };
 
         private static TimedUnit newUnit(string text, double start, double end, params double[] boundaries)
             => new TimedUnit

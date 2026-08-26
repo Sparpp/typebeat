@@ -554,10 +554,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         ///
         /// <para>The pipe matrix, per word (see <see cref="splitsFromPipes"/> for the code):</para>
         /// <list type="bullet">
-        /// <item>a word with NO subdivisions: pipes are stripped and ignored (there is no segment
-        /// for them to cut).</item>
+        /// <item>a word with NO subdivisions: the pipes AUTHOR one (backlog 202). The word's own
+        /// span is cut into (pipes + 1) EQUAL segments and the split is recorded where the pipes
+        /// sat, so "fri|ed" on a plain word is the same gesture as adding a dotted line on the
+        /// timeline and dragging its characters. The map is promoted with it, because the encoder
+        /// persists syllables[] only for units that carry boundaries.</item>
         /// <item>B boundaries, B or more pipes: the first B pipe positions become the authored
-        /// split; surplus pipes are dropped.</item>
+        /// split; surplus pipes are dropped (the word is already subdivided, and a text commit
+        /// does not change a boundary COUNT).</item>
         /// <item>B boundaries, fewer pipes: the pipes given replace the leading splits and the
         /// remaining ones keep the value the word already showed (authored or derived).</item>
         /// <item>a pipe that would leave a segment EMPTY (at the start or end of the word, or on
@@ -576,7 +580,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             string withMarkers = Typeability.Normalize(Typeability.StripBackingVocals(rawUserText),
                 keepFreestyleMarkers: true, keepSplitMarkers: true);
 
-            var (normalized, pipes) = stripSplitMarkers(withMarkers);
+            var (normalized, pipes) = SplitMarkers.Strip(withMarkers);
 
             // Rejected when there is nothing to TYPE, measured on the default stream: text that is
             // only punctuation ("...") normalizes non-empty but would give the player no cell, and
@@ -585,25 +589,103 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return false;
 
             var line = hitObject.Line;
+
+            // Measured on the STRIPPED text, so "fri|ed" over "fried" reads as unchanged text; the
+            // pipes are the whole edit there, and they are picked up below rather than here.
             bool textUnchanged = normalized == line.RawText;
+            bool anyPipes = pipes.Any(p => p.Count > 0);
 
             string[] tokens = normalized.Split(' ');
             IReadOnlyList<TimedUnit> units;
+            bool authoredSubdivision = false;
 
             if (hitObject.Granularity == TimingGranularity.Line)
             {
-                if (textUnchanged)
+                if (textUnchanged && !anyPipes)
                     return true;
 
                 // Line-granularity maps persist no word data; units are always the loader's
                 // interpolation, which is text-weight-dependent, so re-derive with the new text.
+                // The pipes then subdivide those fresh units exactly as they would on a word map.
                 units = LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime);
+
+                if (anyPipes && tokens.Length == units.Count)
+                    units = applyPipes(units, tokens, pipes, out authoredSubdivision);
             }
             else if (tokens.Length == line.Units.Count)
             {
                 // Same word count: keep every word's timing (and its subdivisions), swap the text,
                 // and re-read each word's split from where its pipes now sit.
-                units = line.Units.Select((u, i) => new TimedUnit
+                units = applyPipes(line.Units, tokens, pipes, out authoredSubdivision);
+
+                // A commit that moved neither the text nor a single pipe is a no-op, so a map with
+                // no authored splits does not start carrying them just because a box lost focus.
+                if (textUnchanged && !authoredSubdivision
+                    && !units.Where((u, i) => !sameSplits(u.SyllableSplits, line.Units[i].SyllableSplits)).Any())
+                {
+                    return true;
+                }
+            }
+            else
+            {
+                // Word count changed: no per-word mapping exists, so redistribute within the sung
+                // window. Every subdivision goes with it, the pipes of this very commit included:
+                // the words the mapper is looking at are not the words that will come back, so a
+                // cut aimed at one of them cannot be honoured on the other.
+                units = LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime);
+            }
+
+            editorBeatmap.BeginChange();
+            hitObject.Line = rebuild(line, rawText: normalized, units: units);
+            editorBeatmap.Update(hitObject);
+
+            // A pipe that just created a boundary needs the map to carry sub-word data at all, or
+            // the encoder would drop it on the next save (see AddSyllableBoundary's note). Only
+            // done when something was actually authored, so an ordinary text commit never moves a
+            // map's granularity in either direction.
+            if (authoredSubdivision)
+                syncGranularity(editorBeatmap, keepAuthoredWords: true);
+
+            editorBeatmap.EndChange();
+            return true;
+        }
+
+        /// <summary>
+        /// One line's units after a text commit: each word takes its new token text and, from its
+        /// pipes, either an AUTHORED subdivision (a word that had none: see
+        /// <see cref="SplitMarkers.Authored"/>) or a re-read of its existing split
+        /// (<see cref="splitsFromPipes"/>). <paramref name="authored"/> reports whether any word
+        /// gained a boundary, which is what forces the granularity promotion.
+        /// </summary>
+        private static IReadOnlyList<TimedUnit> applyPipes(IReadOnlyList<TimedUnit> source, string[] tokens,
+                                                           IReadOnlyList<IReadOnlyList<int>> pipes, out bool authored)
+        {
+            bool any = false;
+
+            var units = source.Select((u, i) =>
+            {
+                var wordPipes = i < pipes.Count ? pipes[i] : Array.Empty<int>();
+
+                if (u.SyllableBoundaries.Count == 0 && wordPipes.Count > 0
+                    && SplitMarkers.Authored(tokens[i], u.StartTime, u.EndTime, wordPipes) is (double[] boundaries, int[] splits))
+                {
+                    any = true;
+
+                    return new TimedUnit
+                    {
+                        Text = tokens[i],
+                        StartTime = u.StartTime,
+                        EndTime = u.EndTime,
+                        // A hand-placed subdivision IS hand timing, exactly as it is when the
+                        // mapper adds the dotted line on the timeline strip instead.
+                        Source = TimingSource.Explicit,
+                        Confidence = 1,
+                        SyllableBoundaries = boundaries,
+                        SyllableSplits = splits,
+                    };
+                }
+
+                return new TimedUnit
                 {
                     Text = tokens[i],
                     StartTime = u.StartTime,
@@ -611,25 +693,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     Source = u.Source,
                     Confidence = u.Confidence,
                     SyllableBoundaries = u.SyllableBoundaries,
-                    SyllableSplits = splitsFromPipes(tokens[i], u.SyllableBoundaries.Count + 1, u.SyllableSplits, pipes[i]),
-                }).ToArray();
+                    SyllableSplits = splitsFromPipes(tokens[i], u.SyllableBoundaries.Count + 1, u.SyllableSplits, wordPipes),
+                };
+            }).ToArray();
 
-                // A commit that moved neither the text nor a single pipe is a no-op, so a map with
-                // no authored splits does not start carrying them just because a box lost focus.
-                if (textUnchanged && !units.Where((u, i) => !sameSplits(u.SyllableSplits, line.Units[i].SyllableSplits)).Any())
-                    return true;
-            }
-            else
-            {
-                // Word count changed: no per-word mapping exists, so redistribute within the sung window.
-                units = LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime);
-            }
-
-            editorBeatmap.BeginChange();
-            hitObject.Line = rebuild(line, rawText: normalized, units: units);
-            editorBeatmap.Update(hitObject);
-            editorBeatmap.EndChange();
-            return true;
+            authored = any;
+            return units;
         }
 
         #region Syllable splits on the line text ("ap|ple")
@@ -666,54 +735,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// Splits pipe-bearing normalized text into the text that gets STORED and, per surviving
-        /// token, the character positions the pipes sat at (measured in the stripped token, so a
-        /// pipe before the first char is 0 and one after the last is the token's length: both are
-        /// rejected downstream as empty segments). A token that was nothing but pipes disappears
-        /// entirely rather than becoming an empty word.
-        /// </summary>
-        private static (string text, IReadOnlyList<IReadOnlyList<int>> pipes) stripSplitMarkers(string withMarkers)
-        {
-            var texts = new List<string>();
-            var pipes = new List<IReadOnlyList<int>>();
-
-            foreach (string token in withMarkers.Split(' '))
-            {
-                if (token.IndexOf(Typeability.SPLIT_MARKER) < 0)
-                {
-                    if (token.Length == 0)
-                        continue;
-
-                    texts.Add(token);
-                    pipes.Add(Array.Empty<int>());
-                    continue;
-                }
-
-                var sb = new System.Text.StringBuilder(token.Length);
-                var positions = new List<int>();
-
-                foreach (char c in token)
-                {
-                    if (c == Typeability.SPLIT_MARKER)
-                        positions.Add(sb.Length);
-                    else
-                        sb.Append(c);
-                }
-
-                if (sb.Length == 0)
-                    continue;
-
-                texts.Add(sb.ToString());
-                pipes.Add(positions);
-            }
-
-            return (string.Join(' ', texts), pipes);
-        }
-
-        /// <summary>
-        /// One word's authored split after a text commit: see the matrix on
-        /// <see cref="SetLineText"/>. Returns <paramref name="current"/> unchanged when the pipes
-        /// do not describe a valid split, so a typo costs the mapper nothing.
+        /// One word's authored split after a text commit, for a word that ALREADY has boundaries:
+        /// see the matrix on <see cref="SetLineText"/> (a word with none takes
+        /// <see cref="SplitMarkers.Authored"/> instead). Returns <paramref name="current"/>
+        /// unchanged when the pipes do not describe a valid split, so a typo costs the mapper
+        /// nothing.
         /// </summary>
         private static IReadOnlyList<int> splitsFromPipes(string token, int segments, IReadOnlyList<int> current, IReadOnlyList<int> pipes)
         {

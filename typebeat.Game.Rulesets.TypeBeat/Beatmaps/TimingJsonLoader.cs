@@ -135,14 +135,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             bool freestyle = lineElement.TryGetProperty("freestyle", out JsonElement freestyleElement)
                              && freestyleElement.ValueKind == JsonValueKind.True;
 
-            string normalized = Typeability.Normalize(Typeability.StripBackingVocals(textElement.GetString() ?? string.Empty), keepFreestyleMarkers: freestyle);
+            // The '|' authoring mark survives normalization too (backlog 202): the aligner passes
+            // it through in a line's display text, and it names where that word's syllables cut.
+            // BuildLines strips it once it has read the positions, so no stored lyric carries one.
+            string normalized = Typeability.Normalize(Typeability.StripBackingVocals(textElement.GetString() ?? string.Empty),
+                keepFreestyleMarkers: freestyle, keepSplitMarkers: true);
 
             // A line with nothing to TYPE is dropped, and the previous line extends over its span.
             // Tested on the DEFAULT stream, not on the normalized text, because a line that is
             // nothing but punctuation ("...") now normalizes non-empty yet still gives the player
             // no cell at all. The two conditions coincide exactly for every other input, so this is
-            // the same rule the loader has always applied.
-            if (Typeability.ToDefaultStream(normalized).Length == 0)
+            // the same rule the loader has always applied. Measured on the STORED text, so a token
+            // of nothing but pipes cannot smuggle an empty line through.
+            if (Typeability.ToDefaultStream(SplitMarkers.Carries(normalized) ? SplitMarkers.Strip(normalized).Text : normalized).Length == 0)
                 return false;
 
             if (!lineElement.TryGetProperty("start_ms", out JsonElement startElement)
@@ -283,22 +288,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     ? Math.Clamp(explicitGrace, 0, MAX_SEAL_GRACE_MS)
                     : Math.Min(Math.Max(0, rawWordsEnd - end), MAX_SEAL_GRACE_MS);
 
-                string[] tokens = line.Text.Split(' ');
+                // The pipes are authoring marks: they name a word's syllable cut and are then gone,
+                // so the STORED text (and the token/word pairing) is measured without them.
+                bool piped = SplitMarkers.Carries(line.Text);
+                string storedText = line.Text;
+                IReadOnlyList<IReadOnlyList<int>> pipes = Array.Empty<IReadOnlyList<int>>();
+
+                if (piped)
+                    (storedText, pipes) = SplitMarkers.Strip(line.Text);
+
+                string[] tokens = storedText.Split(' ');
                 IReadOnlyList<TimedUnit> units;
 
                 if (tokens.Length == line.Words.Count && tokens.Length > 0)
                 {
-                    units = buildExplicitUnits(tokens, line.Words, line.WordSplits, start, end);
+                    units = buildExplicitUnits(tokens, line.Words, line.WordSplits, pipes, start, end);
                 }
                 else
                 {
-                    // Per-line fallback: char-weighted interpolation across [start, singEnd].
+                    // Per-line fallback: char-weighted interpolation across [start, singEnd], which
+                    // reads the pipes itself (LrcParser.InterpolateUnits) and so subdivides there too.
                     units = LrcParser.InterpolateUnits(line.Text, start, singEnd);
                 }
 
                 result.Add(new LyricLine
                 {
-                    RawText = line.Text,
+                    RawText = storedText,
                     StartTime = start,
                     EndTime = end,
                     SingEndTime = singEnd,
@@ -321,11 +336,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// above DROPPED NOTHING (a boundary lost to a narrowed word would re-pair every later
         /// split with the wrong segment) and the indices themselves are a valid split of this
         /// token. Anything else falls back to derived, never to a crash.</para>
+        ///
+        /// <para><paramref name="pipes"/> carries the '|' marks that were in the line's own TEXT
+        /// (backlog 202), which OUTRANK <paramref name="wordSplits"/> because they are the gesture
+        /// the mapper just made. A word whose pipe count matches the subdivision the aligner
+        /// already reported keeps the ALIGNER'S times, the pipes only naming where its characters
+        /// cut; on any other count (a word the aligner never subdivided included) the word's span
+        /// is re-divided into equal segments, one per pipe plus one. A pipe pattern that is not a
+        /// legal cut of its token authors nothing at all and the word falls back to the rules
+        /// above.</para>
         /// </summary>
         private static IReadOnlyList<TimedUnit> buildExplicitUnits(
             string[] tokens,
             List<(string Text, double Start, double End, double Score, List<double> Syllables)> words,
             List<List<int>>? wordSplits,
+            IReadOnlyList<IReadOnlyList<int>> pipes,
             double lineStart,
             double lineEnd)
         {
@@ -356,6 +381,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     ? splits.ToArray()
                     : System.Array.Empty<int>();
 
+                double[] boundaries = syllables;
+
+                // Pipes in the line text win: matching the aligner's own subdivision count keeps
+                // its times, anything else re-divides the word evenly.
+                var wordPipes = m < pipes.Count ? pipes[m] : System.Array.Empty<int>();
+
+                if (wordPipes.Count > 0 && Gameplay.SyllableSegments.IsAuthoredValid(tokens[m], wordPipes.Count + 1, wordPipes))
+                {
+                    if (wordPipes.Count == syllables.Length)
+                    {
+                        keptSplits = wordPipes.ToArray();
+                    }
+                    else if (SplitMarkers.Authored(tokens[m], ws, we, wordPipes) is (double[] evenBoundaries, int[] pipeSplits))
+                    {
+                        boundaries = evenBoundaries;
+                        keptSplits = pipeSplits;
+                    }
+                }
+
                 units.Add(new TimedUnit
                 {
                     Text = tokens[m],
@@ -363,7 +407,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     EndTime = we,
                     Source = TimingSource.Explicit,
                     Confidence = Math.Clamp(words[m].Score, 0, 1),
-                    SyllableBoundaries = syllables.Length == 0 ? System.Array.Empty<double>() : syllables,
+                    SyllableBoundaries = boundaries.Length == 0 ? System.Array.Empty<double>() : boundaries,
                     SyllableSplits = keptSplits,
                 });
 

@@ -58,6 +58,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public async Task ProduceTimingJsonCarriesTheAuthoringMarksThrough()
+        {
+            // The headless editor import of line-stamped lyrics that carry both marks: the pipe
+            // subdivides its word (and lifts the map off Line granularity, which persists no
+            // sub-word data), the ampersand line becomes a freestyle line where the LRC put it.
+            string audio = Path.Combine(Path.GetTempPath(), $"tb_audio_{Guid.NewGuid():N}.mp3");
+            await File.WriteAllBytesAsync(audio, new byte[16]).ConfigureAwait(false);
+
+            const string lyrics = "[00:01.00]ple|ase stay\n[00:05.00]&&\n[00:09.00]last one\n[00:11.00]\n";
+
+            try
+            {
+                (var result, string? timingJson) = await LyricMapImporter.ProduceTimingJsonAsync(
+                    audio, lyrics, "Artist", "Title",
+                    configuredLyricLabPath: null,
+                    startDirectories: new[] { Path.GetTempPath() },
+                    progress: _ => { },
+                    token: CancellationToken.None).ConfigureAwait(false);
+
+                Assert.That(result.Success, Is.True, result.Error);
+                Assert.That(TimingJsonLoader.TryParse(timingJson!, out var lines), Is.True);
+
+                Assert.That(lines.Count, Is.EqualTo(3));
+                Assert.That(lines[0].RawText, Is.EqualTo("please stay"));
+                Assert.That(lines[0].Units[0].SyllableSplits, Is.EqualTo(new[] { 3 }));
+                Assert.That(lines[1].RawText, Is.EqualTo("&&"), "the marker line survives on its own");
+                Assert.That(lines[1].StartTime, Is.EqualTo(5000));
+
+                Assert.That(TypeBeatEditorOperations.InferGranularity(lines), Is.EqualTo(TimingGranularity.Syllable));
+            }
+            finally
+            {
+                File.Delete(audio);
+            }
+        }
+
+        [Test]
         public async Task ProduceTimingJsonUnstampedWithoutAlignerFails()
         {
             string audio = Path.Combine(Path.GetTempPath(), $"tb_audio_{Guid.NewGuid():N}.mp3");
