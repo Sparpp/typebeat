@@ -62,6 +62,15 @@ namespace typebeat.Game.Screens.Edit.Submission
     /// session holds before re-sending anything, which is what stops a lost response from burning the
     /// attempt cap and, with it, the whole upload.
     /// </para>
+    /// <para>
+    /// Resume across a DEPLOY is a third case, and the one backlog 203 fixes. A trickle-class upload runs
+    /// for hours, this server ships several times a day, and every request in the window between the old
+    /// process going away and the new one being ready is answered 502 or 504 by the edge. That is not a
+    /// transport failure and it is not a verdict: nothing is wrong except the timing, so it gets its own
+    /// slow ladder (<see cref="UploadRetryPolicy.DelayBeforeGatewayRound"/>), it does not spend an attempt
+    /// from any cap, and it applies to every request the flow makes. Before that, the fast 1s/3s chunk
+    /// ladder covered four seconds of a twenty second restart and then declared the session path dead.
+    /// </para>
     /// </remarks>
     public class ChunkedPackageUpload
     {
@@ -257,6 +266,27 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// </summary>
         public Action<Exception>? OnFailed { get; init; }
 
+        /// <summary>
+        /// The highest number of chunks the server has confirmed it holds, over the life of this flow.
+        /// </summary>
+        /// <remarks>
+        /// Server-confirmed rather than optimistic: it counts the chunks session creation or a status
+        /// fetch reported, plus the chunks whose own PUT was answered. The caller reads it at failure
+        /// time to decide between resuming and falling back, so it must not include anything merely sent.
+        /// </remarks>
+        public int HeldChunks { get; private set; }
+
+        /// <summary>
+        /// Whether the server holds any of this payload. A flow that failed with this false never got a
+        /// byte in, which is what an old server without the session routes looks like.
+        /// </summary>
+        public bool HadProgress => HeldChunks > 0;
+
+        /// <summary>
+        /// How many chunks the payload was sliced into, or 0 before the session is open.
+        /// </summary>
+        public int TotalChunkCount => totalChunks;
+
         private APIRequest? activeRequest;
         private string sessionId = string.Empty;
         private int chunkBytes;
@@ -270,6 +300,14 @@ namespace typebeat.Game.Screens.Edit.Submission
         private int pendingCursor;
         private int chunkAttempts;
         private int completeAttempts;
+
+        /// <summary>
+        /// Gateway 5xx answers seen since the last time the server took a chunk. Reset by forward
+        /// progress rather than by any single successful request, so a server that flaps without ever
+        /// accepting bytes still runs out of rounds.
+        /// </summary>
+        private int gatewayRounds;
+
         private bool canceled;
         private bool finished;
 
@@ -317,6 +355,13 @@ namespace typebeat.Game.Screens.Edit.Submission
                     return;
 
                 activeRequest = null;
+
+                // an edge answering for a server that is restarting is not an old server without the
+                // session routes, and telling them apart here is what keeps a deploy from pushing the
+                // whole submission back onto the direct upload.
+                if (deferForGateway(exception, @"upload session create", Start))
+                    return;
+
                 fail(exception);
             };
 
@@ -424,6 +469,13 @@ namespace typebeat.Game.Screens.Edit.Submission
         {
             log($"Chunk {index} attempt {chunkAttempts}/{UploadRetryPolicy.MAX_ATTEMPTS} failed: {exception}");
 
+            // a gateway 5xx hands its attempt back before anything else reads the count: the per-index
+            // cap is there to make a genuinely broken chunk terminal, and the origin never saw this one.
+            chunkAttempts = UploadRetryPolicy.AttemptsAfterGatewayRound(chunkAttempts, exception);
+
+            if (deferForGateway(exception, $"chunk {index}", () => reconcileThenRetry(index)))
+                return;
+
             if (!UploadRetryPolicy.ShouldRetryChunkAfter(chunkAttempts, exception))
             {
                 fail(exception);
@@ -471,7 +523,12 @@ namespace typebeat.Game.Screens.Edit.Submission
 
                 activeRequest = null;
 
-                // any failure at all falls through to the blind retry, including a decoded 404: a server
+                // a gateway 5xx here is the same outage that just failed the chunk, so it waits on the
+                // gateway ladder instead of falling through to a blind retry that cannot land either.
+                if (deferForGateway(exception, @"upload session status", () => reconcileThenRetry(failedIndex)))
+                    return;
+
+                // any other failure falls through to the blind retry, including a decoded 404: a server
                 // that predates this route and a session that has genuinely gone away answer the same
                 // way, and only the chunk PUT itself can tell them apart. The attempt accounting is
                 // untouched, so this costs nothing beyond the request.
@@ -559,6 +616,11 @@ namespace typebeat.Game.Screens.Edit.Submission
         {
             log($"Complete attempt {completeAttempts}/{UploadRetryPolicy.MAX_ATTEMPTS} failed: {exception}");
 
+            completeAttempts = UploadRetryPolicy.AttemptsAfterGatewayRound(completeAttempts, exception);
+
+            if (deferForGateway(exception, @"upload session complete", complete))
+                return;
+
             if (!UploadRetryPolicy.ShouldRetryCompleteAfter(completeAttempts, exception))
             {
                 fail(exception);
@@ -574,9 +636,60 @@ namespace typebeat.Game.Screens.Edit.Submission
             }, UploadRetryPolicy.DelayBeforeCompleteAttempt(completeAttempts + 1));
         }
 
+        /// <summary>
+        /// Takes ownership of <paramref name="exception"/> if it is an edge answering 502, 503 or 504,
+        /// by scheduling <paramref name="resume"/> on the gateway ladder. Returns whether it did.
+        /// </summary>
+        /// <remarks>
+        /// Every step of the flow routes its failure through here first, because the thing being waited
+        /// out is the same one whichever request happened to be in flight when the origin went away: a
+        /// deploy, a reload, a reboot. The ladder is separate from the per-request transport retries
+        /// (which stay fast, because they are waiting for one request rather than for a process) and
+        /// separate from the attempt caps, which a gateway round hands its attempt back to.
+        /// </remarks>
+        private bool deferForGateway(Exception exception, string what, Action resume)
+        {
+            if (!UploadRetryPolicy.IsGatewayTransient(exception))
+                return false;
+
+            gatewayRounds++;
+
+            if (!UploadRetryPolicy.ShouldRetryGatewayAfter(gatewayRounds, exception))
+            {
+                log($"{what}: the server is still unreachable after {gatewayRounds} gateway rounds, giving up on this session");
+                fail(exception);
+                return true;
+            }
+
+            double delay = UploadRetryPolicy.DelayBeforeGatewayRound(gatewayRounds + 1);
+
+            log($"{what}: gateway error, round {gatewayRounds}/{UploadRetryPolicy.MAX_GATEWAY_ROUNDS}, waiting {delay / 1000:0.#}s ({HeldChunks}/{totalChunks} chunks held)");
+
+            schedule(() =>
+            {
+                if (canceled)
+                    return;
+
+                resume();
+            }, delay);
+
+            return true;
+        }
+
         private void reportProgress()
         {
             int done = totalChunks - pending.Count + pendingCursor;
+
+            if (done > HeldChunks)
+            {
+                HeldChunks = done;
+
+                // the origin is demonstrably back and taking bytes, so the gateway ladder starts over.
+                // Tied to progress rather than to any successful request, because a status GET can
+                // succeed against a server that is up but refusing writes.
+                gatewayRounds = 0;
+            }
+
             OnProgress?.Invoke(done, totalChunks);
         }
 

@@ -116,6 +116,12 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// </remarks>
         private Exception? lastChunkedFailure;
 
+        /// <summary>
+        /// Chunked upload sessions already restarted for this submission, capped by
+        /// <see cref="UploadRetryPolicy.MAX_CHUNKED_RESUMES"/>.
+        /// </summary>
+        private int chunkedResumes;
+
         private int uploadAttempt;
         private ScheduledDelegate? uploadRetryDelegate;
         private bool exiting;
@@ -436,6 +442,7 @@ namespace typebeat.Game.Screens.Edit.Submission
             uploadRequestFactory = requestFactory;
             uploadSessionPayload = sessionPayload;
             lastChunkedFailure = null;
+            chunkedResumes = 0;
             uploadAttempt = 0;
             queueUploadAttempt();
         }
@@ -519,8 +526,9 @@ namespace typebeat.Game.Screens.Edit.Submission
 
         /// <summary>
         /// Switches the upload stage over to a chunked upload session after the direct upload failed in
-        /// transport. If the session flow fails in turn (an old server 404s the create route), the direct
-        /// retry ladder resumes where it left off, so behaviour degrades to what it was before this existed.
+        /// transport, and is also what a resume runs. If the session flow fails in turn with nothing held
+        /// server-side (an old server 404s the create route), the direct retry ladder resumes where it
+        /// left off, so behaviour degrades to what it was before this existed.
         /// </summary>
         private void beginChunkedUpload()
         {
@@ -530,8 +538,18 @@ namespace typebeat.Game.Screens.Edit.Submission
 
             uploadRetryDelegate?.Cancel();
 
-            log("Upload failed in transport; switching to a chunked upload session.");
-            uploadStep.SetRetrying("upload failed, switching to chunked upload");
+            if (chunkedResumes == 0)
+            {
+                log("Upload failed in transport; switching to a chunked upload session.");
+                uploadStep.SetRetrying("upload failed, switching to chunked upload");
+            }
+            else
+            {
+                // creation is idempotent on the payload's SHA-256, so this reattaches to the same session
+                // and re-sends only what the server is missing rather than starting the upload over.
+                log($"Reattaching to the chunked upload session (resume {chunkedResumes}/{UploadRetryPolicy.MAX_CHUNKED_RESUMES}).");
+                uploadStep.SetRetrying($"upload interrupted, resuming chunked upload ({chunkedResumes}/{UploadRetryPolicy.MAX_CHUNKED_RESUMES})");
+            }
 
             ChunkedPackageUpload upload = null!;
 
@@ -562,7 +580,10 @@ namespace typebeat.Game.Screens.Edit.Submission
                         return;
 
                     chunkedUpload = null;
-                    chunkedUploadFailed(exception);
+
+                    // snapshotted here, because the flow is the only thing that knows how much of the
+                    // payload actually landed and it is being dropped on this line.
+                    chunkedUploadFailed(exception, upload.HadProgress, upload.HeldChunks, upload.TotalChunkCount);
                 },
             };
 
@@ -590,36 +611,78 @@ namespace typebeat.Game.Screens.Edit.Submission
                 : directFailure.Message;
         }
 
-        private void chunkedUploadFailed(Exception exception)
+        /// <summary>
+        /// Decides what follows a chunked upload session that ended in failure.
+        /// </summary>
+        /// <remarks>
+        /// The decision itself is <see cref="UploadRetryPolicy.ActionAfterChunkedFailure"/>, which is pure
+        /// and pinned; this only carries it out. The one thing worth restating here is why the direct
+        /// ladder is no longer the universal answer: a session holding chunks that hands back to the
+        /// direct upload throws away every chunk that landed and re-sends the single large request that
+        /// the whole chunked protocol exists because this user cannot send. During a deploy that turned a
+        /// twenty second outage into a permanently failed submission.
+        /// </remarks>
+        private void chunkedUploadFailed(Exception exception, bool hadProgress, int heldChunks, int totalChunks)
         {
-            log($"Chunked upload failed: {exception}");
+            log($"Chunked upload failed with {heldChunks}/{totalChunks} chunks held: {exception}");
 
             lastChunkedFailure = exception;
 
-            // the direct ladder never spent its second attempt, so hand back to it rather than giving up:
-            // a server without the session routes has to end up exactly where it would have without them.
-            // the failure that got here was already judged retryable, so only the cap and the exit gate remain.
-            if (exiting || uploadAttempt >= UploadRetryPolicy.MAX_ATTEMPTS)
+            if (exiting)
             {
                 uploadStep.SetFailed(exception.Message);
                 allowExit();
                 return;
             }
 
-            int nextAttempt = uploadAttempt + 1;
-            double delay = UploadRetryPolicy.DelayBeforeAttempt(nextAttempt);
-
-            uploadStep.SetRetrying($"upload failed, retrying (attempt {nextAttempt}/{UploadRetryPolicy.MAX_ATTEMPTS})");
-            log($"Retrying direct upload in {delay / 1000:0.#}s");
-
-            uploadRetryDelegate?.Cancel();
-            uploadRetryDelegate = Scheduler.AddDelayed(() =>
+            switch (UploadRetryPolicy.ActionAfterChunkedFailure(chunkedResumes, hadProgress, uploadAttempt, exception))
             {
-                if (exiting)
-                    return;
+                case UploadRetryPolicy.ChunkedFailureAction.ResumeChunked:
+                {
+                    chunkedResumes++;
 
-                queueUploadAttempt();
-            }, delay);
+                    double resumeDelay = UploadRetryPolicy.DelayBeforeChunkedResume(chunkedResumes);
+
+                    log($"Resuming the chunked upload in {resumeDelay / 1000:0.#}s (resume {chunkedResumes}/{UploadRetryPolicy.MAX_CHUNKED_RESUMES})");
+                    uploadStep.SetRetrying($"upload interrupted, resuming chunked upload ({chunkedResumes}/{UploadRetryPolicy.MAX_CHUNKED_RESUMES})");
+
+                    uploadRetryDelegate?.Cancel();
+                    uploadRetryDelegate = Scheduler.AddDelayed(() =>
+                    {
+                        if (exiting)
+                            return;
+
+                        beginChunkedUpload();
+                    }, resumeDelay);
+                    return;
+                }
+
+                case UploadRetryPolicy.ChunkedFailureAction.FallBackToDirect:
+                {
+                    // nothing landed, so this is the old-server case: end up exactly where the submission
+                    // would have without the session routes existing at all.
+                    int nextAttempt = uploadAttempt + 1;
+                    double delay = UploadRetryPolicy.DelayBeforeAttempt(nextAttempt);
+
+                    uploadStep.SetRetrying($"upload failed, retrying (attempt {nextAttempt}/{UploadRetryPolicy.MAX_ATTEMPTS})");
+                    log($"Retrying direct upload in {delay / 1000:0.#}s");
+
+                    uploadRetryDelegate?.Cancel();
+                    uploadRetryDelegate = Scheduler.AddDelayed(() =>
+                    {
+                        if (exiting)
+                            return;
+
+                        queueUploadAttempt();
+                    }, delay);
+                    return;
+                }
+
+                default:
+                    uploadStep.SetFailed(exception.Message);
+                    allowExit();
+                    return;
+            }
         }
 
         private void uploadCompleted()
@@ -629,6 +692,7 @@ namespace typebeat.Game.Screens.Edit.Submission
             uploadSessionPayload = null;
             chunkedUpload = null;
             lastChunkedFailure = null;
+            chunkedResumes = 0;
             uploadRetryDelegate?.Cancel();
 
             uploadStep.SetCompleted();

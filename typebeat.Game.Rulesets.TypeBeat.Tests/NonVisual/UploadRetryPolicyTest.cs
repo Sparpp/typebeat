@@ -350,6 +350,320 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        /// <summary>
+        /// The two shapes a 502, 503 or 504 actually arrives in, built the way the real path builds them.
+        /// osu.Framework's <c>WebRequest</c> raises a non-success status as
+        /// <c>new WebException(response.StatusCode.ToString())</c>, with no <c>Response</c> attached, which
+        /// is the same seam <c>ModelDownloader</c> reads a rate limit off. It only becomes an
+        /// <see cref="APIException"/> when the body decodes, which a proxy's own error page does not do and
+        /// an app emitting its own JSON 503 on the way down does.
+        /// </summary>
+        [Test]
+        public void GatewayErrorsAreTransientInBothShapes()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new WebException(@"BadGateway")), Is.True);
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new WebException(@"ServiceUnavailable")), Is.True);
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new WebException(@"GatewayTimeout")), Is.True);
+
+                // the decoded shape, which used to be terminal for a chunk and for the completing request.
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new APIException("Bad Gateway", null, HttpStatusCode.BadGateway)), Is.True);
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new APIException("shutting down", new WebException(@"ServiceUnavailable"), HttpStatusCode.ServiceUnavailable)), Is.True);
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new APIException("upstream timed out", null, HttpStatusCode.GatewayTimeout)), Is.True);
+
+                // a message that is the number rather than the enum name, for anything not built by the framework.
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new WebException(@"502")), Is.True);
+
+                // and wrapped, since the wrapping depth is not something callers control.
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new AggregateException(new WebException(@"BadGateway"))), Is.True);
+            });
+        }
+
+        [Test]
+        public void NonGatewayFailuresAreNotGatewayTransient()
+        {
+            Assert.Multiple(() =>
+            {
+                // a genuine verdict from the origin stays terminal, which is the whole point of separating
+                // the two: 404 is the old-server create, 422 is a package the server refuses.
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new APIException("no such route", null, HttpStatusCode.NotFound)), Is.False);
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new APIException("beatmap is too large", null, HttpStatusCode.UnprocessableEntity)), Is.False);
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new WebException(@"NotFound")), Is.False);
+
+                // an outer verdict wins over an inner gateway message, so a decoded 404 stays a 404.
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(
+                    new APIException("no such route", new WebException(@"BadGateway"), HttpStatusCode.NotFound)), Is.False);
+
+                // the failures the fast ladders exist for are not gateway failures.
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new WebException("Request timed out after 30 seconds idle", WebExceptionStatus.Timeout)), Is.False);
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new HttpRequestException("Error while copying content to a stream.")), Is.False);
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new IOException("The response ended prematurely.")), Is.False);
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new APIAccess.WebRequestFlushedException(APIState.Failing)), Is.False);
+
+                // and the cancel path wins over everything, as it does in every predicate here.
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new OperationCanceledException("cancelled", new WebException(@"BadGateway"))), Is.False);
+
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(null), Is.False);
+                Assert.That(UploadRetryPolicy.IsGatewayTransient(new InvalidOperationException("nope")), Is.False);
+            });
+        }
+
+        /// <summary>
+        /// The ladder's job is to outlast a restart, so the number that matters is the span from the first
+        /// 5xx to the last try: 5s + 15s + 45s + 45s = 110s. The deploy that motivated this answered 502
+        /// and 504 for roughly 20 seconds.
+        /// </summary>
+        [Test]
+        public void GatewayLadderOutlastsARestart()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.MAX_GATEWAY_ROUNDS, Is.EqualTo(5));
+
+                Assert.That(UploadRetryPolicy.DelayBeforeGatewayRound(1), Is.EqualTo(0));
+                Assert.That(UploadRetryPolicy.DelayBeforeGatewayRound(2), Is.EqualTo(5000));
+                Assert.That(UploadRetryPolicy.DelayBeforeGatewayRound(3), Is.EqualTo(15000));
+                Assert.That(UploadRetryPolicy.DelayBeforeGatewayRound(4), Is.EqualTo(45000));
+                Assert.That(UploadRetryPolicy.DelayBeforeGatewayRound(5), Is.EqualTo(45000));
+
+                // clamped past the table, the same way every other ladder here is.
+                Assert.That(UploadRetryPolicy.DelayBeforeGatewayRound(6), Is.EqualTo(45000));
+
+                double covered = 0;
+
+                for (int round = 2; round <= UploadRetryPolicy.MAX_GATEWAY_ROUNDS; round++)
+                    covered += UploadRetryPolicy.DelayBeforeGatewayRound(round);
+
+                Assert.That(covered, Is.EqualTo(110000));
+
+                // the observed restart window, with a wide margin over it.
+                Assert.That(covered, Is.GreaterThan(5 * 20000));
+
+                // and it has to be far slower than the transport ladders, which wait for a request rather
+                // than for a process.
+                Assert.That(UploadRetryPolicy.DelayBeforeGatewayRound(2), Is.GreaterThan(UploadRetryPolicy.DelayBeforeChunkAttempt(3)));
+            });
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => UploadRetryPolicy.DelayBeforeGatewayRound(0));
+        }
+
+        /// <summary>
+        /// Drives the loop <c>ChunkedPackageUpload.deferForGateway</c> runs, to pin the whole sequence a
+        /// server that never comes back produces.
+        /// </summary>
+        [Test]
+        public void PersistentGatewayOutageRunsFiveRounds()
+        {
+            var delays = new List<double>();
+            int rounds = 0;
+            var failure = new WebException(@"BadGateway");
+
+            while (true)
+            {
+                rounds++;
+
+                if (!UploadRetryPolicy.ShouldRetryGatewayAfter(rounds, failure))
+                    break;
+
+                delays.Add(UploadRetryPolicy.DelayBeforeGatewayRound(rounds + 1));
+            }
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(rounds, Is.EqualTo(5));
+                Assert.That(delays, Is.EqualTo(new[] { 5000d, 15000d, 45000d, 45000d }));
+
+                // a non-gateway failure never enters the ladder at all.
+                Assert.That(UploadRetryPolicy.ShouldRetryGatewayAfter(1, new HttpRequestException("aborted")), Is.False);
+                Assert.That(UploadRetryPolicy.ShouldRetryGatewayAfter(1, new APIException("no such route", null, HttpStatusCode.NotFound)), Is.False);
+            });
+        }
+
+        [Test]
+        public void GatewayRoundHandsItsAttemptBack()
+        {
+            var gateway = new WebException(@"GatewayTimeout");
+            var decodedGateway = new APIException("Bad Gateway", null, HttpStatusCode.BadGateway);
+            var timeout = new WebException("Request timed out after 30 seconds idle", WebExceptionStatus.Timeout);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.AttemptsAfterGatewayRound(1, gateway), Is.EqualTo(0));
+                Assert.That(UploadRetryPolicy.AttemptsAfterGatewayRound(3, gateway), Is.EqualTo(2));
+                Assert.That(UploadRetryPolicy.AttemptsAfterGatewayRound(1, decodedGateway), Is.EqualTo(0));
+
+                // never below zero, so a gateway answer to a request that was never counted is harmless.
+                Assert.That(UploadRetryPolicy.AttemptsAfterGatewayRound(0, gateway), Is.EqualTo(0));
+
+                // everything else keeps spending the cap exactly as it did.
+                Assert.That(UploadRetryPolicy.AttemptsAfterGatewayRound(2, timeout), Is.EqualTo(2));
+                Assert.That(UploadRetryPolicy.AttemptsAfterGatewayRound(2, new HttpRequestException("aborted")), Is.EqualTo(2));
+                Assert.That(UploadRetryPolicy.AttemptsAfterGatewayRound(2, new APIException("chunk hash mismatch", null, HttpStatusCode.BadRequest)), Is.EqualTo(2));
+                Assert.That(UploadRetryPolicy.AttemptsAfterGatewayRound(2, null), Is.EqualTo(2));
+            });
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => UploadRetryPolicy.AttemptsAfterGatewayRound(-1, gateway));
+        }
+
+        /// <summary>
+        /// The failure the field case actually produced: a deploy lands mid-session and every request in
+        /// the window is answered 502. Drives the accounting <c>chunkFailed</c> does, to pin that no number
+        /// of gateway rounds moves the per-index chunk cap, and that a real chunk failure afterwards still
+        /// gets its full three attempts.
+        /// </summary>
+        [Test]
+        public void GatewayRoundsDoNotSpendTheChunkCap()
+        {
+            var gateway = new WebException(@"BadGateway");
+            int chunkAttempts = 0;
+
+            for (int round = 0; round < 20; round++)
+            {
+                // uploadNextChunk() counts the attempt, then the failure hands it back.
+                chunkAttempts++;
+                chunkAttempts = UploadRetryPolicy.AttemptsAfterGatewayRound(chunkAttempts, gateway);
+            }
+
+            Assert.That(chunkAttempts, Is.EqualTo(0), "gateway rounds must not spend the per-index cap");
+
+            var transport = new WebException("Request timed out after 30 seconds idle", WebExceptionStatus.Timeout);
+            int transportAttempts = 0;
+
+            while (true)
+            {
+                transportAttempts++;
+                transportAttempts = UploadRetryPolicy.AttemptsAfterGatewayRound(transportAttempts, transport);
+
+                if (!UploadRetryPolicy.ShouldRetryChunkAfter(transportAttempts, transport))
+                    break;
+            }
+
+            Assert.That(transportAttempts, Is.EqualTo(UploadRetryPolicy.MAX_ATTEMPTS), "a real chunk failure still ends at the cap");
+        }
+
+        [Test]
+        public void ChunkedResumeScheduleGapsTheLadders()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.MAX_CHUNKED_RESUMES, Is.EqualTo(3));
+
+                Assert.That(UploadRetryPolicy.DelayBeforeChunkedResume(1), Is.EqualTo(5000));
+                Assert.That(UploadRetryPolicy.DelayBeforeChunkedResume(2), Is.EqualTo(15000));
+                Assert.That(UploadRetryPolicy.DelayBeforeChunkedResume(3), Is.EqualTo(30000));
+                Assert.That(UploadRetryPolicy.DelayBeforeChunkedResume(4), Is.EqualTo(30000));
+
+                // total outage a submission with chunks already in survives: one gateway ladder per session
+                // attempt (the first plus three resumes) plus the gaps between them.
+                double ladder = 0;
+
+                for (int round = 2; round <= UploadRetryPolicy.MAX_GATEWAY_ROUNDS; round++)
+                    ladder += UploadRetryPolicy.DelayBeforeGatewayRound(round);
+
+                double gaps = 0;
+
+                for (int resume = 1; resume <= UploadRetryPolicy.MAX_CHUNKED_RESUMES; resume++)
+                    gaps += UploadRetryPolicy.DelayBeforeChunkedResume(resume);
+
+                Assert.That(gaps, Is.EqualTo(50000));
+                Assert.That((UploadRetryPolicy.MAX_CHUNKED_RESUMES + 1) * ladder + gaps, Is.EqualTo(490000));
+            });
+
+            Assert.Throws<ArgumentOutOfRangeException>(() => UploadRetryPolicy.DelayBeforeChunkedResume(0));
+        }
+
+        /// <summary>
+        /// The decision the submission screen makes when a chunked session fails. The rule the field case
+        /// broke on: a session holding chunks must never hand back to the direct upload, because the direct
+        /// request is exactly what the chunked protocol exists to avoid sending.
+        /// </summary>
+        [Test]
+        public void SessionHoldingChunksResumesRatherThanFallingBack()
+        {
+            var gateway = new WebException(@"BadGateway");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.ActionAfterChunkedFailure(0, true, 1, gateway), Is.EqualTo(UploadRetryPolicy.ChunkedFailureAction.ResumeChunked));
+                Assert.That(UploadRetryPolicy.ActionAfterChunkedFailure(2, true, 1, gateway), Is.EqualTo(UploadRetryPolicy.ChunkedFailureAction.ResumeChunked));
+
+                // bounded: after the last resume the chunked failure is what the user is shown.
+                Assert.That(UploadRetryPolicy.ActionAfterChunkedFailure(3, true, 1, gateway), Is.EqualTo(UploadRetryPolicy.ChunkedFailureAction.GiveUp));
+
+                // and it holds for a non-gateway failure too, because the direct request is no more
+                // sendable for a black-holed connection than it is for a restarting server.
+                Assert.That(UploadRetryPolicy.ActionAfterChunkedFailure(0, true, 1, new WebException("Request timed out after 30 seconds idle", WebExceptionStatus.Timeout)),
+                    Is.EqualTo(UploadRetryPolicy.ChunkedFailureAction.ResumeChunked));
+                Assert.That(UploadRetryPolicy.ActionAfterChunkedFailure(0, true, 1, new HttpRequestException("aborted")),
+                    Is.EqualTo(UploadRetryPolicy.ChunkedFailureAction.ResumeChunked));
+
+                // a session that got chunks in never reaches the direct ladder, whatever the attempt count.
+                Assert.That(UploadRetryPolicy.ActionAfterChunkedFailure(0, true, 1, gateway), Is.Not.EqualTo(UploadRetryPolicy.ChunkedFailureAction.FallBackToDirect));
+                Assert.That(UploadRetryPolicy.ActionAfterChunkedFailure(3, true, 1, gateway), Is.Not.EqualTo(UploadRetryPolicy.ChunkedFailureAction.FallBackToDirect));
+            });
+        }
+
+        [Test]
+        public void GatewayFailureResumesEvenWithNothingHeld()
+        {
+            // a create that 502s says nothing except that the server is not up yet, and the direct upload
+            // would meet the same edge, so there is nothing to fall back to.
+            var gateway = new APIException("Bad Gateway", null, HttpStatusCode.BadGateway);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.ActionAfterChunkedFailure(0, false, 1, gateway), Is.EqualTo(UploadRetryPolicy.ChunkedFailureAction.ResumeChunked));
+                Assert.That(UploadRetryPolicy.ActionAfterChunkedFailure(3, false, 1, gateway), Is.EqualTo(UploadRetryPolicy.ChunkedFailureAction.GiveUp));
+            });
+        }
+
+        /// <summary>
+        /// The degradation backlog 195 shipped has to survive: a server predating the session routes 404s
+        /// the create, nothing is held, and the submission ends up exactly where it would have without the
+        /// chunked fallback existing at all.
+        /// </summary>
+        [Test]
+        public void OldServerWithNoProgressStillFallsBackToDirect()
+        {
+            var createNotFound = new APIException("Not Found", new WebException(@"NotFound"), HttpStatusCode.NotFound);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.ActionAfterChunkedFailure(0, false, 1, createNotFound), Is.EqualTo(UploadRetryPolicy.ChunkedFailureAction.FallBackToDirect));
+
+                // the resume count does not gate this arm: it is not a resume.
+                Assert.That(UploadRetryPolicy.ActionAfterChunkedFailure(3, false, 1, createNotFound), Is.EqualTo(UploadRetryPolicy.ChunkedFailureAction.FallBackToDirect));
+
+                // the direct ladder's own cap still ends it.
+                Assert.That(UploadRetryPolicy.ActionAfterChunkedFailure(0, false, UploadRetryPolicy.MAX_ATTEMPTS, createNotFound), Is.EqualTo(UploadRetryPolicy.ChunkedFailureAction.GiveUp));
+
+                // a slicing disagreement with no chunks in falls back the same way it always did.
+                Assert.That(UploadRetryPolicy.ActionAfterChunkedFailure(0, false, 1, new InvalidOperationException("Upload session chunk count disagrees")),
+                    Is.EqualTo(UploadRetryPolicy.ChunkedFailureAction.FallBackToDirect));
+            });
+        }
+
+        [Test]
+        public void ServerVerdictOnHeldChunksGivesUpImmediately()
+        {
+            // the origin answered about these exact bytes, and a resumed session asks the same question of
+            // the same payload, so resuming would only delay the message by several minutes.
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.ActionAfterChunkedFailure(0, true, 1, new APIException("beatmap is too large", null, HttpStatusCode.UnprocessableEntity)),
+                    Is.EqualTo(UploadRetryPolicy.ChunkedFailureAction.GiveUp));
+                Assert.That(UploadRetryPolicy.ActionAfterChunkedFailure(0, true, 1, new APIException("chunk hash mismatch", null, HttpStatusCode.BadRequest)),
+                    Is.EqualTo(UploadRetryPolicy.ChunkedFailureAction.GiveUp));
+            });
+
+            Assert.Multiple(() =>
+            {
+                Assert.Throws<ArgumentOutOfRangeException>(() => UploadRetryPolicy.ActionAfterChunkedFailure(-1, true, 1, null));
+                Assert.Throws<ArgumentOutOfRangeException>(() => UploadRetryPolicy.ActionAfterChunkedFailure(0, true, -1, null));
+            });
+        }
+
         [Test]
         public void TransportFailureOnLaterAttemptStillStopsAtTheCap()
         {
