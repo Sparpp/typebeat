@@ -78,18 +78,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         public static bool IsFreestyle(char c) => c == FREESTYLE_MARKER;
 
         /// <summary>
-        /// The punctuation type!beat supports inside an authored lyric line, defined ONCE here:
-        /// comma, period, apostrophe, hyphen, question mark, exclamation mark, semicolon, colon,
-        /// round brackets, square brackets, straight double quote. Nothing else may carry its own
-        /// list.
+        /// The punctuation type!beat supports inside an authored lyric line, defined ONCE here, twenty
+        /// marks: comma, period, apostrophe, hyphen, question mark, exclamation mark, semicolon,
+        /// colon, round brackets, square brackets, straight double quote, and (added by backlog 202)
+        /// dollar, percent, caret, asterisk, angle brackets, forward slash. Nothing else may carry
+        /// its own list.
         ///
         /// <para>A map stores the AUTHOR'S form: punctuated and case-sensitive. What the player
         /// actually types (and therefore sees) is derived from it: verbatim under the LITERATE mod,
         /// and through <see cref="ToDefaultStream"/> otherwise. <see cref="Normalize"/> folds the
         /// typographic variants (curly quotes/apostrophes, en/em dashes) into this set on the way
         /// in, so only these ASCII forms ever reach a map.</para>
+        ///
+        /// <para>The literal is MIRRORED in the server repo
+        /// (<c>src/Typebeat.Web/Packages/Lyrics/Typeability.cs</c>) and must stay byte-identical
+        /// to it: the two normalizers decide what text a map stores, and a divergence stores
+        /// different lyrics on the two sides of an import.</para>
         /// </summary>
-        public const string PUNCTUATION = ",.'-?!;:()[]\"";
+        public const string PUNCTUATION = ",.'-?!;:()[]\"$%^*<>/";
 
         /// <summary>
         /// The one supported mark that reads as a WORD BREAK rather than as decoration: without

@@ -41,7 +41,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// under the Literate mod (<see cref="TypingEngine.Literate"/>), which is the only mode where a
     /// mark is a cell the player must produce. Keeping it off by default is what preserves two
     /// existing properties exactly: a habitual comma stays inert (never a wrong-key combo break),
-    /// and Shift+digit still yields the digit rather than '!' / '(' / ')'.</para>
+    /// and Shift+digit still yields the digit rather than the mark above it ('!', '$', '(', ')').</para>
     /// </summary>
     public static class KeyCharMap
     {
@@ -71,9 +71,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>
-        /// The supported punctuation marks, by their US-QWERTY physical positions. Only the marks
-        /// in <see cref="Beatmaps.Typeability.PUNCTUATION"/> are produced: Slash unshifted would be
-        /// '/', which is not in the set, so it stays inert and only Shift+Slash ('?') is live.
+        /// The supported punctuation marks, by their US-QWERTY physical positions. Every mark in
+        /// <see cref="Beatmaps.Typeability.PUNCTUATION"/> is reachable and nothing else is produced:
+        /// a key position with no mark on either of its two US-QWERTY legends stays inert.
+        /// Keypads are deliberately not covered (no KeypadMultiply for '*', no KeypadDivide for
+        /// '/'), matching the top-row-only convention the table has always followed.
         ///
         /// <para>KNOWN LIMIT: unlike the letter map above, this is not remapped per layout, because
         /// punctuation positions differ far more widely across layouts than letters do. The one
@@ -94,15 +96,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             c = key switch
             {
-                Key.Comma => shift ? default : ',',
-                Key.Period => shift ? default : '.',
+                Key.Comma => shift ? '<' : ',',
+                Key.Period => shift ? '>' : '.',
                 Key.Quote => shift ? '"' : '\'',
                 Key.Minus => shift ? default : '-',
-                Key.Slash => shift ? '?' : default, // unshifted '/' is not a supported mark
+                Key.Slash => shift ? '?' : '/',
                 Key.Semicolon => shift ? ':' : ';',
                 Key.BracketLeft => shift ? default : '[',
                 Key.BracketRight => shift ? default : ']',
                 Key.Number1 => shift ? '!' : default,
+                Key.Number4 => shift ? '$' : default,
+                Key.Number5 => shift ? '%' : default,
+                Key.Number6 => shift ? '^' : default,
+                Key.Number8 => shift ? '*' : default,
                 Key.Number9 => shift ? '(' : default,
                 Key.Number0 => shift ? ')' : default,
                 _ => default

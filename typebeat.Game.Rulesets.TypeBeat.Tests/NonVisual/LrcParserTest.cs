@@ -175,7 +175,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(Typeability.ToDefaultStream(punct[0].RawText), Is.EqualTo("its his half cut voice through my lips"));
 
             // Unsupported chars still vanish outright, before the derivation ever sees them.
-            var unsupported = LrcParser.Parse("[00:01.00] a*b #c\n");
+            // ('*' was one of these until backlog 202 made it a supported mark.)
+            var unsupported = LrcParser.Parse("[00:01.00] a~b #c\n");
             Assert.That(unsupported[0].RawText, Is.EqualTo("ab c"));
 
             // The real file carries nothing but typeable chars and supported marks.

@@ -96,8 +96,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // A char outside the supported set survives as a non-typeable cell, and THAT is what
             // still rides along inside a lit run without spending its budget: the same letters are
             // lit and the mark, sitting strictly between two lit chars, stays lit with them.
-            assertWindow(window("abc*def", caretCellIndex: 4, radius: 2),
-                /* a */ 0f, /* b */ soft, /* c */ 1f, /* * */ 1f, /* d */ 1f, /* e */ soft, /* f */ 0f);
+            // ('~' stands in for any unsupported char; '*' played this part until backlog 202 made
+            // it a supported mark, which puts it on the comma line above instead.)
+            assertWindow(window("abc~def", caretCellIndex: 4, radius: 2),
+                /* a */ 0f, /* b */ soft, /* c */ 1f, /* ~ */ 1f, /* d */ 1f, /* e */ soft, /* f */ 0f);
         }
 
         [Test]

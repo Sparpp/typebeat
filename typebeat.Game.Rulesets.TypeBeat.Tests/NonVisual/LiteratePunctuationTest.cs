@@ -43,9 +43,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void TheSupportedSetIsExactlyTheDocumentedThirteenMarks()
+        public void TheSupportedSetIsExactlyTheDocumentedTwentyMarks()
         {
-            Assert.AreEqual(",.'-?!;:()[]\"", Typeability.PUNCTUATION);
+            Assert.AreEqual(",.'-?!;:()[]\"$%^*<>/", Typeability.PUNCTUATION);
+            Assert.AreEqual(20, Typeability.PUNCTUATION.Length);
+            Assert.AreEqual(20, Typeability.PUNCTUATION.Distinct().Count(), "no mark may be listed twice");
 
             foreach (char c in Typeability.PUNCTUATION)
             {
@@ -55,9 +57,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.IsFalse(Typeability.IsTypeable(c), $"'{c}' must not count as a plain typeable char");
             }
 
-            // Neighbours that are deliberately OUT: the freestyle marker, the slash, the asterisk,
-            // the underscore, the backtick.
-            foreach (char c in "&/*_`#@$%^+=<>|~\\")
+            // Neighbours that are deliberately OUT: the freestyle marker, the split marker, the
+            // underscore, the backtick, the hash, the at sign, plus/equals, tilde, backslash.
+            // Backlog 202 moved '$', '%', '^', '*', '<', '>' and '/' out of this list and into the
+            // supported set above.
+            foreach (char c in "&_`#@+=|~\\")
                 Assert.IsFalse(Typeability.IsPunctuation(c), $"'{c}' must not be a supported mark");
         }
 
@@ -65,17 +69,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void NormalizeKeepsEveryMarkAndFoldsTheTypographicVariants()
         {
             // Every supported mark survives, in one line, exactly once.
-            Assert.AreEqual("a,b.c'd-e?f!g;h:i(j)k[l]m\"n",
-                Typeability.Normalize("a,b.c'd-e?f!g;h:i(j)k[l]m\"n"));
+            Assert.AreEqual("a,b.c'd-e?f!g;h:i(j)k[l]m\"n$o%p^q*r<s>t/u",
+                Typeability.Normalize("a,b.c'd-e?f!g;h:i(j)k[l]m\"n$o%p^q*r<s>t/u"));
 
             // Curly quotes/apostrophes and en/em/horizontal dashes and the minus sign all fold into
             // the ASCII forms, so only the supported set can ever reach a map.
             Assert.AreEqual("'''' \"\"\"\" ----", Typeability.Normalize("‘’‚′ “”„″ –—―−"));
 
+            // The asterisk and the slash are supported since backlog 202, so they now survive.
+            Assert.AreEqual("a*b", Typeability.Normalize("a*b"));
+            Assert.AreEqual("a/b", Typeability.Normalize("a/b"));
+
             // Unsupported punctuation is still dropped outright, before anything else sees it.
-            Assert.AreEqual("ab", Typeability.Normalize("a*b"));
-            Assert.AreEqual("ab", Typeability.Normalize("a/b"));
             Assert.AreEqual("ab", Typeability.Normalize("a&b"));
+            Assert.AreEqual("ab", Typeability.Normalize("a_b"));
+            Assert.AreEqual("ab", Typeability.Normalize("a#b"));
 
             // Diacritics still strip first, so a mark next to an accent is unaffected.
             Assert.AreEqual("Hello, world!", Typeability.Normalize("Héllo,  wörld!"));
@@ -116,6 +124,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual("ab", Typeability.ToDefaultStream("a[b"));
             Assert.AreEqual("ab", Typeability.ToDefaultStream("a]b"));
             Assert.AreEqual("ab", Typeability.ToDefaultStream("a\"b"));
+
+            // The seven marks backlog 202 added disappear exactly like the rest of them: only the
+            // hyphen is special, and nothing about the default stream moved for them.
+            Assert.AreEqual("ab", Typeability.ToDefaultStream("a$b"));
+            Assert.AreEqual("ab", Typeability.ToDefaultStream("a%b"));
+            Assert.AreEqual("ab", Typeability.ToDefaultStream("a^b"));
+            Assert.AreEqual("ab", Typeability.ToDefaultStream("a*b"));
+            Assert.AreEqual("ab", Typeability.ToDefaultStream("a<b"));
+            Assert.AreEqual("ab", Typeability.ToDefaultStream("a>b"));
+            Assert.AreEqual("ab", Typeability.ToDefaultStream("a/b"));
 
             // The hyphen alone is a WORD BREAK.
             Assert.AreEqual("a b", Typeability.ToDefaultStream("a-b"));
@@ -331,9 +349,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsFalse(KeyCharMap.TryMap(Key.Period, KeyboardLayout.Qwerty, false, out _));
             Assert.IsFalse(KeyCharMap.TryMap(Key.Quote, KeyboardLayout.Qwerty, true, out _));
 
+            Assert.IsFalse(KeyCharMap.TryMap(Key.Slash, KeyboardLayout.Qwerty, false, out _));
+            Assert.IsFalse(KeyCharMap.TryMap(Key.Comma, KeyboardLayout.Qwerty, true, out _));
+            Assert.IsFalse(KeyCharMap.TryMap(Key.Period, KeyboardLayout.Qwerty, true, out _));
+
             // ...and Shift+digit still produces the DIGIT, not the mark above it.
             Assert.IsTrue(KeyCharMap.TryMap(Key.Number1, KeyboardLayout.Qwerty, true, out char one));
             Assert.AreEqual('1', one);
+
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Number4, KeyboardLayout.Qwerty, true, out char four));
+            Assert.AreEqual('4', four);
+
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Number8, KeyboardLayout.Qwerty, true, out char eight));
+            Assert.AreEqual('8', eight);
 
             // On: every supported mark is reachable.
             var expected = new Dictionary<(Key, bool), char>
@@ -344,6 +372,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 [(Key.Quote, true)] = '"',
                 [(Key.Minus, false)] = '-',
                 [(Key.Slash, true)] = '?',
+                [(Key.Slash, false)] = '/',
                 [(Key.Number1, true)] = '!',
                 [(Key.Semicolon, false)] = ';',
                 [(Key.Semicolon, true)] = ':',
@@ -351,6 +380,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 [(Key.Number0, true)] = ')',
                 [(Key.BracketLeft, false)] = '[',
                 [(Key.BracketRight, false)] = ']',
+                [(Key.Number4, true)] = '$',
+                [(Key.Number5, true)] = '%',
+                [(Key.Number6, true)] = '^',
+                [(Key.Number8, true)] = '*',
+                [(Key.Comma, true)] = '<',
+                [(Key.Period, true)] = '>',
             };
 
             foreach (var ((key, shift), mark) in expected)
@@ -362,8 +397,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // The whole supported set is covered by the map, with nothing left untypeable.
             Assert.AreEqual(Typeability.PUNCTUATION.OrderBy(c => c).ToArray(), expected.Values.OrderBy(c => c).ToArray());
 
-            // An unshifted slash would be '/', which is not a supported mark, so it stays inert.
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Slash, KeyboardLayout.Qwerty, false, true, out _));
+            // The unshifted slash is '/', a supported mark since backlog 202, so the key is live
+            // under the mod (and, per the assert at the top of this test, still inert without it).
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Slash, KeyboardLayout.Qwerty, false, true, out char slash));
+            Assert.AreEqual('/', slash);
+            Assert.IsFalse(KeyCharMap.TryMap(Key.Slash, KeyboardLayout.Qwerty, false, out _));
+
+            // Keys with no mark on either legend stay inert even under the mod.
+            Assert.IsFalse(KeyCharMap.TryMap(Key.Minus, KeyboardLayout.Qwerty, true, true, out _));
+            Assert.IsFalse(KeyCharMap.TryMap(Key.BracketLeft, KeyboardLayout.Qwerty, true, true, out _));
 
             // Letters are untouched by the wider surface.
             Assert.IsTrue(KeyCharMap.TryMap(Key.A, KeyboardLayout.Qwerty, true, true, out char shifted));
