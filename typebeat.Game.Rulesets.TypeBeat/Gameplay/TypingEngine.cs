@@ -85,6 +85,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public WordSkipRule WordSkip { get; set; } = WordSkipRule.Reclaimable;
 
         /// <summary>
+        /// What an OFF-TIME press costs: the right character struck outside the outermost Meh
+        /// window, judged <see cref="JudgementType.Premature"/> or <see cref="JudgementType.Lagging"/>.
+        /// <see cref="OffTimeRule.MehHit"/> is the live rule (backlog 199) and the default: the press
+        /// earns no points but EXTENDS the run, and only accuracy pays. Only
+        /// <see cref="Scoring.TypeBeatReplayScorer"/> ever sets the other one, to re-derive a score
+        /// from when such a press broke the combo. Set BEFORE the first keypress and left alone
+        /// afterwards, exactly like <see cref="ComboRestore"/>: combo already awarded is never
+        /// revisited.
+        /// </summary>
+        public OffTimeRule OffTime { get; set; } = OffTimeRule.MehHit;
+
+        /// <summary>
         /// THE live judgement rule (backlog 174, graduated by backlog 179, narrowed by backlog 180
         /// to every mod stack except Hard Rock): judge each keypress
         /// against its cell's SYLLABLE time span instead of the cell's point target. Characters
@@ -657,10 +669,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// outstanding, because a combo break TAKES OWNERSHIP OF THE STREAK IF IT HAS A STREAK TO
         /// OWN, and discards whatever claim was outstanding when it does: an intervening break is a
         /// run the player has already lost, and going back to fix the older cell cannot un-lose it.
-        /// That covers a sealed line's misses, a Premature/Lagging press, a rejected key, Fletcher's
-        /// rush cap, and a wrong keypress or skip on another cell. Repeated wrong/fix cycles on ONE
-        /// cell therefore break and restore each time, each cycle snapshotting whatever the run had
-        /// grown back to.</para>
+        /// That covers a sealed line's misses, a rejected key, Fletcher's rush cap, and a wrong
+        /// keypress or skip on another cell. An off-time press is NOT in that list since backlog 199
+        /// (see <see cref="OffTime"/>): it is a hit now, it breaks nothing, and only a break discards
+        /// a claim, so fumbling the beat between a typo and its fix no longer costs the fix its
+        /// restore. It rejoins the list under <see cref="OffTimeRule.BreaksCombo"/>, the pre-199 era.
+        /// Repeated wrong/fix cycles on ONE cell therefore break and restore each time, each cycle
+        /// snapshotting whatever the run had grown back to.</para>
         ///
         /// <para>The "if it has a streak to own" is backlog 176, and it is the whole of the
         /// difference from the rule as backlog 140 shipped it. A break landing while the run is
@@ -1679,35 +1694,59 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     // Multiplier reads combo BEFORE the increment; capped at combo_cap => up to 2.0x.
                     points = (int)Math.Round(basePoints * (1 + Math.Min(combo, combo_cap) / (double)combo_cap));
                     score += points;
+                }
 
-                    if (rushedPastCap)
-                    {
-                        // A combo penalty, not a block: the char lands and scores exactly as it would
-                        // without the mod, but no combo may accumulate while the caret is out past the
-                        // cap. ComboBroken therefore fires once, on the press that crosses the line,
-                        // and re-arms the moment a press lands back inside it (combo starts building
-                        // again, so the next excursion breaks it again).
-                        bool hadCombo = combo > 0;
-                        combo = 0;
+                // Premature / Lagging (an OFF-TIME press: the right character, outside the outermost
+                // Meh window) earns nothing above, and since backlog 199 that is the whole of what it
+                // costs the score ladder. Whether it also costs the RUN is the OffTime era axis:
+                //
+                //   MehHit (live)      the press is a hit. It extends the combo like any other
+                //                      accepted character, raises no ComboBroken, and leaves an
+                //                      outstanding restorable claim alone, because only a BREAK
+                //                      discards one. Its cell resolves as an osu Meh
+                //                      (TypeBeatResultMapping.CellResult), so ACCURACY is the
+                //                      punishment and osu's combo follows the engine's without any
+                //                      hand-mirroring at the playfield seam.
+                //   BreaksCombo        the pre-199 rule every stored row was played under: the run is
+                //                      zeroed, the claim discarded, ComboBroken raised, and the cell
+                //                      takes an osu Miss that carries the break.
+                //
+                // A space can never reach either arm under the live space rule: an untimed space is
+                // judged on a zeroed delta and always takes the top tier (see SpaceTiming).
+                bool offTimeBreak = basePoints <= 0 && !TypeBeatResultMapping.OffTimePressIsAHit(OffTime);
 
-                        if (hadCombo)
-                        {
-                            discardRestorableStreak();
-                            raise(ComboBroken);
-                        }
-                    }
-                    else
+                if (offTimeBreak)
+                {
+                    combo = 0;
+                    discardRestorableStreak();
+                    raise(ComboBroken);
+                }
+                else if (rushedPastCap)
+                {
+                    // A combo penalty, not a block: the char lands and scores exactly as it would
+                    // without the mod, but no combo may accumulate while the caret is out past the
+                    // cap. ComboBroken therefore fires once, on the press that crosses the line,
+                    // and re-arms the moment a press lands back inside it (combo starts building
+                    // again, so the next excursion breaks it again).
+                    //
+                    // It reaches an off-time press too, under MehHit only, and that is the coherent
+                    // reading of both rules rather than an accident: the cap measures where the CARET
+                    // is, not how well the press was timed, so a press it would refuse combo for
+                    // cannot earn combo merely by also being mistimed. Under BreaksCombo the arm
+                    // above has already taken the break, exactly as it did pre-199.
+                    bool hadCombo = combo > 0;
+                    combo = 0;
+
+                    if (hadCombo)
                     {
-                        combo++;
-                        maxCombo = Math.Max(maxCombo, combo);
+                        discardRestorableStreak();
+                        raise(ComboBroken);
                     }
                 }
                 else
                 {
-                    // Premature / Lagging: 0 points, combo break, char still accepted.
-                    combo = 0;
-                    discardRestorableStreak();
-                    raise(ComboBroken);
+                    combo++;
+                    maxCombo = Math.Max(maxCombo, combo);
                 }
 
                 cell.State = CellState.Correct;

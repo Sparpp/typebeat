@@ -12,7 +12,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// Backlog 148: the SPACEBAR is out of the timing challenge. A space typed on a SPACE CELL is
     /// judged as though it landed dead on that cell's target, so it takes the top tier
     /// (<see cref="JudgementType.Great"/>, the top since backlog 147 dropped Perfect) whatever the
-    /// clock said, and can never fall into one of the two zero-point tiers that break combo. The
+    /// clock said, and can never fall into one of the two zero-point tiers. The
     /// word gap is where a typist's hands reset; it is not a note to hit.
     ///
     /// <para>The exemption is scoped to the CELL, not to the KEY, and half of this fixture is the
@@ -120,7 +120,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// The same press one cell later is NOT exempt: it is the spacebar that left the timing
         /// challenge, not the player's sense of rhythm. A lyric character pressed just as late is
-        /// still Lagging, still worth nothing, and still breaks the combo the space kept alive.
+        /// still Lagging and still worth nothing, which is the whole of what the exemption is
+        /// scoped away from.
+        ///
+        /// <para>What it no longer does is break the combo the space kept alive (backlog 199, see
+        /// <see cref="TypingEngine.OffTime"/>): an off-time press is a hit that pays in accuracy
+        /// alone. The classification is untouched, and the classification is what this fixture is
+        /// about, so the Lagging count is still the load-bearing assertion here.</para>
         /// </summary>
         [Test]
         public void ALyricCharacterPressedJustAsLateIsStillLagging()
@@ -137,7 +143,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var results = engine.BuildResults();
 
             Assert.AreEqual(1, results.Counts[JudgementType.Lagging]);
-            Assert.AreEqual(0, engine.Combo);
+            Assert.AreEqual(4, engine.Combo, "an off-time press earns nothing but no longer breaks the run");
             Assert.AreEqual(918, results.Score, "Lagging scores nothing, so the total is unmoved");
         }
 

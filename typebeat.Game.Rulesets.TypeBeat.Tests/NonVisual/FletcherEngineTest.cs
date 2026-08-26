@@ -381,13 +381,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, typing.CaretIndex);
 
             // 'c' at 1600 against a 10000 target: accepted, judged Premature on a -8400 delta, 0
-            // points, combo broken by the CLOCK. The rush cap is not what fires here: the caret is
-            // level with the playhead (both at 2 countable chars) and the press puts it 1 ahead.
+            // points. Since backlog 199 the CLOCK no longer breaks the run for that (the press is a
+            // hit worth no points, see TypingEngine.OffTime), so the combo carries on at 3. The rush
+            // cap is not what fires here either: the caret is level with the playhead (both at 2
+            // countable chars) and the press puts it 1 ahead, well inside the cap of 5.
             Assert.AreEqual(0, typing.CharsAheadOfPlayhead(1600));
             Assert.IsTrue(typing.ProcessKey('c', 1600));
             Assert.AreEqual(CellState.Correct, typing.Lines[1].Cells[0].State);
             Assert.AreEqual(-8400, typing.Lines[1].Cells[0].JudgedDelta);
-            Assert.AreEqual(0, typing.Combo);
+            Assert.AreEqual(3, typing.Combo);
             Assert.AreEqual(1, typing.BuildResults().Counts[JudgementType.Premature]);
 
             // Line 0 seals on its own normal deadline, with nothing missed: rushing moved the player,

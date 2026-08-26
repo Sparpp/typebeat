@@ -129,10 +129,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void ARightCharAtAWrongTimeIsNotAMistype()
         {
-            // TypingEngine's other no-miss combo break: the correct char struck outside the Ok
-            // window is ACCEPTED (0 points, combo broken) and judged Premature/Lagging, which the
-            // drawable already maps to an osu Miss, so it has always reached the score processor.
-            // Out of scope here, and it must stay out of the mistype count.
+            // The correct char struck outside the outermost Meh window is ACCEPTED (0 points) and
+            // judged Premature/Lagging. Since backlog 199 that is a HIT: it keeps the run and
+            // resolves as an osu Meh, so accuracy is the only thing it costs. Either way it is not a
+            // MISTYPE, which is the claim this fixture owns: the player pressed the right key.
             var engine = new TypingEngine(map());
 
             int mistypes = 0;
@@ -146,7 +146,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(mistypes, Is.Zero);
                 Assert.That(engine.Mistypes, Is.Zero);
                 Assert.That(engine.BuildResults().Counts[JudgementType.Lagging], Is.EqualTo(1));
-                Assert.That(engine.Combo, Is.Zero, "it is still a combo break, just not a mistype");
+                Assert.That(engine.Combo, Is.EqualTo(1), "not a mistype, and since backlog 199 not a break either");
             });
         }
 

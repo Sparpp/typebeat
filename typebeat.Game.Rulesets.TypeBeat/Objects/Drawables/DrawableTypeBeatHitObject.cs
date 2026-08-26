@@ -64,8 +64,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         /// Routes an engine char judgement to the matching nested cell drawable, through the
         /// shared <see cref="TypeBeatResultMapping.CellResult"/> (which is also what
         /// <see cref="Scoring.TypeBeatReplayScorer"/> re-derives a stored score with, so live play
-        /// and recalculation cannot drift). Live play is always <see cref="TypoRule.Deferred"/>;
-        /// nothing in gameplay may select the other rule.
+        /// and recalculation cannot drift). Live play is always <see cref="TypoRule.Deferred"/> and
+        /// always the mapping's default <see cref="Scoring.OffTimeRule.MehHit"/>; nothing in gameplay
+        /// may select either of the other rules.
+        ///
+        /// <para>An OFF-TIME press (the right character outside the outermost Meh window) resolves
+        /// as an ordinary <see cref="HitResult.Meh"/> since backlog 199, and it needs nothing else
+        /// here: the engine extends its own combo on such a press and a Meh extends osu's, so the
+        /// two counters stay level with no hand-mirroring at all. It is the one seam that got
+        /// SIMPLER, because before 199 the press broke both by different means.</para>
         ///
         /// <para>A <see cref="JudgementType.WrongChar"/> maps to NOTHING (backlog 109). A miss is a
         /// character the line ran out of time on; a typo is a typo, and in the default input model

@@ -380,6 +380,61 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// BACKLOG 199: an off-time press between a typo and its fix does NOT discard the claim.
+        /// Only a BREAK takes a claim away, and since 199 a right character struck outside the
+        /// windows is a hit rather than a break: it earns no points, but it keeps the run, raises no
+        /// <see cref="TypingEngine.ComboBroken"/>, and leaves the older cell redeemable.
+        ///
+        /// <para>Pinned against the pre-199 arm rather than alone, because that is what makes the
+        /// claim the load-bearing part: the same keystrokes under
+        /// <see cref="OffTimeRule.BreaksCombo"/> lose the snapshot on the mistimed press, so the fix
+        /// restores nothing at all and the player is charged twice for one fumble.</para>
+        /// </summary>
+        [Test]
+        public void AnOffTimePressBetweenATypoAndItsFixKeepsTheClaim()
+        {
+            (var live, var liveRestored) = typoThenAnOffTimePressThenTheFix(OffTimeRule.MehHit);
+            (var stored, var storedRestored) = typoThenAnOffTimePressThenTheFix(OffTimeRule.BreaksCombo);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(liveRestored, Is.EqualTo(new[] { 3 }), "the mistimed press took nothing away");
+                Assert.That(live.Combo, Is.EqualTo(6), "3 restored + the 2 earned since + the fix itself");
+
+                Assert.That(storedRestored, Is.Empty, "pre-199 the mistimed press was a break, and breaks discard");
+                Assert.That(stored.Combo, Is.EqualTo(2), "the 1 earned since + the fix itself");
+            });
+        }
+
+        /// <summary>
+        /// A streak of 3, a typo on cell 3 (snapshotting it), then cell 4 struck 2100 ms late, which
+        /// is off the Line-granularity ladder (MehLate 2000) and so Premature/Lagging, then cell 5
+        /// struck 1700 late, which is still inside it and therefore an ordinary Meh, then the fix.
+        /// The point of the pair is that only cell 4 changes meaning between the two arms.
+        /// </summary>
+        private static (TypingEngine engine, List<int> restored) typoThenAnOffTimePressThenTheFix(OffTimeRule offTime)
+        {
+            var engine = started();
+            engine.OffTime = offTime;
+
+            var restored = new List<int>();
+            engine.ComboRestored += restored.Add;
+
+            typeCorrectly(engine, 0, 3);
+            Assert.That(engine.Combo, Is.EqualTo(3));
+
+            typo(engine, 3); // snapshots the 3 against cell 3
+            Assert.That(engine.Combo, Is.Zero);
+
+            Assert.That(engine.ProcessKey(word[4], target(4) + 2100), Is.True); // off the ladder
+            Assert.That(engine.ProcessKey(word[5], target(5) + 1700), Is.True); // still on it: a Meh
+
+            fix(engine, 3);
+
+            return (engine, restored);
+        }
+
+        /// <summary>
         /// BACKLOG 176, and the shape a real submitted run took: score 6212 on "Joji - PIXELATED
         /// KISSES [Insane]", 447 combo deep into "if you never hear from me", where the player typed
         /// 'a' onto the 'm' cell and then 'm' onto the 'e' cell, backspaced twice and typed "me" out

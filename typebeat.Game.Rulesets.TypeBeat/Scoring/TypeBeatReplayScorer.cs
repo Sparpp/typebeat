@@ -77,6 +77,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// cannot take that break a second time, under <see cref="WordSkipRule.Reclaimable"/> only
     /// (<c>onWordAbandoned</c> / <c>onAbandonSealed</c>, backlog 167). <c>AbandonReclaimed</c> is
     /// deliberately not wired: it carries health alone, and health is not simulated.</item>
+    /// <item>An OFF-TIME press needs no seam at all under the live rule (backlog 199,
+    /// <see cref="OffTimeRule"/>): it raises no <c>Mistyped</c> and no <c>ComboBroken</c>, and the
+    /// <see cref="HitResult.Meh"/> its cell resolves with extends osu's combo by itself, exactly as
+    /// the engine extends its own. Nothing is mirrored by hand, so nothing can double-count.</item>
     /// </list>
     ///
     /// <para><b>What it does not do.</b> No health, so PASS/FAIL is not re-derived: a replay ends
@@ -138,6 +142,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// never earned. Reaches only a run that fumbled twice before correcting, but that is a
         /// max_combo difference wherever it lands, which is one of the quantities the
         /// recalculation tool reproduces.</param>
+        /// <param name="offTimeRule">What an off-time press (the right character, outside the
+        /// outermost Meh window) costs. Stored scores predating backlog 199 were played under
+        /// <see cref="OffTimeRule.BreaksCombo"/>, where such a press zeroed the run and resolved its
+        /// cell as a Miss. As wide an axis as <paramref name="spaceRule"/> and wider than the rest:
+        /// it reaches every row that ever fumbled a beat, and the two arms disagree on
+        /// <c>statistics</c>, on <c>max_combo</c>, on accuracy, on completion and on rank.</param>
         public static TypeBeatReplayAccount Score(
             IBeatmap playable,
             IReadOnlyList<Mod> mods,
@@ -147,7 +157,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             SpaceTimingRule spaceRule = SpaceTimingRule.Untimed,
             RateWindowRule rateRule = RateWindowRule.ScaledByRate,
             WordSkipRule skipRule = WordSkipRule.Reclaimable,
-            ComboClaimRule claimRule = ComboClaimRule.StreakedBreakWins)
+            ComboClaimRule claimRule = ComboClaimRule.StreakedBreakWins,
+            OffTimeRule offTimeRule = OffTimeRule.MehHit)
         {
             ArgumentNullException.ThrowIfNull(playable);
             ArgumentNullException.ThrowIfNull(replay);
@@ -188,6 +199,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // misses its cells at the keypress exactly as a pre-167 client did.
             engine.WordSkip = skipRule;
 
+            // Same shape a fourth time (backlog 199): what an off-time press costs the RUN is
+            // implemented in the engine's one keypress arm, so selecting it here is half of that era
+            // gate. The other half is the osu RESULT, which onCharJudged passes the same rule to,
+            // and the two have to be the same value or the engine's combo and the score processor's
+            // would part company. Passing one variable to both is what makes that structural.
+            engine.OffTime = offTimeRule;
+
             var ruleset = new TypeBeatRuleset();
 
             var scoreProcessor = new TypeBeatScoreProcessor(ruleset);
@@ -201,7 +219,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             void onCharJudged(CharJudgement judgement)
             {
-                if (TypeBeatResultMapping.CellResult(judgement.Type, rule) is HitResult result)
+                if (TypeBeatResultMapping.CellResult(judgement.Type, rule, offTimeRule) is HitResult result)
                     cells.Resolve(scoreProcessor, judgement.LineIndex, judgement.CellIndex, result);
 
                 if (engine.FletcherEnabled && judgement.ComboAfter == 0)

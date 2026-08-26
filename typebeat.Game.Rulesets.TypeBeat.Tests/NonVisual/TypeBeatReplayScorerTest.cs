@@ -14,6 +14,7 @@
 // TestSceneTypeBeatReplayRescore is the other half: it holds this harness against a real Player's
 // own score processor, so "the same numbers" is proven end to end rather than asserted here.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -631,6 +632,70 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // THE assertion: eleven, the run the player actually built. Twelve means the seal's
                 // hit was allowed to extend it.
                 Assert.That(account.MaxCombo, Is.EqualTo(11));
+            });
+        }
+
+        /// <summary>
+        /// Backlog 199 through the real score processor: one OFF-TIME press (the right character,
+        /// 5000 ms late, well outside the Meh window) in the middle of an otherwise clean run.
+        ///
+        /// <para>Under the live <see cref="OffTimeRule.MehHit"/> the press is a hit, so the run
+        /// carries straight through it to the full thirteen and the account reads as a complete play
+        /// that lost accuracy. Under <see cref="OffTimeRule.BreaksCombo"/>, the rule every stored row
+        /// was played on, the same keystream ends its run at the six characters before the press and
+        /// the cell is a Miss.</para>
+        ///
+        /// <para>The statistics blobs differ by exactly one entry, a Meh where the stored arm has a
+        /// Miss, which is the collision the rule accepts stated as a number: the submitted blob
+        /// cannot tell an off-time press from a press that landed just inside the Meh window, and the
+        /// twelve Greats and the thirteen judged cells are identical either way.</para>
+        /// </summary>
+        [Test]
+        public void AnOffTimePressKeepsTheRunUnderTheLiveRuleAndLosesItUnderTheStoredOne()
+        {
+            var map = beatmap();
+            var targets = lineZeroTargets(map);
+
+            var frames = new List<TypeBeatReplayFrame> { TypeBeatReplayFrame.CreateConfigFrame(0, true) };
+
+            // Every cell dead on target except cell 6, struck 5000 ms late: Line-granularity MehLate
+            // is 2000, so it falls off the ladder as a Lagging press.
+            for (int i = 0; i < word.Length; i++)
+                frames.Add(new TypeBeatReplayFrame(i == 6 ? targets[i] + 5000 : targets[i], word[i]));
+
+            frames.Add(new TypeBeatReplayFrame(line_zero_end, 'z'));
+
+            var r = replay(frames);
+
+            var live = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix);
+            var stored = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
+                SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate, WordSkipRule.Reclaimable, ComboClaimRule.StreakedBreakWins,
+                OffTimeRule.BreaksCombo);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(live.MaxCombo, Is.EqualTo(13), "the run walks through the off-time press");
+                Assert.That(stored.MaxCombo, Is.EqualTo(6), "the six cells before the press, and never rebuilt higher");
+
+                // One entry apart, and that entry is the whole rule.
+                Assert.That(count(live, HitResult.Great), Is.EqualTo(12));
+                Assert.That(count(stored, HitResult.Great), Is.EqualTo(12));
+                Assert.That(count(live, HitResult.Meh), Is.EqualTo(1));
+                Assert.That(count(live, HitResult.Miss), Is.Zero);
+                Assert.That(count(stored, HitResult.Meh), Is.Zero);
+                Assert.That(count(stored, HitResult.Miss), Is.EqualTo(1));
+
+                // Nothing else about the press moved: it is not a mistype under either rule, and the
+                // cell is judged either way.
+                Assert.That(live.Mistypes, Is.Zero);
+                Assert.That(stored.Mistypes, Is.Zero);
+
+                // Completion, rank and score follow the result, which is the point of choosing it.
+                Assert.That(live.Completion, Is.EqualTo(1));
+                Assert.That(stored.Completion, Is.LessThan(1));
+                Assert.That(live.Rank, Is.EqualTo(ScoreRank.X));
+                Assert.That(stored.Rank, Is.Not.EqualTo(ScoreRank.X));
+                Assert.That(stored.TotalScore, Is.LessThan(live.TotalScore));
             });
         }
 

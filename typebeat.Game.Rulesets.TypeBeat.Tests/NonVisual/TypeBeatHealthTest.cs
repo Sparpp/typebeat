@@ -428,6 +428,73 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
+        #region Off-time HP: a mistimed press is a hit, not a miss (backlog 199)
+
+        /// <summary>
+        /// Health has exactly one shape here, and this is the pin on it: <see cref="TypeBeatHealthProcessor"/>
+        /// keys on the osu RESULT and has no <see cref="JudgementType"/> arm at all, so what an
+        /// off-time press does to the bar is decided entirely by what
+        /// <see cref="TypeBeatResultMapping.CellResult"/> answers for it. Backlog 199 makes that
+        /// answer a <see cref="HitResult.Meh"/> instead of a <see cref="HitResult.Miss"/>, and the bar
+        /// therefore RECOVERS on a press it used to drain a full miss for, with nothing in the health
+        /// processor touched.
+        ///
+        /// <para>That is the intended consequence and not a leak: an off-time press is a character
+        /// the player did type, and health has never asked anything but whether the cell was
+        /// filled.</para>
+        /// </summary>
+        [Test]
+        public void AnOffTimePressRecoversHealthInsteadOfDraining()
+        {
+            // "aaa" over a long line: cells target 0, 10000 and 20000, so a press can be put well off
+            // the Line-granularity ladder (MehLate 2000) without the line running out of time first.
+            var beatmap = new LyricBeatmap
+            {
+                Metadata = new LyricBeatmapMetadata
+                {
+                    Artist = "Test",
+                    Title = "Off time",
+                    FolderPath = @"X:\nowhere",
+                    AudioFileName = "a.mp3",
+                },
+                Lines = new List<LyricLine>
+                {
+                    new LyricLine
+                    {
+                        RawText = "aaa",
+                        StartTime = 0,
+                        EndTime = 40000,
+                        SingEndTime = 30000,
+                        Units = new[] { new TimedUnit { Text = "aaa", StartTime = 0, EndTime = 30000 } },
+                    },
+                },
+                Granularity = TimingGranularity.Line,
+            };
+
+            var engine = new TypingEngine(beatmap);
+            var bridge = new HealthBridge(engine);
+
+            engine.Update(0);
+
+            // Half-full, because at the cap a recovery would be invisible.
+            bridge.Health.Health.Value = 0.5;
+
+            engine.Update(2500);
+            Assert.IsTrue(engine.ProcessKey('a', 2500)); // delta 2500 on cell 0: Lagging
+
+            Assert.AreEqual(1, engine.BuildResults().Counts[JudgementType.Lagging], "the press really was off the ladder");
+
+            Assert.AreEqual(0.5 + TypeBeatHealthProcessor.MEH_HEALTH_INCREASE, bridge.Health.Health.Value, 1e-9,
+                "a Meh's recovery, where the pre-199 Miss took MISS_HEALTH_DRAIN");
+
+            // The rule the bar is following, stated where it is decided: era-selectable, and the old
+            // arm is still expressible for a re-derivation.
+            Assert.AreEqual(HitResult.Meh, TypeBeatResultMapping.CellResult(JudgementType.Lagging, TypoRule.Deferred));
+            Assert.AreEqual(HitResult.Miss, TypeBeatResultMapping.CellResult(JudgementType.Lagging, TypoRule.Deferred, OffTimeRule.BreaksCombo));
+        }
+
+        #endregion
+
         #region Abandoned-word HP: charged at the skip, refunded on the way out (backlog 167)
 
         /// <summary>
@@ -819,24 +886,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 engine.WrongKeyRejected += _ => Health.ApplyWrongKeyStreak(engine.ConsecutiveWrongKeys);
             }
 
+            /// <summary>
+            /// Deliberately the SHARED mapping rather than a copy of it. Health keys on the osu
+            /// RESULT and on nothing else (see <see cref="TypeBeatHealthProcessor"/>, whose switch
+            /// has no <see cref="JudgementType"/> arm at all), so what an off-time press does to the
+            /// bar is decided entirely by what
+            /// <see cref="TypeBeatResultMapping.CellResult"/> answers for it: a Miss drain before
+            /// backlog 199 and the ordinary Meh increase since. A local copy of the table would have
+            /// let this bridge keep draining for one after the game stopped.
+            ///
+            /// <para>WrongChar and Abandoned never reach here (both are handled above), which is the
+            /// only reason the null the mapping can answer is unreachable.</para>
+            /// </summary>
             private static HitResult toHitResult(JudgementType type)
-            {
-                switch (type)
-                {
-                    case JudgementType.Great:
-                        return HitResult.Great;
-
-                    case JudgementType.Ok:
-                        return HitResult.Ok;
-
-                    case JudgementType.Meh:
-                        return HitResult.Meh;
-
-                    default:
-                        // Premature / Lagging / Miss. WrongChar never reaches here (handled above).
-                        return HitResult.Miss;
-                }
-            }
+                => TypeBeatResultMapping.CellResult(type, TypoRule.Deferred)!.Value;
         }
 
         #endregion

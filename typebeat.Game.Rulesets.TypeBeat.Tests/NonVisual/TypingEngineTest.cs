@@ -185,8 +185,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(241, judged!.Value.Delta);
         }
 
+        /// <summary>
+        /// Mashing a line out ahead of the vocals earns the SCORE of one legitimate character and
+        /// nothing more: every press past the first is Premature and worth zero points, so the
+        /// ladder pays a masher exactly once.
+        ///
+        /// <para>Since backlog 199 the combo is NOT the other half of that. An off-time press is a
+        /// hit (<see cref="TypingEngine.OffTime"/>), so the mashed characters extend the run instead
+        /// of breaking it, and the punishment moves entirely to accuracy: each one resolves as an
+        /// osu Meh, the cheapest result a judged cell can take. The old rule (three breaks here, a
+        /// max_combo of 1) survives as <c>OffTimeRule.BreaksCombo</c> for re-deriving a
+        /// stored row, and is pinned in <see cref="JudgementEraTest"/>.</para>
+        /// </summary>
         [Test]
-        public void MashAheadYieldsPrematureAndNoProfit()
+        public void MashAheadYieldsPrematureAndNoPoints()
         {
             // "abcd", one unit [1000, 9000], k=4 => targets a=1000, b=3000, c=5000, d=7000.
             var engine = new TypingEngine(map(TimingGranularity.Line,
@@ -199,27 +211,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // Mash the whole line instantly at t=1000:
             //   'a' delta 0     => Great, 300 * (1 + 0/50) = 300, combo 1
-            //   'b' delta -2000 => Premature (< -MehEarly 1200), 0 pts, combo -> 0
-            //   'c' delta -4000 => Premature, 0 pts
-            //   'd' delta -6000 => Premature, 0 pts
+            //   'b' delta -2000 => Premature (< -MehEarly 1200), 0 pts, combo 2
+            //   'c' delta -4000 => Premature, 0 pts, combo 3
+            //   'd' delta -6000 => Premature, 0 pts, combo 4
             Assert.IsTrue(engine.ProcessKey('a', 1000));
             Assert.IsTrue(engine.ProcessKey('b', 1000));
             Assert.IsTrue(engine.ProcessKey('c', 1000));
             Assert.IsTrue(engine.ProcessKey('d', 1000));
 
-            Assert.AreEqual(300, engine.Score); // no profit beyond the single legitimate Great
-            Assert.AreEqual(0, engine.Combo);
-            Assert.AreEqual(1, engine.MaxCombo);
-            Assert.AreEqual(3, comboBreaks); // each Premature breaks combo
+            Assert.AreEqual(300, engine.Score); // no POINTS beyond the single legitimate Great
+            Assert.AreEqual(4, engine.Combo, "an off-time press is a hit, so the run carries on");
+            Assert.AreEqual(4, engine.MaxCombo);
+            Assert.AreEqual(0, comboBreaks); // no Premature breaks combo any more
             Assert.AreEqual(1.0, engine.LiveAccuracy); // right chars, wrong time: accuracy is not sync's job
 
             // LiveSyncPercent over the 4 resolved cells: q(a)=1; q(b)=clamp(1-2000/1200)=0; q(c)=q(d)=0 => 25%.
             Assert.AreEqual(25.0, engine.LiveSyncPercent, 1e-9);
 
-            engine.Update(10000); // seal: nothing Untyped (all Correct), so NO additional combo break
+            engine.Update(10000); // seal: nothing Untyped (all Correct), so no combo break here either
 
             Assert.IsTrue(engine.IsFinished);
-            Assert.AreEqual(3, comboBreaks); // unchanged by the seal
+            Assert.AreEqual(0, comboBreaks); // unchanged by the seal
 
             var results = engine.BuildResults();
             Assert.AreEqual(1, results.Counts[JudgementType.Great]);

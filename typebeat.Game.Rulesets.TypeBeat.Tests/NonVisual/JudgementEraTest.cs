@@ -35,9 +35,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// reaches every stored DT / NC / HT row.</item>
     /// </list>
     ///
-    /// <para>Backlog 167 (<see cref="WordSkipRule"/>) and backlog 176
-    /// (<see cref="ComboClaimRule"/>) added an axis each on the same pattern, and are pinned here
-    /// too.</para>
+    /// <para>Backlog 167 (<see cref="WordSkipRule"/>), backlog 176 (<see cref="ComboClaimRule"/>)
+    /// and backlog 199 (<see cref="OffTimeRule"/>) added an axis each on the same pattern, and are
+    /// pinned here too. The last of those is as wide as backlog 148's: an off-time press stopped
+    /// breaking the run and started resolving as a Meh, so every stored row that ever fumbled a beat
+    /// needs its arm to reproduce.</para>
     ///
     /// <para>The properties pinned here are the ones the tool rests on: the switches DEFAULT to
     /// today's rules (so nothing that does not ask for an era changes meaning), each one actually
@@ -233,7 +235,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var implicitEra = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix);
 
             var explicitLive = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
-                SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate, WordSkipRule.Reclaimable, ComboClaimRule.StreakedBreakWins);
+                SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate, WordSkipRule.Reclaimable, ComboClaimRule.StreakedBreakWins,
+                OffTimeRule.MehHit);
 
             Assert.Multiple(() =>
             {
@@ -245,6 +248,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(new TypingEngine(lyricBeatmap()).SpaceTiming, Is.EqualTo(SpaceTimingRule.Untimed));
                 Assert.That(new TypingEngine(lyricBeatmap()).WordSkip, Is.EqualTo(WordSkipRule.Reclaimable));
                 Assert.That(new TypingEngine(lyricBeatmap()).ComboClaim, Is.EqualTo(ComboClaimRule.StreakedBreakWins));
+                Assert.That(new TypingEngine(lyricBeatmap()).OffTime, Is.EqualTo(OffTimeRule.MehHit));
             });
         }
 
@@ -258,6 +262,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// under, so the two arms disagree on <c>statistics</c> AND on <c>max_combo</c>: exactly the
         /// two quantities the recalculation tool's reproduce gate compares against the stored row.
         /// Without the switch that gate would report every row in the table as unreproducible.
+        ///
+        /// <para>The stored arm names <see cref="OffTimeRule.BreaksCombo"/> alongside
+        /// <see cref="SpaceTimingRule.Timed"/>, and has to: a row played before backlog 148 was also
+        /// played before backlog 199, and it is only the two together that make a grossly late space
+        /// the run-ending Miss such a client recorded. The axes COMPOSE, one deciding that the space
+        /// is on the clock at all and the other deciding what falling off it costs, which is why the
+        /// numbers below are unchanged from what they were before 199 shipped.</para>
         /// </summary>
         [Test]
         public void ThePreExemptionEraGradesASpaceOnTheClockAgain()
@@ -267,7 +278,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var live = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix);
             var stored = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
-                SpaceTimingRule.Timed, RateWindowRule.ScaledByRate);
+                SpaceTimingRule.Timed, RateWindowRule.ScaledByRate, WordSkipRule.Reclaimable, ComboClaimRule.StreakedBreakWins,
+                OffTimeRule.BreaksCombo);
 
             Assert.Multiple(() =>
             {
@@ -604,6 +616,90 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(stored.MaxCombo, Is.EqualTo(live.MaxCombo));
                 Assert.That(stored.Statistics, Is.EquivalentTo(live.Statistics));
                 Assert.That(stored.TotalScore, Is.EqualTo(live.TotalScore));
+            });
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // Backlog 199: the off-time press, a hit or a break.
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// The same keystream, one press 2100 ms late, under both arms. Live, the press is a hit: it
+        /// resolves as a Meh, extends the run, and the map ends fully typed. Under the rule every
+        /// stored row was played on it is a Miss that ends the run at the one character before it,
+        /// costs the miss statistic and drops completion to two cells in three.
+        ///
+        /// <para>That is four of the quantities the recalculation tool reproduces moving at once
+        /// (<c>statistics</c>, <c>max_combo</c>, <c>accuracy</c>, <c>total_score</c>), on a shape
+        /// nearly every stored row contains, which is why this axis is as wide as backlog 148's and
+        /// why it has to exist at all.</para>
+        /// </summary>
+        [Test]
+        public void ThePreHitEraBreaksTheRunOnAnOffTimePress()
+        {
+            var map = plainMap();
+
+            // Cells target 0, 4000 and 8000; Line-granularity MehLate is 2000, so 6100 on the middle
+            // cell is 2100 late: off the ladder, and the right character.
+            var r = replay((0, 'a'), (6100, 'b'), (8000, 'c'));
+
+            var live = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix);
+            var stored = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
+                SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate, WordSkipRule.Reclaimable, ComboClaimRule.StreakedBreakWins,
+                OffTimeRule.BreaksCombo);
+
+            Assert.Multiple(() =>
+            {
+                // Today: the press is the cheapest HIT there is, so the run never breaks and every
+                // cell of the map counts as typed.
+                Assert.That(count(live, HitResult.Great), Is.EqualTo(2));
+                Assert.That(count(live, HitResult.Meh), Is.EqualTo(1));
+                Assert.That(count(live, HitResult.Miss), Is.Zero);
+                Assert.That(live.MaxCombo, Is.EqualTo(3));
+                Assert.That(live.Completion, Is.EqualTo(1).Within(1e-9));
+                Assert.That(live.Rank, Is.EqualTo(ScoreRank.X));
+
+                // Pre-199: a Miss, so the streak ends at the single character before it and the cell
+                // is one the map counts as never typed.
+                Assert.That(count(stored, HitResult.Great), Is.EqualTo(2));
+                Assert.That(count(stored, HitResult.Meh), Is.Zero);
+                Assert.That(count(stored, HitResult.Miss), Is.EqualTo(1));
+                Assert.That(stored.MaxCombo, Is.EqualTo(1));
+                Assert.That(stored.Completion, Is.EqualTo(2 / 3.0).Within(1e-9));
+                Assert.That(stored.Rank, Is.Not.EqualTo(ScoreRank.X));
+
+                // Accuracy is the punishment under the live rule, and it really is paid: a Meh is
+                // 50 of the cell's 300, the least a judged cell can be worth.
+                // Three cells: two Greats plus the off-time press, over a perfect 900.
+                Assert.That(live.Accuracy, Is.EqualTo(650 / 900.0).Within(1e-9));
+                Assert.That(stored.Accuracy, Is.EqualTo(600 / 900.0).Within(1e-9));
+                Assert.That(stored.TotalScore, Is.LessThan(live.TotalScore));
+            });
+        }
+
+        /// <summary>
+        /// The off-time axis is INERT for a run that never leaves the ladder, which is what lets the
+        /// recalculation tool set the stored-era arm unconditionally rather than first working out
+        /// whether the row contains a mistimed press. Same claim as
+        /// <see cref="TheRateEraChangesNothingWithoutARateMod"/>, and pinned for the same reason.
+        /// </summary>
+        [Test]
+        public void TheOffTimeEraChangesNothingWithoutAnOffTimePress()
+        {
+            var map = plainMap();
+            var r = replay((500, 'a'), (4500, 'b'), (8500, 'c'));
+
+            var live = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix);
+            var stored = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
+                SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate, WordSkipRule.Reclaimable, ComboClaimRule.StreakedBreakWins,
+                OffTimeRule.BreaksCombo);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(stored.Statistics, Is.EquivalentTo(live.Statistics));
+                Assert.That(stored.MaxCombo, Is.EqualTo(live.MaxCombo));
+                Assert.That(stored.TotalScore, Is.EqualTo(live.TotalScore));
+                Assert.That(stored.Accuracy, Is.EqualTo(live.Accuracy));
             });
         }
 

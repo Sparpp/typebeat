@@ -183,6 +183,61 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     }
 
     /// <summary>
+    /// The rule deciding what an OFF-TIME press costs: the RIGHT character struck outside the
+    /// outermost Meh window, which <see cref="SyncWindows.Classify"/> calls
+    /// <see cref="JudgementType.Premature"/> or <see cref="JudgementType.Lagging"/>. Same reason as
+    /// the rules above: a stored score has to be re-derived under the rule it was PLAYED under
+    /// rather than only under the current one. Live play is always <see cref="MehHit"/>.
+    ///
+    /// <para>Its reach is every row that ever fumbled a beat, which is nearly all of them, so it
+    /// sits alongside <see cref="SpaceTimingRule"/> as one of the wide axes rather than with the
+    /// narrow ones: the two arms disagree on max_combo, on the miss count, on accuracy, on
+    /// completion and therefore on rank and pp.</para>
+    /// </summary>
+    public enum OffTimeRule
+    {
+        /// <summary>
+        /// The rule since backlog 199, and the only one live play uses: an off-time press is a HIT.
+        /// It still earns ZERO engine points (the score ladder is unchanged, and a mistimed press
+        /// still pays for itself there), but it EXTENDS the combo like any other accepted character,
+        /// raises no <see cref="TypingEngine.ComboBroken"/>, and leaves an outstanding restorable
+        /// claim alone, because only a BREAK discards one.
+        ///
+        /// <para>Its osu result is <see cref="HitResult.Meh"/> rather than
+        /// <see cref="HitResult.Miss"/>, and that single mapping change is what makes ACCURACY the
+        /// punishment: Meh is the lowest weight a judged cell can take (50 of 300), so an off-time
+        /// press costs the most accuracy available and nothing else. It deliberately follows from
+        /// that, rather than being arranged separately, that the press stops counting as a MISS
+        /// statistic, stops costing completion and rank, and takes Meh's health increase instead of
+        /// the Miss drain: those are all things the result decides, and the decision is that an
+        /// off-time press is a poor hit and not a dropped character.</para>
+        ///
+        /// <para><b>An accepted collision.</b> Meh is already the engine's widest SCORING tier, so
+        /// in the submitted <c>statistics</c> blob an off-time press is indistinguishable from a
+        /// press that landed just inside the Meh window. The candidate set is forced (see
+        /// <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/> for why a cell may only ever resolve as
+        /// one of {Miss, Meh, Ok, Good, Great}, with Good already spent on the unfixed typo), so
+        /// there is no free key to keep them apart, and separating them would mean pricing the
+        /// distinction somewhere. It is not priced: both are correct characters typed loosely, and
+        /// the classification ladder keeps the two apart everywhere it matters live (the
+        /// Premature/Lagging tiers, the sync tint, the sync readouts, the results counts).</para>
+        /// </summary>
+        MehHit,
+
+        /// <summary>
+        /// The rule every score stored BEFORE backlog 199 was played under: an off-time press was a
+        /// BREAK. The engine zeroed the combo, discarded any outstanding restorable claim and raised
+        /// <see cref="TypingEngine.ComboBroken"/>, and the cell resolved as a
+        /// <see cref="HitResult.Miss"/>, which carried that break into osu's combo, counted against
+        /// the miss statistic and cost completion, rank and the Miss health drain, all for a
+        /// character the player did type correctly.
+        ///
+        /// <para>Only score RECALCULATION selects this. Nothing in gameplay may.</para>
+        /// </summary>
+        BreaksCombo,
+    }
+
+    /// <summary>
     /// The rule deciding whether a rate-adjusting mod scales the judgement windows. Same reason as
     /// the three above. Live play is always <see cref="ScaledByRate"/>, and the axis only reaches a
     /// stored row that carries one of the rate mods (DT / NC / HT), unlike
@@ -300,10 +355,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// result is DEFERRED and nothing at all is applied.
         ///
         /// <para>Mapping: the three QUALITY tiers are the IDENTITY (Great, Ok and Meh each resolve
-        /// as the osu result they are named for), and Premature/Lagging/Miss-&gt;Miss. Premature and
-        /// Lagging accept the char with 0 engine points plus a combo break, and an osu Miss breaks
-        /// combo too, so the mapping is behaviour-coherent for combo (the score weights differ).
-        /// Miss reaches here only from a word abandoned by the space-skip setting under
+        /// as the osu result they are named for), Miss-&gt;Miss, and Premature/Lagging follow
+        /// <paramref name="offTimeRule"/>. Under the live <see cref="OffTimeRule.MehHit"/> an
+        /// off-time press resolves as <see cref="HitResult.Meh"/>, which is behaviour-coherent for
+        /// combo: the engine now EXTENDS the run on such a press and a Meh extends osu's, so
+        /// nothing is mirrored by hand and nothing double-counts. Under
+        /// <see cref="OffTimeRule.BreaksCombo"/>, the pre-199 rule, it resolves as
+        /// <see cref="HitResult.Miss"/>, which is coherent the other way: the engine breaks and so
+        /// does the Miss.</para>
+        ///
+        /// <para><b>The collision this accepts (backlog 199).</b> Under the live rule an off-time
+        /// press and a press that landed just INSIDE the Meh window arrive at the score processor as
+        /// the same result, so no consumer of the <c>statistics</c> blob can tell them apart. That is
+        /// the price of making accuracy the punishment: the candidate set is forced (see
+        /// <see cref="UNFIXED_TYPO"/>), Good is spent on the unfixed typo, and Meh is the only key
+        /// left whose weight says "a correct character, typed as loosely as a judged cell can be".
+        /// The distinction survives everywhere it is actually used, which is live and on the results
+        /// screen: <see cref="JudgementType.Premature"/> and <see cref="JudgementType.Lagging"/> are
+        /// still their own tiers, still counted separately, still tinted separately.</para>
+        ///
+        /// <para>Miss reaches here only from a word abandoned by the space-skip setting under
         /// <see cref="WordSkipRule.ImmediateMiss"/>, the pre-167 rule, which spent the cell's one
         /// result at the skip instead of leaving it to the seal.</para>
         ///
@@ -321,7 +392,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// what made the two indistinguishable AND unrecoverable, and is exactly what every stored
         /// score was priced under.</para>
         /// </summary>
-        public static HitResult? CellResult(JudgementType type, TypoRule rule)
+        public static HitResult? CellResult(JudgementType type, TypoRule rule, OffTimeRule offTimeRule = OffTimeRule.MehHit)
         {
             switch (type)
             {
@@ -340,8 +411,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 case JudgementType.Abandoned:
                     return null;
 
+                case JudgementType.Premature:
+                case JudgementType.Lagging:
+                    return OffTimePressIsAHit(offTimeRule) ? HitResult.Meh : HitResult.Miss;
+
                 default:
-                    // Premature, Lagging and Miss.
+                    // Miss.
                     return HitResult.Miss;
             }
         }
@@ -402,6 +477,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// switch of its own, because no cell ever enters <see cref="CellState.Abandoned"/>.</para>
         /// </summary>
         public static bool SkippedWordIsReclaimable(WordSkipRule rule) => rule == WordSkipRule.Reclaimable;
+
+        /// <summary>
+        /// Whether an off-time press (the right character, outside the outermost Meh window) is a
+        /// HIT that extends the run rather than a break that ends it (backlog 199).
+        ///
+        /// <para>Read in exactly two places, the engine's one keypress arm and
+        /// <see cref="CellResult"/>, which is the whole of the rule: the engine decides the combo
+        /// and the mapping decides the osu result, and both have to move together or the two
+        /// counters drift. Only SELECTED twice, live play taking the engine's default and
+        /// <see cref="TypeBeatReplayScorer"/> setting the era's, which is the same shape
+        /// <see cref="FixRestoresTheComboBreak"/> has and for the same reason.</para>
+        ///
+        /// <para>It needs no CONFIG frame bit, unlike the judgement-rule and input-model eras: combo
+        /// policy never moves the caret, so a stored replay's keystream is coherent under either arm
+        /// and the arm can be selected from outside. That is exactly how
+        /// <see cref="ComboRestoreRule"/>, <see cref="ComboClaimRule"/> and
+        /// <see cref="WordSkipRule"/> work.</para>
+        /// </summary>
+        public static bool OffTimePressIsAHit(OffTimeRule rule) => rule == OffTimeRule.MehHit;
 
         /// <summary>
         /// Whether a rate-adjusting mod multiplies the judgement windows by its clock rate
