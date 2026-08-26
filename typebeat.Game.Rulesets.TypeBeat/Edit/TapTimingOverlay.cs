@@ -10,6 +10,8 @@ using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
+using osu.Framework.Input;
+using osu.Framework.Input.Bindings;
 using osu.Framework.Input.Events;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
@@ -38,7 +40,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// play/pause. Seeking backwards (drag the waveform, click a timeline) drops every tap at or
     /// after the seek point, so rewind-and-retry needs no extra gesture.</para>
     /// </summary>
-    public partial class TapTimingOverlay : CompositeDrawable
+    public partial class TapTimingOverlay : CompositeDrawable, IKeyBindingHandler<PlatformAction>
     {
         /// <summary>How far before the first word the playhead is parked when a session starts.</summary>
         public const double PRE_ROLL_MS = 2000;
@@ -281,6 +283,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // S, M, D) would mutate the beatmap mid-pass, which is exactly what record-then-commit
             // exists to avoid.
             return true;
+        }
+
+        /// <summary>
+        /// The blanket swallow above only protects the pass while the overlay HOLDS FOCUS (the
+        /// focused drawable sees the raw key ahead of the platform-action container). Focus can be
+        /// stolen mid-pass (clicking a line row's text box, for one), and then Ctrl+Z is dispatched
+        /// as a platform action that never touches <see cref="OnKeyDown"/>: it would reach the
+        /// editor, mutate the sheet under the recording, and be silently clobbered again when
+        /// Finish commits the pre-pass snapshot. Record-then-commit means NOTHING may mutate the
+        /// beatmap mid-pass, so the mutating actions are swallowed here for the duration
+        /// regardless of focus; non-mutating ones (Copy, Save) pass through. Undo works again the
+        /// moment the pass ends, whichever way it exits.
+        /// </summary>
+        public bool OnPressed(KeyBindingPressEvent<PlatformAction> e)
+        {
+            if (!Active)
+                return false;
+
+            switch (e.Action)
+            {
+                case PlatformAction.Undo:
+                case PlatformAction.Redo:
+                case PlatformAction.Cut:
+                case PlatformAction.Paste:
+                    return true;
+            }
+
+            return false;
+        }
+
+        public void OnReleased(KeyBindingReleaseEvent<PlatformAction> e)
+        {
         }
 
         private void tap()

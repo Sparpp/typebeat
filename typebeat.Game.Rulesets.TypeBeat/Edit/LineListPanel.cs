@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
@@ -8,6 +9,7 @@ using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
+using osu.Framework.Input;
 using osu.Framework.Input.Events;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
@@ -183,7 +185,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 Font = TypeBeatStyle.Mono(13),
                                 Colour = TypeBeatStyle.UntypedChar,
                             },
-                            textBox = new OsuTextBox
+                            textBox = new LineTextBox
                             {
                                 Anchor = Anchor.CentreLeft,
                                 Origin = Anchor.CentreLeft,
@@ -191,6 +193,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 Height = 28,
                                 FontSize = 15,
                                 CommitOnFocusLost = true,
+                                CommittedText = () => TypeBeatEditorOperations.PipeDisplayText(HitObject.Line),
                             },
                         },
                     },
@@ -263,6 +266,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 state.SelectLine(HitObject);
                 editorClock.SeekSmoothlyTo(HitObject.Line.StartTime);
                 return true;
+            }
+
+            /// <summary>
+            /// The row's text box, adding one layer to Ctrl+Z. The framework's text box has no
+            /// text-level undo and lets the Undo/Redo platform actions bubble, so while a box was
+            /// focused mid-edit a Ctrl+Z fired an EDITOR undo out from under the typing: the undo
+            /// replaces every hit object instance, the panel rebuilds its rows, and the focused box
+            /// is destroyed together with the uncommitted edit. So: while focused with an
+            /// in-progress (uncommitted) edit, Undo reverts the box to the committed text and stops
+            /// there, and Redo is swallowed so it cannot vaporise the edit either. A pristine
+            /// focused box passes both through, so the next Ctrl+Z steps into the editor history
+            /// as usual (the layered-undo convention).
+            /// </summary>
+            private partial class LineTextBox : OsuTextBox
+            {
+                /// <summary>The line's committed pipe-form text, the value an in-progress edit reverts to.</summary>
+                public Func<string> CommittedText { get; init; } = () => string.Empty;
+
+                public override bool OnPressed(KeyBindingPressEvent<PlatformAction> e)
+                {
+                    if (HasFocus && (e.Action == PlatformAction.Undo || e.Action == PlatformAction.Redo))
+                    {
+                        string committed = CommittedText();
+
+                        if (Text != committed)
+                        {
+                            if (e.Action == PlatformAction.Undo)
+                                Text = committed;
+
+                            return true;
+                        }
+
+                        return false;
+                    }
+
+                    return base.OnPressed(e);
+                }
             }
         }
     }
