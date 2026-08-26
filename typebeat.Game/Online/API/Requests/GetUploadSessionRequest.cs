@@ -55,6 +55,8 @@ namespace typebeat.Game.Online.API.Requests
 
             req.Method = HttpMethod.Get;
             req.Timeout = 30_000;
+            // one fresh connection per session request; see UploadSessionChunkRequest (backlog 201).
+            req.AddHeader(@"Connection", @"close");
 
             return req;
         }

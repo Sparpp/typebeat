@@ -10,6 +10,8 @@ using System.Text;
 using System.Threading.Tasks;
 using NUnit.Framework;
 using osu.Framework.Extensions;
+using osu.Framework.IO.Network;
+using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests;
 using typebeat.Game.Screens.Edit.Submission;
 
@@ -309,6 +311,58 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // and a chunk that genuinely never arrived stays at the front, so its attempt cap still runs out.
                 Assert.That(ChunkedPackageUpload.RemainingChunks(total, new[] { 0, 1 })[0], Is.EqualTo(2));
             });
+        }
+
+        /// <summary>
+        /// Every session request must ask for its own connection (backlog 201). The ceiling this
+        /// protocol exists for is per CONNECTION, and field logs proved the pooled client connection
+        /// carried create + chunk after chunk until it crossed that ceiling mid-chunk,
+        /// deterministically, every ~2.5 chunks: the origin's own close on chunk responses only
+        /// bounded the proxy-to-origin hop. The client asking is what makes the proxy echo the close
+        /// and .NET retire the socket, so the byte budget becomes per request.
+        /// </summary>
+        [Test]
+        public void EverySessionRequestAsksForItsOwnConnection()
+        {
+            var api = new DummyAPIAccess();
+            api.Endpoints.BeatmapSubmissionServiceUrl = @"http://localhost/bss";
+
+            var requests = new APIRequest[]
+            {
+                new CreateUploadSessionRequest(7, CreateUploadSessionRequest.KIND_FULL, @"multipart/form-data; boundary=x", 100, new string('a', 64)),
+                new UploadSessionChunkRequest(new string('b', 32), 0, new byte[16]),
+                new GetUploadSessionRequest(new string('b', 32)),
+                new CompleteUploadSessionRequest(new string('b', 32)),
+            };
+
+            Assert.Multiple(() =>
+            {
+                foreach (var request in requests)
+                {
+                    request.AttachAPI(api);
+                    Assert.That(headersOf(createWebRequest(request)), Does.ContainKey(@"Connection").WithValue(@"close"), request.GetType().Name);
+                }
+            });
+        }
+
+        /// <summary>
+        /// <c>CreateWebRequest</c> is protected all the way up the hierarchy and the built request's
+        /// header set is private, so both ends of this pin need reflection (the same seam
+        /// <c>OnlineReplayWireTest</c> uses and documents). Invoking the base <see cref="System.Reflection.MethodInfo"/>
+        /// still dispatches virtually, so this observes exactly what <c>Perform</c> would build.
+        /// </summary>
+        private static WebRequest createWebRequest(APIRequest request)
+        {
+            var method = typeof(APIRequest).GetMethod(@"CreateWebRequest", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert.That(method, Is.Not.Null, "APIRequest.CreateWebRequest has been renamed; this pin needs updating.");
+            return (WebRequest)method!.Invoke(request, Array.Empty<object>())!;
+        }
+
+        private static IDictionary<string, string> headersOf(WebRequest webRequest)
+        {
+            var field = typeof(WebRequest).GetField(@"headers", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert.That(field, Is.Not.Null, "WebRequest.headers has been renamed; this pin needs updating.");
+            return (IDictionary<string, string>)field!.GetValue(webRequest)!;
         }
     }
 }

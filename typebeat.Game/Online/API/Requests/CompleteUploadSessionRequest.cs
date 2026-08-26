@@ -49,6 +49,10 @@ namespace typebeat.Game.Online.API.Requests
 
             req.Method = HttpMethod.Post;
             req.Timeout = 600_000;
+            // one fresh connection per session request: field logs caught the completing POST being
+            // sent down a pooled connection the chunks had already pushed over the per-connection
+            // ceiling; see UploadSessionChunkRequest (backlog 201).
+            req.AddHeader(@"Connection", @"close");
 
             // an empty raw body rather than no body at all. Without raw content the framework attaches no
             // content whatsoever: its multipart fallback only builds a form when there are parameters or

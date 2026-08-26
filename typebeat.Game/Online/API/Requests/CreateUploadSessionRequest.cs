@@ -91,6 +91,9 @@ namespace typebeat.Game.Online.API.Requests
             var req = base.CreateWebRequest();
             req.Method = HttpMethod.Post;
             req.ContentType = @"application/json";
+            // one fresh connection per session request, so the per-connection byte ceiling this
+            // protocol exists for is budgeted per request; see UploadSessionChunkRequest (backlog 201).
+            req.AddHeader(@"Connection", @"close");
 
             // serialised from an explicit shape rather than from `this`, so the body carries exactly the
             // four contracted members and nothing the base request happens to expose publicly.

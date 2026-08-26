@@ -33,8 +33,11 @@ namespace typebeat.Game.Screens.Edit.Submission
     /// </para>
     /// <para>
     /// So chunks are 8KB, comfortably under the observed ceiling with room for the request line and
-    /// headers, and they go up one at a time on their own connection (the server answers each with
-    /// <c>Connection: close</c>, so the churn is expected rather than accidental). A chunk that dies
+    /// headers, and they go up one at a time on their own connection: every session request carries
+    /// <c>Connection: close</c> (backlog 201), so the connection churn is expected rather than
+    /// accidental. It has to be the client asking: the origin's own close on chunk responses only
+    /// bounded the proxy-to-origin hop, and pooled client connections were observed accumulating
+    /// create + chunks until they crossed the ceiling mid-chunk. A chunk that dies
     /// is repeated on the spot: 8KB and a second of backoff, against the 153s a single failed
     /// monolithic attempt costs today.
     /// </para>

@@ -18,8 +18,13 @@ namespace typebeat.Game.Online.API.Requests
     /// <c>application/octet-stream</c>, an <c>X-Chunk-Sha256</c> header carrying lowercase hex
     /// SHA-256 of exactly those bytes, 204 on stored. Re-sending a chunk already stored is fine.
     ///
-    /// The server answers with <c>Connection: close</c> because the ceiling that forces this whole
-    /// mechanism is per connection, so one connection per chunk is the point rather than a cost.
+    /// One connection per chunk is the point rather than a cost, because the ceiling that forces
+    /// this whole mechanism is per CONNECTION, and it has to be the CLIENT that asks for it
+    /// (backlog 201): the request carries <c>Connection: close</c>, the reverse proxy echoes it on
+    /// the response, and .NET retires the socket on that echo. The origin's own close on the chunk
+    /// response only ever bounded the proxy-to-origin hop; field logs showed the client-side
+    /// connection being pooled straight through it, accumulating create + chunks until it crossed
+    /// the ceiling mid-chunk, deterministically, every ~2.5 chunks.
     /// The timeout is short (30s for 8KB), because a black-holed chunk should be given up on and
     /// repeated quickly rather than sat on.
     /// </remarks>
@@ -77,6 +82,8 @@ namespace typebeat.Game.Online.API.Requests
             req.ContentType = @"application/octet-stream";
             req.Timeout = 30_000;
             req.AddHeader(@"X-Chunk-Sha256", ChunkSha256);
+            // one fresh connection per session request; see the class doc (backlog 201).
+            req.AddHeader(@"Connection", @"close");
             req.AddRaw(Data);
 
             return req;
