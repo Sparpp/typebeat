@@ -2,8 +2,14 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System.Collections.Generic;
+using System.Linq;
 using NUnit.Framework;
+using typebeat.Game.Beatmaps;
+using typebeat.Game.Beatmaps.ControlPoints;
+using typebeat.Game.Rulesets.Judgements;
 using typebeat.Game.Rulesets.Scoring;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Scoring;
 
@@ -19,6 +25,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     {
         private static ScoreRank rank(Dictionary<HitResult, int> results)
             => new TypeBeatScoreProcessor(new TypeBeatRuleset()).RankFromScore(0, results);
+
+        private static TimedUnit unit(string text, double start, double end)
+            => new TimedUnit { Text = text, StartTime = start, EndTime = end };
+
+        private static LyricLine line(string text, double start, double end, params TimedUnit[] units)
+            => new LyricLine
+            {
+                RawText = text,
+                StartTime = start,
+                EndTime = end,
+                SingEndTime = end,
+                Units = units,
+            };
 
         [Test]
         public void AllGreats_IsSS()
@@ -80,6 +99,65 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             };
 
             Assert.That(rank(results), Is.EqualTo(ScoreRank.S));
+        }
+
+        /// <summary>
+        /// The LIVE rank must follow completion even when accuracy stands perfectly still
+        /// (backlog 200). The base processor recomputes rank on ACCURACY change, but this ruleset
+        /// ranks on COMPLETION, which moves with the result counts: a run whose judged cells all
+        /// carry the same weight (a Meh and an unfixed typo both weigh Meh's 50, see
+        /// <see cref="TypeBeatScoreProcessor.GetBaseScoreForResult"/>) freezes accuracy after its
+        /// first judgement while its completion, and so its true rank, keeps moving. Reachable in
+        /// real play since backlog 199 made an off-time press a Meh; before the fix the HUD and
+        /// results screen kept whatever rank the first judgement set, while the stored row was
+        /// ranked correctly by the server.
+        /// </summary>
+        [Test]
+        public void LiveRank_FollowsCompletion_WhileAccuracyStandsStill()
+        {
+            var hitObject = new TypeBeatHitObject
+            {
+                Line = line("hello there world", 1000, 4000,
+                    unit("hello", 1000, 2000), unit("there", 2000, 3000), unit("world", 3000, 4000)),
+                StartTime = 1000,
+                LineIndex = 0,
+                Granularity = TimingGranularity.Line,
+            };
+            hitObject.ApplyDefaults(new ControlPointInfo(), new BeatmapDifficulty());
+
+            var beatmap = new Beatmap<TypeBeatHitObject> { BeatmapInfo = new BeatmapInfo() };
+            beatmap.HitObjects.Add(hitObject);
+
+            var processor = new TypeBeatScoreProcessor(new TypeBeatRuleset());
+            processor.ApplyBeatmap(beatmap);
+
+            var cells = hitObject.NestedHitObjects.OfType<TypeBeatCharObject>().ToList();
+            Assert.That(cells, Has.Count.EqualTo(17), "the fixture line is 17 cells; the walk below assumes it");
+
+            double? frozenAccuracy = null;
+            int typed = 0, judged = 0;
+
+            for (int i = 0; i < cells.Count; i++)
+            {
+                // The second cell is an unfixed typo, everything else a slow-but-correct press:
+                // completion walks 1/1, 1/2, 2/3, ... 16/17, crossing the D, C, B and A bands.
+                var type = i == 1 ? TypeBeatResultMapping.UNFIXED_TYPO : HitResult.Meh;
+
+                processor.ApplyResult(new JudgementResult(cells[i], cells[i].CreateJudgement()) { Type = type });
+
+                judged++;
+                if (TypeBeatScoreProcessor.CountsAsTyped(type))
+                    typed++;
+
+                // The staleness precondition, asserted rather than assumed: accuracy is pinned flat
+                // from the first judgement on, so nothing but the counts can be moving the rank.
+                frozenAccuracy ??= processor.Accuracy.Value;
+                Assert.That(processor.Accuracy.Value, Is.EqualTo(frozenAccuracy.Value).Within(1e-12), $"cell {i}: accuracy must not move");
+
+                Assert.That(processor.Rank.Value,
+                    Is.EqualTo(TypeBeatScoreProcessor.RankFromCompletion((double)typed / judged)),
+                    $"cell {i}: rank must track completion {typed}/{judged}");
+            }
         }
 
         [Test]

@@ -281,6 +281,14 @@ namespace typebeat.Game.Rulesets.Scoring
                 }
 
                 updateScore();
+
+                // Not only on accuracy change (the ctor wiring): RankFromScore reads the RESULT
+                // COUNTS, and in a completion-ranked ruleset those can move rank while accuracy
+                // stands still, e.g. a run whose judged cells all carry the same weight (every cell
+                // a Meh or an unfixed typo). Reachable in practice since an off-time press became a
+                // Meh, and without this the HUD and results rank keep whatever the first judgement
+                // set while the stored row is ranked correctly server-side.
+                updateRank();
             }
         }
 
@@ -329,6 +337,9 @@ namespace typebeat.Game.Rulesets.Scoring
             hitEvents.RemoveAt(hitEvents.Count - 1);
 
             updateScore();
+
+            // Same reason as the apply path: the counts moved, so the rank may have, accuracy or not.
+            updateRank();
         }
 
         /// <summary>
