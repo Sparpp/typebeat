@@ -69,9 +69,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// <summary>
         /// Whether pressing space in the middle of a word abandons the rest of it (every character
         /// of it you had not resolved yet counts as a miss) and moves you on to the next word, rather
-        /// than being rejected as a wrong key. OFF by default: it changes how a keypress is judged, so
-        /// nobody gets it without asking for it. See <see cref="Gameplay.TypingEngine.SpaceSkipsWord"/>
-        /// for what it costs and why it needs no multiplier.
+        /// than being rejected as a wrong key. ON by default since backlog 198: it is how every other
+        /// typing game treats the spacebar, so the game ships with it and the settings checkbox exists
+        /// to turn it OFF. Only this SHIPPED default changed; the engine property it drives
+        /// (<see cref="Gameplay.TypingEngine.SpaceSkipsWord"/>) still defaults to off, because a stored
+        /// replay with no CONFIG frame must keep decoding as the classic stack. See the engine doc for
+        /// what the skip costs and why it needs no multiplier.
         /// </summary>
         SpaceSkipsWord,
 
@@ -212,7 +215,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.CaretStyle, DEFAULT_CARET_STYLE);
             SetDefault(TypeBeatRulesetSetting.SungCaretStyle, DEFAULT_SUNG_CARET_STYLE);
             SetDefault(TypeBeatRulesetSetting.KeyboardLayout, Gameplay.KeyboardLayout.Qwerty);
-            SetDefault(TypeBeatRulesetSetting.SpaceSkipsWord, false);
+            SetDefault(TypeBeatRulesetSetting.SpaceSkipsWord, true);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
             SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, false);

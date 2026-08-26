@@ -45,6 +45,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         protected override Ruleset CreatePlayerRuleset() => new TypeBeatRuleset();
 
+        private Configuration.TypeBeatRulesetConfigManager config
+            => (Configuration.TypeBeatRulesetConfigManager)RulesetConfigs.GetConfigFor(new TypeBeatRuleset())!;
+
+        /// <summary>
+        /// Every pin in this scene was written on the skip-OFF arm (a mid-word space is a typo, a
+        /// gap typo takes the gap and carries the caret on), and since backlog 198 the game SHIPS
+        /// with <see cref="Configuration.TypeBeatRulesetSetting.SpaceSkipsWord"/> ON, so the arm is
+        /// declared here rather than inherited from the shipped default. The playfield reads the
+        /// value once at load, which is why this runs before the base queues the player.
+        /// </summary>
+        public override void SetUpSteps()
+        {
+            AddStep("word skipping off", () => config.SetValue(Configuration.TypeBeatRulesetSetting.SpaceSkipsWord, false));
+            base.SetUpSteps();
+        }
+
         private TypeBeatPlayfield playfield => (TypeBeatPlayfield)Player.DrawableRuleset.Playfield;
 
         private TypingEngine engine => playfield.Engine;
