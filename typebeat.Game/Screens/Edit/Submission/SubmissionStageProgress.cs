@@ -43,6 +43,12 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// </summary>
         private bool showingRetryMessage;
 
+        /// <summary>
+        /// Whether <see cref="errorMessage"/> currently holds a neutral progress note, which keeps it
+        /// visible on the same terms a retry notice does.
+        /// </summary>
+        private bool showingProgressNote;
+
         [Resolved]
         private OsuColour colours { get; set; } = null!;
 
@@ -161,7 +167,7 @@ namespace typebeat.Game.Screens.Edit.Submission
 
         public void SetNotStarted()
         {
-            showingRetryMessage = false;
+            clearMessage();
             status.Value = StageStatusType.NotStarted;
         }
 
@@ -180,16 +186,37 @@ namespace typebeat.Game.Screens.Edit.Submission
 
         public void SetCompleted()
         {
-            showingRetryMessage = false;
+            clearMessage();
             status.Value = StageStatusType.Completed;
         }
 
         public void SetFailed(string reason)
         {
-            showingRetryMessage = false;
+            clearMessage();
             status.Value = StageStatusType.Failed;
             errorMessage.Text = reason;
             errorMessage.Colour = colours.Red1;
+        }
+
+        /// <summary>
+        /// Shows a neutral note on a stage that is still running, for a stage long enough that a progress
+        /// bar on its own reads as stalled (a chunked upload is hundreds of separate requests).
+        /// </summary>
+        /// <remarks>
+        /// A note supersedes a retry notice rather than queueing behind it: once bytes are moving again
+        /// the live count is the truer of the two, and the next failure calls <see cref="SetRetrying"/>
+        /// again anyway. The caller decides how often to write one, since this rebuilds the text.
+        /// </remarks>
+        public void SetProgressNote(string note)
+        {
+            showingRetryMessage = false;
+            showingProgressNote = true;
+            errorMessage.Text = note;
+            errorMessage.Colour = colours.Gray8;
+            status.Value = StageStatusType.InProgress;
+
+            // the stage is usually already in progress here, in which case the bindable does not fire.
+            Scheduler.AddOnce(updateStatus);
         }
 
         /// <summary>
@@ -200,6 +227,7 @@ namespace typebeat.Game.Screens.Edit.Submission
         public void SetRetrying(string reason)
         {
             showingRetryMessage = true;
+            showingProgressNote = false;
             errorMessage.Text = reason;
             errorMessage.Colour = colours.Orange1;
             status.Value = StageStatusType.InProgress;
@@ -210,8 +238,14 @@ namespace typebeat.Game.Screens.Edit.Submission
 
         public void SetCanceled()
         {
-            showingRetryMessage = false;
+            clearMessage();
             status.Value = StageStatusType.Canceled;
+        }
+
+        private void clearMessage()
+        {
+            showingRetryMessage = false;
+            showingProgressNote = false;
         }
 
         protected override void Dispose(bool isDisposing)
@@ -258,7 +292,7 @@ namespace typebeat.Game.Screens.Edit.Submission
         private void updateStatus()
         {
             progressBarContainer.FadeTo(status.Value == StageStatusType.InProgress && progress.Value != null ? 1 : 0, transition_duration, Easing.OutQuint);
-            errorMessage.FadeTo(status.Value == StageStatusType.Failed || showingRetryMessage ? 1 : 0, transition_duration, Easing.OutQuint);
+            errorMessage.FadeTo(status.Value == StageStatusType.Failed || showingRetryMessage || showingProgressNote ? 1 : 0, transition_duration, Easing.OutQuint);
 
             iconContainer.Clear();
             iconContainer.ClearTransforms();

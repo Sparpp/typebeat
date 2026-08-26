@@ -346,6 +346,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// The session requests' timeouts are not transfer budgets, they are how long the flow waits
+        /// before deciding a request is gone, which is the only way the black hole this protocol exists
+        /// for can be discovered at all. Backlog 206 cut the chunk's from 30s to 5s on that reading: a
+        /// healthy 8KB chunk on its own fresh connection answers in well under a second, so the other 25
+        /// seconds were pure latency on every probe, once per failed chunk. Gateway 5xx answers are
+        /// unaffected either way, since an edge answering for an absent origin answers immediately.
+        /// </summary>
+        [Test]
+        public void SessionRequestTimeoutsMatchWhatTheyAreWaitingFor()
+        {
+            var api = new DummyAPIAccess();
+            api.Endpoints.BeatmapSubmissionServiceUrl = @"http://localhost/bss";
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(timeoutOf(api, new UploadSessionChunkRequest(new string('b', 32), 0, new byte[16])), Is.EqualTo(5_000));
+
+                // longer than a chunk deliberately: this answer grows with the session (905 indices for
+                // the upload this was built for) and giving up on it early costs the reconcile itself,
+                // which is what stops a lost 204 from burning a chunk's attempt cap.
+                Assert.That(timeoutOf(api, new GetUploadSessionRequest(new string('b', 32))), Is.EqualTo(10_000));
+
+                // the outlier stays an outlier: completing is the server assembling and ingesting the
+                // whole package, so its wait is server work rather than dead air.
+                Assert.That(timeoutOf(api, new CompleteUploadSessionRequest(new string('b', 32))), Is.EqualTo(600_000));
+            });
+        }
+
+        private static int timeoutOf(DummyAPIAccess api, APIRequest request)
+        {
+            request.AttachAPI(api);
+            return createWebRequest(request).Timeout;
+        }
+
+        /// <summary>
         /// <c>CreateWebRequest</c> is protected all the way up the hierarchy and the built request's
         /// header set is private, so both ends of this pin need reflection (the same seam
         /// <c>OnlineReplayWireTest</c> uses and documents). Invoking the base <see cref="System.Reflection.MethodInfo"/>

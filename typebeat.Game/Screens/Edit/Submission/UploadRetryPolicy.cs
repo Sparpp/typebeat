@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -175,6 +176,75 @@ namespace typebeat.Game.Screens.Edit.Submission
 
             int index = Math.Min(resumeNumber - 1, delays_before_chunked_resume.Length - 1);
             return delays_before_chunked_resume[index];
+        }
+
+        /// <summary>
+        /// What a window of concurrent chunk PUTs does once it has finished draining after a failure.
+        /// </summary>
+        public enum DrainedWindowAction
+        {
+            /// <summary>
+            /// Reconcile with the server, then send whatever is still missing.
+            /// </summary>
+            Retry,
+
+            /// <summary>
+            /// Wait out one gateway round (<see cref="DelayBeforeGatewayRound"/>) before doing that.
+            /// </summary>
+            GatewayRound,
+
+            /// <summary>
+            /// End the session with the failure that earned it.
+            /// </summary>
+            GiveUp,
+        }
+
+        /// <summary>
+        /// Decides what a drained upload window does next, given every chunk failure the round collected.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The rule this exists for is the gateway one: an outage answers EVERY request in flight, so
+        /// five concurrent 502s are one event and not five. Deciding per chunk would spend the whole
+        /// <see cref="MAX_GATEWAY_ROUNDS"/> ladder inside a single deploy window and give up on a server
+        /// that came back twenty seconds in, which is the exact failure backlog 203 fixed for the
+        /// sequential pump and would have been reintroduced by widening it.
+        /// </para>
+        /// <para>
+        /// A gateway answer also outranks a chunk that ran out of attempts in the same batch, matching
+        /// the order the sequential pump used (it deferred for a gateway before consulting any cap). The
+        /// terminal chunk loses nothing by it: its attempt count is preserved across the wait, and when
+        /// it fails again against an origin that is actually answering, that round has no gateway in it
+        /// and ends the session with its verdict.
+        /// </para>
+        /// <para>
+        /// An empty set answers <see cref="DrainedWindowAction.Retry"/>, which is unreachable in the flow
+        /// (draining begins with a failure) and is the harmless answer if it ever stops being so.
+        /// </para>
+        /// </remarks>
+        public static DrainedWindowAction ActionAfterDrainedWindow(IEnumerable<ChunkUploadWindow.ChunkFailure> failures)
+        {
+            ArgumentNullException.ThrowIfNull(failures);
+
+            bool gateway = false;
+            bool terminal = false;
+
+            foreach (var failure in failures)
+            {
+                if (IsGatewayTransient(failure.Exception))
+                {
+                    gateway = true;
+                    continue;
+                }
+
+                if (!ShouldRetryChunkAfter(failure.Attempts, failure.Exception))
+                    terminal = true;
+            }
+
+            if (gateway)
+                return DrainedWindowAction.GatewayRound;
+
+            return terminal ? DrainedWindowAction.GiveUp : DrainedWindowAction.Retry;
         }
 
         /// <summary>

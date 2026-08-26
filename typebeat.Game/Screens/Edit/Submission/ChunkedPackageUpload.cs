@@ -33,13 +33,20 @@ namespace typebeat.Game.Screens.Edit.Submission
     /// </para>
     /// <para>
     /// So chunks are 8KB, comfortably under the observed ceiling with room for the request line and
-    /// headers, and they go up one at a time on their own connection: every session request carries
+    /// headers, and each goes up on its own connection: every session request carries
     /// <c>Connection: close</c> (backlog 201), so the connection churn is expected rather than
     /// accidental. It has to be the client asking: the origin's own close on chunk responses only
     /// bounded the proxy-to-origin hop, and pooled client connections were observed accumulating
     /// create + chunks until they crossed the ceiling mid-chunk. A chunk that dies
     /// is repeated on the spot: 8KB and a second of backoff, against the 153s a single failed
     /// monolithic attempt costs today.
+    /// </para>
+    /// <para>
+    /// Several are in flight at once (backlog 206), which is what makes a large package practical: with
+    /// a connection per chunk the cost is a handshake and a round trip, ~0.4s measured against ~0.0s of
+    /// server-side processing, so a sequential pump spends about six minutes of pure latency on a 905
+    /// chunk upload and leaves the wire idle throughout. <see cref="ChunkUploadWindow"/> owns that
+    /// window, the bookkeeping it forces, and the reasons it is safe against this server.
     /// </para>
     /// <para>
     /// Ordering matters as much as the mechanism. The single-request upload stays the DEFAULT and this
@@ -287,18 +294,28 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// </summary>
         public int TotalChunkCount => totalChunks;
 
+        /// <summary>
+        /// The single-request step in flight (session create, status fetch or complete), if any. The
+        /// chunk PUTs do not go through here, because there are several of them at once.
+        /// </summary>
         private APIRequest? activeRequest;
+
+        /// <summary>
+        /// The chunk PUTs in flight, by index. The window's identity gate: a chunk callback counts only
+        /// while this still names that exact request for its index.
+        /// </summary>
+        private readonly Dictionary<int, UploadSessionChunkRequest> inFlightRequests = new Dictionary<int, UploadSessionChunkRequest>();
+
+        /// <summary>
+        /// Which chunks are owed, which are outstanding, and what each has cost. See
+        /// <see cref="ChunkUploadWindow"/> for why the pump is a window rather than a queue.
+        /// </summary>
+        private readonly ChunkUploadWindow window = new ChunkUploadWindow();
+
         private string sessionId = string.Empty;
         private int chunkBytes;
         private int totalChunks;
 
-        /// <summary>
-        /// The chunk indices still to send, in ascending order.
-        /// </summary>
-        private readonly List<int> pending = new List<int>();
-
-        private int pendingCursor;
-        private int chunkAttempts;
         private int completeAttempts;
 
         /// <summary>
@@ -380,7 +397,16 @@ namespace typebeat.Game.Screens.Edit.Submission
 
             var request = activeRequest;
             activeRequest = null;
+
+            // every chunk in flight, not just one: with a window there is no single active request, and
+            // a chunk left running would keep a socket open and call back into a dead flow.
+            var chunks = inFlightRequests.Values.ToArray();
+            inFlightRequests.Clear();
+
             request?.Cancel();
+
+            foreach (var chunk in chunks)
+                chunk.Cancel();
         }
 
         private void sessionCreated(UploadSessionResponse response)
@@ -411,100 +437,190 @@ namespace typebeat.Game.Screens.Edit.Submission
             chunkBytes = response.ChunkBytes;
             totalChunks = expectedChunks;
 
-            pending.Clear();
-            pending.AddRange(RemainingChunks(totalChunks, response.Received));
-            pendingCursor = 0;
-            chunkAttempts = 0;
+            window.Reset(RemainingChunks(totalChunks, response.Received));
 
-            log($"Upload session {sessionId} open: {totalChunks} chunks of {chunkBytes} bytes, {totalChunks - pending.Count} already held");
+            log($"Upload session {sessionId} open: {totalChunks} chunks of {chunkBytes} bytes, {window.ConfirmedCount(totalChunks)} already held");
 
             reportProgress();
-            uploadNextChunk();
+            pump();
         }
 
-        private void uploadNextChunk()
+        /// <summary>
+        /// Fills the window, starting chunk PUTs until <see cref="ChunkUploadWindow.MAX_IN_FLIGHT"/> are
+        /// outstanding, and closes the session once nothing is owed and nothing is outstanding.
+        /// </summary>
+        private void pump()
         {
-            if (canceled)
+            if (canceled || finished)
                 return;
 
-            if (pendingCursor >= pending.Count)
-            {
+            foreach (int index in window.TakeNextBatch())
+                sendChunk(index);
+
+            // both halves of the condition matter: a pending list that has just emptied still has up to
+            // MAX_IN_FLIGHT chunks the server has not confirmed, and completing then would ask it to
+            // assemble a package with holes in it.
+            if (window.IsComplete)
                 complete();
-                return;
-            }
+        }
 
-            int index = pending[pendingCursor];
-            chunkAttempts++;
-
+        /// <summary>
+        /// Starts one chunk PUT, off the API queue.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Off the queue deliberately (backlog 206). <see cref="APIAccess"/> drains its queue on one
+        /// background thread, one request at a time (<c>run</c> to <c>processQueuedRequests</c> to
+        /// <c>handleRequest</c>, which performs the request synchronously), so queued chunks would go up
+        /// sequentially however wide this window is. <see cref="IAPIProvider.PerformAsync"/> performs the
+        /// request on its own thread instead, which is the only path in the fork that runs API requests
+        /// concurrently.
+        /// </para>
+        /// <para>
+        /// Thread safety is unchanged by that, because the callbacks are not what moves:
+        /// <see cref="APIRequest.TriggerSuccess"/> and <see cref="APIRequest.TriggerFailure"/> both hand
+        /// off through <c>IAPIProvider.Schedule</c>, which is the update thread's scheduler, exactly as
+        /// they do for a queued request. So every line of the bookkeeping below still runs on the update
+        /// thread, one callback at a time, and the window needs no locking. What does run on the worker
+        /// thread is <see cref="APIRequest.Perform"/> itself, whose two pieces of shared state are the
+        /// OAuth token (retrieved under a lock) and a bindable read of the local user.
+        /// </para>
+        /// <para>
+        /// One side effect worth naming: a chunk performed this way no longer feeds <c>APIAccess</c>'s
+        /// consecutive-failure counter, so a run of black-holed chunks can no longer put the API into
+        /// <see cref="APIState.Failing"/> and flush the queue out from under the completing request. The
+        /// status fetch and the complete stay queued, so they keep the queue's ordering and its
+        /// logged-out check.
+        /// </para>
+        /// </remarks>
+        private void sendChunk(int index)
+        {
             byte[] slice = new byte[ChunkLength(index, payload.Bytes.Length, chunkBytes)];
             Array.Copy(payload.Bytes, ChunkOffset(index, chunkBytes), slice, 0, slice.Length);
 
             var request = new UploadSessionChunkRequest(sessionId, index, slice);
-            activeRequest = request;
+            inFlightRequests[index] = request;
 
             request.Success += () =>
             {
                 if (!isCurrent(request))
                     return;
 
-                activeRequest = null;
-                pendingCursor++;
-                chunkAttempts = 0;
-                reportProgress();
-                uploadNextChunk();
+                inFlightRequests.Remove(index);
+                chunkSucceeded(index);
             };
             request.Failure += exception =>
             {
                 if (!isCurrent(request))
                     return;
 
-                activeRequest = null;
+                inFlightRequests.Remove(index);
                 chunkFailed(index, exception);
             };
 
-            api.Queue(request);
+            // not awaited: everything this flow needs arrives through the callbacks above, and
+            // APIAccess.Perform turns any exception into request.Fail rather than faulting the task.
+            _ = api.PerformAsync(request);
+        }
+
+        private void chunkSucceeded(int index)
+        {
+            window.MarkSucceeded(index);
+            reportProgress();
+
+            // a success can be what finishes draining a window that a sibling chunk already failed, in
+            // which case the batch's one decision is owed now.
+            if (window.IsDrained)
+            {
+                windowDrained();
+                return;
+            }
+
+            pump();
         }
 
         private void chunkFailed(int index, Exception exception)
         {
-            log($"Chunk {index} attempt {chunkAttempts}/{UploadRetryPolicy.MAX_ATTEMPTS} failed: {exception}");
+            window.MarkFailed(index, exception);
 
-            // a gateway 5xx hands its attempt back before anything else reads the count: the per-index
-            // cap is there to make a genuinely broken chunk terminal, and the origin never saw this one.
-            chunkAttempts = UploadRetryPolicy.AttemptsAfterGatewayRound(chunkAttempts, exception);
+            log($"Chunk {index} attempt {window.AttemptsFor(index)}/{UploadRetryPolicy.MAX_ATTEMPTS} failed: {exception}");
 
-            if (deferForGateway(exception, $"chunk {index}", () => reconcileThenRetry(index)))
-                return;
-
-            if (!UploadRetryPolicy.ShouldRetryChunkAfter(chunkAttempts, exception))
-            {
-                fail(exception);
-                return;
-            }
-
-            schedule(() =>
-            {
-                if (canceled)
-                    return;
-
-                reconcileThenRetry(index);
-            }, UploadRetryPolicy.DelayBeforeChunkAttempt(chunkAttempts + 1));
+            // the rest of the window is still coming home, and whatever failed this one is likely to
+            // have failed them too, so the decision waits until there is one batch to take it for.
+            if (window.IsDrained)
+                windowDrained();
         }
 
         /// <summary>
-        /// Asks the server what the session holds before re-sending a chunk that failed.
+        /// Decides what a window that has finished draining after a failure does next, once, for the
+        /// whole batch.
+        /// </summary>
+        /// <remarks>
+        /// The decision itself is <see cref="UploadRetryPolicy.ActionAfterDrainedWindow"/>, which is pure
+        /// and pinned; this carries it out. The reconcile is one status GET for the batch rather than one
+        /// per failed chunk, which is the same trade the window makes everywhere else: five chunks that
+        /// died together died of one thing.
+        /// </remarks>
+        private void windowDrained()
+        {
+            if (canceled || finished)
+                return;
+
+            string what = $"chunks {string.Join(", ", window.Failures.Select(f => f.Index))}";
+
+            switch (UploadRetryPolicy.ActionAfterDrainedWindow(window.Failures))
+            {
+                case UploadRetryPolicy.DrainedWindowAction.GatewayRound:
+                    // ONE round for the whole batch: an outage answers every request in flight, so five
+                    // concurrent 502s are one event and spending a round on each would burn the entire
+                    // ladder inside a single deploy window.
+                    beginGatewayRound(window.GatewayFailure ?? window.FailureToReport(), what, reconcileThenPump);
+                    return;
+
+                case UploadRetryPolicy.DrainedWindowAction.GiveUp:
+                    fail(window.FailureToReport());
+                    return;
+
+                default:
+                {
+                    // indexed on the worst chunk in the batch, so one chunk failing repeatedly backs the
+                    // round off even while its neighbours are on their first try.
+                    double delay = UploadRetryPolicy.DelayBeforeChunkAttempt(window.WorstAttempts + 1);
+
+                    log($"{what} failed, reconciling and retrying in {delay / 1000:0.#}s");
+
+                    schedule(() =>
+                    {
+                        if (canceled)
+                            return;
+
+                        reconcileThenPump();
+                    }, delay);
+                    return;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Asks the server what the session holds before re-sending the chunks that failed, once for the
+        /// whole drained batch.
         /// </summary>
         /// <remarks>
         /// A chunk PUT can be STORED and still fail on the client, because the failure this whole
         /// fallback exists for can black-hole the response instead of the request: the server logs its
-        /// 204 and the client sits out a 30s idle timeout. Re-sending that chunk blindly then spends the
-        /// attempt cap on work already done, and three of those in a row also trip the API's own
-        /// three-strike failure counter, which flushes the queue and takes the completing request with
-        /// it. Reconciling first turns a lost response into a no-op, and the successful status GET
-        /// resets that failure counter as a side effect, which is what keeps the queue alive.
+        /// 204 and the client sits out its idle timeout. Re-sending that chunk blindly then spends the
+        /// per-index attempt cap on work already done. Reconciling first turns a lost response into a
+        /// no-op.
+        ///
+        /// One GET per drained window rather than one per failed chunk is the same trade the window makes
+        /// everywhere: the answer names every index the server holds, so a second fetch for a second
+        /// failed chunk of the same batch could only repeat it.
         /// </remarks>
-        private void reconcileThenRetry(int failedIndex)
+        private void reconcileThenPump()
         {
+            if (canceled || finished)
+                return;
+
             var request = new GetUploadSessionRequest(sessionId);
             activeRequest = request;
 
@@ -514,7 +630,7 @@ namespace typebeat.Game.Screens.Edit.Submission
                     return;
 
                 activeRequest = null;
-                sessionReconciled(failedIndex, response);
+                sessionReconciled(response);
             };
             request.Failure += exception =>
             {
@@ -523,50 +639,42 @@ namespace typebeat.Game.Screens.Edit.Submission
 
                 activeRequest = null;
 
-                // a gateway 5xx here is the same outage that just failed the chunk, so it waits on the
+                // a gateway 5xx here is the same outage that just failed the chunks, so it waits on the
                 // gateway ladder instead of falling through to a blind retry that cannot land either.
-                if (deferForGateway(exception, @"upload session status", () => reconcileThenRetry(failedIndex)))
+                if (deferForGateway(exception, @"upload session status", reconcileThenPump))
                     return;
 
                 // any other failure falls through to the blind retry, including a decoded 404: a server
                 // that predates this route and a session that has genuinely gone away answer the same
                 // way, and only the chunk PUT itself can tell them apart. The attempt accounting is
                 // untouched, so this costs nothing beyond the request.
-                log($"Upload session status fetch failed, retrying chunk {failedIndex} blindly: {exception}");
-                uploadNextChunk();
+                log($"Upload session status fetch failed, retrying the missing chunks blindly: {exception}");
+                window.ResumeWithoutReconcile();
+                pump();
             };
 
             api.Queue(request);
         }
 
-        private void sessionReconciled(int failedIndex, UploadSessionResponse response)
+        private void sessionReconciled(UploadSessionResponse response)
         {
             if (response.TotalChunks != totalChunks)
             {
                 // the session answered for a different slicing than the one creation agreed on, so its
                 // received list cannot be mapped onto the local payload. Retry blindly rather than
                 // rebuild the pending set from something this flow does not understand.
-                log($"Upload session status reports {response.TotalChunks} chunks, expected {totalChunks}; retrying chunk {failedIndex} blindly");
-                uploadNextChunk();
+                log($"Upload session status reports {response.TotalChunks} chunks, expected {totalChunks}; retrying the missing chunks blindly");
+                window.ResumeWithoutReconcile();
+                pump();
                 return;
             }
 
-            var remaining = RemainingChunks(totalChunks, response.Received);
-            bool failedChunkLanded = !remaining.Contains(failedIndex);
+            window.Reconcile(RemainingChunks(totalChunks, response.Received));
 
-            pending.Clear();
-            pending.AddRange(remaining);
-            pendingCursor = 0;
-
-            // the per-index cap is what makes a genuinely broken chunk terminal, so the attempt count
-            // only resets when the server confirms the chunk that just failed actually landed.
-            if (failedChunkLanded)
-                chunkAttempts = 0;
-
-            log($"Upload session {sessionId} holds {totalChunks - pending.Count}/{totalChunks} chunks; chunk {failedIndex} {(failedChunkLanded ? "landed after all" : "still missing")}");
+            log($"Upload session {sessionId} holds {window.ConfirmedCount(totalChunks)}/{totalChunks} chunks");
 
             reportProgress();
-            uploadNextChunk();
+            pump();
         }
 
         private void complete()
@@ -652,13 +760,28 @@ namespace typebeat.Game.Screens.Edit.Submission
             if (!UploadRetryPolicy.IsGatewayTransient(exception))
                 return false;
 
+            beginGatewayRound(exception, what, resume);
+            return true;
+        }
+
+        /// <summary>
+        /// Spends one gateway round waiting for the origin to come back, then runs
+        /// <paramref name="resume"/>, or ends the flow if the ladder is out of rounds.
+        /// </summary>
+        /// <remarks>
+        /// Split out from <see cref="deferForGateway"/> because the window has a caller that has already
+        /// decided a round is owed: a drained batch of concurrent failures is ONE outage, so it spends
+        /// one round between all of them rather than one each.
+        /// </remarks>
+        private void beginGatewayRound(Exception exception, string what, Action resume)
+        {
             gatewayRounds++;
 
             if (!UploadRetryPolicy.ShouldRetryGatewayAfter(gatewayRounds, exception))
             {
                 log($"{what}: the server is still unreachable after {gatewayRounds} gateway rounds, giving up on this session");
                 fail(exception);
-                return true;
+                return;
             }
 
             double delay = UploadRetryPolicy.DelayBeforeGatewayRound(gatewayRounds + 1);
@@ -672,13 +795,11 @@ namespace typebeat.Game.Screens.Edit.Submission
 
                 resume();
             }, delay);
-
-            return true;
         }
 
         private void reportProgress()
         {
-            int done = totalChunks - pending.Count + pendingCursor;
+            int done = window.ConfirmedCount(totalChunks);
 
             if (done > HeldChunks)
             {
@@ -693,7 +814,27 @@ namespace typebeat.Game.Screens.Edit.Submission
             OnProgress?.Invoke(done, totalChunks);
         }
 
-        private bool isCurrent(APIRequest request) => !canceled && ReferenceEquals(activeRequest, request);
+        /// <summary>
+        /// Whether <paramref name="request"/>'s callbacks still speak for this flow.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="APIRequest.Cancel"/> runs the same failure path a 404 does, so identity is what
+        /// separates a live request from one this flow has already walked away from. With a window there
+        /// is no single active request, so a chunk is current exactly while
+        /// <see cref="inFlightRequests"/> still names that instance for its own index.
+        /// </remarks>
+        private bool isCurrent(APIRequest request)
+        {
+            if (canceled)
+                return false;
+
+            if (ReferenceEquals(activeRequest, request))
+                return true;
+
+            return request is UploadSessionChunkRequest chunk
+                   && inFlightRequests.TryGetValue(chunk.ChunkIndex, out var inFlight)
+                   && ReferenceEquals(inFlight, request);
+        }
 
         private void succeed()
         {

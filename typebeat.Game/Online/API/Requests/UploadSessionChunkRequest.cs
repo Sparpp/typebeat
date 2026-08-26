@@ -25,8 +25,12 @@ namespace typebeat.Game.Online.API.Requests
     /// response only ever bounded the proxy-to-origin hop; field logs showed the client-side
     /// connection being pooled straight through it, accumulating create + chunks until it crossed
     /// the ceiling mid-chunk, deterministically, every ~2.5 chunks.
-    /// The timeout is short (30s for 8KB), because a black-holed chunk should be given up on and
-    /// repeated quickly rather than sat on.
+    /// The timeout is 5s (backlog 206), because it is not a transfer budget: a healthy chunk is 8KB on
+    /// its own fresh connection and answers in well under a second, and the failure this protocol exists
+    /// for is a black hole, which surfaces client-side as dead air and can only be discovered by this
+    /// timeout expiring. So the number is how long the flow waits before deciding a chunk is gone, and
+    /// the old 30s was 25 seconds of pure latency on every probe. Gateway 5xx answers are unaffected:
+    /// an edge answering for an origin that is not there answers immediately.
     /// </remarks>
     public class UploadSessionChunkRequest : APIRequest
     {
@@ -80,7 +84,7 @@ namespace typebeat.Game.Online.API.Requests
 
             req.Method = HttpMethod.Put;
             req.ContentType = @"application/octet-stream";
-            req.Timeout = 30_000;
+            req.Timeout = 5_000;
             req.AddHeader(@"X-Chunk-Sha256", ChunkSha256);
             // one fresh connection per session request; see the class doc (backlog 201).
             req.AddHeader(@"Connection", @"close");

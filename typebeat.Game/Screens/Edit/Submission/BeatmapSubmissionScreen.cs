@@ -122,6 +122,13 @@ namespace typebeat.Game.Screens.Edit.Submission
         /// </summary>
         private int chunkedResumes;
 
+        /// <summary>
+        /// The confirmed chunk count last written into the upload step's note, or -1 for none written
+        /// for the session in flight. Kept so a 905 chunk upload does not rebuild that text once per
+        /// confirmation, which with a window of concurrent chunks is a dozen a second.
+        /// </summary>
+        private int notedChunks = -1;
+
         private int uploadAttempt;
         private ScheduledDelegate? uploadRetryDelegate;
         private bool exiting;
@@ -554,6 +561,8 @@ namespace typebeat.Game.Screens.Edit.Submission
                 uploadStep.SetRetrying($"upload interrupted, resuming chunked upload ({chunkedResumes}/{UploadRetryPolicy.MAX_CHUNKED_RESUMES})");
             }
 
+            notedChunks = -1;
+
             ChunkedPackageUpload upload = null!;
 
             upload = new ChunkedPackageUpload(beatmapSetId.Value, uploadSessionPayload, api, (action, delay) =>
@@ -568,6 +577,16 @@ namespace typebeat.Game.Screens.Edit.Submission
                         return;
 
                     uploadStep.SetInProgress(total > 0 ? (float)done / total : null);
+
+                    // the bar alone cannot say how big the upload is or that it is still moving, and a
+                    // chunked upload of a real package is hundreds of requests over minutes. `done` is
+                    // server-confirmed chunks, not chunks sent, so the count cannot run ahead of what a
+                    // resume would keep.
+                    if (!ChunkUploadWindow.ShouldReportProgress(notedChunks, done, total))
+                        return;
+
+                    notedChunks = done;
+                    uploadStep.SetProgressNote($"uploading chunk {done}/{total}");
                 },
                 OnSucceeded = () =>
                 {

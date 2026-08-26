@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -719,5 +720,85 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(UploadRetryPolicy.SwitchesToChunked(null), Is.False);
             });
         }
+
+        /// <summary>
+        /// Backlog 206's window rule: a batch of chunk PUTs that failed together gets ONE answer. A
+        /// gateway 5xx in the batch makes it a gateway round however many chunks it answered, because an
+        /// outage answers everything in flight and spending a round each would burn the whole ladder
+        /// inside a single deploy window.
+        /// </summary>
+        [Test]
+        public void ConcurrentGatewayFailuresAreOneGatewayRound()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.ActionAfterDrainedWindow(failures(5, i => new ChunkUploadWindow.ChunkFailure(i, 0, new WebException(@"BadGateway")))),
+                    Is.EqualTo(UploadRetryPolicy.DrainedWindowAction.GatewayRound));
+
+                // the shape an origin that is up enough to answer its own 503 produces.
+                Assert.That(UploadRetryPolicy.ActionAfterDrainedWindow(failures(5, i => new ChunkUploadWindow.ChunkFailure(i, 0, new APIException("shutting down", null, HttpStatusCode.ServiceUnavailable)))),
+                    Is.EqualTo(UploadRetryPolicy.DrainedWindowAction.GatewayRound));
+
+                // one 502 among four ordinary transport failures is still the outage: they are the same
+                // event seen five times.
+                Assert.That(UploadRetryPolicy.ActionAfterDrainedWindow(failures(5, i => new ChunkUploadWindow.ChunkFailure(i, 1,
+                    i == 3 ? new WebException(@"GatewayTimeout") : new HttpRequestException("aborted")))), Is.EqualTo(UploadRetryPolicy.DrainedWindowAction.GatewayRound));
+            });
+        }
+
+        [Test]
+        public void ADrainedWindowOfTransportFailuresRetries()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.ActionAfterDrainedWindow(failures(5, i => new ChunkUploadWindow.ChunkFailure(i, 1, new HttpRequestException("aborted")))),
+                    Is.EqualTo(UploadRetryPolicy.DrainedWindowAction.Retry));
+
+                // an idle timeout is the black hole this whole protocol exists for, and a chunk is 8KB.
+                Assert.That(UploadRetryPolicy.ActionAfterDrainedWindow(failures(2, i => new ChunkUploadWindow.ChunkFailure(i, 2, new WebException(@"Timeout")))),
+                    Is.EqualTo(UploadRetryPolicy.DrainedWindowAction.Retry));
+
+                Assert.That(UploadRetryPolicy.ActionAfterDrainedWindow(Array.Empty<ChunkUploadWindow.ChunkFailure>()),
+                    Is.EqualTo(UploadRetryPolicy.DrainedWindowAction.Retry));
+            });
+        }
+
+        [Test]
+        public void OneExhaustedOrRefusedChunkEndsTheWindow()
+        {
+            Assert.Multiple(() =>
+            {
+                // a single chunk out of attempts ends the session even though its four neighbours are
+                // still retryable: the per-index cap is what makes a genuinely broken chunk terminal.
+                Assert.That(UploadRetryPolicy.ActionAfterDrainedWindow(failures(5, i => new ChunkUploadWindow.ChunkFailure(i,
+                    i == 2 ? UploadRetryPolicy.MAX_ATTEMPTS : 1, new HttpRequestException("aborted")))), Is.EqualTo(UploadRetryPolicy.DrainedWindowAction.GiveUp));
+
+                // and a decoded verdict on any one chunk ends it on its first attempt.
+                Assert.That(UploadRetryPolicy.ActionAfterDrainedWindow(failures(5, i => new ChunkUploadWindow.ChunkFailure(i, 1,
+                    i == 4 ? new APIException("session not found", null, HttpStatusCode.NotFound) : new HttpRequestException("aborted")))),
+                    Is.EqualTo(UploadRetryPolicy.DrainedWindowAction.GiveUp));
+            });
+        }
+
+        /// <summary>
+        /// A gateway answer outranks a chunk that ran out of attempts in the same batch, matching the
+        /// order the sequential pump used. The terminal chunk loses nothing: its count is preserved
+        /// across the wait, so when it fails again against an origin that is actually answering, that
+        /// round has no gateway in it and ends the session.
+        /// </summary>
+        [Test]
+        public void AGatewayAnswerOutranksAnExhaustedChunk()
+        {
+            var mixed = new[]
+            {
+                new ChunkUploadWindow.ChunkFailure(0, UploadRetryPolicy.MAX_ATTEMPTS, new HttpRequestException("aborted")),
+                new ChunkUploadWindow.ChunkFailure(1, 0, new WebException(@"BadGateway")),
+            };
+
+            Assert.That(UploadRetryPolicy.ActionAfterDrainedWindow(mixed), Is.EqualTo(UploadRetryPolicy.DrainedWindowAction.GatewayRound));
+        }
+
+        private static IEnumerable<ChunkUploadWindow.ChunkFailure> failures(int count, Func<int, ChunkUploadWindow.ChunkFailure> build)
+            => Enumerable.Range(0, count).Select(build).ToArray();
     }
 }

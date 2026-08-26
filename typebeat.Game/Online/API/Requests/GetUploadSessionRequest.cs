@@ -21,9 +21,17 @@ namespace typebeat.Game.Online.API.Requests
     /// such failures in a row also trip the API's own failure counter, which flushes everything still
     /// queued. Asking what the server actually has turns both of those into a no-op.
     ///
-    /// The timeout is short for the same reason the chunk request's is: the answer is a few dozen bytes,
-    /// so a slow one is a dead one. A server that predates the route answers 404, which decodes into an
-    /// <see cref="APIException"/>, and the caller falls back to retrying the chunk blindly.
+    /// The timeout is short for the same reason the chunk request's is: a slow answer here is a dead one,
+    /// and 30s of waiting on the recovery path is 30s added to every failure round. It is deliberately
+    /// LONGER than the chunk's 5s though (backlog 206), because the two are not the same bet. This
+    /// answer grows with the session (a 905 chunk session lists 905 indices, kilobytes rather than the
+    /// chunk PUT's empty 204 body), and giving up on it early costs more than giving up on a chunk
+    /// early: the caller falls through to re-sending chunks blindly, losing exactly the protection this
+    /// request exists to provide, while a chunk given up on early is repeated for 8KB. 10s covers a slow
+    /// several-KB response on a bad link and still bounds a round.
+    ///
+    /// A server that predates the route answers 404, which decodes into an <see cref="APIException"/>,
+    /// and the caller falls back to retrying the chunks blindly.
     /// </remarks>
     public class GetUploadSessionRequest : APIRequest<UploadSessionResponse>
     {
@@ -54,7 +62,7 @@ namespace typebeat.Game.Online.API.Requests
             var req = base.CreateWebRequest();
 
             req.Method = HttpMethod.Get;
-            req.Timeout = 30_000;
+            req.Timeout = 10_000;
             // one fresh connection per session request; see UploadSessionChunkRequest (backlog 201).
             req.AddHeader(@"Connection", @"close");
 
