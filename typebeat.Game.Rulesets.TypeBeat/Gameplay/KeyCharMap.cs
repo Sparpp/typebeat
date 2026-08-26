@@ -30,11 +30,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// Pure static map from a <see cref="Key"/> to the single character it produces on the restricted
     /// typing surface: letters a-z (lower-case by default, upper-cased when <c>shift</c> is held),
     /// digits 0-9 (top row and keypad), and space. Everything else maps to nothing. This is the
-    /// one-function seam for a future <c>TextInputSource</c> swap; the only modifier it interprets is
-    /// Shift (for letter case); callers still filter Ctrl/Alt. Shift is applied AFTER the layout
-    /// remap, so the produced capital always matches the keycap the player reads (e.g. AZERTY Q → 'A').
-    /// Only letters carry case; digits and space ignore Shift. Case only matters to gameplay under the
-    /// Literate mod (<see cref="TypingEngine.CaseSensitive"/>); otherwise the caret folds it away.
+    /// one-function seam for a future <c>TextInputSource</c> swap; the only modifiers it interprets
+    /// are Shift and Caps Lock (for letter case); callers still filter Ctrl/Alt. Case is applied
+    /// AFTER the layout remap, so the produced capital always matches the keycap the player reads
+    /// (e.g. AZERTY Q → 'A'). Only letters carry case; digits and space ignore both modifiers. Case
+    /// only matters to gameplay under the Literate mod (<see cref="TypingEngine.CaseSensitive"/>);
+    /// otherwise the caret folds it away.
+    ///
+    /// <para><b>Caps Lock follows a real keyboard exactly.</b> For LETTERS the effective case is
+    /// <c>shift XOR capsLock</c>: caps alone capitalises, and Shift held with caps ON produces the
+    /// LOWER case letter. For everything else (digits, space and the punctuation surface below) caps
+    /// is ignored entirely and Shift alone decides, because Caps Lock does not shift a digit-row or
+    /// punctuation key on any real keyboard: with caps on, plain 4 is still '4' and Shift+4 is still
+    /// '$'. Before backlog 205 the map read Shift alone, so under Literate a player capitalising with
+    /// Caps Lock produced lower-case characters and every capital in the lyric read as a typo.</para>
     ///
     /// <para>The <c>punctuation</c> overload widens the surface to the supported
     /// <see cref="Beatmaps.Typeability.PUNCTUATION"/> marks. It is opt-in and OFF everywhere except
@@ -51,20 +60,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         public static bool TryMap(Key key, KeyboardLayout layout, bool shift, out char c) => TryMap(key, layout, shift, false, out c);
 
-        public static bool TryMap(Key key, KeyboardLayout layout, bool shift, bool punctuation, out char c)
+        public static bool TryMap(Key key, KeyboardLayout layout, bool shift, bool punctuation, out char c) => TryMap(key, layout, shift, punctuation, false, out c);
+
+        // capsLock: whether the Caps Lock toggle is currently ON. Affects LETTERS only, where it
+        // XORs with shift (see the type doc). Callers with no readable toggle state pass false,
+        // which is exactly the pre-Caps-Lock, Shift-only behaviour.
+        public static bool TryMap(Key key, KeyboardLayout layout, bool shift, bool punctuation, bool capsLock, out char c)
         {
             // Checked FIRST so a shifted digit can produce its mark ('!' on 1, '(' on 9, ')' on 0);
-            // unshifted digits fall straight through to the digit below.
+            // unshifted digits fall straight through to the digit below. Caps Lock is deliberately
+            // NOT passed in: on a real keyboard it does not shift a digit-row or punctuation key,
+            // so the mark above one is reachable by Shift and only by Shift.
             if (punctuation && tryMapPunctuation(key, layout, shift, out c))
                 return true;
 
             if (!tryMapLower(key, layout, out c))
                 return false;
 
-            // Shift upper-cases letters only; digits/space have no case. In case-insensitive
-            // play the caret folds this back to lower-case, so it is a no-op there; under the
-            // Literate mod it is what lets the player produce the capitals the target demands.
-            if (shift && c >= 'a' && c <= 'z')
+            // Case applies to letters only; digits/space have no case, so a stray Caps Lock can
+            // never turn one into an un-typeable char. XOR, not OR, because that is what a real
+            // keyboard does: Shift held with Caps Lock ON types the LOWER case letter. In
+            // case-insensitive play the caret folds all of this back to lower-case, so it is a
+            // no-op there; under the Literate mod it is what lets the player produce the capitals
+            // the target demands, by either route.
+            if (shift != capsLock && c >= 'a' && c <= 'z')
                 c = (char)(c - ('a' - 'A'));
 
             return true;

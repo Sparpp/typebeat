@@ -14,6 +14,7 @@ using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Input.Bindings;
 using osu.Framework.Input.Events;
+using osu.Framework.Platform;
 using osu.Framework.Timing;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Configuration;
@@ -745,6 +746,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             [Resolved]
             private IGameplayClock? gameplayClock { get; set; }
 
+            /// <summary>
+            /// The window/platform host, the only place the live Caps Lock TOGGLE state is readable:
+            /// a <see cref="KeyDownEvent"/> carries the HELD modifiers (Shift/Ctrl/Alt/Super) but no
+            /// lock state. Nullable and null-checked because a bare drawable test scene need not
+            /// cache one, and because losing the toggle must degrade to Shift-only typing rather
+            /// than kill the run.
+            /// </summary>
+            [Resolved]
+            private GameHost? host { get; set; }
+
+            /// <summary>
+            /// Whether Caps Lock is currently ON, or false wherever that cannot be read.
+            ///
+            /// <para>Cross-platform via the framework, which covers all three shipped targets:
+            /// <c>WindowsGameHost</c> answers from <c>Console.CapsLock</c> (a <c>GetKeyState</c>
+            /// probe, no console required), and every other desktop host inherits
+            /// <c>SDLGameHost</c>'s answer, <c>SDL_GetModState() &amp; SDL_KMOD_CAPS</c>, which is
+            /// live on Linux and macOS alike. The <c>GameHost</c> base returns false, so a headless
+            /// host (the test suite) reports "off" rather than throwing. The read is a cheap state
+            /// probe done per keypress rather than cached, because the toggle can flip while the
+            /// game does not have focus and there is no event to invalidate a cache on.</para>
+            /// </summary>
+            private bool capsLockEnabled
+            {
+                get
+                {
+                    try
+                    {
+                        return host?.CapsLockEnabled == true;
+                    }
+                    catch
+                    {
+                        // A host whose probe is unavailable on its platform must not take gameplay
+                        // down with it; fall back to the Shift-only behaviour that shipped before.
+                        return false;
+                    }
+                }
+            }
+
             public TypeBeatKeyHandler(TypingEngine engine, IBindable<KeyboardLayout> keyboardLayout, DrawableTypeBeatRuleset? drawableRuleset, TypeBeatPlayfield playfield)
             {
                 this.engine = engine;
@@ -794,7 +834,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // types, so no modifier chord is ever shadowed.
                 if (gesture != null
                     && !e.ControlPressed && !e.AltPressed && !e.SuperPressed
-                    && KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, engine.Literate, out _))
+                    && KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, engine.Literate, capsLockEnabled, out _))
                 {
                     gesture = null;
                 }
@@ -910,12 +950,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (engine.IsLineComplete && playfield.CurrentRetypeSelection is null)
                     return false;
 
-                // Pass Shift through so held-Shift keys produce capitals, required for the
-                // Literate (case-sensitive) mod; folded away harmlessly in normal play. The
-                // punctuation surface opens for the same mod, and ONLY for it: without it a comma
-                // key stays inert (no wrong-key combo break for a habitual comma) and Shift+digit
-                // still produces the digit, exactly as before.
-                if (KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, engine.Literate, out char c))
+                // Pass Shift AND the Caps Lock toggle through so either route to a capital works,
+                // required for the Literate (case-sensitive) mod; folded away harmlessly in normal
+                // play. For letters the map takes shift XOR caps, so Shift held under caps lock
+                // types lower case, exactly as the player's keyboard would. The punctuation surface
+                // opens for the same mod, and ONLY for it: without it a comma key stays inert (no
+                // wrong-key combo break for a habitual comma) and Shift+digit still produces the
+                // digit, exactly as before.
+                if (KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, engine.Literate, capsLockEnabled, out char c))
                 {
                     // The framework's own auto-repeat is discarded outright: one judgement per
                     // physical press, never a machine-gun run at the keyboard's repeat rate.
