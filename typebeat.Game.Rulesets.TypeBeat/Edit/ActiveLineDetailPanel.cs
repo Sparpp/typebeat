@@ -22,8 +22,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// LINE-level actions on top (add at playhead, split before word, merge, delete), then the
     /// line view (index, text, start / sung end / window end, granularity, estimated badge),
     /// then the interactive fine-timing surface (<see cref="LyricTimeline"/>), and WORD-level
-    /// actions on the bottom (add word, remove word, subdivide) right beside the word blocks they
-    /// act on.
+    /// actions on the bottom (add word, remove word, subdivide, unsubdivide) right beside the word
+    /// blocks they act on.
     /// </summary>
     public partial class ActiveLineDetailPanel : CompositeDrawable
     {
@@ -126,6 +126,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 addWordButton = actionButton("add word", addWord),
                                 removeWordButton = actionButton("remove word", removeWord),
                                 actionButton("subdivide (D)", subdivideSelectedWords),
+                                // Directly right of its inverse, and always enabled for the same
+                                // reason "subdivide" is: both are no-ops on a word that cannot take
+                                // them, and neither greys out per press.
+                                actionButton("unsubdivide", unsubdivideSelectedWords),
                             }),
                         },
                     },
@@ -323,6 +327,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             foreach (int i in targets)
                 TypeBeatEditorOperations.AddSyllableBoundary(editorBeatmap, line, i);
+
+            editorBeatmap.EndChange();
+        }
+
+        private void unsubdivideSelectedWords()
+        {
+            if (state.ActiveLine.Value is not TypeBeatHitObject line)
+                return;
+
+            // The inverse press of "subdivide", over the same selection and as one undo: each
+            // selected word loses ONE boundary, the one merging its narrowest adjacent pair, so a
+            // word subdivided N times comes back after N presses. A plain word is left alone.
+            int[] targets = selectedWords(line);
+
+            if (targets.Length == 0)
+                return;
+
+            editorBeatmap.BeginChange();
+
+            foreach (int i in targets)
+                TypeBeatEditorOperations.RemoveNarrowestSyllableBoundary(editorBeatmap, line, i);
 
             editorBeatmap.EndChange();
         }

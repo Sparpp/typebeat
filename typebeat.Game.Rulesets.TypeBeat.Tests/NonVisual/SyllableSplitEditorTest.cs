@@ -210,8 +210,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(lineAt(beatmap, 0).Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 1 }));
         }
 
+        /// <summary>
+        /// The forgiving rule, narrowed by backlog 204 to a NONZERO shortfall: some pipe is still
+        /// there, so the commit is read as "these cuts moved", not as "this word is not subdivided".
+        /// Deleting them ALL is the one case that removes (see the region below).
+        /// </summary>
         [Test]
-        public void FewerPipesThanBoundariesKeepsTheRestWhereItWas()
+        public void FewerButNonzeroPipesThanBoundariesKeepsTheRestWhereItWas()
         {
             var beatmap = createBeatmap();
             var line = lineAt(beatmap, 0);
@@ -221,9 +226,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             TypeBeatEditorOperations.SetSyllableSplit(beatmap, second, 0, 1, 5);
             Assert.That(second.Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 2, 5 }));
 
-            // One pipe given: it takes the FIRST split, the second keeps the value it showed.
+            // One pipe given: it takes the FIRST split, the second keeps the value it showed, and
+            // BOTH boundaries stay: a text commit never changes a boundary count downwards here.
             Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, second, "b|anana"), Is.True);
             Assert.That(second.Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 1, 5 }));
+            Assert.That(second.Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3200d, 3400 }));
 
             Assert.That(line.Line.RawText, Is.EqualTo("apple orange"), "the other line is untouched");
         }
@@ -277,16 +284,69 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(unit.SyllableBoundaries, Is.EqualTo(new[] { 1300d }), "the subdivision TIME survives a rename");
         }
 
+        /// <summary>
+        /// Inverted by backlog 204: a word count change used to throw every subdivision away, on the
+        /// grounds that no per-word mapping existed. One does now, the conservative one: a word that
+        /// came back spelled EXACTLY as it was is the same word, and only the changed words re-derive.
+        /// </summary>
         [Test]
-        public void ChangingTheWordCountDropsEverySubdivision()
+        public void ChangingTheWordCountDropsOnlyTheChangedWords()
         {
             var beatmap = createBeatmap();
 
+            // "apple" [1000, 1400] carries its boundary at 1300, three quarters of the way through.
+            // Appending "plum" redistributes every span, but "apple" is still "apple".
             Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, lineAt(beatmap, 0), "app|le orange plum"), Is.True);
 
             var units = lineAt(beatmap, 0).Line.Units;
             Assert.That(units.Count, Is.EqualTo(3));
+
+            Assert.That(units[0].SyllableBoundaries.Count, Is.EqualTo(1));
+            Assert.That(units[0].SyllableBoundaries[0],
+                Is.EqualTo(units[0].StartTime + (units[0].EndTime - units[0].StartTime) * 0.75).Within(1e-6),
+                "the boundary keeps its RELATIVE position in the word it belongs to");
+            Assert.That(units[0].SyllableSplits, Is.EqualTo(new[] { 3 }), "and this commit's own pipe is read over it");
+
+            Assert.That(units[1].SyllableBoundaries, Is.Empty, "\"orange\" never had one");
+            Assert.That(units[2].SyllableBoundaries, Is.Empty, "\"plum\" is a word that did not exist");
+        }
+
+        [Test]
+        public void ChangingTheWordCountDropsAReWordedWordsSubdivision()
+        {
+            var beatmap = createBeatmap();
+
+            // "apple" is gone AND the word count moved, so nothing anchors the subdivision: there
+            // is no honest place to put the syllables of a word that no longer exists.
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, lineAt(beatmap, 0), "pear orange plum"), Is.True);
+
+            var units = lineAt(beatmap, 0).Line.Units;
+            Assert.That(units.Count, Is.EqualTo(3));
             Assert.That(units.All(u => u.SyllableBoundaries.Count == 0 && u.SyllableSplits.Count == 0), Is.True);
+        }
+
+        [Test]
+        public void DeletingAWordFromTheTextKeepsTheOtherWordsSubdivisions()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 0);
+
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "ap|ple or|ange"), Is.True);
+
+            // "orange" is typed away; "apple" is the same word and keeps its cut through the
+            // redistribution that follows.
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "ap|ple"), Is.True);
+
+            Assert.That(line.Line.RawText, Is.EqualTo("apple"));
+            Assert.That(line.Line.Units, Has.Count.EqualTo(1));
+            Assert.That(line.Line.Units[0].SyllableBoundaries.Count, Is.EqualTo(1));
+
+            // The kept boundary is the RESCALED old one (three quarters through the word), not the
+            // even halving a fresh authoring pipe would have produced.
+            var kept = line.Line.Units[0];
+            Assert.That(kept.SyllableBoundaries[0],
+                Is.EqualTo(kept.StartTime + (kept.EndTime - kept.StartTime) * 0.75).Within(1e-6));
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(line.Line), Is.EqualTo("ap|ple"));
         }
 
         [Test]
@@ -316,6 +376,204 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // there is no timing to divide until it exists.
             Assert.That(TypeBeatEditorOperations.AddWord(beatmap, lineAt(beatmap, 0), 0, "wo|rd"), Is.True);
             Assert.That(lineAt(beatmap, 0).Line.RawText, Is.EqualTo("apple word orange"));
+        }
+
+        #endregion
+
+        #region Deleting the pipe removes the subdivision (backlog 204)
+
+        [Test]
+        public void DeletingAWordsLastPipeRemovesItsSubdivision()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 0);
+
+            // The box shows "ap|ple orange"; the mapper deletes the pipe and commits. Before 204
+            // the fewer-pipes rule put the boundary (and therefore the pipe) straight back, so a
+            // subdivision could not be undone from the line box at all.
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "apple orange"), Is.True);
+
+            var unit = line.Line.Units[0];
+            Assert.That(unit.SyllableBoundaries, Is.Empty);
+            Assert.That(unit.SyllableSplits, Is.Empty);
+            Assert.That(unit.StartTime, Is.EqualTo(1000), "the word keeps its own span");
+            Assert.That(unit.EndTime, Is.EqualTo(1400));
+            Assert.That(unit.Source, Is.EqualTo(TimingSource.Explicit), "un-subdividing is hand timing too");
+            Assert.That(unit.Confidence, Is.EqualTo(1));
+
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(line.Line), Is.EqualTo("apple orange"),
+                "and the box does not put the pipe back on the next frame");
+        }
+
+        [Test]
+        public void APipeOnlyDeletionIsNotSwallowedByTheNoOpEarlyOut()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 0);
+            var before = line.Line;
+
+            // The STRIPPED text is "apple orange" either way, so the shrunken pipe set is the whole
+            // edit. Identity, not equality: the early-out has to let this one through.
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "apple orange"), Is.True);
+
+            Assert.That(line.Line, Is.Not.SameAs(before), "the line was rebuilt");
+            Assert.That(line.Line.RawText, Is.EqualTo(before.RawText));
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.Empty);
+        }
+
+        [Test]
+        public void RemovingOnlyOneWordsPipesLeavesEveryOtherWordSubdivided()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 0);
+
+            // Both words of line 0 subdivided: "ap|ple or|ange".
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "ap|ple or|ange"), Is.True);
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(line.Line), Is.EqualTo("ap|ple or|ange"));
+
+            double[] orangeBoundaries = line.Line.Units[1].SyllableBoundaries.ToArray();
+
+            // Only the FIRST word's pipe is deleted.
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "apple or|ange"), Is.True);
+
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.Empty);
+            Assert.That(line.Line.Units[1].SyllableBoundaries, Is.EqualTo(orangeBoundaries), "the neighbour is untouched");
+            Assert.That(line.Line.Units[1].SyllableSplits, Is.EqualTo(new[] { 2 }));
+            Assert.That(lineAt(beatmap, 1).Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3200d, 3400 }),
+                "and so is the rest of the map");
+
+            // The map is left at Syllable granularity (words[] is still written), and the removal
+            // survives the save it has to survive.
+            var reopened = SyllableSplitTest.DecodeOsu(encode(beatmap));
+
+            Assert.That(reopened[0].Line.Units[0].SyllableBoundaries, Is.Empty);
+            Assert.That(reopened[0].Line.Units[1].SyllableBoundaries, Is.EqualTo(orangeBoundaries).Within(1e-6));
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(reopened[0].Line), Is.EqualTo("apple or|ange"));
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(reopened[1].Line), Is.EqualTo("ba|na|na"));
+        }
+
+        [Test]
+        public void DeletingEveryPipeOfALineUnsubdividesEveryWordOfIt()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 0);
+
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "ap|ple or|ange"), Is.True);
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "apple orange"), Is.True);
+
+            Assert.That(line.Line.Units.All(u => u.SyllableBoundaries.Count == 0 && u.SyllableSplits.Count == 0), Is.True);
+
+            // No demotion is required: the encoder writes no syllables[] for a boundary-free unit,
+            // and demoting could cost the map its words[] instead.
+            Assert.That(line.Granularity, Is.EqualTo(TimingGranularity.Syllable));
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(SyllableSplitTest.DecodeOsu(encode(beatmap))[0].Line),
+                Is.EqualTo("apple orange"));
+        }
+
+        [Test]
+        public void ARetypedWordKeepsItsSubdivisionTimesEvenWithNoPipe()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 0);
+
+            // The removal rule reads a DELETED pipe, which is only unambiguous on a word the mapper
+            // left spelled as it was. "ape" is a different word, so the older forgiving rule stands:
+            // the char split goes (it no longer fits), the boundary TIME survives.
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "ape orange"), Is.True);
+
+            Assert.That(line.Line.Units[0].Text, Is.EqualTo("ape"));
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 1300d }));
+        }
+
+        #endregion
+
+        #region Unsubdivide: the inverse of the subdivide press
+
+        [Test]
+        public void UnsubdivideMergesTheNarrowestAdjacentPair()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 1); // "banana" [3000, 3600], boundaries 3200 / 3400
+
+            // Segments 200 / 350 / 50. Removing the SECOND boundary merges 350 + 50 = 400, the
+            // narrowest pair; removing the first would merge 200 + 350 = 550.
+            TypeBeatEditorOperations.SetSyllableBoundary(beatmap, line, 0, 1, 3550);
+
+            Assert.That(TypeBeatEditorOperations.RemoveNarrowestSyllableBoundary(beatmap, line, 0), Is.True);
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3200d }));
+        }
+
+        [Test]
+        public void SubdivideThenUnsubdivideGivesTheWordBack()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 0); // word 1 is "orange" [1500, 2600], not subdivided
+
+            Assert.That(TypeBeatEditorOperations.AddSyllableBoundary(beatmap, line, 1), Is.EqualTo(2050));
+            Assert.That(TypeBeatEditorOperations.AddSyllableBoundary(beatmap, line, 1), Is.EqualTo(1775));
+
+            // Each press bisected the widest segment, so each un-press merges the narrowest pair,
+            // which is the pair the last press created: exact inverses, in order.
+            Assert.That(TypeBeatEditorOperations.RemoveNarrowestSyllableBoundary(beatmap, line, 1), Is.True);
+            Assert.That(line.Line.Units[1].SyllableBoundaries, Is.EqualTo(new[] { 2050d }));
+
+            Assert.That(TypeBeatEditorOperations.RemoveNarrowestSyllableBoundary(beatmap, line, 1), Is.True);
+            Assert.That(line.Line.Units[1].SyllableBoundaries, Is.Empty, "a one-boundary word returns to plain");
+            Assert.That(line.Line.Units[1].SyllableSplits, Is.Empty);
+        }
+
+        [Test]
+        public void UnsubdivideIsANoOpOnAWordWithNoSubdivision()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 0);
+            var before = line.Line;
+
+            Assert.That(TypeBeatEditorOperations.RemoveNarrowestSyllableBoundary(beatmap, line, 1), Is.False,
+                "\"orange\" is not subdivided");
+            Assert.That(TypeBeatEditorOperations.RemoveNarrowestSyllableBoundary(beatmap, line, 9), Is.False, "out of range");
+            Assert.That(TypeBeatEditorOperations.RemoveNarrowestSyllableBoundary(beatmap, line, -1), Is.False);
+
+            Assert.That(line.Line, Is.SameAs(before));
+        }
+
+        [Test]
+        public void UnsubdividingAMultiWordSelectionIsOneUndoStep()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 0);
+
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "ap|ple or|ange"), Is.True);
+
+            // What the panel's button does: one outer transaction over the selection, each op's own
+            // nested transaction ref-counted inside it, so the whole press is a single undo.
+            beatmap.BeginChange();
+
+            foreach (int i in new[] { 0, 1 })
+                Assert.That(TypeBeatEditorOperations.RemoveNarrowestSyllableBoundary(beatmap, line, i), Is.True);
+
+            beatmap.EndChange();
+
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(line.Line), Is.EqualTo("apple orange"));
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.Empty);
+            Assert.That(line.Line.Units[1].SyllableBoundaries, Is.Empty);
+        }
+
+        [Test]
+        public void UnsubdivideDropsTheSplitThatCutTheMergedPair()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 1); // "banana", two boundaries
+
+            TypeBeatEditorOperations.SetSyllableSplit(beatmap, line, 0, 0, 1);
+            TypeBeatEditorOperations.SetSyllableSplit(beatmap, line, 0, 1, 5);
+            Assert.That(line.Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 1, 5 }));
+
+            // Even segments, so the tie goes leftmost: boundary 0 merges "b" and "anan".
+            Assert.That(TypeBeatEditorOperations.RemoveNarrowestSyllableBoundary(beatmap, line, 0), Is.True);
+
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3400d }));
+            Assert.That(line.Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 5 }));
         }
 
         #endregion
@@ -534,6 +792,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.That(lineAt(beatmap, 0).Line.RawText, Is.EqualTo("apple"));
             Assert.That(lineAt(beatmap, 0).Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 4 }));
+        }
+
+        /// <summary>
+        /// The word op is unit-wise: it drops ONE unit and leaves the rest as objects, so the
+        /// surviving words keep their boundary TIMES as well as their splits, and so does every
+        /// other line. Pinned because "remove word" reads like a whole-line rebuild.
+        /// </summary>
+        [Test]
+        public void RemovingAWordLeavesItsNeighboursSubdivisionsAlone()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 0);
+
+            // Both words subdivided, the second with an authored split, so there is something to lose.
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "ap|ple or|ange"), Is.True);
+            double[] orangeBoundaries = line.Line.Units[1].SyllableBoundaries.ToArray();
+
+            Assert.That(TypeBeatEditorOperations.RemoveWord(beatmap, line, 0), Is.True);
+
+            Assert.That(line.Line.RawText, Is.EqualTo("orange"));
+            Assert.That(line.Line.Units, Has.Count.EqualTo(1));
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.EqualTo(orangeBoundaries), "the survivor's dotted line did not move");
+            Assert.That(line.Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 2 }));
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(line.Line), Is.EqualTo("or|ange"));
+
+            Assert.That(lineAt(beatmap, 1).Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3200d, 3400 }),
+                "and neither did another line's");
         }
 
         /// <summary>

@@ -656,8 +656,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         /// <summary>
         /// The word row of the detail panel: "add word" and "remove word" sit immediately left of
-        /// "subdivide", act on the active line's word selection, grey out when their action is
-        /// impossible, and land a multi-word removal as a SINGLE undo step.
+        /// "subdivide" (which is itself immediately left of its inverse, "unsubdivide"), act on the
+        /// active line's word selection, grey out when their action is impossible, and land a
+        /// multi-word removal as a SINGLE undo step.
         /// </summary>
         [Test]
         public void TestAddAndRemoveWordButtons()
@@ -667,12 +668,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 Editor.ChildrenOfType<ActiveLineDetailPanel>().Any()
                 && wordButton("add word").DrawWidth > 0);
 
-            AddAssert("add word, then remove word, then subdivide", () =>
-                left("add word") < left("remove word") && left("remove word") < left("subdivide (D)"));
+            AddAssert("add word, then remove word, then subdivide, then its inverse", () =>
+                left("add word") < left("remove word") && left("remove word") < left("subdivide (D)")
+                && left("subdivide (D)") < left("unsubdivide"));
 
             AddAssert("same size as subdivide (one family)", () =>
                 Precision.AlmostEquals(size("add word"), size("subdivide (D)"), 0.5f)
-                && Precision.AlmostEquals(size("remove word"), size("subdivide (D)"), 0.5f));
+                && Precision.AlmostEquals(size("remove word"), size("subdivide (D)"), 0.5f)
+                && Precision.AlmostEquals(size("unsubdivide"), size("subdivide (D)"), 0.5f));
 
             AddStep("select line 1", () => clickRow(0));
             AddUntilStep("line 1 active", () => state().ActiveLine.Value == lineAt(0));

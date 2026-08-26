@@ -552,18 +552,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// window. Returns false (no change) when the text normalizes to empty; an empty line
         /// cannot exist in the format; delete the line instead.
         ///
-        /// <para>The pipe matrix, per word (see <see cref="splitsFromPipes"/> for the code):</para>
+        /// <para>The pipe matrix, per word (see <see cref="splitsFromPipes"/> for the code). The
+        /// rule behind all of it: the committed line box is AUTHORITATIVE for every word whose
+        /// token text came back unchanged, since the box is always pre-filled with
+        /// <see cref="PipeDisplayText"/> and therefore always shows the mapper the pipes they are
+        /// committing.</para>
         /// <list type="bullet">
         /// <item>a word with NO subdivisions: the pipes AUTHOR one (backlog 202). The word's own
         /// span is cut into (pipes + 1) EQUAL segments and the split is recorded where the pipes
         /// sat, so "fri|ed" on a plain word is the same gesture as adding a dotted line on the
         /// timeline and dragging its characters. The map is promoted with it, because the encoder
         /// persists syllables[] only for units that carry boundaries.</item>
+        /// <item>B boundaries, ZERO pipes, same token text: the subdivision is REMOVED (backlog
+        /// 204), boundaries and split both, which is how a mapper un-subdivides a word from the
+        /// line box: deleting the pipe of "fri|ed" has to mean something, and the only thing it can
+        /// mean is "this word is not subdivided". The word keeps its own span and becomes Explicit
+        /// hand timing, like every other hand edit. No granularity demotion follows: the encoder
+        /// simply writes no syllables[] for a boundary-free unit.</item>
         /// <item>B boundaries, B or more pipes: the first B pipe positions become the authored
         /// split; surplus pipes are dropped (the word is already subdivided, and a text commit
         /// does not change a boundary COUNT).</item>
-        /// <item>B boundaries, fewer pipes: the pipes given replace the leading splits and the
-        /// remaining ones keep the value the word already showed (authored or derived).</item>
+        /// <item>B boundaries, fewer pipes but at least one: the pipes given replace the leading
+        /// splits and the remaining ones keep the value the word already showed (authored or
+        /// derived). Only the ZERO case removes.</item>
         /// <item>a pipe that would leave a segment EMPTY (at the start or end of the word, or on
         /// top of another pipe): the whole word keeps its previous split, so a typo cannot silently
         /// re-cut it.</item>
@@ -571,8 +582,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// line the mapper did not actually re-split writes no <c>split_chars</c> at all.</item>
         /// </list>
         ///
-        /// <para>A word count change re-interpolates and therefore drops every subdivision, splits
-        /// included; there is no per-word mapping to carry them through.</para>
+        /// <para>A word count change redistributes every span, but no longer drops every
+        /// subdivision: <see cref="alignSubdivisions"/> anchors the words that came back spelled
+        /// exactly as they were and rescales their boundaries into their new spans, so inserting or
+        /// deleting one word leaves the others subdivided. A REWORDED word re-derives, as it always
+        /// did.</para>
         /// </summary>
         public static bool SetLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText)
         {
@@ -599,14 +613,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             IReadOnlyList<TimedUnit> units;
             bool authoredSubdivision = false;
 
+            // Deleting a pipe leaves the STRIPPED text exactly as it was, so the no-op early-outs
+            // below have to ask whether the pipe SET shrank against what the box was showing;
+            // otherwise the one gesture that removes a subdivision is the one gesture swallowed.
+            bool anyRemoval = removesSubdivision(line.Units, tokens, pipes);
+
             if (hitObject.Granularity == TimingGranularity.Line)
             {
-                if (textUnchanged && !anyPipes)
+                if (textUnchanged && !anyPipes && !anyRemoval)
                     return true;
 
                 // Line-granularity maps persist no word data; units are always the loader's
                 // interpolation, which is text-weight-dependent, so re-derive with the new text.
-                // The pipes then subdivide those fresh units exactly as they would on a word map.
+                // The pipes then subdivide those fresh units exactly as they would on a word map
+                // (and a deleted pipe simply does not come back through the re-derivation).
                 units = LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime);
 
                 if (anyPipes && tokens.Length == units.Count)
@@ -614,13 +634,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
             else if (tokens.Length == line.Units.Count)
             {
-                // Same word count: keep every word's timing (and its subdivisions), swap the text,
-                // and re-read each word's split from where its pipes now sit.
+                // Same word count: keep every word's timing, swap the text, and re-read each word's
+                // subdivision from where its pipes now sit (or remove it, where they no longer do).
                 units = applyPipes(line.Units, tokens, pipes, out authoredSubdivision);
 
                 // A commit that moved neither the text nor a single pipe is a no-op, so a map with
                 // no authored splits does not start carrying them just because a box lost focus.
-                if (textUnchanged && !authoredSubdivision
+                if (textUnchanged && !authoredSubdivision && !anyRemoval
                     && !units.Where((u, i) => !sameSplits(u.SyllableSplits, line.Units[i].SyllableSplits)).Any())
                 {
                     return true;
@@ -628,11 +648,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
             else
             {
-                // Word count changed: no per-word mapping exists, so redistribute within the sung
-                // window. Every subdivision goes with it, the pipes of this very commit included:
-                // the words the mapper is looking at are not the words that will come back, so a
-                // cut aimed at one of them cannot be honoured on the other.
-                units = LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime);
+                // Word count changed: every span is redistributed within the sung window, but the
+                // words that came back spelled exactly as they were are anchored first, so their
+                // subdivisions ride the redistribution instead of being thrown away with it. The
+                // pipes are then read over the result, so this commit's own cuts land too.
+                units = alignSubdivisions(line.Units, LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime));
+                units = applyPipes(units, tokens, pipes, out authoredSubdivision);
             }
 
             editorBeatmap.BeginChange();
@@ -653,9 +674,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// One line's units after a text commit: each word takes its new token text and, from its
         /// pipes, either an AUTHORED subdivision (a word that had none: see
-        /// <see cref="SplitMarkers.Authored"/>) or a re-read of its existing split
-        /// (<see cref="splitsFromPipes"/>). <paramref name="authored"/> reports whether any word
-        /// gained a boundary, which is what forces the granularity promotion.
+        /// <see cref="SplitMarkers.Authored"/>), a REMOVED one (a subdivided word whose pipes are
+        /// all gone: see <see cref="removesSubdivision(TimedUnit, string, IReadOnlyList{int})"/>)
+        /// or a re-read of its existing split (<see cref="splitsFromPipes"/>).
+        /// <paramref name="authored"/> reports whether any word gained a boundary, which is what
+        /// forces the granularity promotion. A removal deliberately reports nothing: granularity
+        /// never moves DOWN for it (the encoder omits syllables[] for a boundary-free unit on its
+        /// own, and a demotion would risk dropping the map's words[] with it).
         /// </summary>
         private static IReadOnlyList<TimedUnit> applyPipes(IReadOnlyList<TimedUnit> source, string[] tokens,
                                                            IReadOnlyList<IReadOnlyList<int>> pipes, out bool authored)
@@ -665,6 +690,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             var units = source.Select((u, i) =>
             {
                 var wordPipes = i < pipes.Count ? pipes[i] : Array.Empty<int>();
+
+                if (removesSubdivision(u, tokens[i], wordPipes))
+                {
+                    return new TimedUnit
+                    {
+                        Text = tokens[i],
+                        StartTime = u.StartTime,
+                        EndTime = u.EndTime,
+                        // Un-subdividing a word IS a timing decision, exactly as subdividing it is,
+                        // so the word carries the same Explicit/trusted stamp either way.
+                        Source = TimingSource.Explicit,
+                        Confidence = 1,
+                    };
+                }
 
                 if (u.SyllableBoundaries.Count == 0 && wordPipes.Count > 0
                     && SplitMarkers.Authored(tokens[i], u.StartTime, u.EndTime, wordPipes) is (double[] boundaries, int[] splits))
@@ -699,6 +738,120 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             authored = any;
             return units;
+        }
+
+        /// <summary>
+        /// Whether one word's committed token DELETES its subdivision: it carries boundaries, it
+        /// came back spelled EXACTLY as it was, and not one pipe is left in it. All three matter.
+        /// The pipes are only an instruction about a word the mapper could actually see (the box is
+        /// pre-filled with <see cref="PipeDisplayText"/>), and a RETYPED word is a different word,
+        /// which is why "ape" over a subdivided "apple" keeps its boundary times and merely drops
+        /// the char split that no longer fits (the older, forgiving rule).
+        /// </summary>
+        private static bool removesSubdivision(TimedUnit unit, string token, IReadOnlyList<int> wordPipes)
+            => unit.SyllableBoundaries.Count > 0 && wordPipes.Count == 0 && token == unit.Text;
+
+        /// <summary>Whether any word of the line is being un-subdivided by this commit.</summary>
+        private static bool removesSubdivision(IReadOnlyList<TimedUnit> units, string[] tokens, IReadOnlyList<IReadOnlyList<int>> pipes)
+        {
+            if (tokens.Length != units.Count)
+                return false;
+
+            for (int i = 0; i < units.Count; i++)
+            {
+                if (removesSubdivision(units[i], tokens[i], i < pipes.Count ? pipes[i] : Array.Empty<int>()))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Carries subdivisions across a WORD COUNT change. <paramref name="redistributed"/> is the
+        /// char-weighted re-interpolation of the new text (the span every new word takes, unchanged
+        /// by this method); this pairs those words with <paramref name="previous"/> by a two-pointer
+        /// walk over IDENTICAL token text, in order, and gives every paired word its old boundaries
+        /// RESCALED proportionally into its new span, with the authored split carried verbatim (the
+        /// text and the boundary count are identical, so it still describes the word).
+        ///
+        /// <para>The walk is deliberately dumb and forward-only: for each new word it takes the
+        /// FIRST still-unclaimed old word with the same text, so inserting, appending or deleting
+        /// one word leaves every other word's subdivision alone, and ambiguity ("na na na") resolves
+        /// leftmost. Its limits are the price of that predictability, and they are by design: a
+        /// REWORDED word matches nothing and re-derives (there is no honest place to put the
+        /// syllables of a word that no longer exists), and REORDERING keeps only the words the
+        /// forward walk still meets in order.</para>
+        /// </summary>
+        private static IReadOnlyList<TimedUnit> alignSubdivisions(IReadOnlyList<TimedUnit> previous, IReadOnlyList<TimedUnit> redistributed)
+        {
+            var units = redistributed.ToArray();
+            int from = 0;
+
+            for (int i = 0; i < units.Length; i++)
+            {
+                int match = -1;
+
+                for (int j = from; j < previous.Count; j++)
+                {
+                    if (previous[j].Text == units[i].Text)
+                    {
+                        match = j;
+                        break;
+                    }
+                }
+
+                if (match < 0)
+                    continue;
+
+                from = match + 1;
+                var old = previous[match];
+
+                if (old.SyllableBoundaries.Count == 0)
+                    continue;
+
+                var moved = rescaleBoundaries(old.SyllableBoundaries, old.StartTime, old.EndTime, units[i].StartTime, units[i].EndTime);
+
+                // A degenerate span on either side: the word comes through unsubdivided rather than
+                // carrying a split that describes a boundary count it no longer has.
+                if (moved.Count == 0)
+                    continue;
+
+                units[i] = new TimedUnit
+                {
+                    Text = units[i].Text,
+                    // Only the SUBDIVISION travels: the span is the redistribution's, and so is the
+                    // Source, because nobody hand-timed where this word now sits.
+                    StartTime = units[i].StartTime,
+                    EndTime = units[i].EndTime,
+                    Source = units[i].Source,
+                    Confidence = units[i].Confidence,
+                    SyllableBoundaries = moved,
+                    SyllableSplits = old.SyllableSplits,
+                };
+            }
+
+            return units;
+        }
+
+        /// <summary>
+        /// Boundaries moved from [<paramref name="oldStart"/>, <paramref name="oldEnd"/>] onto
+        /// [<paramref name="start"/>, <paramref name="end"/>], each keeping its relative position
+        /// in the word (so a boundary strictly inside the old span stays strictly inside the new
+        /// one). A degenerate span on either side has no proportion to preserve, so it authors
+        /// nothing rather than piling boundaries onto an edge.
+        /// </summary>
+        private static IReadOnlyList<double> rescaleBoundaries(IReadOnlyList<double> boundaries, double oldStart, double oldEnd, double start, double end)
+        {
+            if (oldEnd <= oldStart || end <= start || boundaries.Count == 0)
+                return Array.Empty<double>();
+
+            double scale = (end - start) / (oldEnd - oldStart);
+            var moved = new double[boundaries.Count];
+
+            for (int i = 0; i < boundaries.Count; i++)
+                moved[i] = start + (boundaries[i] - oldStart) * scale;
+
+            return moved;
         }
 
         #region Syllable splits on the line text ("ap|ple")
@@ -1131,6 +1284,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// subdivision would silently vanish on save. No-op when the widest segment is too narrow
         /// to split into two <see cref="MIN_SYLLABLE_MS"/> halves. Returns the new boundary time (for
         /// the UI to focus the fresh handle), or null when nothing was added.
+        /// The inverse press is <see cref="RemoveNarrowestSyllableBoundary"/>.
         /// </summary>
         public static double? AddSyllableBoundary(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex)
         {
@@ -1327,6 +1481,57 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 : Array.Empty<int>();
 
             replaceUnitBoundaries(editorBeatmap, hitObject, unitIndex, boundaries, splits);
+        }
+
+        /// <summary>
+        /// Removes ONE syllable-subdivision boundary from a word: the inverse of
+        /// <see cref="AddSyllableBoundary"/>, and the op behind the editor's "unsubdivide" button.
+        ///
+        /// <para>WHICH boundary is the mirror of the add rule. Add BISECTS the widest segment, so
+        /// remove MERGES the narrowest adjacent PAIR: the boundary whose removal produces the
+        /// shortest merged segment goes. Ties take the leftmost, so the choice is deterministic.
+        /// Under the add rule's own even splitting the two are exact inverses (subdivide then
+        /// unsubdivide gives the word back), and on a hand-dragged word it takes back the finest cut
+        /// rather than the one that happens to sit first.</para>
+        ///
+        /// <para>A word with a single boundary comes back unsubdivided; a word with none is a no-op
+        /// (false). Same Explicit stamp and granularity reconciliation as every other subdivision
+        /// edit, since it goes through <see cref="RemoveSyllableBoundary"/>. Single undo step.</para>
+        /// </summary>
+        public static bool RemoveNarrowestSyllableBoundary(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < 0 || unitIndex >= line.Units.Count)
+                return false;
+
+            var unit = line.Units[unitIndex];
+
+            if (unit.SyllableBoundaries.Count == 0)
+                return false;
+
+            // Segment edges: word start, existing boundaries, word end. Boundary b sits between
+            // segment b and segment b + 1, so removing it merges [edges[b], edges[b + 2]].
+            var edges = new List<double> { unit.StartTime };
+            edges.AddRange(unit.SyllableBoundaries);
+            edges.Add(unit.EndTime);
+
+            int narrowest = 0;
+            double width = double.PositiveInfinity;
+
+            for (int b = 0; b < unit.SyllableBoundaries.Count; b++)
+            {
+                double merged = edges[b + 2] - edges[b];
+
+                if (merged < width)
+                {
+                    width = merged;
+                    narrowest = b;
+                }
+            }
+
+            RemoveSyllableBoundary(editorBeatmap, hitObject, unitIndex, narrowest);
+            return true;
         }
 
         /// <summary>
