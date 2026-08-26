@@ -290,6 +290,57 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
+        /// Moves the boundary that two TOUCHING word units share: the left word's end and the right
+        /// word's start move together, the way <see cref="SetLineStart"/> moves a line boundary.
+        /// This is the SHIFT gesture on a word edge; a plain edge drag keeps
+        /// <see cref="SetUnitTiming"/>'s single-block semantics, where the neighbour is a hard wall.
+        ///
+        /// <para>No-op unless <paramref name="leftIndex"/> and the unit after it both exist and
+        /// their times touch EXACTLY (left.EndTime == right.StartTime). That is the invariant a
+        /// clamped plain drag produces, and exact equality is the point: a real gap between two
+        /// words is legal data (an instrumental beat, a breath), so grabbing one of its two
+        /// independent edges must not silently close it.</para>
+        ///
+        /// <para>The new boundary is clamped to
+        /// [left.StartTime + <see cref="MIN_SPAN_MS"/>, right.EndTime - <see cref="MIN_SPAN_MS"/>],
+        /// so neither word degenerates; a pair whose combined span cannot hold two minimum spans is
+        /// left alone rather than clamped into an inverted range. Both words become Explicit hand
+        /// timing and each keeps only the syllable subdivisions still inside its new span (the same
+        /// rule every other resize applies). Single undo step.</para>
+        /// </summary>
+        public static void SetSharedUnitBoundary(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int leftIndex, double newTime)
+        {
+            var line = hitObject.Line;
+
+            if (leftIndex < 0 || leftIndex + 1 >= line.Units.Count)
+                return;
+
+            var left = line.Units[leftIndex];
+            var right = line.Units[leftIndex + 1];
+
+            // Only a genuinely SHARED edge has two sides to move.
+            if (left.EndTime != right.StartTime)
+                return;
+
+            double min = left.StartTime + MIN_SPAN_MS;
+            double max = right.EndTime - MIN_SPAN_MS;
+
+            // The pair is already narrower than two minimum spans: there is no boundary position
+            // that leaves both words legal. No-op rather than clamp into an inverted range.
+            if (max < min)
+                return;
+
+            newTime = Math.Clamp(newTime, min, max);
+
+            // One outer transaction around both writes, so the pair moves as a single undo step
+            // (applyUnit opens its own nested transaction, which the change handler ref-counts).
+            editorBeatmap.BeginChange();
+            applyUnit(editorBeatmap, hitObject, leftIndex, left.StartTime, newTime);
+            applyUnit(editorBeatmap, hitObject, leftIndex + 1, newTime, right.EndTime);
+            editorBeatmap.EndChange();
+        }
+
+        /// <summary>
         /// Moves one word unit as a RIGID block (its duration is preserved), clamped so the whole
         /// word stays between its neighbours. Dragging a word into the next one just stops it at
         /// the boundary; it never gets squashed (which independent-edge clamping would do).

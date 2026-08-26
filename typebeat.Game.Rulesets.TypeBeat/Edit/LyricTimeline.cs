@@ -33,8 +33,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// is also the previous line's end (<see cref="TypeBeatEditorOperations.SetLineStart"/>
     /// moves both sides together).
     ///
-    /// Word edges resize window-style (horizontal-resize cursor over the grab zone); the block
-    /// body moves the word; per-line sung-end flags and alternating line bands complete the
+    /// Word edges resize window-style (horizontal-resize cursor over the grab zone), the
+    /// neighbouring word acting as a wall; the block body moves the word. Holding SHIFT while
+    /// dragging an edge two TOUCHING words share drags that boundary instead, moving the left
+    /// word's end and the right word's start together
+    /// (<see cref="TypeBeatEditorOperations.SetSharedUnitBoundary"/>), the word-level echo of the
+    /// line boundary above. Per-line sung-end flags and alternating line bands complete the
     /// picture. Poll-synced: children are rebuilt only when the line set / text layout changes
     /// and are repositioned in place otherwise, so a block survives its own drag while the
     /// model updates per frame beneath it.
@@ -426,6 +430,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private Grab grab;
             private double grabStart, grabEnd, grabTime;
 
+            // Shared-boundary drag (Shift on an edge two touching words share): the LEFT unit index
+            // of that boundary, or -1 for an ordinary drag. Decided once at drag start.
+            private int sharedBoundaryLeftIndex = -1;
+
             // Multi-select drag: captured at drag start so a uniform delta applies to the whole group.
             private bool groupDrag;
             private int[] groupIndices = Array.Empty<int>();
@@ -553,6 +561,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 return Grab.Move;
             }
 
+            /// <summary>
+            /// The LEFT unit index of the boundary an edge grab sits on, when that edge is SHARED
+            /// with a touching neighbour (this word's start equals the previous word's end, or its
+            /// end equals the next word's start). -1 when there is nothing on the other side to
+            /// move: a body grab, an outermost edge, or an edge with a real gap beside it, where a
+            /// gap is legal data and only the grabbed word's own edge may move.
+            /// </summary>
+            private int sharedBoundaryAt(Grab g)
+            {
+                var units = hitObject.Line.Units;
+
+                if (index < 0 || index >= units.Count)
+                    return -1;
+
+                switch (g)
+                {
+                    case Grab.ResizeStart:
+                        return index > 0 && units[index - 1].EndTime == units[index].StartTime ? index - 1 : -1;
+
+                    case Grab.ResizeEnd:
+                        return index < units.Count - 1 && units[index].EndTime == units[index + 1].StartTime ? index : -1;
+
+                    default:
+                        return -1;
+                }
+            }
+
             // Report edge-hover to the strip so it can show the horizontal-resize cursor.
             protected override bool OnHover(HoverEvent e) => false;
 
@@ -636,6 +671,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     state.SelectUnit(index);
                 }
 
+                // Shift on a shared word edge drags the BOUNDARY: both the left word's end and the
+                // right word's start follow the cursor, instead of the neighbour walling the drag
+                // off. Latched here, once, so a Shift pressed or released mid-drag cannot switch
+                // the gesture out from under the mapper's hand. A group drag keeps its own uniform
+                // delta semantics, and Shift on the block BODY is still a plain rigid move.
+                sharedBoundaryLeftIndex = !groupDrag && e.ShiftPressed ? sharedBoundaryAt(grab) : -1;
+
                 state.BeginInteraction();
                 editorBeatmap.BeginChange();
                 return true;
@@ -661,6 +703,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     return;
                 }
 
+                if (sharedBoundaryLeftIndex >= 0)
+                {
+                    // Shift+edge: the shared boundary itself follows the cursor, retiming both words.
+                    TypeBeatEditorOperations.SetSharedUnitBoundary(editorBeatmap, hitObject, sharedBoundaryLeftIndex, cursorTime);
+                    return;
+                }
+
                 switch (grab)
                 {
                     case Grab.ResizeStart:
@@ -682,6 +731,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             protected override void OnDragEnd(DragEndEvent e)
             {
                 groupDrag = false;
+                sharedBoundaryLeftIndex = -1;
                 editorBeatmap.EndChange();
                 state.EndInteraction();
             }

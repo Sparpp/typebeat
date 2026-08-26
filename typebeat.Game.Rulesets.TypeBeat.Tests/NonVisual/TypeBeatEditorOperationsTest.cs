@@ -814,6 +814,202 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
+        #region Shared word boundary (the Shift+drag gesture on a touching edge)
+
+        /// <summary>
+        /// Same three lines as <see cref="createBeatmap"/>, except line 0's two words TOUCH
+        /// (alpha [1000, 2000], beta [2000, 2800]) and start out Interpolated, so "the drag made
+        /// them Explicit" is not vacuous. Line 1 keeps its real gap (gamma ends 4200, delta starts
+        /// 4300) and is the non-touching case; line 2 is unchanged so reload derives the same
+        /// tail-capped window.
+        /// </summary>
+        private static EditorBeatmap createTouchingBeatmap(double[]? alphaSyllables = null, double[]? betaSyllables = null)
+        {
+            var beatmap = new Beatmap();
+            beatmap.BeatmapInfo.Ruleset = new TypeBeatRuleset().RulesetInfo;
+            beatmap.Metadata.Artist = "Op";
+            beatmap.Metadata.Title = "Test";
+            beatmap.Metadata.AudioFile = "audio.mp3";
+
+            beatmap.HitObjects.Add(new TypeBeatHitObject
+            {
+                StartTime = 1000,
+                LineIndex = 0,
+                Line = new LyricLine
+                {
+                    RawText = "alpha beta",
+                    StartTime = 1000,
+                    EndTime = 3000,
+                    SingEndTime = 2800,
+                    Units = new[]
+                    {
+                        new TimedUnit
+                        {
+                            Text = "alpha",
+                            StartTime = 1000,
+                            EndTime = 2000,
+                            Source = TimingSource.Interpolated,
+                            SyllableBoundaries = alphaSyllables ?? System.Array.Empty<double>(),
+                        },
+                        new TimedUnit
+                        {
+                            Text = "beta",
+                            StartTime = 2000,
+                            EndTime = 2800,
+                            Source = TimingSource.Interpolated,
+                            SyllableBoundaries = betaSyllables ?? System.Array.Empty<double>(),
+                        },
+                    },
+                },
+                Granularity = alphaSyllables != null || betaSyllables != null ? TimingGranularity.Syllable : TimingGranularity.Word,
+            });
+
+            addLine(beatmap, 1, "gamma delta", 3000, 6000, 5500, (3000, 4200), (4300, 5500));
+            addLine(beatmap, 2, "omega", 6000, 8000, 7000, (6000, 7000));
+
+            return new EditorBeatmap(beatmap);
+        }
+
+        [Test]
+        public void SharedUnitBoundaryMovesBothWordsAndBecomesExplicit()
+        {
+            var editorBeatmap = createTouchingBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            // The boundary alpha and beta share (2000) is dragged right to 2300: alpha grows and
+            // beta shrinks by the same amount, so they stay touching with no gap opened.
+            TypeBeatEditorOperations.SetSharedUnitBoundary(editorBeatmap, line, 0, 2300);
+
+            Assert.That(line.Line.Units[0].StartTime, Is.EqualTo(1000), "the far edges never move");
+            Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(2300));
+            Assert.That(line.Line.Units[1].StartTime, Is.EqualTo(2300));
+            Assert.That(line.Line.Units[1].EndTime, Is.EqualTo(2800), "the far edges never move");
+            Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(line.Line.Units[1].StartTime), "still touching");
+
+            Assert.That(line.Line.Units[0].Source, Is.EqualTo(TimingSource.Explicit));
+            Assert.That(line.Line.Units[1].Source, Is.EqualTo(TimingSource.Explicit));
+            Assert.That(line.Line.Estimated, Is.False);
+
+            // And leftward, from the same shared edge.
+            TypeBeatEditorOperations.SetSharedUnitBoundary(editorBeatmap, line, 0, 1400);
+            Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(1400));
+            Assert.That(line.Line.Units[1].StartTime, Is.EqualTo(1400));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void SharedUnitBoundaryIsOneUndoStep()
+        {
+            var editorBeatmap = createTouchingBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            int changes = 0;
+            editorBeatmap.TransactionEnded += () => changes++;
+
+            TypeBeatEditorOperations.SetSharedUnitBoundary(editorBeatmap, line, 0, 2300);
+
+            // Both words are written inside ONE outer transaction: the nested applyUnit calls must
+            // not each surface as their own undo step.
+            Assert.That(changes, Is.EqualTo(1), "both sides landed in a single transaction");
+            Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(2300));
+            Assert.That(line.Line.Units[1].StartTime, Is.EqualTo(2300));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void SharedUnitBoundaryClampsToBothMinSpans()
+        {
+            var editorBeatmap = createTouchingBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            // Dragged far left: the boundary stops MIN_SPAN after alpha's start (1030), so alpha
+            // keeps a legal span rather than collapsing.
+            TypeBeatEditorOperations.SetSharedUnitBoundary(editorBeatmap, line, 0, -5000);
+            Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(1000 + TypeBeatEditorOperations.MIN_SPAN_MS));
+            Assert.That(line.Line.Units[1].StartTime, Is.EqualTo(1000 + TypeBeatEditorOperations.MIN_SPAN_MS));
+
+            // Dragged far right: MIN_SPAN before beta's end (2770).
+            TypeBeatEditorOperations.SetSharedUnitBoundary(editorBeatmap, line, 0, 99999);
+            Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(2800 - TypeBeatEditorOperations.MIN_SPAN_MS));
+            Assert.That(line.Line.Units[1].StartTime, Is.EqualTo(2800 - TypeBeatEditorOperations.MIN_SPAN_MS));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void SharedUnitBoundaryIgnoresWordsThatDoNotTouch()
+        {
+            var editorBeatmap = createTouchingBeatmap();
+            var line = lineAt(editorBeatmap, 1); // gamma [3000, 4200], delta [4300, 5500]: a real gap.
+            var before = line.Line;
+
+            TypeBeatEditorOperations.SetSharedUnitBoundary(editorBeatmap, line, 0, 4250);
+
+            // A gap is legal data (a breath, an instrumental beat); the gesture must not close it.
+            Assert.That(line.Line, Is.SameAs(before));
+        }
+
+        [Test]
+        public void SharedUnitBoundaryIgnoresOutOfRangeIndices()
+        {
+            var editorBeatmap = createTouchingBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+            var before = line.Line;
+
+            // The LAST unit has no unit to its right, so it owns no shared boundary.
+            TypeBeatEditorOperations.SetSharedUnitBoundary(editorBeatmap, line, 1, 2300);
+            Assert.That(line.Line, Is.SameAs(before));
+
+            TypeBeatEditorOperations.SetSharedUnitBoundary(editorBeatmap, line, -1, 2300);
+            Assert.That(line.Line, Is.SameAs(before));
+
+            TypeBeatEditorOperations.SetSharedUnitBoundary(editorBeatmap, line, 7, 2300);
+            Assert.That(line.Line, Is.SameAs(before));
+        }
+
+        [Test]
+        public void SharedUnitBoundaryIgnoresAPairTooNarrowToSplit()
+        {
+            var beatmap = new Beatmap();
+            beatmap.BeatmapInfo.Ruleset = new TypeBeatRuleset().RulesetInfo;
+            beatmap.Metadata.Artist = "Op";
+            beatmap.Metadata.Title = "Test";
+            beatmap.Metadata.AudioFile = "audio.mp3";
+
+            // Touching, but the pair spans 50ms: less than two MIN_SPAN_MS words fit, so there is
+            // no boundary position that leaves both legal.
+            addLine(beatmap, 0, "alpha beta", 1000, 3000, 2800, (1000, 1020), (1020, 1050));
+
+            var editorBeatmap = new EditorBeatmap(beatmap);
+            var line = lineAt(editorBeatmap, 0);
+            var before = line.Line;
+
+            TypeBeatEditorOperations.SetSharedUnitBoundary(editorBeatmap, line, 0, 1035);
+
+            Assert.That(line.Line, Is.SameAs(before));
+        }
+
+        [Test]
+        public void SharedUnitBoundaryClampsSyllablesIntoBothNewSpans()
+        {
+            // alpha [1000, 2000] subdivided at 1500; beta [2000, 2800] subdivided at 2400.
+            var editorBeatmap = createTouchingBeatmap(new double[] { 1500 }, new double[] { 2400 });
+            var line = lineAt(editorBeatmap, 0);
+
+            // Boundary right to 2600: alpha grows over beta's old subdivision, which is now outside
+            // beta's [2600, 2800] span and is dropped, while alpha's own 1500 stays inside.
+            TypeBeatEditorOperations.SetSharedUnitBoundary(editorBeatmap, line, 0, 2600);
+
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 1500d }), "still inside alpha");
+            Assert.That(line.Line.Units[1].SyllableBoundaries, Is.Empty, "beta shrank past its subdivision");
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        #endregion
+
         [Test]
         public void EverySequencedEditRemainsReloadStable()
         {
