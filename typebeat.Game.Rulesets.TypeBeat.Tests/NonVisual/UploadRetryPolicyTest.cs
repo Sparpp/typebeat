@@ -695,5 +695,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(delays, Has.Count.EqualTo(2));
             });
         }
+
+        /// <summary>
+        /// The entry-path arm of backlog 203: the FIRST direct attempt hands the submission to the
+        /// chunked flow on a transport failure (the byte ceiling, the original trigger) and equally
+        /// on a gateway 5xx in either shape, because a submission that BEGINS inside a deploy window
+        /// must reach the machinery whose slow ladder can ride the restart out. A genuine verdict
+        /// and the cancel path stay on the direct ladder's rules.
+        /// </summary>
+        [Test]
+        public void FirstDirectFailureSwitchesToChunkedOnTransportOrGateway()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(UploadRetryPolicy.SwitchesToChunked(new HttpRequestException("copying content to a stream")), Is.True);
+                Assert.That(UploadRetryPolicy.SwitchesToChunked(new WebException(@"BadGateway")), Is.True);
+                Assert.That(UploadRetryPolicy.SwitchesToChunked(new APIException("shutting down", null, HttpStatusCode.ServiceUnavailable)), Is.True);
+
+                Assert.That(UploadRetryPolicy.SwitchesToChunked(new APIException("beatmap has no audio", null, HttpStatusCode.UnprocessableEntity)), Is.False);
+                Assert.That(UploadRetryPolicy.SwitchesToChunked(new WebException(@"Request cancelled")), Is.False,
+                    "an idle-timeout WebException is not retried on the 600s monolith, so it does not switch either; the ceiling surfaces as HttpRequestException there");
+                Assert.That(UploadRetryPolicy.SwitchesToChunked(new OperationCanceledException()), Is.False);
+                Assert.That(UploadRetryPolicy.SwitchesToChunked(null), Is.False);
+            });
+        }
     }
 }

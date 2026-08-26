@@ -492,10 +492,13 @@ namespace typebeat.Game.Screens.Edit.Submission
             // the first transport failure switches to a chunked upload session rather than repeating the
             // same single request, because the failure this is most often is a per-connection byte
             // ceiling that no amount of repeating gets past. Repeating stays the fallback's fallback.
+            // A gateway 5xx takes the same turn (backlog 203's entry-path arm): a submission that
+            // BEGINS inside a deploy window would otherwise die on this first attempt without ever
+            // reaching the chunked machinery, whose slow gateway ladder is what rides a restart out.
             if (!exiting
                 && uploadAttempt == 1
                 && uploadSessionPayload != null
-                && UploadRetryPolicy.IsTransportFailure(exception))
+                && UploadRetryPolicy.SwitchesToChunked(exception))
             {
                 beginChunkedUpload();
                 return;

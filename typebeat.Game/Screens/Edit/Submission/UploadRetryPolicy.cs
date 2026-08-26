@@ -345,6 +345,17 @@ namespace typebeat.Game.Screens.Edit.Submission
         }
 
         /// <summary>
+        /// Whether the FIRST direct attempt's failure hands the submission to the chunked flow
+        /// (backlog 203's entry-path arm). A transport failure switches because the per-connection
+        /// byte ceiling is the failure the chunked protocol exists for; a gateway 5xx switches
+        /// because a submission that BEGINS inside a deploy window would otherwise die right here,
+        /// while the chunked flow's slow gateway ladder is built to ride a restart out. Everything
+        /// else (a genuine server verdict, the cancel path) stays on the direct ladder's rules.
+        /// </summary>
+        public static bool SwitchesToChunked(Exception? exception)
+            => IsTransportFailure(exception) || IsGatewayTransient(exception);
+
+        /// <summary>
         /// Whether <paramref name="exception"/> is worth repeating a single upload-session chunk for.
         /// </summary>
         /// <remarks>
