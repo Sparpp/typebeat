@@ -27,12 +27,16 @@ namespace typebeat.Game.Screens.Play.HUD.JudgementCounter
 
         private readonly List<JudgementCount> counters = new List<JudgementCount>();
 
+        private Ruleset rulesetInstance = null!;
+
         [BackgroundDependencyLoader]
         private void load(IBindable<RulesetInfo> ruleset)
         {
+            rulesetInstance = ruleset.Value.CreateInstance();
+
             // Due to weirdness in judgements, some results have the same name and should be aggregated for display purposes.
             // There's only one case of this right now ("slider end").
-            foreach (var group in ruleset.Value.CreateInstance().GetHitResultsForDisplay().GroupBy(r => r.displayName))
+            foreach (var group in rulesetInstance.GetHitResultsForDisplay().GroupBy(r => r.displayName))
             {
                 var judgementCount = new JudgementCount
                 {
@@ -64,12 +68,18 @@ namespace typebeat.Game.Screens.Play.HUD.JudgementCounter
             if (hasUpdatedCountsFromReplayFrame)
                 return;
 
+            // Accumulated, not assigned, because a ruleset may fold several stored results into one
+            // displayed counter (Ruleset.GetDisplayResultFor). Zeroing first keeps this the absolute
+            // set it has always been: it runs once, at a seek, and must not add to what is showing.
+            foreach (var counter in counters)
+                counter.ResultCount.Value = 0;
+
             foreach (var kvp in scoreProcessor.Statistics)
             {
-                if (!results.TryGetValue(kvp.Key, out var count))
+                if (!results.TryGetValue(rulesetInstance.GetDisplayResultFor(kvp.Key), out var count))
                     continue;
 
-                count.ResultCount.Value = kvp.Value;
+                count.ResultCount.Value += kvp.Value;
             }
 
             hasUpdatedCountsFromReplayFrame = true;
@@ -77,7 +87,7 @@ namespace typebeat.Game.Screens.Play.HUD.JudgementCounter
 
         private void updateCount(JudgementResult judgement, bool revert)
         {
-            if (!results.TryGetValue(judgement.Type, out var count))
+            if (!results.TryGetValue(rulesetInstance.GetDisplayResultFor(judgement.Type), out var count))
                 return;
 
             if (revert)

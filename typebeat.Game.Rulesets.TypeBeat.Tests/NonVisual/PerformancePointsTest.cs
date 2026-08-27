@@ -882,10 +882,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // Pinned so a client shipped against generation N cannot quietly price plays the server
             // stores at generation N+1. If this moves, the server's PerformancePoints.VERSION and
-            // docs/pp.md move with it. v7 = the backlog-101 drop of count_power from 2 to 1.2, which
-            // had to bump because it reprices every stored row carrying even one miss or one typo
-            // (upwards this time, and most of them away from the zero backlog 97 left them at).
-            Assert.That(PerformancePoints.VERSION, Is.EqualTo(17)); // pp:version
+            // docs/pp.md move with it. v18 = the backlog-213 fold of the uncorrected typo into the
+            // miss: no constant and no term moves, but misses and typos are DERIVED differently from
+            // a play's statistics, so every stored row carrying a good is repriced downwards.
+            Assert.That(PerformancePoints.VERSION, Is.EqualTo(18)); // pp:version
         }
 
         #endregion

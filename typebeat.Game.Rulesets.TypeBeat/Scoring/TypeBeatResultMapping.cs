@@ -265,9 +265,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// (see that field), and the corrected cell's deferred result was graded purely on the
         /// RETYPE's timing, so a fast corrector paid nothing in accuracy. The cap is the one number
         /// that makes perfect play strictly beat corrected play PER CELL, and it leaves the ordering
-        /// clean: clean 300 &gt; corrected at most 100 &gt; unfixed typo 50
+        /// clean: clean 300 &gt; corrected at most 100 &gt; unfixed typo
         /// (<see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>, re-weighted, see
-        /// <see cref="TypeBeatScoreProcessor.GetBaseScoreForResult"/>) &gt; miss 0.</para>
+        /// <see cref="TypeBeatScoreProcessor.GetBaseScoreForResult"/>) = miss 0 since backlog 213,
+        /// and 50 &gt; 0 before it.</para>
         ///
         /// <para><b>A state, not a counter.</b> The cell carries ONE flag
         /// (<see cref="TypingCell.HeldWrongBeforeJudged"/>), so wrong-fix-wrong-fix cycles cap once
@@ -292,6 +293,55 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <para>Only score RECALCULATION selects this. Nothing in gameplay may.</para>
         /// </summary>
         Full,
+    }
+
+    /// <summary>
+    /// The rule deciding what an UNCORRECTED typo's cell is WORTH: a cell the player finished with
+    /// the wrong character and never went back for, which the seal resolves as
+    /// <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>. Same reason as the rules above: a stored
+    /// score has to be re-derived under the rule it was PLAYED under rather than only under the
+    /// current one. Live play is always <see cref="Nothing"/>.
+    ///
+    /// <para>It moves exactly what <see cref="CorrectionCreditRule"/> moves and no more: the
+    /// accuracy weight of those cells, and therefore <c>total_score</c>. <c>statistics</c> itself is
+    /// IDENTICAL under both arms (the seal still writes the same key, which is the whole design of
+    /// backlog 213), and so are <c>max_combo</c>, the miss count as it is STORED, completion and
+    /// rank.</para>
+    /// </summary>
+    public enum UnfixedTypoWorthRule
+    {
+        /// <summary>
+        /// The rule since backlog 213, and the only one live play uses: an uncorrected typo is
+        /// worth 0 of its cell's 300, the same as a <see cref="HitResult.Miss"/>. It is the ACCURACY
+        /// half of folding the uncorrected typo into the miss, and the fold's whole shape is that
+        /// the WIRE does not move and every CONSUMER reclassifies (the same pattern backlog 140 used
+        /// for the mistype's <c>combo_break</c> key): the seal keeps writing
+        /// <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>, so old rows stay comparable and the
+        /// typo-versus-timeout distinction survives in the data, while accuracy, pp and every
+        /// display read it as the miss it is.
+        ///
+        /// <para>The cell's MAXIMUM result is still <see cref="HitResult.Great"/>, so the accuracy
+        /// DENOMINATOR does not move. That is what makes accuracy genuinely drop rather than the
+        /// cell quietly leaving the fraction.</para>
+        ///
+        /// <para>What this deliberately does NOT touch, because each was already right: COMPLETION
+        /// counts an uncorrected typo as untyped (backlog 126), so rank is untouched here and falls
+        /// only through the accuracy-derived surfaces; HEALTH already drains it as a miss
+        /// (backlog 125); and the combo-restore mechanics are untouched, though the incentive
+        /// sharpens, since fixing a typo now recovers a full miss's worth of accuracy rather than
+        /// 250 of 300.</para>
+        /// </summary>
+        Nothing,
+
+        /// <summary>
+        /// The rule every score stored BEFORE backlog 213 was played under: an uncorrected typo was
+        /// re-weighted to <see cref="HitResult.Meh"/>'s 50 of 300, the cheapest a JUDGED cell could
+        /// be, on the reading that a cell the player reached and finished is not the same as one the
+        /// line ran out of time on. That reading survives in the key; only the price moved.
+        ///
+        /// <para>Only score RECALCULATION selects this. Nothing in gameplay may.</para>
+        /// </summary>
+        MehCredit,
     }
 
     /// <summary>
@@ -391,9 +441,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <see cref="TypeBeatScoreProcessor.MarkComboNeutral"/>.</item>
         /// <item>Its stock base score is 200 of the cell's 300, which would make a typo cost LESS
         /// accuracy than a correct-but-late character.
-        /// <see cref="TypeBeatScoreProcessor.GetBaseScoreForResult"/> re-weights it to 50, the Meh
-        /// value, so accuracy and total score come out bit-identical to what backlog 124 shipped
-        /// and a typo still pays the most accuracy a judged cell can pay.</item>
+        /// <see cref="TypeBeatScoreProcessor.GetBaseScoreForResult"/> re-weights it, to 50 (the Meh
+        /// value) until backlog 213 and to 0 (the Miss value) since, under
+        /// <see cref="UnfixedTypoWorthRule"/>. The MAXIMUM result stays Great either way, so the
+        /// accuracy denominator never moves and the re-weight is paid in full.</item>
         /// </list>
         ///
         /// <para>HEALTH is the fourth (backlog 125): a stock Good RECOVERS health, so a run typed
@@ -609,6 +660,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         public static bool CorrectionIsCapped(CorrectionCreditRule rule) => rule == CorrectionCreditRule.Capped;
 
         /// <summary>
+        /// Whether an uncorrected typo is worth NOTHING in accuracy, i.e. exactly what a
+        /// <see cref="SEAL_MISS"/> is worth (backlog 213).
+        ///
+        /// <para>Read in exactly one place,
+        /// <see cref="TypeBeatScoreProcessor.GetBaseScoreForResult"/>, so the rule is IMPLEMENTED
+        /// once and only SELECTED twice: live play takes the score processor's own default and
+        /// <see cref="TypeBeatReplayScorer"/> sets the era's. Same shape as
+        /// <see cref="FixRestoresTheComboBreak"/>, and for the same reason.</para>
+        ///
+        /// <para>It needs no CONFIG frame bit, exactly as <see cref="OffTimeRule"/> and
+        /// <see cref="CorrectionCreditRule"/> do not: an accuracy weight never moves the caret, so a
+        /// stored replay's keystream is coherent under either arm and the arm can be selected from
+        /// outside.</para>
+        /// </summary>
+        public static bool UnfixedTypoIsWorthNothing(UnfixedTypoWorthRule rule) => rule == UnfixedTypoWorthRule.Nothing;
+
+        /// <summary>
         /// Whether a rate-adjusting mod multiplies the judgement windows by its clock rate
         /// (backlog 150). Read by <see cref="TypeBeatReplayScorer"/> only: live play applies the
         /// scale in <c>DrawableTypeBeatRuleset.createEngine</c>, which has no era to express.
@@ -635,6 +703,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// do: under that rule the wrong char already spent the cell's one result at the keypress,
         /// so a still-wrong cell is already judged and the seal's result is dropped anyway. Saying
         /// Miss keeps the pre-109 arm reproducible whatever the caller hands it.</para>
+        ///
+        /// <para><b>Backlog 213 does not move this line, and that is the design.</b> The fold of the
+        /// uncorrected typo into the miss is a CONSUMER-side reclassification
+        /// (<see cref="UnfixedTypoWorthRule"/>, <c>PerformancePoints.CountNotes</c>,
+        /// <see cref="TypeBeatRuleset.GetDisplayResultFor"/>): the seal keeps writing
+        /// <see cref="UNFIXED_TYPO"/>, so no wire, realm or MessagePack shape changes, stored rows
+        /// stay comparable with new ones, and the typo-versus-timeout distinction survives in the
+        /// data even though nothing prices it apart any more.</para>
+        ///
+        /// <para><b>The residue that fold accepts.</b> A typo the player DID correct leaves no trace
+        /// in the result columns at all: its cell resolves as the retype's own (capped) tier, so the
+        /// only record of it is the <c>combo_break</c> mistype count and the streak it broke
+        /// mid-play. The alternative was a typos tile of its own beside the counts, and the fold was
+        /// chosen over it: one flub is priced once, and the columns then sum to the judged cell
+        /// count.</para>
         /// </summary>
         public static HitResult UnresolvedCellResult(bool leftWrong, TypoRule rule)
             => leftWrong && rule == TypoRule.Deferred ? UNFIXED_TYPO : SEAL_MISS;

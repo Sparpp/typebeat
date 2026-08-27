@@ -112,6 +112,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static TypeBeatReplayAccount score(IBeatmap map, Replay r, TypoRule rule, ComboRestoreRule comboRule, params Mod[] mods)
             => TypeBeatReplayScorer.Score(map, mods, r, rule, comboRule);
 
+        /// <summary>The live era but for the backlog-213 axis, which is the only one that moves.</summary>
+        private static TypeBeatReplayAccount scoreWithWorth(IBeatmap map, Replay r, UnfixedTypoWorthRule worthRule)
+            => TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
+                SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate, WordSkipRule.Reclaimable, ComboClaimRule.StreakedBreakWins,
+                OffTimeRule.MehHit, CorrectionCreditRule.Capped, worthRule);
+
         private static int count(TypeBeatReplayAccount account, HitResult result)
             => account.Statistics.GetValueOrDefault(result);
 
@@ -401,26 +407,125 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(immediate.Completion, Is.EqualTo(12 / 13.0).Within(1e-12));
                 Assert.That(immediate.Rank, Is.EqualTo(ScoreRank.A));
 
-                // ACCURACY is unmoved by backlog 126: the typo tier is re-weighted to the Meh value
-                // (TypeBeatScoreProcessor.GetBaseScoreForResult), so it is still 12 Greats plus 50
-                // against a 13-Great maximum, i.e. (12*300 + 50) / (13*300). Its stock weight of 200
-                // would read 3800/3900 instead, i.e. a typo cheaper than a correct-but-late char.
-                Assert.That(deferred.Accuracy, Is.EqualTo(3650 / 3900.0).Within(1e-12));
+                // ACCURACY, and the one thing backlog 213 moved. The typo tier is re-weighted by
+                // TypeBeatScoreProcessor.GetBaseScoreForResult: to 0, a miss's weight, under the
+                // live rule, so this is 12 Greats and nothing else against a 13-Great maximum. Its
+                // stock weight of 200 would read 3800/3900 instead, i.e. a typo cheaper than a
+                // correct-but-late char. Which means the two eras now agree on ACCURACY as well as
+                // on completion and rank, and disagree on the miss count alone: the deferred arm
+                // stores the typo under its own key and the pre-109 arm under Miss.
+                Assert.That(deferred.Accuracy, Is.EqualTo(3600 / 3900.0).Within(1e-12));
                 Assert.That(immediate.Accuracy, Is.EqualTo(12 / 13.0).Within(1e-12));
+                Assert.That(deferred.Accuracy, Is.EqualTo(immediate.Accuracy).Within(1e-12));
 
                 // ONE break, at the typo, under both rules: cells 3..11 run the combo back up to 9
                 // and the seal neither cuts it nor extends it, so line 1's cell takes the run to 10.
                 Assert.That(deferred.MaxCombo, Is.EqualTo(10));
                 Assert.That(immediate.MaxCombo, Is.EqualTo(10));
 
-                // A cell that scores 50 instead of 0, and contributes to the combo portion at the
-                // combo it FOUND (9, not 10, see TypeBeatScoreProcessor.GetComboScoreChange), is
-                // worth more than a miss. Pinned as a golden because the weight is the only thing
-                // that decides it: weighting the same typo at 10 instead lands 758,457, i.e. it pays
-                // the play for a run the seal did not extend. UNCHANGED by backlog 126, which is the
-                // point of re-weighting the tier: only completion, rank and health move.
-                Assert.That(deferred.TotalScore, Is.EqualTo(756145));
+                // The typo cell contributes to the COMBO portion at the combo it FOUND (9, not 10,
+                // see TypeBeatScoreProcessor.GetComboScoreChange) under either weight, which is why
+                // the two arms still differ in total score even though their accuracy now agrees:
+                // the deferred arm's typo is a scorable hit that banks a combo-weighted portion,
+                // where the pre-109 arm's Miss banks none. Pinned as goldens.
+                Assert.That(deferred.TotalScore, Is.EqualTo(726780));
                 Assert.That(immediate.TotalScore, Is.EqualTo(684636));
+            });
+        }
+
+        /// <summary>
+        /// The same run under <see cref="UnfixedTypoWorthRule.MehCredit"/>, the rule every row stored
+        /// before backlog 213 was priced under, reproducing the account such a client submitted BYTE
+        /// for byte. The two numbers below were the goldens this fixture carried before the fold, so
+        /// this is a reproduction pin and not a restatement of the implementation: the recalculation
+        /// tool's reproduce gate compares exactly these quantities against the stored row.
+        ///
+        /// <para>It is also the statement of the axis's REACH, and it is the narrowest of any era
+        /// switch there is: <c>statistics</c>, <c>max_combo</c>, completion and rank are IDENTICAL
+        /// under both arms, because the fold moved no key and no result. Only what the typo key is
+        /// WORTH moved, so only accuracy and total_score can.</para>
+        /// </summary>
+        [Test]
+        public void ThePreFoldEraStillPricesAnUncorrectedTypoAtTheMehWeight()
+        {
+            var map = beatmap();
+            var targets = lineZeroTargets(map);
+
+            var frames = new List<TypeBeatReplayFrame> { TypeBeatReplayFrame.CreateConfigFrame(0, true) };
+
+            for (int i = 0; i < word.Length; i++)
+                frames.Add(new TypeBeatReplayFrame(targets[i], i == 2 ? 'q' : word[i]));
+
+            frames.Add(new TypeBeatReplayFrame(line_zero_end, 'z'));
+
+            var live = score(map, replay(frames), TypoRule.Deferred);
+            var stored = scoreWithWorth(map, replay(frames), UnfixedTypoWorthRule.MehCredit);
+
+            Assert.Multiple(() =>
+            {
+                // The pre-213 goldens, unchanged.
+                Assert.That(stored.Accuracy, Is.EqualTo(3650 / 3900.0).Within(1e-12));
+                Assert.That(stored.TotalScore, Is.EqualTo(756145));
+
+                // ...and the live arm is strictly worse on both, which is the fold.
+                Assert.That(live.Accuracy, Is.LessThan(stored.Accuracy));
+                Assert.That(live.TotalScore, Is.LessThan(stored.TotalScore));
+
+                // Everything else is frozen. Nothing about the WIRE moved, so nothing keyed on it can.
+                Assert.That(live.Statistics, Is.EquivalentTo(stored.Statistics));
+                Assert.That(live.MaximumStatistics, Is.EquivalentTo(stored.MaximumStatistics));
+                Assert.That(live.MaxCombo, Is.EqualTo(stored.MaxCombo));
+                Assert.That(live.Mistypes, Is.EqualTo(stored.Mistypes));
+                Assert.That(live.Completion, Is.EqualTo(stored.Completion).Within(1e-12));
+                Assert.That(live.Rank, Is.EqualTo(stored.Rank));
+                Assert.That(live.UnconsumedFrames, Is.Zero);
+                Assert.That(stored.UnconsumedFrames, Is.Zero);
+            });
+        }
+
+        /// <summary>
+        /// The worth axis is INERT for a run that never LEFT a typo standing, which is what lets the
+        /// recalculation tool set the stored-era arm unconditionally instead of first working out
+        /// whether the row carries a <c>good</c>. Same claim as
+        /// <see cref="JudgementEraTest.TheRateEraChangesNothingWithoutARateMod"/>, and pinned for the
+        /// same reason. A CORRECTED typo is deliberately part of this: its cell resolves as an
+        /// ordinary hit, so the axis cannot see it.
+        /// </summary>
+        [Test]
+        public void TheWorthEraChangesNothingWithoutAnUncorrectedTypo()
+        {
+            var map = beatmap();
+            var targets = lineZeroTargets(map);
+
+            var frames = new List<TypeBeatReplayFrame> { TypeBeatReplayFrame.CreateConfigFrame(0, true) };
+
+            for (int i = 0; i < word.Length; i++)
+            {
+                // Cell 2 is spoiled and immediately corrected, so the run carries a mistype but no
+                // cell ever seals holding a wrong character.
+                if (i == 2)
+                {
+                    frames.Add(new TypeBeatReplayFrame(targets[i], 'q'));
+                    frames.Add(new TypeBeatReplayFrame(targets[i] + 50, TypeBeatReplayFrame.BACKSPACE));
+                }
+
+                frames.Add(new TypeBeatReplayFrame(targets[i] + (i == 2 ? 100 : 0), word[i]));
+            }
+
+            frames.Add(new TypeBeatReplayFrame(line_zero_end, 'z'));
+
+            var live = score(map, replay(frames), TypoRule.Deferred);
+            var stored = scoreWithWorth(map, replay(frames), UnfixedTypoWorthRule.MehCredit);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(count(live, TypeBeatResultMapping.UNFIXED_TYPO), Is.Zero, "the fixture must carry no unfixed typo");
+                Assert.That(live.Mistypes, Is.EqualTo(1), "...but it must carry the keypress, or the fixture proves nothing");
+
+                Assert.That(live.Statistics, Is.EquivalentTo(stored.Statistics));
+                Assert.That(live.Accuracy, Is.EqualTo(stored.Accuracy));
+                Assert.That(live.TotalScore, Is.EqualTo(stored.TotalScore));
+                Assert.That(live.MaxCombo, Is.EqualTo(stored.MaxCombo));
             });
         }
 
@@ -507,11 +612,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(count(account, HitResult.Miss), Is.Zero);
                 Assert.That(account.MaximumStatistics.GetValueOrDefault(HitResult.Great), Is.EqualTo(13));
 
-                // pp counts thirteen notes, none of them a miss, and prices the typo through the
-                // mistype term instead. Twelve would inflate the length term and the combo ratio.
+                // pp counts thirteen notes: the typo cell is still one cell of the map, and twelve
+                // would inflate every factor the note count appears in. Since backlog 213 it is one
+                // of the MISSES, and the wrong keypress that produced it leaves the typo term, so
+                // the one flub is priced by exactly one term.
                 Assert.That(notes.Notes, Is.EqualTo(13));
-                Assert.That(notes.Misses, Is.Zero);
-                Assert.That(notes.Typos, Is.EqualTo(1));
+                Assert.That(notes.Misses, Is.EqualTo(1));
+                Assert.That(notes.Typos, Is.Zero);
 
                 // The denominator is the point: thirteen cells JUDGED, twelve of them typed, so
                 // completion is 12/13 and not 1-over-nothing. This is what stops a line typed
@@ -552,16 +659,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(count(account, TypeBeatResultMapping.UNFIXED_TYPO), Is.EqualTo(13), "every cell finished, wrongly");
                 Assert.That(count(account, HitResult.Great), Is.Zero);
-                Assert.That(count(account, HitResult.Miss), Is.Zero, "nothing was left unfinished");
+                Assert.That(count(account, HitResult.Miss), Is.Zero, "nothing was left unfinished, so the STORED key is not Miss");
 
                 // THE assertion backlog 126 exists for.
                 Assert.That(account.Completion, Is.Zero);
                 Assert.That(account.Rank, Is.EqualTo(ScoreRank.D));
 
-                // Still thirteen notes and no miss, so pp keeps pricing this by the mistype term.
+                // Still thirteen notes, and since backlog 213 every one of them is a MISS to pp: the
+                // play typed none of the map, so it prices through the cleanliness term at exponent
+                // 10 rather than reading as a clean map with thirteen recovered stumbles. The typo
+                // term is empty, because all thirteen keypresses went uncorrected.
                 Assert.That(notes.Notes, Is.EqualTo(13));
-                Assert.That(notes.Misses, Is.Zero);
-                Assert.That(notes.Typos, Is.EqualTo(13));
+                Assert.That(notes.Misses, Is.EqualTo(13));
+                Assert.That(notes.Typos, Is.Zero);
+                Assert.That(account.Accuracy, Is.Zero, "and every cell is worth 0 of its 300");
 
                 // No cell ever extended a run, and every keypress broke one.
                 Assert.That(account.MaxCombo, Is.Zero);

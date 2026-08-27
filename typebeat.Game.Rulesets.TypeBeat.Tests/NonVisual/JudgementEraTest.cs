@@ -36,12 +36,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// </list>
     ///
     /// <para>Backlog 167 (<see cref="WordSkipRule"/>), backlog 176 (<see cref="ComboClaimRule"/>),
-    /// backlog 199 (<see cref="OffTimeRule"/>) and backlog 210
-    /// (<see cref="CorrectionCreditRule"/>) added an axis each on the same pattern. The off-time one
-    /// is as wide as backlog 148's: an off-time press stopped breaking the run and started resolving
-    /// as a Meh, so every stored row that ever fumbled a beat needs its arm to reproduce. Each is
-    /// pinned here, except the correction cap, whose whole fixture lives in
-    /// <see cref="CorrectionCreditTest"/>; the DEFAULT contract below covers all of them.</para>
+    /// backlog 199 (<see cref="OffTimeRule"/>), backlog 210 (<see cref="CorrectionCreditRule"/>) and
+    /// backlog 213 (<see cref="UnfixedTypoWorthRule"/>) added an axis each on the same pattern. The
+    /// off-time one is as wide as backlog 148's: an off-time press stopped breaking the run and
+    /// started resolving as a Meh, so every stored row that ever fumbled a beat needs its arm to
+    /// reproduce. Each is pinned here, except the correction cap, whose whole fixture lives in
+    /// <see cref="CorrectionCreditTest"/>, and the unfixed typo's weight, whose fixture lives in
+    /// <see cref="UnfixedTypoFoldTest"/> and
+    /// <see cref="TypeBeatReplayScorerTest.ThePreFoldEraStillPricesAnUncorrectedTypoAtTheMehWeight"/>;
+    /// the DEFAULT contract below covers all of them.</para>
     ///
     /// <para>The properties pinned here are the ones the tool rests on: the switches DEFAULT to
     /// today's rules (so nothing that does not ask for an era changes meaning), each one actually
@@ -238,13 +241,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var explicitLive = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
                 SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate, WordSkipRule.Reclaimable, ComboClaimRule.StreakedBreakWins,
-                OffTimeRule.MehHit, CorrectionCreditRule.Capped);
+                OffTimeRule.MehHit, CorrectionCreditRule.Capped, UnfixedTypoWorthRule.Nothing);
 
             Assert.Multiple(() =>
             {
                 Assert.That(implicitEra.Statistics, Is.EquivalentTo(explicitLive.Statistics));
                 Assert.That(implicitEra.MaxCombo, Is.EqualTo(explicitLive.MaxCombo));
                 Assert.That(implicitEra.TotalScore, Is.EqualTo(explicitLive.TotalScore));
+                Assert.That(implicitEra.Accuracy, Is.EqualTo(explicitLive.Accuracy));
 
                 // ...and the engine's own defaults agree, which is what live play takes.
                 Assert.That(new TypingEngine(lyricBeatmap()).SpaceTiming, Is.EqualTo(SpaceTimingRule.Untimed));
@@ -252,6 +256,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(new TypingEngine(lyricBeatmap()).ComboClaim, Is.EqualTo(ComboClaimRule.StreakedBreakWins));
                 Assert.That(new TypingEngine(lyricBeatmap()).OffTime, Is.EqualTo(OffTimeRule.MehHit));
                 Assert.That(new TypingEngine(lyricBeatmap()).CorrectionCredit, Is.EqualTo(CorrectionCreditRule.Capped));
+
+                // Backlog 213's axis is the one that lives in the SCORE PROCESSOR rather than the
+                // engine (an accuracy weight is not something the engine can express), so its live
+                // default is pinned there. Same contract either way: live play takes the default.
+                Assert.That(new TypeBeatScoreProcessor(new TypeBeatRuleset()).UnfixedTypoWorth,
+                    Is.EqualTo(UnfixedTypoWorthRule.Nothing));
             });
         }
 

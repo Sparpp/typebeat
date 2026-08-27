@@ -22,10 +22,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// of its own so that pp could stop pricing it as a miss; backlog 126 is the other half of that,
     /// and it is the user's rule: DO NOT COUNT A TYPO IN COMPLETION. So an unfixed typo sits in
     /// completion's DENOMINATOR but not its numerator (see <see cref="CountsAsTyped"/>), and it, and
-    /// therefore rank, falls exactly as far as it would for a miss. What it still does NOT cost is
-    /// the MISS COUNT, which is the distinction pp is built on: a miss says the player was too slow
-    /// to finish the character at all, a typo says they finished it and got it wrong, so the miss
-    /// term prices one and the mistype term the other. It is applied COMBO-NEUTRAL (see
+    /// therefore rank, falls exactly as far as it would for a miss. Backlog 213 finishes that arc:
+    /// an uncorrected typo IS a miss to every consumer now, so it is worth 0 in accuracy
+    /// (<see cref="GetBaseScoreForResult"/>), it counts in pp's MISS term instead of its typo term
+    /// (<c>PerformancePoints.CountNotes</c>), and it is SHOWN in the miss column
+    /// (<c>TypeBeatRuleset.GetDisplayResultFor</c>). What does NOT move is the WIRE: the seal still
+    /// writes the typo's own key, so old rows stay comparable with new ones and the data keeps the
+    /// distinction even though nothing prices it any more. It is applied COMBO-NEUTRAL (see
     /// <see cref="MarkComboNeutral"/>) because the break it owed was taken at the keypress.
     ///
     /// The server mirrors this exactly (typebeat-web ScoringContract.RankFromCompletion); keep
@@ -266,27 +269,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         }
 
         /// <summary>
+        /// The era this processor prices an UNCORRECTED TYPO at
+        /// (<see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>, read by
+        /// <see cref="GetBaseScoreForResult"/> and nowhere else). Defaults to the LIVE rule, which
+        /// is what live play takes; only <see cref="TypeBeatReplayScorer"/> ever assigns it, and
+        /// only to re-derive a row stored before backlog 213 under the rule it was played under.
+        /// </summary>
+        public UnfixedTypoWorthRule UnfixedTypoWorth { get; set; } = UnfixedTypoWorthRule.Nothing;
+
+        /// <summary>
         /// The base score a result is worth, i.e. its ACCURACY weight and (for the maximum result)
         /// its combo-portion weight. Exactly the base game's table but for
-        /// <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>, which is re-weighted from 200 down to
-        /// <see cref="HitResult.Meh"/>'s 50.
+        /// <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>, which is re-weighted down from its
+        /// stock 200: to <see cref="HitResult.Miss"/>'s 0 under the live
+        /// <see cref="UnfixedTypoWorthRule.Nothing"/>, and to <see cref="HitResult.Meh"/>'s 50 under
+        /// <see cref="UnfixedTypoWorthRule.MehCredit"/>, the rule every row stored before backlog
+        /// 213 was played under.
         ///
         /// <para>The tier is a relabelling, not a grade: <see cref="HitResult.Good"/> was the one
         /// result a type!beat cell could legally take that nothing else was using (see
         /// <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/> for why the candidate set is forced), so
         /// it carries a weight it inherited from a meaning it does not have here. Left at 200 an
         /// unfixed typo would cost LESS accuracy than a correct character typed late, which is
-        /// plainly the wrong way round. At 50 it pays the most accuracy a judged cell can pay, which
-        /// is what backlog 124 chose when the typo WAS a Meh, so this change moves completion, rank
-        /// and health and leaves accuracy and total score bit-identical.</para>
+        /// plainly the wrong way round. Backlog 124 put it at 50, the most accuracy a JUDGED cell
+        /// could pay; backlog 213 takes it to 0, because an uncorrected typo IS a miss: the player
+        /// did not put that character in that cell, and pricing a wrong character above a dropped
+        /// one was the last place the two still came apart.</para>
+        ///
+        /// <para>The judgement's MAXIMUM result is still Great, so the accuracy DENOMINATOR is
+        /// untouched: the cell stays in the fraction and pays 0 of 300, which is what makes accuracy
+        /// genuinely fall rather than the cell quietly leaving. GRADES do not move here at all
+        /// (completion already counts an unfixed typo as untyped, backlog 126, so rank fell for it
+        /// long before accuracy did); the accuracy-derived surfaces fall out of the weight.</para>
         ///
         /// <para>Mirrored by the server (<c>ScoringContract.BaseScore</c>), which recomputes
-        /// accuracy from the same dictionaries, and by <c>typebeat-core.js</c>. The judgement's
-        /// MAXIMUM result is still Great, so the accuracy DENOMINATOR is untouched.</para>
+        /// accuracy from the same dictionaries, and by <c>typebeat-core.js</c>.</para>
         /// </summary>
         public override int GetBaseScoreForResult(HitResult result)
             => result == TypeBeatResultMapping.UNFIXED_TYPO
-                ? base.GetBaseScoreForResult(HitResult.Meh)
+                ? base.GetBaseScoreForResult(TypeBeatResultMapping.UnfixedTypoIsWorthNothing(UnfixedTypoWorth) ? HitResult.Miss : HitResult.Meh)
                 : base.GetBaseScoreForResult(result);
 
         protected override void Reset(bool storeResults)
@@ -319,8 +340,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <para>This is why the typo needs a key of its own rather than sharing
         /// <see cref="HitResult.Meh"/> with a slow-but-correct keypress, as it did between backlog
         /// 124 and 126: a rule keyed on the result cannot separate two things stored under one
-        /// result. It is also the only place the two are treated differently at all, which is what
-        /// keeps pp free to price a typo as a typo (see <see cref="PerformancePoints"/>).</para>
+        /// result. UNCHANGED by backlog 213, and deliberately: completion has counted an unfixed
+        /// typo as untyped since 126, so the fold found this half already done and rank does not
+        /// move at all under it. What the fold changed is everything that still priced the typo
+        /// ABOVE a miss, namely accuracy, pp and the results columns.</para>
         ///
         /// <para>Mirrored by the server's <c>ScoringContract.CountsAsTyped</c> and by
         /// <c>typebeat-core.js</c>.</para>

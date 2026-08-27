@@ -214,10 +214,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 TypeBeatScoreProcessor.ComputeCompletion(statistics) == 11 / 12.0
                 && Player.ScoreProcessor.Rank.Value == ScoreRank.A);
 
-            // ACCURACY does not move, and that is deliberate: the typo tier is re-weighted to the
-            // Meh value, so backlog 126 changes completion, rank and health and nothing else.
-            AddAssert("accuracy pays exactly what it paid before", () =>
-                Player.ScoreProcessor.Accuracy.Value == (11 * 300 + 50) / (12 * 300.0));
+            // ACCURACY, and the one thing backlog 213 moved on this whole scene. The typo tier is
+            // re-weighted by TypeBeatScoreProcessor.GetBaseScoreForResult: to Meh's 50 through
+            // backlog 126, and to a MISS's 0 since 213, because a cell the player did not put the
+            // right character in is a cell they did not type. The DENOMINATOR is untouched (the
+            // cell's maximum result is still a Great), so this is eleven Greats over twelve.
+            AddAssert("accuracy pays a missed character's worth", () =>
+                Player.ScoreProcessor.Accuracy.Value == (11 * 300) / (12 * 300.0));
 
             // And the typo is charged ONCE (backlog 166): the nine Greats after it put the bar back
             // at the cap, and the seal resolving the cell as a typo takes nothing more. A seal that
@@ -324,14 +327,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("the mistype is still counted, exactly once", () =>
                 statistics.GetValueOrDefault(HitResult.ComboBreak) == 1);
 
-            AddAssert("pp counts thirteen notes and no miss", () =>
+            // Backlog 213: the cell is still one of the thirteen notes, but it is now one of the
+            // MISSES, and the keypress that spoiled it leaves the typo term so the flub is priced
+            // once. Read through the LIVE processor's own dictionary, so this pins the fold on the
+            // whole in-game seam and not only on the headless scorer.
+            AddAssert("pp counts thirteen notes, one of them a miss", () =>
             {
                 var notes = PerformancePoints.CountNotes(statistics);
-                return notes.Notes == 13 && notes.Misses == 0 && notes.Typos == 1;
+                return notes.Notes == 13 && notes.Misses == 1 && notes.Typos == 0;
             });
 
-            AddAssert("accuracy pays, and so now do completion and rank", () =>
-                Player.ScoreProcessor.Accuracy.Value == (12 * 300 + 50) / (13 * 300.0)
+            AddAssert("accuracy pays a miss's worth, and so do completion and rank", () =>
+                Player.ScoreProcessor.Accuracy.Value == (12 * 300) / (13 * 300.0)
                 && TypeBeatScoreProcessor.ComputeCompletion(statistics) == 12 / 13.0
                 && Player.ScoreProcessor.Rank.Value == ScoreRank.A);
         }

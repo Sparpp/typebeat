@@ -111,6 +111,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// real play since backlog 199 made an off-time press a Meh; before the fix the HUD and
         /// results screen kept whatever rank the first judgement set, while the stored row was
         /// ranked correctly by the server.
+        ///
+        /// <para>The processor is put on <see cref="UnfixedTypoWorthRule.MehCredit"/>, the pre-213
+        /// weight, and that is the era this fixture DESCRIBES rather than a weakening of it. Backlog
+        /// 213 takes the unfixed typo's weight to 0, so under the live rule the two results in this
+        /// walk no longer weigh the same and accuracy would move with the counts: the exact shape
+        /// that forced backlog 200 is only reachable through the era arm now. The mechanism under
+        /// test is unchanged (rank must be recomputed off the result COUNTS, not off an accuracy
+        /// change), and every stored row played before the fold still re-derives through this path.</para>
         /// </summary>
         [Test]
         public void LiveRank_FollowsCompletion_WhileAccuracyStandsStill()
@@ -128,7 +136,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var beatmap = new Beatmap<TypeBeatHitObject> { BeatmapInfo = new BeatmapInfo() };
             beatmap.HitObjects.Add(hitObject);
 
-            var processor = new TypeBeatScoreProcessor(new TypeBeatRuleset());
+            var processor = new TypeBeatScoreProcessor(new TypeBeatRuleset()) { UnfixedTypoWorth = UnfixedTypoWorthRule.MehCredit };
             processor.ApplyBeatmap(beatmap);
 
             var cells = hitObject.NestedHitObjects.OfType<TypeBeatCharObject>().ToList();

@@ -86,6 +86,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// corrected cell announces itself as an Ok and <see cref="TypeBeatResultMapping.CellResult"/>,
     /// which is the identity on the quality tiers, resolves it as one. Selecting the era is one
     /// assignment on the engine and nothing else.</item>
+    /// <item>An UNCORRECTED typo needs no seam either (backlog 213,
+    /// <see cref="UnfixedTypoWorthRule"/>), and it is the one axis the ENGINE knows nothing about:
+    /// the seal path is unchanged, the key it writes is unchanged, and only what that key is WORTH
+    /// moved. Selecting the era is one assignment on the score processor.</item>
     /// </list>
     ///
     /// <para><b>What it does not do.</b> No health, so PASS/FAIL is not re-derived: a replay ends
@@ -160,6 +164,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// moves fewer quantities than <paramref name="offTimeRule"/> does: <c>statistics</c>,
         /// accuracy and <c>total_score</c> only, with <c>max_combo</c>, the miss count, completion
         /// and rank identical under both arms.</param>
+        /// <param name="worthRule">What an UNCORRECTED typo's cell is worth in accuracy. Stored
+        /// scores predating backlog 213 were played under
+        /// <see cref="UnfixedTypoWorthRule.MehCredit"/>, where such a cell was re-weighted to Meh's
+        /// 50 of 300 rather than to a miss's 0. It reaches every row that ever left a typo standing,
+        /// and it moves the same two quantities <paramref name="creditRule"/> does and no others:
+        /// accuracy and <c>total_score</c>. <c>statistics</c> is IDENTICAL under both arms here,
+        /// unlike under every other axis, because the fold is a consumer-side reclassification and
+        /// the seal's key never moved.</param>
         public static TypeBeatReplayAccount Score(
             IBeatmap playable,
             IReadOnlyList<Mod> mods,
@@ -171,7 +183,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             WordSkipRule skipRule = WordSkipRule.Reclaimable,
             ComboClaimRule claimRule = ComboClaimRule.StreakedBreakWins,
             OffTimeRule offTimeRule = OffTimeRule.MehHit,
-            CorrectionCreditRule creditRule = CorrectionCreditRule.Capped)
+            CorrectionCreditRule creditRule = CorrectionCreditRule.Capped,
+            UnfixedTypoWorthRule worthRule = UnfixedTypoWorthRule.Nothing)
         {
             ArgumentNullException.ThrowIfNull(playable);
             ArgumentNullException.ThrowIfNull(replay);
@@ -230,6 +243,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             var ruleset = new TypeBeatRuleset();
 
             var scoreProcessor = new TypeBeatScoreProcessor(ruleset);
+
+            // The sixth axis (backlog 213), and the first that lives in the SCORE PROCESSOR rather
+            // than in the engine: what an uncorrected typo's cell is worth in accuracy is decided
+            // by GetBaseScoreForResult, which no engine rule can reach. So selecting it here is the
+            // whole of that era gate, on the same terms as the five above, and it is set before the
+            // beatmap is applied so the simulated maximum run and the real one are priced by one
+            // rule. That simulation cannot contain an unfixed typo anyway (it is a run of maximum
+            // results), which is exactly why the accuracy DENOMINATOR does not move with the arm.
+            scoreProcessor.UnfixedTypoWorth = worthRule;
 
             // Mods BEFORE the beatmap: ApplyBeatmap stores MaximumTotalScore, which is computed
             // through the score multiplier (ScoreProcessor.ApplyBeatmap's own note).

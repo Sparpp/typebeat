@@ -469,6 +469,22 @@ namespace typebeat.Game.Rulesets
         public virtual LocalisableString GetDisplayNameForHitResult(HitResult result) => result.GetLocalisableDescription();
 
         /// <summary>
+        /// The result a STORED <see cref="HitResult"/> is counted under when a score's statistics are
+        /// shown to a player. The identity by default, and the seam a ruleset overrides when a result
+        /// it must keep as its own key on the wire has to be SHOWN as another one.
+        /// </summary>
+        /// <remarks>
+        /// Every count a player sees goes through this: <see cref="ScoreInfo.GetStatisticsForDisplay"/>
+        /// (the results screen, the leaderboard tooltips and the beatmap-set score table) and the live
+        /// judgement counter. A result that folds into another must NOT also appear in
+        /// <see cref="GetValidHitResults"/>, or it would take a column of its own as well as adding to
+        /// the one it folds into, and the shown columns would no longer sum to the judged object count.
+        /// </remarks>
+        /// <param name="result">The result as the score stores it.</param>
+        /// <returns>The result its count is displayed under.</returns>
+        public virtual HitResult GetDisplayResultFor(HitResult result) => result;
+
+        /// <summary>
         /// Applies changes to difficulty attributes for presenting to a user a rough estimate of how mods affect difficulty.
         /// Importantly, this should NOT BE USED FOR ANY CALCULATIONS.
         ///

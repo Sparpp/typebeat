@@ -362,9 +362,21 @@ namespace typebeat.Game.Scoring
 
         public IEnumerable<HitResultDisplayStatistic> GetStatisticsForDisplay()
         {
-            foreach (var r in Ruleset.CreateInstance().GetHitResultsForDisplay())
+            var rulesetInstance = Ruleset.CreateInstance();
+
+            foreach (var r in rulesetInstance.GetHitResultsForDisplay())
             {
-                int value = Statistics.GetValueOrDefault(r.result);
+                // A count is stored under the key the play submitted and SHOWN under the key the
+                // ruleset displays it as (Ruleset.GetDisplayResultFor), which is the identity unless
+                // a ruleset folds one result into another. Summing rather than looking the key up is
+                // the whole of that: with the identity this is exactly Statistics[r.result].
+                int value = 0;
+
+                foreach ((var stored, int count) in Statistics)
+                {
+                    if (rulesetInstance.GetDisplayResultFor(stored) == r.result)
+                        value += count;
+                }
 
                 switch (r.result)
                 {

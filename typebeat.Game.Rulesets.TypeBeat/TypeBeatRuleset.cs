@@ -198,6 +198,11 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// near-identical name and no way to tell which was which. This list is what the judgement
         /// counter, the in-game score table and the results card read, so dropping it here is what
         /// retires the split everywhere at once.</para>
+        ///
+        /// <para>Backlog 213 makes that absence LOAD-BEARING rather than merely tidy: the typo's
+        /// count is now folded into the Miss column (<see cref="GetDisplayResultFor"/>), so listing
+        /// it here would give it a column of its own AND add it to Miss, double-counting it and
+        /// breaking the property that the shown columns sum to the judged cell count.</para>
         /// </summary>
         public override IEnumerable<HitResult> GetValidHitResults() => new[]
         {
@@ -221,17 +226,47 @@ namespace typebeat.Game.Rulesets.TypeBeat
             => result == TypeBeatResultMapping.UNFIXED_TYPO ? "Typo" : base.GetDisplayNameForHitResult(result);
 
         /// <summary>
+        /// The display fold of backlog 213: an UNCORRECTED TYPO
+        /// (<see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>) is counted in the MISS column.
+        ///
+        /// <para>Which is the display half of the same one-sided change the accuracy weight
+        /// (<see cref="Scoring.UnfixedTypoWorthRule"/>) and pp
+        /// (<c>PerformancePoints.CountNotes</c>) make: the seal keeps writing the typo's own
+        /// key, so the WIRE, realm and MessagePack shapes are untouched and a stored row means today
+        /// what it meant when it was submitted, and every CONSUMER reclassifies. The fold therefore
+        /// reaches OLD rows and new ones alike, which is the point: the field report that forced it
+        /// was a stored score reading MISS 0 while carrying <c>good: 2</c>, so two characters the
+        /// player never typed right appeared in no column at all.</para>
+        ///
+        /// <para>The typo takes no column of its own, and must not: it is absent from
+        /// <see cref="GetValidHitResults"/> (backlog 140 dropped it, for its own reasons), so
+        /// nothing yields it as a row and the fold cannot double-count. With it folded in, the shown
+        /// columns (Great, Ok, Meh, Miss) once again SUM to the judged cell count, which they had
+        /// not done since backlog 124 gave the typo a key nothing displayed.</para>
+        ///
+        /// <para>Read by <c>ScoreInfo.GetStatisticsForDisplay</c> (the results panels, the
+        /// leaderboard tooltips, the beatmap-set score table) and by the live judgement counter, so
+        /// it is the one place the fold is implemented for every surface at once.
+        /// <see cref="CreateCompletionStatistics"/>'s "Missed characters" row folds the same way,
+        /// and cannot come through here because it reads the score directly.</para>
+        /// </summary>
+        public override HitResult GetDisplayResultFor(HitResult result)
+            => result == TypeBeatResultMapping.UNFIXED_TYPO ? HitResult.Miss : result;
+
+        /// <summary>
         /// Results-screen statistics: completion (the number the rank is graded on) alongside the
         /// judgement counts. The accuracy shown in the expanded panel is unchanged.
         ///
-        /// <para>TYPOS sit beside the missed-character count, never folded into it: a miss is a
-        /// character the song left behind, a typo is a wrong key the player pressed, and only
-        /// the first costs completion or rank. It is ONE number (backlog 140), counting wrong
-        /// KEYPRESSES as events, and it is the only typo figure the player is shown: the cells left
-        /// holding a wrong character at the seal are no longer counted separately, because each of
-        /// them took a wrong keypress that this number already carries. The row appears only for a
-        /// score that actually CARRIES the stat (<see cref="TypeBeatScoreProcessor.MistypesOf"/>);
-        /// plays from before it existed show no row at all rather than a fabricated 0.</para>
+        /// <para>TYPOS is ONE number (backlog 140), counting wrong KEYPRESSES as events, and it is
+        /// the only typo figure the player is shown: the cells left holding a wrong character at the
+        /// seal are not counted separately, because each of them took a wrong keypress that this
+        /// number already carries. It sits BESIDE the missed-character count and is not folded into
+        /// it, which is a different statement from backlog 213's fold: a keypress is an event and a
+        /// cell is a cell, so the typo count still counts every wrong key including the ones the
+        /// player went back and fixed, while an UNCORRECTED typo's CELL is now a missed character
+        /// and is counted in the row above. The row appears only for a score that actually CARRIES
+        /// the stat (<see cref="TypeBeatScoreProcessor.MistypesOf"/>); plays from before it existed
+        /// show no row at all rather than a fabricated 0.</para>
         ///
         /// <para>PP closes the table, after the raw counts it is derived from: it is what the whole
         /// play was worth. Unlike the typo row it is unconditional, because a pp reading is
@@ -263,7 +298,11 @@ namespace typebeat.Game.Rulesets.TypeBeat
                 new CompletionStatistic(TypeBeatScoreProcessor.ComputeCompletion(score)),
                 new SimpleStatisticItem<int>("Missed characters")
                 {
-                    Value = score.Statistics.GetValueOrDefault(HitResult.Miss),
+                    // Backlog 213: a character left holding the WRONG letter is a missed character
+                    // too. Folded here rather than at the seal, exactly as in
+                    // GetDisplayResultFor, and it reaches old rows for the same reason.
+                    Value = score.Statistics.GetValueOrDefault(HitResult.Miss)
+                            + score.Statistics.GetValueOrDefault(TypeBeatResultMapping.UNFIXED_TYPO),
                 },
             };
 

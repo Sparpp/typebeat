@@ -12,10 +12,11 @@
 //
 // The rule is one number: a cell that held a wrong character before it was ever judged resolves at
 // min(the retype's own tier, Ok). So per cell the ordering is clean 300 > corrected at most 100 >
-// unfixed typo 50 (UNFIXED_TYPO, re-weighted) > miss 0, and perfect play strictly beats corrected
-// play. Nothing else moves: the combo a fix restores (backlog 140), completion, rank, the miss count
-// and the unfixed typo's seal path are all untouched, and HEALTH follows the result exactly as it
-// does for every other cell (TypeBeatHealthTest.FixingATypoLeavesHealthOneTierBelowTypingItRight).
+// unfixed typo (0 since backlog 213, 50 before it) = miss 0, and perfect play strictly beats
+// corrected play, which strictly beats leaving the typo where it is. Nothing else moves: the combo a
+// fix restores (backlog 140), completion, rank, the miss count and the unfixed typo's seal path are
+// all untouched, and HEALTH follows the result exactly as it does for every other cell
+// (TypeBeatHealthTest.FixingATypoLeavesHealthOneTierBelowTypingItRight).
 //
 // The cap is a STATE and not a counter: one flag on the cell, set only while the cell is still
 // unjudged. Which settles both cycle shapes at once, and both are pinned here: wrong-fix-wrong-fix
@@ -283,11 +284,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// The ordering the cap is chosen to produce, read straight off the accuracy weights a cell
-        /// can carry: a clean Great is 300, a corrected cell is at most 100, an uncorrected typo is 50
-        /// (<see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>, re-weighted by
-        /// <see cref="TypeBeatScoreProcessor.GetBaseScoreForResult"/>) and a miss is 0. Strictly
-        /// decreasing, which is the property "perfect play beats corrected play beats an unfixed typo
-        /// beats a dropped character" reduces to per cell.
+        /// can carry, under BOTH arms of the weight the uncorrected typo carries
+        /// (<see cref="UnfixedTypoWorthRule"/>, backlog 213). A clean Great is 300 and a corrected
+        /// cell is at most 100 whatever that arm says; what moved is the bottom of the ladder, from
+        /// "unfixed typo 50 &gt; miss 0" to "unfixed typo 0 = miss 0", because an uncorrected typo IS
+        /// a miss now.
+        ///
+        /// <para>The property the cap exists for survives the fold unchanged, and that is why it is
+        /// stated as an inequality over the pair rather than over the whole ladder: perfect play
+        /// strictly beats corrected play, and corrected play strictly beats leaving the typo where
+        /// it is. The fold only widened the last gap.</para>
         /// </summary>
         [Test]
         public void ThePerCellOrderingIsStrict()
@@ -299,16 +305,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             int unfixed = processor.GetBaseScoreForResult(TypeBeatResultMapping.UNFIXED_TYPO);
             int missed = processor.GetBaseScoreForResult(HitResult.Miss);
 
+            var preFold = new TypeBeatScoreProcessor(new TypeBeatRuleset()) { UnfixedTypoWorth = UnfixedTypoWorthRule.MehCredit };
+
             Assert.Multiple(() =>
             {
                 Assert.That(clean, Is.EqualTo(300));
                 Assert.That(corrected, Is.EqualTo(100));
-                Assert.That(unfixed, Is.EqualTo(50));
+                Assert.That(unfixed, Is.Zero, "backlog 213: an uncorrected typo is worth what a miss is worth");
                 Assert.That(missed, Is.Zero);
 
                 Assert.That(clean, Is.GreaterThan(corrected));
                 Assert.That(corrected, Is.GreaterThan(unfixed));
-                Assert.That(unfixed, Is.GreaterThan(missed));
+
+                // The pre-213 arm, which is what every stored row was priced under: the typo took
+                // Meh's 50, so the ladder had four distinct rungs rather than three.
+                Assert.That(preFold.GetBaseScoreForResult(TypeBeatResultMapping.UNFIXED_TYPO), Is.EqualTo(50));
+                Assert.That(preFold.GetBaseScoreForResult(HitResult.Great), Is.EqualTo(300), "the arm reaches the typo key and nothing else");
+                Assert.That(preFold.GetBaseScoreForResult(HitResult.Ok), Is.EqualTo(100));
+                Assert.That(preFold.GetBaseScoreForResult(HitResult.Meh), Is.EqualTo(50));
+                Assert.That(preFold.GetBaseScoreForResult(HitResult.Miss), Is.Zero);
             });
         }
 
