@@ -40,6 +40,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <see cref="CUE_LEAD_MS"/>: the beat of grace the game gives you to get ready, granted at
         /// the other end of the line as well. Bounded so a run always terminates: past it the line
         /// force-seals, its untyped cells become misses, and the caret lands on the next line.
+        ///
+        /// <para>Since backlog 218 it bounds BOTH directions, and the name is kept for the replays
+        /// and the mirrors that already use it. Drag holds a line open this long past its natural
+        /// END (<see cref="sealPermitted"/>); rush enters a line this long before its natural START
+        /// (<see cref="entryPermitted"/>, gated on <see cref="BoundedRush"/>). One constant, so the
+        /// two freedoms cannot drift apart: a player may run ahead of the song by exactly the margin
+        /// they may fall behind it.</para>
         /// </summary>
         public const double FLETCHER_DRAG_GRACE_MS = 1500;
 
@@ -648,8 +655,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// behaviours, all confined to this flag so the pinned path stays byte-identical:
         /// <list type="bullet">
         /// <item>RUSH FREEDOM: finishing a line moves the caret straight on to the next one instead
-        /// of waiting for its cue (<see cref="rollForwardIfFinishedEarly"/>). The finished line is
-        /// left unsealed and seals on its own normal deadline with nothing missed.</item>
+        /// of waiting for its cue (<see cref="rollForwardIfFinishedEarly"/>), and since backlog 218
+        /// no earlier than <see cref="FLETCHER_DRAG_GRACE_MS"/> before that cue
+        /// (<see cref="BoundedRush"/>). The finished line is left unsealed and seals on its own
+        /// normal deadline with nothing missed.</item>
         /// <item>DRAG FREEDOM: a line the player is still typing is not force-sealed at its normal
         /// deadline; the seal is deferred by <see cref="FLETCHER_DRAG_GRACE_MS"/> so the caret is
         /// never yanked off a line mid-word (<see cref="sealPermitted"/>).</item>
@@ -686,6 +695,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// stack that is not running the pinning mod; false everywhere else.</para>
         /// </summary>
         public bool FlexibleLineSnap { get; set; }
+
+        /// <summary>
+        /// THE SYMMETRIC RUSH BOUND (backlog 218): a finished caret may enter the next line only
+        /// from <see cref="FLETCHER_DRAG_GRACE_MS"/> before that line's own
+        /// <see cref="TypingLine.ActivationTime"/> onward (<see cref="entryPermitted"/>). The exact
+        /// mirror of the drag side (<see cref="sealPermitted"/>), which holds a line open exactly
+        /// that long past its natural end: one constant, both directions, so the player may run
+        /// ahead of the song by the same margin they may fall behind it.
+        ///
+        /// <para>Without it RUSH was time-UNBOUNDED while DRAG never was.
+        /// <see cref="rollForwardIfFinishedEarly"/> handed the caret to the next line the instant the
+        /// last cell of the current one landed, however many seconds before that line's cue, and the
+        /// roll is TRANSITIVE (the line it lands on can be typed out and rolled off in turn), so a
+        /// fast player could walk the whole map at the top of the song. Nothing stopped that but the
+        /// rush cap, which costs combo and blocks nothing.</para>
+        ///
+        /// <para>What a refused roll does: the caret PARKS past the last cell of its line, the state
+        /// <see cref="FlexibleLineSnap"/> already understands. Keypresses there are inert
+        /// (<see cref="ProcessKey"/> answers false on a complete line: no judgement, no typo, no
+        /// combo break, exactly the dead-zone semantics the pinned game has), the WPM clock does not
+        /// run (<see cref="Update"/> accrues only while the line is INCOMPLETE), and
+        /// <see cref="snapForwardOnLineStart"/> performs the deferred roll the moment the bound
+        /// opens. The DRAG side is untouched, and neither the drag cutoff's hand-over nor the seal
+        /// loop's ordinary one is refused: those are the SONG arriving, an entry that is late rather
+        /// than early.</para>
+        ///
+        /// <para>FALSE by default, and era-styled exactly like <see cref="FlexibleLineSnap"/>: it
+        /// decides which line the caret is on at a given time, so a run stored before it existed
+        /// carries CONFIG frame bit 7 (<see cref="Replays.TypeBeatReplayFrame.BoundedRush"/>) clear
+        /// and re-derives with the unbounded roll its player actually had, byte for byte. Set for
+        /// EVERY new live stack (<c>DrawableTypeBeatRuleset.createEngine</c>), the pinning mod's
+        /// included, where it is inert because <see cref="FletcherEnabled"/> gates every roll: the
+        /// same "record it uniformly" convention bits 3, 4 and 6 follow.</para>
+        /// </summary>
+        public bool BoundedRush { get; set; }
 
         /// <summary>
         /// Whether the flexible caret was asked for by a MOD rather than by the era bit, which is
@@ -1426,17 +1470,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// instant it is reached (a line whose cells are all non-typeable is complete at caret 0),
         /// and the roll-forward this backs up does not recurse. Returns whether the caret moved, so
         /// the caller announces one <c>LineActivated</c> however many lines were crossed.</para>
+        ///
+        /// <para>Since backlog 218 this is also the DEFERRED ROLL arm (see <see cref="BoundedRush"/>),
+        /// which is why the two are one method rather than two: both move a FINISHED caret onto the
+        /// next line on a TIME condition, they would fire on the same frame, and a second arm could
+        /// only ever raise a second <c>LineActivated</c> for a caret the first one had already moved.
+        /// The instant they fire at is <see cref="entryOpensAt"/>, the line's activation under the
+        /// unbounded era and <see cref="FLETCHER_DRAG_GRACE_MS"/> before it under the bounded one, so
+        /// the head start the bound grants a rushing player still exists: refusing the keypress roll
+        /// and then waiting for the full activation would take with one hand what the mirror gives
+        /// with the other.</para>
         /// </summary>
         private bool snapForwardOnLineStart(double time)
         {
-            if (!FletcherEnabled || !FlexibleLineSnap || isFinished)
+            // BoundedRush belongs in this gate as well as FlexibleLineSnap: this is the only arm that
+            // can move a caret the bound parked, and a live stack always sets both anyway.
+            if (!FletcherEnabled || (!FlexibleLineSnap && !BoundedRush) || isFinished)
                 return false;
 
             bool snapped = false;
 
             while (IsLineComplete
                    && activeLineIndex + 1 < lines.Count
-                   && time >= lines[activeLineIndex + 1].ActivationTime)
+                   && time >= entryOpensAt(activeLineIndex + 1))
             {
                 activeLineIndex++;
                 caretIndex = 0;
@@ -1454,6 +1510,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// line is finished), and a clock that ran through a 20-second instrumental would read the wait
         /// as typing time; so the clock runs only from the point the playhead reaches that line's
         /// ActivationTime, which is exactly when the line would have gone active while pinned.
+        ///
+        /// <para>The OTHER parked state, a caret the rush bound has left sitting past the last cell
+        /// of its own line (backlog 218, see <see cref="BoundedRush"/>), needs nothing here: the
+        /// caller already accrues only while the active line is INCOMPLETE, and a parked-finished
+        /// caret is complete by definition. Both parked states are the same fact about the clock, that
+        /// the player CANNOT type, and they must both stop it or a long instrumental would read as
+        /// typing time and halve the readout.</para>
         /// </summary>
         private bool wpmClockRuns(double previousTime)
             => !FletcherEnabled || activeLineIndex == -1 || previousTime >= lines[activeLineIndex].ActivationTime;
@@ -1480,6 +1543,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// caret is moved on. Always true with a pinned caret, and true under a flexible one for any
         /// line the player is not currently on, so a finished-early line still seals exactly on its
         /// own deadline.
+        ///
+        /// <para>Its mirror is <see cref="entryPermitted"/> (backlog 218): this one is how far past a
+        /// line's natural END a dragging player may still be on it, that one is how far before a
+        /// line's natural START a rushing player may already be on it, and both distances are the
+        /// one <see cref="FLETCHER_DRAG_GRACE_MS"/>.</para>
         /// </summary>
         private bool sealPermitted(int index, double time)
         {
@@ -1496,6 +1564,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             return time >= line.EndTime + line.SealGraceMs + FLETCHER_DRAG_GRACE_MS;
         }
+
+        /// <summary>
+        /// THE RUSH BOUND (see <see cref="BoundedRush"/>), and the exact mirror of
+        /// <see cref="sealPermitted"/>: may a FINISHED caret move on to line <paramref name="index"/>
+        /// at <paramref name="time"/> yet? Drag holds a line open up to
+        /// <see cref="FLETCHER_DRAG_GRACE_MS"/> past its natural end
+        /// (<see cref="TypingLine.EndTime"/> + <see cref="TypingLine.SealGraceMs"/>); rush enters a
+        /// line up to the same <see cref="FLETCHER_DRAG_GRACE_MS"/> before its natural start
+        /// (<see cref="TypingLine.ActivationTime"/>). Always true under the unbounded era, which is
+        /// what every run stored before backlog 218 was played under.
+        ///
+        /// <para>Asked ONLY of a caret moving itself: the keypress roll
+        /// (<see cref="rollForwardIfFinishedEarly"/>) and the time-driven one
+        /// (<see cref="snapForwardOnLineStart"/>). The hand-overs the SEAL LOOP performs, the
+        /// ordinary one and the drag cutoff's, do not consult it and must not: the song has moved
+        /// off the old line there, so entry is late rather than early, and refusing it would leave
+        /// the player in a dead zone the flexible caret does not otherwise have. On a decoder-built
+        /// map that is never even a near thing, because a line's activation is clamped to its own
+        /// StartTime, which IS the previous line's EndTime, so this bound opens at most
+        /// <see cref="FLETCHER_DRAG_GRACE_MS"/> before the previous line could seal at all.</para>
+        /// </summary>
+        private bool entryPermitted(int index, double time) => !BoundedRush || time >= entryOpensAt(index);
+
+        /// <summary>
+        /// The earliest instant the caret may be on line <paramref name="index"/> by RUSHING onto it:
+        /// the line's own <see cref="TypingLine.ActivationTime"/> under the unbounded era, and
+        /// <see cref="FLETCHER_DRAG_GRACE_MS"/> before it under <see cref="BoundedRush"/>, which is
+        /// the head start a player earns for having finished the line before it. Read by both arms
+        /// that move a finished caret: <see cref="entryPermitted"/> (the keypress roll) and
+        /// <see cref="snapForwardOnLineStart"/> (the time-driven one).
+        /// </summary>
+        private double entryOpensAt(int index) => lines[index].ActivationTime - (BoundedRush ? FLETCHER_DRAG_GRACE_MS : 0);
 
         /// <summary>
         /// A line may seal once its EndTime has passed AND either its grace window has elapsed
@@ -1595,7 +1695,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     // The abandoned word ran to the end of the line, so there is no word gap for the
                     // space to land on. The line is complete, exactly as it would be had the player
                     // typed that last word out, and the same end-of-line handling applies.
-                    rollForwardIfFinishedEarly();
+                    rollForwardIfFinishedEarly(time);
                     return true;
                 }
 
@@ -1634,7 +1734,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 caretIndex++;
                 autoSkipForward();
 
-                rollForwardIfFinishedEarly();
+                rollForwardIfFinishedEarly(time);
                 return true;
             }
 
@@ -1765,7 +1865,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     // just broke (backlog 140, see ComboRestored); leave it and the seal
                     // resolves it as an unfixed typo, which is a hit and not a miss (backlog 124).
                     raise(CharJudged, new CharJudgement(activeLineIndex, wrongCellIndex, JudgementType.WrongChar, delta, 0, combo));
-                    rollForwardIfFinishedEarly();
+                    rollForwardIfFinishedEarly(time);
                     return true;
                 }
 
@@ -1974,7 +2074,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             autoSkipForward();
 
             raise(CharJudged, new CharJudgement(activeLineIndex, judgedCellIndex, type, delta, points, combo));
-            rollForwardIfFinishedEarly();
+            rollForwardIfFinishedEarly(time);
             return true;
         }
 
@@ -2212,8 +2312,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// nothing about the song's timeline moves; only the player's position does. No-op on the last
         /// line, which keeps the default "line complete, wait for the song" behaviour that lets the
         /// key handler pass Space through to the skip overlay.
+        ///
+        /// <para>BOUNDED since backlog 218 (see <see cref="BoundedRush"/>): "the moment a press
+        /// finishes a line" is now "the moment a press finishes a line, if that next line is within
+        /// <see cref="FLETCHER_DRAG_GRACE_MS"/> of starting". Refused, the caret parks past the last
+        /// cell and <see cref="snapForwardOnLineStart"/> makes the move for it when the bound opens.
+        /// <paramref name="time"/> is the keypress's own time, the same value the press was judged
+        /// on, so the bound is a pure function of (char, time) like everything else here and a replay
+        /// reproduces it exactly.</para>
         /// </summary>
-        private void rollForwardIfFinishedEarly()
+        private void rollForwardIfFinishedEarly(double time)
         {
             if (!FletcherEnabled || isFinished || activeLineIndex == -1)
                 return;
@@ -2222,6 +2330,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 return;
 
             if (activeLineIndex + 1 >= lines.Count)
+                return;
+
+            if (!entryPermitted(activeLineIndex + 1, time))
                 return;
 
             // Lines seal in order and the player never leaves a line except by finishing it or by a

@@ -206,6 +206,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // (CONFIG frame bit 5) rather than something FletcherEnabled implies.
                 FletcherEnabled = !pinnedLines,
                 FlexibleLineSnap = !pinnedLines,
+
+                // THE RUSH BOUND SINCE BACKLOG 218, and the symmetry the unpinned caret shipped
+                // without: drag borrows 1500 ms past a line's end, so rush may enter a line 1500 ms
+                // before its cue and not a beat earlier. Unbounded, the roll was transitive and a
+                // fast player could type the whole map at the top of the song.
+                //
+                // Set UNCONDITIONALLY, the pinning mod included, where it is INERT (FletcherEnabled
+                // gates every roll it bounds, and that flag is false there): the same convention
+                // bits 3, 4 and 6 follow, and it means no reader has to work out which stacks
+                // stamped it. Not folded into FlexibleLineSnap, because the two answer different
+                // questions about the same era and every "FT" and pre-218 run on disk answers them
+                // differently: a stored run's rushed keystrokes LANDED, and re-deriving them under
+                // the bound would refuse them outright, so this is CONFIG frame bit 7 of its own.
+                BoundedRush = true,
+
                 FlexibleCaretFromMod = legacyFletcher,
             };
         }

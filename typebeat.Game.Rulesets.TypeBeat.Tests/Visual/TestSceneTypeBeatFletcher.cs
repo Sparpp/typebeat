@@ -22,9 +22,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// The unpinned caret's on-screen half, through the real input stack, and since backlog 208 that
     /// is the DEFAULT stack: no mods at all. The stage no longer scrolls when the SONG crosses a
     /// line boundary, it scrolls when the PLAYER does: finish line 0 in the first second of a line
-    /// that runs for half a minute and the stage centres line 1 immediately, while the song is still
-    /// on line 0. The sung sweep stays behind on the song's line, which is the divergence the whole
-    /// design exists to show. (The mod NAMED Fletcher now pins the caret back; its own surface is
+    /// that runs for half a minute and the stage centres line 1 as soon as line 1 is due, while the
+    /// song is still on line 0. The sung sweep stays behind on the song's line, which is the
+    /// divergence the whole design exists to show. Since backlog 218 "as soon as line 1 is due" is
+    /// the rush bound rather than the keypress, so the parked caret is on screen here too.
+    /// (The mod NAMED Fletcher now pins the caret back; its own surface is
     /// pinned by <c>TypeBeatModFletcherTest</c> and <c>FletcherEngineTest</c>.)
     /// </summary>
     public partial class TestSceneTypeBeatFletcher : PlayerTestScene
@@ -45,11 +47,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             beatmap.BeatmapInfo.Metadata.Artist = "Test";
             beatmap.BeatmapInfo.Metadata.Title = "Fletcher";
 
-            // Line 0's vocals are over by 2 s but its window runs to 30 s, and line 1's vocals do not
-            // arrive until 50 s. Typing "ab" in the first second therefore finishes line 0 half a
-            // minute before the song leaves it: all the headroom the assertions need.
+            // Line 0's vocals are over by 2 s but its WINDOW runs to 30 s, so the song stays on line
+            // 0 for half a minute: all the headroom the assertions need. Line 1's window opens at
+            // 3 s and its vocals arrive at 6 s, so it activates at 4500 and the RUSH BOUND (backlog
+            // 218) opens entry into it at 4500 - 1500 = 3000. Typing "ab" in the first second
+            // therefore parks the caret first and rolls it on at 3000, with the song still on line 0
+            // either way, which is what this scene is about.
             addLine(beatmap, 0, "ab", 1000, 30000, 2000, 1000, 2000);
-            addLine(beatmap, 1, "cd", 30000, 60000, 51000, 50000, 51000);
+            addLine(beatmap, 1, "cd", 3000, 60000, 7000, 6000, 7000);
 
             return beatmap;
         }
@@ -79,8 +84,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             AddStep("load player with no mods", () => LoadPlayer(Array.Empty<Mod>()));
             AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
-            AddAssert("the default stack is unpinned, with the line-start snap armed", () =>
-                engine.FletcherEnabled && engine.FlexibleLineSnap);
+            AddAssert("the default stack is unpinned, with the line-start snap armed and the rush bounded", () =>
+                engine.FletcherEnabled && engine.FlexibleLineSnap && engine.BoundedRush);
 
             AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0);
 
@@ -89,9 +94,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("press A", () => InputManager.Key(Key.A));
             AddStep("press B", () => InputManager.Key(Key.B));
 
-            // Rush freedom: the caret is on line 1 the instant line 0 is finished, with the song still
-            // on line 0 (it does not seal until 30 s).
-            AddAssert("caret rolled on to line 1 while the song is still on line 0", () =>
+            // The rush bound (backlog 218): line 1 is not due for another three seconds, so the
+            // finished caret is parked past the end of line 0 rather than handed on, and the stack
+            // has not scrolled.
+            AddAssert("the bound parks the finished caret on line 0", () =>
+                engine.ActiveLineIndex == 0 && engine.IsLineComplete && stage.DisplayAt(0)!.Y == 0);
+
+            // Rush freedom, bounded: the caret goes when line 1 comes due (4500 - 1500 = 3000), with
+            // the song still on line 0 (it does not seal until 30 s).
+            AddUntilStep("caret rolls on to line 1 when the bound opens", () =>
                 engine.ActiveLineIndex == 1 && engine.NextUnsealedLineIndex == 0 && engine.CaretIndex == 0);
 
             // Cursorhead centering: the stack scrolled because the PLAYER crossed the boundary.
@@ -105,8 +116,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("player caret and sung caret are on different lines", () =>
                 stage.PlayerCaretVisible && stage.PlayerCaretPosition.Y > stage.SungCaretPosition.Y);
 
-            // Typing on ahead is accepted, judged early (the song is 48 s from these vocals) and is
-            // inside the 5-char cap, so the run continues rather than being blocked.
+            // Typing on ahead is accepted, judged early (the song is still 3 s from these vocals) and
+            // is inside the 5-char cap, so the run continues rather than being blocked.
             AddStep("press C", () => InputManager.Key(Key.C));
             AddAssert("the rushed char landed", () =>
                 engine.Lines[1].Cells[0].State == CellState.Correct

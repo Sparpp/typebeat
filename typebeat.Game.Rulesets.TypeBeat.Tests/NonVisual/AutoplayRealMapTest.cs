@@ -77,11 +77,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// Autoplay must PERFECT any real map: every generated press reaches a live cell, nothing is
         /// rejected, nothing is missed, and the health bar never drops (a wrong-key streak of
         /// <see cref="TypeBeatHealthProcessor.WRONG_KEY_FAIL_STREAK"/> fails the play outright).
+        ///
+        /// <para>Run on BOTH carets since backlog 218. The generator clamps every press into its
+        /// line's own typeable window, so no press is ever earlier than that line's ActivationTime
+        /// and the rush bound (which opens 1500 ms before it) can never refuse the caret the press
+        /// needs. That is an argument, and this is the pin: a bound that arrived late would strand
+        /// autoplay on the previous line and refuse the press outright, on the real fractional
+        /// boundaries only real maps have.</para>
         /// </summary>
-        [TestCase("wii-shop.osu")]
-        [TestCase("immortal-flame.osu")]
-        [TestCase("neon-rain.osu")]
-        public void AutoplayPerfectsRealMap(string fileName)
+        [Test]
+        public void AutoplayPerfectsRealMap(
+            [Values("wii-shop.osu", "immortal-flame.osu", "neon-rain.osu")] string fileName,
+            [Values] bool flexible)
         {
             var lineObjects = realPipelineLineObjects(requireOsu(fileName));
 
@@ -100,7 +107,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var frames = new TypeBeatAutoGenerator(map).Generate().Frames.Cast<TypeBeatReplayFrame>().ToList();
             Assert.That(frames, Is.Not.Empty);
 
-            var engine = new TypingEngine(lyricBeatmap);
+            // flexible: the shipped stack (unpinned caret, the line-start snap and the bounded rush);
+            // otherwise the pinned engine, which is both the classic era and the Fletcher mod's.
+            var engine = new TypingEngine(lyricBeatmap) { FletcherEnabled = flexible, FlexibleLineSnap = flexible, BoundedRush = flexible };
 
             int next = 0;
             double end = lyricBeatmap.LastLineEnd + 10000;

@@ -40,7 +40,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             if (frame.IsConfig)
             {
                 // The recorded machine's judgement-relevant settings win over local config, all
-                // seven of them: a replay of a run played WITHOUT space-skip must not start skipping
+                // eight of them: a replay of a run played WITHOUT space-skip must not start skipping
                 // words because the watcher turned the setting on, and vice versa. Every replay
                 // recorded before a setting existed carries its bit clear, which decodes to false,
                 // i.e. to exactly the model those runs were played under.
@@ -67,6 +67,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 engine.WrongInputOnWordGaps = frame.WrongInputOnWordGaps;
                 engine.StrictSpaces = frame.StrictSpaces;
                 engine.CharTimedStretch = frame.CharTimedStretch;
+
+                // BoundedRush (backlog 218) is the fifth, and the sharpest of them on the caret
+                // question: with it clear a player's finished line handed them the next one however
+                // many seconds early, and the keystrokes they then typed into it LANDED. Re-derived
+                // under the bound those same keystrokes would be refused (a complete line takes no
+                // input), so an old run would lose whole lines' worth of judgements. Clobbered from
+                // the frame like every bit here, and inert whenever the caret is pinned, since
+                // FletcherEnabled gates every roll it bounds.
+                engine.BoundedRush = frame.BoundedRush;
 
                 // FlexibleLines (backlog 208) is the one bit here that needs a word more than an
                 // assignment, because the axis it selects has TWO sources. The bit says

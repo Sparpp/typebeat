@@ -116,26 +116,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("type 'a'", () => InputManager.Key(Key.A));
             AddStep("type 'b'", () => InputManager.Key(Key.B));
 
-            // Finishing it hands the caret straight to line 1 (rush freedom, the default since
-            // backlog 208) while the SONG is still inside line 0's window. Untouched, so Space is
-            // still the skip key rather than a typing key.
-            AddAssert("line 0 done, caret parked untouched at the head of line 1", () =>
-                playfield.Engine.ActiveLineIndex == 1
-                && playfield.Engine.CaretIndex == 0
-                && playfield.Engine.ActiveLineUntouched
+            // Finishing it PARKS the caret past the end of line 0: the rush bound (backlog 218) does
+            // not open entry into line 1 until 12500 (its activation, 14000, less the 1500 ms drag
+            // grace it mirrors), and the song is still inside line 0's window. A complete line takes
+            // no input, so Space is still the skip key rather than a typing key, through the key
+            // handler's own IsLineComplete fall-through.
+            AddAssert("line 0 done, caret parked past its end", () =>
+                playfield.Engine.ActiveLineIndex == 0
+                && playfield.Engine.IsLineComplete
                 && playfield.Engine.NextUnsealedLineIndex == 0);
 
             // Once the vocals have ended (+ settle) the overlay opens its skip period, with the
-            // player still parked at the head of line 1 and the song still on line 0.
-            // The song's window never closes here (the windows are contiguous), which is exactly why
-            // the key handler asks whether the song is on the CARET's line rather than whether any
-            // window is open.
+            // player parked on a finished line and the song still on it too. The song's window never
+            // closes here (the windows are contiguous), which is why neither that nor the caret's
+            // own line can be what tells the key handler a skip is possible: being FINISHED is.
             AddAssert("the song's own window is still open", () => playfield.Engine.SongWindowOpen);
 
             AddUntilStep("in the instrumental gap", () =>
-                playfield.Engine.ActiveLineIndex == 1
-                && playfield.Engine.ActiveLineUntouched
-                && !playfield.Engine.SongIsOnTheCaretsLine
+                playfield.Engine.ActiveLineIndex == 0
+                && playfield.Engine.IsLineComplete
                 && Player.GameplayClockContainer.CurrentTime > 3000
                 && Player.GameplayClockContainer.CurrentTime < 10500);
 
@@ -155,8 +154,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("no second skip", () => instrumentalOverlay.SkipCount == 1);
             AddAssert("gameplay still live", () => !playfield.Engine.IsFinished && !Player.GameplayState.HasFailed);
 
-            // The song then reaches line 1 normally: line 0 seals at the boundary with nothing
-            // missed (it was fully typed) and line 1 takes over.
+            // The song then reaches line 1 normally: the rush bound opens at 12500, the deferred roll
+            // hands the parked caret over, and line 0 seals at the boundary with nothing missed (it
+            // was fully typed).
             AddUntilStep("line 1 becomes active", () => playfield.Engine.ActiveLineIndex == 1);
         }
     }

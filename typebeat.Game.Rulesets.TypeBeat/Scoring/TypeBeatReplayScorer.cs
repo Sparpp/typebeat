@@ -352,10 +352,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// The engine <c>DrawableTypeBeatRuleset.createEngine</c> would build for this beatmap,
         /// plus the engine flags the mods set through <c>ApplyToDrawableRuleset</c>.
         /// <c>AllowWrongInput</c>, <c>SpaceSkipsWord</c>, <c>SyllableTiming</c>,
-        /// <c>WrongInputOnWordGaps</c>, <c>StrictSpaces</c>, <c>CharTimedStretch</c> and
-        /// <c>FlexibleLineSnap</c> are
+        /// <c>WrongInputOnWordGaps</c>, <c>StrictSpaces</c>, <c>CharTimedStretch</c>,
+        /// <c>FlexibleLineSnap</c> and <c>BoundedRush</c> are
         /// deliberately NOT set from the mods or from any config: the replay's CONFIG frame carries
-        /// what the run was judged under and overwrites all six, which is the only thing that judges
+        /// what the run was judged under and overwrites all seven, which is the only thing that judges
         /// a pre-Gatekeeper strict run right.
         /// </summary>
         private static TypingEngine createEngine(IBeatmap playable, IReadOnlyList<TypeBeatHitObject> lineObjects, IReadOnlyList<Mod> mods, RateWindowRule rateRule)
@@ -444,6 +444,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                         engine.WindowScale *= rateAdjust.SpeedChange.Value;
                 }
             }
+
+            // BoundedRush (backlog 218, CONFIG frame bit 7) is the fifth, and it is a CARET era
+            // rather than a judgement one: the default is the unbounded roll every stored replay was
+            // played with (finish a line and you are on the next one however far off its cue it is),
+            // and the bit is set for every live stack, inert wherever the caret is pinned.
 
             // FletcherEnabled and FlexibleLineSnap are NOT selected from TypeBeatModFletcher, and
             // that is the whole shape of backlog 208's flip: the mod named Fletcher now PINS the

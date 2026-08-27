@@ -66,6 +66,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         ///
         /// <para>L0 "ab" [1000, 3000): a = 1000, b = 1500. L2 "cd" [10000, 30000): c = 12000,
         /// d = 12500, so ActivationTime = 12000 - CUE_LEAD_MS = 10500.</para>
+        ///
+        /// <para>L1 having no cells, its ActivationTime is its StartTime of 3000, so the rush bound
+        /// (backlog 218) opens entry into it at 1500, exactly the instant
+        /// <see cref="typeIntoTheParkedState"/> finishes L0. That is deliberate: the parked caret
+        /// this fixture exists for is the one on L1, and the bound must not be what puts it
+        /// there.</para>
         /// </summary>
         private static LyricBeatmap parkedLineMap() => map(TimingGranularity.Line,
             line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000)),
@@ -123,13 +129,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             line("cd", 3000, 5000, 4000, unit("cd", 3000, 4000)));
 
         /// <summary>
-        /// <paramref name="flexible"/> true is the shipped stack since backlog 208 (unpinned caret
-        /// plus the line-start snap, exactly what <c>DrawableTypeBeatRuleset.createEngine</c>
-        /// builds); false is the engine default, which is both the classic pinned game and what the
-        /// Fletcher MOD asks for today.
+        /// The INSTRUMENTAL-GAP shape, which is what a decoder actually builds and therefore the
+        /// shape the rush bound is measured on: line windows are CONTIGUOUS, so the twelve-second
+        /// instrumental lives inside L0's own window rather than in a hole between the lines.
+        ///
+        /// <para>L0 "ab" [1000, 14000), SingEnd 2000: a = 1000, b = 1500, and its window runs to L1's
+        /// start. L1 "cdefghij" [14000, 20000), SingEnd 15000: eight chars over [14000, 15000], step
+        /// 125, so c = 14000 and j = 14875. ActivationTime is clamped to the line's own StartTime
+        /// (max(14000, 14000 - CUE_LEAD_MS) = 14000), so the rush bound opens at
+        /// 14000 - FLETCHER_DRAG_GRACE_MS = 12500, a second and a half before L0 could seal.</para>
+        /// </summary>
+        private static LyricBeatmap instrumentalGapMap() => map(TimingGranularity.Line,
+            line("ab", 1000, 14000, 2000, unit("ab", 1000, 2000)),
+            line("cdefghij", 14000, 20000, 15000, unit("cdefghij", 14000, 15000)));
+
+        /// <summary>
+        /// <paramref name="flexible"/> true is the shipped stack since backlog 208 and 218 (unpinned
+        /// caret, the line-start snap and the bounded rush, exactly what
+        /// <c>DrawableTypeBeatRuleset.createEngine</c> builds); false is the engine default, which is
+        /// both the classic pinned game and what the Fletcher MOD asks for today.
         /// </summary>
         private static TypingEngine engine(LyricBeatmap beatmap, bool flexible)
-            => new TypingEngine(beatmap) { FletcherEnabled = flexible, FlexibleLineSnap = flexible };
+            => new TypingEngine(beatmap) { FletcherEnabled = flexible, FlexibleLineSnap = flexible, BoundedRush = flexible };
+
+        /// <summary>
+        /// The stack as backlog 208 shipped it and every replay stored between 208 and 218 was played
+        /// on: unpinned and snapped, but with the rush UNBOUNDED, so finishing a line handed the caret
+        /// to the next one however many seconds before its cue.
+        /// </summary>
+        private static TypingEngine unboundedEraEngine(LyricBeatmap beatmap)
+            => new TypingEngine(beatmap) { FletcherEnabled = true, FlexibleLineSnap = true };
 
         #endregion
 
@@ -149,12 +178,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.IsFalse(bare.FletcherEnabled, "the engine default is the classic pinned era, for stored replays");
             Assert.IsFalse(bare.FlexibleLineSnap);
+            Assert.IsFalse(bare.BoundedRush, "and the unbounded roll, which is what every pre-218 run was played with");
             Assert.IsFalse(bare.FlexibleCaretFromMod);
 
             var shipped = engine(twoLineMap(), flexible: true);
 
             Assert.IsTrue(shipped.FletcherEnabled);
             Assert.IsTrue(shipped.FlexibleLineSnap);
+            Assert.IsTrue(shipped.BoundedRush);
         }
 
         #endregion
@@ -168,11 +199,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         ///
         /// <para>The state it covers is the one the keypress roll-forward cannot: a line the caret
         /// arrived on ALREADY complete, so no press of the player's ever finishes it (see
-        /// <see cref="parkedLineMap"/>). Announced exactly once, and only when the next line's own
-        /// activation time arrives, not before.</para>
+        /// <see cref="parkedLineMap"/>). Announced exactly once, and only when the next line is due,
+        /// not before.</para>
+        ///
+        /// <para>"Due" is <c>entryOpensAt</c>, which backlog 218 moved: the shipped stack takes the
+        /// finished caret <see cref="TypingEngine.FLETCHER_DRAG_GRACE_MS"/> BEFORE the line's own
+        /// activation, because that is the head start the rush bound grants any finished caret and
+        /// the snap is the arm that performs it (a second arm at the later instant could only
+        /// re-announce a caret this one had already moved). Both instants are pinned below, the
+        /// shipped one against the pre-218 era's.</para>
         /// </summary>
         [Test]
-        public void AParkedFinishedCaretIsSnappedWhenTheNextLineStarts()
+        public void AParkedFinishedCaretIsSnappedWhenTheNextLineIsDue()
         {
             var typing = engine(parkedLineMap(), flexible: true);
 
@@ -190,15 +228,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(1, typing.ActiveLineIndex);
             Assert.IsTrue(typing.IsLineComplete);
 
-            // One frame short of line 2's cue nothing has moved: the snap is the LINE STARTING, not
-            // the caret being idle.
-            typing.Update(10499);
+            // 10500 - 1500 = 9000. One frame short of it nothing has moved: the snap is the next
+            // line coming due, not the caret being idle.
+            typing.Update(8999);
             Assert.AreEqual(1, typing.ActiveLineIndex);
             Assert.AreEqual(new[] { 0, 1 }, activations);
             Assert.AreEqual(1, typing.NextUnsealedLineIndex, "line 1 has not sealed, so no seal could have moved the caret");
 
-            typing.Update(10500);
-            Assert.AreEqual(2, typing.ActiveLineIndex, "line 2 started, so it takes the finished caret");
+            typing.Update(9000);
+            Assert.AreEqual(2, typing.ActiveLineIndex, "line 2 is within the rush bound now, so it takes the finished caret");
             Assert.AreEqual(0, typing.CaretIndex);
             Assert.AreEqual(new[] { 0, 1, 2 }, activations, "exactly one activation per line the caret lands on");
 
@@ -206,6 +244,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(typing.ProcessKey('c', 12000));
             Assert.AreEqual(CellState.Correct, typing.Lines[2].Cells[0].State);
             Assert.AreEqual(0, typing.Lines[2].Cells[0].JudgedDelta);
+
+            // The pre-218 era is the same snap at the LATER instant, the line's own activation: a run
+            // stored then was carried across at 10500 and not a millisecond before.
+            var unbounded = unboundedEraEngine(parkedLineMap());
+
+            typeIntoTheParkedState(unbounded);
+            unbounded.Update(10499);
+            Assert.AreEqual(1, unbounded.ActiveLineIndex, "without the bound the head start does not exist either");
+
+            unbounded.Update(10500);
+            Assert.AreEqual(2, unbounded.ActiveLineIndex);
         }
 
         /// <summary>
@@ -545,14 +594,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         #region Rush freedom (typing the next line before its cue)
 
         /// <summary>
-        /// Finishing a line hands the caret straight to the next one, cue or no cue. The chars land
-        /// and are judged against their OWN target times, so typing eight seconds before the vocals
-        /// reads as a huge early delta (Premature): the mod frees the position, never the clock.
+        /// THE PRE-218 ERA, in which finishing a line handed the caret straight to the next one, cue
+        /// or no cue. The chars land and are judged against their OWN target times, so typing eight
+        /// seconds before the vocals reads as a huge early delta (Premature): the era freed the
+        /// position, never the clock.
+        ///
+        /// <para>Re-pointed rather than deleted by backlog 218, which BOUNDS that roll (see
+        /// <see cref="TheRushBoundParksAFinishedCaretUntilTheNextLineIsNearlyDue"/>): this is exactly
+        /// what a replay carrying flags bit 7 clear must still re-derive, keystroke for keystroke, so
+        /// the fixture stays and the engine under it becomes the stored era's.</para>
         /// </summary>
         [Test]
-        public void FinishingALineOpensTheNextOneImmediately()
+        public void UnboundedEraFinishingALineOpensTheNextOneImmediately()
         {
-            var typing = engine(lateSecondLineMap(), flexible: true);
+            var typing = unboundedEraEngine(lateSecondLineMap());
 
             var activations = new List<int>();
             typing.LineActivated += i => activations.Add(i);
@@ -589,6 +644,235 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(new[] { new LineSealResult(0, 0, false) }, seals);
             Assert.AreEqual(1, typing.ActiveLineIndex, "the seal must not disturb the player's caret");
             Assert.AreEqual(1, typing.CaretIndex);
+        }
+
+        /// <summary>
+        /// THE RUSH BOUND (backlog 218). Finishing a line no longer opens the next one at any
+        /// distance: entry into it opens
+        /// <see cref="TypingEngine.FLETCHER_DRAG_GRACE_MS"/> before its activation, the exact mirror
+        /// of the drag grace at the other end of a line. Refused, the caret PARKS past the last cell
+        /// of the line it finished, keypresses there are INERT (no cell, no judgement, no typo and no
+        /// combo break, the same nothing the pinned game's dead zone answers with), and the
+        /// time-driven arm performs the deferred roll the moment the bound opens, announcing it
+        /// exactly once.
+        /// </summary>
+        [Test]
+        public void TheRushBoundParksAFinishedCaretUntilTheNextLineIsNearlyDue()
+        {
+            var typing = engine(instrumentalGapMap(), flexible: true);
+
+            // 14000 (clamped to line 1's own start), so the bound opens at 12500 and line 0 could not
+            // seal before 14000 either way: nothing but the bound decides this caret's position.
+            Assert.AreEqual(14000, typing.Lines[1].ActivationTime);
+            Assert.AreEqual(14000, typing.Lines[0].EndTime);
+
+            var activations = new List<int>();
+            typing.LineActivated += i => activations.Add(i);
+
+            int comboBreaks = 0;
+            typing.ComboBroken += () => comboBreaks++;
+
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000));
+            typing.Update(1500);
+            Assert.IsTrue(typing.ProcessKey('b', 1500));
+
+            // Line 0 is finished twelve seconds early, and the caret stays on it.
+            Assert.AreEqual(0, typing.ActiveLineIndex);
+            Assert.IsTrue(typing.IsLineComplete);
+            Assert.AreEqual(2, typing.CaretIndex);
+            Assert.AreEqual(new[] { 0 }, activations, "the roll was refused, so no line was announced");
+
+            // A press in the park is inert: refused outright, and it costs nothing at all.
+            typing.Update(6000);
+            Assert.IsFalse(typing.ProcessKey('c', 6000), "a parked-finished caret takes no input");
+            Assert.AreEqual(CellState.Untyped, typing.Lines[1].Cells[0].State);
+            Assert.AreEqual(2, typing.Combo, "an inert press is not a typo and breaks nothing");
+            Assert.AreEqual(0, comboBreaks);
+            Assert.AreEqual(0, typing.Mistypes);
+            Assert.AreEqual(1.0, typing.LiveAccuracy, "and it never enters the accuracy denominator");
+
+            // One frame short of the bound the caret has still not moved.
+            typing.Update(12499);
+            Assert.AreEqual(0, typing.ActiveLineIndex);
+            Assert.AreEqual(0, typing.NextUnsealedLineIndex, "and no seal has moved it either");
+
+            // 14000 - FLETCHER_DRAG_GRACE_MS: the deferred roll fires, once.
+            typing.Update(12500);
+            Assert.AreEqual(1, typing.ActiveLineIndex);
+            Assert.AreEqual(0, typing.CaretIndex);
+            Assert.AreEqual(new[] { 0, 1 }, activations, "exactly one activation for the line the caret lands on");
+            Assert.AreEqual(0, typing.NextUnsealedLineIndex, "the song is still on line 0: only the player moved");
+
+            // And the head start is real typing time: the player is on line 1 a second and a half
+            // before its cue, judged early (target 14000) exactly as rushing always was.
+            Assert.IsTrue(typing.ProcessKey('c', 12500));
+            Assert.AreEqual(CellState.Correct, typing.Lines[1].Cells[0].State);
+            Assert.AreEqual(-1500, typing.Lines[1].Cells[0].JudgedDelta);
+        }
+
+        /// <summary>
+        /// THE SYMMETRY, asserted against the one constant. Two engines on one fixture, one script
+        /// each, because a player cannot both finish early and drag: the last instant the LAGGING one
+        /// still owns line 0 and the first instant the RUSHING one may be on line 1 are each exactly
+        /// <see cref="TypingEngine.FLETCHER_DRAG_GRACE_MS"/> from their line's natural edge.
+        /// </summary>
+        [Test]
+        public void TheRushBoundIsTheDragGraceMirrored()
+        {
+            // Natural edges: line 0 ends (EndTime + SealGraceMs) at 3000, line 1 starts
+            // (ActivationTime) at 3000 as well, this map being back to back.
+            var edges = engine(dragMap(), flexible: true);
+
+            Assert.AreEqual(3000, edges.Lines[0].EndTime + edges.Lines[0].SealGraceMs);
+            Assert.AreEqual(3000, edges.Lines[1].ActivationTime);
+
+            const double drag_cutoff = 3000 + TypingEngine.FLETCHER_DRAG_GRACE_MS; // 4500
+            const double rush_entry = 3000 - TypingEngine.FLETCHER_DRAG_GRACE_MS;  // 1500
+
+            // RUSH: both chars typed at 1000, so line 0 is finished 500 ms before entry into line 1
+            // opens. The caret parks, then moves at 1500 exactly.
+            var rushing = engine(dragMap(), flexible: true);
+
+            rushing.Update(1000);
+            Assert.IsTrue(rushing.ProcessKey('a', 1000));
+            Assert.IsTrue(rushing.ProcessKey('b', 1000));
+            Assert.IsTrue(rushing.IsLineComplete);
+            Assert.AreEqual(0, rushing.ActiveLineIndex, "1000 is before the bound: line 1 is not the player's yet");
+
+            rushing.Update(rush_entry - 1);
+            Assert.AreEqual(0, rushing.ActiveLineIndex);
+
+            rushing.Update(rush_entry);
+            Assert.AreEqual(1, rushing.ActiveLineIndex, "the earliest instant rush may hold line 1");
+
+            // DRAG: the mirror. Line 0 is still the player's one frame short of the cutoff, and the
+            // char they finally type still lands on it.
+            var dragging = engine(dragMap(), flexible: true);
+
+            dragging.Update(1000);
+            Assert.IsTrue(dragging.ProcessKey('a', 1000));
+
+            dragging.Update(drag_cutoff - 1);
+            Assert.AreEqual(0, dragging.ActiveLineIndex, "the latest instant drag may hold line 0");
+            Assert.IsTrue(dragging.ProcessKey('b', drag_cutoff - 1));
+            Assert.AreEqual(CellState.Correct, dragging.Lines[0].Cells[1].State);
+
+            // The two distances are the SAME constant, which is the whole of backlog 218.
+            Assert.AreEqual(TypingEngine.FLETCHER_DRAG_GRACE_MS, drag_cutoff - (edges.Lines[0].EndTime + edges.Lines[0].SealGraceMs));
+            Assert.AreEqual(TypingEngine.FLETCHER_DRAG_GRACE_MS, edges.Lines[1].ActivationTime - rush_entry);
+        }
+
+        /// <summary>
+        /// The near case, which the bound must leave exactly as it was: a player who finishes line 0
+        /// while line 1 is already within the bound rolls on to it ON THE KEYPRESS, with no waiting
+        /// and no parked state at all. Identical under both eras, so nothing about ordinary
+        /// back-to-back play moved.
+        /// </summary>
+        [Test]
+        public void FinishingALineInsideTheBoundStillRollsOnAtOnce()
+        {
+            foreach (var typing in new[] { engine(dragMap(), flexible: true), unboundedEraEngine(dragMap()) })
+            {
+                var activations = new List<int>();
+                typing.LineActivated += i => activations.Add(i);
+
+                // Line 1's activation is 3000, so entry opened at 1500 and this press is inside it.
+                typing.Update(1000);
+                Assert.IsTrue(typing.ProcessKey('a', 1000));
+                typing.Update(1500);
+                Assert.IsTrue(typing.ProcessKey('b', 1500));
+
+                Assert.AreEqual(1, typing.ActiveLineIndex, "the roll happens on the press, not on a later frame");
+                Assert.AreEqual(0, typing.CaretIndex);
+                Assert.AreEqual(new[] { 0, 1 }, activations);
+
+                // And typing on into line 1 works from that same press onwards.
+                Assert.IsTrue(typing.ProcessKey('c', 1500));
+                Assert.AreEqual(CellState.Correct, typing.Lines[1].Cells[0].State);
+            }
+        }
+
+        /// <summary>
+        /// The rush CAP is untouched by the bound and still bites on the far side of a permitted
+        /// roll: entry buys the player a line, never a licence to run away down it.
+        /// </summary>
+        [Test]
+        public void TheRushCapStillAppliesAfterAPermittedRoll()
+        {
+            var typing = engine(instrumentalGapMap(), flexible: true);
+
+            int comboBreaks = 0;
+            typing.ComboBroken += () => comboBreaks++;
+
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000));
+            typing.Update(1500);
+            Assert.IsTrue(typing.ProcessKey('b', 1500));
+
+            typing.Update(12500); // the bound opens and the deferred roll lands the caret on line 1
+            Assert.AreEqual(1, typing.ActiveLineIndex);
+
+            // The playhead has reached two countable chars ('a', 'b'); so has the caret.
+            Assert.AreEqual(2, typing.PlayheadCountablePosition(12500));
+            Assert.AreEqual(0, typing.CharsAheadOfPlayhead(12500));
+
+            // Five chars of line 1 keep the caret inside the cap, so combo climbs from 2 to 7.
+            foreach (char c in "cdefg")
+                Assert.IsTrue(typing.ProcessKey(c, 12500));
+
+            Assert.AreEqual(5, typing.CharsAheadOfPlayhead(12500));
+            Assert.AreEqual(7, typing.Combo);
+            Assert.AreEqual(0, comboBreaks);
+
+            // The sixth is over it, and costs the combo exactly as it does inside one line.
+            Assert.IsTrue(typing.ProcessKey('h', 12500));
+            Assert.AreEqual(6, typing.CharsAheadOfPlayhead(12500));
+            Assert.AreEqual(0, typing.Combo);
+            Assert.AreEqual(1, comboBreaks);
+        }
+
+        /// <summary>
+        /// The bound is asked only of a caret moving ITSELF. The SEAL's hand-over is the song moving
+        /// on instead, so it is never refused, even on a map shaped so that it arrives first: a hole
+        /// at the HEAD of line 1's window (its vocals are seven seconds into it) puts the bound at
+        /// 7000 while line 0 seals at 3000. Entry there is late, not early, and refusing it would
+        /// park the player in a dead zone the unpinned caret does not otherwise have.
+        ///
+        /// <para>A decoder-built map cannot take this shape at the boundary that matters: a line's
+        /// ActivationTime is clamped to its own StartTime, which IS the previous line's EndTime, so
+        /// the bound opens at worst FLETCHER_DRAG_GRACE_MS before the previous line could seal at
+        /// all (see <see cref="instrumentalGapMap"/>, where it does).</para>
+        /// </summary>
+        [Test]
+        public void TheSealsHandOverIsNeverRefusedByTheBound()
+        {
+            Assert.AreEqual(8500, engine(lateSecondLineMap(), flexible: true).Lines[1].ActivationTime);
+
+            // The ORDINARY seal: line 0 is fully typed, so it seals on its own 3000 deadline and
+            // hands the finished caret on, 4000 ms before the bound would have opened.
+            var finished = engine(lateSecondLineMap(), flexible: true);
+
+            finished.Update(1000);
+            Assert.IsTrue(finished.ProcessKey('a', 1000));
+            Assert.IsTrue(finished.ProcessKey('b', 1500));
+            Assert.AreEqual(0, finished.ActiveLineIndex, "the bound parked the caret at the end of line 0");
+
+            finished.Update(3000);
+            Assert.AreEqual(1, finished.ActiveLineIndex, "the song left line 0, so the caret goes with it");
+            Assert.AreEqual(0, finished.BuildResults().Counts[JudgementType.Miss]);
+
+            // The DRAG CUTOFF: the same hand-over for a player who never finished, at
+            // 3000 + FLETCHER_DRAG_GRACE_MS. Also inside the refusal window, and also not refused.
+            var lagging = engine(lateSecondLineMap(), flexible: true);
+
+            lagging.Update(1000);
+            Assert.IsTrue(lagging.ProcessKey('a', 1000));
+
+            lagging.Update(4500);
+            Assert.AreEqual(1, lagging.ActiveLineIndex);
+            Assert.AreEqual(CellState.Missed, lagging.Lines[0].Cells[1].State);
+            Assert.IsTrue(lagging.ProcessKey('c', 4600), "and the line it handed over is typeable at once");
         }
 
         /// <summary>Under the Fletcher mod the same press in the same dead zone is inert, which is the
@@ -632,6 +916,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             typing.Update(8500);  // line 1's cue: the clock is armed from here
             typing.Update(9000);  // +500 ms
+            Assert.AreEqual(24.0, typing.LiveWpm, 1e-9); // (2/5)/(1000/60000)
+        }
+
+        /// <summary>
+        /// The same rule for the OTHER parked state, the one the rush bound creates (backlog 218): a
+        /// caret held past the end of the line it finished cannot type at all, so the clock must not
+        /// run through the eleven seconds it sits there. Nothing new implements this, the clock has
+        /// always stopped for a COMPLETE line, and the point of the test is that the two parked
+        /// states agree.
+        /// </summary>
+        [Test]
+        public void ActiveTimeDoesNotRunWhileParkedPastTheEndOfALine()
+        {
+            var typing = engine(instrumentalGapMap(), flexible: true);
+
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000));
+            typing.Update(1500);
+            Assert.IsTrue(typing.ProcessKey('b', 1500)); // line 0 done, and the bound parks the caret
+
+            // Active time so far: 500 ms (1000 -> 1500). 2 correct cells => (2/5)/(500/60000) = 48 WPM.
+            Assert.AreEqual(48.0, typing.LiveWpm, 1e-9);
+
+            typing.Update(6000);
+            typing.Update(12000); // 10.5 s parked past the end of line 0: no accrual
+            Assert.AreEqual(0, typing.ActiveLineIndex);
+            Assert.AreEqual(48.0, typing.LiveWpm, 1e-9);
+
+            typing.Update(12500); // the deferred roll: on line 1, still ahead of its cue
+            typing.Update(14000); // line 1's cue: the clock is armed from here, not before
+            Assert.AreEqual(48.0, typing.LiveWpm, 1e-9);
+
+            typing.Update(14500); // +500 ms
             Assert.AreEqual(24.0, typing.LiveWpm, 1e-9); // (2/5)/(1000/60000)
         }
 
@@ -791,11 +1108,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // (char, time) exactly as the key handler would stamp them: integral ms, monotonic.
             (char c, double t)[] script =
             {
-                ('a', 1000), ('b', 1500), // line 0 finished on time, caret rolls on to line 1
-                ('c', 1600), ('d', 1650), // rushed: line 1 typed 8 seconds before its vocals
+                ('a', 1000), ('b', 1500),   // line 0 finished twelve seconds early: the caret parks
+                ('c', 12500), ('d', 12600), // and rushes into line 1 the instant the bound opens
             };
 
-            var live = engine(lateSecondLineMap(), flexible: true);
+            var live = engine(instrumentalGapMap(), flexible: true);
             live.Update(1000);
 
             foreach ((char c, double t) in script)
@@ -804,10 +1121,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.IsTrue(live.ProcessKey(c, t));
             }
 
-            live.Update(12000);
+            // 20000 + FLETCHER_DRAG_GRACE_MS: line 1 is unfinished, so drag freedom holds it open
+            // past its own deadline before the force-seal ends the run.
+            live.Update(21500);
             Assert.IsTrue(live.IsFinished);
 
-            var replayed = engine(lateSecondLineMap(), flexible: true);
+            var replayed = engine(instrumentalGapMap(), flexible: true);
 
             foreach ((char c, double t) in script)
             {
@@ -815,7 +1134,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 replayed.ProcessKey(c, t);
             }
 
-            replayed.Update(12000);
+            replayed.Update(21500);
 
             Assert.AreEqual(live.Score, replayed.Score);
             Assert.AreEqual(live.MaxCombo, replayed.MaxCombo);
@@ -837,7 +1156,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // The same frames re-derived PINNED: the rushed presses never reach the engine at all, so
             // the flag is load-bearing for playback and must come from the run's own header.
-            var unmodded = engine(lateSecondLineMap(), flexible: false);
+            var unmodded = engine(instrumentalGapMap(), flexible: false);
 
             foreach ((char c, double t) in script)
             {
@@ -845,7 +1164,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 unmodded.ProcessKey(c, t);
             }
 
-            unmodded.Update(12000);
+            unmodded.Update(21500);
             Assert.AreNotEqual(live.BuildResults().Counts[JudgementType.Miss], unmodded.BuildResults().Counts[JudgementType.Miss]);
         }
 
@@ -958,21 +1277,106 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// Bit 5 is bit 5: value 32, appended above the five that were already there, so every flags
-        /// word already on disk decodes exactly as it always did and simply reads the new bit false.
+        /// A REPLAY OF THE PRE-218 ERA, which is what every stored flexible run is: bit 5 set and bit
+        /// 7 clear, and it has to re-derive with the UNBOUNDED roll its player actually had, or the
+        /// keystrokes they typed into a line seconds before its vocals are refused on playback and
+        /// the whole account changes. Judged against a straight unbounded run of the same script,
+        /// cell for cell.
+        /// </summary>
+        [Test]
+        public void AnOldFlexibleReplayWithBitSevenClearReDerivesTheUnboundedRoll()
+        {
+            // Line 1's cue is 8500, so the bound would have opened at 7000 and refused both of the
+            // rushed presses below.
+            (char c, double t)[] script = { ('a', 1000), ('b', 1500), ('c', 1600), ('d', 1650) };
+
+            var replayed = new TypingEngine(lateSecondLineMap());
+
+            feed(replayed, TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true), script);
+
+            Assert.IsTrue(replayed.FletcherEnabled);
+            Assert.IsTrue(replayed.FlexibleLineSnap);
+            Assert.IsFalse(replayed.BoundedRush, "the bit is clear, so the run re-derives unbounded");
+
+            // The reference run: the same era in every other respect (the header above sets the four
+            // judgement bits), so the only thing this comparison can be reading is the caret.
+            var stored = new TypingEngine(lateSecondLineMap())
+            {
+                FletcherEnabled = true,
+                FlexibleLineSnap = true,
+                SyllableTiming = true,
+                WrongInputOnWordGaps = true,
+                StrictSpaces = true,
+                CharTimedStretch = true,
+            };
+
+            foreach ((char c, double t) in script)
+            {
+                stored.Update(t);
+                Assert.IsTrue(stored.ProcessKey(c, t));
+            }
+
+            replayed.Update(12000);
+            stored.Update(12000);
+
+            Assert.AreEqual(stored.Score, replayed.Score);
+            Assert.AreEqual(stored.MaxCombo, replayed.MaxCombo);
+            Assert.AreEqual(stored.LiveAccuracy, replayed.LiveAccuracy);
+
+            for (int k = 0; k < stored.Lines.Count; k++)
+            {
+                for (int i = 0; i < stored.Lines[k].Cells.Count; i++)
+                {
+                    Assert.AreEqual(stored.Lines[k].Cells[i].State, replayed.Lines[k].Cells[i].State, $"cell {k}.{i} state");
+                    Assert.AreEqual(stored.Lines[k].Cells[i].JudgedDelta, replayed.Lines[k].Cells[i].JudgedDelta, $"cell {k}.{i} delta");
+                }
+            }
+
+            // Non-vacuous: the SAME frames under a header that carries bit 7 refuse the rushed
+            // presses outright, which is exactly why the bit has to travel with the run.
+            var bounded = new TypingEngine(lateSecondLineMap());
+
+            feed(bounded, TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true, boundedRush: true), script);
+
+            Assert.IsTrue(bounded.BoundedRush);
+            Assert.AreEqual(CellState.Correct, replayed.Lines[1].Cells[0].State);
+            Assert.AreEqual(CellState.Untyped, bounded.Lines[1].Cells[0].State, "under the bound those keystrokes never reached a cell");
+
+            // The rushed presses were Premature and worth no points, so the SCORE is not what the two
+            // arms disagree about: the run itself is. Four cells finished and a streak of four, or
+            // two and two.
+            Assert.AreEqual(4, replayed.MaxCombo);
+            Assert.AreEqual(2, bounded.MaxCombo);
+            Assert.AreEqual(2, replayed.BuildResults().Counts[JudgementType.Premature]);
+            Assert.AreEqual(0, bounded.BuildResults().Counts[JudgementType.Premature]);
+        }
+
+        /// <summary>
+        /// Bit 5 is bit 5 and bit 7 is bit 7: values 32 and 128, appended above the bits that were
+        /// already there, so every flags word already on disk decodes exactly as it always did and
+        /// simply reads the new bits false.
         /// </summary>
         [Test]
         public void TheEraBitRoundTripsThroughTheLegacyEncodingAsBitFive()
         {
             var dummy = new typebeat.Game.Beatmaps.Beatmap();
 
-            var full = TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true, spaceSkipsWord: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true);
+            var full = TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true, spaceSkipsWord: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true, boundedRush: true);
 
-            Assert.AreEqual(1 + 2 + 4 + 8 + 16 + 32 + 64, (int)full.ToLegacy(dummy).MouseY!.Value, "bit 5 sits between strict spaces and char-timed stretch");
+            Assert.AreEqual(1 + 2 + 4 + 8 + 16 + 32 + 64 + 128, (int)full.ToLegacy(dummy).MouseY!.Value, "bit 5 sits between strict spaces and char-timed stretch, and bit 7 above both");
 
             var decoded = new TypeBeatReplayFrame();
             decoded.FromLegacy(full.ToLegacy(dummy), dummy);
             Assert.IsTrue(decoded.FlexibleLines);
+            Assert.IsTrue(decoded.BoundedRush);
+
+            // The word a replay carried the day before backlog 218: every older bit set, bit 7 clear.
+            var pre218 = new TypeBeatReplayFrame();
+            pre218.FromLegacy(new typebeat.Game.Replays.Legacy.LegacyReplayFrame(0, 0, 1 + 2 + 4 + 8 + 16 + 32 + 64, typebeat.Game.Replays.Legacy.ReplayButtonState.None), dummy);
+
+            Assert.IsTrue(pre218.FlexibleLines);
+            Assert.IsTrue(pre218.CharTimedStretch);
+            Assert.IsFalse(pre218.BoundedRush, "the newest bit reads false on every word already on disk");
 
             // A pre-208 word, every older bit set and nothing above them.
             var old = new TypeBeatReplayFrame();
@@ -985,9 +1389,47 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(old.StrictSpaces);
             Assert.IsFalse(old.FlexibleLines, "the new bit reads false on every word already on disk");
             Assert.IsFalse(old.CharTimedStretch);
+            Assert.IsFalse(old.BoundedRush);
 
             // And the default is clear, which is what every older CALL SITE keeps meaning.
             Assert.IsFalse(TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true).FlexibleLines);
+            Assert.IsFalse(TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true).BoundedRush);
+        }
+
+        /// <summary>
+        /// A REWIND re-derives the parked state like any other (backlog 218): the caret's position is
+        /// a pure function of the frames plus the era, so seeking back into the park puts the caret
+        /// back at the end of the line it finished, and seeking past the bound puts it back on the
+        /// next line. The era itself comes off the header, which <c>RebuildTo</c> re-feeds.
+        /// </summary>
+        [Test]
+        public void ARebuildReDerivesTheParkedStateAndTheBoundFromTheHeader()
+        {
+            var frames = new List<typebeat.Game.Rulesets.Replays.ReplayFrame>
+            {
+                TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true, boundedRush: true),
+                new TypeBeatReplayFrame(1000, 'a'),
+                new TypeBeatReplayFrame(1500, 'b'),
+            };
+
+            var typing = new TypingEngine(instrumentalGapMap());
+
+            ReplayEngineFeed.RebuildTo(typing, frames, 13000);
+
+            Assert.IsTrue(typing.BoundedRush, "the header carries the era through a rebuild");
+            Assert.AreEqual(1, typing.ActiveLineIndex, "13000 is past the bound, so the deferred roll has happened");
+
+            // Backwards, into the park: the caret is at the end of line 0 again, complete and stuck.
+            ReplayEngineFeed.RebuildTo(typing, frames, 6000);
+
+            Assert.AreEqual(0, typing.ActiveLineIndex);
+            Assert.IsTrue(typing.IsLineComplete);
+            Assert.AreEqual(2, typing.CaretIndex);
+            Assert.IsFalse(typing.ProcessKey('c', 6000), "and it is inert there, exactly as it was live");
+
+            // And forwards again, to the same answer as the first pass.
+            ReplayEngineFeed.RebuildTo(typing, frames, 13000);
+            Assert.AreEqual(1, typing.ActiveLineIndex);
         }
 
         #endregion
@@ -1046,9 +1488,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // Line 0's window runs all the way to line 1's start: no hole anywhere, the shape every
             // decoder-built map has.
-            var typing = engine(map(TimingGranularity.Line,
-                line("ab", 1000, 14000, 2000, unit("ab", 1000, 2000)),
-                line("cd", 14000, 20000, 15000, unit("cd", 14000, 15000))), flexible: true);
+            var typing = engine(instrumentalGapMap(), flexible: true);
 
             typing.Update(1000);
             Assert.IsTrue(typing.SongIsOnTheCaretsLine, "the song is asking for these very characters");
@@ -1056,7 +1496,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(typing.ProcessKey('a', 1000));
             Assert.IsTrue(typing.ProcessKey('b', 1500));
 
-            typing.Update(6000); // deep inside the instrumental
+            // Deep inside the instrumental the rush bound (backlog 218) still has the caret parked
+            // past the END of line 0, where the key handler's own IsLineComplete fall-through is what
+            // lets Space reach the skip overlay, and this predicate is not being asked yet.
+            typing.Update(6000);
+            Assert.AreEqual(0, typing.ActiveLineIndex);
+            Assert.IsTrue(typing.IsLineComplete);
+
+            // The bound opens 1500 before line 1's cue and the caret moves ahead of the song. NOW the
+            // predicate is what the key handler needs: the window is contiguous, so SongWindowOpen
+            // could never have answered it.
+            typing.Update(12500);
             Assert.IsTrue(typing.SongWindowOpen, "the window is contiguous, so it never closes");
             Assert.AreEqual(1, typing.ActiveLineIndex);
             Assert.IsFalse(typing.SongIsOnTheCaretsLine, "but nothing is being asked of the line the caret is on");

@@ -54,7 +54,18 @@ looking for it. The canonical sources are the code itself:
   factories off `TypeBeatModLegacyFletcher`). `FT` is a `ModType.System` mod: unselectable, but still
   resolvable, so its stored rows keep their 0.98x multiplier and 0.90x pp. Bits 5 and 6 landed
   concurrently, which is why the `CreateConfigFrame` parameter order does not track bit order (pass
-  the newer two by name).
+  the newer three by name).
+  Backlog 218 adds `BoundedRush` (a fifth ERA, CONFIG flags bit 7, set for every live stack), which
+  makes that caret SYMMETRIC: 208 left rushing time-unbounded while dragging was never, so a finished
+  line handed the caret on however many seconds before the next line's cue and, the roll being
+  transitive, a fast player could type the whole map at the top of the song. Entry into a line now
+  opens exactly `FLETCHER_DRAG_GRACE_MS` (1500) before its `ActivationTime`, the mirror of the 1500 a
+  dragging player borrows past `EndTime + SealGraceMs`, so the one constant bounds both directions
+  (`entryPermitted` against `sealPermitted`). A refused roll parks the caret past the last cell of its
+  line, where keypresses are inert and the WPM clock is stopped, and `snapForwardOnLineStart` performs
+  the deferred roll when the bound opens (it is the snap arm, so the snap moved to the same instant).
+  The SEAL's hand-overs are never refused: there the song has left the line, so entry is late and not
+  early.
 - **The timing schema** (per-character target times, syllable subdivision, space cells):
   `Gameplay/TypingLine.cs`, `FromLyricLine`.
 - **How a judgement becomes a stored osu result**: `Scoring/TypeBeatResultMapping.cs`, which also

@@ -20,7 +20,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     ///
     /// The first recorded event is preceded by a CONFIG frame capturing the engine's
     /// judgement-relevant settings (allow-wrong-input, space-skips-word, syllable-span timing,
-    /// wrong-input-on-word-gaps, strict spaces, char-timed stretch and flexible lines), so playback
+    /// wrong-input-on-word-gaps, strict spaces, char-timed stretch, flexible lines and the rush
+    /// bound), so playback
     /// can reproduce judgement regardless of
     /// the watching machine's local config, and regardless of which JUDGEMENT ERA the client watching
     /// it ships.
@@ -48,7 +49,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             if (!configEmitted)
             {
                 configEmitted = true;
-                emit(TypeBeatReplayFrame.CreateConfigFrame(time, engine.AllowWrongInput, engine.SpaceSkipsWord, engine.SyllableTiming, engine.WrongInputOnWordGaps, engine.StrictSpaces, engine.CharTimedStretch, flexibleLines: engine.FlexibleLineSnap));
+                emit(TypeBeatReplayFrame.CreateConfigFrame(time, engine.AllowWrongInput, engine.SpaceSkipsWord, engine.SyllableTiming, engine.WrongInputOnWordGaps, engine.StrictSpaces, engine.CharTimedStretch, flexibleLines: engine.FlexibleLineSnap, boundedRush: engine.BoundedRush));
             }
 
             emit(new TypeBeatReplayFrame(time, character));
