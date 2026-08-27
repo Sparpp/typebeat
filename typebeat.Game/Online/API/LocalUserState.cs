@@ -62,9 +62,13 @@ namespace typebeat.Game.Online.API
             localUser.Value = me;
             configSupporter.Value = me.IsSupporter;
 
-            // `last_visit` is assumed to be `null` if and only if the web-side "hide online presence toggle" is enabled
-            if (me.LastVisit == null)
-                configStatus.Value = UserStatus.Offline;
+            // Upstream reads a null `last_visit` as "the web-side hide online presence toggle is
+            // enabled" and forces the status to Offline. That inference does not hold here: this
+            // fork's server has no such toggle and its /api/v2/me payload (UserWire.Me) does not
+            // carry `last_visit` at all, so the check fired on EVERY login. It silently flipped the
+            // login panel's dropdown to "appear offline" and, because Discord rich presence used to
+            // treat Offline as "show nothing", left presence permanently blank. Restore the check
+            // only once the server actually sends the field and honours a hide-presence toggle.
 
             UpdateFriends();
             UpdateBlocks();

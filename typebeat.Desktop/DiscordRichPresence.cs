@@ -31,6 +31,27 @@ namespace typebeat.Desktop
     {
         private const string client_id = "1216669957799018608";
 
+        /// <summary>
+        /// Key of the large presence image. This names an entry in the "Rich Presence, Art Assets"
+        /// list of the Discord application behind <see cref="client_id"/>, which lives on the
+        /// Discord developer portal and NOT in this repository. Renaming it here without uploading
+        /// art under the new name silently drops the image; the text lines still show.
+        /// </summary>
+        private const string large_image_key = "osu_logo_lazer";
+
+        /// <summary>
+        /// Small (corner) image key prefix, suffixed with the ruleset's online ID. Same portal
+        /// dependency as <see cref="large_image_key"/>. <c>TypeBeatRuleset</c> is an
+        /// <c>ILegacyRuleset</c> with <c>LegacyID = 0</c>, so the key this build asks for in
+        /// practice is <c>mode_0</c>.
+        /// </summary>
+        private const string small_image_key_prefix = "mode_";
+
+        /// <summary>
+        /// Small image key used for any non-legacy ruleset. Same portal dependency as above.
+        /// </summary>
+        private const string small_image_key_custom = "mode_custom";
+
         private DiscordRpcClient client = null!;
 
         [Resolved]
@@ -57,7 +78,7 @@ namespace typebeat.Desktop
 
         private readonly RichPresence presence = new RichPresence
         {
-            Assets = new Assets { LargeImageKey = "osu_logo_lazer" },
+            Assets = new Assets { LargeImageKey = large_image_key },
             Timestamps = Timestamps.Now,
             Secrets = new Secrets
             {
@@ -100,7 +121,23 @@ namespace typebeat.Desktop
                 Logger.Log($"Failed to register Discord URI scheme: {ex}");
             }
 
-            client.Initialize();
+            try
+            {
+                // Initialize() returns immediately: it starts the library's own connection thread,
+                // which retries the Discord IPC pipe on a backoff (DiscordRPC.Helper.BackoffDelay)
+                // until it succeeds. So the game tolerates being started BEFORE Discord is running:
+                // presence appears whenever Discord does, because OnReady fires then and schedules
+                // an update. IsInitialized stays true across a dropped connection, which is why the
+                // guard in schedulePresenceUpdate only means "the client got set up", not "Discord
+                // is present". Nothing here needs polling or a retry loop of our own.
+                client.Initialize();
+            }
+            catch (Exception ex)
+            {
+                // Not the "Discord is not running" path (that is the backoff above). Whatever it
+                // is, rich presence is a garnish: log it and let the rest of the game load.
+                Logger.Log($"Failed to initialise the Discord RPC client: {ex}", LoggingTarget.Network, LogLevel.Important);
+            }
         }
 
         protected override void LoadComplete()
@@ -143,17 +180,28 @@ namespace typebeat.Desktop
                 if (!client.IsInitialized)
                     return;
 
-                if (userStatus.Value == UserStatus.Offline || privacyMode.Value == DiscordRichPresenceMode.Off)
+                // The Discord privacy setting is the ONE kill switch. Upstream also clears presence
+                // when signed out of osu! and when the online-status dropdown says "appear offline",
+                // but both of those are osu!-SERVER broadcast settings: they say who may see you on
+                // the website, and have nothing to say about what your own Discord client shows.
+                // Tying them together is what made presence disappear here. `UserOnlineStatus` is
+                // forced to Offline by LocalUserState whenever /api/v2/me omits `last_visit`, which
+                // this fork's server always does (see the note there), so every logged-in player
+                // landed in this branch and got no presence at all, ever. Presence now renders
+                // whenever the RPC client is up and the player has not turned it off.
+                if (privacyMode.Value == DiscordRichPresenceMode.Off)
                 {
                     client.ClearPresence();
                     return;
                 }
 
-                // Show presence even when signed out, so the game "just shows up" in Discord
-                // (upstream only shows it while logged in). A signed-out session is treated like
-                // Limited: the generic activity ("Typing lyrics", menus) shows, but username /
-                // rank / the specific beatmap stay hidden until the player logs in.
-                bool hideIdentifiableInformation = !api.IsLoggedIn || privacyMode.Value == DiscordRichPresenceMode.Limited || userStatus.Value == UserStatus.DoNotDisturb;
+                // Signed out, "appear offline" and "do not disturb" all still show WHAT is being
+                // played (the activity line plus the map title); they withhold only WHO is playing
+                // it: no username, no rank, no multiplayer join secret.
+                bool hideIdentifiableInformation = !api.IsLoggedIn
+                                                   || privacyMode.Value == DiscordRichPresenceMode.Limited
+                                                   || userStatus.Value == UserStatus.Offline
+                                                   || userStatus.Value == UserStatus.DoNotDisturb;
 
                 updatePresence(hideIdentifiableInformation);
                 client.SetPresence(presence);
@@ -162,8 +210,10 @@ namespace typebeat.Desktop
 
         private void updatePresence(bool hideIdentifiableInformation)
         {
-            if (user == null)
-                return;
+            // NOTE: `user` is deliberately not checked here. Upstream returned early when it was
+            // null, which made the whole presence (activity line, map title, ruleset image) depend
+            // on an API user being bound. It is now an optional extra, read only by the large-image
+            // tooltip below, so a session that never logs in still reports what it is playing.
 
             // user activity
             if (userActivity.Value != null)
@@ -228,8 +278,13 @@ namespace typebeat.Desktop
             }
 
             // game images:
-            // large image tooltip
-            if (privacyMode.Value == DiscordRichPresenceMode.Limited)
+            // large image tooltip. This is the only place the local player's identity reaches
+            // Discord, so it is the one part a hidden-identity session drops (upstream gated it on
+            // Limited alone, which was safe there only because the caller had already refused to
+            // build a presence for anyone signed out or appearing offline). `user` is assigned in
+            // LoadComplete, and a signed-out session holds a GuestUser, so both are covered by the
+            // hideIdentifiableInformation arm rather than by an early return.
+            if (hideIdentifiableInformation || user?.Value == null)
                 presence.Assets.LargeImageText = string.Empty;
             else
             {
@@ -238,7 +293,7 @@ namespace typebeat.Desktop
             }
 
             // small image
-            presence.Assets.SmallImageKey = ruleset.Value.IsLegacyRuleset() ? $"mode_{ruleset.Value.OnlineID}" : "mode_custom";
+            presence.Assets.SmallImageKey = ruleset.Value.IsLegacyRuleset() ? $"{small_image_key_prefix}{ruleset.Value.OnlineID}" : small_image_key_custom;
             presence.Assets.SmallImageText = ruleset.Value.Name;
         }
 
