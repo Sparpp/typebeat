@@ -154,22 +154,79 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void QwertySemicolonKeepsItsUsLegend()
         {
-            // The layout that genuinely has ';' there is untouched by the AZERTY correction.
-            foreach (var layout in new[] { KeyboardLayout.Qwerty, KeyboardLayout.Qwertz })
+            // QWERTY is the only layout that genuinely has ';' there, and it is untouched by the
+            // AZERTY and QWERTZ corrections.
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Semicolon, KeyboardLayout.Qwerty, shift: false, punctuation: true, out char semicolon));
+            Assert.AreEqual(';', semicolon);
+
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Semicolon, KeyboardLayout.Qwerty, shift: true, punctuation: true, out char colon));
+            Assert.AreEqual(':', colon);
+
+            // And it is still inert without the mod.
+            Assert.IsFalse(KeyCharMap.TryMap(Key.Semicolon, KeyboardLayout.Qwerty, shift: false, punctuation: false, out _));
+
+            // Backlog 216: that position is the o-umlaut keycap on QWERTZ, so it hands a German
+            // player nothing at all rather than the US ';' / ':' it used to.
+            foreach (bool shift in new[] { false, true })
             {
-                Assert.IsTrue(KeyCharMap.TryMap(Key.Semicolon, layout, shift: false, punctuation: true, out char semicolon), $"{layout}");
-                Assert.AreEqual(';', semicolon, $"{layout}");
-
-                Assert.IsTrue(KeyCharMap.TryMap(Key.Semicolon, layout, shift: true, punctuation: true, out char colon), $"{layout}");
-                Assert.AreEqual(':', colon, $"{layout}");
-
-                // And it is still inert without the mod, on both layouts.
-                Assert.IsFalse(KeyCharMap.TryMap(Key.Semicolon, layout, shift: false, punctuation: false, out _), $"{layout}");
+                Assert.IsFalse(KeyCharMap.TryMap(Key.Semicolon, KeyboardLayout.Qwertz, shift, punctuation: true, out _), $"qwertz literate shift={shift}");
+                Assert.IsFalse(KeyCharMap.TryMap(Key.Semicolon, KeyboardLayout.Qwertz, shift, punctuation: false, out _), $"qwertz plain shift={shift}");
             }
 
-            // The QWERTY-M position is the letter on those layouts, mod or no mod.
-            Assert.IsTrue(KeyCharMap.TryMap(Key.M, KeyboardLayout.Qwerty, shift: false, punctuation: true, out char m));
-            Assert.AreEqual('m', m);
+            // The QWERTY-M position is the letter on both of those layouts, mod or no mod.
+            foreach (var layout in new[] { KeyboardLayout.Qwerty, KeyboardLayout.Qwertz })
+            {
+                Assert.IsTrue(KeyCharMap.TryMap(Key.M, layout, shift: false, punctuation: true, out char m), $"{layout}");
+                Assert.AreEqual('m', m, $"{layout}");
+            }
+        }
+
+        /// <summary>
+        /// Backlog 216 gave QWERTZ a punctuation table of its own, and the surface is consulted
+        /// BEFORE the letter map, so the Y/Z swap has to survive it: the German table claims no
+        /// letter position, and case still comes from shift XOR caps applied after the remap.
+        /// </summary>
+        [TestCase(false, false, 'z')]
+        [TestCase(true, false, 'Z')]
+        [TestCase(false, true, 'Z')]
+        [TestCase(true, true, 'z')]
+        public void QwertzYZSwapSurvivesThePunctuationSurface(bool shift, bool capsLock, char expected)
+        {
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Y, KeyboardLayout.Qwertz, shift, punctuation: true, capsLock, out char c),
+                $"shift={shift} caps={capsLock}");
+            Assert.AreEqual(expected, c, $"shift={shift} caps={capsLock}");
+
+            // Identical with the surface closed: opening it must not move the letter at all.
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Y, KeyboardLayout.Qwertz, shift, punctuation: false, capsLock, out char plain));
+            Assert.AreEqual(expected, plain, $"no-punctuation shift={shift} caps={capsLock}");
+
+            // The other half of the swap, in the same four states.
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Z, KeyboardLayout.Qwertz, shift, punctuation: true, capsLock, out char other));
+            Assert.AreEqual(expected == 'z' ? 'y' : 'Y', other, $"Z shift={shift} caps={capsLock}");
+        }
+
+        /// <summary>
+        /// Caps Lock does not shift a punctuation key on a German keyboard either, so the QWERTZ
+        /// table's two legends stay Shift-selected under it.
+        /// </summary>
+        [Test]
+        public void CapsLockLeavesTheQwertzPunctuationSurfaceOnShiftOnlySemantics()
+        {
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Comma, KeyboardLayout.Qwertz, shift: false, punctuation: true, capsLock: true, out char comma));
+            Assert.AreEqual(',', comma);
+
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Comma, KeyboardLayout.Qwertz, shift: true, punctuation: true, capsLock: true, out char semicolon));
+            Assert.AreEqual(';', semicolon);
+
+            // The mark above a digit is reachable by Shift and only by Shift, caps or no caps.
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Number7, KeyboardLayout.Qwertz, shift: false, punctuation: true, capsLock: true, out char seven));
+            Assert.AreEqual('7', seven);
+
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Number7, KeyboardLayout.Qwertz, shift: true, punctuation: true, capsLock: true, out char slash));
+            Assert.AreEqual('/', slash);
+
+            // An inert position stays inert under caps.
+            Assert.IsFalse(KeyCharMap.TryMap(Key.Quote, KeyboardLayout.Qwertz, shift: true, punctuation: true, capsLock: true, out _));
         }
 
         [Test]

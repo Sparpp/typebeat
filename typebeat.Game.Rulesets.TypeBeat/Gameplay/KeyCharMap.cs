@@ -16,7 +16,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     {
         Qwerty,
 
-        /// <summary>German/Central-European: the Y and Z keys are swapped relative to QWERTY.</summary>
+        /// <summary>
+        /// German/Central-European: the Y and Z keys are swapped relative to QWERTY, and four US
+        /// punctuation positions carry LETTERS instead (o-umlaut, a-umlaut, u-umlaut and eszett),
+        /// with the marks they displaced sitting elsewhere (see the QWERTZ punctuation table in
+        /// <see cref="KeyCharMap"/>).
+        /// </summary>
         Qwertz,
 
         /// <summary>
@@ -134,20 +139,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// stays inert. Keypads are deliberately not covered (no KeypadMultiply for '*', no
         /// KeypadDivide for '/'), matching the top-row-only convention the table has always followed.
         ///
-        /// <para>The table below is the US-QWERTY one. AZERTY has a complete table of its own,
-        /// <see cref="mapAzertyPunctuation"/>, because its marks sit somewhere else entirely.
-        /// QWERTZ still reads this one (see the KNOWN LIMIT there).</para>
+        /// <para>The table below is the US-QWERTY one, and QWERTY is the only layout that reads it.
+        /// AZERTY (<see cref="mapAzertyPunctuation"/>) and QWERTZ (<see cref="mapQwertzPunctuation"/>)
+        /// each have a complete table of their own, because their marks sit somewhere else.</para>
         ///
-        /// <para>THE RULE both tables obey: a position never yields a mark the player cannot read
-        /// off the keycap in front of them. A mark the keycap does not show is a WRONG KEY, which
-        /// costs a combo, a typo and HP, and any mark left with no key at all makes every lyric
-        /// containing it uncompletable under Literate. Backlog 214 (the letter 'm') and backlog 215
-        /// (the apostrophe) were both that failure.</para>
+        /// <para>THE RULE all three tables obey: a position never yields a mark the player cannot
+        /// read off the keycap in front of them. A mark the keycap does not show is a WRONG KEY,
+        /// which costs a combo, a typo and HP, and any mark left with no key at all makes every
+        /// lyric containing it uncompletable under Literate. Backlog 214 (the letter 'm'), backlog
+        /// 215 (the apostrophe) and backlog 216 (the whole German surface) were all that failure.</para>
         /// </summary>
         private static PunctuationMapping mapPunctuation(Key key, KeyboardLayout layout, bool shift, out char c)
         {
-            if (layout == KeyboardLayout.Azerty)
-                return mapAzertyPunctuation(key, shift, out c);
+            switch (layout)
+            {
+                case KeyboardLayout.Azerty:
+                    return mapAzertyPunctuation(key, shift, out c);
+
+                case KeyboardLayout.Qwertz:
+                    return mapQwertzPunctuation(key, shift, out c);
+            }
 
             c = key switch
             {
@@ -211,13 +222,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// is what stops the six digit keys among them falling through to a digit their keycap does
         /// not show unshifted.</para>
         ///
-        /// <para>KNOWN LIMIT: AZERTY is the only layout with a table of its own. QWERTZ is the next
-        /// instance of this same bug class waiting to be reported: it is modelled as US punctuation
-        /// plus the Y/Z letter swap, but a German keyboard's own legends differ too (the US Quote,
-        /// Semicolon, BracketLeft and Minus positions are all letters there), so a QWERTZ player
-        /// under Literate still meets marks on keys their keycaps do not show. AltGr is the other
-        /// limit, and a structural one: the input path does not carry it, so a mark that is
-        /// AltGr-only on a layout can only ever be parked, never placed faithfully.</para>
+        /// <para>KNOWN LIMIT, structural and shared with every non-US table: AltGr is not carried by
+        /// the input path at all, so a mark that is AltGr-only on a layout can only ever be parked,
+        /// never placed faithfully.</para>
         /// </summary>
         private static PunctuationMapping mapAzertyPunctuation(Key key, bool shift, out char c)
         {
@@ -304,6 +311,147 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             return c != default ? PunctuationMapping.Produced : PunctuationMapping.Inert;
         }
 
+        /// <summary>
+        /// The German QWERTZ (DIN T1) punctuation table, complete. Before backlog 216 this layout
+        /// read the US table with only the Y/Z letter swap applied, which is backlog 214's and 215's
+        /// bug class a third time: a German keyboard puts LETTERS on four US punctuation positions
+        /// and its own marks somewhere else entirely, so under Literate a QWERTZ player met marks on
+        /// keys their keycaps do not show and could not produce several marks at all.
+        ///
+        /// <list type="bullet">
+        /// <item>DIGIT ROW: the digits are UNSHIFTED exactly as on US, so the row is left to the
+        /// letter/digit map for that state and 0-9 stay reachable. The SHIFTED legends are German,
+        /// not US: 1 2 4 5 7 8 9 carry '!' '"' '$' '%' '/' '(' ')'. Four of those are marks the US
+        /// table puts elsewhere, and the US table's own shifted-digit entries ('^' on 6, '*' on 8,
+        /// '(' on 9, ')' on 0) are wrong here for exactly that reason.</item>
+        /// <item>THE FOUR LETTER POSITIONS: the US Semicolon, Quote and BracketLeft positions are
+        /// the o-umlaut, a-umlaut and u-umlaut keycaps and the US Minus position is the eszett
+        /// keycap. None of those letters is on the typeable surface (the normalizer strips
+        /// diacritics, so a lyric never asks for one), and the letter map does not claim them, so
+        /// they are CLAIMED-INERT here rather than left to hand back the US ';' ':' '\'' '"' '-'.
+        /// Only the eszett key's SHIFTED legend, '?', is a supported mark.</item>
+        /// <item>THE REST: the US Slash position is '-' unshifted ('_' shifted), the US BackSlash
+        /// position is '#' unshifted and the apostrophe shifted, the US BracketRight position is '+'
+        /// unshifted and '*' shifted, Comma and Period carry ',' '.' unshifted and ';' ':' shifted,
+        /// the key left of 1 (the US grave/tilde position) is the circumflex dead key whose legend
+        /// '^' IS a supported mark, and the ISO key US keyboards do not have carries the two angle
+        /// brackets, whose US home (shifted Comma and Period) is taken.</item>
+        /// </list>
+        ///
+        /// <para>PARKED, the two deliberate exceptions to the keycap rule: '[' and ']' are AltGr+8
+        /// and AltGr+9 on a real German keyboard and AltGr is not modelled at all. They sit on the
+        /// UNSHIFTED US bracket positions, which is both their US home and, here, spare: those two
+        /// keycaps show the u-umlaut and '+', neither of them in
+        /// <see cref="Beatmaps.Typeability.PUNCTUATION"/>, so nothing faithful is displaced and the
+        /// US positional memory survives intact. Parking beats stranding: a mark with no key makes
+        /// every lyric containing it uncompletable, while a mark on a spare legend is merely
+        /// undiscoverable.</para>
+        ///
+        /// <para>INERT, everything else this table claims: shifted 3 0 (the section sign and '='),
+        /// shifted 6 (the AMPERSAND, which is the freestyle marker and deliberately outside the
+        /// supported set, so it must never be produced), unshifted eszett, shifted Slash (the
+        /// underscore), unshifted BackSlash ('#'), shifted BracketLeft (the capital u-umlaut),
+        /// shifted grave (the degree sign), both umlaut home-row positions and the dead acute/grave
+        /// key right of the eszett. <see cref="PunctuationMapping.Inert"/> is what stops the shifted
+        /// digits among them falling through to a digit their keycap only shows unshifted.</para>
+        /// </summary>
+        private static PunctuationMapping mapQwertzPunctuation(Key key, bool shift, out char c)
+        {
+            c = default;
+
+            if (key >= Key.Number0 && key <= Key.Number9)
+            {
+                // Unshifted the German digit row IS the US one, digit for digit: fall through to
+                // the letter/digit map, which keeps every digit reachable under the mod.
+                if (!shift)
+                    return PunctuationMapping.Unclaimed;
+
+                c = key switch
+                {
+                    Key.Number1 => '!',
+                    Key.Number2 => '"',
+                    Key.Number4 => '$',
+                    Key.Number5 => '%',
+                    Key.Number7 => '/',
+                    Key.Number8 => '(',
+                    Key.Number9 => ')',
+                    // 3 is the section sign and 0 is '=', both outside the supported set. 6 is the
+                    // AMPERSAND, which is the freestyle marker: outside the set on purpose, and the
+                    // one legend here that must never be produced even though the keycap shows it.
+                    _ => default,
+                };
+
+                return c != default ? PunctuationMapping.Produced : PunctuationMapping.Inert;
+            }
+
+            switch (key)
+            {
+                case Key.Semicolon:
+                case Key.Quote:
+                    // The o-umlaut and a-umlaut keycaps. Not punctuation keys at all here, and not
+                    // on the typeable surface either, so they produce nothing rather than the US
+                    // legends' ';' ':' and '\'' '"'.
+                    return PunctuationMapping.Inert;
+
+                case Key.Plus:
+                    // Right of the eszett: the dead acute and dead grave, both outside the set.
+                    // Spare, but the brackets park on the US bracket positions instead.
+                    return PunctuationMapping.Inert;
+
+                case Key.BracketLeft:
+                    // The u-umlaut keycap, so nothing faithful lives here: '[' is PARKED on the
+                    // unshifted legend, its US home. Shifted is the capital, still nothing.
+                    c = shift ? default : '[';
+                    break;
+
+                case Key.BracketRight:
+                    // '+' unshifted, so ']' is PARKED there, its US home too; '*' shifted is
+                    // faithful, and is the mark the German digit row displaced off the 8 key.
+                    c = shift ? '*' : ']';
+                    break;
+
+                case Key.Minus:
+                    // The eszett keycap, outside the typeable surface; '?' shifted.
+                    c = shift ? '?' : default;
+                    break;
+
+                case Key.Slash:
+                    // '-' unshifted, the underscore (outside the set) shifted, the reverse of the
+                    // US key's '/' and '?'.
+                    c = shift ? default : '-';
+                    break;
+
+                case Key.Comma:
+                    c = shift ? ';' : ',';
+                    break;
+
+                case Key.Period:
+                    c = shift ? ':' : '.';
+                    break;
+
+                case Key.BackSlash:
+                    // The '#' keycap, outside the set; the APOSTROPHE is its shifted legend, and
+                    // this is where it lives on a German keyboard.
+                    c = shift ? '\'' : default;
+                    break;
+
+                case Key.Tilde:
+                    // Key.Grave is the same enum value. Left of the 1 key: the circumflex dead key,
+                    // whose legend '^' is a supported mark; shifted is the degree sign.
+                    c = shift ? default : '^';
+                    break;
+
+                case Key.NonUSBackSlash:
+                    c = shift ? '>' : '<';
+                    break;
+
+                default:
+                    return PunctuationMapping.Unclaimed;
+            }
+
+            return c != default ? PunctuationMapping.Produced : PunctuationMapping.Inert;
+        }
+
         private static bool tryMapLower(Key key, KeyboardLayout layout, out char c)
         {
             // Keys arrive by PHYSICAL position, so on non-QWERTY layouts the keycap a player
@@ -312,7 +460,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             switch (layout)
             {
                 case KeyboardLayout.Qwertz:
-                    // Y and Z are swapped.
+                    // Y and Z are swapped, and that is the whole of it: the four positions carrying
+                    // the umlauts and the eszett are not on the typeable surface (the normalizer
+                    // strips diacritics, so no lyric ever asks for one), so they are left unmapped
+                    // here exactly as they always were, and mapQwertzPunctuation keeps the US marks
+                    // off them under the mod.
                     if (key == Key.Y)
                     {
                         c = 'z';
