@@ -629,9 +629,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The correction is per LAYOUT, so the layouts that genuinely carry the US legends must
-        /// come out of it byte for byte unchanged. QWERTZ differs from QWERTY in exactly two
-        /// letters and in nothing else, punctuation surface open or closed.
+        /// The correction is per LAYOUT, so the two layouts the AZERTY table does not touch come
+        /// out of it byte for byte unchanged: QWERTZ still differs from QWERTY in exactly two
+        /// letters and in nothing else, punctuation surface open or closed. (That QWERTZ reads the
+        /// US punctuation table at all is a known limit, not a claim about German keycaps.)
         /// </summary>
         [Test]
         public void TheUsTableIsUntouchedByTheAzertyCorrection()

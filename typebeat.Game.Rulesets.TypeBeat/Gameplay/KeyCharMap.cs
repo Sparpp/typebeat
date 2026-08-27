@@ -134,9 +134,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// stays inert. Keypads are deliberately not covered (no KeypadMultiply for '*', no
         /// KeypadDivide for '/'), matching the top-row-only convention the table has always followed.
         ///
-        /// <para>The table below is the US-QWERTY one, used by QWERTY and QWERTZ (whose punctuation
-        /// positions match the US ones; only Y and Z move). AZERTY has a complete table of its own,
-        /// <see cref="mapAzertyPunctuation"/>, because its marks sit somewhere else entirely.</para>
+        /// <para>The table below is the US-QWERTY one. AZERTY has a complete table of its own,
+        /// <see cref="mapAzertyPunctuation"/>, because its marks sit somewhere else entirely.
+        /// QWERTZ still reads this one (see the KNOWN LIMIT there).</para>
         ///
         /// <para>THE RULE both tables obey: a position never yields a mark the player cannot read
         /// off the keycap in front of them. A mark the keycap does not show is a WRONG KEY, which
@@ -211,10 +211,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// is what stops the six digit keys among them falling through to a digit their keycap does
         /// not show unshifted.</para>
         ///
-        /// <para>KNOWN LIMIT: AZERTY and QWERTZ are now both complete, so what remains is other
-        /// non-US layouts (which still read the US table and will find some marks on the wrong
-        /// physical key under Literate) and AltGr, which the input path does not carry, so a mark
-        /// that is AltGr-only on a layout can only ever be parked.</para>
+        /// <para>KNOWN LIMIT: AZERTY is the only layout with a table of its own. QWERTZ is the next
+        /// instance of this same bug class waiting to be reported: it is modelled as US punctuation
+        /// plus the Y/Z letter swap, but a German keyboard's own legends differ too (the US Quote,
+        /// Semicolon, BracketLeft and Minus positions are all letters there), so a QWERTZ player
+        /// under Literate still meets marks on keys their keycaps do not show. AltGr is the other
+        /// limit, and a structural one: the input path does not carry it, so a mark that is
+        /// AltGr-only on a layout can only ever be parked, never placed faithfully.</para>
         /// </summary>
         private static PunctuationMapping mapAzertyPunctuation(Key key, bool shift, out char c)
         {
