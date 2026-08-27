@@ -30,9 +30,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             // pressing point targets against a span engine costs Oks wherever a subtimed word's
             // target falls outside its own syllable (backlog 181), and pressing span edges against
             // the classic HR engine would be worse still, since HR halves every window.
+            //
+            // Backlog 209's narrowing rides along unconditionally, exactly as createEngine stamps
+            // it: a stretch cell is judged on its own character target, so autoplay must press that
+            // target rather than the span edge it would otherwise be clamped to.
             => new ModReplayData(new TypeBeatAutoGenerator(beatmap,
                     literate: mods.Any(m => m is TypeBeatModLiterate),
-                    syllableTiming: !mods.Any(m => m is TypeBeatModHardRock)).Generate(),
+                    syllableTiming: !mods.Any(m => m is TypeBeatModHardRock),
+                    charTimedStretch: true).Generate(),
                 new ModCreatedUser { Username = "typebot" });
     }
 }

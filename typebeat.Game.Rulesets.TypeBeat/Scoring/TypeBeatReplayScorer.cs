@@ -309,10 +309,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// The engine <c>DrawableTypeBeatRuleset.createEngine</c> would build for this beatmap,
         /// plus the engine flags the mods set through <c>ApplyToDrawableRuleset</c>.
         /// <c>AllowWrongInput</c>, <c>SpaceSkipsWord</c>, <c>SyllableTiming</c>,
-        /// <c>WrongInputOnWordGaps</c> and <c>StrictSpaces</c> are deliberately
-        /// NOT set from the mods or from any config: the replay's CONFIG frame carries what the run
-        /// was judged under and overwrites all five, which is the only thing that judges a
-        /// pre-Gatekeeper strict run right.
+        /// <c>WrongInputOnWordGaps</c>, <c>StrictSpaces</c> and <c>CharTimedStretch</c> are
+        /// deliberately NOT set from the mods or from any config: the replay's CONFIG frame carries
+        /// what the run was judged under and overwrites all six, which is the only thing that judges
+        /// a pre-Gatekeeper strict run right.
         /// </summary>
         private static TypingEngine createEngine(IBeatmap playable, IReadOnlyList<TypeBeatHitObject> lineObjects, IReadOnlyList<Mod> mods, RateWindowRule rateRule)
         {
@@ -358,6 +358,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // terms: the default is the pre-184 space behaviour every stored replay was played on,
             // and the bit is set for every live stack because the spacebar's meaning is not a mod's
             // business.
+            //
+            // CharTimedStretch (backlog 209, CONFIG frame bit 6) is the fourth, and closest to the
+            // first: it narrows SyllableTiming so a freestyle slot or a stretched identical-character
+            // run is judged on its own character target. The default is the pure span rule every
+            // stored replay was scored on, mashed sections included, and the bit is set for every
+            // live stack (inert under Hard Rock, which has SyllableTiming clear anyway).
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the three arms below compose in any order. A replay

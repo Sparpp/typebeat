@@ -64,10 +64,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// Every judgement-relevant setting travels in the one flags word, and all thirty-two
+        /// Every judgement-relevant setting travels in the one flags word, and all sixty-four
         /// combinations must survive: bit 0 = allow-wrong-input, bit 1 = space-skips-word, bit 2 =
         /// syllable-span timing (backlog 179), bit 3 = wrong-input-on-word-gaps (backlog 181), bit 4 =
-        /// strict spaces (backlog 184).
+        /// strict spaces (backlog 184), bit 6 = char-timed stretches (backlog 209). Bit 5 is
+        /// reserved by a concurrent task and is deliberately not exercised here.
         /// </summary>
         [Test]
         public void ConfigFrameRoundTripsEverySettingBit(
@@ -75,9 +76,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             [Values] bool spaceSkipsWord,
             [Values] bool syllableTiming,
             [Values] bool wrongInputOnWordGaps,
-            [Values] bool strictSpaces)
+            [Values] bool strictSpaces,
+            [Values] bool charTimedStretch)
         {
-            var frame = roundTrip(TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput, spaceSkipsWord, syllableTiming, wrongInputOnWordGaps, strictSpaces));
+            var frame = roundTrip(TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput, spaceSkipsWord, syllableTiming, wrongInputOnWordGaps, strictSpaces, charTimedStretch));
 
             Assert.AreEqual(500, frame.Time);
             Assert.IsTrue(frame.IsConfig);
@@ -87,16 +89,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(syllableTiming, frame.SyllableTiming);
             Assert.AreEqual(wrongInputOnWordGaps, frame.WrongInputOnWordGaps);
             Assert.AreEqual(strictSpaces, frame.StrictSpaces);
+            Assert.AreEqual(charTimedStretch, frame.CharTimedStretch);
         }
 
         /// <summary>The bits are at the positions the format names, so the encoded word is readable
         /// as a number: a replay of live play (wrong input allowed, no word skipping, syllable
-        /// judgement, gap typos typed through, strict spaces) is exactly 1 | 4 | 8 | 16 = 29, and the
-        /// same word without the newest bit is the 13 a replay carried the day before backlog
-        /// 184.</summary>
+        /// judgement, gap typos typed through, strict spaces, char-timed stretches) is exactly
+        /// 1 | 4 | 8 | 16 | 64 = 93; the same word without the newest bit is the 29 a replay carried
+        /// the day before backlog 209, and without the one before it the 13 it carried the day
+        /// before backlog 184. Bit 5 (32) is reserved by a concurrent task and never set here, which
+        /// is why the live word jumps 29 to 93.</summary>
         [Test]
         public void TheFlagsWordIsExactlyTheDocumentedBitPositions()
         {
+            Assert.AreEqual(93f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, spaceSkipsWord: false, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true).ToLegacy(dummy_beatmap).MouseY);
+            Assert.AreEqual(95f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, spaceSkipsWord: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true).ToLegacy(dummy_beatmap).MouseY);
             Assert.AreEqual(29f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, spaceSkipsWord: false, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true).ToLegacy(dummy_beatmap).MouseY);
             Assert.AreEqual(31f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, spaceSkipsWord: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true).ToLegacy(dummy_beatmap).MouseY);
             Assert.AreEqual(13f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, spaceSkipsWord: false, syllableTiming: true, wrongInputOnWordGaps: true).ToLegacy(dummy_beatmap).MouseY);
@@ -144,11 +151,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsFalse(decoded.SyllableTiming, "a replay from before the rule existed was played on point targets");
         }
 
+        /// <summary>
+        /// The same guarantee for backlog 209's bit, and it carries a JUDGEMENT ERA too: 0..31 are
+        /// the only flags words that existed before the stretch narrowing, so every one of them must
+        /// decode with bit 6 clear, i.e. to the pure span rule those runs were judged on, mashed
+        /// freestyle sections and all. The five older bits must still read what they always did.
+        /// </summary>
+        [TestCase(0)]
+        [TestCase(13)]
+        [TestCase(29)]
+        [TestCase(31)]
+        public void ReplaysRecordedBeforeCharTimedStretchDecodeOnPureSpans(int storedFlags)
+        {
+            var decoded = new TypeBeatReplayFrame();
+            decoded.FromLegacy(new LegacyReplayFrame(500, (float)TypeBeatReplayFrame.CONFIG, storedFlags, ReplayButtonState.None), dummy_beatmap);
+
+            Assert.IsTrue(decoded.IsConfig);
+            Assert.AreEqual((storedFlags & 1) != 0, decoded.AllowWrongInput);
+            Assert.AreEqual((storedFlags & 2) != 0, decoded.SpaceSkipsWord);
+            Assert.AreEqual((storedFlags & 4) != 0, decoded.SyllableTiming);
+            Assert.AreEqual((storedFlags & 8) != 0, decoded.WrongInputOnWordGaps);
+            Assert.AreEqual((storedFlags & 16) != 0, decoded.StrictSpaces);
+            Assert.IsFalse(decoded.CharTimedStretch, "a replay from before the rule existed was judged on whole syllable spans");
+        }
+
         /// <summary>A non-CONFIG frame carries no flags: the character's own frame must not smuggle settings.</summary>
         [Test]
         public void CharacterFramesCarryNoConfigFlags()
         {
-            var frame = new TypeBeatReplayFrame(1234, 'a') { AllowWrongInput = true, SpaceSkipsWord = true, SyllableTiming = true, WrongInputOnWordGaps = true, StrictSpaces = true };
+            var frame = new TypeBeatReplayFrame(1234, 'a') { AllowWrongInput = true, SpaceSkipsWord = true, SyllableTiming = true, WrongInputOnWordGaps = true, StrictSpaces = true, CharTimedStretch = true };
 
             Assert.AreEqual(0f, frame.ToLegacy(dummy_beatmap).MouseY ?? -1f);
         }

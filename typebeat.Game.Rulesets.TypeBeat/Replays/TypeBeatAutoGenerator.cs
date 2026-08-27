@@ -33,6 +33,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
 
         private readonly bool literate;
         private readonly bool syllableTiming;
+        private readonly bool charTimedStretch;
 
         /// <param name="beatmap">The map to perfect.</param>
         /// <param name="literate">
@@ -47,11 +48,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// (<c>DrawableTypeBeatRuleset.createEngine</c>), and
         /// <see cref="Mods.TypeBeatModAutoplay.CreateReplayData"/> mirrors that condition.
         /// </param>
-        public TypeBeatAutoGenerator(IBeatmap beatmap, bool literate = false, bool syllableTiming = false)
+        /// <param name="charTimedStretch">
+        /// Whether the grading engine narrows that span rule for STRETCH cells (backlog 209, see
+        /// <see cref="Gameplay.TypingEngine.CharTimedStretch"/>), era-styled the same way and
+        /// defaulting to the same OLD era. Inert unless <paramref name="syllableTiming"/> is set,
+        /// because a classic engine already presses and judges every cell on its point target.
+        /// </param>
+        public TypeBeatAutoGenerator(IBeatmap beatmap, bool literate = false, bool syllableTiming = false, bool charTimedStretch = false)
             : base(beatmap)
         {
             this.literate = literate;
             this.syllableTiming = syllableTiming;
+            this.charTimedStretch = charTimedStretch;
         }
 
         protected override void GenerateFrames()
@@ -131,7 +139,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         ///
         /// <para>A cell in NO group keeps its point target under both eras, because that is exactly
         /// what the engine keeps judging it on: space cells, lines with no groups, and every cell
-        /// of a stylised token the syllabifier refuses (backlog 178).</para>
+        /// of a stylised token the syllabifier refuses (backlog 178). Under
+        /// <see cref="charTimedStretch"/> a STRETCH cell (a freestyle slot, or a cell of a run of
+        /// three or more identical characters inside one syllable) keeps it too, for the same
+        /// reason: the engine reverts exactly those to their character targets, so clamping them
+        /// into their span would press the edge of a window that is no longer being measured and
+        /// hand autoplay the very off-target press the narrowing exists to price.</para>
         ///
         /// <para>The integral rounding applied afterwards can still step off a FRACTIONAL span edge
         /// by up to half a millisecond, which is left alone deliberately: rounding into the span
@@ -150,6 +163,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             int syllable = line.SyllableIndexOf(cellIndex);
 
             if (syllable < 0)
+                return target;
+
+            if (charTimedStretch && line.IsCharTimedStretch(cellIndex))
                 return target;
 
             var group = line.Syllables[syllable];

@@ -33,6 +33,13 @@ looking for it. The canonical sources are the code itself:
   next word where the follow-up space fed a spoiled gap to the skip gate and gave up a whole word;
   with `SpaceSkipsWord` OFF the space KEY is typed through on a lyric cell as an ordinary typo
   instead of being rejected. The space key is still refused by a FREESTYLE slot under every arm.
+  Backlog 209 adds `CharTimedStretch` (a fourth ERA, CONFIG flags bit 6, set for every live stack),
+  which NARROWS the span rule: a STRETCH cell, a freestyle slot or a cell of a run of three or more
+  identical characters inside one syllable (`TypingLine.IsCharTimedStretch`), reverts to its own
+  character target, because those cells are interchangeable to the matcher and a span paid a whole
+  mashed run delta 0 seconds ahead of the vocal (a field report had accuracy going UP for spamming
+  a freestyle section). Everything else keeps the span rule, and the threshold of three is
+  `Syllabifier.IsSyllabifiable`'s own, so a doubled letter ("goo") is untouched.
 - **The timing schema** (per-character target times, syllable subdivision, space cells):
   `Gameplay/TypingLine.cs`, `FromLyricLine`.
 - **How a judgement becomes a stored osu result**: `Scoring/TypeBeatResultMapping.cs`, which also

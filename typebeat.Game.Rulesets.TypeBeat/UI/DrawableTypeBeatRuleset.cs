@@ -163,6 +163,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // holds spaces whose caret consequence was the other one, and re-deriving those under
                 // this rule would shift every keystroke after the first of them.
                 StrictSpaces = true,
+
+                // THE narrowing of the judgement rule since backlog 209, unconditional for every
+                // mod stack: a freestyle slot and a run of three or more identical characters
+                // inside one syllable are judged on their own character targets, because the span
+                // rule paid a whole mashed run a delta of zero (a field report had accuracy going UP
+                // for spamming a freestyle section ahead of the vocal).
+                //
+                // Set even under Hard Rock, where it is INERT: HR turns SyllableTiming off, so its
+                // cells are already point-timed and this flag changes nothing it does. Recording it
+                // regardless is what keeps re-derivation uniform, the same convention bits 3 and 4
+                // follow, and it means no reader ever has to work out which stacks stamped it.
+                //
+                // An ERA flag on CONFIG frame bit 6, because every replay recorded before it holds
+                // presses that WERE paid across the whole span, and re-deriving those on character
+                // targets would invent a worse score than the one the player was shown.
+                CharTimedStretch = true,
             };
         }
     }

@@ -47,7 +47,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             if (!configEmitted)
             {
                 configEmitted = true;
-                emit(TypeBeatReplayFrame.CreateConfigFrame(time, engine.AllowWrongInput, engine.SpaceSkipsWord, engine.SyllableTiming, engine.WrongInputOnWordGaps, engine.StrictSpaces));
+                emit(TypeBeatReplayFrame.CreateConfigFrame(time, engine.AllowWrongInput, engine.SpaceSkipsWord, engine.SyllableTiming, engine.WrongInputOnWordGaps, engine.StrictSpaces, engine.CharTimedStretch));
             }
 
             emit(new TypeBeatReplayFrame(time, character));

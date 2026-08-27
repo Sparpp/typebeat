@@ -127,6 +127,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool SyllableTiming { get; set; }
 
         /// <summary>
+        /// The narrowing backlog 209 puts on <see cref="SyllableTiming"/>: a STRETCH cell
+        /// (<see cref="TypingLine.IsCharTimedStretch"/>, a freestyle slot or a cell of a run of
+        /// three or more identical characters inside one syllable) reverts to its own point target
+        /// even while the rest of the line is judged on syllable spans.
+        ///
+        /// <para>The span rule prices a press on WHICH CHARACTER of the syllable is being sung, and
+        /// those two shapes carry no such information: every key satisfies a freestyle slot, and the
+        /// characters of "&amp;&amp;&amp;&amp;&amp;&amp;" or the "000" of "1000" are interchangeable
+        /// to the matcher. So a player could mash the whole run the instant its syllable opened,
+        /// seconds ahead of the vocal, and be graded a delta of ZERO on every press: a field report
+        /// had accuracy going UP for spamming a freestyle section. Reverting exactly those cells to
+        /// the character targets they are actually timed on (the equal division of the syllable's
+        /// time range that <c>TypingLine.syllableCharTarget</c> already assigns) puts the mash back
+        /// on the clock and leaves every ordinary character on the span rule it was given.</para>
+        ///
+        /// <para>FALSE by default, and era-styled exactly like the flags above: set before the first
+        /// keypress and left alone. Live play sets it for EVERY mod stack
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c>), Hard Rock included, where it is inert
+        /// because HR turns <see cref="SyllableTiming"/> off and is therefore already
+        /// point-timed; recording it unconditionally is what makes re-derivation uniform. It
+        /// travels per replay on the CONFIG frame's flags bit 6
+        /// (<see cref="Replays.TypeBeatReplayFrame.CharTimedStretch"/>) and is applied in
+        /// <see cref="Replays.ReplayEngineFeed.Apply"/>, so every replay recorded before it existed
+        /// carries the bit clear and re-derives on the pure span rule its fingers were graded on,
+        /// exploit and all.</para>
+        /// </summary>
+        public bool CharTimedStretch { get; set; }
+
+        /// <summary>
         /// Whether <see cref="AllowWrongInput"/> reaches the WORD GAP as well as the lyric
         /// characters (backlog 181). With it on, a wrong (non-space) key pressed while the caret
         /// sits on a space cell is typed THROUGH exactly like a wrong letter on a lyric cell: the
@@ -2066,6 +2095,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// a stylised word its classic per-character judgement (backlog 178 leaves such a token
         /// ungrouped rather than adding a second rule here): space cells, lines without groups, and
         /// the cells of an unsyllabifiable token all land in the same arm.
+        ///
+        /// <para>Under <see cref="CharTimedStretch"/> a third kind of cell lands there too, and it
+        /// is the only one that IS in a group: a STRETCH cell
+        /// (<see cref="TypingLine.IsCharTimedStretch"/>, a freestyle slot or a cell of a run of
+        /// three or more identical characters inside one syllable), whose span would otherwise pay
+        /// a whole mashed run a delta of zero. Everything else keeps the span rule, so this narrows
+        /// backlog 179 rather than replacing it.</para>
         /// </summary>
         private double judgedDeltaFor(TypingLine line, int cellIndex, double time)
         {
@@ -2073,7 +2109,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             {
                 int syllable = line.SyllableIndexOf(cellIndex);
 
-                if (syllable >= 0)
+                if (syllable >= 0 && !(CharTimedStretch && line.IsCharTimedStretch(cellIndex)))
                 {
                     var group = line.Syllables[syllable];
 

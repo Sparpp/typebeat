@@ -185,6 +185,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public int SyllableIndexOf(int cellIndex)
             => cellIndex >= 0 && cellIndex < cellSyllable.Length ? cellSyllable[cellIndex] : -1;
 
+        /// <summary>Per display cell, whether it is a CHAR-TIMED STRETCH cell (see <see cref="IsCharTimedStretch"/>).</summary>
+        private readonly bool[] charTimedStretch;
+
+        /// <summary>
+        /// Whether cell <paramref name="cellIndex"/> is a STRETCH cell (backlog 209): one whose
+        /// identity does not say WHEN inside its syllable it was meant to be pressed, so the span
+        /// rule would hand it a delta of 0 for a press anywhere in the syllable. Two kinds qualify:
+        ///
+        /// <list type="bullet">
+        /// <item>a FREESTYLE cell (<see cref="TypingCell.IsFreestyle"/>), which accepts any key at
+        /// all, so a mashed section of them is indistinguishable from a played one; and</item>
+        /// <item>a cell inside a run of THREE OR MORE consecutive cells of the same syllable whose
+        /// characters fold equal (<see cref="Typeability.Fold"/>): the "000" of "1000", the "yyyy"
+        /// of a subtimed "hey|yyyy". The keys are interchangeable, so the run can be typed out in
+        /// one burst.</item>
+        /// </list>
+        ///
+        /// <para>THREE is the threshold, and it is <see cref="Syllabifier.IsSyllabifiable"/>'s own:
+        /// that gate calls a word stylised at three identical letters, so an ordinary doubled letter
+        /// ("goo", "all") is a normal spelling and keeps the syllable span it is sung across. Runs
+        /// are cut at the syllable boundary, because a span is what the rule hands out: two 'y's in
+        /// one syllable and two in the next are two runs of two, each judged on its own span.</para>
+        ///
+        /// <para>Derived at construction and purely structural, so it says nothing about which rule
+        /// is in force: <see cref="TypingEngine.CharTimedStretch"/> decides whether the judgement
+        /// seam reads it (see <c>TypingEngine.judgedDeltaFor</c>). Deliberately NOT a grouping
+        /// change: these cells stay in their syllable, because the lyric stack lights GROUPS and an
+        /// ungrouped stretch would stop being highlighted while it is sung.</para>
+        /// </summary>
+        public bool IsCharTimedStretch(int cellIndex)
+            => cellIndex >= 0 && cellIndex < charTimedStretch.Length && charTimedStretch[cellIndex];
+
         /// <summary>
         /// Piecewise-linear anchor points for <see cref="SungPositionAt"/>:
         /// (StartTime, 0), each typeable cell's (TargetTime, displayIndex), (SingEndTime, Cells.Count).
@@ -197,6 +229,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             Source = source;
             Syllables = syllables;
             this.cellSyllable = cellSyllable;
+            charTimedStretch = buildCharTimedStretch(cells, cellSyllable);
 
             var display = new System.Text.StringBuilder(cells.Count);
 
@@ -680,6 +713,56 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             return (groups.ToArray(), cellSyllable);
         }
+
+        /// <summary>
+        /// The <see cref="IsCharTimedStretch"/> flags, derived once from the cells and their group
+        /// membership (backlog 209). ADDITIVE: it reads <paramref name="cellSyllable"/> and never
+        /// writes it, so no cell's group, target or span moves and every construction pin on this
+        /// line (the parity fixtures included) sees exactly what it saw before.
+        ///
+        /// <para>One left-to-right pass. A run extends while the next cell sits in the SAME group
+        /// (a cell in no group can never extend one, so spaces, punctuation the default stream
+        /// isolated and whole stylised tokens all break runs) and its character folds equal to the
+        /// run's. A closed run of three or more marks all of its cells; a freestyle cell is marked
+        /// whatever its neighbours are.</para>
+        /// </summary>
+        private static bool[] buildCharTimedStretch(IReadOnlyList<TypingCell> cells, int[] cellSyllable)
+        {
+            bool[] flags = new bool[cells.Count];
+
+            for (int i = 0; i < cells.Count; i++)
+                flags[i] = cells[i].IsFreestyle;
+
+            int runStart = 0;
+
+            for (int i = 1; i <= cells.Count; i++)
+            {
+                bool extends = i < cells.Count
+                               && cellSyllable[i] >= 0
+                               && cellSyllable[i] == cellSyllable[runStart]
+                               && Typeability.Fold(cells[i].Expected) == Typeability.Fold(cells[runStart].Expected);
+
+                if (extends)
+                    continue;
+
+                if (cellSyllable[runStart] >= 0 && i - runStart >= STRETCH_RUN_LENGTH)
+                {
+                    for (int j = runStart; j < i; j++)
+                        flags[j] = true;
+                }
+
+                runStart = i;
+            }
+
+            return flags;
+        }
+
+        /// <summary>
+        /// How many identical characters in a row make a STRETCH (backlog 209). Three, which is
+        /// <see cref="Syllabifier.IsSyllabifiable"/>'s own threshold for calling a spelling
+        /// stylised, so the two answers about "hey" versus "heyyy" cannot disagree.
+        /// </summary>
+        public const int STRETCH_RUN_LENGTH = 3;
 
         /// <summary>
         /// Target time of typeable char <paramref name="j"/> (0-based, of <paramref name="k"/> in the

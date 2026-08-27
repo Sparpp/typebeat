@@ -40,7 +40,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             if (frame.IsConfig)
             {
                 // The recorded machine's judgement-relevant settings win over local config, all
-                // five of them: a replay of a run played WITHOUT space-skip must not start skipping
+                // six of them: a replay of a run played WITHOUT space-skip must not start skipping
                 // words because the watcher turned the setting on, and vice versa. Every replay
                 // recorded before a setting existed carries its bit clear, which decodes to false,
                 // i.e. to exactly the model those runs were played under.
@@ -57,12 +57,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // set the caret parks and the space lands, so the two arms disagree about where the
                 // caret is from the first misplaced space onwards. Applied here rather than at each of
                 // the three call sites for the same reason the others are: this is the one place a
-                // recorded frame reaches an engine.
+                // recorded frame reaches an engine. CharTimedStretch (backlog 209) is the fourth
+                // era bit, and it narrows SyllableTiming rather than competing with it: with it
+                // clear a mashed freestyle section or identical-character run keeps the delta of
+                // zero its whole syllable span paid it, which is what those runs were scored on.
                 engine.AllowWrongInput = frame.AllowWrongInput;
                 engine.SpaceSkipsWord = frame.SpaceSkipsWord;
                 engine.SyllableTiming = frame.SyllableTiming;
                 engine.WrongInputOnWordGaps = frame.WrongInputOnWordGaps;
                 engine.StrictSpaces = frame.StrictSpaces;
+                engine.CharTimedStretch = frame.CharTimedStretch;
                 return;
             }
 

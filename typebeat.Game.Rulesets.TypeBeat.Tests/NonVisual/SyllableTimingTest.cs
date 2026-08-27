@@ -644,9 +644,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <paramref name="generatorEra"/> is the rule the frames are aimed at,
         /// <paramref name="engineEra"/> the rule that grades them. Backlog 181 is exactly that
         /// mismatch, classic frames into a span engine, and the fixture below reproduces it.</para>
+        ///
+        /// <para><paramref name="charTimed"/> is backlog 209's narrowing, and it is deliberately
+        /// ONE parameter feeding both sides: generator and engine have to agree about it or a
+        /// stretch cell is pressed on one rule and graded on the other. It defaults to the LIVE
+        /// value, so every autoplay pin below runs under the rule players actually get;
+        /// <see cref="CharTimedStretchTest"/> holds the rule itself.</para>
         /// </summary>
         private static (TypingEngine engine, IReadOnlyList<TypeBeatReplayFrame> frames) autoplay(
-            IReadOnlyList<TypeBeatHitObject> lineObjects, string title, bool generatorEra, bool engineEra, double windowScale = 1)
+            IReadOnlyList<TypeBeatHitObject> lineObjects, string title, bool generatorEra, bool engineEra, double windowScale = 1, bool charTimed = true)
         {
             const double frame_ms = 1000.0 / 60;
 
@@ -662,10 +668,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Granularity = lineObjects[0].Granularity,
             };
 
-            var frames = new TypeBeatAutoGenerator(beatmap, syllableTiming: generatorEra).Generate().Frames.Cast<TypeBeatReplayFrame>().ToList();
+            var frames = new TypeBeatAutoGenerator(beatmap, syllableTiming: generatorEra, charTimedStretch: charTimed).Generate().Frames.Cast<TypeBeatReplayFrame>().ToList();
             Assert.That(frames, Is.Not.Empty);
 
-            var engine = new TypingEngine(lyricBeatmap) { SyllableTiming = engineEra, WindowScale = windowScale };
+            var engine = new TypingEngine(lyricBeatmap) { SyllableTiming = engineEra, CharTimedStretch = charTimed, WindowScale = windowScale };
 
             int next = 0;
             double end = lyricBeatmap.LastLineEnd + 10000;
