@@ -40,6 +40,21 @@ looking for it. The canonical sources are the code itself:
   mashed run delta 0 seconds ahead of the vocal (a field report had accuracy going UP for spamming
   a freestyle section). Everything else keeps the span rule, and the threshold of three is
   `Syllabifier.IsSyllabifiable`'s own, so a doubled letter ("goo") is untouched.
+  A third axis, orthogonal to both, is WHICH LINE THE CARET IS ON. Backlog 208 made the unpinned
+  caret (`FletcherEnabled`: finish a line and you are on the next one, a line the song has left is
+  not snatched, a character-distance rush cap replaces the timing lock) the DEFAULT for every play
+  and REVERSED the Fletcher mod, which now pins the caret back and takes acronym `FC` at 1.02x. It
+  ships one behaviour the old mod never had, `FlexibleLineSnap`: a caret sitting PAST the last
+  character of its line is handed to the next line the moment that line starts, so a player who has
+  FINISHED is still carried along by the song (an UNFINISHED line is never taken, which is the point
+  of the freedom). That pair is CONFIG flags bit 5, and the bit is why the flags word cannot be read
+  as a single fact: bit 5 clear means PINNED for a plain old replay but unpinned-without-the-snap for
+  one carrying the retired `FT` acronym, so `ReplayEngineFeed.Apply` takes the snap from the bit
+  outright and the caret from `bit 5 || TypingEngine.FlexibleCaretFromMod` (set by the two engine
+  factories off `TypeBeatModLegacyFletcher`). `FT` is a `ModType.System` mod: unselectable, but still
+  resolvable, so its stored rows keep their 0.98x multiplier and 0.90x pp. Bits 5 and 6 landed
+  concurrently, which is why the `CreateConfigFrame` parameter order does not track bit order (pass
+  the newer two by name).
 - **The timing schema** (per-character target times, syllable subdivision, space cells):
   `Gameplay/TypingLine.cs`, `FromLyricLine`.
 - **How a judgement becomes a stored osu result**: `Scoring/TypeBeatResultMapping.cs`, which also

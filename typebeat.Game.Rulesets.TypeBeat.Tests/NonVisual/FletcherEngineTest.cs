@@ -928,7 +928,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var replayed = new TypingEngine(parkedLineMap());
 
             feed(replayed,
-                TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, flexibleLines: true),
+                TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true),
                 ('a', 1000), ('b', 1500));
 
             Assert.IsTrue(replayed.FletcherEnabled);
@@ -966,9 +966,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var dummy = new typebeat.Game.Beatmaps.Beatmap();
 
-            var full = TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true, spaceSkipsWord: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, flexibleLines: true);
+            var full = TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true, spaceSkipsWord: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true);
 
-            Assert.AreEqual(1 + 2 + 4 + 8 + 16 + 32, (int)full.ToLegacy(dummy).MouseY!.Value);
+            Assert.AreEqual(1 + 2 + 4 + 8 + 16 + 32 + 64, (int)full.ToLegacy(dummy).MouseY!.Value, "bit 5 sits between strict spaces and char-timed stretch");
 
             var decoded = new TypeBeatReplayFrame();
             decoded.FromLegacy(full.ToLegacy(dummy), dummy);
@@ -984,6 +984,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(old.WrongInputOnWordGaps);
             Assert.IsTrue(old.StrictSpaces);
             Assert.IsFalse(old.FlexibleLines, "the new bit reads false on every word already on disk");
+            Assert.IsFalse(old.CharTimedStretch);
 
             // And the default is clear, which is what every older CALL SITE keeps meaning.
             Assert.IsFalse(TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true).FlexibleLines);
