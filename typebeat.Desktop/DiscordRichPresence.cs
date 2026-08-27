@@ -34,12 +34,13 @@ namespace typebeat.Desktop
         /// owned by that application's page on the Discord developer portal and CANNOT be set from
         /// code: the header Discord prints ("Playing NAME") is the application's NAME, and every
         /// image is an entry in its "Rich Presence, Art Assets" list. Backlog 220 was the header
-        /// reading "osu!" with the osu logo: the app behind this id carried osu branding, and the
-        /// code asked for lazer's asset key names. The portal app must be named "type!beat" (rename
-        /// it, or create a fresh application and put its id here) and must carry art under the keys
-        /// below; until then the header shows whatever the portal says and the images stay blank.
+        /// reading "osu!" with the osu logo: the previous id (1216669957799018608, an app this
+        /// project does not own and could not edit) carried osu branding, and the code asked for
+        /// lazer's asset key names. This id is the project-owned application NAMED "type!beat",
+        /// which carries art under the keys below; a key with no upload leaves that image blank
+        /// while the text lines still show.
         /// </summary>
-        private const string client_id = "1216669957799018608";
+        private const string client_id = "1542678745624875189";
 
         /// <summary>
         /// Key of the large presence image: the type!beat logo, uploaded on the portal (1024x1024
