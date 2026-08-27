@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
@@ -425,6 +426,97 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // The relocated 'm' still works either way.
             Assert.IsTrue(KeyCharMap.TryMap(Key.Semicolon, KeyboardLayout.Azerty, false, out char m));
             Assert.AreEqual('m', m);
+
+            // ...including with the surface open, which is the whole of backlog 214: the US ';'
+            // legend for that position must not shadow the keycap the AZERTY player reads.
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Semicolon, KeyboardLayout.Azerty, false, true, out char literateM));
+            Assert.AreEqual('m', literateM);
+
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Semicolon, KeyboardLayout.Azerty, true, true, out char literateCapitalM));
+            Assert.AreEqual('M', literateCapitalM);
+        }
+
+        /// <summary>
+        /// Backlog 214. AZERTY's bottom row sits one position left of the US one, so five physical
+        /// positions carry a different legend. Under Literate each must produce what the player
+        /// reads on the keycap, or produce nothing: a mark the keycap does not show is a wrong key,
+        /// which is a combo break, a typo and HP drain rather than a miss.
+        /// </summary>
+        [Test]
+        public void AzertyBottomRowCarriesItsOwnLegendsUnderTheMod()
+        {
+            var expected = new Dictionary<(Key, bool), char>
+            {
+                // The four corrected punctuation positions, unshifted then shifted.
+                [(Key.M, false)] = ',',
+                [(Key.M, true)] = '?',
+                [(Key.Comma, false)] = ';',
+                [(Key.Comma, true)] = '.',
+                [(Key.Period, false)] = ':',
+                [(Key.Period, true)] = '/',
+                [(Key.Slash, false)] = '!',
+                // The ISO key AZERTY has and US QWERTY does not, which is where the angle
+                // brackets live once Comma and Period carry their French legends.
+                [(Key.NonUSBackSlash, false)] = '<',
+                [(Key.NonUSBackSlash, true)] = '>',
+            };
+
+            foreach (var ((key, shift), mark) in expected)
+            {
+                Assert.IsTrue(KeyCharMap.TryMap(key, KeyboardLayout.Azerty, shift, true, out char produced), $"{key} (shift={shift})");
+                Assert.AreEqual(mark, produced, $"{key} (shift={shift})");
+
+                // Every one of them is still inert without the mod, exactly like the US table's
+                // punctuation keys: a habitual comma never costs an AZERTY player anything.
+                Assert.IsFalse(KeyCharMap.TryMap(key, KeyboardLayout.Azerty, shift, false, out _), $"{key} (shift={shift}) without the mod");
+            }
+
+            // Shift on the '!' key is the section sign, outside the supported set, so the key
+            // stays inert for that modifier state rather than producing the US legend's '?'.
+            Assert.IsFalse(KeyCharMap.TryMap(Key.Slash, KeyboardLayout.Azerty, true, true, out _));
+
+            // Nothing about the correction reaches QWERTY or QWERTZ.
+            foreach (var layout in new[] { KeyboardLayout.Qwerty, KeyboardLayout.Qwertz })
+            {
+                Assert.IsTrue(KeyCharMap.TryMap(Key.Comma, layout, false, true, out char comma));
+                Assert.AreEqual(',', comma, $"{layout}");
+
+                Assert.IsTrue(KeyCharMap.TryMap(Key.Period, layout, true, true, out char greater));
+                Assert.AreEqual('>', greater, $"{layout}");
+
+                Assert.IsTrue(KeyCharMap.TryMap(Key.Slash, layout, true, true, out char question));
+                Assert.AreEqual('?', question, $"{layout}");
+
+                Assert.IsFalse(KeyCharMap.TryMap(Key.NonUSBackSlash, layout, false, true, out _), $"{layout}");
+                Assert.IsFalse(KeyCharMap.TryMap(Key.NonUSBackSlash, layout, true, true, out _), $"{layout}");
+            }
+        }
+
+        /// <summary>
+        /// The property the AZERTY arm has to preserve: moving four positions onto their French
+        /// legends must not strand a supported mark with no key at all, which is the same failure
+        /// as the untypeable 'm' in a slower disguise.
+        /// </summary>
+        [Test]
+        public void EverySupportedMarkStaysReachableOnAzerty()
+        {
+            var reachable = new HashSet<char>();
+
+            foreach (Key key in Enum.GetValues<Key>())
+            {
+                foreach (bool shift in new[] { false, true })
+                {
+                    if (KeyCharMap.TryMap(key, KeyboardLayout.Azerty, shift, true, out char c))
+                        reachable.Add(c);
+                }
+            }
+
+            foreach (char mark in Typeability.PUNCTUATION)
+                Assert.IsTrue(reachable.Contains(mark), $"'{mark}' has no key on AZERTY");
+
+            // And the letters are all still there too, 'm' included.
+            for (char letter = 'a'; letter <= 'z'; letter++)
+                Assert.IsTrue(reachable.Contains(letter), $"'{letter}' has no key on AZERTY");
         }
 
         // --- Mod plumbing and replays -----------------------------------------------------------

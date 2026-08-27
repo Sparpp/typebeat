@@ -86,6 +86,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsFalse(KeyCharMap.TryMap(Key.Semicolon, KeyboardLayout.Qwertz, out _));
         }
 
+        /// <summary>
+        /// Backlog 214. The punctuation surface is consulted BEFORE the letter map, so its US
+        /// legend for the QWERTY semicolon position (';' / ':') used to shadow the 'm' keycap that
+        /// AZERTY puts there: with Literate on, an AZERTY player pressing M got ';', a wrong key
+        /// every time, and no map containing an 'm' could be completed.
+        /// </summary>
+        [TestCase(false, false, 'm')]
+        [TestCase(true, false, 'M')]
+        [TestCase(false, true, 'M')]
+        [TestCase(true, true, 'm')]
+        public void AzertyMKeycapSurvivesThePunctuationSurface(bool shift, bool capsLock, char expected)
+        {
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Semicolon, KeyboardLayout.Azerty, shift, punctuation: true, capsLock, out char c),
+                $"shift={shift} caps={capsLock}");
+            Assert.AreEqual(expected, c, $"shift={shift} caps={capsLock}");
+
+            // Identical with the surface closed: opening it must not move the letter at all.
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Semicolon, KeyboardLayout.Azerty, shift, punctuation: false, capsLock, out char plain));
+            Assert.AreEqual(expected, plain, $"no-punctuation shift={shift} caps={capsLock}");
+        }
+
+        [Test]
+        public void QwertySemicolonKeepsItsUsLegend()
+        {
+            // The layout that genuinely has ';' there is untouched by the AZERTY correction.
+            foreach (var layout in new[] { KeyboardLayout.Qwerty, KeyboardLayout.Qwertz })
+            {
+                Assert.IsTrue(KeyCharMap.TryMap(Key.Semicolon, layout, shift: false, punctuation: true, out char semicolon), $"{layout}");
+                Assert.AreEqual(';', semicolon, $"{layout}");
+
+                Assert.IsTrue(KeyCharMap.TryMap(Key.Semicolon, layout, shift: true, punctuation: true, out char colon), $"{layout}");
+                Assert.AreEqual(':', colon, $"{layout}");
+
+                // And it is still inert without the mod, on both layouts.
+                Assert.IsFalse(KeyCharMap.TryMap(Key.Semicolon, layout, shift: false, punctuation: false, out _), $"{layout}");
+            }
+
+            // The QWERTY-M position is the letter on those layouts, mod or no mod.
+            Assert.IsTrue(KeyCharMap.TryMap(Key.M, KeyboardLayout.Qwerty, shift: false, punctuation: true, out char m));
+            Assert.AreEqual('m', m);
+        }
+
         [Test]
         public void DigitsAndSpaceAreLayoutIndependent()
         {

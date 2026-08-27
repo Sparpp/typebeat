@@ -96,21 +96,64 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// Keypads are deliberately not covered (no KeypadMultiply for '*', no KeypadDivide for
         /// '/'), matching the top-row-only convention the table has always followed.
         ///
-        /// <para>KNOWN LIMIT: unlike the letter map above, this is not remapped per layout, because
-        /// punctuation positions differ far more widely across layouts than letters do. The one
-        /// correction made is AZERTY's, whose M keycap sits on the QWERTY semicolon position and
-        /// whose QWERTY-M position genuinely carries ',' (the case
-        /// <see cref="tryMapLower"/> already documents). Other non-US layouts will find some marks
-        /// on the wrong physical key under Literate; a per-layout punctuation table is the fix.</para>
+        /// <para>PER-LAYOUT CORRECTIONS. Exactly one layout is corrected, AZERTY, and only for the
+        /// six physical positions whose French legend differs from the US one. Its bottom row sits
+        /// one position to the LEFT of the US row, so:
+        /// <list type="bullet">
+        /// <item>the QWERTY semicolon position is the 'm' KEYCAP, so this table must not claim it
+        /// at all: it falls through to <see cref="tryMapLower"/>, which produces the letter (and
+        /// the shift XOR caps pass above then produces its capital). Claiming it here is what made
+        /// every lyric containing an 'm' uncompletable under Literate on AZERTY, since the key
+        /// produced ';' instead;</item>
+        /// <item>the QWERTY M, Comma, Period and Slash positions carry ',' ';' ':' '!' unshifted
+        /// and '?' '.' '/' and the section sign shifted;</item>
+        /// <item>the ISO key to the left of the bottom row, which US keyboards do not have, carries
+        /// the two angle brackets, whose US home (shifted Comma and Period) is taken above.</item>
+        /// </list>
+        /// The section sign is outside <see cref="Beatmaps.Typeability.PUNCTUATION"/>, so that one
+        /// combination stays INERT rather than producing something else: a corrected position never
+        /// yields a mark the player cannot read off the keycap. Every supported mark stays reachable
+        /// on AZERTY.</para>
+        ///
+        /// <para>KNOWN LIMIT: nothing else is remapped, because punctuation positions differ far
+        /// more widely across layouts than letters do. AZERTY's own digit row is the clearest
+        /// remainder (there the marks are unshifted and the digits shifted, the reverse of the table
+        /// below), and other non-US layouts will still find some marks on the wrong physical key
+        /// under Literate; a full per-layout punctuation table is the fix.</para>
         /// </summary>
         private static bool tryMapPunctuation(Key key, KeyboardLayout layout, bool shift, out char c)
         {
-            if (layout == KeyboardLayout.Azerty && key == Key.M)
+            if (layout == KeyboardLayout.Azerty)
             {
-                // This position carries ',' on AZERTY. Inert without the mod (see tryMapLower);
-                // with it, it is the comma key.
-                c = ',';
-                return !shift;
+                switch (key)
+                {
+                    case Key.Semicolon:
+                        // The 'm' keycap, not a punctuation key at all here. Leave it to the
+                        // letter map rather than shadowing it with the US legend's ';'.
+                        c = default;
+                        return false;
+
+                    case Key.M:
+                        c = shift ? '?' : ',';
+                        return true;
+
+                    case Key.Comma:
+                        c = shift ? '.' : ';';
+                        return true;
+
+                    case Key.Period:
+                        c = shift ? '/' : ':';
+                        return true;
+
+                    case Key.Slash:
+                        // Shifted this is the section sign, outside the supported set, so inert.
+                        c = shift ? default : '!';
+                        return c != default;
+
+                    case Key.NonUSBackSlash:
+                        c = shift ? '>' : '<';
+                        return true;
+                }
             }
 
             c = key switch
