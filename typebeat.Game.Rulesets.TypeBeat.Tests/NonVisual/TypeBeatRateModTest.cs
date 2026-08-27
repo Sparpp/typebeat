@@ -463,7 +463,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             assertWire(new TypeBeatModHalfTime { SpeedChange = { Value = 0.5 } }, @"{""acronym"":""HT"",""settings"":{""speed_change"":0.5}}");
 
             // Non-rate mods are untouched: no settings block at all.
-            assertWire(new TypeBeatModFletcher(), @"{""acronym"":""FT""}");
+            assertWire(new TypeBeatModFletcher(), @"{""acronym"":""FC""}");
             assertWire(new TypeBeatModNoFail(), @"{""acronym"":""NF""}");
         }
 
@@ -561,7 +561,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 { new TypeBeatModSuddenDeath(), 1.0 },
                 { new TypeBeatModFlashlight(), 1.05 },
                 { new TypeBeatModLiterate(), 1.05 },
-                { new TypeBeatModFletcher(), 0.98 },
+                { new TypeBeatModFletcher(), 1.02 },
+                { new TypeBeatModLegacyFletcher(), 0.98 },
                 { new TypeBeatModMashing(), 0.1 },
             };
 

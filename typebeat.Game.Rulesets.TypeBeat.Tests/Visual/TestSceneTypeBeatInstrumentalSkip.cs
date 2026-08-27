@@ -7,6 +7,7 @@ using NUnit.Framework;
 using osu.Framework.Testing;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Screens.Play;
@@ -24,12 +25,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// exact shape of the user's "immortal flame" / "neon rain" maps, on which two prior
     /// hole-between-lines synthetic tests falsely passed. Drives a real <see cref="Player"/> and
     /// pushes actual key presses through the whole input stack: Space while the line is being
-    /// typed is consumed by typing; after the line is fully typed (still active!) Space falls
-    /// through to the deferred mid-song <see cref="SkipOverlay"/> and performs the skip.
+    /// typed is consumed by typing; after the line is fully typed Space falls through to the
+    /// deferred mid-song <see cref="SkipOverlay"/> and performs the skip.
+    ///
+    /// <para>Since backlog 208 the caret is UNPINNED by default, so finishing line 0 parks the
+    /// player, untouched, at the head of line 1 while the song is still inside line 0's window.
+    /// That is exactly the state <c>TypeBeatPlayfield</c>'s narrow Space fall-through is gated on
+    /// (no song window open, active line untouched), so the scene now drives the shipped arm of
+    /// that gate rather than the pinned one it was written against.</para>
     /// </summary>
     public partial class TestSceneTypeBeatInstrumentalSkip : PlayerTestScene
     {
         protected override Ruleset CreatePlayerRuleset() => new TypeBeatRuleset();
+
+        private Configuration.TypeBeatRulesetConfigManager config
+            => (Configuration.TypeBeatRulesetConfigManager)RulesetConfigs.GetConfigFor(new TypeBeatRuleset())!;
+
+        /// <summary>
+        /// The Space probe below has to leave the line RECOVERABLE, and with word skipping on a
+        /// space pressed inside a word abandons it whole, which would end the line before it is
+        /// typed. Declared rather than inherited, exactly as <c>TestSceneTypeBeatWordInput</c> does.
+        /// </summary>
+        public override void SetUpSteps()
+        {
+            AddStep("word skipping off", () => config.SetValue(Configuration.TypeBeatRulesetSetting.SpaceSkipsWord, false));
+            base.SetUpSteps();
+        }
 
         private TypeBeatPlayfield playfield => (TypeBeatPlayfield)Player.DrawableRuleset.Playfield;
 
@@ -87,17 +108,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("press Space while typing", () => InputManager.Key(Key.Space));
             AddAssert("no skip while typing", () => instrumentalOverlay.SkipCount == 0);
             AddAssert("clock did not jump", () => Player.GameplayClockContainer.CurrentTime < 10000);
+            AddAssert("it went into the line as a typo instead", () => playfield.Engine.Lines[0].Cells[0].State == CellState.Wrong);
 
-            // Finish the line. It stays ACTIVE (the real-map gap state) but becomes input-inert.
+            // Take the probe back, then type the line out, so what follows is a player who FINISHED
+            // line 0 rather than one who spoiled its first cell.
+            AddStep("backspace the probe away", () => InputManager.Key(Key.BackSpace));
             AddStep("type 'a'", () => InputManager.Key(Key.A));
             AddStep("type 'b'", () => InputManager.Key(Key.B));
-            AddAssert("line 0 complete but still active", () => playfield.Engine.IsLineComplete && playfield.Engine.ActiveLineIndex == 0);
 
-            // Once the vocals have ended (+ settle) the overlay opens its skip period, while the
-            // completed line is STILL the active line.
+            // Finishing it hands the caret straight to line 1 (rush freedom, the default since
+            // backlog 208) while the SONG is still inside line 0's window. Untouched, so Space is
+            // still the skip key rather than a typing key.
+            AddAssert("line 0 done, caret parked untouched at the head of line 1", () =>
+                playfield.Engine.ActiveLineIndex == 1
+                && playfield.Engine.CaretIndex == 0
+                && playfield.Engine.ActiveLineUntouched
+                && playfield.Engine.NextUnsealedLineIndex == 0);
+
+            // Once the vocals have ended (+ settle) the overlay opens its skip period, with the
+            // player still parked at the head of line 1 and the song still on line 0.
+            // The song's window never closes here (the windows are contiguous), which is exactly why
+            // the key handler asks whether the song is on the CARET's line rather than whether any
+            // window is open.
+            AddAssert("the song's own window is still open", () => playfield.Engine.SongWindowOpen);
+
             AddUntilStep("in the instrumental gap", () =>
-                playfield.Engine.ActiveLineIndex == 0
-                && playfield.Engine.IsLineComplete
+                playfield.Engine.ActiveLineIndex == 1
+                && playfield.Engine.ActiveLineUntouched
+                && !playfield.Engine.SongIsOnTheCaretsLine
                 && Player.GameplayClockContainer.CurrentTime > 3000
                 && Player.GameplayClockContainer.CurrentTime < 10500);
 

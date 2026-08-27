@@ -53,7 +53,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 addLine(beatmap, 1, "secondline");
 
                 var playable = CreateWorkingBeatmap(beatmap).GetPlayableBeatmap(ruleset.RulesetInfo, Array.Empty<Mod>());
-                var mods = new Mod[] { new TypeBeatModFlashlight() };
+                // Flashlight plus FLETCHER, i.e. the caret PINNED to the playhead. Since backlog 208
+                // an unpinned caret is the default and is handed to the next line the instant the
+                // current one is finished, so it is never parked past the end of a line: the
+                // early-finish spill below would have nowhere to happen and the window assertions
+                // would be reading a different line. Pinning is what keeps the caret where the
+                // flashlight window is being measured.
+                var mods = new Mod[] { new TypeBeatModFlashlight(), new TypeBeatModFletcher() };
 
                 Child = drawableRuleset = (DrawableTypeBeatRuleset)ruleset.CreateDrawableRulesetWith(playable, mods);
             });

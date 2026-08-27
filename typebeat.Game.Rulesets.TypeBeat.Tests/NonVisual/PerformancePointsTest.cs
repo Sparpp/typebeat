@@ -613,12 +613,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         #region Mod multipliers, driven by the REAL ruleset mods
 
         [Test]
-        public void ModMultiplier_NoFailAndFletcherEachCostTenPercent()
+        public void ModMultiplier_NoFailAndRetiredFletcherEachCostTenPercent()
         {
             Assert.Multiple(() =>
             {
                 Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModNoFail()), 300), Is.EqualTo(0.90).Within(1e-12)); // pp[f.no_fail_multiplier]
-                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModFletcher()), 300), Is.EqualTo(0.90).Within(1e-12)); // pp[f.fletcher_multiplier]
+                // "FT" is the RETIRED mod (backlog 208 made its freedoms the default and gave the
+                // name to the mod that pins the caret instead), and its price is still charged,
+                // because stored rows carry the acronym and pp is keyed on the acronym string.
+                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModLegacyFletcher()), 300), Is.EqualTo(0.90).Within(1e-12)); // pp[f.fletcher_multiplier]
+                // The mod named Fletcher TODAY ("FC") is unlisted, i.e. neutral, like any acronym
+                // this table has not learned.
+                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModFletcher()), 300), Is.EqualTo(1.0).Within(1e-12));
                 Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModFlashlight()), 300),
                     Is.EqualTo(PerformancePoints.FlashlightMultiplier(300)).Within(1e-12));
             });
@@ -757,7 +763,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(bare, Is.EqualTo(49.285664).Within(1e-5)); // pp[f.compute(3, 300, 5, 0.8, 250)]
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModNoFail())),
                     Is.EqualTo(bare * 0.90).Within(1e-9)); // pp:const no_fail_multiplier=0.90
-                Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModFletcher())),
+                Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModLegacyFletcher())),
                     Is.EqualTo(bare * 0.90).Within(1e-9)); // pp:const fletcher_multiplier=0.90
                 // Literate does not reach this function at all any more: it moves the star rating
                 // that was passed IN, not the multiplier applied here (backlog 144).

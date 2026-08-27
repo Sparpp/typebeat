@@ -251,7 +251,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddStep("run the line out of time", () =>
             {
-                engine.Update(line_end + 1);
+                // Past the deadline AND past the drag grace the unpinned caret gets (backlog 208
+                // made that the default): the player is still ON this line, so the seal is deferred
+                // by FLETCHER_DRAG_GRACE_MS before the untyped cells become misses.
+                engine.Update(line_end + 1 + TypingEngine.FLETCHER_DRAG_GRACE_MS);
 
                 gapAlpha = display.CellAlpha(gap);
                 missedAlpha = display.CellAlpha(gap + 1);

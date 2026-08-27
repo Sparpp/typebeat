@@ -12,8 +12,10 @@ using typebeat.Game.Beatmaps;
 using typebeat.Game.Database;
 using typebeat.Game.Input.Bindings;
 using typebeat.Game.Replays.Legacy;
+using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.UI;
@@ -59,7 +61,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             AddStep("word skipping off", () => config.SetValue(Configuration.TypeBeatRulesetSetting.SpaceSkipsWord, false));
             base.SetUpSteps();
+
+            // FLETCHER, i.e. the caret PINNED to the playhead (backlog 208 reversed the mod and made
+            // the unpinned caret the default). Every gesture below acts on a caret sitting ON a
+            // fully typed line, and an unpinned caret does not sit there: it is handed to the next
+            // line the instant the last character lands. So the scene declares the arm it was
+            // written on rather than inheriting one, exactly as it does for word skipping above, and
+            // loads the player by hand because CreateTest passes no mods.
+            AddStep("load player with Fletcher (pinned caret)", () => LoadPlayer(new Mod[] { new TypeBeatModFletcher() }));
+            AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
         }
+
+        /// <summary>The player is loaded by <see cref="SetUpSteps"/> above, with mods.</summary>
+        protected override bool HasCustomSteps => true;
 
         private TypeBeatPlayfield playfield => (TypeBeatPlayfield)Player.DrawableRuleset.Playfield;
 

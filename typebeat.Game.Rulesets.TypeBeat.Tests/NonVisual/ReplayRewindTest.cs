@@ -464,8 +464,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// A rebuild re-judges the SAME run, so everything describing how the run is judged survives
         /// it: the mod flags, the window scale and the two era rules. Only progress is wiped. (The
-        /// two replay CONFIG bits are excluded on purpose: the header frame re-feeds them, which is
+        /// replay CONFIG bits are excluded on purpose: the header frame re-feeds them, which is
         /// itself the pin that a rebuild replays from the true beginning.)
+        ///
+        /// <para><see cref="TypingEngine.FletcherEnabled"/> is now one of those CONFIG bits
+        /// (backlog 208, flags bit 5), so it is asserted through its DERIVATION rather than as a
+        /// preserved setting: the fixture's frames carry the bit clear, and
+        /// <see cref="TypingEngine.FlexibleCaretFromMod"/> is the half of the answer the frame
+        /// cannot give (the retired "FT" mod on the score). That flag is a mod fact, so it survives
+        /// the reset like any other, and re-feeding the header has to reach the same unpinned caret
+        /// a second time.</para>
         /// </summary>
         [Test]
         public void ARebuildKeepsTheSettingsTheRunIsJudgedUnder()
@@ -475,6 +483,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var engine = new TypingEngine(map)
             {
+                FlexibleCaretFromMod = true,
                 FletcherEnabled = true,
                 MashingEnabled = true,
                 WindowScale = 1.4,
@@ -486,12 +495,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             playTo(engine, replay, past_the_end);
             ReplayEngineFeed.RebuildTo(engine, replay.Frames, 2000);
 
-            Assert.That(engine.FletcherEnabled, Is.True);
+            Assert.That(engine.FlexibleCaretFromMod, Is.True);
+            Assert.That(engine.FletcherEnabled, Is.True, "the retired mod's unpinned caret must survive the header being re-fed");
+            Assert.That(engine.FlexibleLineSnap, Is.False, "an FT-era run never had the line-start snap");
             Assert.That(engine.MashingEnabled, Is.True);
             Assert.That(engine.WindowScale, Is.EqualTo(1.4));
             Assert.That(engine.ComboRestore, Is.EqualTo(ComboRestoreRule.Never));
             Assert.That(engine.SpaceTiming, Is.EqualTo(SpaceTimingRule.Timed));
             Assert.That(engine.WordSkip, Is.EqualTo(WordSkipRule.ImmediateMiss));
+        }
+
+        /// <summary>
+        /// The other half of the same seam (backlog 208): a run recorded in the FLEXIBLE-LINES era
+        /// carries flags bit 5 SET, and a rebuild has to put both flags back from the header even
+        /// though the engine being rebuilt has no mod telling it anything. Without the bit surviving
+        /// the re-feed the rewind would re-derive a pinned caret and land every keystroke after the
+        /// seek target on a different line.
+        /// </summary>
+        [Test]
+        public void ARebuildRestoresTheFlexibleLinesEraFromTheHeader()
+        {
+            var map = beatmap();
+            var replay = run(map);
+
+            // Stamp the fixture's header the way the live recorder does today.
+            var header = replay.Frames.OfType<TypeBeatReplayFrame>().First(f => f.IsConfig);
+            header.FlexibleLines = true;
+
+            var engine = new TypingEngine(map);
+
+            Assert.That(engine.FletcherEnabled, Is.False, "the engine default is the classic pinned era");
+
+            // RebuildTo is the seek path, and it goes through ReplayEngineFeed.Apply, the one place
+            // a recorded frame reaches an engine.
+            ReplayEngineFeed.RebuildTo(engine, replay.Frames, past_the_end);
+
+            Assert.That(engine.FletcherEnabled, Is.True);
+            Assert.That(engine.FlexibleLineSnap, Is.True);
+
+            // And again, backwards: a second rebuild resets everything the run touched and has to
+            // reach the same era a second time off the same header.
+            ReplayEngineFeed.RebuildTo(engine, replay.Frames, 2000);
+
+            Assert.That(engine.FletcherEnabled, Is.True);
+            Assert.That(engine.FlexibleLineSnap, Is.True);
         }
 
         /// <summary>

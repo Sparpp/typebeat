@@ -1,12 +1,18 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-// Fletcher mod (backlog 25) gameplay-core tests. The mod unpins the player's caret from the song's
-// playhead: rush freedom (finish a line and you are typing the next one at once), drag freedom (the
-// song moving on does not snatch the line you are still finishing), and a character-distance rush
-// cap replacing the timing lock. Every expected value below is hand-computed beside its assert, in
-// the style of TypingEngineTest, and the first fixture pins the DEFAULT path byte-identical: a run
-// that stays in sync scores exactly the same with the mod on as with it off.
+// The UNPINNED caret's gameplay-core tests. Shipped as the Fletcher mod by backlog 25 and made the
+// DEFAULT for every play by backlog 208, which reversed the mod: rush freedom (finish a line and
+// you are typing the next one at once), drag freedom (the song moving on does not snatch the line
+// you are still finishing), a character-distance rush cap replacing the timing lock, and (new with
+// 208) the LINE-START SNAP, which hands a caret that is already past the end of its line to the
+// next line the moment that line starts.
+//
+// So the sense of every arm below is reversed from the file it grew out of: `flexible: true` is now
+// the shipped path and `flexible: false` is the mod named Fletcher, which pins the caret back.
+// Every expected value is hand-computed beside its assert, in the style of TypingEngineTest, and the
+// first fixture pins the two paths against each other: a run that stays in sync scores exactly the
+// same either way.
 
 using System;
 using System.Collections.Generic;
@@ -15,6 +21,7 @@ using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Replays;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
@@ -42,6 +49,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Lines = lines,
             Granularity = granularity,
         };
+
+        /// <summary>
+        /// The PARKED-FINISHED fixture: a caret sitting past the end of its line with NO keypress of
+        /// the player's able to move it, and the next line starting under it.
+        ///
+        /// <para>Two pieces make that state. L1's authored text is pure punctuation, which the
+        /// default (non-Literate) stream strips entirely, so the line has NO cells at all: the caret
+        /// is complete the instant it lands on it and no press can ever finish it, which is exactly
+        /// what the keypress roll-forward cannot cover. And L1's WINDOW OUTLIVES L2's cue (L1 runs to
+        /// 20000, L2's first vocal is at 12000 so it activates at 10500), which is what stops the
+        /// SEAL from getting there first: on a strictly ordered map the next line cannot start before
+        /// the current one's EndTime, so the seal loop's own handover already carries a finished
+        /// caret across every boundary. The snap is what makes the rule hold for the engine rather
+        /// than for a map shape.</para>
+        ///
+        /// <para>L0 "ab" [1000, 3000): a = 1000, b = 1500. L2 "cd" [10000, 30000): c = 12000,
+        /// d = 12500, so ActivationTime = 12000 - CUE_LEAD_MS = 10500.</para>
+        /// </summary>
+        private static LyricBeatmap parkedLineMap() => map(TimingGranularity.Line,
+            line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000)),
+            line("...", 3000, 20000, 19000, unit("...", 3000, 19000)),
+            line("cd", 10000, 30000, 13000, unit("cd", 12000, 13000)));
+
+        /// <summary>
+        /// Type L0 out, which rolls the caret straight on to the empty L1 and leaves it parked past
+        /// that line's (non-existent) last character, with nothing sealed and L2 not yet started.
+        /// </summary>
+        private static void typeIntoTheParkedState(TypingEngine typing)
+        {
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000));
+            typing.Update(1500);
+            Assert.IsTrue(typing.ProcessKey('b', 1500));
+        }
 
         /// <summary>
         /// Two back-to-back lines with round targets.
@@ -81,24 +122,171 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000)),
             line("cd", 3000, 5000, 4000, unit("cd", 3000, 4000)));
 
-        private static TypingEngine engine(LyricBeatmap beatmap, bool fletcher)
-            => new TypingEngine(beatmap) { FletcherEnabled = fletcher };
+        /// <summary>
+        /// <paramref name="flexible"/> true is the shipped stack since backlog 208 (unpinned caret
+        /// plus the line-start snap, exactly what <c>DrawableTypeBeatRuleset.createEngine</c>
+        /// builds); false is the engine default, which is both the classic pinned game and what the
+        /// Fletcher MOD asks for today.
+        /// </summary>
+        private static TypingEngine engine(LyricBeatmap beatmap, bool flexible)
+            => new TypingEngine(beatmap) { FletcherEnabled = flexible, FlexibleLineSnap = flexible };
+
+        #endregion
+
+        #region Which caret a fresh engine has
+
+        /// <summary>
+        /// The flip, at its narrowest (backlog 208). A bare engine is PINNED, because that is the
+        /// era every replay written before 208 was played under and the engine default is what a
+        /// replay with no CONFIG frame re-derives on. The LIVE stack is the other way round, and
+        /// <c>DrawableTypeBeatRuleset.createEngine</c> is where that is decided: unpinned plus the
+        /// snap, unless the Fletcher mod is on the list.
+        /// </summary>
+        [Test]
+        public void ABareEngineIsPinnedAndTheShippedStackIsNot()
+        {
+            var bare = new TypingEngine(twoLineMap());
+
+            Assert.IsFalse(bare.FletcherEnabled, "the engine default is the classic pinned era, for stored replays");
+            Assert.IsFalse(bare.FlexibleLineSnap);
+            Assert.IsFalse(bare.FlexibleCaretFromMod);
+
+            var shipped = engine(twoLineMap(), flexible: true);
+
+            Assert.IsTrue(shipped.FletcherEnabled);
+            Assert.IsTrue(shipped.FlexibleLineSnap);
+        }
+
+        #endregion
+
+        #region The line-start snap (backlog 208)
+
+        /// <summary>
+        /// THE SNAP. A caret sitting past the end of its line is handed to the next line the moment
+        /// that line starts, so an unpinned player who has FINISHED is still carried along by the
+        /// song exactly as the pinned game carried them.
+        ///
+        /// <para>The state it covers is the one the keypress roll-forward cannot: a line the caret
+        /// arrived on ALREADY complete, so no press of the player's ever finishes it (see
+        /// <see cref="parkedLineMap"/>). Announced exactly once, and only when the next line's own
+        /// activation time arrives, not before.</para>
+        /// </summary>
+        [Test]
+        public void AParkedFinishedCaretIsSnappedWhenTheNextLineStarts()
+        {
+            var typing = engine(parkedLineMap(), flexible: true);
+
+            Assert.IsEmpty(typing.Lines[1].Cells, "the fixture's middle line must have no cells at all");
+            Assert.AreEqual(10500, typing.Lines[2].ActivationTime); // 12000 - CUE_LEAD_MS
+            Assert.Less(typing.Lines[2].ActivationTime, typing.Lines[1].EndTime, "the next line has to start before a seal could hand the caret over");
+
+            var activations = new List<int>();
+            typing.LineActivated += i => activations.Add(i);
+
+            typeIntoTheParkedState(typing);
+
+            // Rush freedom put the caret on line 1, where it is complete on arrival and stuck.
+            Assert.AreEqual(new[] { 0, 1 }, activations);
+            Assert.AreEqual(1, typing.ActiveLineIndex);
+            Assert.IsTrue(typing.IsLineComplete);
+
+            // One frame short of line 2's cue nothing has moved: the snap is the LINE STARTING, not
+            // the caret being idle.
+            typing.Update(10499);
+            Assert.AreEqual(1, typing.ActiveLineIndex);
+            Assert.AreEqual(new[] { 0, 1 }, activations);
+            Assert.AreEqual(1, typing.NextUnsealedLineIndex, "line 1 has not sealed, so no seal could have moved the caret");
+
+            typing.Update(10500);
+            Assert.AreEqual(2, typing.ActiveLineIndex, "line 2 started, so it takes the finished caret");
+            Assert.AreEqual(0, typing.CaretIndex);
+            Assert.AreEqual(new[] { 0, 1, 2 }, activations, "exactly one activation per line the caret lands on");
+
+            // And the player types line 2 from its head, on time.
+            Assert.IsTrue(typing.ProcessKey('c', 12000));
+            Assert.AreEqual(CellState.Correct, typing.Lines[2].Cells[0].State);
+            Assert.AreEqual(0, typing.Lines[2].Cells[0].JudgedDelta);
+        }
+
+        /// <summary>
+        /// The limit, and the reason the snap is gated on FINISHED rather than on time alone: a line
+        /// the player is still typing is never taken from them. Dragging behind is the freedom the
+        /// unpinned caret exists to grant, and the same predicate <c>sealPermitted</c> uses ("nothing
+        /// left untyped means there is no drag to protect") draws the line here.
+        /// </summary>
+        [Test]
+        public void AnUnfinishedLineIsNeverSnappedAwayFromThePlayer()
+        {
+            // L0's own window runs to 20000 and L1 activates at 10500, so the only thing that could
+            // move this caret before 20000 is the snap.
+            var typing = engine(map(TimingGranularity.Line,
+                line("ab", 1000, 20000, 2000, unit("ab", 1000, 2000)),
+                line("cd", 10000, 30000, 13000, unit("cd", 12000, 13000))), flexible: true);
+
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000));
+            Assert.AreEqual(10500, typing.Lines[1].ActivationTime);
+
+            typing.Update(19000); // long past line 1's cue
+            Assert.AreEqual(0, typing.ActiveLineIndex, "'b' is still owed, so the line is still the player's");
+            Assert.AreEqual(1, typing.CaretIndex);
+            Assert.IsEmpty(typing.Lines[1].Cells.Where(c => c.State != CellState.Untyped));
+
+            // Finish it late and the ordinary roll-forward takes over, as it always did.
+            Assert.IsTrue(typing.ProcessKey('b', 19000));
+            Assert.AreEqual(1, typing.ActiveLineIndex);
+        }
+
+        /// <summary>
+        /// The snap is the ERA's, not the unpinned caret's. Three engines, one script: the shipped
+        /// stack snaps to line 2, an OLD "FT" run (unpinned, bit 5 clear) stays parked exactly where
+        /// its player was, and a PINNED run is walked along by the seal and the ordinary activation
+        /// arm instead. The middle one is the whole reason the bit exists: re-deriving a stored FT
+        /// run with the snap would move its caret onto a line its player never reached and land every
+        /// later keystroke on the wrong cell.
+        /// </summary>
+        [Test]
+        public void TheSnapIsGatedOnTheEraBitAndNotOnTheUnpinnedCaretAlone()
+        {
+            var shipped = engine(parkedLineMap(), flexible: true);
+            var oldFletcher = new TypingEngine(parkedLineMap()) { FletcherEnabled = true, FlexibleLineSnap = false };
+            var pinned = engine(parkedLineMap(), flexible: false);
+
+            foreach (var typing in new[] { shipped, oldFletcher })
+            {
+                typeIntoTheParkedState(typing);
+                typing.Update(10500);
+            }
+
+            Assert.AreEqual(2, shipped.ActiveLineIndex);
+            Assert.AreEqual(1, oldFletcher.ActiveLineIndex, "an FT-era caret is left exactly where its player left it");
+            Assert.AreEqual(1, oldFletcher.NextUnsealedLineIndex, "and line 1 is where the song is too, so no seal moved it either");
+
+            // Pinned: the caret never left line 0, so line 0 seals at its 3000 boundary and the
+            // ordinary time-driven activation hands the player line 1 (empty, and inert).
+            typeIntoTheParkedState(pinned);
+            pinned.Update(10500);
+
+            Assert.AreEqual(1, pinned.ActiveLineIndex);
+            Assert.AreEqual(1, pinned.NextUnsealedLineIndex, "line 0 sealed under the pinned caret");
+        }
 
         #endregion
 
         #region Default path / in-sync equivalence
 
         /// <summary>
-        /// The mod flag must be inert for a player who stays in sync. The same fixed script of
-        /// (char, time) presses is fed to an engine with Fletcher OFF and one with it ON, and every
-        /// observable has to agree, down to per-cell deltas; the flag-off numbers are additionally
-        /// pinned by hand so this fixture also guards the default path against drift.
+        /// The caret flags must be inert for a player who stays in sync. The same fixed script of
+        /// (char, time) presses is fed to a PINNED engine (the Fletcher mod's arm, and the classic
+        /// era every pre-208 replay re-derives under) and to an UNPINNED one (the shipped default),
+        /// and every observable has to agree, down to per-cell deltas; the pinned numbers are
+        /// additionally pinned by hand so this fixture also guards the classic path against drift.
         /// </summary>
         [Test]
-        public void InSyncRunIsIdenticalWithAndWithoutFletcher()
+        public void InSyncRunIsIdenticalPinnedOrUnpinned()
         {
-            var off = engine(twoLineMap(), fletcher: false);
-            var on = engine(twoLineMap(), fletcher: true);
+            var off = engine(twoLineMap(), flexible: false);
+            var on = engine(twoLineMap(), flexible: true);
 
             foreach (var e in new[] { off, on })
             {
@@ -157,13 +345,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// The end-to-end promise on a real map: a player who types every cell at its target time
-        /// (60 fps quantised) is never force-missed and never combo-broken, WITH the mod on. Rushing
+        /// (60 fps quantised) is never force-missed and never combo-broken, on the SHIPPED stack. Rushing
         /// is measured against the playhead, and a rhythm-perfect caret is by construction never ahead
         /// of it, so the cap can never fire on honest play. This is the same drive loop as
         /// TypingEngineTest's unmodded pin.
         /// </summary>
         [Test]
-        public void RealMapRhythmPerfectPlayIsUnpenalisedUnderFletcher()
+        public void RealMapRhythmPerfectPlayIsUnpenalisedUnpinned()
         {
             string path = StandaloneMaps.Require("Friday Pilots Club - Spectator", "timing.json");
             Assert.IsTrue(TimingJsonLoader.TryLoad(path, out var lyricLines));
@@ -182,7 +370,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Granularity = TimingGranularity.Word,
             };
 
-            var typing = engine(beatmap, fletcher: true);
+            var typing = engine(beatmap, flexible: true);
 
             int comboBreaks = 0;
             typing.ComboBroken += () => comboBreaks++;
@@ -226,7 +414,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void SixthCharAheadBreaksComboOnceAndReArms()
         {
-            var typing = engine(denseMap(), fletcher: true);
+            var typing = engine(denseMap(), flexible: true);
 
             int comboBreaks = 0;
             typing.ComboBroken += () => comboBreaks++;
@@ -286,12 +474,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(2, comboBreaks);
         }
 
-        /// <summary>The cap is Fletcher's alone: without the mod the identical burst keeps its combo,
-        /// because nothing in the default engine measures character distance.</summary>
+        /// <summary>The cap belongs to the unpinned caret alone: under the Fletcher mod, which pins it
+        /// back, the identical burst keeps its combo, because nothing in the pinned engine measures
+        /// character distance (it does not need to: the cue lock is what holds the player).</summary>
         [Test]
-        public void RushCapDoesNotExistWithoutFletcher()
+        public void RushCapDoesNotExistUnderTheFletcherMod()
         {
-            var typing = engine(denseMap(), fletcher: false);
+            var typing = engine(denseMap(), flexible: false);
 
             int comboBreaks = 0;
             typing.ComboBroken += () => comboBreaks++;
@@ -314,7 +503,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // "abc de": one unit per word, a = 1000, b = 1100, c = 1200, ' ' = 1300, d = 1300, e = 1400.
             var typing = engine(map(TimingGranularity.Line,
-                line("abc de", 1000, 9000, 1500, unit("abc", 1000, 1300), unit("de", 1300, 1500))), fletcher: true);
+                line("abc de", 1000, 9000, 1500, unit("abc", 1000, 1300), unit("de", 1300, 1500))), flexible: true);
 
             typing.Update(1000);
 
@@ -331,12 +520,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>A freestyle cell is a normal countable char here as everywhere else: any key
         /// satisfies it, and it spends one unit of rush budget.</summary>
         [Test]
-        public void FreestyleCellCountsLikeAnyOtherCharUnderFletcher()
+        public void FreestyleCellCountsLikeAnyOtherCharWhenUnpinned()
         {
             // "a&c": '&' is a freestyle slot; unit [1000, 1300], k = 3 => a = 1000, & = 1100, c = 1200.
             var typing = engine(map(TimingGranularity.Line,
                 line("a" + Typeability.FREESTYLE_MARKER + "c", 1000, 9000, 1300,
-                    unit("a" + Typeability.FREESTYLE_MARKER + "c", 1000, 1300))), fletcher: true);
+                    unit("a" + Typeability.FREESTYLE_MARKER + "c", 1000, 1300))), flexible: true);
 
             Assert.IsTrue(typing.Lines[0].Cells[1].IsFreestyle);
             Assert.IsTrue(typing.Lines[0].Cells[1].IsCountable);
@@ -363,7 +552,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void FinishingALineOpensTheNextOneImmediately()
         {
-            var typing = engine(lateSecondLineMap(), fletcher: true);
+            var typing = engine(lateSecondLineMap(), flexible: true);
 
             var activations = new List<int>();
             typing.LineActivated += i => activations.Add(i);
@@ -402,12 +591,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(1, typing.CaretIndex);
         }
 
-        /// <summary>Without the mod the same press in the same dead zone is inert, which is the
-        /// behaviour Fletcher is lifting.</summary>
+        /// <summary>Under the Fletcher mod the same press in the same dead zone is inert, which is the
+        /// behaviour the default lifts.</summary>
         [Test]
-        public void WithoutFletcherTheDeadZoneStaysInert()
+        public void UnderTheFletcherModTheDeadZoneStaysInert()
         {
-            var typing = engine(lateSecondLineMap(), fletcher: false);
+            var typing = engine(lateSecondLineMap(), flexible: false);
 
             typing.Update(1000);
             Assert.IsTrue(typing.ProcessKey('a', 1000));
@@ -427,7 +616,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void ActiveTimeDoesNotRunWhileParkedAheadOfTheCue()
         {
-            var typing = engine(lateSecondLineMap(), fletcher: true);
+            var typing = engine(lateSecondLineMap(), flexible: true);
 
             typing.Update(1000);
             Assert.IsTrue(typing.ProcessKey('a', 1000));
@@ -459,7 +648,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void LaggingPlayerMayFinishTheLineTheSongHasLeft()
         {
-            var typing = engine(dragMap(), fletcher: true);
+            var typing = engine(dragMap(), flexible: true);
 
             var seals = new List<LineSealResult>();
             typing.LineSealed += s => seals.Add(s);
@@ -489,17 +678,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, typing.BuildResults().Counts[JudgementType.Miss]);
         }
 
-        /// <summary>The contrast: the same play without the mod loses 'b' at the boundary.</summary>
+        /// <summary>The contrast: the same play under the Fletcher mod loses 'b' at the boundary. This
+        /// is the snatch the mod exists to reinstate.</summary>
         [Test]
-        public void WithoutFletcherTheBoundarySnatchesTheLine()
+        public void UnderTheFletcherModTheBoundarySnatchesTheLine()
         {
-            var typing = engine(dragMap(), fletcher: false);
+            var typing = engine(dragMap(), flexible: false);
 
             typing.Update(1000);
             Assert.IsTrue(typing.ProcessKey('a', 1000));
             typing.Update(3000);
 
-            Assert.AreEqual(1, typing.ActiveLineIndex, "the caret is snapped to the song's new line");
+            Assert.AreEqual(1, typing.ActiveLineIndex, "the pinned caret is snatched onto the song's new line");
             Assert.AreEqual(CellState.Missed, typing.Lines[0].Cells[1].State);
         }
 
@@ -512,7 +702,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void DragCutoffForceSealsAndHandsOverWithoutCascading()
         {
-            var typing = engine(dragMap(), fletcher: true);
+            var typing = engine(dragMap(), flexible: true);
 
             var seals = new List<LineSealResult>();
             var activations = new List<int>();
@@ -563,7 +753,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000)),
                 line("cd", 3000, 5000, 4000, unit("cd", 3000, 4000)),
                 line("ef", 5000, 7000, 6000, unit("ef", 5000, 6000)),
-                line("gh", 7000, 20000, 8000, unit("gh", 7000, 8000))), fletcher: true);
+                line("gh", 7000, 20000, 8000, unit("gh", 7000, 8000))), flexible: true);
 
             var seals = new List<LineSealResult>();
             var activations = new List<int>();
@@ -588,15 +778,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         #region Replay determinism
 
         /// <summary>
-        /// Fletcher is a RANKED mod, so a stored replay has to reproduce the run bit-exactly. The mod
-        /// travels on the score (the drawable ruleset applies the flag before the first frame, exactly
-        /// as Literate does), and every judgement is a pure function of (char, time) plus that flag:
-        /// feeding the recorded frames into a fresh engine the way the replay feeder does reproduces
-        /// every cell, the score and the combo. Losing the flag on the way in changes the result, which
-        /// is why it is applied from the score's mod list rather than local config.
+        /// Every play is ranked, so a stored replay has to reproduce the run bit-exactly. The caret
+        /// era travels in the replay's own CONFIG frame (flags bit 5, see the era fixtures below),
+        /// and every judgement is a pure function of (char, time) plus that era: feeding the recorded
+        /// frames into a fresh engine the way the replay feeder does reproduces every cell, the score
+        /// and the combo. Losing the flag on the way in changes the result, which is the whole reason
+        /// it is recorded rather than assumed.
         /// </summary>
         [Test]
-        public void FletcherRunRoundTripsThroughRecordedFrames()
+        public void UnpinnedRunRoundTripsThroughRecordedFrames()
         {
             // (char, time) exactly as the key handler would stamp them: integral ms, monotonic.
             (char c, double t)[] script =
@@ -605,7 +795,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 ('c', 1600), ('d', 1650), // rushed: line 1 typed 8 seconds before its vocals
             };
 
-            var live = engine(lateSecondLineMap(), fletcher: true);
+            var live = engine(lateSecondLineMap(), flexible: true);
             live.Update(1000);
 
             foreach ((char c, double t) in script)
@@ -617,7 +807,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             live.Update(12000);
             Assert.IsTrue(live.IsFinished);
 
-            var replayed = engine(lateSecondLineMap(), fletcher: true);
+            var replayed = engine(lateSecondLineMap(), flexible: true);
 
             foreach ((char c, double t) in script)
             {
@@ -645,9 +835,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 }
             }
 
-            // Same frames without the mod: the rushed presses never reach the engine at all, so the
-            // flag is load-bearing for playback and must come from the score's mods.
-            var unmodded = engine(lateSecondLineMap(), fletcher: false);
+            // The same frames re-derived PINNED: the rushed presses never reach the engine at all, so
+            // the flag is load-bearing for playback and must come from the run's own header.
+            var unmodded = engine(lateSecondLineMap(), flexible: false);
 
             foreach ((char c, double t) in script)
             {
@@ -661,18 +851,159 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
+        #region Replay eras (CONFIG flags bit 5)
+
+        /// <summary>Feed a header plus a script through the one seam a recorded frame reaches an
+        /// engine by, exactly as playback and the headless scorer do.</summary>
+        private static void feed(TypingEngine typing, TypeBeatReplayFrame config, params (char c, double t)[] script)
+        {
+            ReplayEngineFeed.Apply(typing, config);
+
+            foreach ((char c, double t) in script)
+                ReplayEngineFeed.Apply(typing, new TypeBeatReplayFrame(t, c));
+        }
+
+        /// <summary>
+        /// THE COMPAT PIN. A replay recorded before backlog 208 carries flags bit 5 CLEAR and no mod
+        /// on its score, and it has to re-derive on the PINNED caret it was actually played with.
+        /// Judged against a straight pinned run of the same script, cell for cell: the boundary
+        /// snatches the line, 'b' is a Miss, and the caret is on line 1.
+        /// </summary>
+        [Test]
+        public void AnOldReplayWithTheBitClearReDerivesPinned()
+        {
+            var replayed = new TypingEngine(dragMap());
+
+            feed(replayed, TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true), ('a', 1000));
+
+            Assert.IsFalse(replayed.FletcherEnabled, "the header says nothing, and nothing on the score says otherwise");
+            Assert.IsFalse(replayed.FlexibleLineSnap);
+
+            replayed.Update(3000);
+
+            var live = engine(dragMap(), flexible: false);
+            live.Update(1000);
+            Assert.IsTrue(live.ProcessKey('a', 1000));
+            live.Update(3000);
+
+            Assert.AreEqual(live.ActiveLineIndex, replayed.ActiveLineIndex);
+            Assert.AreEqual(1, replayed.ActiveLineIndex);
+            Assert.AreEqual(CellState.Missed, replayed.Lines[0].Cells[1].State);
+            Assert.AreEqual(live.Score, replayed.Score);
+            Assert.AreEqual(live.BuildResults().Counts[JudgementType.Miss], replayed.BuildResults().Counts[JudgementType.Miss]);
+        }
+
+        /// <summary>
+        /// The one combination no bit can express on its own: a stored "FT" run. Its header has bit 5
+        /// clear (the bit did not exist), so the caret half comes from the mod on its score, which
+        /// the two engine factories hand over as
+        /// <see cref="TypingEngine.FlexibleCaretFromMod"/>. Apply must OR that in rather than clobber
+        /// it back to pinned, and must still take the SNAP straight from the bit, i.e. off.
+        /// </summary>
+        [Test]
+        public void AnOldFletcherModReplayReDerivesUnpinnedWithNoSnap()
+        {
+            // Exactly what TypeBeatReplayScorer.createEngine writes when it sees the retired mod.
+            var replayed = new TypingEngine(dragMap()) { FletcherEnabled = true, FlexibleCaretFromMod = true };
+
+            feed(replayed, TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true), ('a', 1000));
+
+            Assert.IsTrue(replayed.FletcherEnabled, "the header must not pin a caret the mod unpinned");
+            Assert.IsFalse(replayed.FlexibleLineSnap, "no FT run was ever played with the snap");
+
+            // Drag freedom, which is what the mod bought: the boundary does not take the line.
+            replayed.Update(3000);
+            Assert.AreEqual(0, replayed.ActiveLineIndex);
+            Assert.AreEqual(CellState.Untyped, replayed.Lines[0].Cells[1].State);
+        }
+
+        /// <summary>
+        /// A replay recorded TODAY: the header carries bit 5, so a fresh engine that knows nothing
+        /// about mods re-derives the unpinned caret AND the snap. Non-vacuous through the parked
+        /// fixture, whose caret only reaches line 2 if the snap is armed.
+        /// </summary>
+        [Test]
+        public void ANewReplayCarriesTheEraBitAndReDerivesTheSnap()
+        {
+            var replayed = new TypingEngine(parkedLineMap());
+
+            feed(replayed,
+                TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, flexibleLines: true),
+                ('a', 1000), ('b', 1500));
+
+            Assert.IsTrue(replayed.FletcherEnabled);
+            Assert.IsTrue(replayed.FlexibleLineSnap);
+
+            replayed.Update(10500);
+            Assert.AreEqual(2, replayed.ActiveLineIndex);
+        }
+
+        /// <summary>
+        /// And a run played under the Fletcher MOD records the bit clear, so it re-derives pinned off
+        /// its own header with no mod inspection anywhere: the same decode an ancient replay gets,
+        /// which is exactly why the bit means "flexible" rather than "pinned".
+        /// </summary>
+        [Test]
+        public void APinnedModReplayReDerivesPinnedFromItsOwnHeader()
+        {
+            var replayed = new TypingEngine(dragMap()) { FletcherEnabled = true, FlexibleLineSnap = true };
+
+            feed(replayed, TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true), ('a', 1000));
+
+            Assert.IsFalse(replayed.FletcherEnabled, "the header wins over whatever the engine was built with");
+            Assert.IsFalse(replayed.FlexibleLineSnap);
+
+            replayed.Update(3000);
+            Assert.AreEqual(CellState.Missed, replayed.Lines[0].Cells[1].State);
+        }
+
+        /// <summary>
+        /// Bit 5 is bit 5: value 32, appended above the five that were already there, so every flags
+        /// word already on disk decodes exactly as it always did and simply reads the new bit false.
+        /// </summary>
+        [Test]
+        public void TheEraBitRoundTripsThroughTheLegacyEncodingAsBitFive()
+        {
+            var dummy = new typebeat.Game.Beatmaps.Beatmap();
+
+            var full = TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true, spaceSkipsWord: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, flexibleLines: true);
+
+            Assert.AreEqual(1 + 2 + 4 + 8 + 16 + 32, (int)full.ToLegacy(dummy).MouseY!.Value);
+
+            var decoded = new TypeBeatReplayFrame();
+            decoded.FromLegacy(full.ToLegacy(dummy), dummy);
+            Assert.IsTrue(decoded.FlexibleLines);
+
+            // A pre-208 word, every older bit set and nothing above them.
+            var old = new TypeBeatReplayFrame();
+            old.FromLegacy(new typebeat.Game.Replays.Legacy.LegacyReplayFrame(0, 0, 1 + 2 + 4 + 8 + 16, typebeat.Game.Replays.Legacy.ReplayButtonState.None), dummy);
+
+            Assert.IsTrue(old.AllowWrongInput);
+            Assert.IsTrue(old.SpaceSkipsWord);
+            Assert.IsTrue(old.SyllableTiming);
+            Assert.IsTrue(old.WrongInputOnWordGaps);
+            Assert.IsTrue(old.StrictSpaces);
+            Assert.IsFalse(old.FlexibleLines, "the new bit reads false on every word already on disk");
+
+            // And the default is clear, which is what every older CALL SITE keeps meaning.
+            Assert.IsFalse(TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true).FlexibleLines);
+        }
+
+        #endregion
+
         #region Input-gate seams the playfield reads
 
         /// <summary>
-        /// Under Fletcher a line is active straight through an instrumental gap (the caret is parked at
-        /// the next line's head), so <see cref="TypingEngine.LineIsActive"/> alone can no longer tell
-        /// the key handler when to let Space through to the skip overlay. These are the two extra
-        /// predicates it reads: is the SONG inside a line window, and has the player started the line.
+        /// With an unpinned caret a line is active straight through an instrumental gap (the caret is
+        /// parked at the next line's head), so <see cref="TypingEngine.LineIsActive"/> alone can no
+        /// longer tell the key handler when to let Space through to the skip overlay. These are the
+        /// extra predicates it reads: is the SONG inside a line window, is it inside the window of the
+        /// line the CARET is on, and has the player started that line.
         /// </summary>
         [Test]
         public void SongWindowAndUntouchedFlagsTrackTheDeadZone()
         {
-            var typing = engine(lateSecondLineMap(), fletcher: true);
+            var typing = engine(lateSecondLineMap(), flexible: true);
 
             typing.Update(0);
             Assert.IsFalse(typing.SongWindowOpen, "pre-roll: the song is in no line window");
@@ -699,6 +1030,47 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(typing.SongWindowOpen, "line 1's cue has arrived");
         }
 
+        /// <summary>
+        /// The predicate the key handler actually gates Space on, and why
+        /// <see cref="TypingEngine.SongWindowOpen"/> could not be it. On a REAL map the decoder makes
+        /// line windows CONTIGUOUS, so a twelve-second instrumental lives INSIDE the finished line's
+        /// own window and SongWindowOpen never goes false: a player parked at the head of the next
+        /// line would have their Space eaten as a combo-breaking typo instead of reaching the
+        /// mid-song skip overlay. <see cref="TypingEngine.SongIsOnTheCaretsLine"/> asks the narrower
+        /// question that is actually being asked, is the song wanting characters HERE, and it goes
+        /// false the moment the caret moves ahead of the song's line.
+        /// </summary>
+        [Test]
+        public void SongIsOnTheCaretsLineTracksAContiguousInstrumentalGap()
+        {
+            // Line 0's window runs all the way to line 1's start: no hole anywhere, the shape every
+            // decoder-built map has.
+            var typing = engine(map(TimingGranularity.Line,
+                line("ab", 1000, 14000, 2000, unit("ab", 1000, 2000)),
+                line("cd", 14000, 20000, 15000, unit("cd", 14000, 15000))), flexible: true);
+
+            typing.Update(1000);
+            Assert.IsTrue(typing.SongIsOnTheCaretsLine, "the song is asking for these very characters");
+
+            Assert.IsTrue(typing.ProcessKey('a', 1000));
+            Assert.IsTrue(typing.ProcessKey('b', 1500));
+
+            typing.Update(6000); // deep inside the instrumental
+            Assert.IsTrue(typing.SongWindowOpen, "the window is contiguous, so it never closes");
+            Assert.AreEqual(1, typing.ActiveLineIndex);
+            Assert.IsFalse(typing.SongIsOnTheCaretsLine, "but nothing is being asked of the line the caret is on");
+            Assert.IsTrue(typing.ActiveLineUntouched);
+
+            // The song arrives on the caret's line and Space is a typing key again.
+            typing.Update(14000);
+            Assert.IsTrue(typing.SongIsOnTheCaretsLine);
+
+            // Pinned, the two are the same question, which is why the old handler only needed one.
+            var pinned = engine(dragMap(), flexible: false);
+            pinned.Update(1000);
+            Assert.AreEqual(pinned.SongWindowOpen, pinned.SongIsOnTheCaretsLine);
+        }
+
         #endregion
 
         #region Countable stream bookkeeping
@@ -711,7 +1083,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void CountableStreamSpansTheWholeMap()
         {
-            var typing = engine(twoLineMap(), fletcher: true);
+            var typing = engine(twoLineMap(), flexible: true);
 
             // Countable cells (no spaces): a 1000, b 1500, c 2000, d 2500, e 4000, f 4500.
             Assert.AreEqual(0, typing.PlayheadCountablePosition(999));

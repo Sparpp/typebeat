@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
@@ -10,7 +11,6 @@ using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
-using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Tests.Visual;
@@ -19,11 +19,13 @@ using osuTK.Input;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 {
     /// <summary>
-    /// Fletcher's on-screen half, through the real input stack. The stack no longer scrolls when the
-    /// SONG crosses a line boundary, it scrolls when the PLAYER does: finish line 0 in the first
-    /// second of a line that runs for half a minute and the stage centres line 1 immediately, while
-    /// the song is still on line 0. The sung sweep stays behind on the song's line, which is the
-    /// divergence the mod exists to show.
+    /// The unpinned caret's on-screen half, through the real input stack, and since backlog 208 that
+    /// is the DEFAULT stack: no mods at all. The stage no longer scrolls when the SONG crosses a
+    /// line boundary, it scrolls when the PLAYER does: finish line 0 in the first second of a line
+    /// that runs for half a minute and the stage centres line 1 immediately, while the song is still
+    /// on line 0. The sung sweep stays behind on the song's line, which is the divergence the whole
+    /// design exists to show. (The mod NAMED Fletcher now pins the caret back; its own surface is
+    /// pinned by <c>TypeBeatModFletcherTest</c> and <c>FletcherEngineTest</c>.)
     /// </summary>
     public partial class TestSceneTypeBeatFletcher : PlayerTestScene
     {
@@ -75,9 +77,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void TestStackFollowsTheCaretNotThePlayhead()
         {
-            AddStep("load player with Fletcher", () => LoadPlayer(new Mod[] { new TypeBeatModFletcher() }));
+            AddStep("load player with no mods", () => LoadPlayer(Array.Empty<Mod>()));
             AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
-            AddAssert("engine has the mod applied", () => engine.FletcherEnabled);
+            AddAssert("the default stack is unpinned, with the line-start snap armed", () =>
+                engine.FletcherEnabled && engine.FlexibleLineSnap);
 
             AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0);
 
@@ -98,7 +101,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("the song has not moved on", () => engine.NextUnsealedLineIndex == 0);
 
             // The player caret is on line 1, the sung caret stayed with the song on line 0: the two
-            // heads have visibly come apart, which is the whole point of the mod.
+            // heads have visibly come apart, which is the whole point of the unpinned caret.
             AddAssert("player caret and sung caret are on different lines", () =>
                 stage.PlayerCaretVisible && stage.PlayerCaretPosition.Y > stage.SungCaretPosition.Y);
 
