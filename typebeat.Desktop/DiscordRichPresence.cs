@@ -29,28 +29,40 @@ namespace typebeat.Desktop
 {
     internal partial class DiscordRichPresence : Component
     {
+        /// <summary>
+        /// The Discord APPLICATION this presence belongs to. Two things about the presence are
+        /// owned by that application's page on the Discord developer portal and CANNOT be set from
+        /// code: the header Discord prints ("Playing NAME") is the application's NAME, and every
+        /// image is an entry in its "Rich Presence, Art Assets" list. Backlog 220 was the header
+        /// reading "osu!" with the osu logo: the app behind this id carried osu branding, and the
+        /// code asked for lazer's asset key names. The portal app must be named "type!beat" (rename
+        /// it, or create a fresh application and put its id here) and must carry art under the keys
+        /// below; until then the header shows whatever the portal says and the images stay blank.
+        /// </summary>
         private const string client_id = "1216669957799018608";
 
         /// <summary>
-        /// Key of the large presence image. This names an entry in the "Rich Presence, Art Assets"
-        /// list of the Discord application behind <see cref="client_id"/>, which lives on the
-        /// Discord developer portal and NOT in this repository. Renaming it here without uploading
-        /// art under the new name silently drops the image; the text lines still show.
+        /// Key of the large presence image: the type!beat logo, uploaded on the portal (1024x1024
+        /// recommended). Deliberately NOT lazer's <c>osu_logo_lazer</c> key (backlog 220): a
+        /// typebeat-owned name means stale osu art under the old key can never render again, and a
+        /// missing upload shows NO image rather than the wrong game's. Renaming this without
+        /// uploading art under the new name silently drops the image; the text lines still show.
         /// </summary>
-        private const string large_image_key = "osu_logo_lazer";
+        private const string large_image_key = "typebeat_logo";
 
         /// <summary>
         /// Small (corner) image key prefix, suffixed with the ruleset's online ID. Same portal
-        /// dependency as <see cref="large_image_key"/>. <c>TypeBeatRuleset</c> is an
-        /// <c>ILegacyRuleset</c> with <c>LegacyID = 0</c>, so the key this build asks for in
-        /// practice is <c>mode_0</c>.
+        /// dependency as <see cref="large_image_key"/>, same backlog-220 rename away from lazer's
+        /// <c>mode_</c> keys. <c>TypeBeatRuleset</c> is an <c>ILegacyRuleset</c> with
+        /// <c>LegacyID = 0</c>, so the key this build asks for in practice is
+        /// <c>typebeat_mode_0</c>.
         /// </summary>
-        private const string small_image_key_prefix = "mode_";
+        private const string small_image_key_prefix = "typebeat_mode_";
 
         /// <summary>
         /// Small image key used for any non-legacy ruleset. Same portal dependency as above.
         /// </summary>
-        private const string small_image_key_custom = "mode_custom";
+        private const string small_image_key_custom = "typebeat_mode_custom";
 
         private DiscordRpcClient client = null!;
 
