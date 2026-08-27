@@ -335,6 +335,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>
+        /// Whether the SONG is asking for characters on the very line the player's caret is on:
+        /// the playhead is inside a typeable window AND that window belongs to the caret's line.
+        /// Equal to <see cref="SongWindowOpen"/> with a pinned caret, where the two are always the
+        /// same line, and the pair the key handler needs once the caret is unpinned.
+        ///
+        /// <para><see cref="SongWindowOpen"/> alone is not that question, and the difference is the
+        /// whole of a real map's instrumental gap: a decoder-built line's window runs to the NEXT
+        /// line's start (contiguous, no holes), so through a twelve-second instrumental the playhead
+        /// is still inside line N's window and <see cref="SongWindowOpen"/> stays true, while the
+        /// player who finished line N is parked at the head of line N+1 with nothing being asked of
+        /// them. That is exactly when Space has to reach the mid-song skip overlay instead of being
+        /// eaten as a keystroke (see <c>TypeBeatPlayfield</c>'s key handler).</para>
+        /// </summary>
+        public bool SongIsOnTheCaretsLine => activeLineIndex != -1 && activeLineIndex == nextSealIndex && SongWindowOpen;
+
+        /// <summary>
         /// True while the player has put nothing into the active line yet (no cell behind the caret
         /// is Correct or Wrong; leading auto-skipped punctuation does not count as progress). Used
         /// by the key handler under <see cref="FletcherEnabled"/> to tell "parked on a line I have
@@ -628,9 +644,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool SpaceSkipsWord { get; set; }
 
         /// <summary>
-        /// Fletcher mod ("Were you Rushing or were you Dragging?!"): decouples the player's caret
-        /// from the song's playhead. Three behaviours, all confined to this flag so the default path
-        /// stays byte-identical:
+        /// FLEXIBLE LINES: the player's caret is decoupled from the song's playhead. Three
+        /// behaviours, all confined to this flag so the pinned path stays byte-identical:
         /// <list type="bullet">
         /// <item>RUSH FREEDOM: finishing a line moves the caret straight on to the next one instead
         /// of waiting for its cue (<see cref="rollForwardIfFinishedEarly"/>). The finished line is
@@ -644,8 +659,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </list>
         /// Per-char judgement windows are untouched: rushing reads as early deltas and dragging as
         /// late ones, so accuracy, sync% and the judgement counts report the drift honestly.
+        ///
+        /// <para>Since backlog 208 this is the LIVE default for every stack
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c>), and the mod named Fletcher is the one that
+        /// turns it OFF and re-pins the caret to the playhead
+        /// (<see cref="Mods.TypeBeatModFletcher"/>). It stays FALSE by default here, which is the
+        /// classic pinned ERA every replay recorded before 208 was played under, and
+        /// <see cref="FlexibleLineSnap"/> is the bit that says a stored run was played the new
+        /// way.</para>
         /// </summary>
         public bool FletcherEnabled { get; set; }
+
+        /// <summary>
+        /// The FLEXIBLE-LINES era (backlog 208), and the one behaviour that separates the new
+        /// default from the old "FT" mod that shipped the same three freedoms: a caret sitting PAST
+        /// THE LAST CHARACTER of its line is SNAPPED to the next line the moment that line starts
+        /// (its <see cref="TypingLine.ActivationTime"/>), so a player who has finished their line is
+        /// carried onto the new one exactly as pinned play always carried them
+        /// (<see cref="snapForwardOnLineStart"/>). A line the player has NOT finished is never
+        /// snapped: lagging behind is the freedom the flexible caret exists to grant.
+        ///
+        /// <para>Judgement relevant, so it is an ERA flag of its own on CONFIG frame bit 5, and NOT
+        /// simply implied by <see cref="FletcherEnabled"/>: every stored "FT" run was played without
+        /// the snap, so re-deriving one with it would move the caret onto a line its player was
+        /// still parked behind and desynchronise every keystroke after it. Set for every new live
+        /// stack that is not running the pinning mod; false everywhere else.</para>
+        /// </summary>
+        public bool FlexibleLineSnap { get; set; }
+
+        /// <summary>
+        /// Whether the flexible caret was asked for by a MOD rather than by the era bit, which is
+        /// the one thing a CONFIG frame cannot say for itself. The retired "FT" mod is the only
+        /// pre-208 way a run was flexible, and it recorded flags bit 5 CLEAR (the bit did not
+        /// exist), so re-deriving such a run from the frame alone would pin a caret that was played
+        /// unpinned. Set by the two engine factories from the score's mod list
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c> and
+        /// <see cref="Scoring.TypeBeatReplayScorer"/>) and read in exactly one place,
+        /// <c>ReplayEngineFeed.Apply</c>.
+        /// </summary>
+        public bool FlexibleCaretFromMod { get; set; }
 
         public event Action<CharJudgement>? CharJudged;
         public event Action<int>? LineActivated;
@@ -1183,9 +1235,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             lastUpdateTime = time;
 
-            // Fletcher: a drag cutoff inside the seal loop below moves the caret straight on to the
-            // next line; the activation is announced once, after the loop, so a catch-up cascade
-            // through several stale lines still relayouts the stage exactly once.
+            // Whether the caret ends this update on a line it was not on when the update started.
+            // Three things can move it (a drag cutoff inside the seal loop below, the ordinary
+            // time-driven activation, and the flexible-lines snap), and all three announce through
+            // the single raise at the end, so a catch-up cascade through several stale lines still
+            // relayouts the stage exactly once.
             bool pendingActivation = false;
 
             // (2) Seal, in order, every line whose deadline has passed. Normal lines seal AT
@@ -1328,24 +1382,78 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     activeLineIndex = nextSealIndex;
                     caretIndex = 0;
                     autoSkipForward();
-                    raise(LineActivated, activeLineIndex);
+                    pendingActivation = true;
                 }
             }
-            else if (pendingActivation)
+
+            // (4) FLEXIBLE-LINES SNAP (backlog 208): the caret is sitting past the last character of
+            //     its line and the next line has just started, so hand the player onto it, exactly
+            //     as the pinned arm above would have. Placed after the activation arm and sharing
+            //     its announcement so a snap that follows a fresh activation (or a drag cutoff, or
+            //     several snaps at once) still relayouts the stage once.
+            if (activeLineIndex != -1 && snapForwardOnLineStart(time))
+                pendingActivation = true;
+
+            // The caret moved (a fresh activation, a drag cutoff inside the seal loop, or a snap);
+            // announce it exactly once. Guarded on there being a line to announce: a cutoff that
+            // cascaded off the end of the map has already parked the caret nowhere and finished the
+            // run above.
+            if (pendingActivation && activeLineIndex != -1)
             {
-                // Fletcher drag cutoff (see the seal loop): the caret already moved, announce it once.
                 autoSkipForward();
                 raise(LineActivated, activeLineIndex);
             }
         }
 
         /// <summary>
+        /// FLEXIBLE-LINES SNAP (backlog 208, see <see cref="FlexibleLineSnap"/>): while the caret
+        /// sits PAST THE LAST CHARACTER of its line, the next line STARTING takes it, which is what
+        /// keeps the flexible default feeling like the pinned game it replaced (finish your line and
+        /// the song moves you on). A line the player has not finished is never touched: dragging
+        /// behind is precisely the freedom the flexible caret grants, and
+        /// <see cref="sealPermitted"/> makes the same distinction for the same reason ("nothing left
+        /// untyped means there is no drag to protect").
+        ///
+        /// <para>"Finished" is <see cref="IsLineComplete"/>, i.e. the caret has walked off the end
+        /// of the cell list. That is exact rather than approximate: every caret advance runs
+        /// <see cref="autoSkipForward"/>, so a caret at <c>Cells.Count</c> is a caret with no
+        /// typeable cell left in front of it, and it is the same predicate the keypress-driven
+        /// <see cref="rollForwardIfFinishedEarly"/> gates on. Cells left BEHIND the caret wrong or
+        /// abandoned do not hold the line: the player is done with them, and the seal resolves them
+        /// exactly as it always did.</para>
+        ///
+        /// <para>A LOOP rather than a single step, because the line it lands on can be finished the
+        /// instant it is reached (a line whose cells are all non-typeable is complete at caret 0),
+        /// and the roll-forward this backs up does not recurse. Returns whether the caret moved, so
+        /// the caller announces one <c>LineActivated</c> however many lines were crossed.</para>
+        /// </summary>
+        private bool snapForwardOnLineStart(double time)
+        {
+            if (!FletcherEnabled || !FlexibleLineSnap || isFinished)
+                return false;
+
+            bool snapped = false;
+
+            while (IsLineComplete
+                   && activeLineIndex + 1 < lines.Count
+                   && time >= lines[activeLineIndex + 1].ActivationTime)
+            {
+                activeLineIndex++;
+                caretIndex = 0;
+                autoSkipForward();
+                snapped = true;
+            }
+
+            return snapped;
+        }
+
+        /// <summary>
         /// Whether the WPM/sync active-time clock runs for the frame ending at <paramref name="previousTime"/>.
-        /// Always, by default. Under <see cref="FletcherEnabled"/> the caret can be parked at the head
-        /// of a line the song has not reached yet (rush freedom rolls it forward the instant a line is
-        /// finished), and a clock that ran through a 20-second instrumental would read the wait as
-        /// typing time; so the clock runs only from the point the playhead reaches that line's
-        /// ActivationTime, which is exactly when the line would have gone active without the mod.
+        /// Always, with a pinned caret. Under <see cref="FletcherEnabled"/> the caret can be parked at
+        /// the head of a line the song has not reached yet (rush freedom rolls it forward the instant a
+        /// line is finished), and a clock that ran through a 20-second instrumental would read the wait
+        /// as typing time; so the clock runs only from the point the playhead reaches that line's
+        /// ActivationTime, which is exactly when the line would have gone active while pinned.
         /// </summary>
         private bool wpmClockRuns(double previousTime)
             => !FletcherEnabled || activeLineIndex == -1 || previousTime >= lines[activeLineIndex].ActivationTime;
@@ -1365,12 +1473,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>
-        /// Fletcher DRAG FREEDOM: a line the player is still typing must not be force-sealed out from
-        /// under them at its normal deadline. The seal is deferred while the caret is on the line, up
-        /// to <see cref="FLETCHER_DRAG_GRACE_MS"/> past its hard deadline; past that the line seals as
-        /// usual (untyped cells become misses, one combo break) and the caret is moved on. Always true
-        /// without the mod, and true under it for any line the player is not currently on, so a
-        /// finished-early line still seals exactly on its own deadline.
+        /// DRAG FREEDOM (see <see cref="FletcherEnabled"/>): a line the player is still typing must not
+        /// be force-sealed out from under them at its normal deadline. The seal is deferred while the
+        /// caret is on the line, up to <see cref="FLETCHER_DRAG_GRACE_MS"/> past its hard deadline;
+        /// past that the line seals as usual (untyped cells become misses, one combo break) and the
+        /// caret is moved on. Always true with a pinned caret, and true under a flexible one for any
+        /// line the player is not currently on, so a finished-early line still seals exactly on its
+        /// own deadline.
         /// </summary>
         private bool sealPermitted(int index, double time)
         {
@@ -2094,8 +2203,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>
-        /// Fletcher RUSH FREEDOM: the moment a press finishes a line, the caret moves straight on to
-        /// the next one instead of waiting for its activation cue. The finished line is left UNSEALED
+        /// RUSH FREEDOM (see <see cref="FletcherEnabled"/>): the moment a press finishes a line, the
+        /// caret moves straight on to the next one instead of waiting for its activation cue. It is
+        /// the KEYPRESS half of moving a finished caret on; the time-driven half, for a caret that
+        /// became finished without a press of its own, is <see cref="snapForwardOnLineStart"/>.
+        /// The finished line is left UNSEALED
         /// and seals on its own normal deadline (with nothing missed, since it is fully typed), so
         /// nothing about the song's timeline moves; only the player's position does. No-op on the last
         /// line, which keeps the default "line complete, wait for the song" behaviour that lets the

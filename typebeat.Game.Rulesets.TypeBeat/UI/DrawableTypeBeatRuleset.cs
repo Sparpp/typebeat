@@ -123,6 +123,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // recorder's CONFIG frame cannot.
             bool hardRock = Mods?.Any(m => m is TypeBeatModHardRock) == true;
 
+            // FLEXIBLE LINES (backlog 208), read here for exactly the reason Hard Rock's judgement
+            // rule is: it is an ERA pair the replay recorder's CONFIG frame stamps at the first
+            // keystroke, and an era flag cannot be applied late from ApplyToDrawableRuleset, which
+            // has no guaranteed order against the first Engine read. TypeBeatModFletcher re-asserts
+            // the same two values from that seam and cannot disagree, both being derived from this
+            // same "is the mod in the list" question.
+            bool pinnedLines = Mods?.Any(m => m is TypeBeatModFletcher) == true;
+
+            // The retired "FT" mod, which can only ever arrive on a REPLAY being watched (it is a
+            // System mod, unselectable). It says the run was played with an unpinned caret and no
+            // line-start snap, and its frames carry bit 5 CLEAR, so the CONFIG frame alone would
+            // re-pin a caret that was played free. ReplayEngineFeed.Apply ORs this back in.
+            bool legacyFletcher = Mods?.Any(m => m is TypeBeatModLegacyFletcher) == true;
+
             return new TypingEngine(lyricBeatmap, literate)
             {
                 // THE live judgement rule since backlog 179, for every player and (since backlog
@@ -179,6 +193,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // presses that WERE paid across the whole span, and re-deriving those on character
                 // targets would invent a worse score than the one the player was shown.
                 CharTimedStretch = true,
+
+                // THE LIVE CARET SINCE BACKLOG 208, for every stack except the pinning mod's. The
+                // three freedoms that shipped as the "FT" mod (open the next line the moment you
+                // finish one, keep a line the song has left, character distance instead of a timing
+                // lock) are what the game does now, and TypeBeatModFletcher is what takes them back.
+                //
+                // The two flags are separate because the SNAP is new with 208 and no older run has
+                // it: a caret sitting past the end of its line is handed to the next line when that
+                // line starts, which is what keeps the unpinned default feeling like the pinned game
+                // it replaced. An "FT" replay must re-derive WITHOUT it, so it is its own era bit
+                // (CONFIG frame bit 5) rather than something FletcherEnabled implies.
+                FletcherEnabled = !pinnedLines,
+                FlexibleLineSnap = !pinnedLines,
+                FlexibleCaretFromMod = legacyFletcher,
             };
         }
     }

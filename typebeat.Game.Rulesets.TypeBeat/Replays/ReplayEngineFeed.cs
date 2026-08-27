@@ -40,7 +40,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             if (frame.IsConfig)
             {
                 // The recorded machine's judgement-relevant settings win over local config, all
-                // six of them: a replay of a run played WITHOUT space-skip must not start skipping
+                // seven of them: a replay of a run played WITHOUT space-skip must not start skipping
                 // words because the watcher turned the setting on, and vice versa. Every replay
                 // recorded before a setting existed carries its bit clear, which decodes to false,
                 // i.e. to exactly the model those runs were played under.
@@ -67,6 +67,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 engine.WrongInputOnWordGaps = frame.WrongInputOnWordGaps;
                 engine.StrictSpaces = frame.StrictSpaces;
                 engine.CharTimedStretch = frame.CharTimedStretch;
+
+                // FlexibleLines (backlog 208) is the one bit here that needs a word more than an
+                // assignment, because the axis it selects has TWO sources. The bit says
+                // "this run was played with the caret unpinned AND snapped forward at each line
+                // start", which is the live default since 208. Everything older carries it clear,
+                // and clear means two different things depending on the score's mods: a plain
+                // pre-208 run was played PINNED, and a run carrying the retired "FT" mod was played
+                // unpinned but with no snap, because the snap did not exist yet. So the bit decides
+                // the snap outright and is OR-ed with the mod-derived half for the caret itself
+                // (see TypingEngine.FlexibleCaretFromMod, set by the two engine factories). Clobber
+                // rather than OR on the snap: an FT replay whose caret this leaves unpinned must
+                // still re-derive without the snap, or it drags its player onto lines they were
+                // still parked behind.
+                engine.FlexibleLineSnap = frame.FlexibleLines;
+                engine.FletcherEnabled = frame.FlexibleLines || engine.FlexibleCaretFromMod;
                 return;
             }
 

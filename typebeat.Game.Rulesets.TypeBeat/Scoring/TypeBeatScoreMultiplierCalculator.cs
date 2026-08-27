@@ -66,10 +66,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             Single<TypeBeatModLiterate>(hasMultiplier: 1.05);
 
             // Conversion.
-            // Fletcher unpins the caret from the playhead: still ranked, and only a shade easier than
-            // a cue-locked run (every char is still typed and still judged against its own target),
-            // so it takes a small trim rather than a penalty.
-            Single<TypeBeatModFletcher>(hasMultiplier: 0.98);
+            // Fletcher PINS the caret to the playhead (backlog 208 reversed the mod: the freedoms it
+            // used to grant are the default now). Still ranked, and only a shade harder than the
+            // unpinned default (every char is still typed and still judged against its own target),
+            // so it takes a small premium rather than a bonus. Deliberately the mirror image of the
+            // 0.98x it carried while it meant the opposite.
+            Single<TypeBeatModFletcher>(hasMultiplier: 1.02);
+            // The RETIRED "FT" acronym, unselectable but still on stored rows, priced at exactly what
+            // those rows were priced at when they were submitted. Never remove this: a stored mod
+            // that resolves to nothing prices at 1.0x and silently revalues every FT score on the
+            // shared leaderboards. See TypeBeatModLegacyFletcher.
+            Single<TypeBeatModLegacyFletcher>(hasMultiplier: 0.98);
 
             // Automation.
             Single<TypeBeatModMashing>(hasMultiplier: 0.1);

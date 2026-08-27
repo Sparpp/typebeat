@@ -28,9 +28,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <see cref="SpaceSkipsWord"/> (whether a space pressed inside a word abandoned it), bit 2
     /// <see cref="SyllableTiming"/> (whether a press was graded against its syllable's sung span or
     /// against its cell's point target), bit 3 <see cref="WrongInputOnWordGaps"/> (whether a
-    /// wrong letter on a word gap was typed through or rejected) and bit 4
+    /// wrong letter on a word gap was typed through or rejected), bit 4
     /// <see cref="StrictSpaces"/> (whether the spacebar was the word boundary the player owed at
-    /// every gap). Other mods
+    /// every gap), bit 5 <see cref="FlexibleLines"/> (whether the caret was unpinned from the
+    /// playhead AND snapped forward when the next line started) and bit 6
+    /// <see cref="CharTimedStretch"/> (whether a freestyle slot or a stretched identical-character
+    /// run was judged on its own character target rather than its syllable's span). Other mods
     /// (Literate/Mashing/rate) travel in the score itself and need no frames.
     ///
     /// <para>Backlog 107 turned that model from a local SETTING into a mod (Gatekeeper), so it now
@@ -47,10 +50,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <see cref="typebeat.Game.Scoring.Legacy.LegacyScoreEncoder"/>/<c>Decoder</c> untouched:
     /// MouseX = character code, MouseY = config flags (bit 0 = allow-wrong-input, bit 1 =
     /// space-skips-word, bit 2 = syllable-span timing, bit 3 = wrong-input-on-word-gaps, bit 4 =
-    /// strict-spaces; only meaningful on CONFIG frames),
-    /// ButtonState = None, time = the integral frame time. A flags word of at most 31 is as harmless
+    /// strict-spaces, bit 5 = flexible-lines, bit 6 = char-timed-stretch; only meaningful on
+    /// CONFIG frames),
+    /// ButtonState = None, time = the integral frame time. A flags word of at most 127 is as harmless
     /// to the encoder as the single bit was, and each new bit is appended ABOVE the existing ones,
-    /// never renumbered: bits 0 to 3 keep their meaning and their positions untouched, so every
+    /// never renumbered: bits 0 to 4 keep their meaning and their positions untouched, so every
     /// replay already on disk decodes identically and simply reads false for the newer bits. All
     /// typeable characters (a-z, A-Z, 0-9, space, plus the Literate mod's punctuation, whose
     /// highest code point is ']' at 0x5D) and both sentinels are far below the decoder's coordinate
@@ -131,6 +135,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool StrictSpaces;
 
         /// <summary>
+        /// The engine's flexible-lines setting at record time (see
+        /// <see cref="Gameplay.TypingEngine.FlexibleLineSnap"/>). Only meaningful on
+        /// <see cref="CONFIG"/> frames, and the ERA carrier for backlog 208, which made the unpinned
+        /// caret the DEFAULT and added the one behaviour the old "FT" mod never had: a caret sitting
+        /// past the end of its line is snapped onto the next line when that line starts. The live
+        /// client records it set for every stack but the pinning mod's, and every replay stored
+        /// before it existed carries the bit clear, which is exactly right for both kinds of older
+        /// run: a plain one re-derives PINNED (the caret it was played with), and an "FT" one
+        /// re-derives unpinned but WITHOUT the snap, because the mod is on its score and
+        /// <see cref="Gameplay.TypingEngine.FlexibleCaretFromMod"/> carries that half.
+        ///
+        /// <para>Judgement relevant in the strongest sense: each arm decides which line the caret is
+        /// on at a given time, so one frame decoded under the wrong one lands every keystroke after
+        /// it on different cells.</para>
+        /// </summary>
+        public bool FlexibleLines;
+
+        /// <summary>
         /// The engine's stretch-timing setting at record time (see
         /// <see cref="Gameplay.TypingEngine.CharTimedStretch"/>). Only meaningful on
         /// <see cref="CONFIG"/> frames, and the ERA carrier for backlog 209: the live client records
@@ -159,20 +181,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <summary>
         /// The header frame for a run. <paramref name="spaceSkipsWord"/>,
         /// <paramref name="syllableTiming"/>, <paramref name="wrongInputOnWordGaps"/>,
-        /// <paramref name="strictSpaces"/> and <paramref name="charTimedStretch"/> are optional so
-        /// the older call sites keep meaning what they always did (bit clear = no word skipping,
-        /// classic point-target judgement, a wrong key on a word gap rejected, a gap typo carrying
-        /// the caret forward and a mid-word space rejected, a mashed stretch paid across its whole
-        /// syllable span), which is also exactly how a replay recorded before each setting existed
+        /// <paramref name="strictSpaces"/>, <paramref name="charTimedStretch"/> and
+        /// <paramref name="flexibleLines"/> are optional so the older call sites keep meaning what
+        /// they always did (bit clear = no word skipping, classic point-target judgement, a wrong
+        /// key on a word gap rejected, a gap typo carrying the caret forward, a mid-word space
+        /// rejected, a mashed stretch paid across its whole syllable span and a caret pinned to the
+        /// playhead), which is also exactly how a replay recorded before each setting existed
         /// decodes.
+        ///
+        /// <para>The PARAMETER order is append-only and therefore does NOT track bit order:
+        /// <paramref name="charTimedStretch"/> (bit 6) shipped first and holds slot 7, so
+        /// <paramref name="flexibleLines"/> (bit 5) is appended after it rather than renumbering a
+        /// positional argument out from under a call site that already passes it. Pass the newer
+        /// two by name.</para>
         /// </summary>
-        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false) => new TypeBeatReplayFrame(time, CONFIG)
+        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false, bool flexibleLines = false) => new TypeBeatReplayFrame(time, CONFIG)
         {
             AllowWrongInput = allowWrongInput,
             SpaceSkipsWord = spaceSkipsWord,
             SyllableTiming = syllableTiming,
             WrongInputOnWordGaps = wrongInputOnWordGaps,
             StrictSpaces = strictSpaces,
+            FlexibleLines = flexibleLines,
             CharTimedStretch = charTimedStretch,
         };
 
@@ -192,8 +222,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// typo parks the caret, a mid-word space is a typo rather than a rejection).</summary>
         private const int flag_strict_spaces = 16;
 
-        // Bit 5 (value 32) is RESERVED and deliberately skipped here: a concurrent task (backlog
-        // 208, flexible lines) claims it, and flags are appended above, never renumbered.
+        /// <summary>Bit 5 of the CONFIG frame's flags word: the caret was unpinned from the playhead
+        /// and snapped forward when the next line started (backlog 208's flexible-lines default).</summary>
+        private const int flag_flexible_lines = 32;
 
         /// <summary>Bit 6 of the CONFIG frame's flags word: a freestyle slot or a stretched
         /// identical-character run is judged on its own character target rather than its syllable's
@@ -211,6 +242,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             SyllableTiming = (flags & flag_syllable_timing) != 0;
             WrongInputOnWordGaps = (flags & flag_wrong_input_on_word_gaps) != 0;
             StrictSpaces = (flags & flag_strict_spaces) != 0;
+            FlexibleLines = (flags & flag_flexible_lines) != 0;
             CharTimedStretch = (flags & flag_char_timed_stretch) != 0;
         }
 
@@ -223,6 +255,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             | (SyllableTiming ? flag_syllable_timing : 0)
             | (WrongInputOnWordGaps ? flag_wrong_input_on_word_gaps : 0)
             | (StrictSpaces ? flag_strict_spaces : 0)
+            | (FlexibleLines ? flag_flexible_lines : 0)
             | (CharTimedStretch ? flag_char_timed_stretch : 0);
 
         /// <summary>

@@ -860,16 +860,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (!engine.LineIsActive)
                     return false;
 
-                // Fletcher parks the caret at the head of the next line the instant you finish one,
-                // so unlike default play a line stays "active" straight through an instrumental gap
-                // and Space would be eaten as a (wrong, combo-breaking) keystroke instead of reaching
-                // the mid-song skip overlay. Narrowly restore the fall-through: only Space, only while
-                // the SONG itself is in a dead zone, and only before the player has started the parked
-                // line. One keystroke into the line, or anywhere the song is actually playing a line,
-                // Space is a typing key again, so rushing into the next line is never blocked.
+                // An UNPINNED caret (the default since backlog 208) parks at the head of the next
+                // line the instant you finish one, so a line stays "active" straight through an
+                // instrumental gap and Space would be eaten as a (wrong, combo-breaking) keystroke
+                // instead of reaching the mid-song skip overlay. The pinned game never needed this:
+                // there the caret sits past the end of the line and the IsLineComplete fall-through
+                // further down carries it. Narrowly restore the fall-through: only Space, only while
+                // the SONG is not asking for characters on the caret's own line, and only before the
+                // player has started the parked line. One keystroke into the line, or anywhere the
+                // song is actually playing the line the caret is on, Space is a typing key again, so
+                // rushing into the next line is never blocked.
+                //
+                // SongIsOnTheCaretsLine rather than SongWindowOpen, and that distinction is the
+                // whole feature on a REAL map: decoder-built line windows are contiguous, so through
+                // a twelve-second instrumental the playhead is still inside the finished line's
+                // window and SongWindowOpen never goes false. It only did on synthetic maps with a
+                // hole between lines.
+                //
                 // (Gated on there being no bound gesture on this press, so binding one onto a Space
                 // chord is not swallowed by the skip fall-through.)
-                if (engine.FletcherEnabled && gesture == null && e.Key == Key.Space && !engine.SongWindowOpen && engine.ActiveLineUntouched)
+                if (engine.FletcherEnabled && gesture == null && e.Key == Key.Space && !engine.SongIsOnTheCaretsLine && engine.ActiveLineUntouched)
                     return false;
 
                 if (gesture == TypeBeatAction.EraseWord || (gesture == null && e.Key == Key.BackSpace))

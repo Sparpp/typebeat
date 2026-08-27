@@ -111,6 +111,16 @@ namespace typebeat.Game.Rulesets.TypeBeat
                 new ModWindUp(),
                 new ModWindDown(),
             },
+            // NOT a player-facing column: ModSelectOverlay builds columns for the five types above
+            // only, and marks every System mod invalid for selection. What listing it here DOES buy
+            // is resolution: Ruleset.CreateAllMods walks every ModType, so a stored score's "FT"
+            // still resolves to a real mod instead of UnknownMod, keeping its 0.98x multiplier, its
+            // 0.90x pp and (crucially) the flexible-caret-without-snap era it was played under.
+            // See TypeBeatModLegacyFletcher.
+            ModType.System => new Mod[]
+            {
+                new TypeBeatModLegacyFletcher(),
+            },
             _ => Array.Empty<Mod>(),
         };
 

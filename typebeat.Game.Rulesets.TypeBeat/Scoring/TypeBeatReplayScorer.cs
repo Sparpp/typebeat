@@ -330,7 +330,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// The engine <c>DrawableTypeBeatRuleset.createEngine</c> would build for this beatmap,
         /// plus the engine flags the mods set through <c>ApplyToDrawableRuleset</c>.
         /// <c>AllowWrongInput</c>, <c>SpaceSkipsWord</c>, <c>SyllableTiming</c>,
-        /// <c>WrongInputOnWordGaps</c>, <c>StrictSpaces</c> and <c>CharTimedStretch</c> are
+        /// <c>WrongInputOnWordGaps</c>, <c>StrictSpaces</c>, <c>CharTimedStretch</c> and
+        /// <c>FlexibleLineSnap</c> are
         /// deliberately NOT set from the mods or from any config: the replay's CONFIG frame carries
         /// what the run was judged under and overwrites all six, which is the only thing that judges
         /// a pre-Gatekeeper strict run right.
@@ -422,8 +423,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 }
             }
 
-            if (mods.Any(m => m is TypeBeatModFletcher))
+            // FletcherEnabled and FlexibleLineSnap are NOT selected from TypeBeatModFletcher, and
+            // that is the whole shape of backlog 208's flip: the mod named Fletcher now PINS the
+            // caret, which is this engine's default, so it needs no arm at all. The unpinned caret
+            // travels in the CONFIG frame (bit 5), which ReplayEngineFeed.Apply reads, exactly like
+            // the four era bits above.
+            //
+            // The one arm that IS needed is the retired "FT" mod, because it is the only thing a
+            // stored score can carry that means "unpinned caret, and NO line-start snap": the bit
+            // did not exist when those runs were recorded, so their frames say clear, and clear on
+            // its own means pinned. Apply ORs this in for the caret and still takes the snap
+            // straight from the bit, so an FT run re-derives the way it was played.
+            if (mods.Any(m => m is TypeBeatModLegacyFletcher))
+            {
                 engine.FletcherEnabled = true;
+                engine.FlexibleCaretFromMod = true;
+            }
 
             if (mods.Any(m => m is TypeBeatModMashing))
                 engine.MashingEnabled = true;
