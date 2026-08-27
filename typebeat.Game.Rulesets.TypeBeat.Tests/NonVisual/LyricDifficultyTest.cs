@@ -297,5 +297,230 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         #endregion
+
+        #region Freestyle slots, priced at a quarter (backlog 211)
+
+        private const string alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+
+        /// <summary>
+        /// A map of UNIFORM words: every token gets the same span and the same step from the last,
+        /// laid end to end and cut into lines of <paramref name="wordsPerLine"/>. Uniform is what
+        /// makes the fixtures below exact: every line's rhythm cv is 0 whatever the tokens are made
+        /// of, so two maps built this way differ in NOTHING but what their tokens weigh.
+        /// </summary>
+        private static LyricLine[] uniformMap(string[] tokens, int wordsPerLine, double stepMs, double spanMs)
+        {
+            var lines = new List<LyricLine>();
+            double t = 0;
+
+            for (int i = 0; i < tokens.Length; i += wordsPerLine)
+            {
+                int count = Math.Min(wordsPerLine, tokens.Length - i);
+                var units = new (string, double, double)[count];
+
+                for (int w = 0; w < count; w++)
+                {
+                    double ws = t + w * stepMs;
+                    units[w] = (tokens[i + w], ws, ws + spanMs);
+                }
+
+                lines.Add(line(t, t + count * stepMs, units));
+                t += count * stepMs;
+            }
+
+            return lines.ToArray();
+        }
+
+        /// <summary>
+        /// <paramref name="count"/> tokens built from <paramref name="shape"/>, which is handed the
+        /// word's index and takes its letters from <see cref="alphabet"/>. Every shape below cycles
+        /// with the same period (36), so any two maps here repeat their words at exactly the same
+        /// indices and the repetition factor is identical between them.
+        /// </summary>
+        private static string[] tokens(int count, Func<int, string> shape) => Enumerable.Range(0, count).Select(shape).ToArray();
+
+        private static string letters(int i, int n)
+        {
+            var sb = new System.Text.StringBuilder(n);
+
+            for (int k = 0; k < n; k++)
+                sb.Append(alphabet[(i + k) % alphabet.Length]);
+
+            return sb.ToString();
+        }
+
+        private const char marker = Typeability.FREESTYLE_MARKER;
+
+        /// <summary>
+        /// THE REGRESSION GUARD, and the reason the weight enters as a cell COUNT rather than as a
+        /// character of the stream: a map with no freestyle slots must rate what it rated before
+        /// freestyle was priced at all, to the last bit rather than to a tolerance. Every constant
+        /// here was read off this file's own fixtures at the commit before backlog 211.
+        /// </summary>
+        [Test]
+        public void AMapWithNoFreestyleSlotsRatesBitIdenticallyToBeforeTheyWerePriced()
+        {
+            var catcat = new[] { line(0, 800, ("cat", 0, 400), ("cat", 400, 800)) };
+            var big = buildMap(lineCount: 40, wordsPerLine: 8, lineMs: 1200);
+            var realistic = buildMap(lineCount: 40, wordsPerLine: 4, lineMs: 2400);
+            var mid = buildMap(lineCount: 12, wordsPerLine: 6, lineMs: 1800);
+            var punctuated = new[]
+            {
+                line(0, 2000, ("Hello,", 0, 700), ("bad-cat!", 700, 1400), ("sat...", 1400, 2000)),
+                line(2200, 5000, ("Typing", 2200, 3000), ("is", 3000, 3400), ("a", 3400, 3700), ("rhythm;", 3700, 4300), ("not", 4300, 4700), ("a", 4700, 4850), ("race.", 4850, 5000)),
+            };
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(LyricDifficulty.Compute(catcat), Is.EqualTo(0.7881034645919412), "the shared cat cat anchor");
+                Assert.That(LyricDifficulty.Compute(big), Is.EqualTo(6.306729385543521));
+                Assert.That(LyricDifficulty.Compute(big, 1.50), Is.EqualTo(10.701160103747016));
+                Assert.That(LyricDifficulty.Compute(realistic), Is.EqualTo(3.5397724499548717));
+                Assert.That(LyricDifficulty.Compute(mid, 0.75), Is.EqualTo(3.7404617917658656));
+                Assert.That(LyricDifficulty.Compute(mid), Is.EqualTo(4.79255273276615));
+                Assert.That(LyricDifficulty.Compute(mid, 1.50), Is.EqualTo(8.025340379053887));
+                Assert.That(LyricDifficulty.Compute(mid, 1, literate: true), Is.EqualTo(4.79255273276615));
+                Assert.That(LyricDifficulty.Compute(punctuated), Is.EqualTo(2.4256380574616663));
+                Assert.That(LyricDifficulty.Compute(punctuated, 1, literate: true), Is.EqualTo(2.600660083491142));
+                Assert.That(LyricDifficulty.Compute(punctuated, 1.50, literate: true), Is.EqualTo(4.764135480695918));
+            });
+        }
+
+        /// <summary>
+        /// THE PRICE, stated as an exact identity rather than as an inequality: FOUR freestyle slots
+        /// weigh exactly ONE ordinary cell, so a map of "a&amp;&amp;&amp;&amp;," words must rate
+        /// BIT-identically to the same map written "ab," (one fixed key plus four quarters against
+        /// two fixed keys, or, under Literate, two cells plus four quarters against three).
+        ///
+        /// <para>Everything else about the pair is held equal BY CONSTRUCTION, which is what lets
+        /// this be an equality: uniform spans make both cvs exactly 0, every word's run factor is
+        /// exactly 1 (no repeated letter in either shape), the two shapes repeat at the same indices
+        /// so the repetition factors match word for word, and the 60 words put both maps over the
+        /// 100-cell length pivot (120 priced cells plain, 180 under Literate) so the length
+        /// accumulator has to count the quarter as well or the bonuses differ.</para>
+        ///
+        /// <para>The two spacings hit the two arithmetic paths the weight enters. LOOSE (400 ms
+        /// step, floor 2 cells x 50 ms = 100 ms) never touches the per-character window floor, so it
+        /// is a pure test of <c>cost</c>. TIGHT (80 ms step) is under the floor, so the window itself
+        /// is the weight: read the floor off the fixed-key chars alone and the freestyle map gets a
+        /// 80 ms window where its twin gets 100 ms, and the equality breaks.</para>
+        /// </summary>
+        [TestCase(400, 350, false, TestName = "AFreestyleSlotIsExactlyAQuarterCell(loose, plain)")]
+        [TestCase(400, 350, true, TestName = "AFreestyleSlotIsExactlyAQuarterCell(loose, literate)")]
+        [TestCase(80, 60, false, TestName = "AFreestyleSlotIsExactlyAQuarterCell(tight window floor, plain)")]
+        [TestCase(80, 60, true, TestName = "AFreestyleSlotIsExactlyAQuarterCell(tight window floor, literate)")]
+        public void FourFreestyleSlotsWeighExactlyOneCell(double stepMs, double spanMs, bool literate)
+        {
+            // "a&&&&," : one fixed key (two under Literate, the mark) plus four quarter-cells.
+            var free = uniformMap(tokens(60, i => letters(i, 1) + new string(marker, 4) + ","), wordsPerLine: 6, stepMs, spanMs);
+            // "ab," : the same weight written entirely in fixed keys.
+            var full = uniformMap(tokens(60, i => letters(i, 2) + ","), wordsPerLine: 6, stepMs, spanMs);
+
+            double freeSr = LyricDifficulty.Compute(free, 1, literate);
+            double fullSr = LyricDifficulty.Compute(full, 1, literate);
+
+            TestContext.WriteLine($"step {stepMs} literate {literate}: freestyle {freeSr:0.000000}, all-fixed twin {fullSr:0.000000}");
+
+            Assert.That(freeSr, Is.EqualTo(fullSr));
+        }
+
+        /// <summary>
+        /// A quarter is BETWEEN the two prices it could have had, which is the whole decision: the
+        /// slots used to be worth nothing (a freestyle section was an accuracy and combo farm the
+        /// rating could not see) and they are not worth a whole cell either, since there is no letter
+        /// to find. The "excluded" map here is not an approximation of the old behaviour, it IS the
+        /// old number: the pre-211 code stripped every marker before measuring anything, so a map
+        /// with the markers deleted computed exactly what the marker map computed.
+        /// </summary>
+        [TestCase(false)]
+        [TestCase(true)]
+        public void FreestyleRatesAboveTheOldFreePriceAndBelowAFullCell(bool literate)
+        {
+            var excluded = uniformMap(tokens(60, i => letters(i, 1) + ","), wordsPerLine: 6, stepMs: 400, spanMs: 350);
+            var freestyle = uniformMap(tokens(60, i => letters(i, 1) + new string(marker, 4) + ","), wordsPerLine: 6, stepMs: 400, spanMs: 350);
+            var fixedKeys = uniformMap(tokens(60, i => letters(i, 5) + ","), wordsPerLine: 6, stepMs: 400, spanMs: 350);
+
+            double excludedSr = LyricDifficulty.Compute(excluded, 1, literate);
+            double freestyleSr = LyricDifficulty.Compute(freestyle, 1, literate);
+            double fixedSr = LyricDifficulty.Compute(fixedKeys, 1, literate);
+
+            TestContext.WriteLine($"literate {literate}: excluded (pre-211) {excludedSr:0.000}, quartered {freestyleSr:0.000}, all fixed keys {fixedSr:0.000}");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(freestyleSr, Is.GreaterThan(excludedSr), "pricing the slots has to raise the rating");
+                Assert.That(freestyleSr, Is.LessThan(fixedSr), "a slot is not a letter");
+            });
+        }
+
+        /// <summary>
+        /// The length bonus reads the SAME quarter, stated on its own because it is the one place
+        /// the weight is a map-wide accumulator rather than a per-word factor. The fixture's 60
+        /// words carry one fixed key and four slots each, so its priced cell count is
+        /// <c>60 * (1 + 4/4) = 120</c>, over the 100-cell pivot; count a slot as a whole cell and it
+        /// would be 300 (a 0.057 star bonus instead of 0.010), count it as nothing and it would be
+        /// 60 and the clamp would take the bonus away entirely.
+        /// </summary>
+        [Test]
+        public void TheLengthBonusCountsAFreestyleSlotAsAQuarterCell()
+        {
+            var free = uniformMap(tokens(60, i => letters(i, 1) + new string(marker, 4) + ","), wordsPerLine: 6, stepMs: 400, spanMs: 350);
+
+            // The STRAIN rating alone, i.e. what this fixture rates with length_stars set to 0
+            // (measured that way, exactly as the backlog-152 cases above were).
+            const double strain_only = 2.7028905748703154;
+            double bonus = 0.12 * Math.Log10(120 / 100.0);
+
+            Assert.That(bonus, Is.GreaterThan(0), "the fixture has to clear the pivot for this to test anything");
+            Assert.That(LyricDifficulty.Compute(free), Is.EqualTo(strain_only + bonus).Within(1e-5));
+        }
+
+        /// <summary>
+        /// WHERE the markers sit inside a word cannot matter, which is the observable consequence of
+        /// keeping them out of the stream TEXT and carrying them as a count. Append them to the
+        /// stream instead and "ab&amp;&amp;", "a&amp;b&amp;" and "&amp;&amp;ab" become three
+        /// different strings with three different run counts (3, 4, 3) and three different
+        /// word-repetition keys, so the letters either side of a slot would be priced on a bigram
+        /// that is not in the lyric.
+        /// </summary>
+        [Test]
+        public void WhereTheMarkersSitInsideAWordDoesNotMove()
+        {
+            var trailing = uniformMap(tokens(60, i => letters(i, 2) + new string(marker, 2)), wordsPerLine: 6, stepMs: 400, spanMs: 350);
+            var interleaved = uniformMap(tokens(60, i => letters(i, 1) + marker + letters(i + 1, 1) + marker), wordsPerLine: 6, stepMs: 400, spanMs: 350);
+            var leading = uniformMap(tokens(60, i => new string(marker, 2) + letters(i, 2)), wordsPerLine: 6, stepMs: 400, spanMs: 350);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(LyricDifficulty.Compute(interleaved), Is.EqualTo(LyricDifficulty.Compute(trailing)));
+                Assert.That(LyricDifficulty.Compute(leading), Is.EqualTo(LyricDifficulty.Compute(trailing)));
+            });
+        }
+
+        /// <summary>
+        /// A word of NOTHING BUT slots is a word. It used to be dropped from the map outright (its
+        /// stream was empty, so it never became a word at all), which is how a whole mashable
+        /// freestyle section could rate exactly 0.00: this fixture is that section, and it now rates
+        /// exactly what the same map of one-key words rates, four slots to the cell, run factor and
+        /// repetition and rhythm all falling out neutral because there is no text to read them off.
+        /// </summary>
+        [Test]
+        public void AWordOfNothingButFreestyleSlotsIsStillAWord()
+        {
+            var mashed = uniformMap(tokens(60, _ => new string(marker, 4)), wordsPerLine: 6, stepMs: 400, spanMs: 350);
+            var oneKeyWords = uniformMap(tokens(60, _ => "a"), wordsPerLine: 6, stepMs: 400, spanMs: 350);
+
+            double mashedSr = LyricDifficulty.Compute(mashed);
+
+            TestContext.WriteLine($"all-freestyle map -> {mashedSr:0.000} (it rated exactly 0.00 before backlog 211)");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(mashedSr, Is.GreaterThan(0), "before 211 this map had no words in it at all");
+                Assert.That(mashedSr, Is.EqualTo(LyricDifficulty.Compute(oneKeyWords)));
+            });
+        }
+
+        #endregion
     }
 }

@@ -25,6 +25,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// place the game prices a map for being long: pp carried a length factor until backlog 152 and
     /// no longer does.
     ///
+    /// A FREESTYLE slot counts as a quarter of a cell throughout (see <c>freestyle_cost_weight</c>),
+    /// rather than as nothing at all, which is what it counted as until backlog 211.
+    ///
     /// Kept byte-for-byte in step with the website's port
     /// (typebeat-web: Typebeat.Web.Packages.Lyrics.LyricDifficulty) so the in-game star rating and
     /// the stored beatmaps.difficulty_rating always agree. Any change here must be mirrored there,
@@ -95,23 +98,54 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private const double length_stars = 0.12;
 
         private const double reference_cells = 100; // the length bonus' pivot: 100 cells is the zero point
+
+        /// <summary>
+        /// What one FREESTYLE slot is worth, as a fraction of an ordinary cell (backlog 211).
+        ///
+        /// <para>A freestyle slot is a real keypress with a real deadline (backlog 209 gave it its own
+        /// character target, so it is timed like any other cell), it just has no letter to find. It
+        /// used to be worth NOTHING here, excluded from the cell stream outright, while paying full
+        /// price in scoring: a freestyle section was an accuracy and combo farm inside a star rating
+        /// that never saw it. A quarter is the price of the deadline without the letter.</para>
+        ///
+        /// <para>The weight enters in exactly three places, all of them cell COUNTS rather than cell
+        /// TEXT: the per-word <c>cost</c>, the per-character window floor those same words are
+        /// measured against, and the length bonus' cell accumulator. See <see cref="Word.Weight"/>.
+        /// It deliberately does NOT enter the run factor or the word-repetition key, which read the
+        /// stream TEXT: a marker carries no glyph, so putting one into that string would perturb the
+        /// bigram statistics of the letters either side of it.</para>
+        ///
+        /// <para>At 0 this file computes exactly what it computed before backlog 211, and on a map
+        /// with no markers at all it does so at any weight: every number below is bit-identical when
+        /// the freestyle count is zero.</para>
+        /// </summary>
+        private const double freestyle_cost_weight = 0.25;
         private const double per_char_floor_ms = 50; // min plausible real-time per typed character; floors a word's window at chars × this (see the strain loop)
         private const double min_span_ms = 50; // floor a word's sung span (cv guard)
         private const double repeat_window_ms = 20_000; // "last 20 seconds" for word repetition
 
         private readonly struct Word
         {
-            public readonly string Text; // the word's typed cells (word-repetition key)
-            public readonly int Chars;
+            public readonly string Text; // the word's FIXED-KEY cells (word-repetition key; markerless)
+            public readonly int Chars; // Text.Length, i.e. fixed-key cells only
+            public readonly int Freestyle; // freestyle slots in the word, which carry no text
             public readonly int Runs;
             public readonly double StartMs; // real-time onset (beatmap time / rate)
             public readonly double SpanMs; // beatmap-time sung span (final-word duration fallback)
             public readonly int LineIndex;
 
-            public Word(string text, int chars, int runs, double startMs, double spanMs, int lineIndex)
+            /// <summary>
+            /// The word's PRICED cell count: a fixed-key cell is worth 1 and a freestyle slot
+            /// <see cref="freestyle_cost_weight"/>. Fractional, and equal to <see cref="Chars"/>
+            /// exactly (not merely nearly) on a word with no markers.
+            /// </summary>
+            public double Weight => Chars + freestyle_cost_weight * Freestyle;
+
+            public Word(string text, int chars, int freestyle, int runs, double startMs, double spanMs, int lineIndex)
             {
                 Text = text;
                 Chars = chars;
+                Freestyle = freestyle;
                 Runs = runs;
                 StartMs = startMs;
                 SpanMs = spanMs;
@@ -134,11 +168,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             var words = new List<Word>();
             double[] lineMultipliers = new double[lineList.Count];
             double? prevLineEndMs = null;
-            // The map's typeable cell count, for the length bonus at the end. Counted HERE, off the
+            // The map's priced cell count, for the length bonus at the end. Counted HERE, off the
             // very cells the strain model measures, rather than taken as a parameter: a caller
             // supplied count is a second definition of "how long is this map", and the client and
-            // the server would eventually disagree about it on the same map.
-            long cells = 0;
+            // the server would eventually disagree about it on the same map. FRACTIONAL, because a
+            // freestyle slot is a quarter of a cell here too (freestyle_cost_weight): one knob, and
+            // a map cannot be long for the length bonus while being short for the strain model.
+            double cells = 0;
 
             for (int li = 0; li < lineList.Count; li++)
             {
@@ -151,11 +187,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 for (int j = 0; j < tokens.Length; j++)
                 {
                     string text = cellStream(tokens[j], literate);
+                    int freestyle = freestyleSlots(tokens[j]);
 
-                    if (text.Length == 0)
+                    // A token with neither fixed-key cells nor freestyle slots is not typed at all.
+                    // A token of NOTHING BUT markers ("&&&&") is: it used to fall out here, taking a
+                    // whole mashable word out of the map, and is now a word of weight 0 + n/4.
+                    if (text.Length == 0 && freestyle == 0)
                         continue;
 
-                    cells += text.Length;
+                    cells += text.Length + freestyle_cost_weight * freestyle;
 
                     double unitStart, unitEnd;
 
@@ -174,12 +214,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     double spanMs = Math.Max(unitEnd - unitStart, min_span_ms);
                     lastUnitEndMs = Math.Max(lastUnitEndMs, unitEnd);
 
-                    double perChar = spanMs / text.Length;
+                    // The line's rhythm cv is measured over the FIXED-KEY cells only, so a marker
+                    // neither splits the line finer nor stretches it: it has no glyph whose arrival
+                    // could be early or late relative to its neighbours, which is the thing cv is
+                    // about. A word of nothing but markers therefore adds no sample at all.
+                    if (text.Length > 0)
+                    {
+                        double perChar = spanMs / text.Length;
 
-                    for (int c = 0; c < text.Length; c++)
-                        charDurations.Add(perChar);
+                        for (int c = 0; c < text.Length; c++)
+                            charDurations.Add(perChar);
+                    }
 
-                    words.Add(new Word(text, text.Length, countRuns(text), unitStart / rate, spanMs, li));
+                    words.Add(new Word(text, text.Length, freestyle, countRuns(text), unitStart / rate, spanMs, li));
                 }
 
                 double pressure;
@@ -229,19 +276,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // Time budget for this word: until the next word begins (final word → its own span).
                 double intervalMs = i + 1 < words.Count ? words[i + 1].StartMs - w.StartMs : w.SpanMs / rate;
                 // Per-character floor: typing a word takes at least ~50 ms/char of real time, so its
-                // window can't drop below chars × that. A flat floor treated a 1-char and a 7-char word
+                // window can't drop below cells × that. A flat floor treated a 1-char and a 7-char word
                 // alike; over-capping fast multi-char words (exactly what separates a dense "Insane"
-                // ending from a "Hard") while under-guarding crammed long words.
-                double durationS = Math.Max(intervalMs, w.Chars * perCharFloorMs) / 1000.0;
+                // ending from a "Hard") while under-guarding crammed long words. Cells, not chars:
+                // a freestyle slot buys a quarter of the floor, the same quarter it pays in cost.
+                double durationS = Math.Max(intervalMs, w.Weight * perCharFloorMs) / 1000.0;
                 durations[i] = durationS;
 
-                double run = 0.5 + 0.5 * ((double)w.Runs / w.Chars);
+                // The run factor reads the word's TEXT, so it is computed over the fixed-key cells
+                // alone: a marker has no glyph to repeat or to alternate with. A word with no fixed
+                // keys at all has no such structure either, and takes the neutral 1.
+                double run = 0.5 + 0.5 * (w.Chars > 0 ? (double)w.Runs / w.Chars : 1);
                 double rep = repetitionFactor(words, i);
-                double cost = (w.Chars + 1) * run * rep;
+                double cost = (w.Weight + 1) * run * rep;
                 double load = cost * lineMultipliers[w.LineIndex] / durationS;
 
                 // Decay interval = the previous word's window; floor it by that word's char count.
-                double dtFloorMs = i == 0 ? 0 : words[i - 1].Chars * perCharFloorMs;
+                double dtFloorMs = i == 0 ? 0 : words[i - 1].Weight * perCharFloorMs;
                 double dt = i == 0 ? 0 : Math.Max(w.StartMs - prevStartMs, dtFloorMs) / 1000.0;
                 double carried = i == 0 ? 0 : density * Math.Pow(strain_decay_per_s, dt);
                 density = load + carried;
@@ -310,10 +361,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// for the run factor and for word repetition, which is what it is under this mod (a
         /// held Shift, and a target a lower-case press is judged WRONG against).</para>
         ///
-        /// <para>Freestyle slots are deliberately NOT included under either stream: they carry no
-        /// fixed key, so they contribute no finger travel or bigram cost to the difficulty model
-        /// (they are, if anything, the easiest cell on the line), and Literate does not constrain
-        /// them either.</para>
+        /// <para>Freestyle slots are not in this STRING under either stream, and that is a statement
+        /// about text, not about price. They carry no fixed key, so there is no glyph to put here
+        /// and none of the text statistics built on this string (the run factor, the word-repetition
+        /// key) can say anything about them; a marker sitting in the middle of a word would instead
+        /// falsify the bigram structure of the letters either side of it. They ARE priced, at
+        /// <see cref="freestyle_cost_weight"/>, through <see cref="freestyleSlots"/> and
+        /// <see cref="Word.Weight"/>. Literate does not constrain them either, so the quarter is the
+        /// same under both streams.</para>
         /// </summary>
         private static string cellStream(string token, bool literate)
         {
@@ -328,6 +383,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
 
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// The token's FREESTYLE slots, the other half of its cell count (see
+        /// <see cref="cellStream"/>): cells the player must hit on time with any key at all.
+        /// Independent of the Literate stream, since that mod does not constrain a slot's key.
+        /// </summary>
+        private static int freestyleSlots(string token)
+        {
+            int n = 0;
+
+            foreach (char c in token)
+            {
+                if (Typeability.IsFreestyle(c))
+                    n++;
+            }
+
+            return n;
         }
 
         /// <summary>Number of maximal runs of identical consecutive characters (e.g. "aaaas" = 2).</summary>
