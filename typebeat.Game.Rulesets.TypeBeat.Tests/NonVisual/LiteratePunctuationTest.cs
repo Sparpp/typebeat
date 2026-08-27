@@ -493,9 +493,191 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The property the AZERTY arm has to preserve: moving four positions onto their French
-        /// legends must not strand a supported mark with no key at all, which is the same failure
-        /// as the untypeable 'm' in a slower disguise.
+        /// Backlog 215. AZERTY's digit row is the REVERSE of the US one: the marks are unshifted
+        /// and the digits are shifted. The apostrophe on the 4 key is the one that mattered, since
+        /// a lyric without a "don't" or an "I'm" in it is the exception.
+        /// </summary>
+        [Test]
+        public void AzertyDigitRowIsMarksUnshiftedAndDigitsShifted()
+        {
+            var marks = new Dictionary<Key, char>
+            {
+                [Key.Number3] = '"',
+                [Key.Number4] = '\'',
+                [Key.Number5] = '(',
+                [Key.Number6] = '-',
+                [Key.Minus] = ')', // the key immediately right of 0
+            };
+
+            foreach (var (key, mark) in marks)
+            {
+                Assert.IsTrue(KeyCharMap.TryMap(key, KeyboardLayout.Azerty, false, true, out char produced), $"{key}");
+                Assert.AreEqual(mark, produced, $"{key}");
+            }
+
+            // The six whose unshifted legend is outside the supported set ('&', the accented
+            // letters, '_') produce NOTHING rather than falling through to the digit their keycap
+            // shows only on Shift: a digit the player never asked for is a wrong key like any other.
+            foreach (var key in new[] { Key.Number1, Key.Number2, Key.Number7, Key.Number8, Key.Number9, Key.Number0 })
+                Assert.IsFalse(KeyCharMap.TryMap(key, KeyboardLayout.Azerty, false, true, out _), $"{key}");
+
+            // Shift is the digit, on all ten.
+            for (int d = 0; d <= 9; d++)
+            {
+                Assert.IsTrue(KeyCharMap.TryMap(Key.Number0 + d, KeyboardLayout.Azerty, true, true, out char digit), $"digit {d}");
+                Assert.AreEqual((char)('0' + d), digit, $"digit {d}");
+            }
+
+            // Shift on the ')' key is the degree sign, outside the supported set, so it stays inert
+            // rather than producing the US legend's '-' (which lives on the 6 key here).
+            Assert.IsFalse(KeyCharMap.TryMap(Key.Minus, KeyboardLayout.Azerty, true, true, out _));
+
+            // WITHOUT the mod nothing about the row moves: every digit key is its digit under both
+            // modifiers exactly as before, and the ')' key is inert. This is load-bearing, the
+            // punctuation surface only ever opens under Literate.
+            foreach (bool shift in new[] { false, true })
+            {
+                for (int d = 0; d <= 9; d++)
+                {
+                    Assert.IsTrue(KeyCharMap.TryMap(Key.Number0 + d, KeyboardLayout.Azerty, shift, false, out char digit), $"digit {d} shift={shift}");
+                    Assert.AreEqual((char)('0' + d), digit, $"digit {d} shift={shift}");
+                }
+
+                Assert.IsFalse(KeyCharMap.TryMap(Key.Minus, KeyboardLayout.Azerty, shift, false, out _), $"minus shift={shift}");
+            }
+        }
+
+        /// <summary>
+        /// Backlog 215. The marks the reversed digit row displaced ('$', '%', '^', '*') all have
+        /// real French homes of their own, so they move there rather than being parked: the rule is
+        /// still that a position only ever yields what the keycap in front of the player shows.
+        /// </summary>
+        [Test]
+        public void AzertyRelocatedMarksSitOnTheirFrenchKeycaps()
+        {
+            var expected = new Dictionary<(Key, bool), char>
+            {
+                // Top row: '$' on the US-BracketRight position, the circumflex legend on the
+                // US-BracketLeft one.
+                [(Key.BracketRight, false)] = '$',
+                [(Key.BracketLeft, false)] = '^',
+                // Home row: the u-grave keycap is '%' shifted, and the US-BackSlash position is '*'.
+                [(Key.Quote, true)] = '%',
+                [(Key.BackSlash, false)] = '*',
+            };
+
+            foreach (var ((key, shift), mark) in expected)
+            {
+                Assert.IsTrue(KeyCharMap.TryMap(key, KeyboardLayout.Azerty, shift, true, out char produced), $"{key} (shift={shift})");
+                Assert.AreEqual(mark, produced, $"{key} (shift={shift})");
+
+                Assert.IsFalse(KeyCharMap.TryMap(key, KeyboardLayout.Azerty, shift, false, out _), $"{key} (shift={shift}) without the mod");
+            }
+
+            // The US Quote position is the u-grave keycap here, outside the supported set, so it no
+            // longer hands an AZERTY player the apostrophe (and the '"' above it): both moved to the
+            // digit row, where the French keycaps actually show them.
+            Assert.IsFalse(KeyCharMap.TryMap(Key.Quote, KeyboardLayout.Azerty, false, true, out _));
+
+            // The micro sign above '*' is outside the set too.
+            Assert.IsFalse(KeyCharMap.TryMap(Key.BackSlash, KeyboardLayout.Azerty, true, true, out _));
+
+            // None of it reaches QWERTY or QWERTZ, which keep every US legend involved.
+            foreach (var layout in new[] { KeyboardLayout.Qwerty, KeyboardLayout.Qwertz })
+            {
+                Assert.IsTrue(KeyCharMap.TryMap(Key.Quote, layout, false, true, out char quote), $"{layout}");
+                Assert.AreEqual('\'', quote, $"{layout}");
+
+                Assert.IsTrue(KeyCharMap.TryMap(Key.Quote, layout, true, true, out char doubleQuote), $"{layout}");
+                Assert.AreEqual('"', doubleQuote, $"{layout}");
+
+                Assert.IsTrue(KeyCharMap.TryMap(Key.BracketLeft, layout, false, true, out char open), $"{layout}");
+                Assert.AreEqual('[', open, $"{layout}");
+
+                Assert.IsTrue(KeyCharMap.TryMap(Key.BracketRight, layout, false, true, out char close), $"{layout}");
+                Assert.AreEqual(']', close, $"{layout}");
+
+                Assert.IsTrue(KeyCharMap.TryMap(Key.Minus, layout, false, true, out char hyphen), $"{layout}");
+                Assert.AreEqual('-', hyphen, $"{layout}");
+
+                Assert.IsFalse(KeyCharMap.TryMap(Key.BracketLeft, layout, true, true, out _), $"{layout}");
+                Assert.IsFalse(KeyCharMap.TryMap(Key.BracketRight, layout, true, true, out _), $"{layout}");
+                Assert.IsFalse(KeyCharMap.TryMap(Key.BackSlash, layout, false, true, out _), $"{layout}");
+            }
+        }
+
+        /// <summary>
+        /// The two deliberate exceptions to the keycap rule. '[' and ']' are AltGr-only on AZERTY
+        /// and AltGr is not modelled at all, so they are parked on the SHIFTED US bracket positions,
+        /// whose real legends (the diaeresis dead key and the pound sign) are outside the supported
+        /// set and so displace nothing faithful. Parking beats stranding: a mark with no key makes
+        /// every map containing it uncompletable, which is the whole bug class, while a mark on a
+        /// spare shifted legend is merely undiscoverable.
+        /// </summary>
+        [Test]
+        public void AzertyParksTheBracketsOnTheSpareShiftedLegends()
+        {
+            Assert.IsTrue(KeyCharMap.TryMap(Key.BracketLeft, KeyboardLayout.Azerty, true, true, out char open));
+            Assert.AreEqual('[', open);
+
+            Assert.IsTrue(KeyCharMap.TryMap(Key.BracketRight, KeyboardLayout.Azerty, true, true, out char close));
+            Assert.AreEqual(']', close);
+
+            // Inert without the mod, like every other punctuation position.
+            Assert.IsFalse(KeyCharMap.TryMap(Key.BracketLeft, KeyboardLayout.Azerty, true, false, out _));
+            Assert.IsFalse(KeyCharMap.TryMap(Key.BracketRight, KeyboardLayout.Azerty, true, false, out _));
+        }
+
+        /// <summary>
+        /// The correction is per LAYOUT, so the layouts that genuinely carry the US legends must
+        /// come out of it byte for byte unchanged. QWERTZ differs from QWERTY in exactly two
+        /// letters and in nothing else, punctuation surface open or closed.
+        /// </summary>
+        [Test]
+        public void TheUsTableIsUntouchedByTheAzertyCorrection()
+        {
+            foreach (Key key in Enum.GetValues<Key>())
+            {
+                if (key == Key.Y || key == Key.Z)
+                    continue;
+
+                foreach (bool shift in new[] { false, true })
+                {
+                    foreach (bool punctuation in new[] { false, true })
+                    {
+                        bool qwerty = KeyCharMap.TryMap(key, KeyboardLayout.Qwerty, shift, punctuation, out char qwertyChar);
+                        bool qwertz = KeyCharMap.TryMap(key, KeyboardLayout.Qwertz, shift, punctuation, out char qwertzChar);
+
+                        Assert.AreEqual(qwerty, qwertz, $"{key} shift={shift} punct={punctuation}");
+                        Assert.AreEqual(qwertyChar, qwertzChar, $"{key} shift={shift} punct={punctuation}");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// The digit row's own version of the reachability property: moving the marks onto the
+        /// unshifted legends must not cost the player the DIGITS, which are real lyric content.
+        /// They end up on Shift, exactly where the French keyboard puts them.
+        /// </summary>
+        [Test]
+        public void EveryDigitStaysReachableOnAzertyUnderTheMod()
+        {
+            for (int d = 0; d <= 9; d++)
+            {
+                Assert.IsTrue(KeyCharMap.TryMap(Key.Number0 + d, KeyboardLayout.Azerty, true, true, out char c), $"digit {d}");
+                Assert.AreEqual((char)('0' + d), c, $"digit {d}");
+            }
+
+            // And the space, the other non-letter cell every line is full of.
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Space, KeyboardLayout.Azerty, false, true, out char space));
+            Assert.AreEqual(' ', space);
+        }
+
+        /// <summary>
+        /// The property the AZERTY table has to preserve: moving a position onto its French legend
+        /// must not strand a supported mark with no key at all, which is the same failure as the
+        /// untypeable 'm' in a slower disguise.
         /// </summary>
         [Test]
         public void EverySupportedMarkStaysReachableOnAzerty()

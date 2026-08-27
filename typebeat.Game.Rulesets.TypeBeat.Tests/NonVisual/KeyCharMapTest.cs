@@ -107,6 +107,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(expected, plain, $"no-punctuation shift={shift} caps={capsLock}");
         }
 
+        /// <summary>
+        /// Backlog 215, backlog 214's failure one row up. On AZERTY the apostrophe is the
+        /// UNSHIFTED legend of the 4 key and the digit is the shifted one, the reverse of the US
+        /// row. The US table had it exactly backwards, so an AZERTY player pressing their own '
+        /// keycap produced '4', a wrong key, and no map containing a "don't" or an "I'm", which is
+        /// most of them, could be completed under Literate.
+        /// </summary>
+        [Test]
+        public void AzertyApostropheLivesOnTheFourKey()
+        {
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Number4, KeyboardLayout.Azerty, shift: false, punctuation: true, out char apostrophe));
+            Assert.AreEqual('\'', apostrophe);
+
+            // Shift is the DIGIT, exactly as on the real keyboard, not the US legend's '$'.
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Number4, KeyboardLayout.Azerty, shift: true, punctuation: true, out char four));
+            Assert.AreEqual('4', four);
+
+            // Caps Lock does not shift a digit-row key on any real keyboard, so both answers hold
+            // under it unchanged.
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Number4, KeyboardLayout.Azerty, shift: false, punctuation: true, capsLock: true, out char capsApostrophe));
+            Assert.AreEqual('\'', capsApostrophe);
+
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Number4, KeyboardLayout.Azerty, shift: true, punctuation: true, capsLock: true, out char capsFour));
+            Assert.AreEqual('4', capsFour);
+
+            // Without the mod the key is the digit under either modifier, exactly as before: the
+            // punctuation surface is the only thing that moves, and it opens only for Literate.
+            foreach (bool shift in new[] { false, true })
+            {
+                Assert.IsTrue(KeyCharMap.TryMap(Key.Number4, KeyboardLayout.Azerty, shift, punctuation: false, out char digit), $"shift={shift}");
+                Assert.AreEqual('4', digit, $"shift={shift}");
+            }
+
+            // QWERTY and QWERTZ keep the US legend on that key, both ways round.
+            foreach (var layout in new[] { KeyboardLayout.Qwerty, KeyboardLayout.Qwertz })
+            {
+                Assert.IsTrue(KeyCharMap.TryMap(Key.Number4, layout, shift: true, punctuation: true, out char dollar), $"{layout}");
+                Assert.AreEqual('$', dollar, $"{layout}");
+
+                Assert.IsTrue(KeyCharMap.TryMap(Key.Number4, layout, shift: false, punctuation: true, out char plain), $"{layout}");
+                Assert.AreEqual('4', plain, $"{layout}");
+            }
+        }
+
         [Test]
         public void QwertySemicolonKeepsItsUsLegend()
         {
