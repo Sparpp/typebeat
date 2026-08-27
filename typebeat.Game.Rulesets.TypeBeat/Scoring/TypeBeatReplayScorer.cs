@@ -81,6 +81,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <see cref="OffTimeRule"/>): it raises no <c>Mistyped</c> and no <c>ComboBroken</c>, and the
     /// <see cref="HitResult.Meh"/> its cell resolves with extends osu's combo by itself, exactly as
     /// the engine extends its own. Nothing is mirrored by hand, so nothing can double-count.</item>
+    /// <item>A CORRECTED typo needs no seam either (backlog 210,
+    /// <see cref="CorrectionCreditRule"/>): the cap is applied to the TIER inside the engine, so a
+    /// corrected cell announces itself as an Ok and <see cref="TypeBeatResultMapping.CellResult"/>,
+    /// which is the identity on the quality tiers, resolves it as one. Selecting the era is one
+    /// assignment on the engine and nothing else.</item>
     /// </list>
     ///
     /// <para><b>What it does not do.</b> No health, so PASS/FAIL is not re-derived: a replay ends
@@ -148,6 +153,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// cell as a Miss. As wide an axis as <paramref name="spaceRule"/> and wider than the rest:
         /// it reaches every row that ever fumbled a beat, and the two arms disagree on
         /// <c>statistics</c>, on <c>max_combo</c>, on accuracy, on completion and on rank.</param>
+        /// <param name="creditRule">What a CORRECTED typo's cell is worth. Stored scores predating
+        /// backlog 210 were played under <see cref="CorrectionCreditRule.Full"/>, where a fix struck
+        /// inside the Great window was worth a full 300 and the typo cost the play no accuracy at
+        /// all. It reaches every row that ever fixed a typo, so it is one of the wide axes, but it
+        /// moves fewer quantities than <paramref name="offTimeRule"/> does: <c>statistics</c>,
+        /// accuracy and <c>total_score</c> only, with <c>max_combo</c>, the miss count, completion
+        /// and rank identical under both arms.</param>
         public static TypeBeatReplayAccount Score(
             IBeatmap playable,
             IReadOnlyList<Mod> mods,
@@ -158,7 +170,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             RateWindowRule rateRule = RateWindowRule.ScaledByRate,
             WordSkipRule skipRule = WordSkipRule.Reclaimable,
             ComboClaimRule claimRule = ComboClaimRule.StreakedBreakWins,
-            OffTimeRule offTimeRule = OffTimeRule.MehHit)
+            OffTimeRule offTimeRule = OffTimeRule.MehHit,
+            CorrectionCreditRule creditRule = CorrectionCreditRule.Capped)
         {
             ArgumentNullException.ThrowIfNull(playable);
             ArgumentNullException.ThrowIfNull(replay);
@@ -205,6 +218,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // and the two have to be the same value or the engine's combo and the score processor's
             // would part company. Passing one variable to both is what makes that structural.
             engine.OffTime = offTimeRule;
+
+            // Same shape a fifth time (backlog 210), and the tidiest of them: the correction cap is
+            // implemented in the engine's judging arms alone (TypeBeatResultMapping.AwardedTier),
+            // so selecting it here is the WHOLE of that era gate. Unlike the off-time axis it needs
+            // no companion at onCharJudged, because the cap moves the TIER the engine announces and
+            // CellResult is the identity on the three quality tiers: a capped cell arrives here as
+            // an Ok and resolves as an Ok without this file knowing the rule exists.
+            engine.CorrectionCredit = creditRule;
 
             var ruleset = new TypeBeatRuleset();
 

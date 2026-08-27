@@ -256,7 +256,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 // The restore lands BEFORE the retype is judged, so the judgement the stage and the
                 // score see already carries the resumed run.
-                Assert.That(judgements[^1].Type, Is.EqualTo(JudgementType.Great));
+                //
+                // Ok and not Great even though the fix is struck dead on the cell's target: backlog
+                // 210 caps a corrected cell at Ok, and the two rules are orthogonal by design. The
+                // COMBO the fix earns back is untouched (that is this test's subject), and what it
+                // costs is the accuracy the cap takes.
+                Assert.That(judgements[^1].Type, Is.EqualTo(JudgementType.Ok));
                 Assert.That(judgements[^1].ComboAfter, Is.EqualTo(6));
 
                 // Exactly one break, at the keypress, and it is not un-counted: the typo stat counts

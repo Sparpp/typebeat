@@ -82,6 +82,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         internal double? FirstCorrectDelta { get; set; }
 
+        /// <summary>
+        /// Whether a wrong character has been typed into this cell at a time when it had not yet
+        /// been judged, i.e. whether this cell's ONE awarded judgement is (or will be) a CORRECTION
+        /// rather than a clean first attempt. Backlog 210 reads it to cap that judgement at
+        /// <see cref="JudgementType.Ok"/> (see
+        /// <see cref="Scoring.TypeBeatResultMapping.AwardedTier"/>).
+        ///
+        /// <para>HISTORY, unlike <see cref="State"/>: set once, never cleared, and it survives the
+        /// backspace that erases the wrong character, which is the whole of what it is for. It is
+        /// therefore NOT the same question <see cref="TypingEngine.CellLeftWrong"/> asks, and both
+        /// have to exist: that one is state (is the cell wrong RIGHT NOW, which is what the seal
+        /// needs to tell an unfixed typo from a cell nobody typed), this one is history (was it
+        /// EVER wrong before it was judged, which is what pricing the correction needs).</para>
+        ///
+        /// <para>Set only while <see cref="FirstCorrectDelta"/> is still null, which is what makes
+        /// it a STATE and not a counter, and what settles the two cycle cases at once. Wrong, fix,
+        /// wrong, fix: the flag is already set and stays set, so the second fix (an inert retype)
+        /// re-derives exactly the capped tier the first one was awarded. Correct, backspace, wrong,
+        /// fix: the cell was already judged CLEAN before it ever held a wrong character, the flag is
+        /// never set, and that clean judgement stands, which is right because a cell takes only its
+        /// first result and that result was earned honestly.</para>
+        ///
+        /// <para>Era-independent, deliberately: it records what HAPPENED, and
+        /// <see cref="Scoring.CorrectionCreditRule"/> decides what that is worth, so re-deriving a
+        /// stored score under either arm reads the same flag.</para>
+        /// </summary>
+        internal bool HeldWrongBeforeJudged { get; set; }
+
         internal TypingCell(char expected, bool isTypeable, double targetTime, TimingGranularity judgeGranularity)
         {
             Expected = expected;

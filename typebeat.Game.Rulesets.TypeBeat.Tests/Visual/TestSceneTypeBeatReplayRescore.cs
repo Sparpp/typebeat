@@ -194,6 +194,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         /// A typo typed through and then FIXED: the run backlog 109 changed the pricing of, and the
         /// one a harness gets wrong first if it mirrors the drawable layer incorrectly (the cell
         /// recovers, the mistype and its combo break do not).
+        ///
+        /// <para>Since backlog 210 it is also the round-trip that pins the CORRECTION CAP across the
+        /// two engines: the fixed cell is an Ok on both sides, and it has to be the SAME Ok, because
+        /// the cap is applied inside the engine and both the live playfield and the headless scorer
+        /// run one.</para>
         /// </summary>
         [Test]
         public void TestAFixedTypoRescoresToTheLivePlayersAccount()
@@ -206,8 +211,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             typeCorrectly(2, 12);
             runTheMapOut();
 
-            AddAssert("the run recovered the cell", () =>
-                liveStatistics.Single(kvp => kvp.Key == HitResult.Great).Value == 12
+            AddAssert("the run recovered the cell, capped at Ok", () =>
+                liveStatistics.Single(kvp => kvp.Key == HitResult.Great).Value == 11
+                && liveStatistics.Single(kvp => kvp.Key == HitResult.Ok).Value == 1
                 && liveStatistics.Single(kvp => kvp.Key == HitResult.ComboBreak).Value == 1);
 
             compare();

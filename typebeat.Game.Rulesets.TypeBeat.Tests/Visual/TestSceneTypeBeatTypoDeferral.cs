@@ -338,10 +338,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         /// <summary>
         /// The same typo, fixed. This is the point of the change: backspace and type it right and the
-        /// cell genuinely recovers, judged Great by its own window, so completion and rank recover
-        /// with it. Before backlog 109 the cell had already spent its result on a Miss the moment the
-        /// wrong key landed, and <c>ApplyEngineResult</c> drops every later result, so the fix went
-        /// green on screen while the statistics kept the miss for ever.
+        /// cell genuinely recovers, so completion and rank recover with it. Before backlog 109 the
+        /// cell had already spent its result on a Miss the moment the wrong key landed, and
+        /// <c>ApplyEngineResult</c> drops every later result, so the fix went green on screen while
+        /// the statistics kept the miss for ever.
+        ///
+        /// <para>It recovers as an <see cref="HitResult.Ok"/> and not a Great, though the retype is
+        /// struck dead on the cell's target: backlog 210 caps a corrected cell there
+        /// (<see cref="CorrectionCreditRule.Capped"/>) so that perfect play strictly beats corrected
+        /// play. Which is why this test is worth running against a real Player and not only against
+        /// the headless scorer: the cap is applied to the TIER inside the engine, so what the stage
+        /// ANNOUNCES and what the score processor STORES are the same Ok, and the whole live seam
+        /// (engine, drawable, score processor) is checked to agree on it.</para>
         /// </summary>
         [Test]
         public void TestAFixedTypoRecoversTheCellCompletionAndRank()
@@ -366,16 +374,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 engine.ProcessKey(cell.Expected, cell.TargetTime);
             });
 
-            AddAssert("the fix is the cell's first and only result", () =>
+            AddAssert("the fix is the cell's first and only result, capped at Ok", () =>
                 Player.ScoreProcessor.JudgedHits == 3
-                && statistics.GetValueOrDefault(HitResult.Great) == 3
+                && statistics.GetValueOrDefault(HitResult.Great) == 2
+                && statistics.GetValueOrDefault(HitResult.Ok) == 1
                 && statistics.GetValueOrDefault(HitResult.Miss) == 0);
+
+            // ...and the stage announced the same tier it stored, which is what applying the cap to
+            // the JUDGEMENT rather than to the result buys: the player sees the Ok they are graded on.
+            AddAssert("the announced judgement is the stored one", () =>
+            {
+                var counts = engine.BuildResults().Counts;
+                return counts[JudgementType.Ok] == 1 && counts[JudgementType.Great] == 2;
+            });
 
             typeCorrectly(3, 12);
             sealLineZero();
 
-            AddUntilStep("every cell is a Great", () =>
-                statistics.GetValueOrDefault(HitResult.Great) == 12 && statistics.GetValueOrDefault(HitResult.Miss) == 0);
+            AddUntilStep("every cell is typed, the corrected one at Ok", () =>
+                statistics.GetValueOrDefault(HitResult.Great) == 11
+                && statistics.GetValueOrDefault(HitResult.Ok) == 1
+                && statistics.GetValueOrDefault(HitResult.Miss) == 0);
 
             AddAssert("completion is whole and the rank is an X", () =>
                 TypeBeatScoreProcessor.ComputeCompletion(statistics) == 1

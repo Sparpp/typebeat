@@ -35,11 +35,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// reaches every stored DT / NC / HT row.</item>
     /// </list>
     ///
-    /// <para>Backlog 167 (<see cref="WordSkipRule"/>), backlog 176 (<see cref="ComboClaimRule"/>)
-    /// and backlog 199 (<see cref="OffTimeRule"/>) added an axis each on the same pattern, and are
-    /// pinned here too. The last of those is as wide as backlog 148's: an off-time press stopped
-    /// breaking the run and started resolving as a Meh, so every stored row that ever fumbled a beat
-    /// needs its arm to reproduce.</para>
+    /// <para>Backlog 167 (<see cref="WordSkipRule"/>), backlog 176 (<see cref="ComboClaimRule"/>),
+    /// backlog 199 (<see cref="OffTimeRule"/>) and backlog 210
+    /// (<see cref="CorrectionCreditRule"/>) added an axis each on the same pattern. The off-time one
+    /// is as wide as backlog 148's: an off-time press stopped breaking the run and started resolving
+    /// as a Meh, so every stored row that ever fumbled a beat needs its arm to reproduce. Each is
+    /// pinned here, except the correction cap, whose whole fixture lives in
+    /// <see cref="CorrectionCreditTest"/>; the DEFAULT contract below covers all of them.</para>
     ///
     /// <para>The properties pinned here are the ones the tool rests on: the switches DEFAULT to
     /// today's rules (so nothing that does not ask for an era changes meaning), each one actually
@@ -236,7 +238,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var explicitLive = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
                 SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate, WordSkipRule.Reclaimable, ComboClaimRule.StreakedBreakWins,
-                OffTimeRule.MehHit);
+                OffTimeRule.MehHit, CorrectionCreditRule.Capped);
 
             Assert.Multiple(() =>
             {
@@ -249,6 +251,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(new TypingEngine(lyricBeatmap()).WordSkip, Is.EqualTo(WordSkipRule.Reclaimable));
                 Assert.That(new TypingEngine(lyricBeatmap()).ComboClaim, Is.EqualTo(ComboClaimRule.StreakedBreakWins));
                 Assert.That(new TypingEngine(lyricBeatmap()).OffTime, Is.EqualTo(OffTimeRule.MehHit));
+                Assert.That(new TypingEngine(lyricBeatmap()).CorrectionCredit, Is.EqualTo(CorrectionCreditRule.Capped));
             });
         }
 

@@ -212,8 +212,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <list type="bullet">
         /// <item>pre-109 the typo spent the cell's result on a Miss, and the fix could never take it
         /// back, so the play submits 12 greats, 1 miss and an A;</item>
-        /// <item>since 109 the result was deferred, the fix earns the cell, and the play submits 13
-        /// greats and an X.</item>
+        /// <item>since 109 the result was deferred, the fix earns the cell, and the play submits 12
+        /// greats, the corrected cell's Ok and an X. (The Ok is backlog 210: the fix is struck dead
+        /// on target, but a corrected cell is capped at Ok, see
+        /// <see cref="CorrectionCreditRule.Capped"/>. What 109 is about, the cell being EARNABLE at
+        /// all, is the Miss turning into a hit; what it is worth is the later axis, and both arms
+        /// below are judged under today's.)</item>
         /// </list>
         ///
         /// The typo COUNT survives either way, because it counts the keypress and no correction can
@@ -246,9 +250,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(count(deferred, HitResult.Great), Is.EqualTo(13));
+                Assert.That(count(deferred, HitResult.Great), Is.EqualTo(12));
+                Assert.That(count(deferred, HitResult.Ok), Is.EqualTo(1), "the corrected cell, capped by backlog 210");
                 Assert.That(count(deferred, HitResult.Miss), Is.Zero);
-                Assert.That(deferred.Completion, Is.EqualTo(1));
+                Assert.That(deferred.Completion, Is.EqualTo(1), "an Ok counts as typed exactly as a Great does");
                 Assert.That(deferred.Rank, Is.EqualTo(ScoreRank.X));
 
                 Assert.That(count(immediate, HitResult.Great), Is.EqualTo(12));

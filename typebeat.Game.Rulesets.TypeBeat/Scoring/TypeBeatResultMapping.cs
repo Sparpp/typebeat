@@ -238,6 +238,63 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     }
 
     /// <summary>
+    /// The rule deciding what a CORRECTED typo's cell is worth: a cell that held a wrong character
+    /// before it was ever judged, then earned its judgement from a correct retype. Same reason as
+    /// the rules above: a stored score has to be re-derived under the rule it was PLAYED under
+    /// rather than only under the current one. Live play is always <see cref="Capped"/>.
+    ///
+    /// <para>Its reach is every row that ever fixed a typo, so it sits with the wide axes rather
+    /// than the narrow ones, but it moves LESS per row than <see cref="OffTimeRule"/> does: the two
+    /// arms disagree on tier counts and therefore on accuracy and total_score, and on nothing else
+    /// at all. max_combo, the miss count, completion and rank are identical under both, because a
+    /// capped cell is still a hit that extends the run and still counts as typed.</para>
+    /// </summary>
+    public enum CorrectionCreditRule
+    {
+        /// <summary>
+        /// The rule since backlog 210, and the only one live play uses: a cell that held a wrong
+        /// character before its first judgement resolves at min(the retype's own tier, Ok). A
+        /// perfectly timed fix takes <see cref="JudgementType.Ok"/> instead of
+        /// <see cref="JudgementType.Great"/>; an Ok-timed one is already there; a Meh-timed one,
+        /// and an off-time one, stay exactly where they were, because they are already below the
+        /// cap.
+        ///
+        /// <para><b>What it is for.</b> Before it, a word typed wrong and fixed could score
+        /// bit-identically to a word typed right: the mistype travels as
+        /// <see cref="TypeBeatScoreProcessor.MISTYPE_RESULT"/>, which is accuracy-inert by design
+        /// (see that field), and the corrected cell's deferred result was graded purely on the
+        /// RETYPE's timing, so a fast corrector paid nothing in accuracy. The cap is the one number
+        /// that makes perfect play strictly beat corrected play PER CELL, and it leaves the ordering
+        /// clean: clean 300 &gt; corrected at most 100 &gt; unfixed typo 50
+        /// (<see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>, re-weighted, see
+        /// <see cref="TypeBeatScoreProcessor.GetBaseScoreForResult"/>) &gt; miss 0.</para>
+        ///
+        /// <para><b>A state, not a counter.</b> The cell carries ONE flag
+        /// (<see cref="TypingCell.HeldWrongBeforeJudged"/>), so wrong-fix-wrong-fix cycles cap once
+        /// and can never demote below the min() rule however many times the player goes round.</para>
+        ///
+        /// <para>What it deliberately does NOT touch: the combo restore a fix earns
+        /// (<see cref="ComboRestoreRule"/>, which runs before the press is judged at all), the
+        /// unfixed typo's seal path, completion (Ok counts as typed exactly as Great does) and the
+        /// pp formula. HEALTH follows the result, as it does for every other cell: a capped fix
+        /// recovers <see cref="TypeBeatHealthProcessor.OK_HEALTH_INCREASE"/> rather than
+        /// <see cref="TypeBeatHealthProcessor.GREAT_HEALTH_INCREASE"/>, which is the same coherence
+        /// <see cref="OffTimeRule.MehHit"/> relies on (the result is the decision, and HP reads the
+        /// result) and not a rule of its own.</para>
+        /// </summary>
+        Capped,
+
+        /// <summary>
+        /// The rule every score stored BEFORE backlog 210 was played under: a corrected cell was
+        /// graded on the retype's own timing and nothing else, so a fix struck inside the Great
+        /// window was worth a full 300 and the typo cost the play no accuracy at all.
+        ///
+        /// <para>Only score RECALCULATION selects this. Nothing in gameplay may.</para>
+        /// </summary>
+        Full,
+    }
+
+    /// <summary>
     /// The rule deciding whether a rate-adjusting mod scales the judgement windows. Same reason as
     /// the three above. Live play is always <see cref="ScaledByRate"/>, and the axis only reaches a
     /// stored row that carries one of the rate mods (DT / NC / HT), unlike
@@ -496,6 +553,60 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <see cref="WordSkipRule"/> work.</para>
         /// </summary>
         public static bool OffTimePressIsAHit(OffTimeRule rule) => rule == OffTimeRule.MehHit;
+
+        /// <summary>
+        /// The tier a correct keypress is AWARDED, given the tier the clock classified it as
+        /// (<paramref name="type"/>) and whether its cell held a wrong character before it was ever
+        /// judged (<paramref name="heldWrongBeforeJudged"/>,
+        /// <see cref="TypingCell.HeldWrongBeforeJudged"/>). Under
+        /// <see cref="CorrectionCreditRule.Capped"/>, the live rule, a corrected cell takes
+        /// min(<paramref name="type"/>, <see cref="JudgementType.Ok"/>): backlog 210, so that
+        /// perfect play strictly beats corrected play per cell.
+        ///
+        /// <para><b>Only Great moves</b>, and that is the whole of the min(): of the tiers a correct
+        /// press can be classified as, Great is the only one ABOVE Ok. Meh is already below the cap,
+        /// and <see cref="JudgementType.Premature"/> / <see cref="JudgementType.Lagging"/> are
+        /// off the ladder entirely (they resolve as a Meh or a Miss per
+        /// <see cref="OffTimeRule"/>), so a capped cell struck off-time is untouched here and that
+        /// axis keeps its own answer. Written as a min over the ladder rather than as
+        /// "Great becomes Ok" because the ladder is what the rule is about, and a fourth tier would
+        /// have to be placed against the cap deliberately.</para>
+        ///
+        /// <para><b>Why the tier and not the osu result.</b> The cap could equally have been applied
+        /// in <see cref="CellResult"/>, and is not, for two reasons. It keeps live play, the replay
+        /// scorer and the JS mirror on ONE decision: the engine judges, and everything downstream
+        /// (the result the drawable applies, the tier counts, the engine's own point ladder, the HP
+        /// the result carries) follows from the single tier it announces, rather than the result
+        /// being capped in one place while the announcement said something else. And it keeps the
+        /// ANNOUNCED judgement honest: a capped cell raises <see cref="TypingEngine.CharJudged"/>
+        /// as an Ok, so the player SEES the Ok their stored score is graded on. Capping the result
+        /// alone would have shown a Great and stored an Ok.</para>
+        ///
+        /// <para>Read in exactly two places, both of them the retype-judging arms of
+        /// <see cref="TypingEngine.ProcessKey"/> (the awarded judgement, and the inert re-judgement
+        /// a later correct retype of the same cell re-derives), so the rule is IMPLEMENTED once and
+        /// only SELECTED twice: live play takes the engine's default and
+        /// <see cref="TypeBeatReplayScorer"/> sets the era's. Same shape as
+        /// <see cref="FixRestoresTheComboBreak"/>, and for the same reason.</para>
+        ///
+        /// <para>It needs no CONFIG frame bit, exactly as <see cref="OffTimeRule"/> does not: the
+        /// cap never moves the caret, so a stored replay's keystream is coherent under either arm
+        /// and the arm can be selected from outside.</para>
+        /// </summary>
+        public static JudgementType AwardedTier(JudgementType type, bool heldWrongBeforeJudged, CorrectionCreditRule rule)
+        {
+            if (!heldWrongBeforeJudged || rule != CorrectionCreditRule.Capped)
+                return type;
+
+            return type == JudgementType.Great ? JudgementType.Ok : type;
+        }
+
+        /// <summary>
+        /// Whether a corrected cell's judgement is capped at <see cref="JudgementType.Ok"/>
+        /// (backlog 210). The predicate form of <see cref="AwardedTier"/>, for readers that want the
+        /// rule rather than the mapping.
+        /// </summary>
+        public static bool CorrectionIsCapped(CorrectionCreditRule rule) => rule == CorrectionCreditRule.Capped;
 
         /// <summary>
         /// Whether a rate-adjusting mod multiplies the judgement windows by its clock rate

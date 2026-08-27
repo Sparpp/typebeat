@@ -291,22 +291,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The refund must not overpay: a typo, a backspace and a correct retype must leave the bar
-        /// exactly where typing the character right first time would have. So the two runs below are
+        /// The refund must not overpay: a typo, a backspace and a correct retype leaves the bar
+        /// exactly where typing the character right first time would have, MINUS the one thing the
+        /// detour genuinely costs, which is the tier its cell resolves at. So the two runs below are
         /// compared rather than pinned to a hand-computed number, and both start from a HALF-FULL
         /// bar, because at the cap a bonus refund would be invisible.
+        ///
+        /// <para>The gap is exactly one Great-to-Ok step, and it is not a health rule at all: since
+        /// backlog 210 a corrected cell resolves as an <see cref="HitResult.Ok"/> however well the
+        /// retype was timed (<see cref="CorrectionCreditRule.Capped"/>), and health follows the
+        /// result here exactly as it does for every other cell. What this pins is that NOTHING ELSE
+        /// moved: the drain the typo took at the keypress is still refunded in full by the erase,
+        /// and the detour still pays no bonus, so the whole difference is the one tier.</para>
         /// </summary>
         [Test]
-        public void FixingATypoLeavesHealthWhereTypingItRightWouldHave()
+        public void FixingATypoLeavesHealthOneTierBelowTypingItRight()
         {
             double corrected = playFirstLine(typoOnFirstCell: true);
             double clean = playFirstLine(typoOnFirstCell: false);
 
-            Assert.AreEqual(clean, corrected, 1e-9, "the detour is refunded, and pays no bonus");
+            double tierGap = TypeBeatHealthProcessor.GREAT_HEALTH_INCREASE - TypeBeatHealthProcessor.OK_HEALTH_INCREASE;
+
+            Assert.AreEqual(clean - tierGap, corrected, 1e-9, "the detour is refunded and pays no bonus; only the capped tier costs");
 
             // Non-vacuous both ways: the run really did climb from the starting bar (so the retype's
             // own recovery is in there) and really did type a typo.
             Assert.Greater(clean, 0.5);
+            Assert.Greater(corrected, 0.5);
             TestContext.WriteLine($"typo-then-fixed: {corrected:0.######}, typed right first time: {clean:0.######}.");
         }
 

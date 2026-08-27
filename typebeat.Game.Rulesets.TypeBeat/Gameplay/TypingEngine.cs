@@ -97,6 +97,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public OffTimeRule OffTime { get; set; } = OffTimeRule.MehHit;
 
         /// <summary>
+        /// What a CORRECTED typo's cell is worth: the judgement a cell earns from a correct retype,
+        /// having held a wrong character before it was ever judged.
+        /// <see cref="CorrectionCreditRule.Capped"/> is the live rule (backlog 210) and the default:
+        /// such a cell resolves at min(the retype's own tier, <see cref="JudgementType.Ok"/>), so a
+        /// fix always costs some accuracy and perfect play strictly beats corrected play per cell.
+        /// Only <see cref="Scoring.TypeBeatReplayScorer"/> ever sets the other one, to re-derive a
+        /// score from when a fast fix was free. Set BEFORE the first keypress and left alone
+        /// afterwards, exactly like <see cref="ComboRestore"/>: judgements already awarded are never
+        /// revisited.
+        /// </summary>
+        public CorrectionCreditRule CorrectionCredit { get; set; } = CorrectionCreditRule.Capped;
+
+        /// <summary>
         /// THE live judgement rule (backlog 174, graduated by backlog 179, narrowed by backlog 180
         /// to every mod stack except Hard Rock): judge each keypress
         /// against its cell's SYLLABLE time span instead of the cell's point target. Characters
@@ -477,6 +490,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// retyped leaves an EMPTY cell, which is a character they did not finish, and it must read
         /// as the miss it is. Out-of-range coordinates answer false rather than throwing, because
         /// the callers are event handlers routed by index.</para>
+        ///
+        /// <para>Since backlog 210 the cell also carries the HISTORY question
+        /// (<see cref="TypingCell.HeldWrongBeforeJudged"/>: was it ever wrong before it was judged),
+        /// and the two coexist because they are asked by different consumers about different things.
+        /// This one prices the cell the player LEFT wrong, so the answer has to change the moment
+        /// the character is erased. That one prices the CORRECTION, so the answer must not: a fix
+        /// the player made is a fact about the run whatever the cell holds afterwards. Neither is a
+        /// cheaper version of the other, and neither may be rewritten in terms of it.</para>
         /// </summary>
         public bool CellLeftWrong(int lineIndex, int cellIndex)
         {
@@ -1024,8 +1045,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <see cref="SyllableTiming"/>, <see cref="WrongInputOnWordGaps"/>,
         /// <see cref="StrictSpaces"/>), the mod flags
         /// (<see cref="FletcherEnabled"/>, <see cref="MashingEnabled"/>, <see cref="Literate"/>,
-        /// <see cref="CaseSensitive"/>), <see cref="WindowScale"/> and the three era rules
-        /// (<see cref="ComboRestore"/>, <see cref="SpaceTiming"/>, <see cref="WordSkip"/>). A rebuild
+        /// <see cref="CaseSensitive"/>), <see cref="WindowScale"/> and the era rules
+        /// (<see cref="ComboRestore"/>, <see cref="ComboClaim"/>, <see cref="SpaceTiming"/>,
+        /// <see cref="WordSkip"/>, <see cref="OffTime"/>, <see cref="CorrectionCredit"/>). A rebuild
         /// re-judges the same run, not a different one. The CONFIG frame is re-fed anyway, being the
         /// first frame of every replay, so those bits land on the same values a second time.</para>
         ///
@@ -1043,6 +1065,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     cell.TypedChar = null;
                     cell.JudgedDelta = null;
                     cell.FirstCorrectDelta = null;
+
+                    // The one place backlog 210's correction flag is ever cleared: it survives a
+                    // backspace by design, so only a whole-run rebuild puts it back.
+                    cell.HeldWrongBeforeJudged = false;
                 }
             }
 
@@ -1577,6 +1603,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     cell.State = CellState.Wrong;
                     cell.TypedChar = c;
 
+                    // The cell is now one whose eventual judgement, if the player goes back for it,
+                    // will be a CORRECTION and not a clean first attempt, and backlog 210 prices
+                    // those differently (see TypeBeatResultMapping.AwardedTier). Recorded on the
+                    // cell rather than counted, so a wrong-fix-wrong-fix cycle caps exactly once.
+                    //
+                    // Gated on the cell being UNJUDGED, which is what makes the flag mean what it
+                    // says. A cell that was already judged CLEAN and then spoiled by a wrong key on
+                    // the way back through keeps that clean judgement (a cell takes only its first
+                    // result, and the retype that follows is inert), so flagging it would demote a
+                    // judgement the player earned honestly before they ever fumbled it.
+                    //
+                    // Era-independent on purpose: this records what HAPPENED, and CorrectionCredit
+                    // decides what it is worth, so a stored replay re-derives the same flag under
+                    // either arm.
+                    if (cell.FirstCorrectDelta is null)
+                        cell.HeldWrongBeforeJudged = true;
+
                     int wrongCellIndex = caretIndex;
 
                     snapshotRedeemableBreak(wrongCellIndex, brokenStreak);
@@ -1696,7 +1739,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (inertRetype)
             {
                 delta = cell.FirstCorrectDelta!.Value;
-                type = windowsFor(cell).Classify(delta);
+
+                // The SAME award the first judgement took, re-derived: the stored delta through the
+                // same ladder, and through the same backlog 210 cap, because the flag it reads is
+                // set only before a cell is judged and never cleared. Announcing anything else here
+                // would show a Great on a cell whose stored result is the capped Ok.
+                type = TypeBeatResultMapping.AwardedTier(windowsFor(cell).Classify(delta), cell.HeldWrongBeforeJudged, CorrectionCredit);
 
                 cell.State = CellState.Correct;
                 cell.TypedChar = c;
@@ -1711,7 +1759,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // Premature/Lagging still count as CORRECT keypresses (right char, wrong time).
                 correctKeypresses++;
 
-                type = windowsFor(cell).Classify(delta);
+                // The clock classifies the press, then backlog 210's CORRECTION CAP decides what it
+                // is awarded: a cell that held a wrong character before it was ever judged resolves
+                // at min(that tier, Ok), so a corrected cell can never be worth what a clean one is
+                // (see TypeBeatResultMapping.AwardedTier for why the cap sits on the TIER rather
+                // than on the osu result). Applied here, above everything the tier decides, so the
+                // engine's point ladder, the tier counts, the announced CharJudged and the cell's
+                // osu result all follow the one decision and cannot say different things. The delta
+                // itself is untouched, so the sync timeline and the sync readouts see the press the
+                // player actually made.
+                type = TypeBeatResultMapping.AwardedTier(windowsFor(cell).Classify(delta), cell.HeldWrongBeforeJudged, CorrectionCredit);
                 int basePoints = SyncWindows.BasePoints(type);
 
                 // Fletcher RUSH CAP, evaluated before the caret moves: does this press put the caret

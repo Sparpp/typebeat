@@ -137,11 +137,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         /// <summary>
         /// The player backspaced a wrong character away (backlog 166): give back what
-        /// <see cref="ApplyTypoDrain"/> took for it. The refund is the drain and nothing more, so a
-        /// typo, a backspace and a correct retype leave the bar exactly where typing the character
-        /// correctly first time would have: the retype earns the ordinary recovery its own
-        /// Great/Ok/Meh result carries, and this pays back the detour rather than paying a bonus for
-        /// having taken it.
+        /// <see cref="ApplyTypoDrain"/> took for it. The refund is the drain and nothing more: the
+        /// retype earns the ordinary recovery its own Great/Ok/Meh result carries, and this pays
+        /// back the detour rather than paying a bonus for having taken it.
+        ///
+        /// <para>Which leaves the bar one TIER below where typing the character right first time
+        /// would have, since backlog 210: a corrected cell resolves as an
+        /// <see cref="HitResult.Ok"/> however well the retype was timed
+        /// (<see cref="CorrectionCreditRule.Capped"/>), so a fix that would have been a Great
+        /// recovers <see cref="OK_HEALTH_INCREASE"/>. That is not a health rule and there is nothing
+        /// here to express it: health reads the result, the result is where the cap lives, and this
+        /// refund is unchanged by it.</para>
         ///
         /// <para>Erasing a typo and then leaving the cell EMPTY is not rewarded either: the cell is
         /// then one the player did not finish, and it seals as an ordinary miss, so the play ends up
