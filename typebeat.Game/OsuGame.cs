@@ -59,6 +59,7 @@ using typebeat.Game.Overlays.Mods;
 using typebeat.Game.Overlays.Music;
 using typebeat.Game.Overlays.Notifications;
 using typebeat.Game.Overlays.OSD;
+using typebeat.Game.Overlays.SkinEditor;
 using typebeat.Game.Overlays.Toolbar;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Scoring;
@@ -137,6 +138,8 @@ namespace typebeat.Game
         private Container overlayOffsetContainer;
 
         private OnScreenDisplay onScreenDisplay;
+
+        private SkinEditorOverlay skinEditor;
 
         private DialogOverlay dialogOverlay;
 
@@ -1031,6 +1034,7 @@ namespace typebeat.Game
             // overlay elements
             loadComponentSingleFile(FirstRunOverlay = new FirstRunSetupOverlay(), footerBasedOverlayContent.Add, true);
             loadComponentSingleFile(new ManageCollectionsDialog(), overlayContent.Add, true);
+            loadComponentSingleFile(skinEditor = new SkinEditorOverlay(ScreenContainer), overlayContent.Add, true);
             loadComponentSingleFile(Settings = new SettingsOverlay(), leftFloatingOverlayContent.Add, true);
 
             loadComponentSingleFile(new NowPlayingOverlay
@@ -1433,6 +1437,10 @@ namespace typebeat.Game
                     fpsCounter.ToggleVisibility();
                     return true;
 
+                case GlobalAction.ToggleSkinEditor:
+                    skinEditor.ToggleVisibility();
+                    return true;
+
                 case GlobalAction.ResetInputSettings:
                     Host.ResetInputHandlers();
                     frameworkConfig.GetBindable<ConfineMouseMode>(FrameworkSetting.ConfineMouseMode).SetDefault();
@@ -1444,14 +1452,26 @@ namespace typebeat.Game
                     return true;
 
                 case GlobalAction.RandomSkin:
+                    // Don't allow random skin selection while in the skin editor.
+                    // This is mainly to stop many "Default (modified)" skins being created via the SkinManager.EnsureMutableSkin() path.
+                    // If people want this to work we can potentially avoid selecting default skins when the editor is open, or allow a maximum of one mutable skin somehow.
+                    if (skinEditor.State.Value == Visibility.Visible)
+                        return false;
+
                     SkinManager.SelectRandomSkin();
                     return true;
 
                 case GlobalAction.NextSkin:
+                    if (skinEditor.State.Value == Visibility.Visible)
+                        return false;
+
                     SkinManager.SelectNextSkin();
                     return true;
 
                 case GlobalAction.PreviousSkin:
+                    if (skinEditor.State.Value == Visibility.Visible)
+                        return false;
+
                     SkinManager.SelectPreviousSkin();
                     return true;
             }
@@ -1599,7 +1619,7 @@ namespace typebeat.Game
             }
 
             // Bind to new screen.
-            if (newScreen is OsuScreen)
+            if (newScreen is OsuScreen newOsuScreen)
             {
                 OverlayActivationMode.BindTo(newScreen.OverlayActivationMode);
                 configUserActivity.BindTo(newScreen.Activity);
@@ -1611,6 +1631,8 @@ namespace typebeat.Game
                     CloseAllOverlays();
                 else
                     Toolbar.Show();
+
+                skinEditor.SetTarget(newOsuScreen);
             }
         }
 

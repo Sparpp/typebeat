@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using JetBrains.Annotations;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Extensions;
@@ -21,6 +22,7 @@ using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Localisation;
 using typebeat.Game.Overlays.Dialog;
+using typebeat.Game.Overlays.SkinEditor;
 using typebeat.Game.Skinning;
 using osuTK;
 using Realms;
@@ -50,8 +52,8 @@ namespace typebeat.Game.Overlays.Settings.Sections.UserInterface
 
         private IDisposable realmSubscription;
 
-        [BackgroundDependencyLoader]
-        private void load()
+        [BackgroundDependencyLoader(permitNulls: true)]
+        private void load([CanBeNull] SkinEditorOverlay skinEditor)
         {
             Children = new Drawable[]
             {
@@ -75,6 +77,11 @@ namespace typebeat.Game.Overlays.Settings.Sections.UserInterface
                         new ExportSkinButton { Padding = new MarginPadding { Horizontal = 2.5f }, RelativeSizeAxes = Axes.X, Width = 1 / 3f },
                         new DeleteSkinButton { Padding = new MarginPadding { Left = 2.5f }, RelativeSizeAxes = Axes.X, Width = 1 / 3f },
                     }
+                },
+                new SettingsButtonV2
+                {
+                    Text = SkinSettingsStrings.SkinLayoutEditor,
+                    Action = () => skinEditor?.ToggleVisibility(),
                 },
             };
         }

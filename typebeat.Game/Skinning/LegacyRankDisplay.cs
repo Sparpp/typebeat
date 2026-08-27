@@ -9,6 +9,7 @@ using osu.Framework.Graphics.Sprites;
 using typebeat.Game.Audio;
 using typebeat.Game.Configuration;
 using typebeat.Game.Localisation;
+using typebeat.Game.Overlays.SkinEditor;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Scoring;
 using osuTK;
@@ -52,13 +53,16 @@ namespace typebeat.Game.Skinning
         }
 
         [BackgroundDependencyLoader]
-        private void load(SessionStatics statics)
+        private void load(SkinEditor? skinEditor, SessionStatics statics)
         {
             AddRangeInternal(new Drawable[]
             {
                 rankDownSample = new SkinnableSound(new SampleInfo("Gameplay/rank-down")),
                 rankUpSample = new SkinnableSound(new SampleInfo("Gameplay/rank-up")),
             });
+
+            if (skinEditor != null)
+                PlaySamples.Value = false;
 
             lastSamplePlayback = statics.GetBindable<double?>(Static.LastRankChangeSamplePlaybackTime);
         }

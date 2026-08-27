@@ -8,6 +8,7 @@ using osu.Framework.Graphics.Containers;
 using typebeat.Game.Audio;
 using typebeat.Game.Configuration;
 using typebeat.Game.Online.Leaderboards;
+using typebeat.Game.Overlays.SkinEditor;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Scoring;
 using typebeat.Game.Skinning;
@@ -44,7 +45,7 @@ namespace typebeat.Game.Screens.Play.HUD
         }
 
         [BackgroundDependencyLoader]
-        private void load(SessionStatics statics)
+        private void load(SkinEditor? skinEditor, SessionStatics statics)
         {
             InternalChildren = new Drawable[]
             {
@@ -55,6 +56,9 @@ namespace typebeat.Game.Screens.Play.HUD
                     RelativeSizeAxes = Axes.Both
                 },
             };
+
+            if (skinEditor != null)
+                PlaySamples.Value = false;
 
             lastSamplePlayback = statics.GetBindable<double?>(Static.LastRankChangeSamplePlaybackTime);
         }
