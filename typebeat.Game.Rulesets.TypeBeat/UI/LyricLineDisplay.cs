@@ -123,7 +123,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private int shimmerTick = int.MinValue;
 
         /// <summary>Per-cell alpha driven purely by judgement state (Missed dims to 0.4, else 1);
-        /// the flashlight window multiplies on top of this so the two never clobber each other.</summary>
+        /// the flashlight window and the Recite mod each multiply on top of this, so none of the
+        /// three ever clobbers another.</summary>
         private float[] cellStateAlpha = Array.Empty<float>();
 
         /// <summary>Content-local left edge of each cell; length = Cells.Count + 1 (last entry = end of line).</summary>
