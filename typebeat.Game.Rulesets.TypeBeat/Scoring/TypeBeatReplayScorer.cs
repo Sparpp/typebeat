@@ -122,7 +122,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// score processor's <c>maximum_statistics</c> comes from, so it must be the same beatmap
         /// the client had.</param>
         /// <param name="mods">The run's mods. They reach three places: the engine (Gatekeeper,
-        /// Fletcher, Mashing, Literate), the score multiplier, and the rank adjustment.</param>
+        /// Fletcher, Mashing, Literate, Dyslexia), the score multiplier, and the rank
+        /// adjustment.</param>
         /// <param name="replay">The recorded frames (see <see cref="TypeBeatReplayFrame"/>).</param>
         /// <param name="rule">The typo rule to judge under. Stored scores predating backlog 109
         /// were judged under <see cref="TypoRule.ImmediateMiss"/>.</param>
@@ -469,6 +470,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             if (mods.Any(m => m is TypeBeatModMashing))
                 engine.MashingEnabled = true;
+
+            // DYSLEXIA (backlog 231), on the same terms as Mashing above and for the same reason: it
+            // is a MOD and not an era, so no CONFIG bit carries it and this list is the only thing
+            // that can say a run was played with the letters of a word arriving in any order. Miss
+            // this arm and a stored Dyslexia replay re-derives with every out-of-order press re-read
+            // as a typo, which is a different account of the same fingers.
+            if (mods.Any(m => m is TypeBeatModDyslexia))
+                engine.AnyOrderWithinWord = true;
 
             return engine;
         }

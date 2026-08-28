@@ -150,6 +150,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // re-pin a caret that was played free. ReplayEngineFeed.Apply ORs this back in.
             bool legacyFletcher = Mods?.Any(m => m is TypeBeatModLegacyFletcher) == true;
 
+            // DYSLEXIA (backlog 231): the letters of a word may be typed in any order. Read here
+            // alongside the others rather than left to TypeBeatModDyslexia.ApplyToDrawableRuleset
+            // alone, which is the AUTHORITATIVE site for the same reason it is for the flags above:
+            // mod application has no guaranteed order against the first Engine read, so deciding it
+            // at construction means the flag is never momentarily wrong. Unlike them it is NOT an
+            // era flag and stamps no CONFIG bit; the mod itself says why.
+            bool anyOrderWithinWord = Mods?.Any(m => m is TypeBeatModDyslexia) == true;
+
             return new TypingEngine(lyricBeatmap, literate)
             {
                 // THE live judgement rule since backlog 179, for every player and (since backlog
@@ -235,6 +243,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 BoundedRush = true,
 
                 FlexibleCaretFromMod = legacyFletcher,
+
+                // THE ONE MOD FLAG SET HERE THAT IS NOT AN ERA (backlog 231). A stored replay can
+                // never disagree with the mod list about it, because no run predates the mod, so
+                // there is nothing for a CONFIG bit to disambiguate and the score's mods are the
+                // whole mechanism (TypeBeatReplayScorer.createEngine reads the same list).
+                AnyOrderWithinWord = anyOrderWithinWord,
             };
         }
     }

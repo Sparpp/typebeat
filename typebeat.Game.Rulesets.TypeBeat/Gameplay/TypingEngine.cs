@@ -546,6 +546,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool MashingEnabled { get; set; }
 
         /// <summary>
+        /// Dyslexia mod (backlog 231, unranked): the characters of a WORD may be typed in ANY ORDER.
+        /// A press is matched against the first cell of the word the caret is inside that nobody has
+        /// typed anything into yet, scanned ascending, under exactly the rules the caret cell is
+        /// matched under today (<see cref="CaseSensitive"/> included). Only a key that matches
+        /// NOTHING still untyped in that word is a wrong key, and it is then priced exactly as it is
+        /// now, at the caret, by the same wrong-input machinery.
+        ///
+        /// <para>The caret stays the LEFTMOST untyped typeable cell of the line, which is what the
+        /// mod costs to implement and what it buys: <see cref="CaretCountablePosition"/>, the
+        /// Fletcher rush cap (<see cref="rushesPastCap"/>), the Flashlight reveal window and
+        /// <see cref="IsLineComplete"/> all read the caret as a monotone frontier, so a caret allowed
+        /// to sit anywhere else would make all four measure something else. A press that lands ahead
+        /// of the caret therefore moves nothing; the frontier rolls forward over the run of cells
+        /// already typed the moment the leftmost one is finally struck
+        /// (<see cref="advanceCaretToFrontier"/>).</para>
+        ///
+        /// <para>A FREESTYLE slot is not an any-order target. It matches every key but space, so a
+        /// scan that offered it would consume it with the first press and starve the exact match the
+        /// player meant; it still accepts anything AT THE CARET, exactly as it does today, which is
+        /// reached whenever the scan finds nothing (so the slot fills with the key that fits nothing
+        /// else, which is the character it stands for).</para>
+        ///
+        /// <para>Deterministic, which is what makes a Dyslexia replay re-derive: first match
+        /// ascending is a pure function of (the cells' states, the pressed char), and a replay stores
+        /// (char, time) alone.</para>
+        ///
+        /// <para>A MOD flag and NOT an era flag, which is why it has no CONFIG frame bit and no line
+        /// in <c>ReplayEngineFeed.Apply</c>. An era bit exists to disambiguate runs recorded BEFORE a
+        /// rule existed, and no stored run can carry a mod that did not exist when it was recorded:
+        /// re-derivation is driven by the score's MOD LIST, read by the two engine factories
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c> and
+        /// <see cref="Scoring.TypeBeatReplayScorer"/>). <see cref="MashingEnabled"/> is the exact
+        /// precedent, and the two mods are declared incompatible: mashing rewrites the press into the
+        /// caret cell's expected char before any of this is reached, so on an ordinary cell the
+        /// leftmost untyped cell always matches and the scan can only ever return the caret. A
+        /// FREESTYLE cell is exempt from that rewrite (the pressed char is the one thing such a cell
+        /// must remember), which is the one place the pair would not merely be inert, and the
+        /// incompatibility covers it rather than a guard here.</para>
+        /// </summary>
+        public bool AnyOrderWithinWord { get; set; }
+
+        /// <summary>
         /// Literate mod: when true, input is matched against the target's EXACT case (no
         /// <see cref="Typeability.Fold"/>), so a right letter typed in the wrong case is judged
         /// wrong: rejected/miss, exactly like any other wrong char. Off by default: gameplay is
@@ -1730,6 +1772,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// A space pressed inside a word abandons it under <see cref="SpaceSkipsWord"/> (off by default).
         /// A space typed ON a space cell is UNTIMED (backlog 148): it is judged as though it landed on
         /// target, so it always takes the top tier and never breaks combo, however loosely it was hit.
+        /// Under <see cref="AnyOrderWithinWord"/> the press is offered to the whole of the caret's
+        /// word rather than to the caret cell alone, and only a key that matches nothing still
+        /// untyped there is wrong at all.
         /// A wrong char is TYPED THROUGH by default (<see cref="AllowWrongInput"/>), or REJECTED
         /// under Gatekeeper. Either way it breaks combo, counts as a mistype, stays in the accuracy
         /// denominator forever, and resolves NO cell against the score processor; only the rejection
@@ -1832,13 +1877,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 correctKeypresses++;
 
                 caretIndex++;
-                autoSkipForward();
+                advanceCaretToFrontier();
 
                 rollForwardIfFinishedEarly(time);
                 return true;
             }
 
-            double delta = judgedDeltaFor(line, caretIndex, time);
+            // ANY ORDER WITHIN A WORD (backlog 231, see AnyOrderWithinWord): the press is offered to
+            // every cell of the caret's word nobody has typed anything into yet, ascending, and the
+            // first one it matches is the cell it lands on. This is the WHOLE of the mod, because
+            // everything downstream of here is already index-parameterised: judgedDeltaFor grades a
+            // cell against ITS OWN point target or syllable span, the combo-restore claim is keyed by
+            // cell, the mutation writes through the cell object, and CharJudged carries the index the
+            // display repaints.
+            //
+            // A miss leaves targetIndex at the caret, so a key matching nothing still untyped in the
+            // word falls through UNCHANGED and is priced exactly as it is without the mod: typed
+            // through, parked, or rejected by the unchanged block below.
+            //
+            // Skipped outright when the caret is ON a word gap, which is not "inside a word" at all.
+            // Two ways the caret gets there and neither wants this: the gap a finished word owes its
+            // space (every cell behind it is resolved, so the scan could only look backwards into a
+            // word with nothing left to find), and the gap a typo has PARKED the caret on under
+            // StrictSpaces, where the press must keep its ordinary meaning or the park is not a park.
+            int targetIndex = caretIndex;
+
+            if (AnyOrderWithinWord && !isWordGap(cell) && matchWithinWord(line.Cells, c) is int outOfOrder)
+            {
+                targetIndex = outOfOrder;
+                cell = line.Cells[targetIndex];
+            }
+
+            double delta = judgedDeltaFor(line, targetIndex, time);
 
             // SPACES ARE UNTIMED (backlog 148), decided here rather than after the match so that
             // EVERY reading of this press agrees on what its cell was worth: the correct press
@@ -1871,6 +1941,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             if (!matched)
             {
+                // Reached only with targetIndex == caretIndex, under every mod: a scan hit above
+                // satisfies exactly the test just made, so a press the word took out of order can
+                // never arrive here and this whole block still speaks about the caret's own cell.
+                //
                 // DEFAULT: a wrong LETTER is typed through, marked red, backspaceable, instead of
                 // rejected. What the WORD GAP does with a wrong letter is the first era switch (see
                 // WrongInputOnWordGaps): it takes the typo exactly as a lyric cell does, which is the
@@ -1946,10 +2020,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     // off, an advancing gap typo costs the player one cell, and with it on the next
                     // space fed the skip gate a spoiled gap and gave up a whole word. Every typo on a
                     // LYRIC cell advances exactly as it always has, under both arms.
+                    //
+                    // The advance rolls the frontier the same way a correct press does (see
+                    // advanceCaretToFrontier), which matters under AnyOrderWithinWord and nowhere
+                    // else: the cells this typo steps over can already have been typed out of order,
+                    // and leaving the caret parked on one of them would break the very invariant the
+                    // mod is built to keep.
                     if (!(StrictSpaces && SpaceSkipsWord && cell.Expected == ' '))
                     {
                         caretIndex++;
-                        autoSkipForward();
+                        advanceCaretToFrontier();
                     }
 
                     // The keypress was wrong, so it is a mistype exactly as it would be in strict
@@ -2034,7 +2114,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // Placed here so the press below is scored, and announced, at the RESUMED streak. Not a
             // scoring-inert operation even for an inert retype: the streak belongs to the return, not
             // to the cell's judgement.
-            resumeStreakIfThisRedeemsTheBreak(caretIndex);
+            // Keyed on the cell the press LANDED on and not on the caret, which is the same thing
+            // everywhere but under AnyOrderWithinWord: the claim is a (line, cell, streak) triple
+            // redeemed by typing THAT cell, so a typo fixed out of order has to restore its streak
+            // exactly as one fixed in order does.
+            resumeStreakIfThisRedeemsTheBreak(targetIndex);
 
             // Correctly re-typing a cell that was EVER judged correct (reached again via backspace,
             // which resets State but not FirstCorrectDelta) is scoring-inert: no counters, no
@@ -2169,9 +2253,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // scoring-inert retype still counts here: this is a record of keystrokes, not of cell states.
             pushRollingSample();
 
-            int judgedCellIndex = caretIndex;
-            caretIndex++;
-            autoSkipForward();
+            // The cell the press landed on, which is what the display repaints and what a consumer
+            // reading the judgement back has to be told: under AnyOrderWithinWord that is not always
+            // where the caret is.
+            int judgedCellIndex = targetIndex;
+
+            // The caret is the LEFTMOST UNTYPED TYPEABLE CELL of the line, always. Without the mod
+            // that is one step forward, because the cell just resolved is the one the caret was on.
+            // With it, a press that landed AHEAD of the caret moves nothing (the leftmost untyped
+            // cell is still untyped) and a press that landed ON the caret rolls the frontier over the
+            // whole run of cells already typed out of order behind it, both of which the walk below
+            // says in one line.
+            if (!AnyOrderWithinWord)
+                caretIndex++;
+
+            advanceCaretToFrontier();
 
             raise(CharJudged, new CharJudgement(activeLineIndex, judgedCellIndex, type, delta, points, combo));
             rollForwardIfFinishedEarly(time);
@@ -2212,12 +2308,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             // The WHOLE word the caret is inside: the run of cells between the word gaps either side
             // of it (a word gap being a typeable SPACE cell), or the ends of the line. Deliberately
-            // the whole word rather than just the tail from the caret onwards, even though the two
-            // give up exactly the same cells: every typeable cell BEHIND the caret is already Correct
-            // or Wrong, because resolving it is the only way the caret got past it and backspace
-            // takes the caret back with it. Scanning the word is what the feature promises, and it
-            // puts the weight on the "already resolved" test below instead of on an off-screen
-            // argument about where the caret can be.
+            // the whole word rather than just the tail from the caret onwards, and that choice is
+            // what keeps this correct now that a cell can be resolved out of turn: without
+            // AnyOrderWithinWord the two scans give up exactly the same cells (every typeable cell
+            // behind the caret is already Correct or Wrong, resolving it being the only way the caret
+            // got past it), and WITH it (backlog 231) the tail scan would abandon cells the player
+            // has already typed while the caret still sits back at the first one they have not.
+            // Scanning the word is what the feature promises either way, and it puts the weight on
+            // the "already resolved" test below instead of on an argument about where the caret can be.
             int start = caretIndex;
             int end = caretIndex;
 
@@ -2561,6 +2659,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <para>The one case that does not erase BEHIND the caret is a typo the caret is parked ON,
         /// which only <see cref="StrictSpaces"/> can produce (backlog 184): that cell is cleared in
         /// place and the caret does not move, because the gap it sits on is still owed its space.</para>
+        ///
+        /// <para>UNCHANGED by <see cref="AnyOrderWithinWord"/> (backlog 231), deliberately. "The most
+        /// recently typed cell" and "the nearest typed cell behind the caret" are the same cell
+        /// without that mod and can differ under it, and this stays the NEAREST ONE BEHIND: it is the
+        /// character the player is looking at, the caret is still the leftmost cell nobody has typed,
+        /// and erasing a cell somewhere off to the right because it happened to be typed last would
+        /// be the one place in the game where backspace did not take back what is in front of it. It
+        /// is also rarely felt, because every cell behind the frontier caret is Correct or Wrong
+        /// whichever order they were typed in.</para>
         /// </summary>
         public bool ProcessBackspace()
         {
@@ -2665,6 +2772,54 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// Literate mod) is NOT a boundary: it rides inside the word it is attached to.
         /// </summary>
         private static bool isWordGap(TypingCell cell) => cell.IsTypeable && cell.Expected == ' ';
+
+        /// <summary>
+        /// ANY ORDER WITHIN A WORD (see <see cref="AnyOrderWithinWord"/>): the index of the first
+        /// cell of the word the caret is inside that <paramref name="c"/> can be typed into, or null
+        /// when there is none. The word is scanned with the two-sided <see cref="isWordGap"/> walk
+        /// <see cref="skipCurrentWord"/> uses, so "word" still means exactly one thing in this file:
+        /// punctuation the stream kept rides INSIDE the word, and only a typeable space ends it.
+        ///
+        /// <para>ASCENDING, and that is a contract rather than a detail: the answer is then a pure
+        /// function of the cells' states and the pressed char, so a stored Dyslexia run re-derives
+        /// keystroke for keystroke from the (char, time) pairs a replay holds and nothing else.</para>
+        ///
+        /// <para>Only an UNTYPED typeable cell is a candidate. A Correct or Wrong one is a cell the
+        /// player is finished with (a Wrong one is corrected by backspacing back to it, which stays
+        /// the one route into a spoiled cell), an Abandoned one is reclaimed by the backspace its own
+        /// feature promises, and a non-typeable one is the auto-skip's business. A FREESTYLE slot is
+        /// excluded for the reason given on <see cref="AnyOrderWithinWord"/>: it matches every key
+        /// but space, so offering it here would swallow the first press of the word and starve every
+        /// exact match in it.</para>
+        ///
+        /// <para>The match is the SAME test the caret cell is matched with in
+        /// <see cref="ProcessKey"/>, <see cref="CaseSensitive"/> included, so a wrong-case letter
+        /// satisfies nothing under the Literate mod whether it is typed in order or out of it.</para>
+        /// </summary>
+        private int? matchWithinWord(IReadOnlyList<TypingCell> cells, char c)
+        {
+            int start = caretIndex;
+            int end = caretIndex;
+
+            while (start > 0 && !isWordGap(cells[start - 1]))
+                start--;
+
+            while (end < cells.Count && !isWordGap(cells[end]))
+                end++;
+
+            for (int i = start; i < end; i++)
+            {
+                var cell = cells[i];
+
+                if (!cell.IsTypeable || cell.IsFreestyle || cell.State != CellState.Untyped)
+                    continue;
+
+                if (CaseSensitive ? c == cell.Expected : Typeability.Fold(c) == Typeability.Fold(cell.Expected))
+                    return i;
+            }
+
+            return null;
+        }
 
         /// <summary>
         /// Where a CTRL+BACKSPACE (backlog 182, the typing-site "erase the previous word" gesture)
@@ -2871,6 +3026,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             if (rollingCount < rolling_wpm_window)
                 rollingCount++;
+        }
+
+        /// <summary>
+        /// Leave the caret on the LEFTMOST cell of the line that still needs a keystroke:
+        /// <see cref="autoSkipForward"/> exactly as before, plus, under
+        /// <see cref="AnyOrderWithinWord"/> only, the run of cells already typed OUT OF ORDER that
+        /// the caret would otherwise be parked in the middle of. Called from every caret advance in
+        /// <see cref="ProcessKey"/>, so the frontier invariant holds after a correct press, after a
+        /// typo typed through, and after a space stepping over a spoiled gap alike.
+        ///
+        /// <para>Only a <see cref="CellState.Correct"/> cell is walked over, which is exactly the one
+        /// state the mod can leave AHEAD of the caret and no more: a Wrong cell is one the caret is
+        /// PARKED on under <see cref="StrictSpaces"/> and must not be walked off, and an Abandoned
+        /// one only ever sits behind the caret (<see cref="skipCurrentWord"/> leaves the caret past
+        /// the word it gave up, and the backspace that reclaims one resets it to Untyped first).</para>
+        ///
+        /// <para>Without the mod the loop cannot run at all, because nothing can resolve a cell ahead
+        /// of the caret, so the pinned path is a plain <see cref="autoSkipForward"/> call.</para>
+        /// </summary>
+        private void advanceCaretToFrontier()
+        {
+            autoSkipForward();
+
+            if (!AnyOrderWithinWord || activeLineIndex == -1)
+                return;
+
+            var cells = lines[activeLineIndex].Cells;
+
+            while (caretIndex < cells.Count && cells[caretIndex].State == CellState.Correct)
+            {
+                caretIndex++;
+                autoSkipForward();
+            }
         }
 
         /// <summary>Hop the caret forward over non-typeable cells, marking them AutoSkipped.</summary>

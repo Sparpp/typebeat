@@ -100,6 +100,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
             {
                 new TypeBeatModFletcher(),
                 new TypeBeatModGatekeeper(),
+                new TypeBeatModDyslexia(),
             },
             ModType.Automation => new Mod[]
             {
