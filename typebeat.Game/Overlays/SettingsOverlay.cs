@@ -39,6 +39,7 @@ namespace typebeat.Game.Overlays
                 new UserInterfaceSection(),
                 new GameplaySection(),
                 new RulesetSection(),
+                new ExperimentalSection(),
                 new AudioSection(),
                 new GraphicsSection(),
                 new MaintenanceSection()
@@ -46,7 +47,12 @@ namespace typebeat.Game.Overlays
 
             var today = DateTimeOffset.Now;
             if (today.Month == 4 && today.Day == 1)
-                sections.Insert(8, new AfToggleSection());
+            {
+                // Add, not Insert at a hardcoded index: this always meant "last", and the index it
+                // used to spell that with silently became "before Maintenance" the moment a section
+                // was added above. Nothing catches that, the branch only runs on one day a year.
+                sections.Add(new AfToggleSection());
+            }
 
             return sections;
         }

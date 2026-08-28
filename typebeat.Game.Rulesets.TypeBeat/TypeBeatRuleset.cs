@@ -359,6 +359,8 @@ namespace typebeat.Game.Rulesets.TypeBeat
 
         public override RulesetSettingsSubsection CreateSettings() => new TypeBeatSettingsSubsection(this);
 
+        public override RulesetSettingsSubsection CreateExperimentalSettings() => new TypeBeatExperimentalSettingsSubsection(this);
+
         public override string ShortName => "typebeat";
 
         /// <summary>

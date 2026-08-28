@@ -83,6 +83,8 @@ namespace typebeat.Game.Overlays.FirstRunSetup
                         new UserInterfaceSection(),
                         new GameplaySection(),
                         new RulesetSection(),
+                        // ExperimentalSection is intentionally omitted: settings still on trial are
+                        // not something to put in front of a player who has not played yet.
                         new AudioSection(),
                         new GraphicsSection(),
                         new MaintenanceSection()

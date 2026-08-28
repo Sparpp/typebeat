@@ -358,6 +358,15 @@ namespace typebeat.Game.Rulesets
         public virtual RulesetSettingsSubsection? CreateSettings() => null;
 
         /// <summary>
+        /// The ruleset's controls for the EXPERIMENTAL settings section, kept apart from
+        /// <see cref="CreateSettings"/> so a ruleset can flag some of its own settings as experimental
+        /// without the hosting section having to know what they are. A ruleset's config keys are only
+        /// reachable through <see cref="RulesetSettingsSubsection"/>, so the section asks for the
+        /// subsection rather than building the controls itself.
+        /// </summary>
+        public virtual RulesetSettingsSubsection? CreateExperimentalSettings() => null;
+
+        /// <summary>
         /// Creates the <see cref="IRulesetConfigManager"/> for this <see cref="Ruleset"/>.
         /// </summary>
         /// <param name="settings">The <see cref="SettingsStore"/> to store the settings.</param>
