@@ -42,7 +42,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>A clean-ish reference play: 4 stars, 500 notes, no misses, 90% acc, full combo.</summary>
-        private const double reference_pp = 164.126302; // pp[f.compute(4, 500, 0, 0.9, 500)]
+        private const double reference_pp = 161.174292; // pp[f.compute(4, 500, 0, 0.9, 500)]
 
         [Test]
         public void Compute_MatchesAnIndependentlyEvaluatedReferencePlay()
@@ -125,12 +125,93 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // tested the claim at all and would have failed.
             //
             // Restated at 25 misses, i.e. 5% of the map. Both plays price properly (the miss term is
-            // 0.368), the sloppy one lands at ~129 against ~69, and the case is decided by the miss
-            // term rather than by a clamp.
-            double sloppyButClean = PerformancePoints.Compute(4, 500, misses: 0, accuracy: 0.60, maxCombo: 500, no_mods);
+            // 0.368) and the case is decided by the miss term rather than by a clamp.
+            //
+            // THE SLOPPY PLAY'S ACCURACY HAS MOVED TOO, from 0.60 to 0.85, and for the same class of
+            // reason: backlog 227 put a soft knee at 80% on the accuracy term, which multiplies a
+            // 60% play by 0.00034. The comparison would then be decided by the KNEE (the sloppy play
+            // prices at 0.03) and would say nothing whatever about the miss exponent. At 0.85 both
+            // plays sit above the knee, where it costs 12% and 0.5% respectively, and the sloppy one
+            // lands at ~130 against ~44.
+            double sloppyButClean = PerformancePoints.Compute(4, 500, misses: 0, accuracy: 0.85, maxCombo: 500, no_mods);
             double accurateButMissy = PerformancePoints.Compute(4, 500, misses: 25, accuracy: 0.93, maxCombo: 350, no_mods);
 
             Assert.That(sloppyButClean, Is.GreaterThan(accurateButMissy));
+        }
+
+        #endregion
+
+        #region Accuracy: the gentle exponent and the soft knee
+
+        [Test]
+        public void Compute_TheAccuracyKneeIsExactlyAHalfOnTheKneeItself()
+        {
+            // THE PROPERTY THE WHOLE DIAL RESTS ON, and the one that survives any retune of the
+            // WIDTH: at accuracy == acc_knee the argument to the exponential is exactly 0, exp(0) is
+            // exactly 1.0, and 1/(1 + 1) is exactly 0.5. A play sitting ON the knee is therefore
+            // priced at exactly half of what the exponent alone would give it, whatever the width is
+            // set to, which is the accuracy term's version of "an FC is exactly 1.0 at every
+            // combo_log_shape". Asserted bit-exactly rather than with a tolerance, and grouped the
+            // way Compute groups it (the exponent times the knee) because double multiplication is
+            // not associative.
+            foreach (int notes in new[] { 1, 100, 500, 2137 })
+            {
+                double onTheKnee = PerformancePoints.Compute(4, notes, 0, 0.80, notes, no_mods, typos: 0); // pp:const acc_knee=0.80
+                double halfTheExponentAlone = 12.4 * Math.Pow(4, 2.00) * (Math.Pow(0.80, 1.80) * 0.5); // pp:const scale=12.4 sr_exponent=2.00 acc_knee=0.80 accuracy_exponent=1.80
+
+                Assert.That(onTheKnee, Is.EqualTo(halfTheExponentAlone), $"notes={notes}");
+            }
+        }
+
+        [Test]
+        public void Compute_IsStrictlyIncreasingInAccuracySoTheKneeCannotReorderTwoPlays()
+        {
+            // The knee RESPREADS the accuracy axis and never permutes it: the logistic is strictly
+            // increasing in the accuracy and so is acc^1.80, so their product is too. Swept across
+            // the whole range at 0.005, straddling the knee, on a play that is neither spotless nor
+            // an FC so every other factor is a fixed positive number and only the timing term moves.
+            double previous = -1;
+
+            for (int step = 0; step <= 200; step++)
+            {
+                double accuracy = step / 200.0;
+                double pp = PerformancePoints.Compute(4.2, 500, 25, accuracy, 400, no_mods, typos: 12);
+
+                Assert.That(pp, Is.GreaterThan(previous), $"accuracy={accuracy}");
+                previous = pp;
+            }
+        }
+
+        [Test]
+        public void Compute_TheAccuracyKneeIsFiniteAtBothEndsOfTheRange()
+        {
+            // NO CLAMP GUARDS THE KNEE AND NONE IS NEEDED: accuracy is clamped into [0, 1] before
+            // the term sees it, so at a width of 0.025 the argument to Math.Exp runs between -8 and
+            // +32 and the factor stays strictly inside (0, 1). The two ends are the only places an
+            // unclamped logistic could overflow, so they are pinned rather than assumed.
+            foreach (double accuracy in new[] { 0.0, 1.0 })
+            {
+                double pp = PerformancePoints.Compute(4, 500, 0, accuracy, 500, no_mods, typos: 0);
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(pp, Is.Not.NaN, $"accuracy={accuracy}");
+                    Assert.That(double.IsFinite(pp), Is.True, $"accuracy={accuracy}");
+                    Assert.That(pp, Is.GreaterThanOrEqualTo(0), $"accuracy={accuracy}");
+                });
+            }
+
+            // A perfect play is not FREE of the knee, merely barely touched by it (1/(1 + e^-8),
+            // i.e. 0.9997), which is the point of putting the cliff at 80% instead of raising the
+            // exponent: the top of the range keeps what it had.
+            double perfect = PerformancePoints.Compute(4, 500, 0, 1.0, 500, no_mods, typos: 0);
+            double exponentAlone = 12.4 * Math.Pow(4, 2.00); // pp:const scale=12.4 sr_exponent=2.00
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(perfect, Is.LessThan(exponentAlone));
+                Assert.That(perfect, Is.GreaterThan(exponentAlone * 0.999));
+            });
         }
 
         #endregion
@@ -181,7 +262,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(pp, Is.EqualTo(310.000000).Within(1e-5)); // pp[f.compute(5, 1, 0, 1, 1)]
+                Assert.That(pp, Is.EqualTo(309.896041).Within(1e-5)); // pp[f.compute(5, 1, 0, 1, 1)]
                 Assert.That(pp, Is.GreaterThan(reference_pp));
             });
         }
@@ -423,7 +504,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             foreach (int notes in new[] { 1, 100, 500, 2137 })
             {
                 double spotless = PerformancePoints.Compute(4, notes, 0, 0.9, notes, no_mods, typos: 0);
-                double withoutEitherPenaltyTerm = 12.4 * Math.Pow(4, 2.00) * Math.Pow(0.9, 1.80); // pp:const scale=12.4 sr_exponent=2.00 accuracy_exponent=1.80
+
+                // The timing term carries the accuracy SOFT KNEE as a second factor since backlog
+                // 227, so this identity has to carry it too: at 90% accuracy the knee is
+                // 1/(1 + e^-4) = 0.98201379. It is GROUPED exactly as Compute groups it (the
+                // exponent times the knee, and the rest around that product) because the assertion
+                // below is bit-exact and double multiplication is not associative.
+                double knee = 1.0 / (1.0 + Math.Exp(-(0.9 - 0.80) / 0.025)); // pp:const acc_knee=0.80 acc_knee_width=0.025
+                double withoutEitherPenaltyTerm = 12.4 * Math.Pow(4, 2.00) * (Math.Pow(0.9, 1.80) * knee); // pp:const scale=12.4 sr_exponent=2.00 accuracy_exponent=1.80
 
                 Assert.That(spotless, Is.EqualTo(withoutEitherPenaltyTerm), $"notes={notes}");
             }
@@ -760,7 +848,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // typos, so its typo term is exactly 1.0 whatever the power, and the whole
                 // change is max(0, 1 - 5^1.2/300)^10 = 0.97700^10 replacing 0.91667^10. Five misses
                 // is far under the 116-miss cliff on a 300-note map, so this prices comfortably.
-                Assert.That(bare, Is.EqualTo(49.285664).Within(1e-5)); // pp[f.compute(3, 300, 5, 0.8, 250)]
+                Assert.That(bare, Is.EqualTo(24.642832).Within(1e-5)); // pp[f.compute(3, 300, 5, 0.8, 250)]
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModNoFail())),
                     Is.EqualTo(bare * 0.90).Within(1e-9)); // pp:const no_fail_multiplier=0.90
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModLegacyFletcher())),
@@ -885,7 +973,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // docs/pp.md move with it. v18 = the backlog-213 fold of the uncorrected typo into the
             // miss: no constant and no term moves, but misses and typos are DERIVED differently from
             // a play's statistics, so every stored row carrying a good is repriced downwards.
-            Assert.That(PerformancePoints.VERSION, Is.EqualTo(18)); // pp:version
+            Assert.That(PerformancePoints.VERSION, Is.EqualTo(19)); // pp:version
         }
 
         #endregion

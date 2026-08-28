@@ -18,7 +18,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// pp = 12.4 · SR_eff^2.00
     ///      · max(0, 1 − miss^1.2/notes)^10                   cleanliness
     ///      · max(0, 1 − typos^1.2/(notes+typos))^4           typos
-    ///      · acc^1.80                                        timing quality
+    ///      · acc^1.80 · 1/(1 + e^(−(acc − 0.80)/0.025))      timing quality
     ///      · (ln(1 + 9.0·maxcombo/notes)/ln(1 + 9.0))^2.50   combo
     ///      · modMult
     /// </code>
@@ -322,9 +322,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// the map. Every stored row carrying a <c>good</c> is repriced, downwards, which is what
         /// forces the bump; a row with no uncorrected typo is priced bit-identically, since both
         /// derivations reduce to the old ones at <c>good = 0</c>.</item>
+        /// <item>v19 = the backlog-227 accuracy SOFT KNEE. The timing term becomes acc^1.80
+        /// multiplied by 1/(1 + exp(-(acc - acc_knee)/acc_knee_width)), a logistic whose two new
+        /// constants say WHERE the accuracy cliff falls (acc_knee = 0.80) and how sharply
+        /// (acc_knee_width = 0.025), each independently of the other and of the exponent. Raising
+        /// accuracy_exponent could not do this: an exponent steep enough to price 80% out taxes the
+        /// top of the range too (a 95% play keeps 0.912 of the term at 1.80 and only 0.774 at 5),
+        /// where the knee costs that same play 0.25%, and 1.8% at 90%, 11% at 85%, HALF at 80%,
+        /// while multiplying 75% by 0.12 and 70% by 0.02. Three properties hold at every value of
+        /// the two constants: the knee is EXACTLY 0.5 at acc == acc_knee (the argument to exp is 0
+        /// there), it is STRICTLY INCREASING so it can never reorder two plays and only respreads
+        /// them, and it is finite and smooth over the whole of [0, 1] with no clamp needed, since
+        /// accuracy is clamped into that interval first and the argument to exp then stays inside
+        /// [-8, +32]. A width of 0 or less MEANS no knee, a real branch in both mirrors that prices
+        /// exactly as v18 did. Every stored row under a full accuracy is repriced, downwards and
+        /// hardest at the bottom, which is what forces the bump; nothing outside pp moves.</item>
         /// </list>
         /// </summary>
-        public const int VERSION = 18;
+        public const int VERSION = 19;
 
         // ---- formula constants (docs/pp.md) ----
 
@@ -353,6 +368,51 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         private const double accuracy_exponent = 1.80;
         private const double combo_exponent = 2.50;
+
+        /// <summary>
+        /// WHERE THE ACCURACY CLIFF SITS (backlog 227). The timing term is
+        /// <c>acc^accuracy_exponent · 1/(1 + exp(-(acc - acc_knee)/acc_knee_width))</c>: a SOFT KNEE
+        /// multiplying the gentle exponent, with this constant setting the accuracy the knee is
+        /// centred on and <see cref="acc_knee_width"/> setting how sharply it falls. The two are
+        /// independent of each other and of the exponent, which is the whole reason the knee is a
+        /// second factor rather than a bigger exponent.
+        ///
+        /// <para>A BIGGER EXPONENT WOULD TAX THE TOP TOO. Real accuracies here live at 55 to 93 (see
+        /// <c>docs/pp.md</c>) and solid plays at 85 to 98, so an exponent steep enough to price 80% out
+        /// takes the plays it is not aimed at with it: a 95% play keeps 0.912 of the term at 1.80 and
+        /// only 0.774 at 5. The knee costs that same play 0.25%, and 1.8% at 90%, 11% at 85%, HALF at
+        /// 80%, while multiplying 75% by 0.12 and 70% by 0.02.</para>
+        ///
+        /// <para>THE KNEE IS EXACTLY 0.5 AT <c>acc == acc_knee</c> AT EVERY WIDTH, since the argument
+        /// to the exponential is then exactly 0 and <c>1/(1 + exp(0))</c> is <c>1/2</c>. So a play
+        /// sitting on the knee is priced identically across any retune of the width, and the width
+        /// repositions only what sits either side of it, exactly as <see cref="combo_log_shape"/>
+        /// leaves a full combo alone.</para>
+        ///
+        /// <para>IT CANNOT REORDER TWO PLAYS. The logistic is strictly increasing in accuracy and so
+        /// is <c>acc^accuracy_exponent</c>, so their product is too: the knee RESPREADS the accuracy
+        /// axis and never permutes it. It is also finite and smooth over the whole of <c>[0, 1]</c>
+        /// with no clamp needed, since accuracy is clamped into that interval before it gets here: at
+        /// a width of 0.025 the argument to <c>Math.Exp</c> runs between -8 and +32, nowhere near the
+        /// ~709 at which it overflows to infinity.</para>
+        /// </summary>
+        private const double acc_knee = 0.80;
+
+        /// <summary>
+        /// How sharply the knee at <see cref="acc_knee"/> falls: the accuracy interval over which the
+        /// factor moves from about 0.27 to about 0.73 (one width either side of the knee). Smaller is
+        /// a harder edge.
+        ///
+        /// <para>A WIDTH OF ZERO OR LESS MEANS THERE IS NO KNEE, and the factor is then exactly 1.0,
+        /// i.e. the pre-227 timing term. That is the DECLARED-ABSENCE sentinel: a mirror one
+        /// generation behind declares neither constant and prices exactly that, which is what
+        /// <c>tools/pp.py</c> reads an absent declaration as. It is a real branch in
+        /// <see cref="AccuracyKnee"/> rather than a limit of the formula, which is where it differs
+        /// from <see cref="combo_log_shape"/>'s 0: a logistic has no limit that returns 1.0 (a width
+        /// tending to 0 gives a STEP, and 0/0 at the knee itself is NaN), so only the branch makes
+        /// the sentinel true of the arithmetic as well as of the tool.</para>
+        /// </summary>
+        private const double acc_knee_width = 0.025;
 
         /// <summary>
         /// The CURVATURE of the combo base (backlog 131). The term is
@@ -862,6 +922,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 : Math.Max(flashlight_floor, 1 + flashlight_offset + flashlight_weight * Math.Log10(notes / reference_notes));
 
         /// <summary>
+        /// The accuracy SOFT KNEE (backlog 227): a logistic centred on <see cref="acc_knee"/> and
+        /// <see cref="acc_knee_width"/> wide, multiplying the timing term. See those two constants
+        /// for what the dial does and why it is not simply a steeper exponent.
+        /// </summary>
+        private static double AccuracyKnee(double accuracy)
+        {
+            // A width of zero or less MEANS there is no knee, and the factor is then exactly 1.0
+            // rather than the step function the logistic degenerates to (see acc_knee_width). Written
+            // as a conditional expression rather than an if, so the dead half of a compile-time
+            // constant folds away instead of reading as unreachable code.
+            return acc_knee_width > 0
+                ? 1.0 / (1.0 + Math.Exp(-(accuracy - acc_knee) / acc_knee_width))
+                : 1.0;
+        }
+
+        /// <summary>
         /// pp for one play. <paramref name="starRating"/> is the play's EFFECTIVE rating
         /// (<see cref="StarsFor"/>), <paramref name="accuracy"/> the standardised hit accuracy and
         /// <paramref name="maxCombo"/> the highest combo reached.
@@ -930,7 +1006,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             double typoBase = Math.Max(0.0, 1.0 - Math.Pow(typos, count_power) / ((double)notes + typos));
             double typoPenalty = Math.Pow(typoBase, typo_exponent);
 
-            double timing = Math.Pow(accuracy, accuracy_exponent);
+            // The play's accuracy, gently curved by accuracy_exponent and then bent through the SOFT
+            // KNEE (see acc_knee): the exponent keeps doing the ordering work above the knee while
+            // the logistic takes the bottom of the range out. NO CLAMP IS NEEDED HERE and none would
+            // bite: accuracy is clamped into [0, 1] above, so at a width of 0.025 the argument to
+            // Math.Exp runs between -8 and +32 and the knee between 1.3e-14 and 0.9997. The knee is
+            // exactly 0.5 at accuracy == acc_knee and strictly increasing everywhere, so it can
+            // respread this axis but never reorder two plays on it.
+            double timing = Math.Pow(accuracy, accuracy_exponent) * AccuracyKnee(accuracy);
             // The longest run as a fraction of the map, bent through a log before the exponent
             // reaches it (see combo_log_shape). NO CLAMP IS NEEDED HERE and none would bite:
             // maxCombo is already clamped into [0, notes] above, so comboRatio is in [0, 1], the
