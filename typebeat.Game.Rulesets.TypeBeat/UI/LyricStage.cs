@@ -408,11 +408,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 }
 
                 // Sung caret + underline sweep follow the vocal position, on the line the SONG is on.
-                // Normally that is the active line and this is exactly the old behaviour. Under
-                // Fletcher the two come apart, which is the entire point of the mod: the sweep is the
-                // song, the caret is the player, and you can watch yourself rush or drag away from it.
-                // Once the song is more than one line from the focused line it is off the visible
-                // stack, so the sung caret hides rather than parking at a phantom position.
+                // With a pinned caret that is the active line and this is exactly the old behaviour.
+                // Unpinned the two come apart, which is the entire point: the sweep is the song, the
+                // caret is the player, and you can watch yourself rush or drag away from it. Once the
+                // song is more than one line from the focused line it is off the visible stack, so
+                // the sung caret hides rather than parking at a phantom position.
                 int sungLine = sungLineFor(active);
                 var sd = displays[sungLine];
 
@@ -429,7 +429,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (!noPlayhead)
                 {
                     double sung = sd.Line.SungPositionAt(Time.Current);
-                    sd.SetSungPosition(sung);
+                    setSungSweep(sungLine, sung);
                     Vector2 sungPoint = sd.ToSpaceOfOtherDrawable(sd.SungPositionPoint(sung), this);
                     sungCaret.Height = sd.LineHeight;
                     // Unlike the player caret, the playhead sits at a FRACTIONAL cell index, so a
@@ -444,8 +444,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 refreshVisible(active);
 
-                bool show = !engine.IsLineComplete && !engine.IsFinished;
-                setCaretsVisible(show, show && !noPlayhead && Math.Abs(sungLine - active) <= 1);
+                // The two heads answer to different facts, and backlog 223 is where they stopped
+                // sharing one boolean.
+                //
+                // The TYPING caret hides the moment its line is complete: there is nothing left to
+                // type on it, and that absence IS the "you are done, wait for the song" signal. That
+                // is deliberate and unchanged.
+                //
+                // The MAP PLAYHEAD is not the player's, so it must not take that term. The vocals go
+                // on being sung under a finished caret, and since backlog 218 a refused roll PARKS a
+                // complete caret for as long as ActivationTime(next) - FLETCHER_DRAG_GRACE_MS is
+                // away, which blanked the playhead for seconds at a time while the sweep beneath it
+                // kept moving. It hides only for its own three reasons: the run is over, the style
+                // draws no head, or its row is off the visible stack.
+                bool running = !engine.IsFinished;
+                setCaretsVisible(running && !engine.IsLineComplete, running && !noPlayhead && Math.Abs(sungLine - active) <= 1);
             }
             else if (!engine.IsFinished)
             {
@@ -789,10 +802,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
-        /// Which line's display carries the sung sweep and sung caret: the line the SONG is on. That
-        /// is the active line in default play (the engine keeps the two identical) and the first
-        /// unsealed line under Fletcher, where the player's caret may have rushed past it or be
-        /// dragging on it. Falls back to the focused line when everything has sealed.
+        /// Which line's display carries the sung sweep and sung caret: the line the SONG is on. With
+        /// a pinned caret that is simply the active line, which the engine keeps identical to it.
+        /// Under the unpinned caret the two come apart and this is read from the CLOCK, because the
+        /// player's caret cannot say where the vocals are: it may have rushed past them or still be
+        /// dragging behind them. Falls back to the focused line when everything has sealed.
+        ///
+        /// <para>The rule, exactly: the index the seal cursor WOULD have if drag protection did not
+        /// defer the seal. It starts at <see cref="TypingEngine.NextUnsealedLineIndex"/> and walks off
+        /// every line the playhead has already left, stepping on
+        /// <see cref="TypingLine.EndTime"/> + <see cref="TypingLine.SealGraceMs"/>. That instant is
+        /// the upper bound of <see cref="TypingEngine.SongWindowOpen"/> and is also the deadline
+        /// <c>canSeal</c> uses, so while the playhead is inside the first unsealed line's window the
+        /// loop does not run at all and the answer is the seal cursor's, exactly as before. It also
+        /// cannot fire on an ordinary hand-over: a line with nothing left untyped seals on its own
+        /// EndTime and is never drag-deferred, so the cursor has already moved before this could.
+        /// </para>
+        ///
+        /// <para>Reading the cursor alone (what this did before backlog 223) can never report the row
+        /// the song has moved to, because drag protection (<c>TypingEngine.sealPermitted</c>)
+        /// deliberately holds the caret's own line unsealed while the player is still typing it, and
+        /// the seal loop hands the caret on whenever it seals the caret's line: so the cursor is never
+        /// AHEAD of the caret, and a dragging player's playhead stranded at the tail of the row they
+        /// were still typing while the row actually being sung got no head, no sweep and no lit
+        /// syllable. The walk is pure presentation, a read of line times against the stage's own
+        /// clock; it writes no engine state and must never be turned into one, since which line may
+        /// still be typed is judgement-bearing and re-derived by every stored replay.</para>
+        ///
+        /// <para>A multi-step walk is reachable: the seal loop stops at the first line it may not
+        /// seal, so while the head of the queue is drag-deferred (up to
+        /// <see cref="TypingEngine.FLETCHER_DRAG_GRACE_MS"/> past its own deadline) the windows of
+        /// short lines behind it can close too. Rows further than one from the focused line are off
+        /// the visible stack, which the caller's own distance term already handles.</para>
         /// </summary>
         private int sungLineFor(int active)
         {
@@ -801,13 +842,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             int songLine = engine.NextUnsealedLineIndex;
 
-            return songLine >= 0 && songLine < displays.Length ? songLine : active;
+            if (songLine < 0 || songLine >= displays.Length)
+                return active;
+
+            double time = Time.Current;
+
+            while (songLine + 1 < displays.Length && time >= songWindowClosesAt(displays[songLine].Line))
+                songLine++;
+
+            return songLine;
         }
+
+        /// <summary>The instant the playhead leaves <paramref name="line"/>: its hard deadline plus
+        /// whatever grace its overrunning vocals were given, the same sum
+        /// <see cref="TypingEngine.SongWindowOpen"/> ends on.</summary>
+        private static double songWindowClosesAt(TypingLine line) => line.EndTime + line.SealGraceMs;
 
         // Which display currently carries a lit sung syllable; -1 = none. Stage-tracked so the one
         // line leaving the sung role is cleared explicitly, the highlight's mirror of how the sung
         // sweep only ever rides the current sung line.
         private int syllableLitLine = -1;
+
+        // Which display currently carries the underline sweep; -1 = none. Same shape and same reason
+        // as syllableLitLine: the fill is per-DISPLAY state that only this feeds, so a row that stops
+        // being the sung row would otherwise freeze at whatever fraction it was last handed. That
+        // used to be unobservable, because the row only ever changed on a seal, by which time its
+        // sweep was clamped 100% full and scrolling away. Since backlog 223 the row moves off a
+        // dragging player's line while they are still reading it (see sungLineFor), so the stale fill
+        // would sit there claiming the vocals are still on it. Same class of bug the CaretStyle.None
+        // binding in load() zeroes for.
+        private int sweptLine = -1;
 
         /// <summary>
         /// Route the currently sung group to the display that should carry it and clear the display
@@ -824,6 +888,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             if (lineIndex >= 0 && lineIndex < displays.Length)
                 displays[lineIndex].SetSungSyllable(syllable);
+        }
+
+        /// <summary>
+        /// Feed the underline sweep to the display that should carry it and zero the display that
+        /// carried one before, so exactly one row is ever showing a fill. <see cref="setSungSyllable"/>'s
+        /// sibling: the two ride the same sung line and must move off a row together or the lit group
+        /// and the sweep will disagree. Cheap every frame (the displays repaint only on a change).
+        /// </summary>
+        private void setSungSweep(int lineIndex, double sung)
+        {
+            if (sweptLine != lineIndex && sweptLine >= 0 && sweptLine < displays.Length)
+                displays[sweptLine].SetSungPosition(0);
+
+            sweptLine = lineIndex;
+
+            if (lineIndex >= 0 && lineIndex < displays.Length)
+                displays[lineIndex].SetSungPosition(sung);
         }
 
         /// <summary>
