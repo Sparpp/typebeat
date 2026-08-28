@@ -905,13 +905,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             typing.Update(1000);
             Assert.IsTrue(typing.ProcessKey('a', 1000));
             typing.Update(1500);
-            Assert.IsTrue(typing.ProcessKey('b', 1500)); // line 0 done, caret rolls on to line 1
+            // Line 0 done. Entry into line 1 opens at 8500 - FLETCHER_DRAG_GRACE_MS = 7000, so the
+            // roll is REFUSED here (backlog 218) and the caret parks past the last cell of line 0.
+            // The SEAL is what hands it on, on the next frame below (line 0's EndTime is 3000), and
+            // that hand-over is never refused: the caret is on line 1 from 4000, well before its cue.
+            Assert.IsTrue(typing.ProcessKey('b', 1500));
 
             // Active time so far: 500 ms (1000 -> 1500). 2 correct cells => (2/5)/(500/60000) = 48 WPM.
             Assert.AreEqual(48.0, typing.LiveWpm, 1e-9);
 
             typing.Update(4000);
-            typing.Update(8000); // 6.5 s parked on line 1 with its vocals still ahead: no accrual
+            typing.Update(8000); // parked with line 1's vocals still ahead, and NOT typing: no accrual
             Assert.AreEqual(48.0, typing.LiveWpm, 1e-9);
 
             typing.Update(8500);  // line 1's cue: the clock is armed from here
@@ -950,6 +954,113 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             typing.Update(14500); // +500 ms
             Assert.AreEqual(24.0, typing.LiveWpm, 1e-9); // (2/5)/(1000/60000)
+        }
+
+        /// <summary>
+        /// THE HOLE THE TWO TESTS ABOVE LEAVE (backlog 222): they park and WAIT, and the state that
+        /// was broken is parking and TYPING. A caret rolled on to the next line sits there from
+        /// <see cref="TypingEngine.FLETCHER_DRAG_GRACE_MS"/> before its cue and
+        /// <c>ProcessKey</c> has no time gate, so the player really can type there; every character
+        /// they land counts in the WPM numerator for the rest of the run. Counting them while the
+        /// clock stayed stopped walked the HUD readout upward for free, once per line.
+        ///
+        /// <para>So the clock ARMS LAZILY on the first press made on such a line, and runs from that
+        /// press's own time. Two things it deliberately is not: it does not back-date (the arming
+        /// press is credited nothing, exactly like a press at the cue + 0), and it does not arm at
+        /// <c>entryOpensAt</c>, which would hand the whole 1500 ms head start back as typing time to
+        /// a player who never used it (see the idle companion below, and the two tests above).</para>
+        /// </summary>
+        [Test]
+        public void ActiveTimeRunsFromTheFirstPressMadeAheadOfTheCue()
+        {
+            var typing = engine(twoLineMap(), flexible: true);
+
+            // Line 1 activates at 4000, so entry into it opens at 4000 - 1500 = 2500, which is
+            // exactly when 'd' finishes line 0: the roll happens on that press.
+            Assert.AreEqual(4000, typing.Lines[1].ActivationTime);
+
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000));
+            typing.Update(1500);
+            Assert.IsTrue(typing.ProcessKey('b', 1500));
+            typing.Update(2000);
+            Assert.IsTrue(typing.ProcessKey(' ', 2000));
+            Assert.IsTrue(typing.ProcessKey('c', 2000));
+            typing.Update(2500);
+            Assert.IsTrue(typing.ProcessKey('d', 2500));
+
+            // Line 0 was clocked in full: 500 + 500 + 500 = 1500 ms for 5 correct cells (the space
+            // counts), so (5/5)/(1500/60000) = 40 WPM. The caret is now on line 1, 1500 ms early.
+            Assert.AreEqual(1, typing.ActiveLineIndex);
+            Assert.AreEqual(40.0, typing.LiveWpm, 1e-9);
+
+            // The frame across the head start credits nothing yet: the player has not typed on line 1.
+            typing.Update(2600);
+            Assert.AreEqual(40.0, typing.LiveWpm, 1e-9);
+
+            // THE ARMING PRESS. Judged Premature against its 4000 target (rushing frees the position,
+            // never the clock) but landed Correct, so it enters the numerator at once. It credits
+            // itself NO elapsed time, so this reads (6/5)/(1500/60000) = 48, up from 40 on the
+            // strength of the character alone. That step is honest for one press; what follows is
+            // the part that used to be free.
+            Assert.IsTrue(typing.ProcessKey('e', 2600));
+            Assert.AreEqual(CellState.Correct, typing.Lines[1].Cells[0].State);
+            Assert.AreEqual(48.0, typing.LiveWpm, 1e-9);
+
+            // 100 ms of real typing time, and the clock now counts it: 1500 + 100 = 1600 ms.
+            // 7 correct cells => (7/5)/(1600/60000) = 52.5. Before the lazy arm this frame credited
+            // nothing and the readout climbed to (7/5)/(1500/60000) = 56 instead.
+            // The arm is at the PRESS (2600), not at entry (2500): arming at entry would have made it
+            // 1700 ms and 49.41 WPM, and would have paid the idle player below for waiting.
+            typing.Update(2700);
+            Assert.IsTrue(typing.ProcessKey('f', 2700));
+            Assert.AreEqual(52.5, typing.LiveWpm, 1e-9);
+
+            // The HUD's readout, which is the surface that actually broke. The ring holds all 7
+            // presses; the oldest stamp is 0 ('a', typed on the activation frame) and the newest is
+            // 1600 ('f'), so 6 inter-key gaps over 1600 ms of clocked time = (6/5)/(1600/60000) = 45.
+            // With the clock frozen 'd', 'e' and 'f' all carried the same 1500 stamp: the span
+            // collapsed to 1500 and the readout read 48.
+            Assert.AreEqual(45.0, typing.LiveRollingWpm, 1e-9);
+        }
+
+        /// <summary>
+        /// The non-vacuity companion to <see cref="ActiveTimeRunsFromTheFirstPressMadeAheadOfTheCue"/>,
+        /// on the same fixture and the same script minus the presses: a player who is handed the head
+        /// start and does NOT use it is credited nothing for it, which is the rule backlog 208 put
+        /// the ActivationTime gate there for. The lazy arm buys the typing player their time without
+        /// paying the idle one for waiting.
+        /// </summary>
+        [Test]
+        public void ActiveTimeStillIgnoresAHeadStartThePlayerDoesNotType()
+        {
+            var typing = engine(twoLineMap(), flexible: true);
+
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000));
+            typing.Update(1500);
+            Assert.IsTrue(typing.ProcessKey('b', 1500));
+            typing.Update(2000);
+            Assert.IsTrue(typing.ProcessKey(' ', 2000));
+            Assert.IsTrue(typing.ProcessKey('c', 2000));
+            typing.Update(2500);
+            Assert.IsTrue(typing.ProcessKey('d', 2500));
+
+            Assert.AreEqual(1, typing.ActiveLineIndex);
+            Assert.AreEqual(40.0, typing.LiveWpm, 1e-9); // 1500 ms, 5 cells
+
+            // The whole 1500 ms head start, on line 1, with no press made on it.
+            typing.Update(2600);
+            typing.Update(3000);
+            typing.Update(3500);
+            typing.Update(4000); // line 1's cue (and line 0 seals here, leaving the caret alone)
+            Assert.AreEqual(1, typing.ActiveLineIndex);
+            Assert.AreEqual(40.0, typing.LiveWpm, 1e-9);
+
+            // From the cue the clock runs on the ordinary rule, unarmed: 1500 + 500 = 2000 ms, so
+            // the same 5 cells now read (5/5)/(2000/60000) = 30.
+            typing.Update(4500);
+            Assert.AreEqual(30.0, typing.LiveWpm, 1e-9);
         }
 
         #endregion

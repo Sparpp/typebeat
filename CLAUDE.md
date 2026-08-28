@@ -65,7 +65,12 @@ looking for it. The canonical sources are the code itself:
   line, where keypresses are inert and the WPM clock is stopped, and `snapForwardOnLineStart` performs
   the deferred roll when the bound opens (it is the snap arm, so the snap moved to the same instant).
   The SEAL's hand-overs are never refused: there the song has left the line, so entry is late and not
-  early.
+  early. Backlog 222 corrects what 218 wrote about the clock: the OTHER pre-cue state, a caret rolled
+  or snapped ON TO the next line before its cue, is typeable (`ProcessKey` has no time gate), so the
+  WPM clock ARMS LAZILY there, on the first press made on that line and from that press's own time.
+  Not at `entryOpensAt`, which would pay an idle player for the head start, and nothing is
+  back-dated. This is not an era bit: WPM feeds no judgement, so a stored replay re-derives the
+  corrected figure. `clockRunsFrom` is the predicate and `typebeat-core.js` mirrors it.
 - **The timing schema** (per-character target times, syllable subdivision, space cells):
   `Gameplay/TypingLine.cs`, `FromLyricLine`.
 - **How a judgement becomes a stored osu result**: `Scoring/TypeBeatResultMapping.cs`, which also

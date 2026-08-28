@@ -577,6 +577,83 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// THE CLOCK INVARIANT (backlog 222), stated as the number a stopwatch would give. The test
+        /// above pins what the clock EXCLUDES (gaps, post-line waits); this one pins what it may never
+        /// exclude: a stretch of real time in which the player was typing. Every accepted keypress has
+        /// to lie inside a clocked interval, or characters land in the WPM numerator over time the
+        /// denominator refused to count and the readout inflates for free.
+        ///
+        /// <para>Driven on the SHIPPED stack rather than the pinned engine every other test in this
+        /// file uses, because the pinned caret has no such stretch to get wrong: it is the flexible
+        /// caret that can be sitting on a line up to <c>FLETCHER_DRAG_GRACE_MS</c> before its cue,
+        /// typing, while the song has not reached it (see <c>FletcherEngineTest</c>'s rush-freedom
+        /// region for the mechanism). The script types continuously with no idle stretch at all, so
+        /// there is nothing legitimate to exclude and the engine's WPM must equal the honest gross
+        /// WPM over the span from the first keystroke to the last.</para>
+        /// </summary>
+        [Test]
+        public void ContinuousTypingAcrossALineBoundaryIsClockedEndToEnd()
+        {
+            // L0 "abcd" [1000, 4000), unit [1000, 3000] => step 500: a=1000, b=1500, c=2000, d=2500.
+            // L1 "efgh" [4000, 8000), unit [4000, 6000] => step 500: e=4000, f=4500, g=5000, h=5500.
+            // L1's activation is clamped to its own start (max(4000, 4000 - CUE_LEAD_MS)), so entry
+            // into it opens at 4000 - FLETCHER_DRAG_GRACE_MS = 2500: exactly where 'd' finishes L0.
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("abcd", 1000, 4000, 3000, unit("abcd", 1000, 3000)),
+                line("efgh", 4000, 8000, 6000, unit("efgh", 4000, 6000))))
+            {
+                FletcherEnabled = true,
+                FlexibleLineSnap = true,
+                BoundedRush = true,
+            };
+
+            Assert.AreEqual(1000, engine.Lines[0].ActivationTime);
+            Assert.AreEqual(4000, engine.Lines[1].ActivationTime);
+
+            // One char every 500 ms from 1000 to 4000, unbroken, with the line change at 2500 (where
+            // 'd' finishes L0 and 'e' opens L1 on the same frame). Every press is at most 3 countable
+            // chars ahead of the playhead, so the rush cap never fires and the run is a clean combo.
+            var script = new (double time, string chars)[]
+            {
+                (1000, "a"), (1500, "b"), (2000, "c"), (2500, "de"), (3000, "f"), (3500, "g"), (4000, "h"),
+            };
+
+            int next = 0;
+
+            for (double t = 500; t <= 4000; t += 100)
+            {
+                engine.Update(t);
+
+                if (next >= script.Length || script[next].time != t)
+                    continue;
+
+                foreach (char c in script[next].chars)
+                    Assert.IsTrue(engine.ProcessKey(c, t), $"press '{c}' at {t}");
+
+                next++;
+            }
+
+            Assert.AreEqual(script.Length, next, "every scripted press landed on a frame");
+            Assert.AreEqual(8, engine.MaxCombo, "no press was ever refused or capped");
+
+            // The stopwatch reading: first keystroke 1000, last 4000, so the player typed 8 characters
+            // in exactly 3000 ms, and gross WPM is (8/5)/(3000/60000) = 1.6 * 20 = 32.
+            const double honest_wpm = 32.0;
+
+            Assert.AreEqual(honest_wpm, engine.LiveWpm, 1e-9);
+            Assert.AreEqual(honest_wpm, engine.BuildResults().Wpm, 1e-9);
+
+            // The rolling readout over the same 3000 ms of clocked time: 8 stamps bound 7 inter-key
+            // gaps, so (7/5)/(3000/60000) = 28.
+            Assert.AreEqual(28.0, engine.LiveRollingWpm, 1e-9);
+
+            // The 1500 ms from 2500 to 4000 is the whole of the head start line 1 grants, and it is
+            // half the run. A clock armed only at the cue would have counted 1500 ms for 8 characters
+            // and reported exactly double the truth.
+            Assert.AreEqual(2 * honest_wpm, (8 / 5.0) / (1500 / 60000.0), 1e-9);
+        }
+
+        /// <summary>
         /// The exact run of <see cref="ActiveTimeWpmIgnoresGapsAndPostLineWaits"/>, with a clock rate
         /// supplied for each of its FOUR accruing 500 ms segments: [1000,1500], [1500,2000],
         /// [2000,2500] and [10000,10500]. Every other frame accrues nothing (lead-in, post-completion

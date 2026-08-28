@@ -995,6 +995,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private double activeRealTimeMs;
 
+        /// <summary>
+        /// THE LAZY CLOCK ARM (backlog 222): the line the WPM clock has been armed on AHEAD OF ITS
+        /// CUE, and the instant it was armed at, which is the time of the first press the player put
+        /// on that line while the song had not reached it yet. -1 / 0 when nothing is armed, which is
+        /// every ordinary in-sync frame. See <see cref="clockRunsFrom"/> for what it buys.
+        ///
+        /// <para>Read only through <see cref="clockRunsFrom"/>, which validates it against the CURRENT
+        /// <see cref="activeLineIndex"/> rather than clearing it at each of the six sites that can move
+        /// the caret. An arm left behind on a line the caret has left is simply not this line's arm,
+        /// and a line is only ever entered once (the caret advances, or goes to -1 and comes back on a
+        /// LATER line, never on an earlier one), so a stale arm can never be mistaken for a live
+        /// one.</para>
+        ///
+        /// <para>A pure function of (keypress times, beatmap): no wall clock, no frame cadence, and
+        /// cleared by <see cref="reset"/> like every other accumulator, which is what keeps the WPM
+        /// digest in <c>ReplayRewindTest</c> reproducible across a seek.</para>
+        /// </summary>
+        private int wpmClockArmedLine = -1;
+
+        private double wpmClockArmedAt;
+
         private double? lastUpdateTime;
 
         private int rollingCount; // entries held in rollingSamples, capped at rolling_wpm_window
@@ -1189,6 +1210,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             consecutiveWrongKeys = 0;
 
             activeRealTimeMs = 0;
+            wpmClockArmedLine = -1;
+            wpmClockArmedAt = 0;
             lastUpdateTime = null;
 
             rollingCount = 0;
@@ -1268,13 +1291,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public void Update(double time, double clockRate = 1)
         {
             // (1) Accrue active time while a line is active AND incomplete AND not finished
-            //     (state as of the previous frame).
+            //     (state as of the previous frame), over the part of the frame the clock actually
+            //     runs for. That is the whole frame except when the pre-cue lazy arm (backlog 222,
+            //     see clockRunsFrom) falls inside it, where it is the stretch after the arm.
+            //
+            //     KNOWN AND LEFT ALONE: the predicate is evaluated on the CURRENT activeLineIndex but
+            //     with the PREVIOUS frame's time, so on a frame the caret rolled forward inside, the
+            //     part of it spent typing on the OLD line is tested against the NEW line's cue and
+            //     dropped. That is at most one frame of real typing time per line transition (and
+            //     only when a keypress-driven roll lands BETWEEN two frames), and splitting the
+            //     interval would need the old line index and the transition instant carried as extra
+            //     state, which is more machinery than the milliseconds are worth.
             if (lastUpdateTime is double last)
             {
-                double dt = Math.Max(0, time - last);
-
-                if (activeLineIndex != -1 && !IsLineComplete && !isFinished && wpmClockRuns(last))
-                    activeRealTimeMs += dt / sanitisedRate(clockRate);
+                if (activeLineIndex != -1 && !IsLineComplete && !isFinished && clockRunsFrom(last) is double from)
+                    activeRealTimeMs += Math.Max(0, time - from) / sanitisedRate(clockRate);
             }
 
             lastUpdateTime = time;
@@ -1504,22 +1535,84 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>
-        /// Whether the WPM/sync active-time clock runs for the frame ending at <paramref name="previousTime"/>.
-        /// Always, with a pinned caret. Under <see cref="FletcherEnabled"/> the caret can be parked at
-        /// the head of a line the song has not reached yet (rush freedom rolls it forward the instant a
-        /// line is finished), and a clock that ran through a 20-second instrumental would read the wait
-        /// as typing time; so the clock runs only from the point the playhead reaches that line's
-        /// ActivationTime, which is exactly when the line would have gone active while pinned.
+        /// The instant from which the WPM/sync active-time clock runs across the frame that STARTED at
+        /// <paramref name="previousTime"/>, or null when it does not run over that frame at all.
+        /// Normally that instant is <paramref name="previousTime"/> itself, i.e. the whole frame
+        /// counts; the one case that returns something later is the lazy arm below.
         ///
-        /// <para>The OTHER parked state, a caret the rush bound has left sitting past the last cell
-        /// of its own line (backlog 218, see <see cref="BoundedRush"/>), needs nothing here: the
-        /// caller already accrues only while the active line is INCOMPLETE, and a parked-finished
-        /// caret is complete by definition. Both parked states are the same fact about the clock, that
-        /// the player CANNOT type, and they must both stop it or a long instrumental would read as
-        /// typing time and halve the readout.</para>
+        /// <para>The whole frame, always, with a pinned caret. Under <see cref="FletcherEnabled"/> the
+        /// caret can be sitting on a line the song has not reached yet, and a clock that ran through a
+        /// 20-second instrumental would read the wait as typing time; so being there is not by itself
+        /// enough, and the clock runs from that line's <see cref="TypingLine.ActivationTime"/>, which
+        /// is exactly when the line would have gone active while pinned.</para>
+        ///
+        /// <para>THE TWO PARKED STATES ARE NOT THE SAME FACT (backlog 222 correcting backlog 218,
+        /// whose note here said they were, and that claim is what hid the defect below). A caret the
+        /// rush bound left sitting past the last cell of its OWN line still needs nothing from this
+        /// method: the caller accrues only while the active line is INCOMPLETE, that caret's line is
+        /// complete by definition, and there is genuinely nothing the player can type. But a caret
+        /// that <see cref="rollForwardIfFinishedEarly"/> or <see cref="snapForwardOnLineStart"/> has
+        /// moved on to the NEXT line sits there from <see cref="entryOpensAt"/>, which is
+        /// <see cref="FLETCHER_DRAG_GRACE_MS"/> BEFORE that line's activation, and
+        /// <see cref="ProcessKey"/> has no time gate of its own: the player really can type there, up
+        /// to 1500 ms per line (unboundedly, before 218 bounded the roll). Every character they land
+        /// is counted by <see cref="countCorrectCells"/> for the rest of the run, so counting them
+        /// against a stopped clock walked <see cref="LiveWpm"/> and <see cref="LiveRollingWpm"/>
+        /// upward for free.</para>
+        ///
+        /// <para>THE LAZY ARM. So the clock arms on the FIRST press the player puts on such a line
+        /// (<see cref="armWpmClockAheadOfTheCue"/>) and runs from that press's own time onward. Not
+        /// from <see cref="entryOpensAt"/>: that would hand the whole head start back as typing time
+        /// for a player who is sitting there NOT typing, which is the dilution the ActivationTime gate
+        /// exists to prevent and which <c>ActiveTimeDoesNotRunWhileParkedAheadOfTheCue</c> pins. And
+        /// nothing is back-dated: the arming press is credited no elapsed time at all, exactly like a
+        /// press made at ActivationTime + 0 on the ordinary path. Once the playhead reaches the line,
+        /// the ActivationTime branch above answers first and the arm is never consulted again.</para>
         /// </summary>
-        private bool wpmClockRuns(double previousTime)
-            => !FletcherEnabled || activeLineIndex == -1 || previousTime >= lines[activeLineIndex].ActivationTime;
+        private double? clockRunsFrom(double previousTime)
+        {
+            if (!FletcherEnabled || activeLineIndex == -1)
+                return previousTime;
+
+            if (previousTime >= lines[activeLineIndex].ActivationTime)
+                return previousTime;
+
+            // Ahead of the cue: the clock runs only from an arm, and only from an arm belonging to
+            // the line the caret is on now (see wpmClockArmedLine for why that check is the reset).
+            if (wpmClockArmedLine == activeLineIndex)
+                return Math.Max(previousTime, wpmClockArmedAt);
+
+            return null;
+        }
+
+        /// <summary>
+        /// Arm the WPM clock on the active line when the press at <paramref name="time"/> is the first
+        /// one the player has put on it AHEAD OF ITS CUE (see <see cref="clockRunsFrom"/>). No-op on
+        /// every ordinary press, i.e. one made at or after the line's
+        /// <see cref="TypingLine.ActivationTime"/>, where the clock is already running.
+        ///
+        /// <para>Called from <see cref="ProcessKey"/> once the press is known not to be inert, so
+        /// every press that can resolve or spoil a cell arms the clock, a Gatekeeper-rejected wrong
+        /// key included: what the arm records is that the player is TYPING here, not what the
+        /// keystroke turned out to be worth. A press the caret-parked guard refuses outright never
+        /// reaches it, which is right, since that press does nothing at all.</para>
+        /// </summary>
+        private void armWpmClockAheadOfTheCue(double time)
+        {
+            if (!FletcherEnabled || activeLineIndex == -1)
+                return;
+
+            if (time >= lines[activeLineIndex].ActivationTime)
+                return;
+
+            // Only the FIRST press arms. A later one must not push the arm forward, or the time
+            // between the two presses (the player typing) would be swallowed.
+            if (wpmClockArmedLine == activeLineIndex)
+                return;
+
+            wpmClockArmedLine = activeLineIndex;
+            wpmClockArmedAt = time;
+        }
 
         /// <summary>
         /// The usable magnitude of a clock rate for the WPM divisor. A rewinding clock reports a
@@ -1660,6 +1753,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             if (caretIndex >= line.Cells.Count)
                 return false; // line complete, wait for the song.
+
+            // The press is going to do something, so the player is typing on this line; if the song
+            // has not reached it yet, that is the instant the WPM clock starts counting (backlog 222,
+            // see clockRunsFrom). Placed here, above every branch below, so it is one site and no
+            // path can quietly skip it, and attributed to the line the press LANDS on: a press that
+            // finishes this line and rolls the caret onward has typed here, not there.
+            armWpmClockAheadOfTheCue(time);
 
             var cell = line.Cells[caretIndex];
 
