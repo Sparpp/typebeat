@@ -140,6 +140,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 runningCountable += c;
             }
 
+            // Precompute the UNDERLINE PACE HUE (backlog 228), immutable for the map's lifetime for
+            // the same reason the flashlight geometry above is, and computed HERE for one more: the
+            // percentiles are taken over the WHOLE map's word segments, never one line's, so a line
+            // that is uniformly brutal still glows red. This loader is the only place that holds
+            // every line at once before a display exists, which is what makes that structural rather
+            // than a convention (a display is handed colours; it cannot derive one).
+            var paceBands = UnderlinePace.BuildBands(lines);
+
             // The gameplay typing font is an accessibility pick (OpenDyslexic / a system font) applied
             // only to the lyric stack. Resolved once here: an unset/unknown/failed font stays null so
             // the displays fall back to the built-in lyric font.
@@ -149,7 +157,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             for (int i = 0; i < lines.Count; i++)
             {
-                var d = new LyricLineDisplay(lines[i], fontFamily: lyricFont)
+                var d = new LyricLineDisplay(lines[i], fontFamily: lyricFont, paceBands: paceBands[i])
                 {
                     Anchor = Anchor.Centre,
                     Origin = Anchor.Centre,

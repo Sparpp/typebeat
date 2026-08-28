@@ -73,6 +73,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// width-matched glyphs; once filled they freeze on the char the player pressed. Their advance
     /// is measured from a pool glyph at load, so nothing about the effect can move the line.</para>
     ///
+    /// <para>The sweep's TRACK carries the PACE HUE (backlog 228, see <see cref="buildPaceTracks"/>
+    /// and <see cref="UnderlinePace"/>): one band per word, tinted red where the map's playhead is
+    /// about to run fast and green where it opens up, off percentiles taken over the whole map. The
+    /// colours are map constants handed in at construction; nothing here computes one.</para>
+    ///
     /// <para>An opt-in SPACE ERROR DOT (see <see cref="ComputeSpaceErrorDots"/>) marks a word left
     /// carrying an error once the player has spaced past it. It is an overlay drawable per word gap,
     /// kept out of the auto-size box like the retype selection, so the setting can never move a
@@ -92,7 +97,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private readonly string? fontFamily;
 
         private Container content = null!;
-        private Box sweepTrack = null!;
+
+        // --- The sung-sweep underline ---
+        // The TRACK is the faint full-line rail; since backlog 228 it is one Box per WORD BAND
+        // rather than one Box for the whole line, so each band can carry the pace hue its map-wide
+        // percentile earned (see UnderlinePace). The bands tile the line exactly, so their union is
+        // still the full-width rail the layout has always pinned itself on, and a display built with
+        // no bands gets a single neutral band covering the whole line: byte-identical to pre-228.
+        private Box[] sweepTracks = Array.Empty<Box>();
+        private PaceBand[] trackBands = Array.Empty<PaceBand>();
         private Box sweepFill = null!;
         private Box sweepGlow = null!;
         private Box selectionBox = null!;
@@ -202,11 +215,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// beside the sung sweep rather than in the pull-based cell states.</summary>
         private int sungSyllable = -1;
 
-        public LyricLineDisplay(TypingLine line, float fontSize = TypeBeatStyle.LYRIC_FONT_SIZE, string? fontFamily = null)
+        /// <summary>
+        /// This line's slice of the map-wide PACE HUE (backlog 228), or null for no hue at all (one
+        /// neutral rail, exactly the pre-228 underline). Never computed here: the distribution is a
+        /// whole-map fact, so the owning stage builds it once and hands each display its own bands
+        /// (see <see cref="UnderlinePace.BuildBands"/>).
+        /// </summary>
+        private readonly IReadOnlyList<PaceBand>? paceBands;
+
+        public LyricLineDisplay(TypingLine line, float fontSize = TypeBeatStyle.LYRIC_FONT_SIZE, string? fontFamily = null,
+                                IReadOnlyList<PaceBand>? paceBands = null)
         {
             Line = line;
             requestedFontSize = fontSize;
             this.fontFamily = fontFamily;
+            this.paceBands = paceBands;
             AutoSizeAxes = Axes.Both;
         }
 
@@ -220,15 +243,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             content = new Container { AutoSizeAxes = Axes.Both };
 
-            sweepTrack = new Box
-            {
-                Colour = TypeBeatStyle.SungAccent.Opacity(0.20f),
-                Height = 3,
-                // Always present for layout: the full-width track pins the content's size (and its
-                // lower vertical extent) even when the flashlight has faded it to alpha 0, so the
-                // auto-size container never collapses to whatever happens to be lit right now.
-                AlwaysPresent = true,
-            };
+            buildPaceTracks(n);
+
             sweepFill = new Box
             {
                 Colour = TypeBeatStyle.SungAccent.Opacity(0.60f),
@@ -255,7 +271,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 Alpha = 0f,
             };
 
-            content.Add(sweepTrack);
+            foreach (var track in sweepTracks)
+                content.Add(track);
+
             content.Add(sweepFill);
             content.Add(sweepGlow);
             content.Add(selectionBox);
@@ -316,6 +334,71 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 RefreshCell(i);
 
             SetSungPosition(0);
+        }
+
+        /// <summary>
+        /// The sung-sweep TRACK, as one Box per PACE BAND (backlog 228): the faint rail under the
+        /// glyphs, cut at word boundaries so each word's slice can wear the hue its map-wide
+        /// percentile rank earned (see <see cref="UnderlinePace"/>). Built here at load, the way the
+        /// space error dots are, and sized/positioned by <see cref="measureAndLayout"/> off the same
+        /// measured cell edges; the colours themselves are map constants handed in at construction
+        /// and are never recomputed, least of all per frame.
+        ///
+        /// <para>Three properties of the OLD single track are preserved deliberately, because
+        /// dropping any of them breaks something that is not about colour:</para>
+        /// <list type="bullet">
+        /// <item>The bands TILE the line, with no hole at the start or the end, so their union is
+        /// still exactly the full-width rail.</item>
+        /// <item>Every band is <c>AlwaysPresent</c>, so the auto-size container keeps its width and
+        /// its lower vertical extent even when the flashlight has faded the whole rail to alpha 0.
+        /// Without that the line collapses onto whatever is currently lit and snaps sideways.</item>
+        /// <item>They are children of <c>content</c>, which is what makes a preview line's rail dim
+        /// with its text (see <see cref="SetLineDim"/>) and ride the auto-shrink scale for free.</item>
+        /// </list>
+        ///
+        /// <para>A display given no bands (a bare test scene, or any caller that does not want the
+        /// hue) gets ONE band covering the whole line in <see cref="UnderlinePace.NeutralColour"/>,
+        /// which is the pre-228 rail exactly.</para>
+        ///
+        /// <para>The hue sits on the TRACK and not on the fill, so on the active line it is visible
+        /// on the part of the line the song has NOT reached yet: <see cref="sweepFill"/> paints over
+        /// the rail from the left edge to the sung position. That is the intended reading, and it is
+        /// what the feature is for, showing the player what is COMING.</para>
+        /// </summary>
+        private void buildPaceTracks(int n)
+        {
+            var bands = new List<PaceBand>();
+
+            if (paceBands != null)
+            {
+                foreach (var band in paceBands)
+                {
+                    // Clamped rather than trusted: a stale band list can only ever under-paint.
+                    int lo = Math.Clamp(band.StartCell, 0, n);
+                    int hi = Math.Clamp(band.EndCellExclusive, lo, n);
+
+                    if (hi > lo)
+                        bands.Add(new PaceBand(lo, hi, band.Colour));
+                }
+            }
+
+            if (bands.Count == 0)
+                bands.Add(new PaceBand(0, n, UnderlinePace.NeutralColour));
+
+            trackBands = bands.ToArray();
+            sweepTracks = new Box[trackBands.Length];
+
+            for (int k = 0; k < trackBands.Length; k++)
+            {
+                sweepTracks[k] = new Box
+                {
+                    Colour = trackBands[k].Colour,
+                    Height = 3,
+                    Anchor = Anchor.TopLeft,
+                    Origin = Anchor.TopLeft,
+                    AlwaysPresent = true,
+                };
+            }
         }
 
         /// <summary>
@@ -512,8 +595,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 gapDots[k].Position = new Vector2(cellX[i] + advances[i] * 0.5f, glyphHeight * 0.5f);
             }
 
-            sweepTrack.Width = cellX[n];
-            sweepTrack.Y = sweepFill.Y = sweepGlow.Y = glyphHeight + 6f;
+            // Each pace band spans exactly its own cells' x-extent, off the same measured edges the
+            // glyphs sit on; the bands tile the line, so the union is still cellX[n] wide.
+            float railY = glyphHeight + 6f;
+
+            for (int k = 0; k < sweepTracks.Length; k++)
+            {
+                float left = cellX[Math.Clamp(trackBands[k].StartCell, 0, n)];
+                float right = cellX[Math.Clamp(trackBands[k].EndCellExclusive, 0, n)];
+
+                sweepTracks[k].X = left;
+                sweepTracks[k].Width = Math.Max(0f, right - left);
+                sweepTracks[k].Y = railY;
+            }
+
+            sweepFill.Y = sweepGlow.Y = railY;
         }
 
         /// <summary>Display-local caret anchor for a cell; <c>cellIndex == Cells.Count</c> is the end of the line.</summary>
@@ -1121,10 +1217,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             reapplyFlashlight();
 
-            if (sweepTrack.IsNotNull())
+            if (sweepFill.IsNotNull())
             {
                 float target = showSweep ? 1f : 0f;
-                sweepTrack.FadeTo(target, flashlight_fade_ms);
+
+                // EVERY band, not the first: the rail is segmented since backlog 228, and a band
+                // left lit would leak the shape of a line the mod is meant to be hiding.
+                foreach (var track in sweepTracks)
+                    track.FadeTo(target, flashlight_fade_ms);
+
                 sweepFill.FadeTo(target, flashlight_fade_ms);
 
                 if (!showSweep)
@@ -1145,9 +1246,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             reapplyFlashlight();
 
-            if (sweepTrack.IsNotNull())
+            if (sweepFill.IsNotNull())
             {
-                sweepTrack.FadeTo(0f, flashlight_fade_ms);
+                foreach (var track in sweepTracks)
+                    track.FadeTo(0f, flashlight_fade_ms);
+
                 sweepFill.FadeTo(0f, flashlight_fade_ms);
                 sweepGlow.FadeTo(0f, flashlight_fade_ms);
             }
@@ -1427,8 +1530,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// support for the one thing that separates the two hiding mods:
         /// <see cref="HideForFlashlight"/> fades these out along with the characters, and Recite
         /// must NOT, because the sweep is the map playhead a reciting player is left reading. A
-        /// width alone cannot pin it: a faded sweep still advances.</summary>
-        public float SweepTrackAlpha => sweepTrack.IsNotNull() ? sweepTrack.Alpha : 0f;
+        /// width alone cannot pin it: a faded sweep still advances.
+        ///
+        /// <para>The rail is several drawables since backlog 228 (one band per word, see
+        /// <see cref="buildPaceTracks"/>), and both flashlight seams fade every band together, so
+        /// any one band would do. It reports the MAXIMUM anyway, deliberately: "the rail is
+        /// visible" is true if ANY of it is, so a regression that left one band lit under the
+        /// flashlight and one that faded a single band under Recite both move this number, which a
+        /// fixed band index would miss in one direction or the other.</para></summary>
+        public float SweepTrackAlpha
+        {
+            get
+            {
+                float alpha = 0f;
+
+                foreach (var track in sweepTracks)
+                    alpha = Math.Max(alpha, track.Alpha);
+
+                return alpha;
+            }
+        }
 
         public float SweepFillAlpha => sweepFill.IsNotNull() ? sweepFill.Alpha : 0f;
 
@@ -1460,6 +1581,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>How many word gaps this line has a dot drawable for (see
         /// <see cref="ComputeSpaceErrorDots"/>); test support.</summary>
         public int SpaceErrorDotCount => gapDots.Length;
+
+        /// <summary>How many PACE BANDS this line's underline is cut into (see
+        /// <see cref="buildPaceTracks"/>); 1 for a display built with no hue. Test support.</summary>
+        public int PaceTrackCount => sweepTracks.Length;
+
+        /// <summary>The colour a pace band is actually drawn in; test support for the hue.</summary>
+        public ColourInfo PaceTrackColour(int index) =>
+            index >= 0 && index < sweepTracks.Length ? sweepTracks[index].Colour : ColourInfo.SingleColour(osuTK.Graphics.Color4.White);
+
+        /// <summary>One pace band's own alpha, which the flashlight drives; test support for "every
+        /// band fades", which is the band-array half of the pin
+        /// <see cref="SweepTrackAlpha"/> carries for the rail as a whole.</summary>
+        public float PaceTrackAlpha(int index) => index >= 0 && index < sweepTracks.Length ? sweepTracks[index].Alpha : 0f;
+
+        /// <summary>A pace band's content-local width; test support for the tiling pin.</summary>
+        public float PaceTrackWidth(int index) => index >= 0 && index < sweepTracks.Length ? sweepTracks[index].Width : 0f;
+
+        /// <summary>A pace band's content-local left edge; test support for the tiling pin.</summary>
+        public float PaceTrackX(int index) => index >= 0 && index < sweepTracks.Length ? sweepTracks[index].X : 0f;
+
+        /// <summary>The half-open cell range a pace band covers; test support.</summary>
+        public (int StartCell, int EndCellExclusive) PaceTrackRange(int index) =>
+            index >= 0 && index < trackBands.Length ? (trackBands[index].StartCell, trackBands[index].EndCellExclusive) : (0, 0);
+
+        /// <summary>The whole line's current dim alpha (see <see cref="SetLineDim"/>), which every
+        /// child including the pace bands is multiplied by. Test support for the preview-line pin.</summary>
+        public float ContentAlpha => content.IsNotNull() ? content.Alpha : 0f;
 
         /// <summary>Whether the space error dot for the gap at <paramref name="cellIndex"/> is
         /// actually being drawn right now; false for any cell that is not a gap. Test support.</summary>

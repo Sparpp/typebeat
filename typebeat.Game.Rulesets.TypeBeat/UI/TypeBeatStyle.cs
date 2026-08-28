@@ -70,6 +70,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public static Color4 FreestyleChar { get; } = new Color4((byte)199, (byte)146, (byte)234, (byte)255); // #c792ea
 
         /// <summary>
+        /// The SLOW end of the underline's PACE HUE (backlog 228, see
+        /// <see cref="UnderlinePace"/>): the colour a word segment sitting in the map's slowest
+        /// quartile shades towards. The fast end deliberately reuses <see cref="ErrorChar"/> rather
+        /// than adding a second red, so the palette gains exactly one colour for this feature.
+        ///
+        /// <para>#6ed26e is a clean medium green picked on ONE constraint above all others: it must
+        /// weigh the same as <see cref="SungAccent"/> (#7ec8e3), the rail's own colour. The hex was
+        /// chosen on contrast, not by eye (WCAG relative luminance, sRGB):</para>
+        /// <list type="bullet">
+        /// <item>1.01:1 against <see cref="SungAccent"/>, which is as close to no luminance step as
+        /// two different hues get. That is the requirement and not a compromise: the rail must not
+        /// change WEIGHT as it hues, or a slow passage would read as a brighter underline rather
+        /// than a greener one, and the whole point of the feature is that grey stays the default.
+        /// The reading is carried by hue instead, and by a large step of it: blue drops 227 to 110
+        /// (a 52% cut) while green rises 200 to 210, which turns the rail's cyan into an unambiguous
+        /// green. The gentle alpha lift the ramp applies towards either end (see
+        /// <see cref="UnderlinePace.NEUTRAL_ALPHA"/> and <see cref="UnderlinePace.HUED_ALPHA"/>) is
+        /// what makes that hue legible at a fifth alpha without making it loud.</item>
+        /// <item>2.45:1 against <see cref="ErrorChar"/>, the fast end, so the two ends of the ramp
+        /// can never be confused with each other. They are opposite in hue as well as separated in
+        /// luminance, which is the reading the feature is entirely about.</item>
+        /// <item>Well clear of <see cref="Caret"/>'s yellow and <see cref="FreestyleChar"/>'s violet
+        /// in hue, and it is drawn on the rail UNDER the glyphs at a fifth to a third alpha, so it
+        /// competes with no character state: nothing on the character row is ever this colour.</item>
+        /// </list>
+        /// </summary>
+        public static Color4 PaceSlowAccent { get; } = new Color4((byte)110, (byte)210, (byte)110, (byte)255); // #6ed26e
+
+        /// <summary>
         /// The RETYPE SELECTION wash (backlog 182): the block a Ctrl+A paints behind the characters
         /// it has offered to erase and retype. The caret's own yellow at 22% alpha, so the highlight
         /// reads as "the caret is holding this run" rather than as a sixth character state, and so it
