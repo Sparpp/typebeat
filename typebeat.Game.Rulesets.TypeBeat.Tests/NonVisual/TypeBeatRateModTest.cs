@@ -321,6 +321,62 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// The Conductor (backlog 226) is the third kind of varying rate, and it is outside the
+        /// window-scale seam for exactly the reason stated above: its rate is a function of how the
+        /// PLAYER types, which one scale set before the first keypress cannot express. It is
+        /// therefore not a <see cref="ModRateAdjust"/> (which would put it in the replay scorer's
+        /// seam and re-judge every stored run on a scale that never applied), and not an
+        /// <see cref="IApplicableToRate"/> either, so song select and the star-rating calculator go
+        /// on showing 1.00x rather than a number nobody can honour.
+        /// </summary>
+        [Test]
+        public void ConductorIsAnUnrankedFunFollowerOutsideEveryRateSeam()
+        {
+            var conductor = new TypeBeatModConductor();
+
+            Assert.IsFalse(conductor.Ranked, "the song meeting the player halfway cannot be priced");
+            Assert.AreEqual(ModType.Fun, conductor.Type);
+
+            Assert.IsNotInstanceOf<ModRateAdjust>(conductor);
+            Assert.IsNotInstanceOf<ModTimeRamp>(conductor);
+            Assert.IsNotInstanceOf<ModAdaptiveSpeed>(conductor);
+            Assert.IsNotInstanceOf<IApplicableToRate>(conductor);
+
+            // ...and adding it did not enlarge the population the replay scorer's seam matches on.
+            Assert.AreEqual(3, new TypeBeatRuleset().AllMods.OfType<ModRateAdjust>().Count(),
+                "Double Time, Nightcore and Half Time");
+        }
+
+        /// <summary>
+        /// The replay non-leakage claim, made concrete: a Conductor play stores keystrokes at TRACK
+        /// times and nothing rate-derived, so re-scoring the same frames with the mod in the stack
+        /// must produce the identical account. If the mod ever grows a window scale, a difficulty
+        /// hook or an <c>ApplyToRate</c>, this is what notices.
+        /// </summary>
+        [Test]
+        public void ConductorRescoresAReplayIdentically()
+        {
+            var plain = scoreThreeLatePresses(500);
+            var conducted = scoreThreeLatePresses(500, new TypeBeatModConductor());
+
+            Assert.AreEqual(plain.TotalScore, conducted.TotalScore);
+            Assert.AreEqual(plain.TotalScoreWithoutMods, conducted.TotalScoreWithoutMods);
+            Assert.AreEqual(plain.MaxCombo, conducted.MaxCombo);
+            Assert.AreEqual(plain.Accuracy, conducted.Accuracy, 1e-12);
+            Assert.AreEqual(plain.Completion, conducted.Completion, 1e-12);
+            Assert.AreEqual(plain.Rank, conducted.Rank);
+            Assert.AreEqual(plain.UnconsumedFrames, conducted.UnconsumedFrames);
+
+            foreach (var (result, count) in plain.Statistics)
+                Assert.AreEqual(count, conducted.Statistics.GetValueOrDefault(result), $"{result} count moved under Conductor");
+
+            Assert.AreEqual(plain.Statistics.Count, conducted.Statistics.Count);
+
+            // Not vacuous: the run being compared actually scored something.
+            Assert.AreEqual(3, plain.Statistics.GetValueOrDefault(HitResult.Ok));
+        }
+
+        /// <summary>
         /// The engine works in MAP time and holds no rate, so a fixed map-time window elapses in
         /// 1/rate of the real time it used to: before this, speeding the track up TIGHTENED the
         /// windows and slowing it down LOOSENED them, on top of the rate change itself. Scaling the
@@ -564,6 +620,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 { new TypeBeatModFletcher(), 1.02 },
                 { new TypeBeatModLegacyFletcher(), 0.98 },
                 { new TypeBeatModMashing(), 0.1 },
+                // Unlisted in the calculator, so it prices at a flat 1.0x like Muted does.
+                { new TypeBeatModConductor(), 1.0 },
             };
 
             foreach (var (mod, multiplier) in expected)

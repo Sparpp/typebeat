@@ -112,6 +112,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
                 new TypeBeatModMuted(),
                 new ModWindUp(),
                 new ModWindDown(),
+                new TypeBeatModConductor(),
             },
             // NOT a player-facing column: ModSelectOverlay builds columns for the five types above
             // only, and marks every System mod invalid for selection. What listing it here DOES buy

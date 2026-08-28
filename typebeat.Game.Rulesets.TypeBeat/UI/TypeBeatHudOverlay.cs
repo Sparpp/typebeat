@@ -7,7 +7,9 @@
 // engine-authoritative extras left are the WPM / sync% readouts, plus the live pp counter
 // (which is score-processor authoritative, not engine authoritative, see below).
 
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
@@ -21,7 +23,8 @@ using typebeat.Game.Rulesets.TypeBeat.Scoring;
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
     /// <summary>
-    /// Playfield-level HUD extras: top-centre WPM / sync% / pp readouts, polled each frame.
+    /// Playfield-level HUD extras: top-centre WPM / sync% / pp readouts, polled each frame, plus a
+    /// playback-rate readout that appears only while a mod is publishing one.
     /// Mounted under the playfield's lyric-offset clock container so <c>Time.Current</c> is
     /// lyric-gameplay time.
     /// </summary>
@@ -41,6 +44,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private OsuSpriteText wpmValue = null!;
         private OsuSpriteText syncValue = null!;
         private OsuSpriteText ppValue = null!;
+        private OsuSpriteText rateValue = null!;
+
+        /// <summary>
+        /// The "rate" stat, built always and PRESENT only while something is publishing a rate (the
+        /// Conductor mod). A <see cref="FillFlowContainer"/> lays out only its present children, so
+        /// an alpha of 0 takes the column out of the row entirely rather than leaving a hole.
+        /// </summary>
+        private Drawable rateStat = null!;
+
+        /// <summary>Last whole percent rendered, so a steady rate costs no string allocation.</summary>
+        private int lastRatePercent = -1;
+
+        // Cached by DrawableTypeBeatRuleset for its subtree; absent in bare playfield test scenes.
+        // Carries the Conductor mod's live rate (null = no mod is following the player).
+        [Resolved]
+        private DrawableTypeBeatRuleset? drawableRuleset { get; set; }
 
         // Both cached by Player; absent in bare drawable-ruleset test scenes.
         [Resolved]
@@ -112,8 +131,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     stat("wpm", out wpmValue),
                     stat("sync", out syncValue),
                     stat("pp", out ppValue),
+                    rateStat = stat("rate", out rateValue),
                 },
             };
+
+            rateStat.Alpha = 0;
 
             mods = gameplayMods;
             starRating = StarRatingFor(playableBeatmap, gameplayMods);
@@ -177,6 +199,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             syncValue.Text = engine.LiveSyncPercent.ToString("0.0") + "%";
 
             updatePerformancePoints();
+            updateRate();
+        }
+
+        /// <summary>
+        /// The Conductor mod's live playback rate, as a whole percent. Players need to SEE the song
+        /// responding to them to trust that it is: without this the mod is an unexplained wobble.
+        /// Absent (and taking no space in the row) on every play with no rate-following mod.
+        /// </summary>
+        private void updateRate()
+        {
+            if (drawableRuleset?.ConductorRate is not double rate)
+            {
+                rateStat.Alpha = 0;
+                return;
+            }
+
+            rateStat.Alpha = 1;
+
+            int percent = (int)Math.Round(rate * 100);
+
+            if (percent == lastRatePercent)
+                return;
+
+            lastRatePercent = percent;
+            rateValue.Text = percent.ToString(CultureInfo.InvariantCulture) + "%";
         }
 
         /// <summary>
