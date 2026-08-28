@@ -31,13 +31,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The three settings backlog 221 moved out of the type!beat section, in source order. Pinned
-        /// by their labels because that is the only thing a player sees: the bindables behind them
-        /// deliberately did not move (Realm keys stored rows by enum member name), so nothing else
-        /// here would notice a control quietly going missing.
+        /// Everything on trial in the section, in source order: the three settings backlog 221 moved
+        /// out of the type!beat section, plus the syllable markers backlog 225 opened here rather
+        /// than in the settled set. Pinned by their labels because that is the only thing a player
+        /// sees: the bindables behind them deliberately did not move (Realm keys stored rows by enum
+        /// member name), so nothing else here would notice a control quietly going missing.
         /// </summary>
         [Test]
-        public void TheThreeMovedSettingsAreAllPresent()
+        public void TheOnTrialSettingsAreAllPresent()
         {
             var ruleset = new TypeBeatRuleset();
             var subsection = (TypeBeatExperimentalSettingsSubsection)ruleset.CreateExperimentalSettings()!;
@@ -50,6 +51,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 {
                     "Space to skip current word",
                     "Use space error dot",
+                    "Show syllable markers",
                     "Use local auto-aligner",
                 }));
 

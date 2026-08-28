@@ -38,6 +38,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // every display; see the binding in load() for why it never touches the replay CONFIG frame.
         private readonly Bindable<bool> spaceErrorDot = new Bindable<bool>();
 
+        // The syllable markers (TypeBeatRulesetSetting.ShowSyllableMarkers, on by default), the same
+        // shape of display-only setting as the dot above. Initialised TRUE rather than to default(bool)
+        // for the reason sungCaretStyle carries its own initialiser: a stage built with no config,
+        // which is every bare test scene, must start on what the game actually ships.
+        private readonly Bindable<bool> syllableMarkers = new Bindable<bool>(true);
+
         // The "get ready" cue: two depleting bars under the upcoming line's first char. A solid
         // bar lands on the line BOUNDARY (StartTime) and a 50%-opaque bar lands on the FIRST
         // WORD; a mapper may set the boundary earlier than the first word, so the two can be
@@ -223,6 +229,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 foreach (var d in displays)
                     d.SetSpaceErrorDotsEnabled(e.NewValue);
+            }, true);
+
+            // The syllable markers (backlog 225) are a DISPLAY setting on exactly the same terms:
+            // bound straight to the lyric displays, live, and deliberately never reaching the replay
+            // CONFIG frame. The displays already exist by here, so firing immediately is what pushes
+            // the setting into a line built before the binding ran.
+            config?.BindWith(TypeBeatRulesetSetting.ShowSyllableMarkers, syllableMarkers);
+            syllableMarkers.BindValueChanged(e =>
+            {
+                foreach (var d in displays)
+                    d.SetSyllableMarkersEnabled(e.NewValue);
             }, true);
 
             // Line spacing is user-adjustable and applies live: a change invalidates the laid-out

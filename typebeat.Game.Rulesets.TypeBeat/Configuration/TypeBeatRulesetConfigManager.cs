@@ -98,7 +98,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// CONFIG frame. See <see cref="UI.LyricLineDisplay.ComputeSpaceErrorDots"/> for the exact
         /// rule.
         /// </summary>
-        UseSpaceErrorDot
+        UseSpaceErrorDot,
+
+        /// <summary>
+        /// Whether a word the mapper subdivided (<see cref="Beatmaps.TimedUnit.SyllableBoundaries"/>
+        /// non-empty) shows a tiny triangle in the inter-character gap at each of its interior
+        /// syllable boundaries. ON by default: since backlog 179 a keypress inside a syllable is
+        /// judged against that syllable's sung SPAN, so the subdivision is already something the
+        /// player is being asked to pace to, and the mark is how they see it coming instead of
+        /// discovering it by ear.
+        ///
+        /// <para>Purely visual, like <see cref="UseSpaceErrorDot"/> and for the same reasons: it
+        /// decides nothing about judgement, scoring, the replay or the wire, so it binds straight to
+        /// the lyric displays and never reaches the replay CONFIG frame. The cells it draws at come
+        /// from <see cref="Gameplay.TypingLine.SyllableMarkerCells"/>, derived with the judgement
+        /// groups themselves, so the mark cannot disagree with what is being judged.</para>
+        /// </summary>
+        ShowSyllableMarkers
     }
 
     /// <summary>
@@ -219,6 +235,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
             SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, false);
+            SetDefault(TypeBeatRulesetSetting.ShowSyllableMarkers, true);
         }
     }
 }

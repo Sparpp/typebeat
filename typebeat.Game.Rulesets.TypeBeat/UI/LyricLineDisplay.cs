@@ -82,6 +82,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// carrying an error once the player has spaced past it. It is an overlay drawable per word gap,
     /// kept out of the auto-size box like the retype selection, so the setting can never move a
     /// character; off by default, the state it reads is pulled like every other cell state.</para>
+    ///
+    /// <para>SYLLABLE MARKERS (backlog 225) draw a tiny apex-up triangle in the inter-character gap
+    /// at each mid-word syllable boundary of a SUBTIMED word, so the subdivision span judgement
+    /// paces on is visible before it is heard. The cells are <see cref="TypingLine.SyllableMarkerCells"/>,
+    /// derived with the groups themselves; nothing about the geometry is recomputed here. On by
+    /// default, and the same drawables on an active line and a preview one, so the dim ladder
+    /// carries them for free (<see cref="SetLineDim"/> fades the whole content container).</para>
     /// </summary>
     public partial class LyricLineDisplay : CompositeDrawable
     {
@@ -123,6 +130,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private bool[] gapDotFlags = Array.Empty<bool>();
         private bool spaceErrorDotsEnabled;
         private bool spaceErrorDotsDirty;
+
+        // --- Syllable markers (backlog 225, opt-out) ---
+        // One tiny apex-up triangle per MID-WORD syllable boundary of a subtimed word, drawn in the
+        // inter-character gap the boundary falls in. The cells come from the line itself
+        // (TypingLine.SyllableMarkerCells), never from anything measured here, so the mark and the
+        // judgement group read one derivation. Their POSITIONS are fixed for the line's whole
+        // lifetime: unlike the gap dots, nothing about a keystroke can move a mark or change what it
+        // means, only the alpha the setting and the hiding mods multiply out.
+        private int[] markerCells = Array.Empty<int>();
+        private Triangle[] syllableMarkers = Array.Empty<Triangle>();
+
+        // Set only while Recite is on, where a mark's visibility follows the STATE of the two cells
+        // it sits between and so changes with a keystroke; coalesced to at most one repaint per
+        // frame for the same reason the gap dots are (the stage refreshes every visible cell).
+        private bool syllableMarkersDirty;
+
+        // Default ON, matching the shipped setting, so a display built with no stage or config
+        // (every bare test scene) shows what a player sees rather than an accidental blank.
+        private bool syllableMarkersEnabled = true;
 
         // --- Freestyle cells (see FreestyleGlyphs) ---
         // Display indices of this line's freestyle cells (empty for the overwhelming majority of
@@ -279,6 +305,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             content.Add(selectionBox);
 
             addSpaceErrorDots(n);
+            addSyllableMarkers(n);
 
             var freestyle = new List<int>();
 
@@ -440,6 +467,53 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
+        /// One triangle per MID-WORD syllable boundary of this line (backlog 225), added BEFORE the
+        /// glyphs so it draws behind them, exactly as the gap dots and the retype selection are.
+        /// Position and size are written by <see cref="measureAndLayout"/>.
+        ///
+        /// <para>Kept out of the auto-size box by <c>BypassAutoSizeAxes</c> rather than by alpha,
+        /// which is where this parts company with the two adornments above. Theirs is enough for
+        /// them because a dot sits INSIDE a cell's own slot and can never reach past the line's
+        /// extent whatever its alpha; a marker sits ON a cell EDGE, half of it to either side, so
+        /// the leftmost one would poke out of the box's left edge and shift the centred line by a
+        /// pixel or two the moment it lit. Bypassing makes "turning this on moves no character"
+        /// structural instead of a property of the numbers.</para>
+        ///
+        /// <para>A line with no subtimed word (which is most lines) allocates nothing and does no
+        /// per-frame work at all.</para>
+        /// </summary>
+        private void addSyllableMarkers(int n)
+        {
+            var marks = new List<int>();
+
+            foreach (int i in Line.SyllableMarkerCells)
+            {
+                // Defensive: a mark is only ever drawable in a real gap, never at the line's own
+                // leading edge (cellX[0]) and never past its last cell.
+                if (i > 0 && i < n)
+                    marks.Add(i);
+            }
+
+            markerCells = marks.ToArray();
+            syllableMarkers = new Triangle[markerCells.Length];
+
+            for (int k = 0; k < markerCells.Length; k++)
+            {
+                var marker = new Triangle
+                {
+                    Colour = TypeBeatStyle.UntypedChar,
+                    Anchor = Anchor.TopLeft,
+                    Origin = Anchor.TopCentre,
+                    BypassAutoSizeAxes = Axes.Both,
+                    Alpha = 0f,
+                };
+
+                syllableMarkers[k] = marker;
+                content.Add(marker);
+            }
+        }
+
+        /// <summary>
         /// Hidden one-glyph sprites, one per shimmer candidate, added purely so their advance can be
         /// measured in this display's real font at its real size. Alpha 0 without AlwaysPresent, so
         /// they never count towards the auto-size box; removed the moment they have been read.
@@ -498,6 +572,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 spaceErrorDotsDirty = false;
                 applySpaceErrorDots();
+            }
+
+            if (syllableMarkersDirty)
+            {
+                syllableMarkersDirty = false;
+                applySyllableMarkers(animate: true);
             }
 
             if (freestyleCells.Length == 0)
@@ -597,7 +677,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             // Each pace band spans exactly its own cells' x-extent, off the same measured edges the
             // glyphs sit on; the bands tile the line, so the union is still cellX[n] wide.
-            float railY = glyphHeight + 6f;
+            float railY = glyphHeight + SWEEP_RAIL_OFFSET;
 
             for (int k = 0; k < sweepTracks.Length; k++)
             {
@@ -610,6 +690,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
 
             sweepFill.Y = sweepGlow.Y = railY;
+
+            // The syllable markers ride the same coordinates: X is the cell's LEFT EDGE, which is
+            // the inter-character gap the boundary falls in (the marker is drawn Origin.TopCentre,
+            // so the gap is its axis), and the vertical band is the one geometry rule below. Placed
+            // after the rail so the two read together: the marks live in the gap above it.
+            var markerGeometry = SyllableMarkerGeometry(glyphHeight);
+
+            for (int k = 0; k < markerCells.Length; k++)
+            {
+                syllableMarkers[k].Size = new Vector2(markerGeometry.Width, markerGeometry.Height);
+                syllableMarkers[k].Position = new Vector2(cellX[markerCells[k]], markerGeometry.Top);
+            }
+
+            applySyllableMarkers(animate: false);
+        }
+
+        /// <summary>
+        /// Content-local geometry of a syllable marker for a given glyph row height: the TOP edge it
+        /// hangs from and the size of its bounding box (a <see cref="Triangle"/> fills that box with
+        /// its apex at the top-centre, so the mark points UP at the gap it belongs to).
+        ///
+        /// <para>It lives in the BAND between the bottom of the glyph row (<paramref name="glyphHeight"/>)
+        /// and the sung sweep rail at <c>glyphHeight + <see cref="SWEEP_RAIL_OFFSET"/></c>: hung from
+        /// the glyph row so it hugs the baseline and reads as typography rather than as a widget,
+        /// and clamped to leave a clear pixel above the rail so the two marks never touch. The size
+        /// scales off the glyph height (like <see cref="SPACE_ERROR_DOT_RADIUS"/>) so it tracks the
+        /// font size and the auto-shrink for free, but the band does NOT scale (the rail offset is
+        /// absolute), which is why the clamp is the binding rule at large font sizes.</para>
+        ///
+        /// <para>Pure and static so the band can be pinned without standing up a drawable.</para>
+        /// </summary>
+        public static (float Top, float Width, float Height) SyllableMarkerGeometry(float glyphHeight)
+        {
+            float height = Math.Clamp(glyphHeight * SYLLABLE_MARKER_HEIGHT, 1f, SWEEP_RAIL_OFFSET - 1f);
+            return (glyphHeight, height * SYLLABLE_MARKER_ASPECT, height);
         }
 
         /// <summary>Display-local caret anchor for a cell; <c>cellIndex == Cells.Count</c> is the end of the line.</summary>
@@ -858,6 +973,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public const float SPACE_ERROR_DOT_RADIUS = 0.07f;
 
         /// <summary>
+        /// Content-local drop from the bottom of the glyph row to the sung sweep rail. Absolute, not
+        /// a fraction of the font size, which is why <see cref="SyllableMarkerGeometry"/> has to
+        /// clamp against it rather than merely scale beside it.
+        /// </summary>
+        public const float SWEEP_RAIL_OFFSET = 6f;
+
+        /// <summary>
+        /// Height of a syllable marker as a fraction of the glyph row height. Tiny on purpose, and
+        /// tinier than the space error dot: this one sits under EVERY subdivided word of the line
+        /// (a dot marks an occasional mistake), so it has to read as a tick of punctuation and not
+        /// as a row of arrows under the lyric.
+        /// </summary>
+        public const float SYLLABLE_MARKER_HEIGHT = 0.09f;
+
+        /// <summary>Width of a syllable marker as a multiple of its height: wider than it is tall,
+        /// so the mark reads as a shallow typographic wedge pointing at the gap rather than as a
+        /// narrow UI arrowhead.</summary>
+        public const float SYLLABLE_MARKER_ASPECT = 1.6f;
+
+        /// <summary>
         /// A WORD GAP: the typeable SPACE cell that separates two words, the same definition the
         /// engine's own <c>isWordGap</c> uses (a non-typeable cell rides inside the word it is
         /// attached to and is never a boundary). Shared here so the display and the engine cannot
@@ -962,6 +1097,53 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 gapDots[k].Alpha = gapDotFlags[gapCells[k]] ? 1f : 0f;
         }
 
+        /// <summary>
+        /// Turn the syllable markers on or off for this line (the user setting, live-bound by
+        /// <see cref="LyricStage"/>). Unlike the space error dots there is nothing to recompute, so
+        /// this applies straight away rather than through a dirty flag: the marks never move and
+        /// never change meaning, only whether they are drawn.
+        ///
+        /// <para>Safe to call before the display has loaded (the stage pushes the bound value the
+        /// moment it binds, which is before any display's own loader runs): the marker array is
+        /// empty until then and <see cref="measureAndLayout"/> applies the flag when it builds
+        /// them.</para>
+        /// </summary>
+        public void SetSyllableMarkersEnabled(bool enabled)
+        {
+            if (syllableMarkersEnabled == enabled)
+                return;
+
+            syllableMarkersEnabled = enabled;
+            applySyllableMarkers(animate: false);
+        }
+
+        /// <summary>
+        /// Paints the markers' alpha: the setting, then the HIDING mods folded in through the
+        /// DARKER of the two cells the mark sits between.
+        ///
+        /// <para>Taking the minimum, rather than the right-hand cell alone, is what stops the mark
+        /// leaking word structure: a triangle is a statement about the boundary BETWEEN two
+        /// characters, so it may only be drawn while both of them may be read. Under Flashlight a
+        /// mark on the window's edge would otherwise announce a syllable boundary sitting in the
+        /// dark, and under Recite the marks alone would spell out the syllable count of every
+        /// upcoming word, which is exactly the information that mod withholds.</para>
+        /// </summary>
+        private void applySyllableMarkers(bool animate)
+        {
+            for (int k = 0; k < markerCells.Length; k++)
+            {
+                int i = markerCells[k];
+                float target = syllableMarkersEnabled
+                    ? Math.Min(cellHidingFactor(i - 1), cellHidingFactor(i))
+                    : 0f;
+
+                if (animate)
+                    syllableMarkers[k].FadeTo(target, flashlight_fade_ms, Easing.OutQuint);
+                else
+                    syllableMarkers[k].Alpha = target;
+            }
+        }
+
         public void RefreshCell(int cellIndex)
         {
             if (cellIndex < 0 || cellIndex >= cells.Length)
@@ -973,6 +1155,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // backspaced gap or a reclaimed word clear its dot with no event of its own.
             if (gapCells.Length > 0)
                 spaceErrorDotsDirty = true;
+
+            // A repaint can change a MARK only under Recite, whose hiding is per-cell STATE: typing
+            // the character to the right of a boundary is what reveals that boundary's mark. Under
+            // every other stack the marks are static, so the flag stays clear and costs nothing.
+            if (reciteEnabled && markerCells.Length > 0)
+                syllableMarkersDirty = true;
 
             var cell = cells[cellIndex];
             var source = Line.Cells[cellIndex];
@@ -1260,22 +1448,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             for (int i = 0; i < cells.Length; i++)
                 applyCellAlpha(i, animate: true);
+
+            applySyllableMarkers(animate: true);
         }
 
         private void applyCellAlpha(int i, bool animate)
         {
             // THE single composition point for every reason a cell can be dimmed or hidden: the
-            // judgement state, the flashlight window and the Recite mod each contribute an
-            // independent multiplier (1 when they have nothing to say), so no two of them can
-            // clobber each other and no order of application exists to get wrong. Stacking
-            // Flashlight and Recite is therefore exactly "hidden by either".
-            float target = cellStateAlpha[i] * flashlightFactor(i) * reciteFactor(i);
+            // judgement state and the hiding mods each contribute an independent multiplier (1 when
+            // they have nothing to say), so no two of them can clobber each other and no order of
+            // application exists to get wrong.
+            float target = cellStateAlpha[i] * cellHidingFactor(i);
 
             if (animate)
                 cells[i].FadeTo(target, flashlight_fade_ms, Easing.OutQuint);
             else
                 cells[i].Alpha = target;
         }
+
+        /// <summary>
+        /// How much of cell <paramref name="i"/> the HIDING mods leave visible: the flashlight
+        /// window and Recite multiplied, each 1 when its mod is off, so stacking them is exactly
+        /// "hidden by either". Split out from <see cref="applyCellAlpha"/> because the syllable
+        /// markers need the same answer without the judgement-state lane, which is about a cell's
+        /// own history and says nothing about whether it may be read.
+        /// </summary>
+        private float cellHidingFactor(int i) => flashlightFactor(i) * reciteFactor(i);
 
         private float flashlightFactor(int i)
         {
@@ -1311,6 +1509,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // safe, because LoadComplete refreshes every cell and RefreshCell ends in applyCellAlpha.
             for (int i = 0; i < cells.Length; i++)
                 applyCellAlpha(i, animate: true);
+
+            applySyllableMarkers(animate: true);
         }
 
         private float reciteFactor(int i)
@@ -1620,6 +1820,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
 
             return false;
+        }
+
+        /// <summary>How many syllable markers this line has a drawable for; test support.</summary>
+        public int SyllableMarkerCount => syllableMarkers.Length;
+
+        /// <summary>Whether the syllable marker at <paramref name="cellIndex"/> is actually being
+        /// drawn right now; false for any cell that carries no marker. Test support.</summary>
+        public bool SyllableMarkerVisibleAt(int cellIndex) =>
+            markerIndexAt(cellIndex) is int k && syllableMarkers[k].Alpha > 0f;
+
+        /// <summary>Display-local X of the syllable marker at <paramref name="cellIndex"/>, in the
+        /// same space <see cref="PositionOfCell"/> reports so the two can be compared directly;
+        /// <see cref="float.NaN"/> when no marker sits there. Test support for the pin that a mark
+        /// lands on the character EDGE (the inter-character gap) and not inside a cell.</summary>
+        public float SyllableMarkerLocalX(int cellIndex) =>
+            markerIndexAt(cellIndex) is int k ? syllableMarkers[k].X * contentScale : float.NaN;
+
+        private int? markerIndexAt(int cellIndex)
+        {
+            for (int k = 0; k < markerCells.Length; k++)
+            {
+                if (markerCells[k] == cellIndex)
+                    return k;
+            }
+
+            return null;
         }
     }
 }

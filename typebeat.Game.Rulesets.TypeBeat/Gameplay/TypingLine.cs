@@ -202,6 +202,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public IReadOnlyList<SyllableGroup> Syllables { get; }
 
+        /// <summary>
+        /// Ascending display-cell indices at which a MID-WORD syllable boundary should be marked
+        /// (backlog 225). Marker <c>i</c> means "the boundary sits in the inter-character gap
+        /// immediately LEFT of cell i", which is that cell's own left edge, so a renderer needs no
+        /// arithmetic of its own and cannot land the mark half a character away from the cut.
+        ///
+        /// <para>SUBTIMED words only: an entry exists for every group after the first of a token
+        /// whose unit carries <see cref="TimedUnit.SyllableBoundaries"/>, and for no other
+        /// group. A word the SYLLABIFIER split naturally is deliberately left unmarked, because the
+        /// mark says "the mapper timed a subdivision here" and the rules-based split is a guess
+        /// nobody authored. That asymmetry is the feature's gate, not an oversight.</para>
+        ///
+        /// <para>Read STRAIGHT OFF the compacted groups, so the mark and the judgement cannot
+        /// disagree: the cell recorded here is <see cref="SyllableGroup.StartCell"/> of the group the
+        /// boundary opens, which came from the same single <c>SyllableSegments.SplitsFor</c>
+        /// call that fed the per-char targets. A group compaction dropped (it owned no cell) leaves
+        /// no mark, and neither does the FIRST surviving group of a word, since with nothing of that
+        /// word rendered to its left there is no interior gap to mark. The count can therefore be
+        /// smaller than <c>SyllableBoundaries.Count</c> on an over-forced short word; it is never
+        /// larger, and every entry is strictly inside the line.</para>
+        ///
+        /// <para>Derived WRITE-ONLY at construction, in the style of <see cref="buildCharTimedStretch"/>:
+        /// nothing here feeds a target, a span, a group or the replay CONFIG frame, so a line built
+        /// before this existed flattens byte-identically.</para>
+        /// </summary>
+        public IReadOnlyList<int> SyllableMarkerCells { get; }
+
         /// <summary>Per display cell, the index into <see cref="Syllables"/> or -1 (space cells; punctuation-only groups the default stream deleted).</summary>
         private readonly int[] cellSyllable;
 
@@ -252,10 +279,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private readonly List<(double time, double index)> sungPoints;
 
-        private TypingLine(LyricLine source, IReadOnlyList<TypingCell> cells, double sealGraceMs, SyllableGroup[] syllables, int[] cellSyllable)
+        private TypingLine(LyricLine source, IReadOnlyList<TypingCell> cells, double sealGraceMs, SyllableGroup[] syllables, int[] cellSyllable, int[] syllableMarkerCells)
         {
             Source = source;
             Syllables = syllables;
+            SyllableMarkerCells = syllableMarkerCells;
             this.cellSyllable = cellSyllable;
             charTimedStretch = buildCharTimedStretch(cells, cellSyllable);
 
@@ -545,9 +573,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 break;
             }
 
-            var (syllables, cellSyllable) = buildSyllables(line, tokens, cells, defaultSources);
+            var (syllables, cellSyllable, markerCells) = buildSyllables(line, tokens, cells, defaultSources);
 
-            return new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), syllables, cellSyllable);
+            return new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), syllables, cellSyllable, markerCells);
         }
 
         /// <summary>
@@ -597,8 +625,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// whose every character the default stream deleted (forced splits can isolate punctuation)
         /// is dropped. Kept spans are clamped monotonic non-decreasing across the line, the same
         /// guard the targets themselves get against inverted data.</para>
+        ///
+        /// <para>Also emits <see cref="SyllableMarkerCells"/> (backlog 225), the display's mid-word
+        /// boundary marks. That is a pure BY-PRODUCT: it is written from the groups this already
+        /// builds and is read by nothing here, so no target, span or group index moves because of
+        /// it. It is derived here rather than in the renderer because this is the only place that
+        /// knows, per token, whether the mapper SUBTIMED it: downstream the token has been flattened
+        /// into cells and the word index cannot be recovered by counting spaces (the default stream
+        /// turns a hyphen into a typed space cell, so "well-known" is one unit but two cell runs).</para>
         /// </summary>
-        private static (SyllableGroup[] groups, int[] cellSyllable) buildSyllables(LyricLine line, string[] tokens, TypingCell[] cells, List<int>? defaultSources)
+        private static (SyllableGroup[] groups, int[] cellSyllable, int[] markerCells) buildSyllables(LyricLine line, string[] tokens, TypingCell[] cells, List<int>? defaultSources)
         {
             var units = line.Units;
             int[] rawGroup = new int[line.RawText.Length];
@@ -608,6 +644,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // resolved from cell targets (NaN start; NaN end = "the next group's start").
             var starts = new List<double>();
             var ends = new List<double>();
+
+            // Parallel to the two above, for the display marks: whether this group opens a
+            // MAPPER-AUTHORED subdivision inside its word (a non-first group of a SUBTIMED token),
+            // and which group its token started at. Captured HERE because this is the only point
+            // that still has the token's unit in hand; a naturally syllabified word produces groups
+            // too and must not be marked (see SyllableMarkerCells).
+            var subtimedInterior = new List<bool>();
+            var groupTokenBase = new List<int>();
             int tokStart = 0;
 
             for (int m = 0; m < tokens.Length; m++)
@@ -636,6 +680,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                     for (int g = 0; g < groupCount; g++)
                     {
+                        subtimedInterior.Add(subtimed && g > 0);
+                        groupTokenBase.Add(groupBase);
+
                         if (subtimed)
                         {
                             starts.Add(g == 0 ? unitStart : boundaries[g - 1]);
@@ -739,7 +786,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             for (int i = 0; i < cellSyllable.Length; i++)
                 cellSyllable[i] = cellSyllable[i] >= 0 ? remap[cellSyllable[i]] : -1;
 
-            return (groups.ToArray(), cellSyllable);
+            // The display marks (backlog 225), read off the groups that survived: a flagged group's
+            // StartCell IS the gap its boundary falls in. A mark also needs something rendered to
+            // its LEFT inside the same word, or it would sit on the word's leading edge and read as
+            // a mark on the space before it; that is why a surviving earlier group of the same
+            // token is required rather than merely the immediately preceding one, which compaction
+            // can have dropped for owning no cell at all (a forced split isolating punctuation).
+            var markerCells = new List<int>();
+            int tokenBase = -1;
+            int lastSurvivor = -1;
+
+            for (int g = 0; g < provisional; g++)
+            {
+                if (groupTokenBase[g] != tokenBase)
+                {
+                    tokenBase = groupTokenBase[g];
+                    lastSurvivor = -1;
+                }
+
+                if (subtimedInterior[g] && remap[g] >= 0 && lastSurvivor >= 0)
+                    markerCells.Add(groups[remap[g]].StartCell);
+
+                if (remap[g] >= 0)
+                    lastSurvivor = g;
+            }
+
+            return (groups.ToArray(), cellSyllable, markerCells.ToArray());
         }
 
         /// <summary>

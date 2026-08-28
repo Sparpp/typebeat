@@ -132,5 +132,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(rulesetConfig.GetBindable<bool>(TypeBeatRulesetSetting.UseSpaceErrorDot).Default, Is.False);
             }
         }
+
+        /// <summary>
+        /// The syllable markers ship ON (backlog 225), the opposite call from the dot above and for
+        /// the opposite reason. The dot is a margin note about a mistake already behind the caret,
+        /// so it waits to be asked for; a marker tells the player where the word they are about to
+        /// type turns over, and span judgement (backlog 179) has been asking them to pace to exactly
+        /// that since well before the mark existed. Withholding it by default would keep the
+        /// subdivision discoverable only by ear.
+        /// </summary>
+        [Test]
+        public void SyllableMarkersDefaultToOn()
+        {
+            using (var rulesetConfig = new TypeBeatRulesetConfigManager(null, new TypeBeatRuleset().RulesetInfo))
+            {
+                Assert.That(rulesetConfig.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyllableMarkers).Default, Is.True);
+            }
+        }
     }
 }
