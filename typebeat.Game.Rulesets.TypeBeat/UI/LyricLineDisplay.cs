@@ -941,8 +941,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     break;
             }
 
-            // Compose the state alpha with the flashlight window (a no-op multiplier of 1 when the
-            // mod is off) so a state refresh can never undo the window's hiding, or vice versa.
+            // Compose the state alpha with the flashlight window and the Recite factor (each a
+            // no-op multiplier of 1 when its mod is off) so a state refresh can never undo their
+            // hiding, or vice versa. It is also what makes Recite need no event wiring of its own:
+            // this line runs on every state transition, so typing a char reveals its cell and
+            // backspacing it hides the cell again.
             applyCellAlpha(cellIndex, animate: false);
         }
 
@@ -1157,7 +1160,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private void applyCellAlpha(int i, bool animate)
         {
-            float target = cellStateAlpha[i] * flashlightFactor(i);
+            // THE single composition point for every reason a cell can be dimmed or hidden: the
+            // judgement state, the flashlight window and the Recite mod each contribute an
+            // independent multiplier (1 when they have nothing to say), so no two of them can
+            // clobber each other and no order of application exists to get wrong. Stacking
+            // Flashlight and Recite is therefore exactly "hidden by either".
+            float target = cellStateAlpha[i] * flashlightFactor(i) * reciteFactor(i);
 
             if (animate)
                 cells[i].FadeTo(target, flashlight_fade_ms, Easing.OutQuint);
@@ -1173,6 +1181,57 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 return 0f;
             return i < flashlightAlphas.Length ? flashlightAlphas[i] : 0f;
         }
+
+        // --- Recite (backlog 229) ---
+        // Hide every character the player has not typed yet. Unlike the flashlight this needs no
+        // geometry at all: the predicate is per-cell state, so the whole mod is one flag plus
+        // HiddenByRecite below, and every state transition (a char typed reveals its cell, a
+        // backspace re-hides it) falls out of RefreshCell already ending in applyCellAlpha.
+
+        private bool reciteEnabled;
+
+        /// <summary>
+        /// Turn the Recite mod's hiding on or off for this line. Idempotent, so the stage can call
+        /// it every frame. Deliberately does NOT touch the sung sweep or the glow: unlike
+        /// <see cref="HideForFlashlight"/>, Recite hides the WORDS and leaves the map's playhead
+        /// visible, which is the one cue a reciting player still has.
+        /// </summary>
+        public void SetReciteEnabled(bool enabled)
+        {
+            if (reciteEnabled == enabled)
+                return;
+
+            reciteEnabled = enabled;
+
+            // Cells may not exist yet (this can be pushed before the display has loaded); that is
+            // safe, because LoadComplete refreshes every cell and RefreshCell ends in applyCellAlpha.
+            for (int i = 0; i < cells.Length; i++)
+                applyCellAlpha(i, animate: true);
+        }
+
+        private float reciteFactor(int i)
+        {
+            if (!reciteEnabled)
+                return 1f;
+
+            return i < Line.Cells.Count && HiddenByRecite(Line.Cells[i]) ? 0f : 1f;
+        }
+
+        /// <summary>
+        /// The Recite hiding rule, pure so it is unit-testable without drawables: a cell is hidden
+        /// iff the player has not typed it (<see cref="CellState.Untyped"/>) and it is not a
+        /// FREESTYLE slot.
+        ///
+        /// <para>Freestyle slots stay visible because they already shimmer a random pool glyph that
+        /// says nothing about the lyric (see <see cref="refreshFreestyleCell"/>): hiding them would
+        /// reveal nothing but would make a whole freestyle section invisible, and the shimmer is how
+        /// the player knows a free slot is there at all.</para>
+        ///
+        /// <para>Everything that is not Untyped is shown, including Missed, Abandoned and
+        /// AutoSkipped. Those are all at or behind the caret in practice, and "upcoming" is exactly
+        /// what Untyped means: a cell the caret has passed can no longer be read ahead of.</para>
+        /// </summary>
+        public static bool HiddenByRecite(TypingCell cell) => cell.State == CellState.Untyped && !cell.IsFreestyle;
 
         /// <summary>
         /// Per-cell visibility multipliers for a line given its <see cref="LineWindow"/> slice of the
@@ -1362,6 +1421,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>The width-matched glyph pool this line's freestyle cells shimmer through.</summary>
         public IReadOnlyList<char> ShimmerPool => shimmerPool;
+
+        /// <summary>Current alpha of the sung underline sweep's rail and its filled part. Test
+        /// support for the one thing that separates the two hiding mods:
+        /// <see cref="HideForFlashlight"/> fades these out along with the characters, and Recite
+        /// must NOT, because the sweep is the map playhead a reciting player is left reading. A
+        /// width alone cannot pin it: a faded sweep still advances.</summary>
+        public float SweepTrackAlpha => sweepTrack.IsNotNull() ? sweepTrack.Alpha : 0f;
+
+        public float SweepFillAlpha => sweepFill.IsNotNull() ? sweepFill.Alpha : 0f;
 
         /// <summary>The colour a cell is currently drawn in; test support for the freestyle tint.</summary>
         public ColourInfo CellColour(int index) =>

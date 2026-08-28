@@ -43,6 +43,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         public int FlashlightVisibleRadius { get; set; }
 
+        /// <summary>
+        /// Recite mod: when true, every cell the player has not typed yet is hidden (alpha 0), so
+        /// the lyric is only ever written out one keypress behind the player. Set by
+        /// <see cref="Mods.TypeBeatModRecite"/> during <c>ApplyToDrawableRuleset</c> (before load);
+        /// the <see cref="LyricStage"/> reads it each frame and pushes it to every line display.
+        ///
+        /// <para>Purely visual, exactly like <see cref="FlashlightVisibleRadius"/> and for the same
+        /// reason it lives here rather than on the engine: it changes no judgement, so it is not an
+        /// ERA flag, needs no CONFIG-frame bit and no <c>ReplayEngineFeed</c> arm. A stored replay
+        /// re-derives the hiding from its mod list, which is why this can be applied late.</para>
+        /// </summary>
+        public bool HideUpcomingText { get; set; }
+
         private IReadOnlyList<InstrumentalSkipSection>? instrumentalSkipSections;
 
         /// <summary>

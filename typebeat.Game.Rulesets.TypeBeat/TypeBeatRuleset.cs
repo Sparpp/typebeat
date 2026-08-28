@@ -94,6 +94,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
                 new TypeBeatModNightcore(),
                 new TypeBeatModFlashlight(),
                 new TypeBeatModLiterate(),
+                new TypeBeatModRecite(),
             },
             ModType.Conversion => new Mod[]
             {

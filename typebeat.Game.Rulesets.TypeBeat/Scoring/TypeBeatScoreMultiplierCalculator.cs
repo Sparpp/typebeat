@@ -64,6 +64,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // Mirrored by the mod's own ScoreMultiplier self-report and the server's ModMultiplier.
             Single<TypeBeatModFlashlight>(hasMultiplier: 1.05);
             Single<TypeBeatModLiterate>(hasMultiplier: 1.05);
+            // Recite hides every character until it is typed. Measured against its nearest sibling
+            // it looks cheap: Flashlight hides strictly LESS (a 5-countable-char window each side of
+            // the caret stays lit, so the next few chars are always readable) and pays 1.05x, while
+            // Recite leaves nothing to read ahead at all and pays 1.01x. That is deliberate
+            // under-pricing, not an oversight: the handicap is memory, not reflexes, so it is only a
+            // handicap on a song the player has not learned, and pricing it like Flashlight would
+            // pay a rehearsed run a premium it never earned. The token 1.01x says "harder, but the
+            // work is done before the map starts". Mirrored by the mod's own ScoreMultiplier
+            // self-report and the server's ModMultiplier. Headroom: the fattest reachable ranked
+            // stack becomes DT@2.00 (1.46) x FL (1.05) x LT (1.05) x HR (1.10) x FC (1.02) x RE
+            // (1.01) = 1.824087573, still under the server's absolute STACK_CAP of 2.0.
+            Single<TypeBeatModRecite>(hasMultiplier: 1.01);
 
             // Conversion.
             // Fletcher PINS the caret to the playhead (backlog 208 reversed the mod: the freedoms it

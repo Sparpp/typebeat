@@ -494,6 +494,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             updateApproachCue();
             updateFlashlight();
+            updateRecite();
+        }
+
+        /// <summary>
+        /// Recite mod: hide every character the player has not typed yet, across the whole stack
+        /// (the upcoming preview line and the pre-roll centre line included, whose cells are all
+        /// Untyped and so hide under the same per-cell rule with no whole-line path of its own).
+        /// No-op when the mod is off.
+        ///
+        /// <para>Far simpler than <see cref="updateFlashlight"/>, and deliberately so: the rule is
+        /// per-cell STATE rather than a window in stream geometry, so nothing is computed here and
+        /// the displays hold the flag. The reveal and re-hide of an individual cell then happen
+        /// wherever its state changes, through <c>RefreshCell</c>, not from this pass.</para>
+        ///
+        /// <para>It also does NOT touch the sung sweep or the sung caret, which the flashlight
+        /// fades out: Recite hides the words and keeps the map's playhead, so the player can still
+        /// see where the vocal is.</para>
+        /// </summary>
+        private void updateRecite()
+        {
+            if (drawableRuleset?.HideUpcomingText != true)
+                return;
+
+            foreach (var d in displays)
+                d.SetReciteEnabled(true);
         }
 
         /// <summary>
