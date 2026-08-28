@@ -41,7 +41,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <param name="audioLeadIn">Silent lead-in before the map starts (ms).</param>
         /// <param name="beatdropMs">Optional intro beatdrop timestamp (ms); null when unset.</param>
         /// <param name="backgroundFilename">Optional background image file name (emitted as a legacy [Events] background).</param>
-        /// <param name="videoFilename">Optional background video file name (emitted as a legacy [Events] video, offset 0).</param>
+        /// <param name="videoFilename">Optional background video file name (emitted as a legacy [Events] video).</param>
+        /// <param name="videoOffsetMs">The video event's own start time: the song position (ms) at
+        /// which the video's first frame plays, so POSITIVE starts the video later than the song and
+        /// negative starts it earlier. Whole milliseconds, because the decode side int-parses this
+        /// field (<see cref="typebeat.Game.Beatmaps.Formats.Parsing.ParseInt"/>) and a throwing line
+        /// is swallowed, which would silently drop the video element instead of failing loudly.
+        /// 0 (the default, and every map nobody has re-synced) writes exactly the <c>Video,0,"file"</c>
+        /// line this format has always written: same reason the Language line is conditional, an
+        /// encoding that moved would re-hash installed maps through
+        /// <c>TypeBeatRuleset.NativeEncodingsEquivalentForStatus</c>.</param>
         /// <param name="beatmapId">Server-side beatmap ID; omitted from [Metadata] unless positive.</param>
         /// <param name="beatmapSetId">Server-side beatmap set ID; omitted from [Metadata] unless positive.</param>
         /// <param name="difficultyName">Difficulty name (the [Metadata] Version), so a set can hold
@@ -63,7 +72,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <exception cref="ArgumentException">When the timing.json is not a supported v2 document.</exception>
         public static string GenerateOsu(string artist, string title, string audioFilename, string creator, string timingJsonText,
                                          double previewTime = -1, double audioLeadIn = 0, double? beatdropMs = null,
-                                         string? backgroundFilename = null, string? videoFilename = null,
+                                         string? backgroundFilename = null, string? videoFilename = null, int videoOffsetMs = 0,
                                          int beatmapId = -1, int beatmapSetId = -1, string difficultyName = "type!beat",
                                          string tags = "", string? titleUnicode = null, string? artistUnicode = null,
                                          string? language = null)
@@ -172,8 +181,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 if (!string.IsNullOrEmpty(backgroundFilename))
                     sb.AppendLine($"0,0,\"{backgroundFilename}\",0,0");
 
+                // The second field is the video's start time against the song (its offset), which is
+                // what the mapper sets in song setup. An unset offset is 0, so a map nobody has
+                // re-synced still writes the exact `Video,0,"file"` line it always has.
                 if (!string.IsNullOrEmpty(videoFilename))
-                    sb.AppendLine($"Video,0,\"{videoFilename}\"");
+                    sb.AppendLine($"Video,{videoOffsetMs.ToString(System.Globalization.CultureInfo.InvariantCulture)},\"{videoFilename}\"");
             }
 
             sb.AppendLine();
@@ -215,5 +227,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// writes the field after another header key, so the leading comma is what's stripped.
         /// </summary>
         public static string StripBeatdrop(string osu) => beatdrop_field.Replace(osu, string.Empty);
+
+        private static readonly System.Text.RegularExpressions.Regex video_offset_field =
+            new System.Text.RegularExpressions.Regex(@"^Video,-?[0-9]+,",
+                System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.Multiline);
+
+        /// <summary>
+        /// Normalises the [Events] video event's OFFSET (its start time, the second field) to 0, so
+        /// two encodings that differ only by how the background video is synced to the song compare
+        /// equal. Same purpose as <see cref="StripBeatdrop"/>: the offset moves a decorative clip
+        /// and touches neither gameplay nor scoring (the server excludes the video from its gameplay
+        /// fingerprint outright), so re-syncing a video must not demote a ranked map.
+        ///
+        /// <para>Only the offset is normalised, never the line: a different video FILE, or a video
+        /// added or removed, is a real content change and still compares as one. Anchored to the
+        /// start of a line so a lyric that happens to contain "Video,12," is left alone.</para>
+        /// </summary>
+        public static string StripVideoOffset(string osu) => video_offset_field.Replace(osu, "Video,0,");
     }
 }

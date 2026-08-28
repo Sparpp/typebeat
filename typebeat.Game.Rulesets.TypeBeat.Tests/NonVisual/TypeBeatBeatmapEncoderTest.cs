@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -135,9 +136,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var reloadedStoryboard = decodeStoryboard(encoded);
             Assert.That(reloadedStoryboard.PrimaryVideo, Is.Not.Null);
             Assert.That(reloadedStoryboard.PrimaryVideo!.Path, Is.EqualTo("song.mp4"));
+            Assert.That(reloadedStoryboard.PrimaryVideo!.StartTime, Is.EqualTo(0));
+
+            // An unset offset writes the exact line this format has always written. The encoding is
+            // what NativeEncodingsEquivalentForStatus compares, so a byte that moved here would
+            // re-hash every installed map on its next save.
+            Assert.That(encoded, Does.Contain("Video,0,\"song.mp4\""));
 
             // Lyric lines are unaffected by the [Events] section.
             Assert.That(reloaded.HitObjects, Has.Count.EqualTo(1));
+        }
+
+        [TestCase(1500)]
+        [TestCase(-1500)]
+        public void VideoOffsetSurvivesRoundTrip(int offsetMs)
+        {
+            // The video's offset against the song, set in the editor's setup tab. It used to be
+            // hardcoded to 0 by the save writer, so a mapper's sync was destroyed on every save.
+            // BOTH signs matter: a video that runs ahead of the song needs a negative one.
+            var source = buildBeatmap(singleLine(), "Artist", "Title", "song.mp4");
+
+            var storyboard = new Storyboard();
+            storyboard.GetLayer("Video").Elements.Add(new StoryboardVideo(StoryboardElementSource.Beatmap, "song.mp4", offsetMs));
+
+            string encoded = encode(source, storyboard);
+
+            // Whole milliseconds, invariant: the decoder int-parses this field and swallows the
+            // exception a decimal would throw, silently dropping the video element.
+            Assert.That(encoded, Does.Contain($"Video,{offsetMs.ToString(CultureInfo.InvariantCulture)},\"song.mp4\""));
+
+            var reloadedStoryboard = decodeStoryboard(encoded);
+            Assert.That(reloadedStoryboard.PrimaryVideo, Is.Not.Null);
+            Assert.That(reloadedStoryboard.PrimaryVideo!.Path, Is.EqualTo("song.mp4"));
+            Assert.That(reloadedStoryboard.PrimaryVideo!.StartTime, Is.EqualTo(offsetMs));
         }
 
         [Test]

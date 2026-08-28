@@ -43,6 +43,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 beatdropMs: beatmap.IntroBeatdropTime,
                 backgroundFilename: metadata.BackgroundFile,
                 videoFilename: storyboard?.PrimaryVideo?.Path,
+                // A video element's StartTime IS its offset against the song. Rounded to whole
+                // milliseconds because the format's field is int-parsed on decode; without this the
+                // offset a mapper sets in song setup would be dropped on every save.
+                videoOffsetMs: (int)System.Math.Round(storyboard?.PrimaryVideo?.StartTime ?? 0),
                 beatmapId: beatmap.BeatmapInfo.OnlineID,
                 beatmapSetId: beatmap.BeatmapInfo.BeatmapSet?.OnlineID ?? -1,
                 difficultyName: beatmap.BeatmapInfo.DifficultyName,

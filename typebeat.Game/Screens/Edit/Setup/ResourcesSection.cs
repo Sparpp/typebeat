@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using osu.Framework.Allocation;
@@ -11,6 +12,7 @@ using osu.Framework.Graphics;
 using osu.Framework.Localisation;
 using osu.Framework.Logging;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Localisation;
 using typebeat.Game.Models;
 using typebeat.Game.Overlays;
@@ -23,9 +25,13 @@ namespace typebeat.Game.Screens.Edit.Setup
 {
     public partial class ResourcesSection : SetupSection
     {
+        /// <summary>Caption of the video offset control; also how tests find it among the section's boxes.</summary>
+        public const string VIDEO_OFFSET_CAPTION = "Video offset (ms)";
+
         private FormBeatmapFileSelector audioTrackChooser = null!;
         private FormBeatmapFileSelector backgroundChooser = null!;
         private FormBeatmapFileSelector videoChooser = null!;
+        private FormNumberBox videoOffsetBox = null!;
 
         private readonly Bindable<EditorBeatmapSkin.SampleSet?> currentSampleSet = new Bindable<EditorBeatmapSkin.SampleSet?>();
 
@@ -79,6 +85,16 @@ namespace typebeat.Game.Screens.Edit.Setup
                     HintText = EditorSetupStrings.VideoHint,
                     AllowClear = true,
                 },
+                // Directly under the picker it re-times, and whole milliseconds only: the format's
+                // offset field is int-parsed on decode, and a decimal would not error, it would drop
+                // the video element on the next load. A number box that cannot type a "." makes that
+                // unrepresentable (it can still type the leading "-", which is half the point).
+                videoOffsetBox = new FormNumberBox(allowDecimals: false)
+                {
+                    Caption = VIDEO_OFFSET_CAPTION,
+                    HintText = "Syncs the video to the song. Positive = the video starts later: its first frame plays this many milliseconds into the song. Negative starts it earlier. Whole milliseconds.",
+                    PlaceholderText = "e.g. -50",
+                },
                 audioTrackChooser = new FormBeatmapFileSelector(beatmapHasMultipleDifficulties, SupportedExtensions.AUDIO_EXTENSIONS)
                 {
                     Caption = EditorSetupStrings.AudioTrack,
@@ -123,6 +139,11 @@ namespace typebeat.Game.Screens.Edit.Setup
             backgroundChooser.Current.BindValueChanged(backgroundChanged);
             videoChooser.Current.BindValueChanged(videoChanged);
             audioTrackChooser.Current.BindValueChanged(audioTrackChanged);
+
+            // Committed (enter / focus loss), never per keystroke: applying an offset rebuilds the
+            // whole editor background storyboard asynchronously.
+            videoOffsetBox.OnCommit += (_, _) => commitVideoOffset();
+            updateVideoOffsetDisplay();
         }
 
         public bool ChangeBackgroundImage(FileInfo source, bool applyToAllDifficulties)
@@ -146,17 +167,123 @@ namespace typebeat.Game.Screens.Edit.Setup
 
             changeResource(source, applyToAllDifficulties, @"video",
                 working => working.Storyboard.PrimaryVideo?.Path ?? string.Empty,
-                (working, name) =>
-                {
-                    var videoLayer = working.Storyboard.GetLayer(@"Video");
-                    videoLayer.Elements.RemoveAll(elem => elem is StoryboardVideo);
-                    if (name != null)
-                        videoLayer.Elements.Insert(0, new StoryboardVideo(StoryboardElementSource.Beatmap, name, 0));
-                });
+                (working, name) => ApplyVideoChange(working.Storyboard, name));
+
+            // A swap keeps the offset, so the box's value stands; a clear leaves no video to offset,
+            // so it empties and goes dead.
+            updateVideoOffsetDisplay();
 
             videoPreview.UpdateVideo();
             editor?.ApplyToBackground(bg => ((EditorBackgroundScreen)bg).RefreshBackgroundAsync());
             return true;
+        }
+
+        /// <summary>
+        /// Re-times the map's background video against the song: <paramref name="offsetMs"/> is the
+        /// song position at which the video's first frame plays, so a positive value starts the video
+        /// LATER than the song. No-op (returning false) on a map with no video.
+        /// </summary>
+        public bool ChangeVideoOffset(int offsetMs)
+        {
+            var storyboard = currentWorkingBeatmap.Value.Storyboard;
+
+            if (storyboard.PrimaryVideo == null)
+                return false;
+
+            ApplyVideoOffsetChange(storyboard, offsetMs);
+
+            // The thumbnail loops the clip free-running and cannot show a sync, but it is rebuilt for
+            // consistency with the other resource edits. The editor BACKGROUND is the surface that
+            // actually plays the video against the track, and only this rebuild picks the new timing up.
+            videoPreview.UpdateVideo();
+            editor?.ApplyToBackground(bg => ((EditorBackgroundScreen)bg).RefreshBackgroundAsync());
+
+            // Same reason the file swaps save immediately (see changeResource): the editor's change
+            // handler cannot see storyboard mutations, so an unsaved offset would vanish silently.
+            // Not undoable, by the same deliberate convention as the other resource edits.
+            editor?.Save();
+            return true;
+        }
+
+        /// <summary>
+        /// Points a beatmap's storyboard at a background video file, or clears the video when
+        /// <paramref name="filename"/> is null.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="StoryboardVideo.StartTime"/> (the video's offset against the song) is get-only,
+        /// so this and <see cref="ApplyVideoOffsetChange"/> REPLACE the element rather than mutate it.
+        /// Both keep the video layer holding exactly one video, at its head:
+        /// <see cref="Storyboard.PrimaryVideo"/> is simply the first one, so a leftover element would
+        /// quietly become the map's video.
+        ///
+        /// <para>A file swap CARRIES THE CURRENT OFFSET FORWARD. Swapping is how a mapper replaces a
+        /// clip with a re-encode or a cleaner rip of the same video, and throwing away the sync they
+        /// already dialled in every time they touch the file picker is a destructive edit nobody asked
+        /// for (the same reasoning as <see cref="ApplyAudioTrackChange"/> and the mapper's metadata).
+        /// The offset has its own field for when they do want it changed.</para>
+        /// </remarks>
+        public static void ApplyVideoChange(Storyboard storyboard, string? filename)
+            => setVideo(storyboard, filename, storyboard.PrimaryVideo?.StartTime ?? 0);
+
+        /// <summary>
+        /// Re-times an existing background video against the song. Deliberately a no-op on a map with
+        /// no video: an offset must never synthesise a video element out of nothing.
+        /// </summary>
+        public static void ApplyVideoOffsetChange(Storyboard storyboard, int offsetMs)
+        {
+            if (storyboard.PrimaryVideo is StoryboardVideo video)
+                setVideo(storyboard, video.Path, offsetMs);
+        }
+
+        private static void setVideo(Storyboard storyboard, string? filename, double offsetMs)
+        {
+            var videoLayer = storyboard.GetLayer(@"Video");
+            videoLayer.Elements.RemoveAll(elem => elem is StoryboardVideo);
+
+            if (filename != null)
+                videoLayer.Elements.Insert(0, new StoryboardVideo(StoryboardElementSource.Beatmap, filename, offsetMs));
+        }
+
+        private void commitVideoOffset()
+        {
+            var video = currentWorkingBeatmap.Value.Storyboard.PrimaryVideo;
+
+            if (video == null)
+            {
+                updateVideoOffsetDisplay();
+                return;
+            }
+
+            string text = videoOffsetBox.Current.Value?.Trim() ?? string.Empty;
+
+            // An emptied box reads as "no offset"; anything unparseable restores what the map
+            // actually carries rather than silently rewriting it to something the user did not type.
+            int offset = 0;
+
+            if (text.Length > 0 && !int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out offset))
+            {
+                updateVideoOffsetDisplay();
+                return;
+            }
+
+            if (offset != (int)Math.Round(video.StartTime))
+                ChangeVideoOffset(offset);
+
+            // Re-read from the model so the box shows the normalised value ("-0", "  12 ") rather
+            // than the raw text.
+            updateVideoOffsetDisplay();
+        }
+
+        private void updateVideoOffsetDisplay()
+        {
+            var video = currentWorkingBeatmap.Value.Storyboard.PrimaryVideo;
+
+            // A disabled bindable throws when written, so the value goes in before the box is closed.
+            videoOffsetBox.Current.Disabled = false;
+            videoOffsetBox.Current.Value = video == null
+                ? string.Empty
+                : ((int)Math.Round(video.StartTime)).ToString(CultureInfo.InvariantCulture);
+            videoOffsetBox.Current.Disabled = video == null;
         }
 
         public bool ChangeAudioTrack(FileInfo source, bool applyToAllDifficulties)

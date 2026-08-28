@@ -141,12 +141,17 @@ namespace typebeat.Game.Rulesets.TypeBeat
             TypeBeatBeatmapEncoder.Encode(beatmap, storyboard, writer);
 
         /// <summary>
-        /// The intro beatdrop (<c>beatdrop_ms</c>) only soundtracks the main-menu intro; it has no
-        /// bearing on gameplay or scoring. So a save that changes only the beatdrop must not demote a
-        /// ranked map to LocallyModified: compare with the beatdrop field normalised out.
+        /// Two things in this format are cosmetic for online status. The intro beatdrop
+        /// (<c>beatdrop_ms</c>) only soundtracks the main-menu intro, and the [Events] video offset
+        /// only syncs a decorative clip to the song; neither has any bearing on gameplay or scoring.
+        /// So a save that changes only those must not demote a ranked map to LocallyModified: compare
+        /// with both fields normalised out. Everything else, the video's FILE included, still counts.
         /// </summary>
         public override bool NativeEncodingsEquivalentForStatus(string encodedA, string encodedB) =>
-            LyricOsuFormat.StripBeatdrop(encodedA) == LyricOsuFormat.StripBeatdrop(encodedB);
+            normaliseForStatus(encodedA) == normaliseForStatus(encodedB);
+
+        private static string normaliseForStatus(string encoded) =>
+            LyricOsuFormat.StripVideoOffset(LyricOsuFormat.StripBeatdrop(encoded));
 
         /// <summary>Compose mode is type!beat's own lyric surface, not a circle composer.</summary>
         public override typebeat.Game.Screens.Edit.EditorScreen CreateEditorComposeScreen() => new LyricComposeScreen();
