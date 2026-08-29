@@ -124,13 +124,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(KeyCharMap.TryMap(Key.Number4, KeyboardLayout.Azerty, shift: true, punctuation: true, out char four));
             Assert.AreEqual('4', four);
 
-            // Caps Lock does not shift a digit-row key on any real keyboard, so both answers hold
-            // under it unchanged.
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Number4, KeyboardLayout.Azerty, shift: false, punctuation: true, capsLock: true, out char capsApostrophe));
-            Assert.AreEqual('\'', capsApostrophe);
-
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Number4, KeyboardLayout.Azerty, shift: true, punctuation: true, capsLock: true, out char capsFour));
+            // Backlog 238: Verr Maj is a SHIFT LOCK on this layout, so caps selects the same legend
+            // Shift does and Shift held over it selects the unshifted one. This pair used to assert
+            // the opposite, on the assumption that no keyboard shift-locks a digit-row key.
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Number4, KeyboardLayout.Azerty, shift: false, punctuation: true, capsLock: true, out char capsFour));
             Assert.AreEqual('4', capsFour);
+
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Number4, KeyboardLayout.Azerty, shift: true, punctuation: true, capsLock: true, out char capsApostrophe));
+            Assert.AreEqual('\'', capsApostrophe);
 
             // Without the mod the key is the digit under either modifier, exactly as before: the
             // punctuation surface is the only thing that moves, and it opens only for Literate.
@@ -320,8 +321,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// Caps Lock does not shift a digit-row or punctuation key on any real keyboard, so it must
-        /// leave the whole non-letter surface exactly where Shift alone left it.
+        /// The US Caps Lock key locks letter case and nothing else, so on QWERTY it must leave the
+        /// whole non-letter surface exactly where Shift alone left it. Backlog 238 scoped this to
+        /// the layout: it is NOT true of French AZERTY, whose Verr Maj is a shift lock
+        /// (see <see cref="AzertyCapsLockShiftLocksThePunctuationSurface"/>).
         /// </summary>
         [Test]
         public void CapsLockLeavesDigitsSpaceAndPunctuationOnShiftOnlySemantics()
@@ -386,6 +389,154 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Backlog 238, reported from the field and confirmed by the reporter. French Verr Maj is a
+        /// SHIFT LOCK, not a caps lock: it produces the digit row (whose digits are the SHIFTED
+        /// legends on AZERTY) and the upper punctuation legends, and typing digits that way is the
+        /// normal French habit. The map used to withhold caps from the punctuation surface entirely,
+        /// so under Literate the reporter's '.' key handed them ';' and their '?' key handed them
+        /// ',', which are exactly the unshifted legends of those two keycaps, and plain digits read
+        /// inert. All four (shift, caps) states are pinned because the fourth is the one that gets
+        /// forgotten: Shift held over the lock is back on the UNSHIFTED legend.
+        /// </summary>
+        // Bottom row: the four keycaps the reporter named, one position left of the US ones.
+        [TestCase(Key.Comma, false, false, ';')]
+        [TestCase(Key.Comma, true, false, '.')]
+        [TestCase(Key.Comma, false, true, '.')]
+        [TestCase(Key.Comma, true, true, ';')]
+        [TestCase(Key.M, false, false, ',')]
+        [TestCase(Key.M, true, false, '?')]
+        [TestCase(Key.M, false, true, '?')]
+        [TestCase(Key.M, true, true, ',')]
+        [TestCase(Key.Period, false, false, ':')]
+        [TestCase(Key.Period, true, false, '/')]
+        [TestCase(Key.Period, false, true, '/')]
+        [TestCase(Key.Period, true, true, ':')]
+        // The section sign is outside the supported set, so the shift LEVEL is inert by either route.
+        [TestCase(Key.Slash, false, false, '!')]
+        [TestCase(Key.Slash, true, false, '\0')]
+        [TestCase(Key.Slash, false, true, '\0')]
+        [TestCase(Key.Slash, true, true, '!')]
+        // Digit row: '&' unshifted is unsupported, so the caps route is the one that gives the digit.
+        [TestCase(Key.Number1, false, false, '\0')]
+        [TestCase(Key.Number1, true, false, '1')]
+        [TestCase(Key.Number1, false, true, '1')]
+        [TestCase(Key.Number1, true, true, '\0')]
+        // A parked bracket and a relocated mark ride the same level, arms and all.
+        [TestCase(Key.BracketLeft, false, false, '^')]
+        [TestCase(Key.BracketLeft, true, false, '[')]
+        [TestCase(Key.BracketLeft, false, true, '[')]
+        [TestCase(Key.BracketLeft, true, true, '^')]
+        public void AzertyCapsLockShiftLocksThePunctuationSurface(Key key, bool shift, bool capsLock, char expected)
+        {
+            string what = $"{key} shift={shift} caps={capsLock}";
+
+            bool produced = KeyCharMap.TryMap(key, KeyboardLayout.Azerty, shift, punctuation: true, capsLock, out char c);
+
+            if (expected == '\0')
+            {
+                Assert.IsFalse(produced, what);
+                return;
+            }
+
+            Assert.IsTrue(produced, what);
+            Assert.AreEqual(expected, c, what);
+        }
+
+        /// <summary>
+        /// Backlog 238, the half of the report that is easy to under-weight: the reporter reached
+        /// for Caps Lock unprompted, so it is the habitual French route to the digit row rather than
+        /// an edge case, and all ten digits must arrive by it. Shift held over the lock is back on
+        /// the French unshifted legends, of which only four are supported marks.
+        /// </summary>
+        [Test]
+        public void EveryDigitIsReachableOnAzertyByCapsLockAlone()
+        {
+            for (int d = 0; d <= 9; d++)
+            {
+                var key = Key.Number0 + d;
+
+                Assert.IsTrue(KeyCharMap.TryMap(key, KeyboardLayout.Azerty, shift: false, punctuation: true, capsLock: true, out char digit), $"caps digit {d}");
+                Assert.AreEqual((char)('0' + d), digit, $"caps digit {d}");
+
+                // Shift over the lock is the unshifted French legend: 3 4 5 6 carry marks, the rest
+                // are the ampersand, the accented letters and the underscore, none of them typeable.
+                char legend = d switch
+                {
+                    3 => '"',
+                    4 => '\'',
+                    5 => '(',
+                    6 => '-',
+                    _ => '\0',
+                };
+
+                bool produced = KeyCharMap.TryMap(key, KeyboardLayout.Azerty, shift: true, punctuation: true, capsLock: true, out char c);
+
+                Assert.AreEqual(legend != '\0', produced, $"shift+caps digit {d}");
+
+                if (legend != '\0')
+                    Assert.AreEqual(legend, c, $"shift+caps digit {d}");
+            }
+        }
+
+        /// <summary>
+        /// Backlog 238 is LAYOUT-SCOPED, and this is the pin that keeps it so: on QWERTY and QWERTZ
+        /// Caps Lock still changes letter CASE and absolutely nothing else, over every key, both
+        /// shift states and both surfaces. Applying the AZERTY shift-lock XOR to either of these
+        /// reds this exhaustively (with caps on, plain 4 would stop being '4').
+        /// </summary>
+        [Test]
+        public void CapsLockChangesOnlyLetterCaseOnQwertyAndQwertz()
+        {
+            foreach (var layout in new[] { KeyboardLayout.Qwerty, KeyboardLayout.Qwertz })
+            {
+                foreach (Key k in Enum.GetValues<Key>())
+                {
+                    foreach (bool shift in new[] { false, true })
+                    {
+                        foreach (bool punctuation in new[] { false, true })
+                        {
+                            string what = $"{k} {layout} shift={shift} punct={punctuation}";
+
+                            bool shiftOnly = KeyCharMap.TryMap(k, layout, shift, punctuation, capsLock: false, out char plain);
+                            bool underCaps = KeyCharMap.TryMap(k, layout, shift, punctuation, capsLock: true, out char caps);
+
+                            // Caps never claims or releases a position on these two layouts.
+                            Assert.AreEqual(shiftOnly, underCaps, what);
+
+                            // A letter flips case; everything else, marks and digits and space and
+                            // the inert positions alike, is the same character it was.
+                            char expected = char.IsAsciiLetter(plain)
+                                ? char.IsAsciiLetterLower(plain) ? char.ToUpperInvariant(plain) : char.ToLowerInvariant(plain)
+                                : plain;
+
+                            Assert.AreEqual(expected, caps, what);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// The AZERTY shift lock reaches the punctuation surface, and letters must be untouched by
+        /// that: their case was already shift XOR caps, and it still comes from the keycap the
+        /// player reads rather than the physical position (AZERTY Q is the 'a' keycap).
+        /// </summary>
+        [TestCase(false, false, 'a')]
+        [TestCase(true, false, 'A')]
+        [TestCase(false, true, 'A')]
+        [TestCase(true, true, 'a')]
+        public void AzertyLettersKeepTheirXorUnderThePunctuationSurface(bool shift, bool capsLock, char expected)
+        {
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Q, KeyboardLayout.Azerty, shift, punctuation: true, capsLock, out char c),
+                $"shift={shift} caps={capsLock}");
+            Assert.AreEqual(expected, c, $"shift={shift} caps={capsLock}");
+
+            // Identical with the surface closed: the shift lock moves marks, never letters.
+            Assert.IsTrue(KeyCharMap.TryMap(Key.Q, KeyboardLayout.Azerty, shift, punctuation: false, capsLock, out char plain));
+            Assert.AreEqual(expected, plain, $"no-punctuation shift={shift} caps={capsLock}");
         }
     }
 }

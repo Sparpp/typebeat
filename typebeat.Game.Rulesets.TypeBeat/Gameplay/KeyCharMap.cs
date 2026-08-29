@@ -36,20 +36,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// typing surface: letters a-z (lower-case by default, upper-cased when <c>shift</c> is held),
     /// digits 0-9 (top row and keypad), and space. Everything else maps to nothing. This is the
     /// one-function seam for a future <c>TextInputSource</c> swap; the only modifiers it interprets
-    /// are Shift and Caps Lock (for letter case); callers still filter Ctrl/Alt. Case is applied
-    /// AFTER the layout remap, so the produced capital always matches the keycap the player reads
-    /// (e.g. AZERTY Q → 'A'). Only letters carry case; digits and space ignore both modifiers. Case
-    /// only matters to gameplay under the Literate mod (<see cref="TypingEngine.CaseSensitive"/>);
-    /// otherwise the caret folds it away.
+    /// are Shift and Caps Lock; callers still filter Ctrl/Alt. Case is applied AFTER the layout
+    /// remap, so the produced capital always matches the keycap the player reads (e.g. AZERTY
+    /// Q → 'A'). On this base surface only letters carry case: a digit or a space is the same
+    /// character under either modifier. Case only matters to gameplay under the Literate mod
+    /// (<see cref="TypingEngine.CaseSensitive"/>); otherwise the caret folds it away.
     ///
-    /// <para><b>Caps Lock follows a real keyboard exactly.</b> For LETTERS the effective case is
-    /// <c>shift XOR capsLock</c>: caps alone capitalises, and Shift held with caps ON produces the
-    /// LOWER case letter. For everything else (digits, space and the punctuation surface below) caps
-    /// is ignored entirely and Shift alone decides, because Caps Lock does not shift a digit-row or
-    /// punctuation key on any real keyboard: with caps on, plain 4 is still '4' and Shift+4 is still
-    /// '$' (on the US digit row, which AZERTY reverses: see <see cref="mapPunctuation"/>).
+    /// <para><b>Caps Lock follows a real keyboard exactly, and which keyboard is the point.</b> For
+    /// LETTERS, on every layout, the effective case is <c>shift XOR capsLock</c>: caps alone
+    /// capitalises, and Shift held with caps ON produces the LOWER case letter. What caps does to
+    /// the PUNCTUATION surface below is a property of the LAYOUT rather than a universal rule
+    /// (backlog 238). On US QWERTY and German QWERTZ it does nothing there: the mark above a key is
+    /// reachable by Shift and only by Shift, so with caps on plain 4 is still '4' and Shift+4 is
+    /// still '$'. On French AZERTY, Verr Maj is a SHIFT LOCK, so it selects the shifted legend of a
+    /// digit-row or punctuation key exactly as Shift does, and typing the digit row that way is the
+    /// normal French habit; there the surface reads <c>shift XOR capsLock</c> too. That split lives
+    /// in <see cref="mapPunctuation"/>, which is the only place it should ever be written down.
     /// Before backlog 205 the map read Shift alone, so under Literate a player capitalising with
-    /// Caps Lock produced lower-case characters and every capital in the lyric read as a typo.</para>
+    /// Caps Lock produced lower-case characters and every capital in the lyric read as a typo; until
+    /// backlog 238 caps was withheld from the punctuation surface on ALL layouts, so a French player
+    /// typing the way their keyboard actually works got the unshifted legend ('.' yielding ';', '?'
+    /// yielding ',') and could not reach the digits 0-9 at all.</para>
     ///
     /// <para>The <c>punctuation</c> overload widens the surface to the supported
     /// <see cref="Beatmaps.Typeability.PUNCTUATION"/> marks. It is opt-in and OFF everywhere except
@@ -68,15 +75,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         public static bool TryMap(Key key, KeyboardLayout layout, bool shift, bool punctuation, out char c) => TryMap(key, layout, shift, punctuation, false, out c);
 
-        // capsLock: whether the Caps Lock toggle is currently ON. Affects LETTERS only, where it
-        // XORs with shift (see the type doc). Callers with no readable toggle state pass false,
-        // which is exactly the pre-Caps-Lock, Shift-only behaviour.
+        // capsLock: whether the Caps Lock toggle is currently ON. It XORs with shift for LETTERS on
+        // every layout, and for the punctuation surface on the layouts whose caps key is a shift
+        // lock (see the type doc and mapPunctuation). Callers with no readable toggle state pass
+        // false, which is exactly the pre-Caps-Lock, Shift-only behaviour.
         public static bool TryMap(Key key, KeyboardLayout layout, bool shift, bool punctuation, bool capsLock, out char c)
         {
             // Checked FIRST so a shifted digit can produce its mark ('!' on 1, '(' on 9, ')' on 0);
-            // unshifted digits fall straight through to the digit below. Caps Lock is deliberately
-            // NOT passed in: on a real keyboard it does not shift a digit-row or punctuation key,
-            // so the mark above one is reachable by Shift and only by Shift.
+            // unshifted digits fall straight through to the digit below. Caps Lock IS passed in,
+            // because whether it shifts a digit-row or punctuation key is a property of the LAYOUT
+            // and not of keyboards in general: it does not on US QWERTY or German QWERTZ, where the
+            // mark above a key is reachable by Shift and only by Shift, but French AZERTY's Verr Maj
+            // is a shift lock that selects the shifted legend there too (backlog 238). The
+            // fall-through to the digit is decided inside the same table and so honours the same
+            // rule: on AZERTY caps+digit-key falls through to the digit, and caps+Shift+digit-key
+            // is back on the unshifted legend and does not.
             //
             // Three-way, not two-way: a position the surface CLAIMS but whose legend for this
             // modifier state is outside the supported set must produce NOTHING rather than fall
@@ -84,7 +97,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // is not what the keycap shows (see mapPunctuation).
             if (punctuation)
             {
-                switch (mapPunctuation(key, layout, shift, out c))
+                switch (mapPunctuation(key, layout, shift, capsLock, out c))
                 {
                     case PunctuationMapping.Produced:
                         return true;
@@ -148,13 +161,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// which costs a combo, a typo and HP, and any mark left with no key at all makes every
         /// lyric containing it uncompletable under Literate. Backlog 214 (the letter 'm'), backlog
         /// 215 (the apostrophe) and backlog 216 (the whole German surface) were all that failure.</para>
+        ///
+        /// <para>THE ONE PLACE Caps Lock's reach is decided, backlog 238. Each table is handed a
+        /// single SHIFT LEVEL, and this method is what computes it, because the answer is a fact
+        /// about the layout: French Verr Maj is a SHIFT LOCK, so it selects the shifted legend of a
+        /// punctuation or digit-row key just as Shift does and AZERTY reads <c>shift XOR
+        /// capsLock</c>; the US and German caps keys lock letter case only, so those two tables read
+        /// <c>shift</c> alone and are byte-identical under caps to what they produced before. The
+        /// XOR feeds the SAME arms, so every parking, inertness and keycap-faithfulness decision the
+        /// AZERTY table documents carries over to the caps route untouched.</para>
         /// </summary>
-        private static PunctuationMapping mapPunctuation(Key key, KeyboardLayout layout, bool shift, out char c)
+        private static PunctuationMapping mapPunctuation(Key key, KeyboardLayout layout, bool shift, bool capsLock, out char c)
         {
             switch (layout)
             {
                 case KeyboardLayout.Azerty:
-                    return mapAzertyPunctuation(key, shift, out c);
+                    // Verr Maj is a shift lock: caps alone reaches the digits and the upper marks,
+                    // and Shift held with caps ON is back on the unshifted legend.
+                    return mapAzertyPunctuation(key, shift != capsLock, out c);
 
                 case KeyboardLayout.Qwertz:
                     return mapQwertzPunctuation(key, shift, out c);
@@ -225,8 +249,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <para>KNOWN LIMIT, structural and shared with every non-US table: AltGr is not carried by
         /// the input path at all, so a mark that is AltGr-only on a layout can only ever be parked,
         /// never placed faithfully.</para>
+        ///
+        /// <para>The flag is a SHIFT LEVEL, not the Shift key: French Verr Maj is a shift lock, so
+        /// <see cref="mapPunctuation"/> hands this table <c>shift XOR capsLock</c> (backlog 238).
+        /// Every arm below is written once and answers both routes, which is the point: the digits
+        /// 1-0, the upper marks, the parked brackets and each inert legend behave the same whether
+        /// the player reached the level with Shift or with the lock, exactly as their keyboard
+        /// behaves. Reading it as "the Shift key" is the bug 238 fixed: a French player types the
+        /// digit row with the lock as a matter of habit, and under Literate that route produced the
+        /// unshifted legend or nothing at all.</para>
         /// </summary>
-        private static PunctuationMapping mapAzertyPunctuation(Key key, bool shift, out char c)
+        private static PunctuationMapping mapAzertyPunctuation(Key key, bool shifted, out char c)
         {
             c = default;
 
@@ -234,7 +267,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (key >= Key.Number0 && key <= Key.Number9)
             {
                 // Shifted is the digit on every one of them: fall through to the letter/digit map.
-                if (shift)
+                if (shifted)
                     return PunctuationMapping.Unclaimed;
 
                 c = key switch
@@ -259,49 +292,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 case Key.Minus:
                     // Right of 0: ')' unshifted, the degree sign (unsupported) shifted.
-                    c = shift ? default : ')';
+                    c = shifted ? default : ')';
                     break;
 
                 case Key.BracketLeft:
                     // The circumflex dead key, whose legend is a supported mark. Shifted is the
                     // diaeresis dead key, which is not, so '[' is parked there.
-                    c = shift ? '[' : '^';
+                    c = shifted ? '[' : '^';
                     break;
 
                 case Key.BracketRight:
                     // '$' unshifted; shifted is the pound sign, so ']' is parked there.
-                    c = shift ? ']' : '$';
+                    c = shifted ? ']' : '$';
                     break;
 
                 case Key.Quote:
                     // The u-grave keycap (unsupported), '%' shifted.
-                    c = shift ? '%' : default;
+                    c = shifted ? '%' : default;
                     break;
 
                 case Key.BackSlash:
                     // '*' unshifted; shifted is the micro sign, outside the supported set.
-                    c = shift ? default : '*';
+                    c = shifted ? default : '*';
                     break;
 
                 case Key.M:
-                    c = shift ? '?' : ',';
+                    c = shifted ? '?' : ',';
                     break;
 
                 case Key.Comma:
-                    c = shift ? '.' : ';';
+                    c = shifted ? '.' : ';';
                     break;
 
                 case Key.Period:
-                    c = shift ? '/' : ':';
+                    c = shifted ? '/' : ':';
                     break;
 
                 case Key.Slash:
                     // Shifted this is the section sign, outside the supported set.
-                    c = shift ? default : '!';
+                    c = shifted ? default : '!';
                     break;
 
                 case Key.NonUSBackSlash:
-                    c = shift ? '>' : '<';
+                    c = shifted ? '>' : '<';
                     break;
 
                 default:
@@ -354,6 +387,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// shifted grave (the degree sign), both umlaut home-row positions and the dead acute/grave
         /// key right of the eszett. <see cref="PunctuationMapping.Inert"/> is what stops the shifted
         /// digits among them falling through to a digit their keycap only shows unshifted.</para>
+        ///
+        /// <para>The flag here IS the Shift key, unlike the AZERTY table's (backlog 238): the German
+        /// Feststelltaste locks letter case and does not select a punctuation or digit-row key's
+        /// shifted legend, so under caps this table answers exactly as it did before that change.
+        /// The digit row is the visible consequence: with caps on, plain 7 is still '7' and only
+        /// Shift+7 is '/'.</para>
         /// </summary>
         private static PunctuationMapping mapQwertzPunctuation(Key key, bool shift, out char c)
         {
