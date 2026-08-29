@@ -70,9 +70,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // Recite leaves nothing to read ahead at all and pays 1.07x (owner decision, backlog
             // 240, raised from the original 1.01x once the memory handicap was judged to be worth
             // more than a token premium). Mirrored by the mod's own ScoreMultiplier self-report and
-            // the server's ModMultiplier. Headroom: the fattest reachable ranked stack becomes
-            // DT@2.00 (1.46) x FL (1.05) x LT (1.05) x HR (1.10) x FC (1.02) x RE (1.07) =
-            // 1.932449211, still under the server's absolute STACK_CAP of 2.0.
+            // the server's ModMultiplier. Headroom: the fattest ranked stack the server can be
+            // HANDED becomes DT@2.00 (1.46) x FL (1.05) x LT (1.05) x HR (1.10) x FC (1.02) x
+            // RE (1.07) = 1.932449211, still under the server's absolute STACK_CAP of 2.0. Not
+            // "reachable": FL and RE stopped being co-selectable in this client (backlog 239), but
+            // the server prices whatever acronym set a stored row carries, so the bound must hold
+            // for the pair regardless.
             Single<TypeBeatModRecite>(hasMultiplier: 1.07);
 
             // Conversion.

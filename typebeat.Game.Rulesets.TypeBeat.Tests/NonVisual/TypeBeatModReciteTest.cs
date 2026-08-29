@@ -86,8 +86,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The fattest reachable ranked stack still fits under the server's absolute STACK_CAP of
-        /// 2.0 with Recite in it. Recomputed here from the client's own multipliers rather than
+        /// The fattest ranked stack the server can be HANDED still fits under its absolute
+        /// STACK_CAP of 2.0 with Recite in it. FL and RE stopped being co-selectable in this client
+        /// (backlog 239), but the server prices whatever acronym set a stored row carries, so the
+        /// pair stays in the bound. Recomputed here from the client's own multipliers rather than
         /// copied, because the number that matters is the product, and a clamped honest stack stores
         /// UNRANKED (the failure mode the Hard Rock note in the calculator records).
         /// </summary>
