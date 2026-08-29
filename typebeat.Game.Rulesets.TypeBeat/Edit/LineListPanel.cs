@@ -265,6 +265,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 state.SelectLine(HitObject);
                 editorClock.SeekSmoothlyTo(HitObject.Line.StartTime);
+
+                // Picking a line from the list ALWAYS brings the fine-timing strip to it. Seeking
+                // alone is not enough: the strip only tracks the caret while its own follow is
+                // armed, and the first manual pan or strip click disarms that for good, after which
+                // a list click used to leave the mapper looking at a completely different part of
+                // the song. This is a one-shot pan, so follow itself stays disarmed.
+                state.RequestViewSnap(HitObject.Line.StartTime);
                 return true;
             }
 

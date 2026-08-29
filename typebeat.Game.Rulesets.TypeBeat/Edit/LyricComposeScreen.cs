@@ -9,6 +9,8 @@ using osu.Framework.Audio;
 using osu.Framework.Audio.Sample;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
+using osu.Framework.Input;
+using osu.Framework.Input.Bindings;
 using osu.Framework.Input.Events;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
@@ -36,7 +38,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// (broadcast/zip, rebased per target), a unit run applies at the focused word.
     /// </summary>
     [Cached]
-    public partial class LyricComposeScreen : EditorScreenWithTimeline
+    public partial class LyricComposeScreen : EditorScreenWithTimeline, IKeyBindingHandler<PlatformAction>
     {
         [Cached]
         private readonly LyricEditState state = new LyricEditState();
@@ -126,6 +128,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // pull the beat ticks back to half strength so they stop competing with it.
             timelineArea.Timeline.WaveformOpacityOverride = 1;
             timelineArea.Timeline.TickAlpha = 0.5f;
+
+            // "snap to grid" is a property of the TOP timeline only (the beat ticks are drawn
+            // there, and the strip below carries lyric structure rather than beats).
+            timelineArea.Timeline.SnapDragSeekToBeat.BindTo(state.SnapToGrid);
         }
 
         protected override void LoadComplete()
@@ -144,7 +150,112 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // the button, so this screen only publishes a label + callback and withdraws on dispose.
             rulesetAction.Publish("Time", toggleTapTiming);
             tapOverlay.StateChanged += updateTapButton;
+
+            if (changeHandler != null)
+                changeHandler.OnStateChange += onHistoryStateChanged;
         }
+
+        #region Undo view snap
+
+        [Resolved(canBeNull: true)]
+        private IEditorChangeHandler? changeHandler { get; set; }
+
+        /// <summary>
+        /// The map's shape as it was just before an undo/redo key press, or null when no history
+        /// step is in flight. Undo restores a whole-beatmap SNAPSHOT (every hit object instance is
+        /// replaced), so there is no per-object event to read the changed location from: the two
+        /// shapes are diffed instead.
+        /// </summary>
+        private List<(double Time, string Tag)>? historyMarkers;
+
+        public bool OnPressed(KeyBindingPressEvent<PlatformAction> e)
+        {
+            // Deliberately never handled here: the editor above performs the undo/redo. This only
+            // photographs the map first, so the restore can be diffed against it. A dirty line text
+            // box swallows the action before it ever reaches this screen (its own layered undo), so
+            // no photograph is taken for those.
+            if (e.Action == PlatformAction.Undo || e.Action == PlatformAction.Redo)
+            {
+                historyMarkers = mapMarkers();
+
+                // Dropped again at the end of the frame: a press that restored nothing (nothing to
+                // undo, or a transaction still open) must not pan on some later, unrelated edit.
+                Schedule(() => historyMarkers = null);
+            }
+
+            return false;
+        }
+
+        public void OnReleased(KeyBindingReleaseEvent<PlatformAction> e)
+        {
+        }
+
+        /// <summary>
+        /// Fired once the restored state has been applied. With a photograph in hand this pans the
+        /// fine-timing strip to the earliest place the two states disagree, which is the edit being
+        /// undone. The CARET is left alone: an undo is not a seek. States that are identical, or a
+        /// state change that no undo/redo press armed, do nothing.
+        /// </summary>
+        private void onHistoryStateChanged()
+        {
+            if (historyMarkers is not List<(double Time, string Tag)> before)
+                return;
+
+            historyMarkers = null;
+
+            if (earliestDifference(before, mapMarkers()) is double at)
+                state.RequestViewSnap(at);
+        }
+
+        /// <summary>
+        /// The whole sheet as timed, tagged markers: one per line (its text and window) and one per
+        /// word (its text, end and subdivisions). Two markers compare equal only when nothing about
+        /// that line or word moved or was retyped, so the symmetric difference of two snapshots is
+        /// exactly the set of places an edit touched.
+        /// </summary>
+        private List<(double Time, string Tag)> mapMarkers()
+        {
+            var markers = new List<(double Time, string Tag)>();
+
+            foreach (var hitObject in TypeBeatEditorOperations.OrderedLines(EditorBeatmap))
+            {
+                var line = hitObject.Line;
+                markers.Add((line.StartTime, $"L|{line.RawText}|{line.EndTime}|{line.SingEndTime}"));
+
+                foreach (var unit in line.Units)
+                    markers.Add((unit.StartTime, $"U|{unit.Text}|{unit.EndTime}|{string.Join(',', unit.SyllableBoundaries)}"));
+            }
+
+            return markers;
+        }
+
+        /// <summary>
+        /// The earliest time carried by a marker present in one snapshot and not the other, or null
+        /// when the two describe the same sheet (a metadata-only undo, say, which has no location).
+        /// </summary>
+        private static double? earliestDifference(List<(double Time, string Tag)> before, List<(double Time, string Tag)> after)
+        {
+            var beforeSet = new HashSet<(double, string)>(before);
+            var afterSet = new HashSet<(double, string)>(after);
+
+            double? earliest = null;
+
+            foreach (var marker in before)
+            {
+                if (!afterSet.Contains(marker))
+                    earliest = earliest is double known ? Math.Min(known, marker.Time) : marker.Time;
+            }
+
+            foreach (var marker in after)
+            {
+                if (!beforeSet.Contains(marker))
+                    earliest = earliest is double known ? Math.Min(known, marker.Time) : marker.Time;
+            }
+
+            return earliest;
+        }
+
+        #endregion
 
         private void updateTapButton()
         {
@@ -544,6 +655,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // The bottom-bar button belongs to the editor, not to this screen: leaving compose just
             // empties the slot. Nothing has to be removed from the game's drawable tree.
             rulesetAction.Withdraw();
+
+            if (changeHandler != null)
+                changeHandler.OnStateChange -= onHistoryStateChanged;
 
             base.Dispose(isDisposing);
         }

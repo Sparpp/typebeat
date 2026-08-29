@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
@@ -309,6 +310,54 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             InputManager.Key(Key.Z);
             InputManager.ReleaseKey(Key.ControlLeft);
         });
+
+        /// <summary>
+        /// An undo restores a whole-beatmap snapshot, so the edit it reverted can be anywhere,
+        /// including off the strip's current view. Ctrl+Z therefore pans the strip to the place the
+        /// two states disagree. The CARET is not moved: an undo is not a seek.
+        /// </summary>
+        [Test]
+        public void TestCtrlZPansTheStripToTheUndoneEdit()
+        {
+            double caretBefore = 0;
+
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("pause at 4500", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(4500);
+            });
+
+            AddUntilStep("strip sized", () => strip().IsLoaded && strip().DrawWidth > 0);
+
+            AddStep("retime line 1's word to 1600", () => TypeBeatEditorOperations.StampUnitStart(EditorBeatmap, lineAt(0), 0, 1600));
+            AddAssert("word start moved", () => lineAt(0).Line.Units[0].StartTime == 1600);
+
+            // A manual strip click disarms the strip's playhead follow, which is the state the view
+            // is in for a mapper who has been working with the mouse.
+            AddStep("click empty strip space", () =>
+            {
+                var q = strip().ScreenSpaceDrawQuad;
+                InputManager.MoveMouseTo(q.TopLeft + new osuTK.Vector2(q.Width * 0.9f, q.Height * 0.5f));
+                InputManager.Click(MouseButton.Left);
+            });
+
+            AddUntilStep("the view is far from line 1", () => Math.Abs(viewCentre() - 1000) > 1500);
+            AddUntilStep("the caret has settled", () => !EditorClock.IsSeeking);
+            AddStep("note the caret", () => caretBefore = EditorClock.CurrentTime);
+
+            pressCtrlZ();
+
+            AddUntilStep("the word start was reverted", () => lineAt(0).Line.Units[0].StartTime == 1000);
+            AddUntilStep("the view snapped to the undone edit", () => Math.Abs(viewCentre() - 1000) < 400);
+            AddAssert("the undo did not move the caret", () => Math.Abs(EditorClock.CurrentTime - caretBefore) < 5);
+        }
+
+        private LyricTimeline strip() => Editor.ChildrenOfType<LyricTimeline>().Single();
+
+        /// <summary>The song time at the centre of the strip's view window.</summary>
+        private double viewCentre() => strip().TimeAt(strip().DrawWidth / 2);
 
         private void pressCtrlY() => AddStep("press ctrl+y", () =>
         {

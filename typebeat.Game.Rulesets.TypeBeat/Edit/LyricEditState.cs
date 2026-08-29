@@ -235,6 +235,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         public double? ReplayStopTime;
 
         /// <summary>
+        /// Magnet a dragged WORD boundary onto the caret when it comes within a few pixels of it.
+        /// On by default: the caret is the mapper's reference point, so landing a word edge exactly
+        /// on what they just listened to is the common case.
+        /// </summary>
+        public readonly BindableBool SnapToCaret = new BindableBool(true);
+
+        /// <summary>
+        /// Magnet a drag of the TOP waveform timeline onto the nearest beat-grid line. Off by
+        /// default: type!beat maps carry a synthetic 120 BPM timing point that has nothing to do
+        /// with the song, so the grid is only useful when the mapper knows it lines up.
+        /// </summary>
+        public readonly BindableBool SnapToGrid = new BindableBool();
+
+        /// <summary>
+        /// Raised to ask the fine-timing strip to bring a time INTO VIEW: a one-shot pan that
+        /// leaves the caret alone (a left-list line click, an undone edit somewhere off screen).
+        /// An event rather than a bindable because the same time may be requested twice in a row.
+        /// </summary>
+        public event Action<double>? ViewSnapRequested;
+
+        /// <summary>Asks every listening surface to pan its view to <paramref name="time"/>.</summary>
+        public void RequestViewSnap(double time) => ViewSnapRequested?.Invoke(time);
+
+        /// <summary>
         /// The live tap-timing recording, or null when not recording. Set by
         /// <see cref="TapTimingOverlay"/>; read by the timeline surfaces so they can draw the pass's
         /// ghost markers. Nothing in it has been committed to the beatmap.

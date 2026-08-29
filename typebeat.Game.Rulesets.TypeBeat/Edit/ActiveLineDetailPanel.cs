@@ -4,9 +4,11 @@
 using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
+using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
+using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
@@ -14,6 +16,7 @@ using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Screens.Edit;
 using osuTK;
+using osuTK.Graphics;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
@@ -79,12 +82,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             // the button was dropped to declutter the row.
                             // Copy/paste timing stays on the standard ^C/^V hotkeys
                             // (LyricComposeScreen.Copy/Paste); the buttons were dropped.
+                            // The line row carries six controls rather than the word row's four, so
+                            // its action buttons are a little narrower: at a 1366-wide window the
+                            // panel has room for exactly this, and the mode toggles must not be the
+                            // thing that gets squeezed off the right edge.
                             actionRow("line", new[]
                             {
-                                actionButton("add @ playhead", addAtPlayhead),
-                                actionButton("split @ word (S)", splitAtSelectedWord),
-                                actionButton("merge next (M)", mergeNext),
-                                actionButton("delete line", deleteLine),
+                                actionButton("add @ playhead", addAtPlayhead, line_button_width),
+                                actionButton("split @ word (S)", splitAtSelectedWord, line_button_width),
+                                actionButton("merge next (M)", mergeNext, line_button_width),
+                                actionButton("delete line", deleteLine, line_button_width),
+                            }, new Drawable[]
+                            {
+                                // The two drag magnets, in the top-right corner: they are modes,
+                                // not actions, so they are kept well away from the action group.
+                                new SnapToggleButton("snap to caret", state.SnapToCaret),
+                                new SnapToggleButton("snap to grid", state.SnapToGrid),
                             }),
                         },
                         new Drawable[]
@@ -137,16 +150,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             };
         }
 
-        private static RoundedButton actionButton(string text, System.Action action) => new RoundedButton
+        /// <summary>Width of the four LINE action buttons (see the note where they are built).</summary>
+        private const float line_button_width = 100;
+
+        /// <summary>Width of the two mode toggles, which carry a smaller label font to match.</summary>
+        private const float toggle_width = 92;
+
+        private static RoundedButton actionButton(string text, System.Action action, float width = 108) => new RoundedButton
         {
             Text = text,
             Action = action,
-            Width = 108,
+            Width = width,
             Height = 30,
         };
 
-        /// <summary>One categorised action row: a small caption ("line" / "word") then its buttons.</summary>
-        private static Drawable actionRow(string category, Drawable[] buttons)
+        /// <summary>
+        /// One categorised action row: a small caption ("line" / "word") then its buttons, flowing
+        /// from the left. <paramref name="rightButtons"/> (when given) form a second group pinned to
+        /// the RIGHT edge of the same row, which is where the mode toggles live so they never read
+        /// as part of the action group.
+        /// </summary>
+        private static Drawable actionRow(string category, Drawable[] buttons, Drawable[]? rightButtons = null)
         {
             var row = new FillFlowContainer
             {
@@ -170,7 +194,71 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             });
 
             row.AddRange(buttons);
-            return row;
+
+            if (rightButtons == null)
+                return row;
+
+            return new Container
+            {
+                RelativeSizeAxes = Axes.Both,
+                Children = new Drawable[]
+                {
+                    row,
+                    new FillFlowContainer
+                    {
+                        Anchor = Anchor.TopRight,
+                        Origin = Anchor.TopRight,
+                        RelativeSizeAxes = Axes.Y,
+                        AutoSizeAxes = Axes.X,
+                        Direction = FillDirection.Horizontal,
+                        Spacing = new Vector2(6, 0),
+                        Children = rightButtons,
+                    },
+                },
+            };
+        }
+
+        /// <summary>
+        /// A session-local on/off toggle: RED background while off, GREEN while on, recoloured from
+        /// its bindable exactly as the bottom bar's armed ruleset button is. Nothing is persisted to
+        /// config: these are per-session editing modes, not settings.
+        /// </summary>
+        private partial class SnapToggleButton : RoundedButton
+        {
+            private readonly BindableBool active;
+
+            private Color4 onColour;
+            private Color4 offColour;
+
+            public SnapToggleButton(string text, BindableBool active)
+            {
+                this.active = active;
+
+                Text = text;
+                Width = toggle_width;
+                Height = 30;
+                Action = active.Toggle;
+            }
+
+            [BackgroundDependencyLoader]
+            private void load(OsuColour colours)
+            {
+                onColour = colours.Green3;
+                offColour = colours.Red3;
+            }
+
+            protected override void LoadComplete()
+            {
+                base.LoadComplete();
+
+                // The panel's own mono face at label size: these are narrower than the action
+                // buttons beside them, and reading as a different KIND of control is the point.
+                SpriteText.Font = TypeBeatStyle.Mono(11);
+
+                // Bound after load: RoundedButton's own loader assigns a default background, which
+                // would otherwise win over a colour set in the constructor.
+                active.BindValueChanged(_ => BackgroundColour = active.Value ? onColour : offColour, true);
+            }
         }
 
         protected override void Update()

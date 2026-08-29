@@ -17,8 +17,10 @@ using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.Edit;
 using typebeat.Game.Screens.Edit.Components.Timelines.Summary;
 using typebeat.Game.Screens.Edit.Compose;
+using typebeat.Game.Screens.Edit.Compose.Components.Timeline;
 using typebeat.Game.Screens.Edit.Setup;
 using typebeat.Game.Tests.Visual;
+using osuTK.Graphics;
 using osuTK.Input;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
@@ -666,7 +668,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
             AddUntilStep("word buttons present", () =>
                 Editor.ChildrenOfType<ActiveLineDetailPanel>().Any()
-                && wordButton("add word").DrawWidth > 0);
+                && panelButton("add word").DrawWidth > 0);
 
             AddAssert("add word, then remove word, then subdivide, then its inverse", () =>
                 left("add word") < left("remove word") && left("remove word") < left("subdivide (D)")
@@ -680,19 +682,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("select line 1", () => clickRow(0));
             AddUntilStep("line 1 active", () => state().ActiveLine.Value == lineAt(0));
             AddAssert("both enabled on a live multi-word line", () =>
-                wordButton("add word").Enabled.Value && wordButton("remove word").Enabled.Value);
+                panelButton("add word").Enabled.Value && panelButton("remove word").Enabled.Value);
 
             // Nothing focused: the word is appended at the end of the line.
-            AddStep("click add word", () => clickWordButton("add word"));
+            AddStep("click add word", () => clickPanelButton("add word"));
             AddUntilStep("a word was appended", () => lineAt(0).Line.RawText == "hello world word");
             AddAssert("one unit per token", () => lineAt(0).Line.Units.Count == 3);
 
             AddStep("select the last two words", () => state().SelectUnitRange(1, 2));
-            AddStep("click remove word", () => clickWordButton("remove word"));
+            AddStep("click remove word", () => clickPanelButton("remove word"));
             AddUntilStep("both selected words went", () => lineAt(0).Line.RawText == "hello");
 
-            AddAssert("remove is greyed out on a one-word line", () => !wordButton("remove word").Enabled.Value);
-            AddAssert("add is still available", () => wordButton("add word").Enabled.Value);
+            AddAssert("remove is greyed out on a one-word line", () => !panelButton("remove word").Enabled.Value);
+            AddAssert("add is still available", () => panelButton("add word").Enabled.Value);
 
             // The two removals were one transaction, so ONE undo brings both words back.
             AddStep("undo once", () => Editor.Undo());
@@ -702,17 +704,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("the insertion is undone too", () => lineAt(0).Line.RawText == "hello world");
         }
 
-        private RoundedButton wordButton(string text)
+        private RoundedButton panelButton(string text)
             => Editor.ChildrenOfType<ActiveLineDetailPanel>().Single()
                      .ChildrenOfType<RoundedButton>().Single(b => b.Text.ToString() == text);
 
-        private float left(string text) => wordButton(text).ScreenSpaceDrawQuad.TopLeft.X;
+        private float left(string text) => panelButton(text).ScreenSpaceDrawQuad.TopLeft.X;
 
-        private Vector2 size(string text) => wordButton(text).ScreenSpaceDrawQuad.Size;
+        private Vector2 size(string text) => panelButton(text).ScreenSpaceDrawQuad.Size;
 
-        private void clickWordButton(string text)
+        private void clickPanelButton(string text)
         {
-            InputManager.MoveMouseTo(wordButton(text));
+            InputManager.MoveMouseTo(panelButton(text));
             InputManager.Click(MouseButton.Left);
         }
 
@@ -742,5 +744,335 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("zoom left the playhead put", () => Math.Abs(EditorClock.CurrentTime - before) < 1);
         }
+
+        #region Drag magnets, double-click seeks, view snapping
+
+        /// <summary>
+        /// The two drag magnets are session toggles pinned to the TOP RIGHT of the line action row,
+        /// clear of the left-aligned action group: red while off, green while on, with "snap to
+        /// caret" armed by default and "snap to grid" not.
+        /// </summary>
+        [Test]
+        public void TestSnapToggleButtonsSitRightOfTheLineActions()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddUntilStep("toggles present", () =>
+                Editor.ChildrenOfType<ActiveLineDetailPanel>().Any() && panelButton("snap to caret").DrawWidth > 0);
+
+            AddAssert("both sit clear of the whole line action group", () =>
+                left("snap to caret") >= left("delete line") + size("delete line").X + 8
+                && left("snap to grid") > left("snap to caret"));
+
+            AddAssert("caret magnet armed, grid magnet idle", () => state().SnapToCaret.Value && !state().SnapToGrid.Value);
+            AddAssert("armed reads green, idle reads red", () =>
+                isGreen(panelButton("snap to caret").BackgroundColour) && isRed(panelButton("snap to grid").BackgroundColour));
+
+            AddStep("click snap to grid", () => clickPanelButton("snap to grid"));
+            AddUntilStep("grid magnet armed, and green", () =>
+                state().SnapToGrid.Value && isGreen(panelButton("snap to grid").BackgroundColour));
+
+            AddStep("click snap to caret", () => clickPanelButton("snap to caret"));
+            AddUntilStep("caret magnet disarmed, and red", () =>
+                !state().SnapToCaret.Value && isRed(panelButton("snap to caret").BackgroundColour));
+        }
+
+        /// <summary>
+        /// Dragging a WORD EDGE with "snap to caret" armed: inside a few pixels of the caret the
+        /// edge lands exactly on it, further out the drag is untouched, and the toggle turns the
+        /// whole thing off. A pixel radius, so the assertions are expressed in pixels too.
+        /// </summary>
+        [Test]
+        public void TestWordEdgeDragMagnetsToTheCaret()
+        {
+            double caret = 0;
+            double msPerPixel = 0;
+            float caretX = 0;
+            float pressX = 0;
+            float targetX = 0;
+
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("pause with the caret inside line 1's word", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(2000);
+
+                // Both edges of the fixture's only word sit exactly on a line boundary, where the
+                // boundary handle (which is above the blocks) owns the press. Pull them inwards so
+                // the edges being dragged are the word's own.
+                TypeBeatEditorOperations.SetUnitTiming(EditorBeatmap, lineAt(0), 0, 1400, 2600);
+            });
+
+            AddUntilStep("strip sized", () => strip().IsLoaded && strip().DrawWidth > 0);
+            AddUntilStep("word pulled in", () => lineAt(0).Line.Units[0].StartTime == 1400);
+
+            AddStep("aim 4px short of the caret", () =>
+            {
+                caret = EditorClock.CurrentTime;
+                caretX = strip().PositionOf(caret);
+                msPerPixel = strip().TimeAt(1) - strip().TimeAt(0);
+                pressX = strip().PositionOf(lineAt(0).Line.Units[0].StartTime) + 3;
+                targetX = caretX - 4;
+            });
+
+            dragOnStrip(() => pressX, () => targetX);
+
+            AddAssert("the edge landed exactly on the caret", () => Math.Abs(wordStart() - caret) < 0.5 * msPerPixel);
+
+            AddStep("aim 25px short of the caret", () =>
+            {
+                pressX = strip().PositionOf(wordStart()) + 3;
+                targetX = caretX - 25;
+            });
+
+            dragOnStrip(() => pressX, () => targetX);
+
+            AddAssert("out of range, the drag is left alone", () => Math.Abs(wordStart() - caret) > 2 * msPerPixel);
+
+            AddStep("disarm snap to caret", () => clickPanelButton("snap to caret"));
+            AddAssert("magnet is off", () => !state().SnapToCaret.Value);
+
+            AddStep("aim 4px short of the caret again", () =>
+            {
+                pressX = strip().PositionOf(wordStart()) + 3;
+                targetX = caretX - 4;
+            });
+
+            dragOnStrip(() => pressX, () => targetX);
+
+            AddAssert("with the toggle off nothing snaps", () => Math.Abs(wordStart() - caret) > 2 * msPerPixel);
+        }
+
+        /// <summary>
+        /// Dragging the TOP waveform timeline with "snap to grid" armed magnets the seek onto the
+        /// nearest beat-grid line; out of range, and with the toggle idle, the seek is continuous.
+        /// </summary>
+        [Test]
+        public void TestTimelineDragMagnetsToTheBeatGrid()
+        {
+            Timeline waveform = null!;
+            double msPerPixel = 0;
+            double grid = 0;
+            double aimed = 0;
+
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("pause at 3000", () =>
+            {
+                waveform = Editor.ChildrenOfType<Timeline>().First();
+                EditorClock.Stop();
+                EditorClock.Seek(3000);
+            });
+
+            AddUntilStep("waveform timeline sized", () => waveform.IsLoaded && waveform.DrawWidth > 0 && EditorClock.TrackLength > 0);
+            AddUntilStep("clock settled", () => Math.Abs(EditorClock.CurrentTime - 3000) < 5 && !EditorClock.IsSeeking);
+            AddWaitStep("let the scroll settle", 5);
+
+            AddStep("arm the grid magnet", () => state().SnapToGrid.Value = true);
+
+            AddStep("aim 4px past a grid line", () =>
+            {
+                msPerPixel = waveform.TimeAtPosition(1) - waveform.TimeAtPosition(0);
+                grid = EditorBeatmap.SnapTime(EditorClock.CurrentTime - 500, null);
+                aimed = grid + 4 * msPerPixel;
+            });
+
+            dragWaveformTo(() => waveform, () => aimed, () => msPerPixel);
+
+            AddUntilStep("the caret landed exactly on the grid line", () => Math.Abs(EditorClock.CurrentTime - grid) < 0.5 * msPerPixel);
+
+            AddStep("aim 25px past a grid line", () =>
+            {
+                grid = EditorBeatmap.SnapTime(EditorClock.CurrentTime - 500, null);
+                aimed = grid + 25 * msPerPixel;
+            });
+
+            dragWaveformTo(() => waveform, () => aimed, () => msPerPixel);
+
+            AddUntilStep("out of range, the seek is left alone", () => Math.Abs(EditorClock.CurrentTime - grid) > 2 * msPerPixel);
+
+            AddStep("disarm the grid magnet", () => state().SnapToGrid.Value = false);
+
+            AddStep("aim 4px past a grid line again", () =>
+            {
+                grid = EditorBeatmap.SnapTime(EditorClock.CurrentTime - 500, null);
+                aimed = grid + 4 * msPerPixel;
+            });
+
+            dragWaveformTo(() => waveform, () => aimed, () => msPerPixel);
+
+            AddUntilStep("with the toggle off nothing snaps", () => Math.Abs(EditorClock.CurrentTime - grid) > 2 * msPerPixel);
+        }
+
+        /// <summary>
+        /// Double-clicking a word block jumps the caret to the clicked position, exactly as the grey
+        /// space between blocks does. It no longer pre-rolls and replays the word.
+        /// </summary>
+        [Test]
+        public void TestWordDoubleClickSeeksToTheClickWithoutPlayback()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("pause at 4000", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(4000);
+            });
+
+            AddUntilStep("strip sized", () => strip().IsLoaded && strip().DrawWidth > 0);
+
+            AddStep("double-click the middle of line 1's word", () =>
+            {
+                InputManager.MoveMouseTo(stripPointAt(2000));
+                InputManager.Click(MouseButton.Left);
+                InputManager.Click(MouseButton.Left);
+            });
+
+            // The old behaviour seeked to unit.StartTime - 300 (700ms) and started the track.
+            AddUntilStep("the caret jumped to the click", () => Math.Abs(EditorClock.CurrentTime - 2000) < 30);
+            AddAssert("nothing started playing", () => !EditorClock.IsRunning);
+            AddAssert("no auto-pause was armed", () => state().ReplayStopTime == null);
+        }
+
+        /// <summary>
+        /// The yellow line boundary and the blue sung-end flag swallow the press (they are drag
+        /// targets), which used to make both clicks on them inert. A double click now jumps the
+        /// caret to the handle's OWN time, and never authors a line under it.
+        /// </summary>
+        [Test]
+        public void TestHandleDoubleClicksSeekToTheirOwnTime()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("pause at 4000", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(4000);
+            });
+
+            AddUntilStep("strip sized", () => strip().IsLoaded && strip().DrawWidth > 0);
+
+            // 8px to the RIGHT of the boundary: still inside the handle's grab box, but a full 8
+            // pixels of song time away from it, so a caret that landed on the CLICK rather than on
+            // the handle would miss.
+            AddStep("double-click just right of the line 2 boundary", () => doubleClickStripAtX(strip().PositionOf(3000) + 8));
+
+            AddUntilStep("the caret sits on the boundary itself", () => Math.Abs(EditorClock.CurrentTime - 3000) < 10);
+            AddAssert("no line was authored", () => EditorBeatmap.HitObjects.Count == 2);
+
+            AddStep("double-click just right of line 2's sung-end flag", () => doubleClickStripAtX(strip().PositionOf(5000) + 6));
+
+            AddUntilStep("the caret sits on the sung end", () => Math.Abs(EditorClock.CurrentTime - 5000) < 10);
+            AddAssert("still no line authored", () => EditorBeatmap.HitObjects.Count == 2);
+        }
+
+        /// <summary>
+        /// Picking a line in the left list ALWAYS brings the strip view to it. Pinned after a manual
+        /// strip click, which is what disarms the strip's own playhead follow for good and used to
+        /// leave list clicks seeking a caret the mapper could not see.
+        /// </summary>
+        [Test]
+        public void TestLineListClickPansTheStripView()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddUntilStep("rows built", () => rows().Count == 2);
+
+            AddStep("pause at 4500", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(4500);
+            });
+
+            AddUntilStep("strip sized", () => strip().IsLoaded && strip().DrawWidth > 0);
+
+            AddStep("click empty strip space (disarms follow)", () =>
+            {
+                var q = strip().ScreenSpaceDrawQuad;
+                InputManager.MoveMouseTo(q.TopLeft + new Vector2(q.Width * 0.9f, q.Height * 0.5f));
+                InputManager.Click(MouseButton.Left);
+            });
+
+            AddUntilStep("the view is nowhere near line 1", () => Math.Abs(viewCentre() - 1000) > 1500);
+
+            AddStep("click row 1 in the list", () => clickRow(0));
+
+            AddUntilStep("the strip view snapped to line 1", () => Math.Abs(viewCentre() - 1000) < 200);
+            AddUntilStep("and the caret went there too", () => Math.Abs(EditorClock.CurrentTime - 1000) < 50);
+        }
+
+        private static bool isGreen(Color4 colour) => colour.G > colour.R && colour.G > colour.B;
+
+        private static bool isRed(Color4 colour) => colour.R > colour.G && colour.R > colour.B;
+
+        private LyricTimeline strip() => Editor.ChildrenOfType<LyricTimeline>().Single();
+
+        /// <summary>The song time at the centre of the strip's view window.</summary>
+        private double viewCentre() => strip().TimeAt(strip().DrawWidth / 2);
+
+        private double wordStart() => lineAt(0).Line.Units[0].StartTime;
+
+        private Vector2 stripPointAtX(float localX)
+        {
+            var q = strip().ScreenSpaceDrawQuad;
+            return q.TopLeft + new Vector2(q.Width * (localX / strip().DrawWidth), q.Height * 0.5f);
+        }
+
+        private Vector2 stripPointAt(double time) => stripPointAtX(strip().PositionOf(time));
+
+        private void doubleClickStripAtX(float localX)
+        {
+            InputManager.MoveMouseTo(stripPointAtX(localX));
+            InputManager.Click(MouseButton.Left);
+            InputManager.Click(MouseButton.Left);
+        }
+
+        /// <summary>
+        /// Press at one local X of the strip and release at another, a step (and therefore a frame)
+        /// per stage. The detour past the press point is the framework's drag-start distance: the
+        /// drag only begins once the mouse has travelled far enough, and only the final position
+        /// decides where it lands.
+        /// </summary>
+        private void dragOnStrip(Func<float> fromX, Func<float> toX)
+        {
+            AddStep("press on the strip", () =>
+            {
+                InputManager.MoveMouseTo(stripPointAtX(fromX()));
+                InputManager.PressButton(MouseButton.Left);
+            });
+
+            AddStep("travel far enough to start the drag", () => InputManager.MoveMouseTo(stripPointAtX(fromX() - 40)));
+            AddStep("drag to the target", () => InputManager.MoveMouseTo(stripPointAtX(toX())));
+            AddStep("release", () => InputManager.ReleaseButton(MouseButton.Left));
+        }
+
+        /// <summary>
+        /// Drags the waveform timeline until the time under its (fixed) centre marker is
+        /// <paramref name="targetTime"/>: the content scrolls under the marker, so dragging right by
+        /// one pixel steps the seek back by one pixel of song time. The last stage repeats the final
+        /// position so the release carries no flick momentum.
+        /// </summary>
+        private void dragWaveformTo(Func<Timeline> waveform, Func<double> targetTime, Func<double> msPerPixel)
+        {
+            Vector2 from = Vector2.Zero;
+            float dx = 0;
+
+            AddStep("press on the waveform timeline", () =>
+            {
+                var q = waveform().ScreenSpaceDrawQuad;
+                float scale = q.Width / waveform().DrawWidth;
+
+                from = q.TopLeft + new Vector2(q.Width * 0.3f, q.Height * 0.5f);
+                dx = (float)((EditorClock.CurrentTime - targetTime()) / msPerPixel()) * scale;
+
+                InputManager.MoveMouseTo(from);
+                InputManager.PressButton(MouseButton.Left);
+            });
+
+            AddStep("drag to the target", () => InputManager.MoveMouseTo(from + new Vector2(dx, 0)));
+            AddStep("hold still", () => InputManager.MoveMouseTo(from + new Vector2(dx, 0)));
+            AddStep("release", () => InputManager.ReleaseButton(MouseButton.Left));
+        }
+
+        #endregion
     }
 }

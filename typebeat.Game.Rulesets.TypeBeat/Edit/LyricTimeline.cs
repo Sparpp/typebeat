@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Extensions.Color4Extensions;
+using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Cursor;
@@ -75,6 +76,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private bool wasRunning;
         private bool zoomInitialised;
 
+        // A pending one-shot view pan (LyricEditState.RequestViewSnap): applied in Update, once the
+        // window length is known, so a request arriving before the strip has sized itself still
+        // centres correctly. It does NOT re-arm follow; playback remains the only thing that does.
+        private double? pendingViewSnap;
+
         private const double zoom_step = 1.2;        // window scale per wheel notch
         private const double min_window_ms = 400;    // deepest zoom-in
         private const double max_window_ms = 120000; // furthest zoom-out
@@ -128,6 +134,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Reported by word blocks: whether the mouse is currently over a resize edge.</summary>
         public void SetEdgeHovered(bool value) => edgeHovered = value;
 
+        protected override void LoadComplete()
+        {
+            base.LoadComplete();
+            state.ViewSnapRequested += requestViewSnap;
+        }
+
+        /// <summary>
+        /// Brings <paramref name="time"/> into view with a one-shot pan (the caret is not touched).
+        /// Follow is disengaged exactly as a manual pan would, so the view then stays where it was
+        /// put until playback re-arms it.
+        /// </summary>
+        private void requestViewSnap(double time) => pendingViewSnap = time;
+
         protected override void Update()
         {
             base.Update();
@@ -150,6 +169,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (editorClock.IsRunning && !wasRunning)
                 following = true;
             wasRunning = editorClock.IsRunning;
+
+            // A requested pan wins over the current follow state for this frame and disengages
+            // follow, so the view lands on the asked-for time whichever way it was tracking before.
+            if (pendingViewSnap is double snapTo)
+            {
+                following = false;
+                viewStart = snapTo - windowLength / 2;
+                pendingViewSnap = null;
+            }
 
             if (following)
                 viewStart = editorClock.CurrentTime - windowLength / 2;
@@ -253,6 +281,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Local X pixels → time.</summary>
         public double TimeAt(float x) => windowStart + x / DrawWidth * windowLength;
 
+        /// <summary>
+        /// The word-boundary magnet: with "snap to caret" armed, a dragged word edge within
+        /// <see cref="EditorSnapMagnet.RADIUS_PX"/> of the caret lands exactly on the caret,
+        /// otherwise it follows the cursor untouched. The radius is converted through the strip's
+        /// CURRENT scale, so the pull covers the same few pixels at every zoom.
+        /// </summary>
+        internal double MagnetToCaret(double time)
+        {
+            if (!state.SnapToCaret.Value || DrawWidth <= 0)
+                return time;
+
+            return EditorSnapMagnet.Magnet(time, editorClock.CurrentTime, EditorSnapMagnet.RADIUS_PX / DrawWidth * windowLength);
+        }
+
         protected override bool OnScroll(ScrollEvent e)
         {
             if (DrawWidth <= 0)
@@ -297,9 +339,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Move the playhead to a screen-space X on the strip (video-editor seek), leaving
         /// the view put. Shared by empty-space clicks (root) and line-band grey-area clicks.</summary>
         internal void SeekToScreenSpace(Vector2 screenSpacePosition)
+            => SeekTo(TimeAt(ToLocalSpace(screenSpacePosition).X));
+
+        /// <summary>Move the playhead to a time, leaving the view put (see <see cref="SeekToScreenSpace"/>).</summary>
+        internal void SeekTo(double time)
         {
             following = false;
-            editorClock.SeekSmoothlyTo(TimeAt(ToLocalSpace(screenSpacePosition).X));
+            editorClock.SeekSmoothlyTo(time);
         }
 
         protected override bool OnClick(ClickEvent e)
@@ -324,6 +370,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             }
 
             return true;
+        }
+
+        protected override void Dispose(bool isDisposing)
+        {
+            // The shared state outlives this drawable (the screen owns it), so the handler has to go.
+            if (state.IsNotNull())
+                state.ViewSnapRequested -= requestViewSnap;
+
+            base.Dispose(isDisposing);
         }
 
         /// <summary>A CursorContainer whose cursor is a horizontal-resize arrow (window-edge feel).</summary>
@@ -624,13 +679,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnDoubleClick(DoubleClickEvent e)
             {
-                if (index >= hitObject.Line.Units.Count)
-                    return false;
-
-                // Word replay: hear exactly this word.
-                editorClock.Seek(Math.Max(0, unit.StartTime - 300));
-                state.ReplayStopTime = unit.EndTime + 200;
-                editorClock.Start();
+                // Same jump the grey space between blocks gives: the caret goes exactly where the
+                // mouse is, and nothing plays. (This used to replay the word with a pre-roll and an
+                // auto-pause, which moved the caret somewhere the mapper had not pointed at; the R
+                // hotkey still replays a whole line.)
+                strip.SeekToScreenSpace(e.ScreenSpaceMousePosition);
                 return true;
             }
 
@@ -703,10 +756,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     return;
                 }
 
+                // A WORD BOUNDARY is being dragged (one edge, on its own): magnet it to the caret.
+                // The group drag keeps its uniform-delta semantics, and a body move drags no
+                // boundary at all, so neither is magneted.
+                double boundaryTime = strip.MagnetToCaret(cursorTime);
+
                 if (sharedBoundaryLeftIndex >= 0)
                 {
                     // Shift+edge: the shared boundary itself follows the cursor, retiming both words.
-                    TypeBeatEditorOperations.SetSharedUnitBoundary(editorBeatmap, hitObject, sharedBoundaryLeftIndex, cursorTime);
+                    TypeBeatEditorOperations.SetSharedUnitBoundary(editorBeatmap, hitObject, sharedBoundaryLeftIndex, boundaryTime);
                     return;
                 }
 
@@ -714,11 +772,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 {
                     case Grab.ResizeStart:
                         // The dragged edge follows the cursor directly (SetUnitTiming clamps it).
-                        TypeBeatEditorOperations.SetUnitTiming(editorBeatmap, hitObject, index, cursorTime, grabEnd);
+                        TypeBeatEditorOperations.SetUnitTiming(editorBeatmap, hitObject, index, boundaryTime, grabEnd);
                         break;
 
                     case Grab.ResizeEnd:
-                        TypeBeatEditorOperations.SetUnitTiming(editorBeatmap, hitObject, index, grabStart, cursorTime);
+                        TypeBeatEditorOperations.SetUnitTiming(editorBeatmap, hitObject, index, grabStart, boundaryTime);
                         break;
 
                     default:
@@ -794,6 +852,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             protected override void OnHoverLost(HoverLostEvent e) => line.Width = 3;
 
             protected override bool OnMouseDown(MouseDownEvent e) => true;
+
+            // The handle owns the press (OnMouseDown above), so the band underneath never sees the
+            // gesture: without an OnClick of its own there is no clicked drawable for the framework
+            // to route a double click to, and both clicks are simply eaten. Claiming the single
+            // click leaves it inert (the handle is a drag target) but makes the double click
+            // reachable, and it stops there, so the empty-space "add line" never fires from a handle.
+            protected override bool OnClick(ClickEvent e) => true;
+
+            protected override bool OnDoubleClick(DoubleClickEvent e)
+            {
+                strip.SeekTo(hitObject.Line.StartTime);
+                return true;
+            }
 
             protected override bool OnDragStart(DragStartEvent e)
             {
@@ -1019,6 +1090,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             public override bool HandlePositionalInput => true;
 
             protected override bool OnMouseDown(MouseDownEvent e) => true;
+
+            // Same reasoning as BoundaryHandle: claim the click so the double click is routed here,
+            // and jump the caret to the flag's own time rather than authoring a line under it.
+            protected override bool OnClick(ClickEvent e) => true;
+
+            protected override bool OnDoubleClick(DoubleClickEvent e)
+            {
+                strip.SeekTo(hitObject.Line.SingEndTime);
+                return true;
+            }
 
             protected override bool OnDragStart(DragStartEvent e)
             {

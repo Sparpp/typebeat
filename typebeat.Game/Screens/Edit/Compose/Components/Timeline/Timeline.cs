@@ -125,6 +125,14 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
 
         private double trackLengthForZoom;
 
+        /// <summary>
+        /// When armed, dragging this timeline magnets the seek to the nearest beat-grid line
+        /// (see <see cref="MagnetToBeatGrid"/>). Off by default; a screen that wants the snap binds
+        /// this to its own toggle. Nothing else on the timeline is affected, and the scroll itself
+        /// stays continuous: only the time the drag SEEKS to is pulled onto the grid.
+        /// </summary>
+        public readonly BindableBool SnapDragSeekToBeat = new BindableBool();
+
         public Timeline(Drawable userContent)
         {
             this.userContent = userContent;
@@ -310,8 +318,28 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
 
         private void seekTrackToCurrent()
         {
-            double target = TimeAtPosition(Current);
+            // Both callers are the timeline's own scroll driving the clock: the live drag, and the
+            // inertia that settles after the user lets go. Magneting both is what makes a flick land
+            // on the grid line it stops next to instead of sliding back off it.
+            double target = MagnetToBeatGrid(TimeAtPosition(Current));
+
             editorClock.Seek(Math.Min(editorClock.TrackLength, target));
+        }
+
+        /// <summary>
+        /// Where a drag-seek to <paramref name="rawTime"/> actually lands: with
+        /// <see cref="SnapDragSeekToBeat"/> armed, the nearest beat-grid line (the white/red/blue
+        /// ticks, i.e. the current timing point at the current beat divisor) whenever it is within
+        /// <see cref="EditorSnapMagnet.RADIUS_PX"/> of the cursor, otherwise the raw time.
+        /// </summary>
+        public double MagnetToBeatGrid(double rawTime)
+        {
+            if (!SnapDragSeekToBeat.Value || Content.DrawWidth <= 0 || editorClock.TrackLength <= 0)
+                return rawTime;
+
+            double msPerPixel = editorClock.TrackLength / Content.DrawWidth;
+
+            return EditorSnapMagnet.Magnet(rawTime, beatSnapProvider.SnapTime(rawTime), EditorSnapMagnet.RADIUS_PX * msPerPixel);
         }
 
         private void scrollToTrackTime()
