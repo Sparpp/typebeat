@@ -16,6 +16,7 @@ using System.IO;
 using NUnit.Framework;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.UI;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
@@ -53,7 +54,139 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static LyricLine abcdLine() => line("ab cd", 1000, 4000, 3000,
             unit("ab", 1000, 2000), unit("cd", 2000, 3000));
 
+        /// <summary>
+        /// The same shape as <see cref="abcdLine"/> but with the SUNG-END FLAG (end_ms, what the
+        /// editor's blue marker drags) chosen INDEPENDENTLY of the word blocks, which no parser
+        /// emits and only an editor drag produces: "ab cd" with ab [1000, 2000] and cd [2000, 3400].
+        /// So the last word's own end is 3400 and its last character's target is 2700.
+        /// </summary>
+        private static LyricLine flagLine(double singEnd) => line("ab cd", 1000, 9000, singEnd,
+            unit("ab", 1000, 2000), unit("cd", 2000, 3400));
+
         #endregion
+
+        /// <summary>
+        /// Backlog 245: the sung-end flag does not set the pace of the LAST WORD. Every interior
+        /// word is closed by its own inter-word space cell, at its unit's end, so its sweep is
+        /// bounded by its own block on both sides; the last word has no space cell after it, and
+        /// closing it on the line's flag instead let a mapper stretch or squeeze the caret's crawl
+        /// across the last character while the word block had not moved.
+        ///
+        /// <para><see cref="abcdLine"/> cannot see any of this: like freshly parsed data (pinned by
+        /// LrcParserTest) its flag EQUALS its last unit's end, so both rules agree on it.</para>
+        /// </summary>
+        [Test]
+        public void TheSungEndFlagDoesNotSetTheLastWordsSweepPace()
+        {
+            // Three copies of one line differing ONLY in the flag: the value a parser would emit
+            // (the last word's own end, 3400), one dragged well PAST it, and one dragged well
+            // BEFORE it but still after that word's last character, so the polyline's monotonic
+            // guard is not what is holding the line. The word blocks are identical in all three.
+            var reference = TypingLine.FromLyricLine(flagLine(3400), TimingGranularity.Word);
+            var dragged = new[]
+            {
+                TypingLine.FromLyricLine(flagLine(6000), TimingGranularity.Word),
+                TypingLine.FromLyricLine(flagLine(2900), TimingGranularity.Word),
+            };
+
+            // Hand-worked on the reference: polyline (1000,0) a(1000,0) b(1500,1) ' '(2000,2)
+            // c(2000,3) d(2700,4) (3400,5). The caret crosses the last character over [2700, 3400),
+            // 700ms, which is cd's own second half and nothing else.
+            Assert.AreEqual(3400, reference.SweepEndTime);
+            Assert.AreEqual(4.5, reference.SungPositionAt(3050), 1e-9); // halfway d(2700,4) -> cd's end (3400,5)
+            Assert.AreEqual(5, reference.SungPositionAt(3400), 1e-9);
+            Assert.AreEqual(3.5, reference.SungPositionAt(2350), 1e-9); // halfway c -> d, the interior control
+            Assert.AreEqual(0.5, reference.SungPositionAt(1250), 1e-9); // halfway a -> b, the first word
+
+            // A proportional font's advances, so the caret WIDTH the stage sets from that same
+            // fraction (LyricStage: sungCaret.SetCellWidth(display.CellWidthAtFraction(sung))) is
+            // pinned alongside the position rather than assumed to follow it.
+            float[] advances = { 10f, 30f, 12f, 24f, 18f };
+
+            foreach (var moved in dragged)
+            {
+                Assert.AreEqual(reference.SweepEndTime, moved.SweepEndTime);
+                Assert.AreEqual(reference.Cells.Count, moved.Cells.Count);
+                Assert.AreEqual(4.5, moved.SungPositionAt(3050), 1e-9);
+                Assert.AreEqual(3.5, moved.SungPositionAt(2350), 1e-9);
+
+                // And instant for instant, the whole sweep is the reference's.
+                for (double t = 500; t <= 7000; t += 25)
+                {
+                    double want = reference.SungPositionAt(t);
+                    Assert.AreEqual(want, moved.SungPositionAt(t), 1e-9, $"sung position at {t}");
+                    Assert.AreEqual(LyricLineDisplay.AdvanceAtFraction(advances, want),
+                        LyricLineDisplay.AdvanceAtFraction(advances, moved.SungPositionAt(t)), 1e-6, $"caret width at {t}");
+                }
+
+                // The judged quantities never read the flag and still do not, which is why this is a
+                // display fix and not an era: same char targets, same syllable spans, same seal.
+                for (int i = 0; i < reference.Cells.Count; i++)
+                    Assert.AreEqual(reference.Cells[i].TargetTime, moved.Cells[i].TargetTime, 1e-9, $"cell {i} target");
+
+                Assert.AreEqual(reference.Syllables.Count, moved.Syllables.Count);
+
+                for (int g = 0; g < reference.Syllables.Count; g++)
+                {
+                    Assert.AreEqual(reference.Syllables[g].StartTime, moved.Syllables[g].StartTime, 1e-9, $"syllable {g} start");
+                    Assert.AreEqual(reference.Syllables[g].EndTime, moved.Syllables[g].EndTime, 1e-9, $"syllable {g} end");
+                }
+            }
+        }
+
+        /// <summary>
+        /// The degenerate lines no decoder produces, which the tail anchor still has to close
+        /// FORWARDS: one with no units at all (the flag stays the anchor, there being no word block
+        /// to be bound by), one whose flag sits before its own last character, and one whose units
+        /// overlap so the last word's end sits before a target the monotonic clamp has already
+        /// pushed past it.
+        /// </summary>
+        [Test]
+        public void DegenerateDataStillClosesTheSweepForwards()
+        {
+            var unitless = TypingLine.FromLyricLine(new LyricLine
+            {
+                RawText = "ab",
+                StartTime = 1000,
+                EndTime = 9000,
+                SingEndTime = 4000,
+                Units = Array.Empty<TimedUnit>(),
+            }, TimingGranularity.Line);
+
+            // With no unit, the chars are spread across [StartTime, SingEndTime] itself: a at 1000,
+            // b at 1000 + 1*(4000-1000)/2 = 2500. The flag stays the tail anchor, so the last
+            // segment is neither zero-length nor backwards.
+            Assert.AreEqual(4000, unitless.SweepEndTime);
+            Assert.AreEqual(1.5, unitless.SungPositionAt(3250), 1e-9); // halfway b(2500,1) -> (4000,2)
+            Assert.AreEqual(2, unitless.SungPositionAt(4000), 1e-9);
+
+            // And an INVERTED flag (before the line's own last character) is still bounded below by
+            // that character, so the tail can never run backwards.
+            var inverted = TypingLine.FromLyricLine(flagLine(100), TimingGranularity.Word);
+
+            Assert.AreEqual(3400, inverted.SweepEndTime);
+            Assert.IsTrue(inverted.SweepEndTime >= inverted.Cells[^1].TargetTime);
+
+            // OVERLAPPING units, which is what makes the anchor's lower bound load-bearing rather
+            // than decorative: "ab" runs to 5000 while "cd" claims [2000, 3000], so the inter-word
+            // space cell sits at 5000 and the monotonic target clamp drags c and d up to it. The
+            // last word's own end (3000) is now BEHIND the line's last target, and the anchor takes
+            // the later of the two rather than handing the tail a backwards segment.
+            var overlapped = TypingLine.FromLyricLine(line("ab cd", 1000, 9000, 3000,
+                unit("ab", 1000, 5000), unit("cd", 2000, 3000)), TimingGranularity.Word);
+
+            Assert.AreEqual(5000, overlapped.Cells[^1].TargetTime);
+            Assert.AreEqual(5000, overlapped.SweepEndTime);
+
+            double previous = double.NegativeInfinity;
+
+            for (double t = 0; t <= 9000; t += 50)
+            {
+                double at = overlapped.SungPositionAt(t);
+                Assert.IsTrue(at >= previous, $"the sweep went backwards at {t}");
+                previous = at;
+            }
+        }
 
         [Test]
         public void PerfectRunScoresAllPerfectFullComboSync100()
@@ -71,6 +204,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(5, engine.Lines[0].TypeableCount);
 
             // SungPositionAt sanity: polyline (1000,0) a(1000,0) b(1500,1) ' '(2000,2) c(2000,3) d(2500,4) (3000,5).
+            // The 3000 tail anchor is the LAST WORD's own end, cd [2000, 3000]; this fixture's sung-end
+            // flag happens to equal it, as a parser's always does, so it cannot tell the two rules
+            // apart. TheSungEndFlagDoesNotSetTheLastWordsSweepPace is the case that can.
             Assert.AreEqual(0, engine.Lines[0].SungPositionAt(500));    // clamped before start
             Assert.AreEqual(0.5, engine.Lines[0].SungPositionAt(1250)); // halfway a->b: 0 + 250/500
             Assert.AreEqual(3, engine.Lines[0].SungPositionAt(2000));   // zero-length ' '->c segment skipped: jumps to c's index

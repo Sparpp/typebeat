@@ -446,11 +446,76 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(double.IsFinite(nan[0].Speed));
         }
 
+        /// <summary>
+        /// "ab cd" with word blocks ab [1000, 2000] and cd [2000, 3400], carrying a sung-end flag
+        /// (end_ms, what the editor's blue marker drags) chosen INDEPENDENTLY of them. Freshly
+        /// parsed data always has the two equal, so only an editor drag produces this.
+        /// </summary>
+        private static TypingLine flagLine(double singEnd) => TypingLine.FromLyricLine(new LyricLine
+        {
+            RawText = "ab cd",
+            StartTime = 1000,
+            EndTime = 9000,
+            SingEndTime = singEnd,
+            Units = new[] { unit("ab", 1000, 2000), unit("cd", 2000, 3400) },
+        }, TimingGranularity.Word);
+
+        /// <summary>
+        /// Backlog 245: the last word is priced by its OWN duration, not by the line's sung-end
+        /// flag. Every other segment closes on the next segment's first vocal target, a time inside
+        /// the next word block, so pricing the last one by a flag the mapper drags independently
+        /// made it the one band whose hue moved without any word moving.
+        /// </summary>
+        [Test]
+        public void DraggingTheSungEndFlagDoesNotRepriceTheLastWord()
+        {
+            // The flag a parser would emit (cd's own end), one dragged well PAST it, one dragged
+            // well BEFORE it but still after cd's last character (2700), so the "never before the
+            // last target" guard is not what is holding the line.
+            var lines = new[] { flagLine(3400), flagLine(6000), flagLine(2900) };
+
+            foreach (var line in lines)
+            {
+                Assert.That(UnderlinePace.SungEndOf(line), Is.EqualTo(3400), "closed on cd's own end");
+
+                var segments = UnderlinePace.SegmentLine(line);
+                assertRanges(segments, (0, 3), (3, 5));
+
+                // Hand-worked. Segment 0 is "ab" plus its gap, 2 countable over [1000, 2000), the
+                // interior control: it was always bounded by its own block and still is.
+                Assert.That(segments[0].Speed, Is.EqualTo(2 / 1000.0).Within(1e-12));
+
+                // Segment 1 is "cd", 2 countable over [2000, 3400), the word's own 1400ms.
+                Assert.That(segments[1].Speed, Is.EqualTo(2 / 1400.0).Within(1e-12));
+            }
+
+            // And the RANK inside a whole map's percentiles, which is what actually picks the hue:
+            // twelve segments, the ten of mixedMap plus this line's two. Sorted, 0.0002 x2,
+            // 0.001 x6, 2/1400, 2/1000, 0.01 x2, so the last word's mid-rank is (8 + 9)/2/12 and
+            // the interior control's is (9 + 10)/2/12. Neither is the neutral 0.5, so the
+            // invariance below is not vacuous.
+            foreach (var line in lines)
+            {
+                var map = mixedMap().Append(line).ToArray();
+                double[] ranks = UnderlinePace.RanksOf(map.SelectMany(UnderlinePace.SegmentLine).Select(s => s.Speed).ToArray());
+
+                Assert.That(ranks, Has.Length.EqualTo(12));
+                Assert.That(ranks[11], Is.EqualTo(8.5 / 12).Within(1e-12), "the last word's rank");
+                Assert.That(ranks[10], Is.EqualTo(9.5 / 12).Within(1e-12), "the interior control's rank");
+
+                Assert.That(UnderlinePace.BuildBands(map)[5], Is.EqualTo(UnderlinePace.BuildBands(mixedMap().Append(lines[0]).ToArray())[5]),
+                    "the bands the display renders");
+            }
+        }
+
         [Test]
         public void ALineIsClosedAtItsOwnSungEndNeverBeforeItsLastCharacter()
         {
             var line = evenLine(0, 2000);
 
+            // Degenerate on purpose (the fixture's flag equals its last unit's end, as a parser's
+            // always does): DraggingTheSungEndFlagDoesNotRepriceTheLastWord is the case that can
+            // tell the flag and the last word's own end apart.
             Assert.That(UnderlinePace.SungEndOf(line), Is.EqualTo(line.SingEndTime));
 
             // A line whose declared sing end sits before its last target is closed at that target

@@ -156,6 +156,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public double SingEndTime { get; }
 
         /// <summary>
+        /// Where the caret's SWEEP closes: the LAST WORD's own end (the last token's unit
+        /// <see cref="TimedUnit.EndTime"/>), never earlier than the line's last typeable target.
+        ///
+        /// <para>Deliberately NOT <see cref="SingEndTime"/> (backlog 245). Every INTERIOR word is
+        /// closed by its own inter-word space cell, whose target is that word's unit end, so its
+        /// sweep is bounded by its own word block on both sides. The last word has no space cell
+        /// after it, so before 245 the tail anchor here was the line's sung-end flag, and a mapper
+        /// dragging that flag in the editor stretched or squeezed the caret's crawl across the last
+        /// word's final CHARACTER while the word block itself had not moved. The flag is a
+        /// vocal-end estimate (persisted as end_ms) and a hard seal deadline lives on
+        /// <see cref="EndTime"/>; neither is a statement about how fast the last word is sung.</para>
+        ///
+        /// <para>Freshly parsed data has the last unit's end EQUAL to <see cref="SingEndTime"/>
+        /// (pinned by LrcParserTest), so this only diverges once an editor drag breaks that
+        /// equality. <see cref="SingEndTime"/> remains the fallback for a line carrying no units at
+        /// all, which no decoder produces. The lower bound is the same monotonicity guard the
+        /// polyline needs everywhere else: inverted authored data must not hand the tail a
+        /// backwards segment.</para>
+        ///
+        /// <para>Display only: no judged quantity reads it. Per-character targets and syllable sung
+        /// spans take each token's own unit bounds in <see cref="FromLyricLine"/>, so a stored
+        /// replay re-derives byte-identically across this change.</para>
+        /// </summary>
+        public double SweepEndTime { get; }
+
+        /// <summary>
         /// When this line becomes typeable: a constant cue lead before its first typeable cell's
         /// target (<see cref="TypingEngine.CUE_LEAD_MS"/>), never earlier than <see cref="StartTime"/>
         /// (the shared boundary; the previous line cannot seal before it). Independent of the
@@ -274,12 +300,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>
         /// Piecewise-linear anchor points for <see cref="SungPositionAt"/>:
-        /// (StartTime, 0), each typeable cell's (TargetTime, displayIndex), (SingEndTime, Cells.Count).
+        /// (StartTime, 0), each typeable cell's (TargetTime, displayIndex), (SweepEndTime, Cells.Count).
         /// Times are clamped monotonic non-decreasing at construction.
         /// </summary>
         private readonly List<(double time, double index)> sungPoints;
 
-        private TypingLine(LyricLine source, IReadOnlyList<TypingCell> cells, double sealGraceMs, SyllableGroup[] syllables, int[] cellSyllable, int[] syllableMarkerCells)
+        private TypingLine(LyricLine source, IReadOnlyList<TypingCell> cells, double sealGraceMs, SyllableGroup[] syllables, int[] cellSyllable, int[] syllableMarkerCells, double lastUnitEnd)
         {
             Source = source;
             Syllables = syllables;
@@ -340,12 +366,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 lastTime = t;
             }
 
-            sungPoints.Add((Math.Max(SingEndTime, lastTime), cells.Count));
+            // The tail anchor is the LAST WORD's own end, not the line's sung-end flag: see
+            // SweepEndTime. Math.Max keeps the polyline monotonic against inverted authored data,
+            // exactly as the per-cell clamp above does (SungPositionAt's walk, its clamped ends and
+            // UnderlinePace's spans all assume non-decreasing times).
+            SweepEndTime = Math.Max(lastUnitEnd, lastTime);
+            sungPoints.Add((SweepEndTime, cells.Count));
         }
 
         /// <summary>
         /// Fractional display-cell index in [0, Cells.Count]: piecewise-linear through
-        /// (StartTime, 0) .. (TargetTime_j, displayIndex_j) .. (SingEndTime, Cells.Count),
+        /// (StartTime, 0) .. (TargetTime_j, displayIndex_j) .. (SweepEndTime, Cells.Count),
         /// clamped outside, zero-length time segments skipped (position jumps).
         /// </summary>
         public double SungPositionAt(double time)
@@ -409,6 +440,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             string[] tokens = text.Split(' ');
             int pos = 0;
 
+            // The end of the LAST token's unit, which closes the sweep (see SweepEndTime). Taken
+            // from the walk rather than from units[^1] so it is the same unit the last token's own
+            // chars were spread across even when the two counts disagree, and so the unit-less
+            // fallback to the line's sung end is written in exactly one place.
+            double lastUnitEnd = line.SingEndTime;
+
             for (int m = 0; m < tokens.Length; m++)
             {
                 string token = tokens[m];
@@ -418,6 +455,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 double unitStart = unit?.StartTime ?? line.StartTime;
                 double unitEnd = unit?.EndTime ?? line.SingEndTime;
+
+                lastUnitEnd = unitEnd;
 
                 // Unreliable timing gets the widest windows: estimated lines and
                 // low-confidence words are judged at the Line tier.
@@ -575,7 +614,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             var (syllables, cellSyllable, markerCells) = buildSyllables(line, tokens, cells, defaultSources);
 
-            return new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), syllables, cellSyllable, markerCells);
+            return new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), syllables, cellSyllable, markerCells, lastUnitEnd);
         }
 
         /// <summary>

@@ -230,23 +230,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public static PaceSegment[] SegmentLine(TypingLine line) => SegmentLine(line.Cells, SungEndOf(line));
 
         /// <summary>
-        /// Where a line stops being sung, matching the last anchor of <see cref="TypingLine"/>'s sung
-        /// polyline exactly: its <see cref="TypingLine.SingEndTime"/>, never earlier than its last
-        /// typeable target. A line whose declared sing end sits before its own last character would
-        /// otherwise hand the final word a negative span.
+        /// Where a line stops being sung: <see cref="TypingLine.SweepEndTime"/>, which IS the last
+        /// anchor of that line's sung polyline. Read from the line rather than recomputed here so
+        /// the band and the fill under it cannot drift apart.
+        ///
+        /// <para>That anchor is the LAST WORD's own end and not the line's sung-end flag (backlog
+        /// 245): every other segment closes on the next segment's first vocal target, a time inside
+        /// the next word block, so pricing the last one by a flag a mapper drags independently made
+        /// it the one segment whose hue, and therefore whose rank among every segment in the map,
+        /// moved without any word moving. It is still never earlier than the line's last typeable
+        /// target, so inverted authored data cannot hand the final word a negative span.</para>
         /// </summary>
-        public static double SungEndOf(TypingLine line)
-        {
-            double end = line.SingEndTime;
-
-            foreach (var cell in line.Cells)
-            {
-                if (cell.IsTypeable)
-                    end = Math.Max(end, cell.TargetTime);
-            }
-
-            return end;
-        }
+        public static double SungEndOf(TypingLine line) => line.SweepEndTime;
 
         /// <summary>
         /// MID-RANK percentile of each speed within the whole set, in [0, 1]: the count strictly
