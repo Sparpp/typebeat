@@ -164,9 +164,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
-        /// Recite and Flashlight are compatible on purpose: they contribute independent per-cell
-        /// factors that multiply, so stacking them is exactly "hidden by either" with no arbitrary
-        /// winner. Both directions are checked, so neither factor can be the one silently ignored.
+        /// Recite and Flashlight still compose as independent per-cell factors that multiply, so
+        /// stacking them is exactly "hidden by either" with no arbitrary winner, this pins that the
+        /// rendering mechanism is unchanged. The two are mutually exclusive in the mod-select
+        /// overlay (<see cref="TypeBeatModRecite.IncompatibleMods"/>); this scene builds both
+        /// directly to exercise the mechanism, bypassing selection.
         /// </summary>
         [Test]
         public void TestStacksWithFlashlightAndNeverExceedsEitherAlone()

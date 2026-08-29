@@ -11,6 +11,7 @@ using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.UI;
+using typebeat.Game.Utils;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
@@ -58,10 +59,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 "the legacy self-report and the authoritative calculator must not drift");
 #pragma warning restore CS0618
 
-            // It stacks multiplicatively, as every other entry does. Flashlight is the deliberate
-            // partner here: the two hide characters independently and are compatible on purpose.
+            // It stacks multiplicatively, as every other entry does. The calculator is pure math
+            // and does not enforce selectability, so this pins the product even though Recite and
+            // Flashlight are now mutually exclusive in the mod-select overlay (see
+            // ReciteAndFlashlightAreMutuallyExclusive below).
             double stacked = calculator.CalculateFor(new Mod[] { new TypeBeatModRecite(), new TypeBeatModFlashlight() });
             Assert.AreEqual(1.01 * 1.05, stacked, 1e-9);
+        }
+
+        /// <summary>
+        /// Both mods hide the lyric text surface, and stacked together the stack is unplayable, so
+        /// the exclusion is declared on both sides (the same reciprocal pattern
+        /// <see cref="TypeBeatModHardRock.IncompatibleMods"/> / <see cref="TypeBeatModEasy.IncompatibleMods"/>
+        /// use) and fires no matter which mod is picked first.
+        /// </summary>
+        [Test]
+        public void ReciteAndFlashlightAreMutuallyExclusive()
+        {
+            var recite = new TypeBeatModRecite();
+            var flashlight = new TypeBeatModFlashlight();
+
+            Assert.AreEqual(new[] { typeof(TypeBeatModFlashlight) }, recite.IncompatibleMods);
+            Assert.AreEqual(new[] { typeof(TypeBeatModRecite) }, flashlight.IncompatibleMods);
+            Assert.IsFalse(ModUtils.CheckCompatibleSet(new Mod[] { recite, flashlight }));
         }
 
         /// <summary>

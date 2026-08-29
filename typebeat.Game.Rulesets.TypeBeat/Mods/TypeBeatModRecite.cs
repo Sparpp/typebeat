@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using osu.Framework.Localisation;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
@@ -32,9 +33,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// input model instead of swapping one model for another, which is the line Conversion is drawn
     /// on here.</para>
     ///
-    /// <para>Compatible with Flashlight on purpose. The two hide by multiplying independent per-cell
-    /// factors together, so stacking them is exactly "hidden by either", with no arbitrary winner
-    /// and nothing to declare incompatible.</para>
+    /// <para>Stacking with <see cref="TypeBeatModFlashlight"/> still composes cleanly as "hidden by
+    /// either" (independent per-cell factors), but the owner judged the resulting stack unplayable
+    /// in practice, so the pairing is withdrawn: see <see cref="IncompatibleMods"/>.</para>
     ///
     /// <para>ACCEPTED RESIDUAL: a wrong key typed onto a lyric cell marks it Wrong, and a Wrong
     /// lyric cell renders its own LYRIC character in error red (see
@@ -65,6 +66,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// windows, so the shared leaderboards are comparing the same run with one cue removed.
         /// </summary>
         public override bool Ranked => true;
+
+        /// <summary>
+        /// Withdrawn from <see cref="TypeBeatModFlashlight"/>: both mods hide the lyric text
+        /// surface, and the owner judged the combined stack unplayable. Declared on both sides,
+        /// the same reciprocal pattern <see cref="TypeBeatModEasy.IncompatibleMods"/> and
+        /// <see cref="TypeBeatModHardRock.IncompatibleMods"/> use, so the exclusion fires no matter
+        /// which mod is picked first.
+        /// </summary>
+        public override Type[] IncompatibleMods => new[] { typeof(TypeBeatModFlashlight) };
 
         public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset) =>
             ((DrawableTypeBeatRuleset)drawableRuleset).HideUpcomingText = true;

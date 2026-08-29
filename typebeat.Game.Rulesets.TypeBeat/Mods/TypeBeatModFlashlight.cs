@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Localisation;
 using typebeat.Game.Graphics;
@@ -51,6 +52,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
         /// <summary>Countable characters lit either side of the caret head.</summary>
         private const int visible_radius = 5;
+
+        /// <summary>
+        /// Withdrawn from <see cref="TypeBeatModRecite"/>: both mods hide the lyric text surface,
+        /// and the owner judged the combined stack unplayable. Declared on both sides so the
+        /// exclusion fires no matter which mod is picked first, see
+        /// <see cref="TypeBeatModRecite.IncompatibleMods"/> for the fuller reasoning.
+        /// </summary>
+        public override Type[] IncompatibleMods => new[] { typeof(TypeBeatModRecite) };
 
         public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset) =>
             ((DrawableTypeBeatRuleset)drawableRuleset).FlashlightVisibleRadius = visible_radius;
