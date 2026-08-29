@@ -73,6 +73,15 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
         private bool trackWasPlaying;
 
         /// <summary>
+        /// Whether the last seek this timeline drove was DISPLACED by <see cref="MagnetToBeatGrid"/>,
+        /// i.e. the caret is being held on a grid line rather than sitting where the cursor points.
+        /// Always false while <see cref="SnapDragSeekToBeat"/> is idle. Read by
+        /// <see cref="scrollToTrackTime"/>, which must not write that displacement back into the
+        /// scroll position.
+        /// </summary>
+        private bool magnetHoldsCaret;
+
+        /// <summary>
         /// The timeline zoom level at a 1x zoom scale.
         /// </summary>
         private float defaultTimelineZoom;
@@ -321,7 +330,10 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
             // Both callers are the timeline's own scroll driving the clock: the live drag, and the
             // inertia that settles after the user lets go. Magneting both is what makes a flick land
             // on the grid line it stops next to instead of sliding back off it.
-            double target = MagnetToBeatGrid(TimeAtPosition(Current));
+            double raw = TimeAtPosition(Current);
+            double target = MagnetToBeatGrid(raw);
+
+            magnetHoldsCaret = target != raw;
 
             editorClock.Seek(Math.Min(editorClock.TrackLength, target));
         }
@@ -352,6 +364,21 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
             if (handlingDragInput)
                 editorClock.Stop();
 
+            // The scroll and the clock are a round trip through each other every frame, and without
+            // the magnet it is the identity: this writes back exactly what seekTrackToCurrent read.
+            // A magneted seek is NOT the identity, so writing its result back would drag the scroll
+            // onto the grid line as well, erasing the raw travel the user has accumulated since the
+            // magnet took hold. A mouse only reports a delta on the frames it actually moves, so the
+            // erase happens between one delta and the next and the cursor can never reach the radius
+            // it has to reach to escape: the caret sits trapped on the line until a single frame's
+            // delta clears the radius outright, which lands it in the next line's pull instead.
+            // So while the drag is live the RAW cursor position stays the source of truth and the
+            // scroll is left exactly where the user put it. Only the magnet's own displacement is
+            // suppressed here, so with the toggle idle this is the old behaviour untouched, and once
+            // the drag is released the settle is free to bring the view to rest on the line.
+            if (magnetHoldsCaret && IsDragged)
+                return;
+
             float position = PositionAtTime(editorClock.CurrentTime);
             ScrollTo(position, false);
         }
@@ -381,6 +408,11 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
         private void endUserDrag()
         {
             handlingDragInput = false;
+
+            // Only ever true for the gesture that set it: from here the settle is what decides where
+            // the view comes to rest, and it should come to rest on the line the caret is held on.
+            magnetHoldsCaret = false;
+
             if (trackWasPlaying)
                 editorClock.Start();
         }

@@ -905,6 +905,60 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
+        /// The grid magnet is a magnet and not a trap. A HAND-PACED drag, a couple of pixels per
+        /// frame (well inside the magnet radius, so no single frame ever clears it), still slides
+        /// off the line it is holding and ends up where the cursor points. The magnet pulls the
+        /// CARET only: the raw cursor position keeps accumulating underneath it, so escaping the
+        /// line costs exactly what entering it did.
+        /// </summary>
+        [Test]
+        public void TestSlowTimelineDragSlidesOffTheGridLine()
+        {
+            Timeline waveform = null!;
+            double msPerPixel = 0;
+            double grid = 0;
+            double aimed = 0;
+
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("pause at 3000", () =>
+            {
+                waveform = Editor.ChildrenOfType<Timeline>().First();
+                EditorClock.Stop();
+                EditorClock.Seek(3000);
+            });
+
+            AddUntilStep("waveform timeline sized", () => waveform.IsLoaded && waveform.DrawWidth > 0 && EditorClock.TrackLength > 0);
+            AddUntilStep("clock settled", () => Math.Abs(EditorClock.CurrentTime - 3000) < 5 && !EditorClock.IsSeeking);
+            AddWaitStep("let the scroll settle", 5);
+
+            AddStep("arm the grid magnet", () => state().SnapToGrid.Value = true);
+
+            // Phase 1: creep to 4px past the line, 2px at a time. Inside the radius the whole way,
+            // so the caret must be sitting exactly on the line when the drag stops.
+            AddStep("aim 4px past a grid line", () =>
+            {
+                msPerPixel = waveform.TimeAtPosition(1) - waveform.TimeAtPosition(0);
+                grid = EditorBeatmap.SnapTime(EditorClock.CurrentTime, null);
+                aimed = grid + 4 * msPerPixel;
+            });
+
+            slowDragWaveformTo(() => waveform, () => aimed, () => msPerPixel, 2);
+
+            AddUntilStep("the caret is held on the grid line", () => Math.Abs(EditorClock.CurrentTime - grid) < 0.5 * msPerPixel);
+
+            // Phase 2: keep creeping, same 2px a frame, out to 20px past the line. Before the fix
+            // the seek was magneted onto the line and then written BACK into the scroll position,
+            // so each 2px was erased before the next arrived and the caret never left the line.
+            AddStep("aim 20px past the same grid line", () => aimed = grid + 20 * msPerPixel);
+
+            slowDragWaveformTo(() => waveform, () => aimed, () => msPerPixel, 2);
+
+            AddUntilStep("the caret slid off and landed on the cursor", () => Math.Abs(EditorClock.CurrentTime - aimed) < 2 * msPerPixel);
+            AddAssert("which is clear of the line it was held on", () => EditorClock.CurrentTime - grid > EditorSnapMagnet.RADIUS_PX * msPerPixel);
+        }
+
+        /// <summary>
         /// Double-clicking a word block jumps the caret to the clicked position, exactly as the grey
         /// space between blocks does. It no longer pre-rolls and replays the word.
         /// </summary>
@@ -1069,6 +1123,61 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             });
 
             AddStep("drag to the target", () => InputManager.MoveMouseTo(from + new Vector2(dx, 0)));
+            AddStep("hold still", () => InputManager.MoveMouseTo(from + new Vector2(dx, 0)));
+            AddStep("release", () => InputManager.ReleaseButton(MouseButton.Left));
+        }
+
+        /// <summary>
+        /// <see cref="dragWaveformTo"/> at a HAND's pace: the same travel, but delivered
+        /// <paramref name="pixelsPerFrame"/> at a time with a frame between each, the way a real
+        /// mouse reports it. The step is deliberately far under
+        /// <see cref="EditorSnapMagnet.RADIUS_PX"/>, so nothing here can escape a magnet by
+        /// out-running it in a single frame.
+        /// </summary>
+        private void slowDragWaveformTo(Func<Timeline> waveform, Func<double> targetTime, Func<double> msPerPixel, float pixelsPerFrame)
+        {
+            Vector2 from = Vector2.Zero;
+            float dx = 0;
+            int steps = 0;
+
+            AddStep("press on the waveform timeline", () =>
+            {
+                var q = waveform().ScreenSpaceDrawQuad;
+                float scale = q.Width / waveform().DrawWidth;
+
+                from = q.TopLeft + new Vector2(q.Width * 0.3f, q.Height * 0.5f);
+                dx = (float)((EditorClock.CurrentTime - targetTime()) / msPerPixel()) * scale;
+                steps = Math.Max(1, (int)Math.Ceiling(Math.Abs(dx) / (pixelsPerFrame * scale)));
+
+                InputManager.MoveMouseTo(from);
+                InputManager.PressButton(MouseButton.Left);
+            });
+
+            // The framework only starts a drag once the mouse has travelled its drag-start distance,
+            // and that first jump is the one thing here allowed to be large. It is spent going the
+            // WRONG way, so the measured travel below still starts from the press point.
+            AddStep("travel far enough to start the drag", () => InputManager.MoveMouseTo(from + new Vector2(-40 * Math.Sign(dx), 0)));
+            AddStep("back to the press point", () => InputManager.MoveMouseTo(from));
+
+            // The step count is only known once the timeline is sized, so the frames are declared
+            // up front and the surplus ones stand still. A drag that needed more would silently
+            // fall short of its target, hence the budget assert.
+            const int max_steps = 24;
+
+            AddAssert("the creep fits its frame budget", () => steps <= max_steps);
+
+            for (int i = 1; i <= max_steps; i++)
+            {
+                int step = i;
+                AddStep($"creep {step}", () =>
+                {
+                    if (step > steps)
+                        return;
+
+                    InputManager.MoveMouseTo(from + new Vector2(dx * step / steps, 0));
+                });
+            }
+
             AddStep("hold still", () => InputManager.MoveMouseTo(from + new Vector2(dx, 0)));
             AddStep("release", () => InputManager.ReleaseButton(MouseButton.Left));
         }
