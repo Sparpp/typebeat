@@ -390,8 +390,8 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// <summary>
         /// The ruleset's rebindable actions, as shown in the key configuration screen's type!beat
         /// section. Z/X are vestigial (typing is taken from raw key events, so they never fire while
-        /// a line is being typed); the two WORD-LEVEL GESTURES are the real content, defaulting to
-        /// the chords every other typing site uses for them.
+        /// a line is being typed); the TYPING GESTURES are the real content, defaulting to the chords
+        /// (and, for the line skip, the keys) every other typing site uses for them.
         ///
         /// <para>Appended to <see cref="TypeBeatAction"/> rather than inserted, because the stored
         /// binding rows key off the enum's INTEGER value: renumbering Button1/Button2 would silently
@@ -403,6 +403,12 @@ namespace typebeat.Game.Rulesets.TypeBeat
             new KeyBinding(InputKey.X, TypeBeatAction.Button2),
             new KeyBinding(new KeyCombination(InputKey.Control, InputKey.BackSpace), TypeBeatAction.EraseWord),
             new KeyBinding(new KeyCombination(InputKey.Control, InputKey.A), TypeBeatAction.SelectBackToTypo),
+
+            // The line skip (backlog 241) takes BOTH Enter keys, which is why this list is not one
+            // binding per action: a keyboard has two keys that mean "next" and a player reaching for
+            // either of them means the same thing.
+            new KeyBinding(InputKey.Enter, TypeBeatAction.SkipLine),
+            new KeyBinding(InputKey.KeypadEnter, TypeBeatAction.SkipLine),
         };
 
         public override Drawable CreateIcon() => new Icon();

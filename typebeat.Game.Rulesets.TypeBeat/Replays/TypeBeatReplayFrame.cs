@@ -21,8 +21,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// so judgement deltas recompute bit-identically.</item>
     /// <item><see cref="Character"/> is the exact character fed to the engine, AFTER keyboard-layout
     /// remapping and Shift application (so it carries the case the Literate mod judges on, and is
-    /// independent of the player's physical layout). Two sentinels reuse ASCII control codes:
-    /// <see cref="BACKSPACE"/> (0x08) is a backspace erase, and <see cref="CONFIG"/> (0x00) is a
+    /// independent of the player's physical layout). Three sentinels reuse ASCII control codes:
+    /// <see cref="BACKSPACE"/> (0x08) is a backspace erase, <see cref="ENTER"/> (0x0A) is a line
+    /// skip (backlog 241), and <see cref="CONFIG"/> (0x00) is a
     /// settings header frame carrying the judgement-relevant settings as BITS: bit 0
     /// <see cref="AllowWrongInput"/> (the wrong-key model the run was judged under), bit 1
     /// <see cref="SpaceSkipsWord"/> (whether a space pressed inside a word abandoned it), bit 2
@@ -59,10 +60,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// never renumbered: bits 0 to 4 keep their meaning and their positions untouched, so every
     /// replay already on disk decodes identically and simply reads false for the newer bits. All
     /// typeable characters (a-z, A-Z, 0-9, space, plus the Literate mod's punctuation, whose
-    /// highest code point is ']' at 0x5D) and both sentinels are far below the decoder's coordinate
-    /// parse limits and its (256, -500) stable-header positions, so no stable fixup can mangle
-    /// them. The sentinels sit at 0x00 and 0x08, below every printable mark, so nothing
+    /// highest code point is ']' at 0x5D) and all three sentinels are far below the decoder's
+    /// coordinate parse limits and its (256, -500) stable-header positions, so no stable fixup can
+    /// mangle them. The sentinels sit at 0x00, 0x08 and 0x0A, below every printable mark, so nothing
     /// collides.</para>
+    ///
+    /// <para><b>A sentinel this client does not know</b> is IGNORED rather than typed
+    /// (<c>ReplayEngineFeed.Apply</c>): any character below 0x20 that is not one of the three above
+    /// resolves no cell and mutates nothing, so a frame kind added later degrades to a missing input
+    /// on an older client instead of a wrong-key judgement that desynchronises every keystroke after
+    /// it. <see cref="ENTER"/> itself needs no era bit for the opposite reason: a replay recorded
+    /// before backlog 241 contains no such frame at all, and the skip it encodes changes no judged
+    /// value or time (see <c>TypingEngine.ProcessEnter</c>), only which line the caret is on.</para>
     ///
     /// <para>Only EFFECTIVE inputs are recorded (calls where the engine mutated state), which is what
     /// makes playback deterministic: replaying performs, per frame, <c>Update(Time)</c> then the
@@ -73,12 +82,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <summary>Sentinel character for a backspace erase (ASCII BS).</summary>
         public const char BACKSPACE = '\b';
 
+        /// <summary>
+        /// Sentinel character for a LINE SKIP (ASCII LF), backlog 241: the player gave up the rest of
+        /// the line and parked the caret past its end. Played back through
+        /// <c>TypingEngine.ProcessEnter</c>, which takes the frame's own time (the skip's landing
+        /// place depends on it, through the rush bound), unlike <see cref="BACKSPACE"/>.
+        /// </summary>
+        public const char ENTER = '\n';
+
         /// <summary>Sentinel character for the settings header frame (ASCII NUL).</summary>
         public const char CONFIG = '\0';
 
         /// <summary>
         /// The character fed to the engine (layout-remapped, Shift-cased), or a sentinel
-        /// (<see cref="BACKSPACE"/>/<see cref="CONFIG"/>). Never a sentinel value for real typing:
+        /// (<see cref="BACKSPACE"/>/<see cref="ENTER"/>/<see cref="CONFIG"/>). Never a sentinel value for real typing:
         /// the typeable surface is a-z/A-Z/0-9/space, widened under the Literate mod by the
         /// supported punctuation marks, all of them printable ASCII.
         /// </summary>
@@ -185,6 +202,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool BoundedRush;
 
         public bool IsBackspace => Character == BACKSPACE;
+
+        public bool IsEnter => Character == ENTER;
 
         public bool IsConfig => Character == CONFIG;
 

@@ -399,8 +399,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("the typo is fixed in place", () =>
                 cell(6).State == CellState.Correct && cell(6).TypedChar == 'e' && engine.CaretIndex == 7);
 
+            // The whole frame surface: the three sentinels plus the printable characters this run
+            // could produce. The exact sequence below pins which of them actually appeared, so
+            // naming the line-skip sentinel here costs this assert nothing and keeps it honest
+            // about what a frame may legally carry.
             AddAssert("nothing but existing frame kinds was recorded", () =>
-                frames.All(f => f.IsConfig || f.IsBackspace || f.Character is >= 'a' and <= 'z' or ' '));
+                frames.All(f => f.IsConfig || f.IsBackspace || f.IsEnter || f.Character is >= 'a' and <= 'z' or ' '));
 
             AddAssert("the frame sequence is the calls the engine actually took", () =>
                 string.Concat(frames.Select(f => f.Character)) == "\0ab cd \b\b\bcd xf\b\be");
@@ -438,6 +442,73 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                        && replayed.Mistypes == live.Mistypes
                        && replayed.LiveAccuracy == live.LiveAccuracy;
             });
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // Backlog 241: the line skip
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// ENTER GIVES UP THE REST OF THE LINE, through the real input stack. The caret parks past
+        /// the last cell (from where the roll or the snap would carry it on, though the caret is
+        /// PINNED in this scene so nothing does until the seal), nothing about the cells left behind
+        /// is judged at the press, and the whole gesture records as ONE frame of the new sentinel
+        /// kind, which re-derives through the legacy encode/decode exactly.
+        ///
+        /// <para>It is also the one gesture here that is NOT composed out of existing engine calls,
+        /// which is why it needs a frame kind of its own: nothing in the engine's vocabulary moved a
+        /// caret forward over cells the player never typed.</para>
+        /// </summary>
+        [Test]
+        public void TestEnterGivesUpTheLineAndRecordsOneFrame()
+        {
+            waitForLine();
+
+            type("ab ");
+            AddAssert("a word and its gap are in", () => engine.CaretIndex == 3 && engine.Combo == 3);
+
+            int recorded = 0;
+            AddStep("capture frame count", () => recorded = frames.Count);
+
+            AddStep("press Enter", () => InputManager.Key(Key.Enter));
+
+            AddAssert("the caret parked past the end of the line", () => engine.CaretIndex == 8 && engine.IsLineComplete);
+
+            AddAssert("and nothing was judged for the cells it gave up", () =>
+                engine.Lines[0].Cells.Skip(3).All(c => c.State == CellState.Untyped)
+                && engine.Combo == 3
+                && engine.BuildResults().Counts[JudgementType.Miss] == 0);
+
+            AddAssert("one line-skip frame was recorded", () =>
+            {
+                var burst = frames.Skip(recorded).ToList();
+                return burst.Count == 1 && burst[0].IsEnter && burst[0].Time == Math.Round(burst[0].Time);
+            });
+
+            // A second press has nothing left to give up. The engine no-ops, so the handler does not
+            // swallow the key and records nothing: an ineffective skip behaves exactly as Enter did
+            // before the gesture existed.
+            AddStep("press Enter again", () => InputManager.Key(Key.Enter));
+            AddAssert("the no-op recorded nothing", () => frames.Count == recorded + 1);
+            AddAssert("and moved nothing", () => engine.CaretIndex == 8);
+
+            AddAssert("the recorded run re-derives to the live one", reDerivedMatchesLive);
+        }
+
+        /// <summary>
+        /// Both Enter keys are bound by default, because a keyboard has two keys that mean "next" and
+        /// a player reaching for either means the same thing.
+        /// </summary>
+        [Test]
+        public void TestKeypadEnterSkipsTheLineToo()
+        {
+            waitForLine();
+
+            type("a");
+            AddStep("press Keypad Enter", () => InputManager.Key(Key.KeypadEnter));
+
+            AddAssert("the caret parked past the end of the line", () => engine.CaretIndex == 8 && engine.IsLineComplete);
+            AddAssert("through the same frame kind", () => frames.Last().IsEnter);
         }
 
         // -----------------------------------------------------------------------------------------
@@ -588,6 +659,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         /// otherwise be inherited by every test after it (and by every other fixture in the run).
         /// Put back on both sides of each test rather than one, so a test that fails part way through
         /// still leaves the defaults behind.
+        ///
+        /// <para>Grouped by ACTION rather than walked binding by binding, because since backlog 241
+        /// an action can have more than one default (the line skip takes both Enter keys). Walking
+        /// the defaults flat wrote every one of an action's combinations onto the same first row and
+        /// left the rest of its rows holding the last one, which unbound plain Enter.</para>
         /// </summary>
         [SetUpSteps]
         public void RestoreBindingsBefore() => restoreDefaultBindings();
@@ -597,14 +673,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         private void restoreDefaultBindings() => AddStep("restore default bindings", () => realm.Write(r =>
         {
-            foreach (var binding in new TypeBeatRuleset().GetDefaultKeyBindings())
+            foreach (var defaults in new TypeBeatRuleset().GetDefaultKeyBindings().GroupBy(b => (int)(TypeBeatAction)b.Action))
             {
-                int actionInt = (int)(TypeBeatAction)binding.Action;
+                var rows = r.All<RealmKeyBinding>()
+                            .Where(b => b.RulesetName == "typebeat" && b.ActionInt == defaults.Key)
+                            .ToList();
 
-                var row = r.All<RealmKeyBinding>()
-                           .FirstOrDefault(b => b.RulesetName == "typebeat" && b.ActionInt == actionInt);
-
-                if (row != null)
+                foreach ((var row, var binding) in rows.Zip(defaults))
                     row.KeyCombination = binding.KeyCombination;
             }
         }));

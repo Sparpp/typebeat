@@ -37,8 +37,9 @@ namespace typebeat.Game.Rulesets.TypeBeat
         protected override IEnumerable<TypeBeatAction> CountedActions => new[] { TypeBeatAction.Button1, TypeBeatAction.Button2 };
 
         /// <summary>
-        /// Which WORD-LEVEL GESTURE (if any) the given key press newly satisfies under the user's
-        /// CURRENT bindings, or null if it satisfies none.
+        /// Which TYPING GESTURE (if any) the given key press newly satisfies under the user's
+        /// CURRENT bindings, or null if it satisfies none: the two word-level ones (backlog 182) and
+        /// the line skip (backlog 241).
         ///
         /// <para>The gestures are ordinary rebindable ruleset actions (backlog 183), but they are
         /// resolved HERE rather than delivered as <see cref="IKeyBindingHandler{T}"/> presses,
@@ -71,7 +72,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
             {
                 var action = binding.GetAction<TypeBeatAction>();
 
-                if (action != TypeBeatAction.EraseWord && action != TypeBeatAction.SelectBackToTypo)
+                if (action != TypeBeatAction.EraseWord && action != TypeBeatAction.SelectBackToTypo && action != TypeBeatAction.SkipLine)
                     continue;
 
                 // The binding has to be satisfied BY THIS PRESS, not merely satisfied: with the
@@ -160,5 +161,14 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// </summary>
         [Description("Select back to typo")]
         SelectBackToTypo,
+
+        /// <summary>
+        /// Give up the rest of the current line and move on to the next one (backlog 241). Default
+        /// Enter, and the numeric keypad's Enter with it, the two keys that mean "next" on a
+        /// keyboard. Unlike the two gestures above this one is not a chord, which it can afford to
+        /// be: Enter types nothing, so the typing-wins rule never shadows it.
+        /// </summary>
+        [Description("Skip line")]
+        SkipLine,
     }
 }

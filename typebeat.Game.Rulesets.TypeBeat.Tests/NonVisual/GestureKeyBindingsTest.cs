@@ -10,7 +10,8 @@ using osu.Framework.Input.Bindings;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
-    /// The declaration side of backlog 183: the two word-level typing gestures are ordinary ruleset
+    /// The declaration side of backlog 183: the typing gestures (the two word-level ones, and the
+    /// line skip since backlog 241) are ordinary ruleset
     /// ACTIONS with defaults and labels, which is the whole of what the key configuration screen
     /// needs to render a rebindable row for each (see <c>VariantBindingsSubsection</c>, which builds
     /// its rows straight out of <see cref="Ruleset.GetDefaultKeyBindings"/> and captions them with
@@ -30,6 +31,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.That(combinationFor(defaults, TypeBeatAction.SelectBackToTypo),
                 Is.EqualTo(new KeyCombination(InputKey.Control, InputKey.A)));
+        }
+
+        /// <summary>
+        /// The line skip (backlog 241) is the first action here bound to more than one key: a
+        /// keyboard has two keys that mean "next", and both of them skip. Appended to the enum like
+        /// every action since 183, so the stored rows of the four before it keep their numbers.
+        /// </summary>
+        [Test]
+        public void TheLineSkipIsBoundToBothEnterKeysByDefault()
+        {
+            var defaults = new TypeBeatRuleset().GetDefaultKeyBindings().ToList();
+
+            Assert.That(defaults.Where(b => b.Action is TypeBeatAction bound && bound == TypeBeatAction.SkipLine)
+                                .Select(b => b.KeyCombination),
+                Is.EquivalentTo(new[] { new KeyCombination(InputKey.Enter), new KeyCombination(InputKey.KeypadEnter) }));
+
+            Assert.That((int)TypeBeatAction.SkipLine, Is.EqualTo(4), "appended, never inserted");
         }
 
         [Test]

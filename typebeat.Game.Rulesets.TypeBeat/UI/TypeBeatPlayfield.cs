@@ -699,6 +699,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// otherwise a matched gesture wins, ahead of the plain backspace and ahead of the
         /// instrumental-skip fall-throughs; anything unmatched behaves exactly as it did before.</para>
         ///
+        /// <para>Backlog 241 adds a third, the LINE SKIP (<see cref="TypeBeatAction.SkipLine"/>,
+        /// default Enter and Keypad Enter), which is the one gesture that is not composed: it is a
+        /// single <see cref="TypingEngine.ProcessEnter"/> call recorded as one new sentinel frame.
+        /// Swallowing Enter mid-line costs nothing, because the ruleset input manager receives no
+        /// input at all while the pause or fail overlay is up (<c>DrawableRuleset</c> sets
+        /// <c>UseParentInput</c> from the paused state), so their <c>GlobalAction.Select</c> is
+        /// untouched, and the in-game <c>ToggleChatFocus</c> the key otherwise carries has no
+        /// consumer in this game. An INEFFECTIVE skip is not swallowed: the press falls through
+        /// exactly as it did before the gesture existed.</para>
+        ///
         /// <para>Both gestures are COMPOSED out of engine calls that already exist: a run of
         /// <see cref="TypingEngine.ProcessBackspace"/> plus at most one
         /// <see cref="TypingEngine.ProcessKey"/>, each recorded through the same seam a single
@@ -946,6 +956,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     return true;
                 }
 
+                if (gesture == TypeBeatAction.SkipLine)
+                {
+                    // GIVE UP THE REST OF THE LINE (backlog 241). One engine call, which parks the
+                    // caret past the last cell and lets the roll or the snap carry it onward; the
+                    // cells left behind are judged by the seal at the line's own deadline, exactly as
+                    // they would be for a player who just stopped typing. Nothing is gated on
+                    // AllowWrongInput here, unlike the two erasing gestures: a skip writes nothing
+                    // into a cell, so it means the same thing under Gatekeeper.
+                    //
+                    // A live retype SELECTION is deliberately NOT collapsed first: collapsing erases
+                    // back to the anchor, and a player abandoning the line is not asking to unmake
+                    // the characters they got right. Moving the caret makes it stale, and the
+                    // playfield's own staleness check drops it on the next frame.
+                    //
+                    // Only an EFFECTIVE press is swallowed and recorded. On a caret that is already
+                    // parked (or on a line typed out) the engine no-ops and the press falls through
+                    // to its global binding, which is what it did before this gesture existed.
+                    if (!engine.ProcessEnter(time))
+                        return false;
+
+                    drawableRuleset?.RecordTypingInput(TypeBeatReplayFrame.ENTER, time);
+                    return true;
+                }
+
                 // The active line is fully typed: the engine is inert for character keys
                 // (ProcessKey no-ops at line end), so let them fall through too. This is the state
                 // the player holds for the ENTIRE length of a real instrumental gap; the decoder
@@ -958,6 +992,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // A live retype SELECTION suspends that fall-through (backlog 182): collapsing it
                 // re-opens the cells it covers, so the key consuming it is a typing key again rather
                 // than a skip, even though the line reads complete at the instant it arrives.
+                //
+                // A caret the LINE SKIP parked (backlog 241) is covered by this arm without widening
+                // it, and that is the whole reason the skip parks the caret rather than inventing a
+                // state of its own: IsLineComplete asks where the CARET is, not whether the line was
+                // typed out, so a skipped line reaches here exactly as a finished one does. The
+                // narrow Space carve-out further up does NOT cover them, since ActiveLineUntouched is
+                // false the moment they typed one character of the line they gave up, so this is the
+                // arm a player who pressed Enter into an instrumental gap leaves through, and
+                // TestSceneTypeBeatInstrumentalSkip drives that end to end.
                 if (engine.IsLineComplete && playfield.CurrentRetypeSelection is null)
                     return false;
 

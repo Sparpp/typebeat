@@ -96,11 +96,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
 
             engine.Update(frame.Time, clockRate);
 
+            // The final arm is guarded rather than open, and that guard is the whole point: a frame
+            // kind some LATER client records and this one has never heard of would otherwise fall
+            // into ProcessKey, match no cell and be judged as a WRONG KEY (a typo and a combo break
+            // under the live model, a rejection fed to the mash-fail streak under Gatekeeper).
+            // Ignoring it costs the run whatever that input did, which is honest for something this
+            // build cannot perform; misjudging it desynchronises every keystroke after it. Nothing
+            // below the space can be a real keystroke, the typeable surface being printable ASCII.
             if (frame.IsBackspace)
                 engine.ProcessBackspace();
-            else
+            else if (frame.IsEnter)
+                engine.ProcessEnter(frame.Time);
+            else if (frame.Character >= first_typeable_code_point)
                 engine.ProcessKey(frame.Character, frame.Time);
         }
+
+        /// <summary>
+        /// The lowest code point a real keystroke can carry: the space, the first character of the
+        /// typeable surface (see <see cref="TypeBeatReplayFrame"/>, whose whole surface is printable
+        /// ASCII). Everything below it is a sentinel, known or not yet known.
+        /// </summary>
+        private const char first_typeable_code_point = ' ';
 
         /// <summary>
         /// Re-derive engine state at <paramref name="time"/> from scratch, by resetting and replaying

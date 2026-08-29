@@ -981,6 +981,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         private readonly List<TypingLine> lines;
         private readonly bool[] lineSealed;
+
+        /// <summary>
+        /// Which lines the player WALKED OUT OF with a line skip (<see cref="ProcessEnter"/>), i.e.
+        /// parked the caret past the last cell of while typeable cells were still untyped. Parallel
+        /// to <see cref="lineSealed"/> and read by exactly one thing, <see cref="sealPermitted"/>,
+        /// which grants an abandoned line the same drag grace a caret still sitting on it would have.
+        ///
+        /// <para>WHY IT HAS TO BE REMEMBERED. Without it, an Enter skip would move the line's seal
+        /// EARLIER (up to <see cref="FLETCHER_DRAG_GRACE_MS"/>) than the identical run that simply
+        /// stopped typing there, because the deferral in <see cref="sealPermitted"/> keys on the
+        /// caret and the caret has moved on. The seal is where the abandoned cells become misses and
+        /// where the line's one combo break is taken, so an earlier seal would drain health earlier
+        /// and re-price every keypress made on the NEXT line in between at a combo the player had not
+        /// actually lost yet. Holding the grace is what makes the skip PURE CARET MOVEMENT and is
+        /// therefore why it needs no era bit of its own: nothing judged changes value or timing.</para>
+        ///
+        /// <para>An array rather than a single index because a fast player can abandon line N and be
+        /// on line N+1 (and abandon that too) before N has sealed, and losing N's grace to N+1 is the
+        /// very defect this exists to prevent. Entries are never cleared on seal, since
+        /// <see cref="sealPermitted"/> is only ever asked about <see cref="nextSealIndex"/> and that
+        /// only moves forward; <see cref="reset"/> clears the whole array like every other
+        /// accumulator, which is what keeps a backwards seek reproducible.</para>
+        /// </summary>
+        private readonly bool[] lineAbandoned;
         private readonly Dictionary<JudgementType, int> counts = new Dictionary<JudgementType, int>();
         private readonly List<SyncSample> syncTimeline = new List<SyncSample>();
 
@@ -1105,6 +1129,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 lines.Add(TypingLine.FromLyricLine(line, beatmap.Granularity, literate));
 
             lineSealed = new bool[lines.Count];
+            lineAbandoned = new bool[lines.Count];
 
             foreach (var line in lines)
                 totalTypeableCells += line.TypeableCount;
@@ -1232,6 +1257,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             Array.Clear(lineSealed);
+            Array.Clear(lineAbandoned);
             Array.Clear(rollingSamples);
             syncTimeline.Clear();
 
@@ -1683,10 +1709,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// line's natural END a dragging player may still be on it, that one is how far before a
         /// line's natural START a rushing player may already be on it, and both distances are the
         /// one <see cref="FLETCHER_DRAG_GRACE_MS"/>.</para>
+        ///
+        /// <para>A line the player ABANDONED with a line skip keeps the grace after the caret has
+        /// left it (see <see cref="lineAbandoned"/>): the skip is caret movement only, so the line it
+        /// walked out of has to reach its misses and its one combo break at the very instant it would
+        /// have with the player still sitting there doing nothing.</para>
         /// </summary>
         private bool sealPermitted(int index, double time)
         {
-            if (!FletcherEnabled || activeLineIndex != index)
+            if (!FletcherEnabled || (activeLineIndex != index && !lineAbandoned[index]))
                 return true;
 
             var line = lines[index];
@@ -1764,6 +1795,74 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// LINE SKIP (backlog 241): give up the rest of the active line and move on. Deterministic in
+        /// (input, time) exactly like <see cref="ProcessKey"/>, and returns whether it did anything,
+        /// so the caller records a frame only for an effective press.
+        ///
+        /// <para>IT IS CARET MOVEMENT AND NOTHING ELSE. The caret parks past the line's last cell,
+        /// which is the SAME parked state a <see cref="BoundedRush"/>-refused roll leaves behind
+        /// (see <see cref="rollForwardIfFinishedEarly"/>), and from there the machinery that already
+        /// exists carries the player onward: the roll below hands them the next line at once when its
+        /// entry window is open, and <see cref="snapForwardOnLineStart"/> performs the deferred hand
+        /// over when it opens otherwise. The cells left behind are NOT judged here. They stay
+        /// <see cref="CellState.Untyped"/> and become misses in the seal loop, all at once, with the
+        /// line's one combo break, at the line's own deadline: precisely what would have happened to
+        /// a player who stopped typing and sat there. So no judged quantity changes value or timing
+        /// against the un-skipped run, which is why the skip carries NO era bit of its own (the
+        /// abandoned line's drag grace is held for it by <see cref="lineAbandoned"/>, which is the
+        /// one piece of state that claim depends on).</para>
+        ///
+        /// <para>Deliberately NOT the word skip's shape (<see cref="skipCurrentWord"/>): that one
+        /// marks cells <see cref="CellState.Abandoned"/>, takes an immediate combo break and
+        /// snapshots a redeemable claim, all of which move the account at press time and would make
+        /// this an era change. A line skip gives up more and costs nothing extra for it, because the
+        /// player pays the same misses either way, just without having to sit through them.</para>
+        ///
+        /// <para>NO-OP when there is nothing to skip: no active line, the run finished, or the caret
+        /// already past the last cell (a line typed out, or one already skipped). In particular Enter
+        /// on a COMPLETE line does NOT perform the roll the next keypress would: the two time-driven
+        /// arms already own that caret, so a second way in could only duplicate them, and the key
+        /// handler lets the press fall through to its global binding in that state rather than
+        /// swallowing it for nothing.</para>
+        ///
+        /// <para>The WPM clock needs nothing here and is deliberately NOT armed: an Enter is not
+        /// typing. Accrual stops by itself the moment the caret parks (<see cref="Update"/> accrues
+        /// only while the active line is INCOMPLETE, and a parked caret's line reads complete), and
+        /// on the line the player lands on <see cref="clockRunsFrom"/> answers exactly as it does
+        /// after a refused rush: stopped until the first press there arms it
+        /// (<see cref="armWpmClockAheadOfTheCue"/>), because a stale arm belongs to a line index the
+        /// caret has left.</para>
+        /// </summary>
+        public bool ProcessEnter(double time)
+        {
+            if (isFinished || activeLineIndex == -1)
+                return false;
+
+            var line = lines[activeLineIndex];
+
+            // Hop auto-skip cells before measuring, exactly as ProcessKey does, so "the caret is at
+            // the end" is asked of the same frontier a keypress would see.
+            autoSkipForward();
+
+            if (caretIndex >= line.Cells.Count)
+                return false; // nothing left to give up: parked already, or the line is fully typed.
+
+            // Only a line with something still untyped is ABANDONED. A caret walked to the end over
+            // nothing but wrong cells owes no misses, so the seal has no drag to protect and the flag
+            // would only hold the line open for cells that are already resolved.
+            if (hasUntypedTypeable(line))
+                lineAbandoned[activeLineIndex] = true;
+
+            caretIndex = line.Cells.Count;
+
+            // The same call the last character of a line makes, so an Enter inside the next line's
+            // entry window rolls on at once and one outside it parks, with no second rule.
+            rollForwardIfFinishedEarly(time);
+
+            return true;
         }
 
         /// <summary>

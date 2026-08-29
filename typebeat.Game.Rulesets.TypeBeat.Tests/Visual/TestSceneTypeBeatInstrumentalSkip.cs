@@ -159,5 +159,58 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // was fully typed).
             AddUntilStep("line 1 becomes active", () => playfield.Engine.ActiveLineIndex == 1);
         }
+
+        /// <summary>
+        /// THE INTERACTION BACKLOG 241 HAD TO GET RIGHT: a player who presses Enter part way through
+        /// the line before a long instrumental must still be able to skip it. Driven end to end on
+        /// the same decoder-shaped map as the test above, from a state the test above cannot reach:
+        /// the caret is parked past the end of an INCOMPLETE line, with one character typed and one
+        /// still owed.
+        ///
+        /// <para>That state passes through the key handler by exactly the same route a finished line
+        /// does, because the skip parks the caret rather than inventing a state of its own, and
+        /// nothing narrower covers it: the handler's Space carve-out wants an UNTOUCHED active line,
+        /// which a player who typed a character and then gave up is not, and the song's own window
+        /// never closes here (the decoder's windows are contiguous). Both of those are asserted
+        /// below, so the test cannot quietly start passing through some other door.</para>
+        /// </summary>
+        [Test]
+        public void TestSpaceStillSkipsAfterALineSkip()
+        {
+            AddUntilStep("gameplay started", () => Player.GameplayClockContainer.CurrentTime > 0);
+            AddUntilStep("line 0 active", () => playfield.Engine.ActiveLineIndex == 0);
+
+            AddStep("type 'a'", () => InputManager.Key(Key.A));
+            AddAssert("one character in, one still owed", () =>
+                playfield.Engine.Lines[0].Cells[0].State == CellState.Correct
+                && playfield.Engine.Lines[0].Cells[1].State == CellState.Untyped);
+
+            AddStep("give the line up with Enter", () => InputManager.Key(Key.Enter));
+
+            AddAssert("the caret parked past the end of an unfinished line", () =>
+                playfield.Engine.ActiveLineIndex == 0
+                && playfield.Engine.IsLineComplete
+                && playfield.Engine.NextUnsealedLineIndex == 0
+                && playfield.Engine.Lines[0].Cells[1].State == CellState.Untyped);
+
+            // Neither of the narrower conditions the handler tests for holds in this state, so the
+            // skip below cannot be passing for either of those reasons.
+            AddAssert("the narrow Space carve-out cannot fire here", () => !playfield.Engine.ActiveLineUntouched);
+            AddAssert("and the song's own window never closes", () => playfield.Engine.SongWindowOpen);
+
+            AddUntilStep("overlay skip period open", () => instrumentalOverlay.InSkipPeriod);
+            AddUntilStep("overlay button shown", () => instrumentalOverlay.IsButtonVisible);
+
+            AddStep("press Space in the gap", () => InputManager.Key(Key.Space));
+            AddUntilStep("clock seeked past the gap", () => Player.GameplayClockContainer.CurrentTime >= 10900);
+            AddAssert("exactly one skip recorded", () => instrumentalOverlay.SkipCount == 1);
+
+            // And the run carries on: the deferred roll hands the parked caret to line 1 at 12500,
+            // and the line they gave up seals with its one missed cell, at its own deadline.
+            AddUntilStep("line 1 becomes active", () => playfield.Engine.ActiveLineIndex == 1);
+            AddUntilStep("the abandoned cell is missed at the seal", () =>
+                playfield.Engine.Lines[0].Cells[1].State == CellState.Missed);
+            AddAssert("gameplay still live", () => !Player.GameplayState.HasFailed);
+        }
     }
 }

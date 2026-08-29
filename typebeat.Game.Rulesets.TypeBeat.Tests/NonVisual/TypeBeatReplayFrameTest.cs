@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Replays.Legacy;
@@ -12,7 +13,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// <summary>
     /// Pins the replay frame format's legacy (.osr) mapping: a frame is (integral time, char code in
     /// MouseX, config flags in MouseY), and encode/decode must round-trip every value on the
-    /// typeable surface (a-z / A-Z / 0-9 / space) plus both sentinels (backspace, config) exactly.
+    /// typeable surface (a-z / A-Z / 0-9 / space) plus all three sentinels (backspace, line skip,
+    /// config) exactly.
     /// The decoder path being simulated is <c>LegacyScoreDecoder.convertFrame</c>: FromLegacy is
     /// called first, then Time is overwritten with the integral legacy time.
     /// </summary>
@@ -50,6 +52,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(1234, frame.Time);
             Assert.AreEqual(c, frame.Character);
             Assert.IsFalse(frame.IsBackspace);
+            Assert.IsFalse(frame.IsEnter);
             Assert.IsFalse(frame.IsConfig);
         }
 
@@ -60,7 +63,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual(56789, frame.Time);
             Assert.IsTrue(frame.IsBackspace);
+            Assert.IsFalse(frame.IsEnter);
             Assert.IsFalse(frame.IsConfig);
+        }
+
+        /// <summary>
+        /// The third sentinel (backlog 241): a LINE SKIP frame survives the legacy encoding exactly as
+        /// the other two do, and carries no config flags of its own.
+        /// </summary>
+        [Test]
+        public void EnterFrameRoundTrips()
+        {
+            var frame = roundTrip(new TypeBeatReplayFrame(56789, TypeBeatReplayFrame.ENTER));
+
+            Assert.AreEqual(56789, frame.Time);
+            Assert.IsTrue(frame.IsEnter);
+            Assert.IsFalse(frame.IsBackspace);
+            Assert.IsFalse(frame.IsConfig);
+            Assert.AreEqual(0f, new TypeBeatReplayFrame(56789, TypeBeatReplayFrame.ENTER).ToLegacy(dummy_beatmap).MouseY);
+        }
+
+        /// <summary>
+        /// The sentinels are DISTINCT and all three sit below the typeable surface, whose lowest code
+        /// point is the space at 0x20. That is what lets the frame's character field carry both kinds
+        /// of thing at once, and what lets the feeder tell an unknown future sentinel from a real
+        /// keystroke by magnitude alone rather than by an era bit.
+        /// </summary>
+        [Test]
+        public void TheThreeSentinelsAreDistinctAndBelowEveryTypeableCharacter()
+        {
+            char[] sentinels = { TypeBeatReplayFrame.CONFIG, TypeBeatReplayFrame.BACKSPACE, TypeBeatReplayFrame.ENTER };
+
+            Assert.AreEqual(sentinels.Length, sentinels.Distinct().Count());
+
+            foreach (char sentinel in sentinels)
+                Assert.Less(sentinel, ' ', "a sentinel that reached the typeable surface would collide with a real keystroke");
+
+            Assert.AreEqual(0x00, TypeBeatReplayFrame.CONFIG);
+            Assert.AreEqual(0x08, TypeBeatReplayFrame.BACKSPACE);
+            Assert.AreEqual(0x0A, TypeBeatReplayFrame.ENTER);
         }
 
         /// <summary>

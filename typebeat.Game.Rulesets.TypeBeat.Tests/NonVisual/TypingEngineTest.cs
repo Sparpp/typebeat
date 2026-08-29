@@ -10,6 +10,7 @@
 // classic asserts aliased for NUnit 4; the real-map pin resolves the standalone repo's maps
 // dir via StandaloneMaps (hardcoded path + graceful ignore) instead of BeatmapStore.
 
+using System;
 using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
@@ -282,6 +283,86 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(1.0, results.Accuracy); // misses are not keypresses: 2 correct / 2 total
             // Sync over ALL 4 typeable cells: a q=1, b q=1, c q=0, d q=0 => 50%.
             Assert.AreEqual(50.0, results.SyncPercent, 1e-9);
+        }
+
+        /// <summary>
+        /// THE LINE SKIP (backlog 241) JUDGES NOTHING AT THE PRESS. Enter gives up the rest of the
+        /// line by parking the caret past its last cell; the cells left behind stay Untyped and
+        /// become misses in the seal loop, at the line's own deadline, with the line's one combo
+        /// break, exactly as they would for a player who simply stopped typing. Asserted as two runs
+        /// of the same script differing only in the Enter press, compared event for event, which is
+        /// the whole reason the skip needs no era bit: it moves no judged value and no judged time.
+        ///
+        /// <para>The caret is PINNED here, so this is the skip stripped of the flexible caret's
+        /// machinery: no roll, no snap, nothing to move the player until the seal does. The unpinned
+        /// pair (where the abandoned line's drag grace has to be held for it) is
+        /// <c>FletcherEngineTest.AnAbandonedLineSealsExactlyAsItWouldHaveWithoutTheSkip</c>.</para>
+        /// </summary>
+        [Test]
+        public void EnterGivesUpALineWithoutJudgingAnythingEarly()
+        {
+            // The same two-line fixture as above: L0 "ab" [1000, 3000) a=1000 b=1500,
+            // L1 "cd" [3000, 5000) c=3000 d=3500, neither carrying a seal grace.
+            static LyricBeatmap twoLines() => map(TimingGranularity.Line,
+                line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000)),
+                line("cd", 3000, 5000, 4000, unit("cd", 3000, 4000)));
+
+            var sat = new TypingEngine(twoLines());
+            var skipped = new TypingEngine(twoLines());
+
+            var satSeals = new List<(double at, LineSealResult result)>();
+            var skippedSeals = new List<(double at, LineSealResult result)>();
+            int satBreaks = 0, skippedBreaks = 0;
+
+            double now = 1000;
+            sat.LineSealed += s => satSeals.Add((now, s));
+            skipped.LineSealed += s => skippedSeals.Add((now, s));
+            sat.ComboBroken += () => satBreaks++;
+            skipped.ComboBroken += () => skippedBreaks++;
+
+            sat.Update(1000);
+            Assert.IsTrue(sat.ProcessKey('a', 1000));
+
+            skipped.Update(1000);
+            Assert.IsTrue(skipped.ProcessKey('a', 1000));
+
+            // The skip itself: the caret walks off the end of the line and 'b' is given up.
+            skipped.Update(1200);
+            Assert.IsTrue(skipped.ProcessEnter(1200));
+            Assert.AreEqual(2, skipped.CaretIndex);
+            Assert.IsTrue(skipped.IsLineComplete);
+            Assert.AreEqual(CellState.Untyped, skipped.Lines[0].Cells[1].State, "nothing is judged at the press");
+            Assert.AreEqual(1, skipped.Combo, "and the break the line will take is not taken here");
+            Assert.IsFalse(skipped.ProcessKey('b', 1300), "the line really is given up: it takes no more input");
+
+            for (now = 1000; now <= 5000; now += 100)
+            {
+                sat.Update(now);
+                skipped.Update(now);
+            }
+
+            // L0 seals at its own deadline, 3000, with ONE miss ('b') and ONE break, on both sides;
+            // L1 seals at 5000, never typed, with two misses and one more break.
+            Assert.AreEqual(new[] { (3000d, new LineSealResult(0, 1, true)), (5000d, new LineSealResult(1, 2, true)) }, satSeals.ToArray());
+            Assert.AreEqual(satSeals.ToArray(), skippedSeals.ToArray(), "the skip moved neither seal, nor what it found");
+            Assert.AreEqual(2, satBreaks);
+            Assert.AreEqual(satBreaks, skippedBreaks);
+
+            // And the whole account agrees, cell states included.
+            Assert.AreEqual(sat.Score, skipped.Score);
+            Assert.AreEqual(sat.MaxCombo, skipped.MaxCombo);
+            Assert.AreEqual(sat.Combo, skipped.Combo);
+            Assert.AreEqual(sat.LiveAccuracy, skipped.LiveAccuracy);
+            Assert.AreEqual(sat.BuildResults().SyncPercent, skipped.BuildResults().SyncPercent, 1e-12);
+
+            foreach (JudgementType type in Enum.GetValues<JudgementType>())
+                Assert.AreEqual(sat.BuildResults().Counts[type], skipped.BuildResults().Counts[type], $"judgement count for {type}");
+
+            for (int k = 0; k < sat.Lines.Count; k++)
+            {
+                for (int i = 0; i < sat.Lines[k].Cells.Count; i++)
+                    Assert.AreEqual(sat.Lines[k].Cells[i].State, skipped.Lines[k].Cells[i].State);
+            }
         }
 
         [Test]

@@ -56,6 +56,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && rowFor(TypeBeatAction.SelectBackToTypo)!.AllowMainMouseButtons);
         }
 
+        /// <summary>
+        /// The line skip (backlog 241) gets a row of its own, and it is the first action here with
+        /// TWO defaults: one row, both Enter keys in it, which is what a player has to see before
+        /// they can move the skip somewhere else.
+        /// </summary>
+        [Test]
+        public void TestTheLineSkipHasOneRowCarryingBothEnterKeys()
+        {
+            AddAssert("skip line has a row", () => rowFor(TypeBeatAction.SkipLine) != null);
+
+            AddAssert("showing both of its defaults", () =>
+                rowFor(TypeBeatAction.SkipLine)!.Defaults,
+                () => Is.EqualTo(new[] { new KeyCombination(InputKey.Enter), new KeyCombination(InputKey.KeypadEnter) }));
+
+            AddAssert("and it accepts a rebind", () => rowFor(TypeBeatAction.SkipLine)!.AllowMainMouseButtons);
+        }
+
         private IEnumerable<KeyBindingRow> rows() => panel.ChildrenOfType<KeyBindingRow>();
 
         private KeyBindingRow? rowFor(TypeBeatAction action) => rows().SingleOrDefault(r => r.Action is TypeBeatAction bound && bound == action);

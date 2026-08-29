@@ -1203,6 +1203,298 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
+        #region The line skip (backlog 241)
+
+        /// <summary>
+        /// THE SKIP IS CARET MOVEMENT AND NOTHING ELSE. Enter parks the caret past the last cell of
+        /// the line, which is the SAME state a bound-refused roll leaves behind: presses there are
+        /// inert, the line reads complete, and the deferred roll performs the hand-over when the
+        /// bound opens. Nothing about the line the player walked out of is judged at the press: its
+        /// untyped cell is still Untyped, the combo is still whatever they had earned, and no
+        /// judgement of any kind has been taken.
+        /// </summary>
+        [Test]
+        public void EnterParksTheCaretPastTheLineItGivesUp()
+        {
+            var typing = engine(instrumentalGapMap(), flexible: true);
+
+            var activations = new List<int>();
+            typing.LineActivated += i => activations.Add(i);
+
+            int comboBreaks = 0;
+            typing.ComboBroken += () => comboBreaks++;
+
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000));
+            Assert.AreEqual(1, typing.CaretIndex);
+
+            // Twelve seconds before line 1's entry opens (14000 - 1500 = 12500), so nothing but the
+            // skip itself puts the caret where it ends up.
+            typing.Update(2000);
+            Assert.IsTrue(typing.ProcessEnter(2000));
+
+            Assert.AreEqual(0, typing.ActiveLineIndex, "2000 is far short of the bound: line 1 is not the player's yet");
+            Assert.AreEqual(2, typing.CaretIndex);
+            Assert.IsTrue(typing.IsLineComplete, "the parked caret reads complete, exactly as a refused roll's does");
+            Assert.AreEqual(new[] { 0 }, activations, "the roll was refused, so no line was announced");
+
+            // NOTHING WAS JUDGED. The cell they gave up is untouched until its line's own deadline.
+            Assert.AreEqual(CellState.Untyped, typing.Lines[0].Cells[1].State);
+            Assert.AreEqual(0, typing.BuildResults().Counts[JudgementType.Miss]);
+            Assert.AreEqual(1, typing.Combo);
+            Assert.AreEqual(0, comboBreaks);
+            Assert.AreEqual(0, typing.Mistypes);
+            Assert.AreEqual(1.0, typing.LiveAccuracy);
+
+            // A second Enter has nothing left to give up, and a keypress in the park is inert: the
+            // parked state answers both exactly as the bound's own park does.
+            Assert.IsFalse(typing.ProcessEnter(2000), "there is nothing left to skip");
+            Assert.IsFalse(typing.ProcessKey('c', 2000), "a parked caret takes no input");
+            Assert.AreEqual(CellState.Untyped, typing.Lines[1].Cells[0].State);
+            Assert.AreEqual(1, typing.Combo);
+
+            // And the existing time-driven arm carries them over at the bound, announcing once.
+            typing.Update(12499);
+            Assert.AreEqual(0, typing.ActiveLineIndex);
+
+            typing.Update(12500);
+            Assert.AreEqual(1, typing.ActiveLineIndex);
+            Assert.AreEqual(0, typing.CaretIndex);
+            Assert.AreEqual(new[] { 0, 1 }, activations);
+        }
+
+        /// <summary>
+        /// The hand-over is the ordinary one, so the ENTRY BOUND decides it and nothing else: an Enter
+        /// pressed inside the next line's entry window moves the player onto it ON THE PRESS, and one
+        /// pressed a millisecond earlier parks them until the bound opens. The skip is the player
+        /// moving THEMSELVES, which is the case <c>entryPermitted</c> exists for; the seal's own
+        /// hand-overs, which the song causes, are still never refused.
+        /// </summary>
+        [Test]
+        public void EnterHandsOverAtOnceInsideTheBoundAndDefersOutsideIt()
+        {
+            // Line 1 activates at 3000, so entry into it opens at 3000 - 1500 = 1500.
+            const double rush_entry = 3000 - TypingEngine.FLETCHER_DRAG_GRACE_MS;
+
+            var immediate = engine(dragMap(), flexible: true);
+            var immediateActivations = new List<int>();
+            immediate.LineActivated += i => immediateActivations.Add(i);
+
+            immediate.Update(1000);
+            Assert.IsTrue(immediate.ProcessKey('a', 1000));
+            immediate.Update(rush_entry);
+            Assert.IsTrue(immediate.ProcessEnter(rush_entry));
+
+            Assert.AreEqual(1, immediate.ActiveLineIndex, "inside the bound the skip rolls on the press itself");
+            Assert.AreEqual(0, immediate.CaretIndex);
+            Assert.AreEqual(new[] { 0, 1 }, immediateActivations);
+            Assert.IsTrue(immediate.ProcessKey('c', rush_entry), "and the next line takes input from that press onwards");
+
+            var deferred = engine(dragMap(), flexible: true);
+            var deferredActivations = new List<int>();
+            deferred.LineActivated += i => deferredActivations.Add(i);
+
+            deferred.Update(1000);
+            Assert.IsTrue(deferred.ProcessKey('a', 1000));
+            deferred.Update(rush_entry - 1);
+            Assert.IsTrue(deferred.ProcessEnter(rush_entry - 1));
+
+            Assert.AreEqual(0, deferred.ActiveLineIndex, "one millisecond short of the bound the caret parks instead");
+            Assert.AreEqual(new[] { 0 }, deferredActivations);
+
+            deferred.Update(rush_entry - 1);
+            Assert.AreEqual(0, deferred.ActiveLineIndex);
+
+            deferred.Update(rush_entry);
+            Assert.AreEqual(1, deferred.ActiveLineIndex, "and the deferred roll makes the move on the frame the bound opens");
+            Assert.AreEqual(0, deferred.CaretIndex);
+            Assert.AreEqual(new[] { 0, 1 }, deferredActivations);
+        }
+
+        /// <summary>
+        /// THE LOAD-BEARING PIN, and the reason the skip needs no era bit on the scoring axis: the
+        /// line the player walked out of reaches its misses and its ONE combo break at exactly the
+        /// instant, and with exactly the contents, it would have had if they had simply stopped
+        /// typing and sat there. Two runs on one fixture and one tick schedule, differing only in the
+        /// Enter press, compared event for event.
+        ///
+        /// <para>What holds it is <c>TypingEngine.lineAbandoned</c>: the drag grace defers this line's
+        /// seal to 3000 + 1500 = 4500 while a caret is on it, and the skip moves the caret off it at
+        /// 1500. Without the flag the seal would land at 3000, a second and a half early, which drains
+        /// health early and re-prices at combo zero every keypress made on the next line in
+        /// between.</para>
+        /// </summary>
+        [Test]
+        public void AnAbandonedLineSealsExactlyAsItWouldHaveWithoutTheSkip()
+        {
+            var sat = engine(dragMap(), flexible: true);
+            var skipped = engine(dragMap(), flexible: true);
+
+            var satSeals = new List<(double at, LineSealResult result)>();
+            var skippedSeals = new List<(double at, LineSealResult result)>();
+            var satArrivals = new List<(double at, int line)>();
+            var skippedArrivals = new List<(double at, int line)>();
+            int satBreaks = 0, skippedBreaks = 0;
+
+            double now = 1000;
+            sat.LineSealed += s => satSeals.Add((now, s));
+            skipped.LineSealed += s => skippedSeals.Add((now, s));
+            sat.LineActivated += i => satArrivals.Add((now, i));
+            skipped.LineActivated += i => skippedArrivals.Add((now, i));
+            sat.ComboBroken += () => satBreaks++;
+            skipped.ComboBroken += () => skippedBreaks++;
+
+            // Both type 'a' and then give up on 'b'; only one of them says so.
+            sat.Update(1000);
+            Assert.IsTrue(sat.ProcessKey('a', 1000));
+            skipped.Update(1000);
+            Assert.IsTrue(skipped.ProcessKey('a', 1000));
+            Assert.IsTrue(skipped.ProcessEnter(1000));
+
+            for (now = 1000; now <= 5000; now += 100)
+            {
+                sat.Update(now);
+                skipped.Update(now);
+            }
+
+            // Line 0's hard deadline is 3000 (no seal grace) and its drag cutoff 3000 + 1500 = 4500.
+            // ONE missed cell ('b'), ONE break, at 4500, on both sides.
+            Assert.AreEqual(4500, satSeals[0].at);
+            Assert.AreEqual(new LineSealResult(0, 1, true), satSeals[0].result);
+
+            Assert.AreEqual(satSeals[0].at, skippedSeals[0].at, "the skip must not move the seal");
+            Assert.AreEqual(satSeals[0].result, skippedSeals[0].result);
+            Assert.AreEqual(satBreaks, skippedBreaks);
+            Assert.AreEqual(1, skippedBreaks);
+            Assert.AreEqual(CellState.Missed, skipped.Lines[0].Cells[1].State);
+
+            // The whole account agrees, which is what "no era bit" means in practice.
+            Assert.AreEqual(sat.Score, skipped.Score);
+            Assert.AreEqual(sat.MaxCombo, skipped.MaxCombo);
+            Assert.AreEqual(sat.Combo, skipped.Combo);
+            Assert.AreEqual(sat.BuildResults().Counts[JudgementType.Miss], skipped.BuildResults().Counts[JudgementType.Miss]);
+
+            // The one thing that DID move is where the PLAYER was allowed to be, which is the whole
+            // feature: the sitting run only reached line 1 when the drag cutoff handed it over at
+            // 4500, the skipping one held it from 1500, the instant entry opened.
+            Assert.AreEqual(new[] { (1000d, 0), (4500d, 1) }, satArrivals.ToArray());
+            Assert.AreEqual(new[] { (1000d, 0), (1500d, 1) }, skippedArrivals.ToArray());
+        }
+
+        /// <summary>
+        /// The near miss the pin above would not catch: a line the player TYPED OUT is not abandoned,
+        /// so it keeps sealing on its own normal deadline rather than borrowing a drag grace it has
+        /// no drag to spend. Enter on such a line is a no-op outright (the two time-driven arms
+        /// already own that caret), which is also what lets the key handler pass the press through to
+        /// its global binding there.
+        /// </summary>
+        [Test]
+        public void EnterOnAFullyTypedLineIsANoOpAndDoesNotHoldTheSealOpen()
+        {
+            var typing = engine(dragMap(), flexible: true);
+
+            var seals = new List<LineSealResult>();
+            typing.LineSealed += s => seals.Add(s);
+
+            // Both chars at 1000, which is before line 1's entry opens at 1500, so the caret parks.
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000));
+            Assert.IsTrue(typing.ProcessKey('b', 1000));
+            Assert.IsTrue(typing.IsLineComplete);
+            Assert.AreEqual(0, typing.ActiveLineIndex);
+
+            Assert.IsFalse(typing.ProcessEnter(1000), "there is nothing to give up on a line already typed out");
+            Assert.AreEqual(2, typing.CaretIndex);
+
+            // 3000 is line 0's own deadline. It seals there with nothing missed: had the no-op marked
+            // the line abandoned, the grace would have held it open to 4500 instead.
+            typing.Update(2999);
+            Assert.IsEmpty(seals);
+
+            typing.Update(3000);
+            Assert.AreEqual(1, seals.Count);
+            Assert.AreEqual(new LineSealResult(0, 0, false), seals[0]);
+        }
+
+        /// <summary>
+        /// The WPM clock across a skip, which needs no bookkeeping of its own and is pinned here
+        /// because that claim is easy to break. Parking stops the clock (accrual runs only while the
+        /// active line is INCOMPLETE, and a parked caret's line reads complete), and on the line the
+        /// player lands on the clock behaves exactly as it does after a refused rush: stopped until
+        /// the first press there arms it, from that press's own time, with nothing back-dated. The
+        /// idle arm is the companion: a head start nobody types in is still paid for with nothing.
+        /// </summary>
+        [Test]
+        public void TheSkipStopsTheClockAndTheNextLineArmsItOnTheFirstPress()
+        {
+            // Line 1 activates at 4000, so entry into it opens at 2500.
+            var typing = engine(twoLineMap(), flexible: true);
+            Assert.AreEqual(4000, typing.Lines[1].ActivationTime);
+
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000));
+            typing.Update(1500);
+            Assert.IsTrue(typing.ProcessKey('b', 1500));
+            typing.Update(2000);
+            Assert.IsTrue(typing.ProcessKey(' ', 2000));
+            Assert.IsTrue(typing.ProcessKey('c', 2000));
+
+            // 1000 -> 1500 -> 2000 = 1000 ms clocked for 4 correct cells: (4/5)/(1000/60000) = 48.
+            Assert.AreEqual(48.0, typing.LiveWpm, 1e-9);
+
+            // The last 500 ms on line 0 is real typing time (they were still on an incomplete line),
+            // so it counts: 1500 ms, (4/5)/(1500/60000) = 32. Then they give up on 'd', and 2500 is
+            // exactly when entry into line 1 opens, so the skip hands them over on the press.
+            typing.Update(2500);
+            Assert.AreEqual(32.0, typing.LiveWpm, 1e-9);
+            Assert.IsTrue(typing.ProcessEnter(2500));
+            Assert.AreEqual(1, typing.ActiveLineIndex);
+
+            // The head start credits nothing while they are not typing in it: the arm from line 0 (if
+            // there had been one) is not this line's, so the clock is simply stopped.
+            typing.Update(2600);
+            Assert.AreEqual(32.0, typing.LiveWpm, 1e-9);
+
+            // THE ARMING PRESS: judged early against its 4000 target but correct, so it enters the
+            // numerator at once and credits itself no elapsed time: (5/5)/(1500/60000) = 40.
+            Assert.IsTrue(typing.ProcessKey('e', 2600));
+            Assert.AreEqual(CellState.Correct, typing.Lines[1].Cells[0].State);
+            Assert.AreEqual(40.0, typing.LiveWpm, 1e-9);
+
+            // And from the arm the clock runs: 1500 + 100 = 1600 ms, 6 correct cells,
+            // (6/5)/(1600/60000) = 45.
+            typing.Update(2700);
+            Assert.IsTrue(typing.ProcessKey('f', 2700));
+            Assert.AreEqual(45.0, typing.LiveWpm, 1e-9);
+
+            // THE IDLE COMPANION, same script minus the presses on line 1: the whole 1500 ms head
+            // start a skip bought is worth nothing to a player who does not use it.
+            var idle = engine(twoLineMap(), flexible: true);
+
+            idle.Update(1000);
+            Assert.IsTrue(idle.ProcessKey('a', 1000));
+            idle.Update(1500);
+            Assert.IsTrue(idle.ProcessKey('b', 1500));
+            idle.Update(2000);
+            Assert.IsTrue(idle.ProcessKey(' ', 2000));
+            Assert.IsTrue(idle.ProcessKey('c', 2000));
+            idle.Update(2500);
+            Assert.IsTrue(idle.ProcessEnter(2500));
+
+            idle.Update(2600);
+            idle.Update(3000);
+            idle.Update(3500);
+            idle.Update(4000); // line 1's cue
+            Assert.AreEqual(32.0, idle.LiveWpm, 1e-9);
+
+            // From the cue the ordinary rule runs, unarmed: 1500 + 500 = 2000 ms,
+            // (4/5)/(2000/60000) = 24.
+            idle.Update(4500);
+            Assert.AreEqual(24.0, idle.LiveWpm, 1e-9);
+        }
+
+        #endregion
+
         #region Replay determinism
 
         /// <summary>
@@ -1277,6 +1569,117 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             unmodded.Update(21500);
             Assert.AreNotEqual(live.BuildResults().Counts[JudgementType.Miss], unmodded.BuildResults().Counts[JudgementType.Miss]);
+        }
+
+        /// <summary>
+        /// A LINE SKIP travels in the replay as its own sentinel frame (backlog 241) and re-derives
+        /// exactly: same cells, same caret, same totals, same clock. It needs no era bit, because a
+        /// replay recorded before the skip existed simply contains no such frame, and the skip itself
+        /// changes nothing but which line the caret is on.
+        /// </summary>
+        [Test]
+        public void ALineSkipReDerivesFromItsOwnSentinelFrame()
+        {
+            // Ticks and inputs shared by both runs, so the only difference is HOW the inputs reach
+            // the engine: 'a' is typed, 'b' is given up, and the caret is on line 1 from 1500.
+            double[] ticks = { 1000, 1200, 1500, 3000, 3500, 6500 };
+
+            (char c, double t)[] script =
+            {
+                ('a', 1000),
+                (TypeBeatReplayFrame.ENTER, 1200),
+                ('c', 3000),
+                ('d', 3500),
+            };
+
+            var live = engine(dragMap(), flexible: true);
+            var replayed = engine(dragMap(), flexible: true);
+
+            foreach (double tick in ticks)
+            {
+                live.Update(tick);
+                replayed.Update(tick);
+
+                foreach ((char c, double t) in script.Where(s => s.t == tick))
+                {
+                    if (c == TypeBeatReplayFrame.ENTER)
+                        Assert.IsTrue(live.ProcessEnter(t));
+                    else
+                        Assert.IsTrue(live.ProcessKey(c, t));
+
+                    ReplayEngineFeed.Apply(replayed, new TypeBeatReplayFrame(t, c));
+                }
+            }
+
+            // Sanity: the run really did exercise the skip (line 0 lost 'b' and its one break).
+            Assert.IsTrue(live.IsFinished);
+            Assert.AreEqual(CellState.Missed, live.Lines[0].Cells[1].State);
+            Assert.AreEqual(1, live.BuildResults().Counts[JudgementType.Miss]);
+
+            Assert.AreEqual(live.Score, replayed.Score);
+            Assert.AreEqual(live.MaxCombo, replayed.MaxCombo);
+            Assert.AreEqual(live.Combo, replayed.Combo);
+            Assert.AreEqual(live.CaretIndex, replayed.CaretIndex);
+            Assert.AreEqual(live.ActiveLineIndex, replayed.ActiveLineIndex);
+            Assert.AreEqual(live.LiveAccuracy, replayed.LiveAccuracy);
+            Assert.AreEqual(live.LiveWpm, replayed.LiveWpm, 1e-12);
+
+            foreach (JudgementType type in Enum.GetValues<JudgementType>())
+                Assert.AreEqual(live.BuildResults().Counts[type], replayed.BuildResults().Counts[type], $"judgement count for {type}");
+
+            for (int k = 0; k < live.Lines.Count; k++)
+            {
+                for (int i = 0; i < live.Lines[k].Cells.Count; i++)
+                {
+                    Assert.AreEqual(live.Lines[k].Cells[i].State, replayed.Lines[k].Cells[i].State);
+                    Assert.AreEqual(live.Lines[k].Cells[i].JudgedDelta, replayed.Lines[k].Cells[i].JudgedDelta);
+                }
+            }
+        }
+
+        /// <summary>
+        /// FORWARD COMPATIBILITY, which the line skip's sentinel is only the first customer of. A
+        /// frame carrying a control code this build does not know is IGNORED, so a run recorded by a
+        /// later client degrades here to the inputs this one understands. Without that arm it would
+        /// fall through to <c>ProcessKey</c> and be judged as a WRONG KEY, which the third engine
+        /// below shows is not a small difference: it takes the combo and enters the accuracy
+        /// denominator forever.
+        /// </summary>
+        [TestCase('\t')] // 0x09
+        [TestCase('\r')] // 0x0D
+        [TestCase('\u001b')] // ESC, the far end of the control range below the typeable surface
+        public void AnUnknownSentinelIsIgnoredRatherThanMisjudged(char unknown)
+        {
+            var withUnknown = engine(dragMap(), flexible: true);
+            var without = engine(dragMap(), flexible: true);
+
+            ReplayEngineFeed.Apply(withUnknown, new TypeBeatReplayFrame(1000, 'a'));
+            ReplayEngineFeed.Apply(without, new TypeBeatReplayFrame(1000, 'a'));
+
+            ReplayEngineFeed.Apply(withUnknown, new TypeBeatReplayFrame(1100, unknown));
+            without.Update(1100);
+
+            ReplayEngineFeed.Apply(withUnknown, new TypeBeatReplayFrame(1500, 'b'));
+            ReplayEngineFeed.Apply(without, new TypeBeatReplayFrame(1500, 'b'));
+
+            Assert.AreEqual(without.Score, withUnknown.Score);
+            Assert.AreEqual(without.Combo, withUnknown.Combo);
+            Assert.AreEqual(without.Mistypes, withUnknown.Mistypes);
+            Assert.AreEqual(without.ConsecutiveWrongKeys, withUnknown.ConsecutiveWrongKeys);
+            Assert.AreEqual(without.LiveAccuracy, withUnknown.LiveAccuracy);
+            Assert.AreEqual(without.CaretIndex, withUnknown.CaretIndex);
+            Assert.AreEqual(2, withUnknown.Combo, "the unknown frame cost the run nothing at all");
+
+            // NON-VACUITY: the same character handed straight to ProcessKey, which is where it went
+            // before the guard existed, is a wrong key and is anything but free.
+            var misjudged = engine(dragMap(), flexible: true);
+
+            ReplayEngineFeed.Apply(misjudged, new TypeBeatReplayFrame(1000, 'a'));
+            misjudged.Update(1100);
+            misjudged.ProcessKey(unknown, 1100);
+
+            Assert.AreEqual(0, misjudged.Combo);
+            Assert.AreNotEqual(without.LiveAccuracy, misjudged.LiveAccuracy);
         }
 
         #endregion
