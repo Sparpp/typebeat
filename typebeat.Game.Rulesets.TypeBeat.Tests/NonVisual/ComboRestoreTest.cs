@@ -24,6 +24,16 @@
 // pinned twice: once live, once under ComboClaimRule.LatestBreakWins, the arm every score stored
 // before 176 was played under. JudgementEraTest.ABreakThatCostNothing... holds the same split for a
 // whole submitted account, through the real score processor.
+//
+// The LAST group is backlog 243, which traced a second player report of the same complaint, and it
+// is 176 in the one shape 176 could not see. A real play (score 10762: 1303 cells, every break
+// walked back and corrected, and a max_combo of 869 instead of 1303) skipped a word and then typo'd
+// immediately after it. The skipping space is judged on the word gap it lands on, so it rebuilds the
+// run to 1, so the typo broke a streak of ONE and not of zero, cleared 176's test, and overwrote a
+// 430-deep claim with a worthless one. The rule that fixes it is that the claim remembers the combo
+// its OWN press credited: a break taking no more than that is as passive as one landing at zero, and
+// spends the credit as it goes. A correct character in between puts the run at 2 and the next break
+// takes the claim exactly as it always did, which is the counter-case pinned below.
 
 using System.Collections.Generic;
 using NUnit.Framework;
@@ -136,10 +146,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// the run is already at zero, then both corrected oldest first. Cells 0-3 are the run, 4
         /// and 5 are the two spoiled cells.
         /// </summary>
-        private static (TypingEngine engine, List<int> restored) twoAdjacentTyposBothFixed(ComboClaimRule claim)
+        private static (TypingEngine engine, List<int> restored) twoAdjacentTyposBothFixed(ComboClaimRule claim,
+                                                                                          SkipSpaceCreditRule skipCredit = SkipSpaceCreditRule.NotAStreakOfItsOwn)
         {
             var engine = started();
             engine.ComboClaim = claim;
+            engine.SkipSpaceCredit = skipCredit;
 
             var restored = new List<int>();
             engine.ComboRestored += restored.Add;
@@ -160,10 +172,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// The same-cell sibling: fumble cell 2, erase it, fumble it AGAIN, then correct it. The
         /// second wrong key breaks a run of zero, exactly as the adjacent-cell one does.
         /// </summary>
-        private static (TypingEngine engine, List<int> restored) sameCellFumbledTwiceThenFixed(ComboClaimRule claim)
+        private static (TypingEngine engine, List<int> restored) sameCellFumbledTwiceThenFixed(ComboClaimRule claim,
+                                                                                              SkipSpaceCreditRule skipCredit = SkipSpaceCreditRule.NotAStreakOfItsOwn)
         {
             var engine = started();
             engine.ComboClaim = claim;
+            engine.SkipSpaceCredit = skipCredit;
 
             var restored = new List<int>();
             engine.ComboRestored += restored.Add;
@@ -207,6 +221,199 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Back into the word (one press reclaims 'd' and erases the typo) and type it out.
             Assert.That(engine.ProcessBackspace(), Is.True); // erases the typed space
             Assert.That(engine.ProcessBackspace(), Is.True); // steps over 'd', erases the typo
+            Assert.That(engine.CaretIndex, Is.EqualTo(2));
+
+            Assert.That(engine.ProcessKey('c', 3000), Is.True);
+            Assert.That(engine.ProcessKey('d', 4000), Is.True);
+
+            return (engine, restored);
+        }
+
+        /// <summary>
+        /// <see cref="twoWordMap"/> with one more character in the second word ("abcd efgh"), for the
+        /// pin that needs a break AFTER the caret has come back inside the second word: h = 8000, and
+        /// nothing else differs.
+        /// </summary>
+        private static LyricBeatmap longerTailMap() => new LyricBeatmap
+        {
+            Metadata = new LyricBeatmapMetadata
+            {
+                Artist = "Test",
+                Title = "Song",
+                FolderPath = @"X:\nowhere",
+                AudioFileName = "a.mp3",
+            },
+            Lines = new List<LyricLine>
+            {
+                new LyricLine
+                {
+                    RawText = "abcd efgh",
+                    StartTime = 1000,
+                    EndTime = 60000,
+                    SingEndTime = 9000,
+                    Units = new[]
+                    {
+                        new TimedUnit { Text = "abcd", StartTime = 1000, EndTime = 5000 },
+                        new TimedUnit { Text = "efgh", StartTime = 5000, EndTime = 9000 },
+                    },
+                },
+            },
+            Granularity = TimingGranularity.Line,
+        };
+
+        /// <summary>
+        /// A live-play engine on <paramref name="beatmap"/> with every flag score 10762 was recorded
+        /// under: the space skips a word, a wrong letter takes a word gap, and a spoiled gap parks the
+        /// caret. Only the two claim axes are left to the caller.
+        /// </summary>
+        private static TypingEngine skipEngine(ComboClaimRule claim, SkipSpaceCreditRule skipCredit, LyricBeatmap? beatmap = null)
+        {
+            var engine = new TypingEngine(beatmap ?? twoWordMap())
+            {
+                SpaceSkipsWord = true,
+                WrongInputOnWordGaps = true,
+                StrictSpaces = true,
+                ComboClaim = claim,
+                SkipSpaceCredit = skipCredit,
+            };
+
+            engine.Update(1000);
+            return engine;
+        }
+
+        /// <summary>
+        /// BACKLOG 243, the reported shape, transcribed keystroke for keystroke from correction A of
+        /// score 10762 ("it would": a character, a space that gives up the rest of the word, two
+        /// wrong keys, four backspaces that walk back PAST the abandoned cell, then the word typed
+        /// out). On "abcd efg" that is:
+        ///
+        /// <list type="number">
+        /// <item>'a', 'b', 'c' correctly, so the run is 3 (the replay's was about 430),</item>
+        /// <item>' ' on cell 3: the skip abandons 'd' and claims it for the run of 3, and the SAME
+        /// press is then judged on the word gap, which puts the combo back to 1,</item>
+        /// <item>'z' on cell 5: a typo breaking that run of 1, which is the whole of the bug,</item>
+        /// <item>'y' on cell 6: a second typo, breaking a run of zero,</item>
+        /// <item>four backspaces: the two typos, the gap, then the step over the abandoned 'd' that
+        /// reopens it and erases the 'c' behind it,</item>
+        /// <item>'c' (an inert retype, it was already judged) and 'd', which is the cell the skip
+        /// claimed and so the press that redeems it.</item>
+        /// </list>
+        /// </summary>
+        private static (TypingEngine engine, List<int> restored) wordSkippedThenTypodBesideIt(ComboClaimRule claim, SkipSpaceCreditRule skipCredit)
+        {
+            var engine = skipEngine(claim, skipCredit);
+
+            var restored = new List<int>();
+            engine.ComboRestored += restored.Add;
+
+            Assert.That(engine.ProcessKey('a', 1000), Is.True);
+            Assert.That(engine.ProcessKey('b', 2000), Is.True);
+            Assert.That(engine.ProcessKey('c', 3000), Is.True);
+            Assert.That(engine.Combo, Is.EqualTo(3));
+
+            // The skip: 'd' is abandoned and claimed for the run of 3, and the space is then judged
+            // on the gap, which is where the combo of 1 comes from.
+            Assert.That(engine.ProcessKey(' ', 4000), Is.True);
+            Assert.That(engine.CaretIndex, Is.EqualTo(5), "the space was judged on the gap and moved on");
+            Assert.That(engine.Combo, Is.EqualTo(1), "the skipping space rebuilt the run to 1 on the gap");
+
+            // The adjacent typo, breaking that run of 1, and a second one breaking a run of zero.
+            Assert.That(engine.ProcessKey('z', 5000), Is.True);
+            Assert.That(engine.Combo, Is.Zero);
+            Assert.That(engine.ProcessKey('y', 6000), Is.True);
+
+            // Four backspaces, the last of which steps over the abandoned 'd' and erases the 'c'.
+            for (int i = 0; i < 4; i++)
+                Assert.That(engine.ProcessBackspace(), Is.True);
+
+            Assert.That(engine.CaretIndex, Is.EqualTo(2));
+            Assert.That(engine.Lines[0].Cells[3].State, Is.EqualTo(CellState.Untyped), "'d' was reclaimed on the way past");
+
+            Assert.That(engine.ProcessKey('c', 3000), Is.True);
+            Assert.That(engine.ProcessKey('d', 4000), Is.True);
+
+            return (engine, restored);
+        }
+
+        /// <summary>
+        /// BACKLOG 243's counter-case, and the one the report itself demanded: the same skip, but with
+        /// a CORRECT character typed between it and the typo. The run is genuinely 2 when the typo
+        /// lands (the skip's own space, plus a character the player really typed), so the typo has a
+        /// streak of its own to take the claim with and the skip's claim is gone for good. Walking
+        /// back to the abandoned 'd' then restores nothing, and it is the TYPO's cell that carries the
+        /// live claim.
+        /// </summary>
+        private static (TypingEngine engine, List<int> restored, int restoredAtTheAbandonedCell) wordSkippedThenACharacterThenATypo(
+            ComboClaimRule claim, SkipSpaceCreditRule skipCredit)
+        {
+            var engine = skipEngine(claim, skipCredit);
+
+            var restored = new List<int>();
+            engine.ComboRestored += restored.Add;
+
+            Assert.That(engine.ProcessKey('a', 1000), Is.True);
+            Assert.That(engine.ProcessKey('b', 2000), Is.True);
+            Assert.That(engine.ProcessKey('c', 3000), Is.True);
+
+            Assert.That(engine.ProcessKey(' ', 4000), Is.True); // abandons 'd', claims it for 3
+            Assert.That(engine.ProcessKey('e', 5000), Is.True); // a real character: the run is now 2
+            Assert.That(engine.Combo, Is.EqualTo(2));
+
+            Assert.That(engine.ProcessKey('z', 6000), Is.True); // the typo, breaking a run of 2
+            Assert.That(engine.Combo, Is.Zero);
+
+            // Back to the head of the first word: the typo, the 'e', the gap, then the step over the
+            // abandoned 'd'.
+            for (int i = 0; i < 4; i++)
+                Assert.That(engine.ProcessBackspace(), Is.True);
+
+            Assert.That(engine.CaretIndex, Is.EqualTo(2));
+
+            Assert.That(engine.ProcessKey('c', 3000), Is.True);
+            Assert.That(engine.ProcessKey('d', 4000), Is.True);
+
+            int atTheAbandonedCell = restored.Count;
+
+            // On to the typo's own cell, which is where the live claim actually is.
+            Assert.That(engine.ProcessKey(' ', 5000), Is.True);
+            Assert.That(engine.ProcessKey('e', 5000), Is.True);
+            Assert.That(engine.ProcessKey('f', 6000), Is.True);
+
+            return (engine, restored, atTheAbandonedCell);
+        }
+
+        /// <summary>
+        /// BACKLOG 243's other half: the credit is SPENT by the break that stands on it, so the
+        /// exemption is worth exactly one break and not a standing licence. On "abcd efgh": the skip
+        /// claims 'd' and its space rebuilds the run to 1, a typo takes that 1 and is passive, then
+        /// the player types one real character (the run is 1 again, this time honestly), and the next
+        /// typo takes THAT and discards the claim like any other break with a streak.
+        /// </summary>
+        private static (TypingEngine engine, List<int> restored) wordSkippedThenAPassiveTypoThenAnEarnedOne(SkipSpaceCreditRule skipCredit)
+        {
+            var engine = skipEngine(ComboClaimRule.StreakedBreakWins, skipCredit, longerTailMap());
+
+            var restored = new List<int>();
+            engine.ComboRestored += restored.Add;
+
+            Assert.That(engine.ProcessKey('a', 1000), Is.True);
+            Assert.That(engine.ProcessKey('b', 2000), Is.True);
+            Assert.That(engine.ProcessKey('c', 3000), Is.True);
+
+            Assert.That(engine.ProcessKey(' ', 4000), Is.True); // abandons 'd', claims it for 3
+            Assert.That(engine.Combo, Is.EqualTo(1), "the skipping space, on the gap");
+
+            Assert.That(engine.ProcessKey('z', 5000), Is.True); // the passive typo: it spends the credit
+            Assert.That(engine.ProcessKey('f', 6000), Is.True); // one real character
+            Assert.That(engine.Combo, Is.EqualTo(1), "a run of 1 the player actually typed");
+
+            Assert.That(engine.ProcessKey('y', 7000), Is.True); // the earned break: it takes the claim
+            Assert.That(engine.Combo, Is.Zero);
+
+            // Back to the head of the first word, then out through the abandoned cell.
+            for (int i = 0; i < 5; i++)
+                Assert.That(engine.ProcessBackspace(), Is.True);
+
             Assert.That(engine.CaretIndex, Is.EqualTo(2));
 
             Assert.That(engine.ProcessKey('c', 3000), Is.True);
@@ -561,6 +768,128 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(restored, Is.Empty, "the skip's own empty claim replaced the typo's");
                 Assert.That(engine.Combo, Is.EqualTo(3), "the space, then the two cells typed out");
                 Assert.That(engine.MaxCombo, Is.EqualTo(3), "the run of 2 is never resumed");
+            });
+        }
+
+        /// <summary>
+        /// BACKLOG 243, the bug score 10762 lost about 430 combo to. A typo landing on the character
+        /// AFTER a word skip breaks a run of 1 rather than of zero, because the skipping space was
+        /// itself judged on the word gap it landed on. That 1 is the break's own press and not
+        /// progress the player made, so it is not a streak the typo may take the skip's claim with:
+        /// walking back and typing the abandoned word out resumes the run the skip broke, which is
+        /// what backlog 167 promised and what backlog 176 already says for the shape without the
+        /// space in it.
+        /// </summary>
+        [Test]
+        public void ATypoBesideAWordSkipCannotTakeTheClaimWithTheSkipsOwnSpace()
+        {
+            (var engine, var restored) = wordSkippedThenTypodBesideIt(ComboClaimRule.StreakedBreakWins, SkipSpaceCreditRule.NotAStreakOfItsOwn);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(restored, Is.EqualTo(new[] { 3 }), "the deep claim survived the typo beside the skip");
+                Assert.That(engine.Combo, Is.EqualTo(4), "3 restored at the 'd', then the 'd' itself");
+                Assert.That(engine.MaxCombo, Is.EqualTo(4));
+                Assert.That(engine.Mistypes, Is.EqualTo(2));
+            });
+        }
+
+        /// <summary>
+        /// The pre-243 arm of the same keystrokes, which is what every stored row was played under and
+        /// what the replay actually scored: the typo's streak of 1 was enough to take the claim, so it
+        /// overwrote the skip's with its own, and typing the abandoned word out restored nothing at
+        /// all. The claim is not lost, it is merely worthless: it now sits on the typo's cell holding
+        /// the 1 that the skipping space had put back.
+        /// </summary>
+        [Test]
+        public void ThePre243RuleLetsTheSkipsOwnSpaceArmTheTypoBesideIt()
+        {
+            (var engine, var restored) = wordSkippedThenTypodBesideIt(ComboClaimRule.StreakedBreakWins, SkipSpaceCreditRule.AStreakLikeAnyOther);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(restored, Is.Empty, "the typo's claim of 1 replaced the skip's claim of 3");
+                Assert.That(engine.Combo, Is.EqualTo(1), "the retyped 'd' earns its own cell and nothing more");
+                Assert.That(engine.MaxCombo, Is.EqualTo(3), "the run of 3 is never resumed");
+                Assert.That(engine.Mistypes, Is.EqualTo(2));
+            });
+        }
+
+        /// <summary>
+        /// The counter-case the report required, and the boundary of the rule: ONE correct character
+        /// between the skip and the typo is enough. The run is really 2 by then, so the typo has a
+        /// streak of its own, takes the claim exactly as any break with something to own does, and
+        /// coming back to the abandoned cell restores nothing. Pinned under BOTH arms of the new axis
+        /// with the same numbers, which is the statement that backlog 243 moved only the case where
+        /// the streak was the break's own press.
+        /// </summary>
+        [Test]
+        public void ACharacterBetweenTheSkipAndTheTypoStillLetsTheTypoTakeTheClaim(
+            [Values(SkipSpaceCreditRule.NotAStreakOfItsOwn, SkipSpaceCreditRule.AStreakLikeAnyOther)] SkipSpaceCreditRule skipCredit)
+        {
+            (var engine, var restored, int atTheAbandonedCell) = wordSkippedThenACharacterThenATypo(ComboClaimRule.StreakedBreakWins, skipCredit);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(atTheAbandonedCell, Is.Zero, "the skip's claim was discarded by a typo that had a streak of its own");
+                Assert.That(restored, Is.EqualTo(new[] { 2 }), "the typo's own claim is the live one, redeemed on its own cell");
+                Assert.That(engine.Combo, Is.EqualTo(4), "the retyped 'd', 2 restored at the 'f', then the 'f' itself");
+                Assert.That(engine.MaxCombo, Is.EqualTo(4));
+                Assert.That(engine.Mistypes, Is.EqualTo(1));
+            });
+        }
+
+        /// <summary>
+        /// The exemption is worth exactly ONE break, because the break that stands on the skip's own
+        /// credit spends it. One real character later the run is 1 again, honestly this time, and the
+        /// next typo takes the claim exactly as any break with a streak does. Both arms of the axis
+        /// agree on this shape, which is the point: backlog 243 buys the player the one break their
+        /// own skip armed, and nothing after it.
+        /// </summary>
+        [Test]
+        public void TheSkipsOwnCreditIsSpentByTheBreakThatStandsOnIt(
+            [Values(SkipSpaceCreditRule.NotAStreakOfItsOwn, SkipSpaceCreditRule.AStreakLikeAnyOther)] SkipSpaceCreditRule skipCredit)
+        {
+            (var engine, var restored) = wordSkippedThenAPassiveTypoThenAnEarnedOne(skipCredit);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(restored, Is.Empty, "the second typo had a streak the player earned, so it took the claim");
+                Assert.That(engine.Combo, Is.EqualTo(1), "the retyped 'd' earns its own cell and nothing more");
+                Assert.That(engine.MaxCombo, Is.EqualTo(3), "the run of 3 is never resumed");
+                Assert.That(engine.Mistypes, Is.EqualTo(2));
+            });
+        }
+
+        /// <summary>
+        /// Backlog 243 is invisible to every shape backlog 176 was written for: with no word skip in
+        /// them nothing ever credits a claim's own press, so the ceiling a passive break is measured
+        /// against stays zero and both arms of the new axis agree, cell for cell, with what the 176
+        /// pins above already assert.
+        /// </summary>
+        [Test]
+        public void ThePlain176ShapesAreUntouchedByTheSkipCreditRule()
+        {
+            (var adjacentLive, var adjacentLiveRestored) = twoAdjacentTyposBothFixed(ComboClaimRule.StreakedBreakWins, SkipSpaceCreditRule.NotAStreakOfItsOwn);
+            (var adjacentOld, var adjacentOldRestored) = twoAdjacentTyposBothFixed(ComboClaimRule.StreakedBreakWins, SkipSpaceCreditRule.AStreakLikeAnyOther);
+
+            (var sameCellLive, var sameCellLiveRestored) = sameCellFumbledTwiceThenFixed(ComboClaimRule.StreakedBreakWins, SkipSpaceCreditRule.NotAStreakOfItsOwn);
+            (var sameCellOld, var sameCellOldRestored) = sameCellFumbledTwiceThenFixed(ComboClaimRule.StreakedBreakWins, SkipSpaceCreditRule.AStreakLikeAnyOther);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(adjacentOldRestored, Is.EqualTo(adjacentLiveRestored));
+                Assert.That(adjacentOld.Combo, Is.EqualTo(adjacentLive.Combo));
+                Assert.That(adjacentOld.MaxCombo, Is.EqualTo(adjacentLive.MaxCombo));
+
+                Assert.That(sameCellOldRestored, Is.EqualTo(sameCellLiveRestored));
+                Assert.That(sameCellOld.Combo, Is.EqualTo(sameCellLive.Combo));
+                Assert.That(sameCellOld.MaxCombo, Is.EqualTo(sameCellLive.MaxCombo));
+
+                // ...and they are still the values the 176 pins assert, so this is an equality with
+                // the right thing rather than two engines agreeing on something new.
+                Assert.That(adjacentLiveRestored, Is.EqualTo(new[] { 4 }));
+                Assert.That(sameCellLiveRestored, Is.EqualTo(new[] { 2 }));
             });
         }
     }

@@ -82,6 +82,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public ComboClaimRule ComboClaim { get; set; } = ComboClaimRule.StreakedBreakWins;
 
         /// <summary>
+        /// Whether combo credited by the press that TOOK the outstanding claim counts as a streak the
+        /// next break may take that claim with (see <see cref="ComboRestored"/>).
+        /// <see cref="SkipSpaceCreditRule.NotAStreakOfItsOwn"/> is the live rule (backlog 243) and the
+        /// default: a skipping space rebuilds the run to 1 on the gap it lands on, and that 1 is the
+        /// break's own press rather than anything the player typed after it. Only
+        /// <see cref="Scoring.TypeBeatReplayScorer"/> ever sets the other one, to re-derive a score
+        /// from before that was true. Set BEFORE the first keypress and left alone afterwards, exactly
+        /// like <see cref="ComboRestore"/> and <see cref="ComboClaim"/>, whose refinement it is: it
+        /// decides nothing under <see cref="ComboClaimRule.LatestBreakWins"/>, where no break is
+        /// passive, nor under <see cref="ComboRestoreRule.Never"/>, where no snapshot exists.
+        /// </summary>
+        public SkipSpaceCreditRule SkipSpaceCredit { get; set; } = SkipSpaceCreditRule.NotAStreakOfItsOwn;
+
+        /// <summary>
         /// Whether a word abandoned by <see cref="SpaceSkipsWord"/> stays re-typeable (see
         /// <see cref="WordAbandoned"/>). <see cref="WordSkipRule.Reclaimable"/> is the live rule
         /// (backlog 167) and the default; only <see cref="Scoring.TypeBeatReplayScorer"/> ever sets
@@ -876,6 +890,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// is <see cref="ComboClaimRule.LatestBreakWins"/>, which is what every stored row was
         /// played under.</para>
         ///
+        /// <para>Backlog 243 finishes that sentence: "already at zero" means "having earned nothing
+        /// since the claim was taken", which is not the same as a combo of zero, because ONE press
+        /// can both take a claim and rebuild the run. A space struck inside a word abandons the rest
+        /// of it (the claim) and is then judged on the word gap it lands on, putting the combo back
+        /// to 1. A typo on that same gap was therefore breaking a run of 1, passing the zero test,
+        /// and overwriting a claim hundreds deep with a worthless one, which is the shape a real play
+        /// lost about 430 combo to: skip, typo on the gap, second typo, then the whole word walked
+        /// back and typed out for nothing. So the claim REMEMBERS the combo its own press credited
+        /// (1 for a skip, 0 for everything else), a break taking no more than that is passive, and it
+        /// spends the credit as it passes, so anything the player really types afterwards arms the
+        /// next break normally. A correct character after the skipping space puts the run at 2 and the
+        /// next break takes the claim exactly as it always did. The old arm is
+        /// <see cref="SkipSpaceCreditRule.AStreakLikeAnyOther"/>.</para>
+        ///
         /// <para>Nothing else about a typo changes here: the wrong keypress is still counted
         /// (<see cref="Mistyped"/>) and still costs the accuracy denominator. Health does move for a
         /// typo since backlog 166, but on its own pair of seams and not on this one: the keypress
@@ -1094,8 +1122,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <see cref="snapshotRedeemableBreak"/>, the one write site the two share), redeemed by
         /// typing that same cell correctly, and discarded by any other combo break that had a streak
         /// to take (<see cref="discardRestorableStreak"/>).
+        ///
+        /// <para><c>ownPressCredit</c> is backlog 243: how much of the CURRENT run was credited by
+        /// the claim's own press rather than typed after it. It is 1 for a claim a word skip took,
+        /// because the skipping space is judged on the word gap it lands on and rebuilds the run to
+        /// exactly 1 (<see cref="creditTheClaimsOwnPress"/>), and 0 for every other claim and for a
+        /// skip whose space credited nothing. A break standing on no more than that is passive, the
+        /// same way a break landing at zero is, and SPENDS the credit when it does. See
+        /// <see cref="SkipSpaceCredit"/>.</para>
         /// </summary>
-        private (int lineIndex, int cellIndex, int streak)? restorable;
+        private (int lineIndex, int cellIndex, int streak, int ownPressCredit)? restorable;
 
         private double windowScale = 1;
 
@@ -1230,9 +1266,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <see cref="StrictSpaces"/>), the mod flags
         /// (<see cref="FletcherEnabled"/>, <see cref="MashingEnabled"/>, <see cref="Literate"/>,
         /// <see cref="CaseSensitive"/>), <see cref="WindowScale"/> and the era rules
-        /// (<see cref="ComboRestore"/>, <see cref="ComboClaim"/>, <see cref="SpaceTiming"/>,
-        /// <see cref="WordSkip"/>, <see cref="OffTime"/>, <see cref="CorrectionCredit"/>). A rebuild
-        /// re-judges the same run, not a different one. The CONFIG frame is re-fed anyway, being the
+        /// (<see cref="ComboRestore"/>, <see cref="ComboClaim"/>, <see cref="SkipSpaceCredit"/>,
+        /// <see cref="SpaceTiming"/>, <see cref="WordSkip"/>, <see cref="OffTime"/>,
+        /// <see cref="CorrectionCredit"/>). A rebuild re-judges the same run, not a different one. The CONFIG frame is re-fed anyway, being the
         /// first frame of every replay, so those bits land on the same values a second time.</para>
         ///
         /// <para>The PHANTOM state backlog 167 added needs nothing of its own here: it lives on the
@@ -1924,6 +1960,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     c = Typeability.FREESTYLE_AUTO_CHAR;
             }
 
+            // Backlog 243: set when this press is a skip that left a claim outstanding, so the combo
+            // the SAME press goes on to earn on the word gap is recorded as the claim's OWN credit
+            // rather than as a run the player built after the break. Read once, at the one arm that
+            // increments the combo.
+            bool skipLeftAClaimOutstanding = false;
+
             // SPACE-SKIP (see SpaceSkipsWord), evaluated BEFORE the match: a space pressed while the
             // caret sits on a lyric character abandons the rest of that word. The caret cell is
             // typeable here (autoSkipForward ran above), so "Expected is not a space" is exactly "the
@@ -1932,7 +1974,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // already turned the press into the expected char, so this is unreachable under it.
             if (SpaceSkipsWord && c == ' ' && cell.Expected != ' ')
             {
-                skipCurrentWord(time);
+                skipLeftAClaimOutstanding = skipCurrentWord(time);
 
                 if (caretIndex >= line.Cells.Count)
                 {
@@ -2325,6 +2367,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 {
                     combo++;
                     maxCombo = Math.Max(maxCombo, combo);
+
+                    // The one press that can credit combo it also broke (backlog 243): the space that
+                    // skipped the word, now being judged on the gap the skip parked the caret on. The
+                    // combo is real and stands, but it belongs to the break, so the claim remembers it
+                    // and the next break has to beat it to take the claim away.
+                    if (skipLeftAClaimOutstanding)
+                        creditTheClaimsOwnPress();
                 }
 
                 cell.State = CellState.Correct;
@@ -2394,8 +2443,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <para>Non-typeable cells inside the run are marked <see cref="CellState.AutoSkipped"/>,
         /// which is exactly what <see cref="autoSkipForward"/> would have done to them had the caret
         /// walked over them one press at a time; they are not typed, so they cannot be missed.</para>
+        ///
+        /// <para>Returns whether a redeemable claim is outstanding when it hands the press back, which
+        /// is what tells <see cref="ProcessKey"/> that the combo the SAME press is about to earn on the
+        /// word gap belongs to the break rather than to the player (backlog 243, see
+        /// <see cref="creditTheClaimsOwnPress"/>). True for the claim this skip took AND for an older
+        /// one it passively left alone, because the argument is about the press and not about which
+        /// break wrote the claim.</para>
         /// </summary>
-        private void skipCurrentWord(double time)
+        private bool skipCurrentWord(double time)
         {
             var cells = lines[activeLineIndex].Cells;
 
@@ -2467,7 +2523,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             caretIndex = end;
 
             if (abandoned.Count == 0)
-                return;
+                return false;
 
             int brokenStreak = combo;
 
@@ -2510,6 +2566,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 var type = reclaimable ? JudgementType.Abandoned : JudgementType.Miss;
                 raise(CharJudged, new CharJudgement(activeLineIndex, i, type, time - cells[i].TargetTime, 0, combo));
             }
+
+            return restorable is not null;
         }
 
         /// <summary>
@@ -2535,6 +2593,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// that redeeming it restores nothing, which is what
         /// <see cref="resumeStreakIfThisRedeemsTheBreak"/> has always done with a zero.</para>
         ///
+        /// <para>"A streak to own" excludes the streak the OUTSTANDING claim's own press credited
+        /// (backlog 243). One press can both take a claim and rebuild the run: a space struck inside
+        /// a word abandons the rest of it and is then judged on the word gap it lands on, which puts
+        /// the combo back to 1. A break on that very gap therefore broke a run of 1 rather than of 0,
+        /// and under 176 alone that was enough to overwrite a claim hundreds deep with a worthless
+        /// one. The 1 was not progress, it was the break's own press, so a break taking no more than
+        /// the claim's own credit is passive exactly as a zero-streak break is, and SPENDS that credit
+        /// on its way past: whatever the player rebuilds after this break is measured from zero, so
+        /// the next break arms normally. See <see cref="SkipSpaceCredit"/> for the era arm.</para>
+        ///
         /// <para>Under <see cref="ComboRestoreRule.Never"/> no snapshot exists at all, so the break
         /// is as final here as it is everywhere else.</para>
         /// </summary>
@@ -2546,10 +2614,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 return;
             }
 
-            if (brokenStreak <= 0 && restorable is not null && TypeBeatResultMapping.OnlyABreakWithAStreakTakesTheClaim(ComboClaim))
-                return;
+            if (restorable is (int heldLine, int heldCell, int heldStreak, int ownPressCredit)
+                && TypeBeatResultMapping.OnlyABreakWithAStreakTakesTheClaim(ComboClaim))
+            {
+                // The most this break can have taken and still be passive. Zero is backlog 176's
+                // rule, and it is what the pre-243 arm keeps: the credit is READ through the era
+                // switch rather than written through it, so the claim itself says the same thing
+                // under both arms and only its consequence moves.
+                int passive = TypeBeatResultMapping.TheClaimsOwnCreditIsNotAStreak(SkipSpaceCredit) ? ownPressCredit : 0;
 
-            restorable = (activeLineIndex, cellIndex, brokenStreak);
+                if (brokenStreak <= passive)
+                {
+                    restorable = (heldLine, heldCell, heldStreak, 0);
+                    return;
+                }
+            }
+
+            restorable = (activeLineIndex, cellIndex, brokenStreak, 0);
+        }
+
+        /// <summary>
+        /// The press that just took (or passively kept) the outstanding claim has itself credited one
+        /// combo: record that on the claim, so a break landing before the player has typed anything
+        /// else takes nothing and leaves the claim alone (backlog 243, see
+        /// <see cref="snapshotRedeemableBreak"/>).
+        ///
+        /// <para>Called from the one arm that can be reached by such a press: a word skip's space,
+        /// falling through to be judged on the word gap the skip parked the caret on. It is deliberately
+        /// keyed on the press having ACTUALLY credited combo rather than on the skip having happened,
+        /// so a skip whose space earned nothing (an inert retype of an already judged gap, the rush cap
+        /// refusing a caret out past its bound, or a word abandoned all the way to the end of a line,
+        /// where there is no gap for the space to land on at all) records no credit and behaves exactly
+        /// as backlog 176 left it.</para>
+        /// </summary>
+        private void creditTheClaimsOwnPress()
+        {
+            if (restorable is (int lineIndex, int cellIndex, int streak, _))
+                restorable = (lineIndex, cellIndex, streak, 1);
         }
 
         /// <summary>
@@ -2566,7 +2667,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private void resumeStreakIfThisRedeemsTheBreak(int cellIndex)
         {
-            if (restorable is not (int lineIndex, int typoCellIndex, int streak))
+            if (restorable is not (int lineIndex, int typoCellIndex, int streak, _))
                 return;
 
             if (lineIndex != activeLineIndex || typoCellIndex != cellIndex)

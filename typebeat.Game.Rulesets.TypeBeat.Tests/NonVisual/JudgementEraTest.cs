@@ -241,7 +241,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var explicitLive = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
                 SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate, WordSkipRule.Reclaimable, ComboClaimRule.StreakedBreakWins,
-                OffTimeRule.MehHit, CorrectionCreditRule.Capped, UnfixedTypoWorthRule.Nothing);
+                OffTimeRule.MehHit, CorrectionCreditRule.Capped, UnfixedTypoWorthRule.Nothing,
+                SkipSpaceCreditRule.NotAStreakOfItsOwn);
 
             Assert.Multiple(() =>
             {
@@ -254,6 +255,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(new TypingEngine(lyricBeatmap()).SpaceTiming, Is.EqualTo(SpaceTimingRule.Untimed));
                 Assert.That(new TypingEngine(lyricBeatmap()).WordSkip, Is.EqualTo(WordSkipRule.Reclaimable));
                 Assert.That(new TypingEngine(lyricBeatmap()).ComboClaim, Is.EqualTo(ComboClaimRule.StreakedBreakWins));
+                Assert.That(new TypingEngine(lyricBeatmap()).SkipSpaceCredit, Is.EqualTo(SkipSpaceCreditRule.NotAStreakOfItsOwn));
                 Assert.That(new TypingEngine(lyricBeatmap()).OffTime, Is.EqualTo(OffTimeRule.MehHit));
                 Assert.That(new TypingEngine(lyricBeatmap()).CorrectionCredit, Is.EqualTo(CorrectionCreditRule.Capped));
 

@@ -173,6 +173,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// accuracy and <c>total_score</c>. <c>statistics</c> is IDENTICAL under both arms here,
         /// unlike under every other axis, because the fold is a consumer-side reclassification and
         /// the seal's key never moved.</param>
+        /// <param name="skipSpaceCreditRule">Whether combo credited by the claim's OWN press counts
+        /// as a streak that can take the claim away. Stored scores predating backlog 243 were played
+        /// under <see cref="SkipSpaceCreditRule.AStreakLikeAnyOther"/>, where the space that skipped a
+        /// word rebuilt the run to 1 on the gap it landed on and a typo on that same gap then broke a
+        /// streak of 1, which was enough to overwrite the claim the skip had just taken. The narrowest
+        /// axis of the set: it reaches only a row that skipped a word and broke again on that skip's
+        /// own gap before earning a character back, and the only quantity it moves is
+        /// <c>max_combo</c>, which it can only RAISE.</param>
         public static TypeBeatReplayAccount Score(
             IBeatmap playable,
             IReadOnlyList<Mod> mods,
@@ -185,7 +193,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             ComboClaimRule claimRule = ComboClaimRule.StreakedBreakWins,
             OffTimeRule offTimeRule = OffTimeRule.MehHit,
             CorrectionCreditRule creditRule = CorrectionCreditRule.Capped,
-            UnfixedTypoWorthRule worthRule = UnfixedTypoWorthRule.Nothing)
+            UnfixedTypoWorthRule worthRule = UnfixedTypoWorthRule.Nothing,
+            SkipSpaceCreditRule skipSpaceCreditRule = SkipSpaceCreditRule.NotAStreakOfItsOwn)
         {
             ArgumentNullException.ThrowIfNull(playable);
             ArgumentNullException.ThrowIfNull(replay);
@@ -213,6 +222,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // site, so selecting it here is the whole of that era gate, and it is inert under
             // ComboRestoreRule.Never, where no snapshot is ever taken.
             engine.ComboClaim = claimRule;
+
+            // ComboClaim's own refinement (backlog 243), and set the same way: the rule is read at
+            // the same single snapshot site, so selecting it here is the whole of that era gate. It
+            // decides nothing under ComboClaimRule.LatestBreakWins, where no break is passive.
+            engine.SkipSpaceCredit = skipSpaceCreditRule;
 
             // Same shape again, and set before a single frame is fed: the space exemption is
             // implemented inside ProcessKey, so selecting it here is the whole of that era gate.

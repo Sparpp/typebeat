@@ -115,6 +115,55 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     }
 
     /// <summary>
+    /// The rule deciding whether combo credited by the very press that TOOK a claim counts as a
+    /// streak that can take that claim away again (see <see cref="TypingEngine.ComboRestored"/>).
+    /// ONE press can do both: a space struck inside a word abandons the rest of it (the skip, which
+    /// snapshots the claim) and is then judged on the word gap it lands on, where it rebuilds the run
+    /// to exactly 1. That 1 is not progress the player made after the break, it is the break's own
+    /// press, so under the live rule it does not arm the next break with a streak.
+    ///
+    /// <para>Kept as its own axis rather than folded into <see cref="ComboClaimRule"/> for the reason
+    /// that one is kept out of <see cref="ComboRestoreRule"/>: they are two independent facts
+    /// (whether an EMPTY break is passive, and whether a break standing on nothing but the claim's
+    /// own credit is), and a stored row has to be re-derived under the pair it was played under. Live
+    /// play is always <see cref="NotAStreakOfItsOwn"/>, and the axis is inert under
+    /// <see cref="ComboClaimRule.LatestBreakWins"/> and under <see cref="ComboRestoreRule.Never"/>,
+    /// where no claim is passive and no claim exists at all.</para>
+    ///
+    /// <para>It is a NARROW axis, narrower even than <see cref="WordSkipRule"/>: only a word skip
+    /// ever credits a claim's own press, so it reaches only a row that skipped a word AND broke again
+    /// on the gap that skip parked it against, before earning a single character back.</para>
+    /// </summary>
+    public enum SkipSpaceCreditRule
+    {
+        /// <summary>
+        /// The rule since backlog 243, and the only one live play uses: combo standing only because
+        /// the claim's own press credited it is not a streak, so a break that takes nothing more than
+        /// that leaves the outstanding claim exactly where it is, precisely as a break landing at
+        /// zero does (<see cref="ComboClaimRule.StreakedBreakWins"/>). The credit is SPENT by that
+        /// break, so the next one is measured against zero again and any character the player really
+        /// does type in between arms it normally.
+        ///
+        /// <para>Nothing else moves: the skipping space still earns its gap cell's judgement and
+        /// still rebuilds the run to 1 (that combo is real, it is only its OWNERSHIP of the claim
+        /// that this denies), and a break with a streak of its own takes the claim exactly as
+        /// before.</para>
+        /// </summary>
+        NotAStreakOfItsOwn,
+
+        /// <summary>
+        /// The rule every score stored BEFORE backlog 243 was played under: the skip's own space
+        /// counted like any other correct character, so a typo on the very gap it parked the caret on
+        /// broke a streak of 1, cleared backlog 176's zero test, and overwrote the deep claim the
+        /// same press had just taken with a worthless one. Walking back and typing the whole word out
+        /// then restored nothing.
+        ///
+        /// <para>Only score RECALCULATION selects this. Nothing in gameplay may.</para>
+        /// </summary>
+        AStreakLikeAnyOther,
+    }
+
+    /// <summary>
     /// The rule deciding what a word skip does to the cells it gives up (see
     /// <see cref="TypingEngine.SpaceSkipsWord"/>). Same reason as the rules above: a stored score has
     /// to be re-derived under the rule it was PLAYED under. Live play is always
@@ -559,6 +608,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// The same shape as <see cref="FixRestoresTheComboBreak"/>, and for the same reason.</para>
         /// </summary>
         public static bool OnlyABreakWithAStreakTakesTheClaim(ComboClaimRule rule) => rule == ComboClaimRule.StreakedBreakWins;
+
+        /// <summary>
+        /// Whether combo credited by the claim's OWN press (the space that skipped the word, judged
+        /// on the gap it landed on) is excluded from the streak the next break is measured by
+        /// (backlog 243).
+        ///
+        /// <para>Read in exactly one place, <c>TypingEngine.snapshotRedeemableBreak</c>, the same one
+        /// site <see cref="OnlyABreakWithAStreakTakesTheClaim"/> is read in and which both write
+        /// sites funnel through, so the rule is IMPLEMENTED once and only SELECTED twice: live play
+        /// takes the engine's default and <see cref="TypeBeatReplayScorer"/> sets the era's. The same
+        /// shape as <see cref="FixRestoresTheComboBreak"/>, and for the same reason.</para>
+        ///
+        /// <para>It needs no CONFIG frame bit, exactly as <see cref="ComboClaimRule"/> and
+        /// <see cref="OffTimeRule"/> do not: who owns a claim never moves the caret, so a stored
+        /// replay's keystream is coherent under either arm and the arm can be selected from
+        /// outside.</para>
+        /// </summary>
+        public static bool TheClaimsOwnCreditIsNotAStreak(SkipSpaceCreditRule rule) => rule == SkipSpaceCreditRule.NotAStreakOfItsOwn;
 
         /// <summary>
         /// Whether a space typed on a space cell is judged on a zeroed delta rather than on the clock
