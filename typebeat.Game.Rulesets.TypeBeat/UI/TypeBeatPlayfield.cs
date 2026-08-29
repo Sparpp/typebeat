@@ -717,10 +717,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <see cref="TypingEngine.RetypeSelectionAnchor"/>). That is what lets a whole word
         /// disappear with no new replay frame vocabulary and no new era bit: a stored run holds
         /// exactly the calls the live engine made, in the order it made them, stamped with the one
-        /// timestamp it judged them at. Both are gated on
-        /// <see cref="TypingEngine.AllowWrongInput"/> exactly as the plain backspace is, and both are
-        /// LIVE input only: replay playback feeds recorded frames straight into the engine and never
-        /// reaches this class.</para>
+        /// timestamp it judged them at. The ERASE width is gated on
+        /// <see cref="TypingEngine.AllowWrongInput"/> exactly as the plain backspace is; the SELECT
+        /// width is not, since backlog 244 (a word skip is orthogonal to the input model, so a
+        /// Gatekeeper run has abandoned cells to select back over even though it can have no typos).
+        /// Both are LIVE input only: replay playback feeds recorded frames straight into the engine
+        /// and never reaches this class.</para>
         ///
         /// <para>The SELECTION a Ctrl+A computes is pure UI state held on the playfield
         /// (<see cref="TypeBeatPlayfield.CurrentRetypeSelection"/>); the engine never learns it
@@ -912,7 +914,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // The key is still swallowed rather than passed on: backspace carries a global
                     // binding (GlobalAction.DeselectAllMods) and editor semantics that gameplay must
                     // not start triggering just because the setting is off.
-                    if (!engine.AllowWrongInput)
+                    //
+                    // The ONE thing an erase key does under Gatekeeper is consume a live SELECTION
+                    // (backlog 244), and that is not a widening of the erase: the selection is a
+                    // mass backspace the player has already asked for with Ctrl+A, over cells a word
+                    // skip abandoned (the only kind Gatekeeper can produce), so refusing here would
+                    // offer a selection the erase key alone could not take back. Nothing else about
+                    // this arm opens: with no selection live the key is still inert.
+                    if (!engine.AllowWrongInput && playfield.CurrentRetypeSelection is null)
                         return true;
 
                     // Repeat honoured: hold to erase, monkeytype-style. Handled BEFORE the
@@ -936,18 +945,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 if (gesture == TypeBeatAction.SelectBackToTypo)
                 {
-                    // Offer the run back to the nearest unfixed typo for retyping. Gated on the same
-                    // flag the erase is, and for the same reason: under Gatekeeper no wrong
-                    // character ever lands, so there is never a typo to select and the key is
-                    // swallowed rather than passed on (the default Ctrl+A carries meaning elsewhere
-                    // in the game that gameplay must not start triggering just because the model is
-                    // strict).
-                    if (!engine.AllowWrongInput)
-                        return true;
-
+                    // Offer the run back to the earliest unfixed mistake for retyping. NOT gated on
+                    // AllowWrongInput, unlike the erase above, and backlog 244 is where that stopped
+                    // being the same question. The old gate read "under Gatekeeper no wrong character
+                    // ever lands, so there is never a typo to select", which was true of typos and
+                    // false of the other thing the query now answers: a WORD SKIP is orthogonal to
+                    // the input model (see TypingEngine.SpaceSkipsWord, whose gate carries no
+                    // AllowWrongInput term at all), so a Gatekeeper player can and does leave
+                    // abandoned cells behind, and they are exactly the cells this gesture exists to
+                    // walk back to. The query itself is the honest gate: it answers -1 when there is
+                    // nothing behind the caret to retype, under either input model.
+                    //
+                    // The key is still SWALLOWED either way, effective or not, which is unchanged:
+                    // the default Ctrl+A carries meaning elsewhere in the game that gameplay must
+                    // not start triggering.
                     int anchor = engine.RetypeSelectionAnchor;
 
-                    // No typo behind the caret: a genuine no-op, nothing to select and nothing to
+                    // Nothing behind the caret: a genuine no-op, nothing to select and nothing to
                     // clear (a selection can only exist where the query just answered). Pressing it
                     // again with one already open simply recomputes the same range.
                     if (anchor >= 0)

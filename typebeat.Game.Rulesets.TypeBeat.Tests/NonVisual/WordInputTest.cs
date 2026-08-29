@@ -4,7 +4,10 @@
 // Backlog 182: the two WORD-LEVEL editing gestures every typing site has, brought into live
 // gameplay. Ctrl+Backspace erases the previous word (the gaps behind the caret, then the word behind
 // them); Ctrl+A offers back the run from the caret to the start of the word holding the EARLIEST
-// unfixed typo (backlog 184 inverted that from the nearest), so every mistake is retyped in one go.
+// unfixed mistake (backlog 184 inverted that from the nearest), so every mistake is retyped in one
+// go. Backlog 244 made "mistake" cover a cell a WORD SKIP abandoned as well as a typed-through typo,
+// which is what lets a player who skipped a word select back over it and, by retyping it, redeem the
+// combo claim the skip took against it.
 //
 // The engine's whole share of that is TWO PURE QUERIES, TypingEngine.WordBackspaceTarget and
 // TypingEngine.RetypeSelectionAnchor, which say where each gesture stops and mutate nothing. This
@@ -535,6 +538,144 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(cells(engine)[1].State, Is.EqualTo(CellState.Untyped), "the phantom cell was reclaimed");
                 Assert.That(cells(engine)[2].State, Is.EqualTo(CellState.Untyped));
                 Assert.That(cells(engine)[3].State, Is.EqualTo(CellState.Untyped));
+            });
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // Ctrl+A over a SKIPPED word (backlog 244)
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// A word skip leaves cells the player still owes, so it anchors the selection exactly as a
+        /// typo does, on the head of the word that was given up. Nothing was typed wrong here at all:
+        /// the abandoned cell IS the mistake, and before backlog 244 this answered -1, which made the
+        /// one mistake the game hands out in a single keystroke the one mistake the single-keystroke
+        /// correction could not reach.
+        /// </summary>
+        [Test]
+        public void AnAbandonedCellAnchorsOnItsOwnWordsStart()
+        {
+            var engine = started();
+            engine.SpaceSkipsWord = true;
+
+            Assert.That(engine.ProcessKey('a', 1000), Is.True);
+            Assert.That(engine.ProcessKey(' ', 1200), Is.True, "the space abandons the rest of \"ab\" and takes the gap");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(cells(engine)[1].State, Is.EqualTo(CellState.Abandoned));
+                Assert.That(cells(engine).Any(x => x.State == CellState.Wrong), Is.False, "nothing was typed wrong");
+                Assert.That(engine.CaretIndex, Is.EqualTo(3), "past the gap, at the head of \"cd\"");
+                Assert.That(engine.RetypeSelectionAnchor, Is.Zero, "the head of \"ab\", the word that was given up");
+            });
+        }
+
+        /// <summary>
+        /// The two kinds of unfixed cell are ONE ordered list, not two ranked kinds: the earliest wins
+        /// whichever it is. Here the abandoned word is earlier than the typo, so it takes the anchor;
+        /// the mirror below has them the other way round.
+        /// </summary>
+        [Test]
+        public void AnEarlierAbandonedWordWinsOverALaterTypo()
+        {
+            var engine = started();
+            engine.SpaceSkipsWord = true;
+
+            Assert.That(engine.ProcessKey('a', 1000), Is.True);
+            Assert.That(engine.ProcessKey(' ', 1200), Is.True, "abandons 'b', caret to the head of \"cd\"");
+            Assert.That(engine.ProcessKey('z', 2000), Is.True, "wrong for 'c'");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(cells(engine)[1].State, Is.EqualTo(CellState.Abandoned));
+                Assert.That(cells(engine)[3].State, Is.EqualTo(CellState.Wrong));
+                Assert.That(engine.RetypeSelectionAnchor, Is.Zero, "the head of \"ab\", not of \"cd\"");
+            });
+        }
+
+        /// <summary>
+        /// The mirror: a typo in the FIRST word and a skip in the second still anchors on the typo,
+        /// so an abandoned cell is not treated as nearer, more urgent or otherwise special. One
+        /// selection covers both, which is the whole point of taking the earliest.
+        /// </summary>
+        [Test]
+        public void AnEarlierTypoWinsOverALaterAbandonedWord()
+        {
+            var engine = started();
+            engine.SpaceSkipsWord = true;
+
+            Assert.That(engine.ProcessKey('x', 1000), Is.True, "wrong for 'a'");
+            Assert.That(engine.ProcessKey('b', 1500), Is.True);
+            Assert.That(engine.ProcessKey(' ', 2000), Is.True, "an ordinary gap press: the caret is on the gap");
+            Assert.That(engine.ProcessKey('c', 2000), Is.True);
+            Assert.That(engine.ProcessKey(' ', 2500), Is.True, "abandons 'd' and takes the second gap");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(cells(engine)[0].State, Is.EqualTo(CellState.Wrong));
+                Assert.That(cells(engine)[4].State, Is.EqualTo(CellState.Abandoned));
+                Assert.That(engine.RetypeSelectionAnchor, Is.Zero, "the head of \"ab\", not of \"cd\"");
+            });
+        }
+
+        /// <summary>
+        /// THE ERGONOMIC POINT, end to end: a player who skipped a word presses Ctrl+A, the collapse
+        /// erases back over the abandoned cell (reclaiming it on the way, as a plain backspace does),
+        /// and re-typing the cell the skip took its claim against REDEEMS that claim through the
+        /// existing backlog 140 machinery. Backlog 243 is what makes the claim still be there to
+        /// redeem: the skip's own space press credits its combo to the claim rather than building a
+        /// run that a later break could take the claim away with.
+        /// </summary>
+        [Test]
+        public void CollapsingASelectionOverASkipRedeemsItsComboClaim()
+        {
+            var engine = started();
+            engine.SpaceSkipsWord = true;
+
+            int? restored = null;
+            engine.ComboRestored += amount => restored = amount;
+
+            Assert.That(engine.ProcessKey('a', 1000), Is.True);
+            Assert.That(engine.ProcessKey('b', 1500), Is.True);
+            Assert.That(engine.ProcessKey(' ', 2000), Is.True, "the first gap, typed normally");
+            Assert.That(engine.ProcessKey('c', 2000), Is.True);
+            Assert.That(engine.Combo, Is.EqualTo(4), "a streak of four is what the skip is about to break");
+
+            Assert.That(engine.ProcessKey(' ', 2500), Is.True, "abandons 'd', claims the break against it, then takes the gap");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(cells(engine)[4].State, Is.EqualTo(CellState.Abandoned));
+                Assert.That(engine.CaretIndex, Is.EqualTo(6), "past the second gap, at the head of \"ef\"");
+                Assert.That(engine.Combo, Is.EqualTo(1), "the skip's own space press, and no more (backlog 243 credits it to the claim)");
+            });
+
+            int anchor = engine.RetypeSelectionAnchor;
+            Assert.That(anchor, Is.EqualTo(3), "the head of \"cd\", the word that was given up");
+
+            int erases = eraseBackTo(engine, anchor);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(erases, Is.EqualTo(2), "the gap, then one press over the phantom cell onto 'c'");
+                Assert.That(engine.CaretIndex, Is.EqualTo(3));
+                Assert.That(cells(engine)[4].State, Is.EqualTo(CellState.Untyped), "the abandoned cell was reclaimed");
+                Assert.That(restored, Is.Null, "and nothing is restored by erasing: the claim is redeemed by TYPING the cell");
+            });
+
+            Assert.That(engine.ProcessKey('c', 2000), Is.True, "an inert retype of a cell that was already correct");
+            Assert.That(restored, Is.Null, "the claim is against 'd', not 'c'");
+
+            Assert.That(engine.ProcessKey('d', 2500), Is.True, "the cell the skip gave up");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(cells(engine)[4].State, Is.EqualTo(CellState.Correct));
+                Assert.That(restored, Is.EqualTo(4), "the streak the skip broke comes back at the retyped cell");
+                // 1 (the skip's own space) + the 4 restored + this press's own increment; the 'c'
+                // retype is inert and adds nothing.
+                Assert.That(engine.Combo, Is.EqualTo(6));
+                Assert.That(engine.MaxCombo, Is.EqualTo(6));
             });
         }
 

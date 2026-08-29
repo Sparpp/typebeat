@@ -31,8 +31,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     ///
     /// <para>Two things are being pinned that the headless <c>WordInputTest</c> cannot reach. The
     /// GESTURES themselves: which keys the handler carves out of the Ctrl fall-through, that the
-    /// selection is UI state the next effective input consumes, and that Gatekeeper swallows both
-    /// exactly as it swallows the plain backspace. And the REPLAY: because both gestures decompose
+    /// selection is UI state the next effective input consumes, and what Gatekeeper does to each
+    /// (it swallows both, and since backlog 244 the SELECT width still works there over a word a
+    /// skip gave up, because skipping is orthogonal to the input model). And the REPLAY: because both gestures decompose
     /// into ordinary engine calls, the recording is a plain run of backspace frames plus at most one
     /// character frame, at the one timestamp the live engine judged them at, and re-deriving that
     /// recording through the legacy encode/decode has to reproduce the live run exactly. No new frame
@@ -334,10 +335,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
-        /// Gatekeeper swallows both gestures whole, exactly as it swallows the plain backspace and
-        /// for the same reason: with no wrong character able to land there is nothing to erase back
-        /// over and nothing to select. Swallowed rather than passed on, so neither key starts
-        /// triggering its meaning elsewhere in the game just because the model is strict.
+        /// Gatekeeper swallows both gestures whole and neither does anything, on a run where nothing
+        /// is owed: with no wrong character able to land there is nothing to erase back over, and
+        /// with no word given up there is nothing to select either. Since backlog 244 the second half
+        /// of that is the QUERY's answer rather than the gate's (see the skip case below), and the
+        /// swallow is unchanged: neither key starts triggering its meaning elsewhere in the game just
+        /// because the model is strict.
         /// </summary>
         [Test]
         public void TestGatekeeperSwallowsBothGestures()
@@ -358,6 +361,85 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 engine.CaretIndex == 5 && engine.Lines[0].Cells.Take(5).All(c => c.State == CellState.Correct));
             AddAssert("neither gesture recorded anything", () => frames.Count == recorded);
             AddAssert("no selection exists", () => playfield.CurrentRetypeSelection == null);
+        }
+
+        /// <summary>
+        /// The other half of that, and the reason backlog 244 took the gate off the SELECT width:
+        /// word skipping is orthogonal to the input model, so a Gatekeeper player CAN leave cells
+        /// behind, and those cells are exactly what the gesture exists to walk back to. Ctrl+A offers
+        /// the skipped word, a letter consumes the offer, and the cells are open to be typed again.
+        /// </summary>
+        [Test]
+        public void TestGatekeeperStillSelectsBackOverASkippedWord()
+        {
+            waitForLine();
+
+            AddStep("Gatekeeper, with word skipping on", () =>
+            {
+                engine.AllowWrongInput = false;
+                engine.SpaceSkipsWord = true;
+            });
+
+            type("a ");
+
+            AddAssert("the rest of \"ab\" was given up", () =>
+                cell(1).State == CellState.Abandoned && cell(2).State == CellState.Correct && engine.CaretIndex == 3);
+
+            ctrl(Key.A);
+
+            AddAssert("the skipped word is offered back", () =>
+                playfield.CurrentRetypeSelection is TypeBeatPlayfield.RetypeSelection { LineIndex: 0, StartCell: 0, EndCell: 3 });
+            AddAssert("and highlighted", () => activeDisplay.SelectionVisible);
+
+            AddStep("press A (the first char of the selected run)", () => InputManager.Key(Key.A));
+
+            AddAssert("the selection collapsed and the key landed on its anchor", () =>
+                engine.CaretIndex == 1
+                && cell(0).State == CellState.Correct
+                && engine.Lines[0].Cells.Skip(1).All(c => c.State == CellState.Untyped));
+            AddAssert("the selection is gone", () => playfield.CurrentRetypeSelection == null);
+
+            AddStep("retype the word", () =>
+            {
+                InputManager.Key(Key.B);
+                InputManager.Key(Key.Space);
+            });
+
+            AddAssert("the abandoned cell was earned back", () => cell(1).State == CellState.Correct && engine.CaretIndex == 3);
+        }
+
+        /// <summary>
+        /// The one thing an ERASE key does under Gatekeeper: consume a selection the player has
+        /// already asked for. Without this the gesture could offer a run the erase key alone could
+        /// not take back. Nothing else about the erase opens, which the second press pins: with the
+        /// selection gone the key is inert again and the reclaimed cells stay where they are.
+        /// </summary>
+        [Test]
+        public void TestGatekeeperBackspaceOnlyCollapsesALiveSelection()
+        {
+            waitForLine();
+
+            AddStep("Gatekeeper, with word skipping on", () =>
+            {
+                engine.AllowWrongInput = false;
+                engine.SpaceSkipsWord = true;
+            });
+
+            type("a ");
+            ctrl(Key.A);
+            AddAssert("selection held", () => playfield.CurrentRetypeSelection != null);
+
+            AddStep("press Backspace", () => InputManager.Key(Key.BackSpace));
+
+            AddAssert("the whole selection was erased and nothing typed", () =>
+                engine.CaretIndex == 0 && engine.Lines[0].Cells.All(c => c.State == CellState.Untyped));
+            AddAssert("the selection is gone", () => playfield.CurrentRetypeSelection == null);
+
+            int recorded = 0;
+            AddStep("capture frame count", () => recorded = frames.Count);
+            AddStep("press Backspace again", () => InputManager.Key(Key.BackSpace));
+
+            AddAssert("with no selection the key is inert again", () => frames.Count == recorded && engine.CaretIndex == 0);
         }
 
         // -----------------------------------------------------------------------------------------

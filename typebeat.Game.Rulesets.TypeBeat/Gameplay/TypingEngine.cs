@@ -3072,26 +3072,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>
         /// Where a CTRL+A (backlog 182, "select back to the mistake I have to retype") should put the
-        /// start of its selection: the first cell of the run holding the EARLIEST unfixed typo behind
-        /// the caret, or -1 when there is no typo behind the caret at all (the gesture is then a
-        /// no-op). The selection itself is the half-open range [this, <see cref="CaretIndex"/>),
+        /// start of its selection: the first cell of the run holding the EARLIEST unfixed MISTAKE
+        /// behind the caret, or -1 when there is no mistake behind the caret at all (the gesture is
+        /// then a no-op). The selection itself is the half-open range [this, <see cref="CaretIndex"/>),
         /// and it is pure UI state: nothing in the engine knows it exists. Consuming it is composed,
         /// like the gesture above, out of ordinary <see cref="ProcessBackspace"/> calls back to this
         /// index plus at most one <see cref="ProcessKey"/>, so a replay stores exactly the engine
         /// calls that were made.
         ///
-        /// <para>A typo is a cell in <see cref="CellState.Wrong"/>: a wrong character typed through
-        /// and not yet backspaced away. The scan takes the EARLIEST one on the line, so the selection
-        /// covers every unfixed typo behind the caret rather than only the most recent (backlog 184).
+        /// <para>A MISTAKE is a cell in one of two states, and they are the two ways a cell behind the
+        /// caret can still be owed something. <see cref="CellState.Wrong"/> is a wrong character typed
+        /// through and not yet backspaced away. <see cref="CellState.Abandoned"/> is a character a
+        /// word skip gave up (backlog 167, see <see cref="SpaceSkipsWord"/>), which since backlog 244
+        /// anchors a selection exactly as a typo does: an abandoned cell is precisely a cell the
+        /// player still has to type, the reclaim already runs through
+        /// <see cref="ProcessBackspace"/>'s transparent step-over, and re-typing the cell REDEEMS the
+        /// combo claim the skip took against it (backlog 140's machinery, and backlog 243's fix to
+        /// who owns that claim). Without this the one mistake the game hands a player in a single
+        /// keystroke was the one mistake the one-keystroke correction refused to reach.</para>
+        ///
+        /// <para>An abandoned cell is never itself a word GAP: <see cref="skipCurrentWord"/> scans
+        /// strictly between the gaps either side of the caret, so the gap-anchoring case below is
+        /// reachable only by a typo. The two states share the scan anyway, because "the first cell I
+        /// must retype to fix this" is one rule and stating it twice is how the two drift apart.</para>
+        ///
+        /// <para>The scan takes the EARLIEST mistake of either kind on the line, so the selection
+        /// covers every unfixed one behind the caret rather than only the most recent (backlog 184).
+        /// An earlier ABANDONED cell therefore wins over a later typo just as an earlier typo wins
+        /// over a later abandoned one: the two are one ordered list, not two ranked kinds.
         /// The gesture is "fix my mistakes", and it is one keystroke: offering the shortest retype
         /// would leave a player with two spoiled words pressing it, retyping, pressing it again, and
         /// having no way to see from the caret how many rounds are left. Retyping the cells in between
         /// costs nothing, since a correct cell re-typed is scoring-inert.</para>
         ///
-        /// <para>WHICH run the typo's cell opens has two cases, and they are the same rule stated
-        /// twice: the selection starts at the first cell the player must retype to fix the typo. For
-        /// an ordinary lyric character that is its WORD's first cell (walk back to the gap before
-        /// it). For a WORD GAP holding a typo (possible since backlog 181, see
+        /// <para>WHICH run the mistake's cell opens has two cases, and they are the same rule stated
+        /// twice: the selection starts at the first cell the player must retype to fix it. For an
+        /// ordinary lyric character (a typo or an abandoned cell alike) that is its WORD's first cell
+        /// (walk back to the gap before it), which for a skipped word is its head: the mass backspace
+        /// the caller composes reclaims the abandoned tail on its way past, exactly as a plain
+        /// backspace there does. For a WORD GAP holding a typo (possible since backlog 181, see
         /// <see cref="WrongInputOnWordGaps"/>) the gap IS the cell to retype and it belongs to no
         /// word, so the selection starts on the gap itself; walking back from it would swallow the
         /// perfectly good word in front of it for nothing.</para>
@@ -3100,7 +3119,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// scan is over [0, <see cref="CaretIndex"/>), so a selection always covers at least one cell.
         /// The one typo that can sit AT the caret, the gap a <see cref="StrictSpaces"/> park is
         /// holding, is deliberately outside that range: it needs no selection, being one backspace
-        /// away under the same rule that parked it.</para>
+        /// away under the same rule that parked it. An abandoned cell can never sit at or ahead of
+        /// the caret at all, since the skip that made it left the caret past the whole word.</para>
         /// </summary>
         public int RetypeSelectionAnchor
         {
@@ -3111,24 +3131,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 var cells = lines[activeLineIndex].Cells;
                 int limit = Math.Min(caretIndex, cells.Count);
-                int typo = -1;
+                int mistake = -1;
 
                 for (int i = 0; i < limit; i++)
                 {
-                    if (cells[i].State == CellState.Wrong)
+                    // The two unfixed states, taken in one pass so the earliest of EITHER kind wins
+                    // (backlog 244 added the abandoned one).
+                    if (cells[i].State == CellState.Wrong || cells[i].State == CellState.Abandoned)
                     {
-                        typo = i;
+                        mistake = i;
                         break;
                     }
                 }
 
-                if (typo < 0)
+                if (mistake < 0)
                     return -1;
 
-                if (isWordGap(cells[typo]))
-                    return typo;
+                if (isWordGap(cells[mistake]))
+                    return mistake;
 
-                int anchor = typo;
+                int anchor = mistake;
 
                 while (anchor > 0 && !isWordGap(cells[anchor - 1]))
                     anchor--;
