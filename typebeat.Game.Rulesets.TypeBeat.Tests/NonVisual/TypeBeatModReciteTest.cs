@@ -17,9 +17,10 @@ using Assert = NUnit.Framework.Legacy.ClassicAssert;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
-    /// Recite's shipping surface (backlog 229): the acronym the server keys leaderboards and score
-    /// badges off, the ranked flag that lets its scores reach them, the 1.01x it is scaled by, and
-    /// the column it appears in. Plus the pure hiding rule the whole mod is made of.
+    /// Recite's shipping surface (backlog 229, multiplier raised to 1.07x by backlog 240): the
+    /// acronym the server keys leaderboards and score badges off, the ranked flag that lets its
+    /// scores reach them, the 1.07x it is scaled by, and the column it appears in. Plus the pure
+    /// hiding rule the whole mod is made of.
     ///
     /// <para>The acronym is a cross-repo contract: once a score carrying "RE" is stored, the letters
     /// can never be reused or dropped from either the client's or the server's table (the FC/FT
@@ -44,7 +45,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void ScoreMultiplierIsOnePointZeroOne()
+        public void ScoreMultiplierIsOnePointZeroSeven()
         {
             // The authoritative (non-obsolete) path osu uses for scoring and the mod-select overlay.
             var calculator = new TypeBeatScoreMultiplierCalculator(
@@ -52,10 +53,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             double multiplier = calculator.CalculateFor(new Mod[] { new TypeBeatModRecite() });
 
-            Assert.AreEqual(1.01, multiplier, 1e-9);
+            Assert.AreEqual(1.07, multiplier, 1e-9);
 
 #pragma warning disable CS0618 // the obsolete self-report is exactly what is being pinned
-            Assert.AreEqual(1.01, new TypeBeatModRecite().ScoreMultiplier, 1e-9,
+            Assert.AreEqual(1.07, new TypeBeatModRecite().ScoreMultiplier, 1e-9,
                 "the legacy self-report and the authoritative calculator must not drift");
 #pragma warning restore CS0618
 
@@ -64,7 +65,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Flashlight are now mutually exclusive in the mod-select overlay (see
             // ReciteAndFlashlightAreMutuallyExclusive below).
             double stacked = calculator.CalculateFor(new Mod[] { new TypeBeatModRecite(), new TypeBeatModFlashlight() });
-            Assert.AreEqual(1.01 * 1.05, stacked, 1e-9);
+            Assert.AreEqual(1.07 * 1.05, stacked, 1e-9);
         }
 
         /// <summary>
@@ -111,7 +112,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
 
             Assert.AreEqual(1.80602730, withoutRecite, 1e-8);
-            Assert.AreEqual(1.824087573, withRecite, 1e-8);
+            Assert.AreEqual(1.932449211, withRecite, 1e-8);
             Assert.Less(withRecite, 2.0, "the server clamps a stack over STACK_CAP and stores it unranked");
         }
 

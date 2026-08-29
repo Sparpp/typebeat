@@ -56,9 +56,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         public override ModType Type => ModType.DifficultyIncrease;
 
         // Legacy self-report only; the authoritative multiplier lives in the non-obsolete
-        // TypeBeatScoreMultiplierCalculator. Both say 1.01x and must move together.
+        // TypeBeatScoreMultiplierCalculator. Both say 1.07x and must move together.
 #pragma warning disable CS0672 // Member overrides obsolete member
-        public override double ScoreMultiplier => 1.01;
+        public override double ScoreMultiplier => 1.07;
 #pragma warning restore CS0672
 
         /// <summary>
