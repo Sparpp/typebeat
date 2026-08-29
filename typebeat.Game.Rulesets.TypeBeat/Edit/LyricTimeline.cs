@@ -201,9 +201,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             foreach (var syllable in handleLayer.OfType<SyllableHandle>())
                 syllable.UpdateLayout(this);
 
-            foreach (var flag in handleLayer.OfType<SingEndFlag>())
-                flag.UpdateLayout(this);
-
             // A live tap-timing pass has committed nothing yet; its taps show as ghosts on top.
             ghostLayer.UpdateGhosts(state.TapSession?.Taps, PositionOf);
 
@@ -270,8 +267,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 // ONE boundary per line start: dragging it moves this line's start and the
                 // previous line's end together (SetLineStart maintains both sides).
+                // There is deliberately no sung-end marker: since backlog 246 a line's end_ms is
+                // derived from its last word's end, so the last word BLOCK is that marker.
                 handleLayer.Add(new BoundaryHandle(this, hitObject));
-                handleLayer.Add(new SingEndFlag(this, hitObject));
             }
         }
 
@@ -776,7 +774,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         break;
 
                     case Grab.ResizeEnd:
-                        TypeBeatEditorOperations.SetUnitTiming(editorBeatmap, hitObject, index, grabStart, boundaryTime);
+                        // The line's sung end (end_ms) rides on its LAST word's end, so this drag is
+                        // also the sung-end lever the removed blue flag used to be: on a Line map it
+                        // re-spreads the whole line, elsewhere end_ms simply follows the word.
+                        TypeBeatEditorOperations.SetUnitEnd(editorBeatmap, hitObject, index, grabStart, boundaryTime);
                         break;
 
                     default:
@@ -1036,88 +1037,5 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             }
         }
 
-        /// <summary>The sung-end flag (persisted end_ms): where a line's vocal stops.</summary>
-        private partial class SingEndFlag : CompositeDrawable
-        {
-            private readonly LyricTimeline strip;
-            private readonly TypeBeatHitObject hitObject;
-
-            [Resolved]
-            private EditorBeatmap editorBeatmap { get; set; } = null!;
-
-            [Resolved]
-            private LyricEditState state { get; set; } = null!;
-
-            public SingEndFlag(LyricTimeline strip, TypeBeatHitObject hitObject)
-            {
-                this.strip = strip;
-                this.hitObject = hitObject;
-
-                Anchor = Anchor.TopLeft;
-                Origin = Anchor.TopCentre;
-                RelativeSizeAxes = Axes.Y;
-                // Wide hit box, thin visual (a 2px stem with a small flag), same as BoundaryHandle.
-                Width = 20;
-
-                InternalChildren = new Drawable[]
-                {
-                    new Box
-                    {
-                        Anchor = Anchor.TopCentre,
-                        Origin = Anchor.TopCentre,
-                        RelativeSizeAxes = Axes.Y,
-                        Width = 2,
-                        Colour = TypeBeatStyle.SungAccent,
-                    },
-                    new Box
-                    {
-                        Anchor = Anchor.TopCentre,
-                        Origin = Anchor.TopLeft,
-                        Size = new Vector2(8, 6),
-                        Colour = TypeBeatStyle.SungAccent,
-                    },
-                };
-            }
-
-            public void UpdateLayout(LyricTimeline parent)
-            {
-                Alpha = state.HiddenByTapScope(hitObject) ? 0 : 1;
-
-                if (Alpha > 0)
-                    X = parent.PositionOf(hitObject.Line.SingEndTime);
-            }
-
-            public override bool HandlePositionalInput => true;
-
-            protected override bool OnMouseDown(MouseDownEvent e) => true;
-
-            // Same reasoning as BoundaryHandle: claim the click so the double click is routed here,
-            // and jump the caret to the flag's own time rather than authoring a line under it.
-            protected override bool OnClick(ClickEvent e) => true;
-
-            protected override bool OnDoubleClick(DoubleClickEvent e)
-            {
-                strip.SeekTo(hitObject.Line.SingEndTime);
-                return true;
-            }
-
-            protected override bool OnDragStart(DragStartEvent e)
-            {
-                state.BeginInteraction();
-                editorBeatmap.BeginChange();
-                return true;
-            }
-
-            protected override void OnDrag(DragEvent e)
-            {
-                TypeBeatEditorOperations.SetSingEnd(editorBeatmap, hitObject, strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X));
-            }
-
-            protected override void OnDragEnd(DragEndEvent e)
-            {
-                editorBeatmap.EndChange();
-                state.EndInteraction();
-            }
-        }
     }
 }

@@ -252,7 +252,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(target.Units.Select(u => (u.StartTime, u.EndTime)), Is.EqualTo(new[] { (3000d, 3800d), (3900d, 4800d) }));
                 Assert.That(target.Units.All(u => u.Source == TimingSource.Explicit), Is.True);
-                Assert.That(target.SingEndTime, Is.EqualTo(5500)); // unit paste does not touch line fields
+                // A unit paste touches no line field of its own, but this run reached the LAST word
+                // and overwrote its end, and end_ms is auto-derived from that end.
+                Assert.That(target.SingEndTime, Is.EqualTo(4800));
+                Assert.That(target.EndTime, Is.EqualTo(6000)); // the typeable window is untouched
                 Assert.That(target.Estimated, Is.False);
             });
         }

@@ -989,12 +989,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
-        /// The yellow line boundary and the blue sung-end flag swallow the press (they are drag
-        /// targets), which used to make both clicks on them inert. A double click now jumps the
-        /// caret to the handle's OWN time, and never authors a line under it.
+        /// The yellow line boundary swallows the press (it is a drag target), which used to make
+        /// both clicks on it inert. A double click now jumps the caret to the handle's OWN time,
+        /// and never authors a line under it.
+        ///
+        /// <para>The blue sung-end flag was the other handle this pinned. Backlog 246 removed it
+        /// outright (a line's end_ms is derived from its last word now), so there is no second
+        /// handle to seek to and that half of the pin is gone rather than repointed: the last word
+        /// BLOCK is what sits at the sung end today, and its double click is pinned by
+        /// <see cref="TestWordDoubleClickSeeksToTheClickWithoutPlayback"/>.</para>
         /// </summary>
         [Test]
-        public void TestHandleDoubleClicksSeekToTheirOwnTime()
+        public void TestBoundaryDoubleClickSeeksToItsOwnTime()
         {
             AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
 
@@ -1013,11 +1019,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddUntilStep("the caret sits on the boundary itself", () => Math.Abs(EditorClock.CurrentTime - 3000) < 10);
             AddAssert("no line was authored", () => EditorBeatmap.HitObjects.Count == 2);
+        }
 
-            AddStep("double-click just right of line 2's sung-end flag", () => doubleClickStripAtX(strip().PositionOf(5000) + 6));
+        /// <summary>
+        /// Backlog 246 removed the sung-end flag, so the 20px grab box that used to straddle a
+        /// line's SingEndTime and swallow every press there is gone: a double click on that spot is
+        /// now the ordinary empty-strip gesture (author a line) rather than an inert one.
+        /// </summary>
+        [Test]
+        public void TestNoSungEndFlagSwallowsTheGestureAnyMore()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
 
-            AddUntilStep("the caret sits on the sung end", () => Math.Abs(EditorClock.CurrentTime - 5000) < 10);
-            AddAssert("still no line authored", () => EditorBeatmap.HitObjects.Count == 2);
+            AddStep("pause at 4000", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(4000);
+            });
+
+            AddUntilStep("strip sized", () => strip().IsLoaded && strip().DrawWidth > 0);
+
+            // Line 2's sung end (5000) is also where its flag used to sit. 6px to the right of it is
+            // inside the old 20px grab box, so before the removal both clicks died on the flag.
+            AddStep("double-click just right of line 2's old flag position", () => doubleClickStripAtX(strip().PositionOf(5000) + 6));
+
+            AddUntilStep("the gesture reached the strip and authored a line", () => EditorBeatmap.HitObjects.Count == 3);
         }
 
         /// <summary>

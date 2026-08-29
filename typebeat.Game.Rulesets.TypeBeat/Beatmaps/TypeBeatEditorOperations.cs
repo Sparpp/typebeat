@@ -228,6 +228,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// Sets a line's sung end (the vocal-end estimate; persisted as end_ms). For the LAST line
         /// this also drags the derived typeable window (EndTime = singEnd + tail), mirroring reload.
+        ///
+        /// <para>Since backlog 246 this is NOT a lever the mapper reaches directly: the editor has no
+        /// sung-end marker any more, and end_ms is auto-derived from the last word's end (see
+        /// <see cref="syncSingEndToLastUnit"/>). The one gesture that still routes here is the
+        /// LINE-granularity block-end drag, which needs this op's whole-line re-spread through
+        /// <see cref="unitsFor"/>. See <see cref="SetUnitEnd"/>.</para>
         /// </summary>
         public static void SetSingEnd(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, double newSingEnd)
         {
@@ -287,6 +293,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             newEnd = Math.Clamp(newEnd, newStart + MIN_SPAN_MS, upper);
 
             applyUnit(editorBeatmap, hitObject, unitIndex, newStart, newEnd);
+        }
+
+        /// <summary>
+        /// The word-block END drag, which since backlog 246 is also the editor's only sung-end lever
+        /// (the blue sung-end flag is gone).
+        ///
+        /// <para>On a Word or Syllable map this is a plain <see cref="SetUnitTiming"/> resize, and
+        /// the line's end_ms follows the last word by itself through
+        /// <see cref="syncSingEndToLastUnit"/>.</para>
+        ///
+        /// <para>On a LINE-granularity map, dragging the LAST word's end is instead the line-wide
+        /// re-spread the flag used to perform: such a map has no authored word timing, so the line's
+        /// own bounds ARE its timing and every unit re-interpolates across the new span
+        /// (<see cref="SetSingEnd"/> then <see cref="unitsFor"/>). Dragging an INTERIOR block on the
+        /// same map still promotes it to Word granularity, because dragging one IS authoring word
+        /// timing; only the block that sits at the line's sung end carries the line-wide meaning.</para>
+        /// </summary>
+        public static void SetUnitEnd(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, double newStart, double newEnd)
+        {
+            if (hitObject.Granularity == TimingGranularity.Line && unitIndex >= 0 && unitIndex == hitObject.Line.Units.Count - 1)
+            {
+                SetSingEnd(editorBeatmap, hitObject, newEnd);
+                return;
+            }
+
+            SetUnitTiming(editorBeatmap, hitObject, unitIndex, newStart, newEnd);
         }
 
         /// <summary>
@@ -390,6 +422,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         {
             var line = hitObject.Line;
             int count = line.Units.Count;
+            double previousLastEnd = lastUnitEnd(line);
 
             if (indices.Count == 0 || indices.Count != origStart.Count || indices.Count != origEnd.Count)
                 return;
@@ -477,6 +510,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             };
             editorBeatmap.Update(hitObject);
             promoteToWordGranularity(editorBeatmap);
+            syncSingEndToLastUnit(editorBeatmap, hitObject, previousLastEnd);
             editorBeatmap.EndChange();
         }
 
@@ -506,6 +540,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private static void applyUnit(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, double newStart, double newEnd)
         {
             var line = hitObject.Line;
+            double previousLastEnd = lastUnitEnd(line);
             var units = line.Units.ToArray();
             units[unitIndex] = retime(units[unitIndex], newStart, newEnd, TimingSource.Explicit, 1);
 
@@ -522,6 +557,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             };
             editorBeatmap.Update(hitObject);
             promoteToWordGranularity(editorBeatmap);
+            syncSingEndToLastUnit(editorBeatmap, hitObject, previousLastEnd);
             editorBeatmap.EndChange();
         }
 
@@ -659,6 +695,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             editorBeatmap.BeginChange();
             hitObject.Line = rebuild(line, rawText: normalized, units: units);
             editorBeatmap.Update(hitObject);
+            // A word-count change re-spreads the units across the line's EXISTING sung window, so the
+            // new last word lands exactly on the stored end_ms and this is a no-op; a same-count
+            // commit keeps every word's timing, so it is a no-op there too. Called anyway so the
+            // rule holds by construction rather than by a coincidence of how the units are built.
+            syncSingEndToLastUnit(editorBeatmap, hitObject, lastUnitEnd(line));
 
             // A pipe that just created a boundary needs the map to carry sub-word data at all, or
             // the encoder would drop it on the next save (see AddSyllableBoundary's note). Only
@@ -1044,6 +1085,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             editorBeatmap.Update(hitObject);
             // Bisecting the anchor can strip subdivisions that no longer fit inside its half.
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
+            // An append at the tail gives the line a new last word, so its sung end follows.
+            syncSingEndToLastUnit(editorBeatmap, hitObject, lastUnitEnd(line));
             editorBeatmap.EndChange();
             return true;
         }
@@ -1092,6 +1135,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             editorBeatmap.Update(hitObject);
             // The removed word may have carried the map's last syllable subdivisions.
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
+            // Removing the TAIL word leaves an earlier word last, so the line's sung end follows it.
+            syncSingEndToLastUnit(editorBeatmap, hitObject, lastUnitEnd(line));
             editorBeatmap.EndChange();
             return true;
         }
@@ -1770,6 +1815,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             };
             editorBeatmap.Update(hitObject);
             promoteToWordGranularity(editorBeatmap);
+            // A pasted run that reaches the last word overwrites its end, so the sung end follows.
+            syncSingEndToLastUnit(editorBeatmap, hitObject, lastUnitEnd(line));
             editorBeatmap.EndChange();
         }
 
@@ -1793,6 +1840,57 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             => hitObject.Granularity == TimingGranularity.Line
                 ? LrcParser.InterpolateUnits(rawText, start, singEnd)
                 : clampUnits(currentUnits, start, end);
+
+        /// <summary>A line's last word end, or NaN when it has no units (so any comparison reads as "moved").</summary>
+        private static double lastUnitEnd(LyricLine line) => line.Units.Count > 0 ? line.Units[^1].EndTime : double.NaN;
+
+        /// <summary>
+        /// Auto-derives a line's sung end (persisted as end_ms) from its LAST WORD's end. Backlog 246
+        /// removed the editor's sung-end marker, so end_ms is no longer authored directly: it follows
+        /// the last word. Call this from inside an op's transaction, passing the end that unit had
+        /// BEFORE the edit (<see cref="lastUnitEnd"/> taken up front).
+        ///
+        /// <para>ONLY when that end actually MOVED, and this is the whole point of the guard. A
+        /// changed end_ms is genuine map CONTENT, not bookkeeping: it is what
+        /// <see cref="Gameplay.InstrumentalGaps"/> perceives an instrumental stretch from
+        /// (next.FirstVocalTime - prev.SingEndTime), and the SERVER mirrors those rules to compute the
+        /// skip allowance its play-time anti-cheat gate subtracts. Rewriting end_ms on an edit that
+        /// did not touch the last word would therefore silently re-rank honest plays. So a map whose
+        /// stored end_ms sits past its last word (trailing vocals, an aligner estimate, a sung-end
+        /// flag dragged before this rule existed) keeps that value verbatim until the last word is
+        /// itself re-timed, at which point the mapper HAS made a content decision and end_ms follows.</para>
+        ///
+        /// <para>The LAST line's typeable window is reload-derived as min(song_end, singEnd + tail),
+        /// so it is re-derived alongside the sung end here for the same reason
+        /// <see cref="SetSingEnd"/> does it.</para>
+        /// </summary>
+        private static void syncSingEndToLastUnit(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, double previousLastUnitEnd)
+        {
+            var line = hitObject.Line;
+
+            if (line.Units.Count == 0)
+                return;
+
+            double moved = line.Units[^1].EndTime;
+
+            // Not this edit's doing: leave the stored end_ms exactly as the map carries it.
+            if (moved == previousLastUnitEnd)
+                return;
+
+            double singEnd = Math.Clamp(moved, line.StartTime, line.EndTime);
+
+            var ordered = orderedLines(editorBeatmap);
+            bool isLast = ordered.Count > 0 && ordered[^1] == hitObject;
+            double end = isLast ? Math.Clamp(line.EndTime, singEnd, singEnd + LAST_LINE_TAIL_MS) : line.EndTime;
+
+            if (singEnd == line.SingEndTime && end == line.EndTime)
+                return;
+
+            editorBeatmap.BeginChange();
+            hitObject.Line = rebuild(line, singEnd: singEnd, end: end);
+            editorBeatmap.Update(hitObject);
+            editorBeatmap.EndChange();
+        }
 
         private static IReadOnlyList<TimedUnit> clampUnits(IReadOnlyList<TimedUnit> units, double start, double end)
         {

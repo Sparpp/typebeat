@@ -1,9 +1,11 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
@@ -72,14 +74,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static TypeBeatHitObject lineAt(EditorBeatmap editorBeatmap, int index)
             => TypeBeatEditorOperations.OrderedLines(editorBeatmap)[index];
 
-        /// <summary>Encode → decode → compare every persisted field against the in-memory state.</summary>
-        private static void assertReloadStable(EditorBeatmap editorBeatmap)
+        /// <summary>The map exactly as it would be SAVED.</summary>
+        private static string encode(EditorBeatmap editorBeatmap)
         {
             var sb = new StringBuilder();
             using (var sw = new StringWriter(sb))
                 TypeBeatBeatmapEncoder.Encode(editorBeatmap, sw);
 
-            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(sb.ToString()));
+            return sb.ToString();
+        }
+
+        /// <summary>Encode → decode → compare every persisted field against the in-memory state.</summary>
+        private static void assertReloadStable(EditorBeatmap editorBeatmap)
+        {
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(encode(editorBeatmap)));
             using var reader = new typebeat.Game.IO.LineBufferedReader(stream);
             var decoded = typebeat.Game.Beatmaps.Formats.Decoder.GetDecoder<Beatmap>(reader).Decode(reader);
 
@@ -704,7 +712,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(line.Line.Units.Count, Is.EqualTo(1));
             Assert.That(line.Line.Units[0].StartTime, Is.EqualTo(3000)); // survivor untouched
             Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(4200));
-            Assert.That(line.Line.SingEndTime, Is.EqualTo(5500), "the freed span stays a gap, the window does not shrink");
+            // The TYPEABLE window does not shrink (the freed span stays a gap the player may still
+            // be typing in), but the SUNG end is auto-derived from the last word, and removing the
+            // tail word made "gamma" the last word: the vocal now stops where it does.
+            Assert.That(line.Line.SingEndTime, Is.EqualTo(4200));
             Assert.That(line.Line.EndTime, Is.EqualTo(6000));
             Assert.That(TypeBeatEditorOperations.OrderedLines(editorBeatmap).Select(o => o.Granularity),
                 Is.All.EqualTo(TimingGranularity.Word), "the map's last subdivision went with the word");
@@ -1027,5 +1038,216 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             assertReloadStable(editorBeatmap);
         }
+
+        #region Auto-derived sung end (backlog 246: the sung-end flag is gone)
+
+        /// <summary>
+        /// The same sheet as <see cref="createBeatmap"/>, except line 1 carries TRAILING VOCALS: its
+        /// stored end_ms (5800) sits 300ms past its last word's end (5500). That is the shape an
+        /// aligner estimate, or a flag dragged before backlog 246, leaves in real map data, and it is
+        /// exactly the state the auto-derivation must not quietly overwrite.
+        /// </summary>
+        private static EditorBeatmap createTrailingVocalBeatmap()
+        {
+            var beatmap = new Beatmap();
+            beatmap.BeatmapInfo.Ruleset = new TypeBeatRuleset().RulesetInfo;
+            beatmap.Metadata.Artist = "Op";
+            beatmap.Metadata.Title = "Test";
+            beatmap.Metadata.AudioFile = "audio.mp3";
+
+            addLine(beatmap, 0, "alpha beta", 1000, 3000, 2800, (1000, 1800), (1900, 2800));
+            addLine(beatmap, 1, "gamma delta", 3000, 6000, 5800, (3000, 4200), (4300, 5500));
+            addLine(beatmap, 2, "omega", 6000, 8000, 7000, (6000, 7000));
+
+            return new EditorBeatmap(beatmap);
+        }
+
+        /// <summary>
+        /// (a) The sung end IS the last word's end: dragging that word's right edge, the gesture the
+        /// removed blue flag used to own, carries end_ms with it, in both directions and through the
+        /// rigid-move path too. A non-last line's typeable window does not move with it.
+        /// </summary>
+        [Test]
+        public void RetimingTheLastWordCarriesTheLineSungEnd()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 1); // "gamma delta", delta [4300, 5500], end_ms 5500
+
+            TypeBeatEditorOperations.SetUnitEnd(editorBeatmap, line, 1, 4300, 5800);
+
+            Assert.That(line.Line.Units[1].EndTime, Is.EqualTo(5800));
+            Assert.That(line.Line.SingEndTime, Is.EqualTo(5800), "end_ms follows the last word right");
+            Assert.That(line.Line.EndTime, Is.EqualTo(6000), "a non-last line's typeable window is not a sung end");
+
+            TypeBeatEditorOperations.SetUnitEnd(editorBeatmap, line, 1, 4300, 5000);
+            Assert.That(line.Line.SingEndTime, Is.EqualTo(5000), "and left again");
+
+            // Not only the edge drag: a rigid move of the last word moves its end too.
+            TypeBeatEditorOperations.MoveUnit(editorBeatmap, line, 1, 4500);
+            Assert.That(line.Line.Units[1].EndTime, Is.EqualTo(5200));
+            Assert.That(line.Line.SingEndTime, Is.EqualTo(5200));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>
+        /// The LAST line's typeable window is reload-derived as min(song_end, singEnd + tail), so it
+        /// is re-derived alongside an auto-synced sung end, exactly as the old flag drag did.
+        /// </summary>
+        [Test]
+        public void RetimingTheLastLinesLastWordKeepsItsWindowReloadStable()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 2); // "omega" [6000, 7000], window to 8000
+
+            // 8000 sits inside [6200, 6200 + 3000], so the window is kept exactly as it is.
+            TypeBeatEditorOperations.SetUnitEnd(editorBeatmap, line, 0, 6000, 6200);
+            Assert.That(line.Line.SingEndTime, Is.EqualTo(6200));
+            Assert.That(line.Line.EndTime, Is.EqualTo(8000));
+
+            assertReloadStable(editorBeatmap);
+
+            // A last line whose window runs far past its vocals: pulling the last word back must cap
+            // the window at singEnd + tail, or reload would derive a shorter one than the editor showed.
+            var longTail = new Beatmap();
+            longTail.BeatmapInfo.Ruleset = new TypeBeatRuleset().RulesetInfo;
+            longTail.Metadata.Artist = "Op";
+            longTail.Metadata.Title = "Test";
+            longTail.Metadata.AudioFile = "audio.mp3";
+            addLine(longTail, 0, "alpha", 1000, 6000, 2800, (1000, 2800));
+            addLine(longTail, 1, "omega tail", 6000, 30000, 20000, (6000, 12000), (13000, 20000));
+
+            var withTail = new EditorBeatmap(longTail);
+            var last = lineAt(withTail, 1);
+
+            TypeBeatEditorOperations.SetUnitEnd(withTail, last, 1, 13000, 14000);
+
+            Assert.That(last.Line.SingEndTime, Is.EqualTo(14000));
+            Assert.That(last.Line.EndTime, Is.EqualTo(14000 + TypeBeatEditorOperations.LAST_LINE_TAIL_MS));
+
+            assertReloadStable(withTail);
+        }
+
+        /// <summary>
+        /// (b) The other half of the rule, and the important half. An edit that does NOT move the
+        /// last word must leave a trailing-vocal end_ms exactly as the map stores it: end_ms is what
+        /// InstrumentalGaps perceives an instrumental stretch from, and the server mirrors those
+        /// rules for the play-time anti-cheat gate, so a silent rewrite would re-rank honest plays.
+        /// </summary>
+        [Test]
+        public void AnEditThatMissesTheLastWordLeavesTrailingVocalEndMsAlone()
+        {
+            var editorBeatmap = createTrailingVocalBeatmap();
+            var line = lineAt(editorBeatmap, 1); // end_ms 5800, last word ends 5500
+
+            // (i) retime an INTERIOR word.
+            TypeBeatEditorOperations.SetUnitEnd(editorBeatmap, line, 0, 3100, 4000);
+            Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(4000));
+            Assert.That(line.Line.SingEndTime, Is.EqualTo(5800), "an interior retime is not a sung-end decision");
+
+            // (ii) retype the line (same word count, so every word keeps its timing).
+            Assert.That(TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "gamma deltas"), Is.True);
+            Assert.That(line.Line.RawText, Is.EqualTo("gamma deltas"));
+            Assert.That(line.Line.SingEndTime, Is.EqualTo(5800), "a text commit is not a sung-end decision");
+
+            // (iii) drag the line boundary that starts it.
+            TypeBeatEditorOperations.SetLineStart(editorBeatmap, line, 3050);
+            Assert.That(line.Line.SingEndTime, Is.EqualTo(5800));
+
+            // (iv) bake a global offset: everything moves RIGIDLY, the gap between the last word and
+            // the sung end is preserved rather than collapsed.
+            TypeBeatEditorOperations.ShiftAllTimes(editorBeatmap, 100);
+            Assert.That(line.Line.Units[^1].EndTime, Is.EqualTo(5600));
+            Assert.That(line.Line.SingEndTime, Is.EqualTo(5900));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>
+        /// (d) The consequence that matters on disk: a map whose last word was never re-timed saves
+        /// its end_ms values verbatim, byte for byte, no matter what else the mapper edited.
+        /// </summary>
+        [Test]
+        public void EndMsRoundTripsByteIdenticallyWhenTheLastWordWasNeverTouched()
+        {
+            var editorBeatmap = createTrailingVocalBeatmap();
+            string[] before = lineEndMsFields(encode(editorBeatmap));
+
+            Assert.That(before, Is.EqualTo(new[] { "\"end_ms\":2800", "\"end_ms\":5800", "\"end_ms\":7000" }));
+
+            TypeBeatEditorOperations.SetUnitEnd(editorBeatmap, lineAt(editorBeatmap, 1), 0, 3100, 4000);
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, lineAt(editorBeatmap, 1), "gamma deltas");
+            TypeBeatEditorOperations.SetLineStart(editorBeatmap, lineAt(editorBeatmap, 1), 3050);
+
+            Assert.That(lineEndMsFields(encode(editorBeatmap)), Is.EqualTo(before), "no line's end_ms moved");
+        }
+
+        /// <summary>
+        /// The LINE-level end_ms fields of an encoded map, in order. Word units carry an end_ms of
+        /// their own, distinguishable because a word always writes "score" straight after it.
+        /// </summary>
+        private static string[] lineEndMsFields(string encoded)
+            => Regex.Matches(encoded, "\"end_ms\":[0-9.eE+-]+(?:,\"score\")?")
+                    .Select(m => m.Value)
+                    .Where(v => !v.EndsWith(",\"score\"", StringComparison.Ordinal))
+                    .ToArray();
+
+        /// <summary>
+        /// (c) The Line-granularity lever. Such a map has no word timing to author, so dragging its
+        /// LAST block's end is the whole-line re-spread the flag used to perform, and it must land on
+        /// exactly what SetSingEnd produced: same units, same end_ms, and NO promotion to Word.
+        /// </summary>
+        [Test]
+        public void OnALineMapTheLastBlockEndDragIsTheOldSungEndRespread()
+        {
+            var viaBlock = createLineGranularityBeatmap();
+            var viaFlag = createLineGranularityBeatmap();
+
+            var dragged = lineAt(viaBlock, 1); // "second line here", three interpolated units to 5500
+            int last = dragged.Line.Units.Count - 1;
+            double interiorEndBefore = dragged.Line.Units[0].EndTime;
+
+            TypeBeatEditorOperations.SetUnitEnd(viaBlock, dragged, last, dragged.Line.Units[last].StartTime, 5000);
+            TypeBeatEditorOperations.SetSingEnd(viaFlag, lineAt(viaFlag, 1), 5000);
+
+            var a = dragged.Line;
+            var b = lineAt(viaFlag, 1).Line;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(a.SingEndTime, Is.EqualTo(b.SingEndTime));
+                Assert.That(a.EndTime, Is.EqualTo(b.EndTime));
+                Assert.That(a.Units.Select(u => (u.StartTime, u.EndTime)), Is.EqualTo(b.Units.Select(u => (u.StartTime, u.EndTime))));
+                Assert.That(dragged.Granularity, Is.EqualTo(TimingGranularity.Line),
+                    "the line lever does not author word timing, so the map is not promoted");
+            });
+
+            // The re-spread is real: EVERY unit moved, not just the dragged one.
+            Assert.That(a.SingEndTime, Is.EqualTo(5000));
+            Assert.That(a.Units[^1].EndTime, Is.EqualTo(5000));
+            Assert.That(a.Units[0].EndTime, Is.Not.EqualTo(interiorEndBefore), "the interior words re-interpolated too");
+
+            assertReloadStable(viaBlock);
+        }
+
+        /// <summary>
+        /// The contrast that makes the branch above a branch: on a WORD map the same gesture is a
+        /// plain word resize, so the interior words stay exactly where the mapper timed them.
+        /// </summary>
+        [Test]
+        public void OnAWordMapTheLastBlockEndDragMovesOnlyThatWord()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 1);
+
+            TypeBeatEditorOperations.SetUnitEnd(editorBeatmap, line, 1, 4300, 5800);
+
+            Assert.That(line.Line.Units[0].StartTime, Is.EqualTo(3000), "interior word untouched");
+            Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(4200));
+            Assert.That(line.Line.Units[1].StartTime, Is.EqualTo(4300));
+            Assert.That(line.Line.SingEndTime, Is.EqualTo(5800));
+        }
+
+        #endregion
     }
 }
