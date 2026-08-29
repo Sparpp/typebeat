@@ -18,8 +18,11 @@ namespace typebeat.Game.Screens.ImportLyrics
         public static readonly string[] AUDIO = { ".mp3", ".ogg", ".wav" };
 
         /// <summary>
-        /// Video containers accepted in the audio slot: the audio track soundtracks the map
-        /// (decoded by BASS via Media Foundation) and the file doubles as the map's background video.
+        /// Video containers accepted in the audio slot: the importer SPLITS one, so the audio track
+        /// becomes a standalone file (the map's audio, and what alignment runs on) and the container
+        /// stays on as the map's background video. On a machine with no extractor (see
+        /// <c>FfmpegAudioTrackExtractor</c>) the file does both jobs at once, as it always did:
+        /// its audio track soundtracks the map, decoded by BASS via Media Foundation.
         /// </summary>
         public static readonly string[] VIDEO = { ".mp4" };
 

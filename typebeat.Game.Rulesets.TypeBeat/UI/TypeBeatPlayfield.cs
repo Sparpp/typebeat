@@ -166,10 +166,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // this playfield painted an opaque serika-dark box over all of it (the monkeytype flat
             // look), which blacked the real background out. Only cover it when there is nothing to
             // show: reveal the image/video behind a readability scrim, else keep the flat panel.
+            // The video half of that question is asked of the FILE, not of the [Events] line: see
+            // StageBackdrop.HasRenderableContent. Load time only, no per-frame cost.
             bool showStoryboard = osuConfig?.Get<bool>(OsuSetting.ShowStoryboard) ?? true;
-            bool hasImage = !string.IsNullOrEmpty(beatmap?.Value.BeatmapInfo.Metadata.BackgroundFile);
-            bool hasVideo = beatmap?.Value.Storyboard.HasDrawable == true;
-            bool hasBackdrop = hasImage || (hasVideo && showStoryboard);
+            bool hasBackdrop = StageBackdrop.HasBackdrop(
+                beatmap?.Value.BeatmapInfo.Metadata.BackgroundFile, beatmap?.Value.Storyboard, showStoryboard);
 
             Drawable backdrop;
 

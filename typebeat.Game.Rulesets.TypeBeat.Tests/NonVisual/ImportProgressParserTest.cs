@@ -6,6 +6,7 @@
 using System;
 using System.Linq;
 using NUnit.Framework;
+using typebeat.Game.Rulesets.TypeBeat.Import;
 using typebeat.Game.Screens.ImportLyrics;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
@@ -45,6 +46,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [TestCase("server alignment unavailable (sign in to type!beat), trying line-timed fallback", ImportStage.FallingBack)]
         [TestCase("packaging map", ImportStage.Packaging)]
         [TestCase("importing beatmap", ImportStage.Importing)]
+        // The video split's own step. The first case is the PRODUCTION string (the extractor lives in
+        // the ruleset assembly, the parser in the shell one, so this test is what ties them together).
+        [TestCase(FfmpegAudioTrackExtractor.EXTRACTING_NOTICE, ImportStage.ExtractingAudio)]
+        [TestCase("extracted audio to Some Artist - A Song.mp3", ImportStage.ExtractingAudio)]
         public void TestKnownStageLines(string line, ImportStage expected)
             => Assert.That(ImportProgressParser.Parse(line).Stage, Is.EqualTo(expected));
 
@@ -60,6 +65,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [TestCase(" 45%|####5     | 121.1/269.1 [00:20<00:24,  6.05seconds/s]")]
         [TestCase(@"[12:36:40] outputs written to C:\lyriclab\out\typebeat_import_Some Artist - A Song")]
         [TestCase("[12:36:40] total time: 118s")]
+        // The split's degrade: nothing was extracted, so it must not light the extraction step (and
+        // "extractor available" must not read as the aligner handover's "unavailable" either).
+        [TestCase("no audio extractor available (no ffmpeg found on this machine), keeping the video file as the map's audio")]
         public void TestUnknownLinesClaimNoStage(string line)
             => Assert.That(ImportProgressParser.Parse(line).Stage, Is.Null);
 

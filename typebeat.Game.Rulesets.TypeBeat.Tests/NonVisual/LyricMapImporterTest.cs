@@ -4,6 +4,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -17,6 +18,7 @@ using typebeat.Game.IO;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Import;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Screens.ImportLyrics;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
@@ -231,32 +233,361 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             }
         }
 
+        #region The video split (backlog 234)
+
         [Test]
-        public void Mp4SourceBecomesAudioAndBackgroundVideo()
+        public async Task Mp4SourceIsSplitIntoStandaloneAudioPlusBackgroundVideo()
         {
-            // A video container packaged as the map's audio also becomes its background video:
-            // the .osu references the same file from AudioFilename and an [Events] Video entry.
+            // A dropped video container becomes TWO files: the extracted audio track (which is what
+            // AudioFilename names, what alignment runs on, and what an audio-only download of the set
+            // would ship) and the container, kept on as the map's [Events] video. Before the split
+            // one file did both jobs, which made an audio-only download silent and let the "delete
+            // all videos" maintenance action destroy the song.
             string mp4Path = Path.Combine(tempRoot, "Some Artist - Some Song.mp4");
             File.WriteAllText(mp4Path, "fake video");
 
-            const string timing = "{\"version\":2,\"song_end_ms\":8000,\"lines\":["
-                                  + "{\"text\":\"one two\",\"start_ms\":1000,\"end_ms\":3000}]}";
+            string lyricsPath = Path.Combine(tempRoot, "lyrics.txt");
+            File.WriteAllText(lyricsPath, "[00:01.00] one two\n[00:03.00]\n");
 
-            string oszPath = Path.Combine(tempRoot, "video.osz");
-            var result = LyricMapImporter.PackageOsz(oszPath, "Some Artist", "Some Song", mp4Path, timing, "[00:01.00] one two\n");
+            var extractor = FakeAudioTrackExtractor.Producing(".mp3");
+            string? alignedAudioPath = null;
+
+            var result = await LyricMapImporter.BuildOszAsync(
+                mp4Path, lyricsPath, "Some Artist", "Some Song",
+                configuredLyricLabPath: null,
+                startDirectories: new[] { tempRoot },
+                progress: _ => { },
+                token: CancellationToken.None,
+                remoteAlign: (audioPath, _, _, _, _, _) =>
+                {
+                    // The aligner seam only records what it was handed; the LRC line stamps below
+                    // produce the timing, so the assertion does not depend on a stub's output.
+                    alignedAudioPath = audioPath;
+                    return Task.FromResult(RemoteAlignOutcome.Fail("stub"));
+                },
+                useAutomaticAlignment: true,
+                audioExtractor: extractor).ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.True, result.Error);
+            Assert.That(extractor.VideoPath, Is.EqualTo(mp4Path), "the container is what gets split");
+            Assert.That(extractor.OutputDirectory, Is.EqualTo(Path.GetDirectoryName(result.OszPath)),
+                "the extracted file belongs in the import temp dir, which the caller cleans up");
+
+            try
+            {
+                using var archive = ZipFile.OpenRead(result.OszPath!);
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(archive.GetEntry("Some Artist - Some Song.mp3"), Is.Not.Null, "the extracted audio must travel in the set");
+                    Assert.That(archive.GetEntry("Some Artist - Some Song.mp4"), Is.Not.Null, "the video must travel in the set too");
+                });
+
+                string osuText = readEntry(archive.Entries.Single(e => e.FullName.EndsWith(".osu", StringComparison.OrdinalIgnoreCase)));
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(osuText, Does.Contain("AudioFilename: Some Artist - Some Song.mp3"));
+
+                    // Byte-identical to the line the unsplit import has always written: an extraction
+                    // is sample-accurate, so the video needs no offset (backlog 232's seam stays at 0).
+                    Assert.That(osuText, Does.Contain("Video,0,\"Some Artist - Some Song.mp4\""));
+
+                    Assert.That(decode(osuText).Metadata.AudioFile, Is.EqualTo("Some Artist - Some Song.mp3"));
+
+                    // The whole point of splitting BEFORE alignment: the aligner (local subprocess or
+                    // the 64MB-capped server upload) sees the audio, never the container.
+                    Assert.That(alignedAudioPath, Is.EqualTo(extractor.ProducedPath));
+                });
+            }
+            finally
+            {
+                deleteImportTemp(result.OszPath);
+            }
+        }
+
+        [Test]
+        public async Task WithNoExtractorTheVideoStillDoublesAsTheAudio()
+        {
+            // The degrade, and the reason the split can ship at all: the only real extractor is an
+            // ffmpeg binary most machines do not have. Without one, an mp4 import must behave exactly
+            // as it did before the split (one media entry, doing both jobs) rather than failing.
+            string mp4Path = Path.Combine(tempRoot, "Some Artist - Some Song.mp4");
+            File.WriteAllText(mp4Path, "fake video");
+
+            string lyricsPath = Path.Combine(tempRoot, "lyrics.txt");
+            File.WriteAllText(lyricsPath, "[00:01.00] one two\n[00:03.00]\n");
+
+            var lines = new List<string>();
+            string? alignedAudioPath = null;
+
+            var result = await LyricMapImporter.BuildOszAsync(
+                mp4Path, lyricsPath, "Some Artist", "Some Song",
+                configuredLyricLabPath: null,
+                startDirectories: new[] { tempRoot },
+                progress: lines.Add,
+                token: CancellationToken.None,
+                remoteAlign: (audioPath, _, _, _, _, _) =>
+                {
+                    alignedAudioPath = audioPath;
+                    return Task.FromResult(RemoteAlignOutcome.Fail("stub"));
+                },
+                useAutomaticAlignment: true,
+                audioExtractor: FakeAudioTrackExtractor.Unavailable("no ffmpeg found on this machine")).ConfigureAwait(false);
 
             Assert.That(result.Success, Is.True, result.Error);
 
-            using var archive = ZipFile.OpenRead(oszPath);
-            var osuEntry = archive.Entries.Single(e => e.FullName.EndsWith(".osu", StringComparison.OrdinalIgnoreCase));
-            string osuText = readEntry(osuEntry);
+            try
+            {
+                using var archive = ZipFile.OpenRead(result.OszPath!);
 
-            Assert.That(osuText, Does.Contain("AudioFilename: Some Artist - Some Song.mp4"));
-            Assert.That(osuText, Does.Contain("Video,0,\"Some Artist - Some Song.mp4\""));
+                string osuText = readEntry(archive.Entries.Single(e => e.FullName.EndsWith(".osu", StringComparison.OrdinalIgnoreCase)));
 
-            var beatmap = decode(osuText);
-            Assert.That(beatmap.Metadata.AudioFile, Is.EqualTo("Some Artist - Some Song.mp4"));
+                Assert.Multiple(() =>
+                {
+                    Assert.That(archive.Entries.Select(e => e.FullName), Has.Exactly(1).Matches<string>(n => n.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)));
+                    Assert.That(archive.Entries.Any(e => e.FullName.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase)), Is.False, "nothing was extracted");
+                    Assert.That(osuText, Does.Contain("AudioFilename: Some Artist - Some Song.mp4"));
+                    Assert.That(osuText, Does.Contain("Video,0,\"Some Artist - Some Song.mp4\""));
+                    Assert.That(decode(osuText).Metadata.AudioFile, Is.EqualTo("Some Artist - Some Song.mp4"));
+                    Assert.That(alignedAudioPath, Is.EqualTo(mp4Path), "with nothing extracted, the container is still what gets aligned");
+                });
+            }
+            finally
+            {
+                deleteImportTemp(result.OszPath);
+            }
         }
+
+        [Test]
+        public async Task ABlankMapFromAVideoIsSplitToo()
+        {
+            // The split sits ABOVE the blank/aligned branch, so a video dropped with no lyrics (the
+            // "write the words in the editor" import) is split exactly the same way.
+            string mp4Path = Path.Combine(tempRoot, "A - B.mp4");
+            File.WriteAllText(mp4Path, "fake video");
+
+            var result = await LyricMapImporter.BuildOszAsync(
+                mp4Path, lyricsPath: null, "A", "B",
+                configuredLyricLabPath: null,
+                startDirectories: new[] { tempRoot },
+                progress: _ => { },
+                token: CancellationToken.None,
+                audioExtractor: FakeAudioTrackExtractor.Producing(".mp3")).ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.True, result.Error);
+
+            try
+            {
+                using var archive = ZipFile.OpenRead(result.OszPath!);
+                string osuText = readEntry(archive.Entries.Single(e => e.FullName.EndsWith(".osu", StringComparison.OrdinalIgnoreCase)));
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(archive.GetEntry("A - B.mp3"), Is.Not.Null);
+                    Assert.That(archive.GetEntry("A - B.mp4"), Is.Not.Null);
+                    Assert.That(osuText, Does.Contain("AudioFilename: A - B.mp3"));
+                    Assert.That(osuText, Does.Contain("Video,0,\"A - B.mp4\""));
+                });
+            }
+            finally
+            {
+                deleteImportTemp(result.OszPath);
+            }
+        }
+
+        [Test]
+        public async Task TheDegradeSaysWhyItKeptTheVideoAsTheAudio()
+        {
+            // The map that comes out of the degrade behaves differently (an audio-only download of it
+            // is silent, and "delete all videos" would take its audio), so the reason has to reach the
+            // log. It claims no stage of its own, unlike the extraction notice: nothing was extracted,
+            // so the progress display holds its step rather than ticking "extracted" over a fallback.
+            string mp4Path = Path.Combine(tempRoot, "A - B.mp4");
+            File.WriteAllText(mp4Path, "fake video");
+
+            var lines = new List<string>();
+
+            var result = await LyricMapImporter.BuildOszAsync(
+                mp4Path, lyricsPath: null, "A", "B",
+                configuredLyricLabPath: null,
+                startDirectories: new[] { tempRoot },
+                progress: lines.Add,
+                token: CancellationToken.None,
+                audioExtractor: FakeAudioTrackExtractor.Unavailable("no ffmpeg found on this machine")).ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.True, result.Error);
+
+            try
+            {
+                string? degrade = lines.FirstOrDefault(l => l.Contains("keeping the video file as the map's audio", StringComparison.Ordinal));
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(degrade, Is.Not.Null, "the fallback must explain itself in the progress stream");
+                    Assert.That(degrade, Does.Contain("no ffmpeg found on this machine"), "including why");
+                    Assert.That(ImportProgressParser.Parse(degrade).Stage, Is.Null);
+                });
+            }
+            finally
+            {
+                deleteImportTemp(result.OszPath);
+            }
+        }
+
+        [Test]
+        public async Task RealFfmpegExtractionProducesAStandaloneAudioFile()
+        {
+            // The one test that exercises a real container and a real encoder. Self-skipping in the
+            // web repo's IsFfmpegAvailable style: the extractor is resolved the way an import would
+            // resolve it, and the fixture is SYNTHESISED by that same binary (a 2s tone in an mp4),
+            // so no binary media has to be checked into the repo.
+            string? ffmpeg = FfmpegAudioTrackExtractor.Resolve(null, new[] { tempRoot });
+
+            if (ffmpeg == null)
+                Assert.Ignore("no ffmpeg (aligner venv or PATH); the importer degrades to mp4-as-audio and the split is skipped.");
+
+            string mp4Path = Path.Combine(tempRoot, "Some Artist - Some Song.mp4");
+
+            if (!synthesiseToneMp4(ffmpeg!, mp4Path, out string synthesisError))
+                Assert.Ignore($"this ffmpeg cannot synthesise the fixture: {synthesisError}");
+
+            var lines = new List<string>();
+            string outputDir = Path.Combine(tempRoot, "extracted");
+
+            var extraction = await new FfmpegAudioTrackExtractor(null, new[] { tempRoot })
+                .ExtractAsync(mp4Path, outputDir, lines.Add, CancellationToken.None).ConfigureAwait(false);
+
+            Assert.That(extraction.Success, Is.True, extraction.Reason);
+
+            string audioPath = extraction.AudioPath!;
+            byte[] head = File.ReadAllBytes(audioPath);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(Path.GetFileNameWithoutExtension(audioPath), Is.EqualTo("Some Artist - Some Song"), "the extracted file keeps the source stem");
+
+                // Never .m4a/.aac: BASS decodes no AAC on Linux, and neither the editor's audio
+                // chooser nor the site's player content types know the extension.
+                Assert.That(Path.GetExtension(audioPath), Is.AnyOf(".mp3", ".ogg"));
+
+                Assert.That(head.Length, Is.GreaterThan(1024), "two seconds of encoded audio is never this small");
+                Assert.That(looksLikeEncodedAudio(head), Is.True, "the output should start with an ID3 tag, an mpeg frame sync or an Ogg page");
+                Assert.That(lines, Does.Contain(FfmpegAudioTrackExtractor.EXTRACTING_NOTICE));
+            });
+        }
+
+        /// <summary>Writes a two-second tone into an mp4 (aac track) with the given ffmpeg.</summary>
+        private static bool synthesiseToneMp4(string ffmpeg, string destination, out string error)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = ffmpeg,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+
+            foreach (string arg in new[]
+                     {
+                         "-nostdin", "-y", "-v", "error",
+                         "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+                         "-c:a", "aac", destination,
+                     })
+            {
+                psi.ArgumentList.Add(arg);
+            }
+
+            try
+            {
+                using var process = System.Diagnostics.Process.Start(psi)!;
+                error = process.StandardError.ReadToEnd().Trim();
+                process.StandardOutput.ReadToEnd();
+                process.WaitForExit();
+
+                if (process.ExitCode == 0 && new System.IO.FileInfo(destination).Length > 0)
+                    return true;
+
+                if (error.Length == 0)
+                    error = $"exit code {process.ExitCode}";
+
+                return false;
+            }
+            catch (Exception e)
+            {
+                error = e.Message;
+                return false;
+            }
+        }
+
+        private static bool looksLikeEncodedAudio(byte[] head)
+        {
+            if (head.Length < 4)
+                return false;
+
+            bool id3 = head[0] == 'I' && head[1] == 'D' && head[2] == '3';
+            bool frameSync = head[0] == 0xFF && (head[1] & 0xE0) == 0xE0;
+            bool ogg = head[0] == 'O' && head[1] == 'g' && head[2] == 'g' && head[3] == 'S';
+
+            return id3 || frameSync || ogg;
+        }
+
+        /// <summary>
+        /// Stands in for ffmpeg: writes a text file where a real extraction would put the audio (the
+        /// packaging path decodes nothing), or reports itself unavailable. Also records what it was
+        /// asked to split, which is how the "alignment gets the extracted file" pin is made.
+        /// </summary>
+        private class FakeAudioTrackExtractor : IAudioTrackExtractor
+        {
+            public string? VideoPath;
+            public string? OutputDirectory;
+            public string? ProducedPath;
+
+            private readonly string? extension;
+            private readonly string reason;
+
+            private FakeAudioTrackExtractor(string? extension, string reason)
+            {
+                this.extension = extension;
+                this.reason = reason;
+            }
+
+            public static FakeAudioTrackExtractor Producing(string extension) => new FakeAudioTrackExtractor(extension, string.Empty);
+
+            public static FakeAudioTrackExtractor Unavailable(string reason) => new FakeAudioTrackExtractor(null, reason);
+
+            public Task<AudioExtractionResult> ExtractAsync(string videoPath, string outputDirectory, Action<string> progress, CancellationToken token)
+            {
+                VideoPath = videoPath;
+                OutputDirectory = outputDirectory;
+
+                if (extension == null)
+                    return Task.FromResult(AudioExtractionResult.Unavailable(reason));
+
+                Directory.CreateDirectory(outputDirectory);
+                ProducedPath = Path.Combine(outputDirectory, Path.GetFileNameWithoutExtension(videoPath) + extension);
+                File.WriteAllText(ProducedPath, "fake extracted audio");
+
+                return Task.FromResult(AudioExtractionResult.Ok(ProducedPath));
+            }
+        }
+
+        /// <summary>Removes the temp directory the importer produced outside <c>tempRoot</c>.</summary>
+        private static void deleteImportTemp(string? oszPath)
+        {
+            try
+            {
+                if (oszPath != null)
+                    Directory.Delete(Path.GetDirectoryName(oszPath)!, true);
+            }
+            catch
+            {
+                // best effort
+            }
+        }
+
+        #endregion
 
         [Test]
         public async Task UnstampedLyricsWithoutAlignerFails()

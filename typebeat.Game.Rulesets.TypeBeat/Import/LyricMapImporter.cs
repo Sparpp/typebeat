@@ -278,12 +278,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// <para>BLANK IMPORT. <paramref name="lyricsPath"/> is optional: with no lyrics file (or a
         /// file that holds only whitespace) the aligner is skipped entirely and the packaged map is
         /// BLANK, audio + metadata with zero lyric lines, for authoring in the editor from scratch.</para>
+        ///
+        /// <para>VIDEO SPLIT. A video container in the audio slot is split up front (see
+        /// <see cref="IAudioTrackExtractor"/>): the extracted audio becomes the map's
+        /// AudioFilename and the thing every later step consumes, the container stays on as the
+        /// map's [Events] video, and both travel in the .osz. With no extractor on the machine the
+        /// container keeps doing both jobs, as it always did.</para>
         /// </summary>
         public static async Task<LyricImportResult> BuildOszAsync(
             string audioPath, string? lyricsPath, string artist, string title,
             string? configuredLyricLabPath, IEnumerable<string> startDirectories,
             Action<string> progress, CancellationToken token, RemoteAligner? remoteAlign = null,
-            bool useAutomaticAlignment = true)
+            bool useAutomaticAlignment = true, IAudioTrackExtractor? audioExtractor = null)
         {
             if (!File.Exists(audioPath))
                 return LyricImportResult.Fail($"audio file not found: {audioPath}");
@@ -299,6 +305,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             Directory.CreateDirectory(oszDir);
             string oszPath = Path.Combine(oszDir, SanitizeFolderName($"{artist} - {title}") + ".osz");
 
+            // THE SPLIT, before anything else touches the file. Doing it here (rather than in the
+            // packaging step) means the blank branch and the aligned branch both get it, and the
+            // ALIGNER receives the extracted audio rather than the whole container: the local
+            // subprocess decodes less, and the server upload (capped at 64MB) carries a fraction of
+            // the bytes. The extracted file lands beside the .osz, so the caller's cleanup of the
+            // import temp directory takes it too.
+            string effectiveAudioPath = audioPath;
+            string? videoSourcePath = null;
+
+            if (LyricImportExtensions.IsVideo(audioPath))
+            {
+                var extractor = audioExtractor ?? new FfmpegAudioTrackExtractor(configuredLyricLabPath, startDirectories);
+                AudioExtractionResult extraction = await extractor.ExtractAsync(audioPath, oszDir, progress, token).ConfigureAwait(false);
+
+                if (token.IsCancellationRequested)
+                    return LyricImportResult.Fail("import cancelled");
+
+                if (extraction.Success)
+                {
+                    effectiveAudioPath = extraction.AudioPath!;
+                    videoSourcePath = audioPath;
+                }
+                else
+                {
+                    // No extractor, or one that could not encode: DEGRADE to what an mp4 import has
+                    // always done (the container is the audio and the video at once) rather than
+                    // failing an import that used to work. Said out loud, because the map that comes
+                    // out behaves differently: an audio-only download of it is silent, and the
+                    // "delete all videos" maintenance action would take its audio with it.
+                    progress($"no audio extractor available ({extraction.Reason}), keeping the video file as the map's audio");
+                }
+            }
+
             string lyricsContent = lyricsRequested
                 ? await File.ReadAllTextAsync(lyricsPath!, token).ConfigureAwait(false)
                 : string.Empty;
@@ -310,17 +349,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             {
                 progress("no lyrics, creating a blank map");
                 progress("packaging map");
-                return PackageOsz(oszPath, artist, title, audioPath, BLANK_TIMING_JSON, string.Empty);
+                return PackageOsz(oszPath, artist, title, effectiveAudioPath, BLANK_TIMING_JSON, string.Empty, videoSourcePath);
             }
 
             (LyricImportResult result, string? timing) = await ProduceTimingJsonAsync(
-                audioPath, lyricsContent, artist, title, configuredLyricLabPath, startDirectories, progress, token, remoteAlign, useAutomaticAlignment).ConfigureAwait(false);
+                effectiveAudioPath, lyricsContent, artist, title, configuredLyricLabPath, startDirectories, progress, token, remoteAlign, useAutomaticAlignment).ConfigureAwait(false);
 
             if (!result.Success || timing == null)
                 return result;
 
             progress("packaging map");
-            return PackageOsz(oszPath, artist, title, audioPath, timing, lyricsContent);
+            return PackageOsz(oszPath, artist, title, effectiveAudioPath, timing, lyricsContent, videoSourcePath);
         }
 
         /// <summary>
@@ -677,17 +716,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// <summary>
         /// Zips a self-contained .osz: generated .osu (with computed preview/lead-in), the original
         /// audio, and provenance (timing.json + lyrics.txt). Overwrites <paramref name="oszPath"/>.
+        ///
+        /// <para><paramref name="videoSourcePath"/> is the map's background video when it is its OWN
+        /// file (an import that split a container: audio and video are two entries in the archive).
+        /// Left null, a container still sitting in the audio slot doubles as the video exactly as it
+        /// did before the split existed, and the archive holds the one file. Either way the [Events]
+        /// line is written at offset 0: an extraction is sample-accurate, so there is nothing to
+        /// correct, and 0 is the byte-identical legacy <c>Video,0,"file"</c> form.</para>
         /// </summary>
-        public static LyricImportResult PackageOsz(string oszPath, string artist, string title, string audioSourcePath, string timingJson, string lyricsContent)
+        public static LyricImportResult PackageOsz(string oszPath, string artist, string title, string audioSourcePath, string timingJson, string lyricsContent,
+                                                   string? videoSourcePath = null)
         {
             try
             {
                 string audioFilename = Path.GetFileName(audioSourcePath);
                 (double previewTime, double audioLeadIn) = computePolish(timingJson);
 
-                // A video container in the audio slot doubles as the map's background video:
-                // the same file is referenced from both AudioFilename and the [Events] video.
-                string? videoFilename = LyricImportExtensions.IsVideo(audioSourcePath) ? audioFilename : null;
+                string? videoSource = videoSourcePath ?? (LyricImportExtensions.IsVideo(audioSourcePath) ? audioSourcePath : null);
+                string? videoFilename = videoSource == null ? null : Path.GetFileName(videoSource);
 
                 string osuText = LyricOsuFormat.GenerateOsu(artist, title, audioFilename, CREATOR, timingJson, previewTime, audioLeadIn,
                     videoFilename: videoFilename);
@@ -704,6 +750,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                         writer.Write(osuText);
 
                     archive.CreateEntryFromFile(audioSourcePath, audioFilename);
+
+                    // The video only earns an entry of its own when it IS its own file; an
+                    // unsplit container is already in the archive under the audio's name, and a
+                    // second entry with that name would be a duplicate the importer would reject.
+                    if (videoSource != null && !string.Equals(videoFilename, audioFilename, StringComparison.OrdinalIgnoreCase))
+                        archive.CreateEntryFromFile(videoSource, videoFilename!);
 
                     // Provenance: original inputs travel inside the set (ignored by the game, kept for re-alignment).
                     using (var writer = new StreamWriter(archive.CreateEntry("timing.json").Open()))

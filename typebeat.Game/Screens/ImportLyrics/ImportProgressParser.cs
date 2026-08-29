@@ -17,6 +17,14 @@ namespace typebeat.Game.Screens.ImportLyrics
     public enum ImportStage
     {
         Preparing,
+
+        /// <summary>
+        /// Pulling a dropped video container's audio track out to a file of its own, so the map
+        /// carries a real audio file and the container is only its background video. Skipped
+        /// entirely for an audio import, and for a video import on a machine with no extractor.
+        /// </summary>
+        ExtractingAudio,
+
         Uploading,
         WaitingForServer,
         SeparatingVocals,
@@ -57,6 +65,9 @@ namespace typebeat.Game.Screens.ImportLyrics
             {
                 case ImportStage.Preparing:
                     return "preparing";
+
+                case ImportStage.ExtractingAudio:
+                    return "extracting the audio";
 
                 case ImportStage.Uploading:
                     return "uploading to the server";
@@ -168,6 +179,12 @@ namespace typebeat.Game.Screens.ImportLyrics
             // "aligner unavailable (...), trying next option" / "server alignment unavailable (...)".
             if (has(l, "unavailable") || has(l, "trying next option") || has(l, "trying line-timed fallback"))
                 return ImportStage.FallingBack;
+
+            // The split step. Deliberately matched on the ACT, not on the word "extractor", so the
+            // "no audio extractor available, keeping the video file as the map's audio" degrade
+            // claims no stage at all: nothing was extracted, and the display holds where it was.
+            if (has(l, "extracting audio") || has(l, "extracted audio"))
+                return ImportStage.ExtractingAudio;
 
             // Setup-shaped notices that arrive before any real work starts. These carry paths and
             // package sizes, which is exactly what must not reach the display.
