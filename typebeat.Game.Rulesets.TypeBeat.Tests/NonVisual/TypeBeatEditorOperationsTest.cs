@@ -504,6 +504,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void TapCommitDerivesEveryLineEndFromItsWidenedLastWord()
+        {
+            var editorBeatmap = createBeatmap();
+            var lines = TypeBeatEditorOperations.OrderedLines(editorBeatmap).Select(o => o.Line).ToList();
+            var queue = TapTimingBuilder.BuildQueue(lines);
+
+            // Five words, five taps: alpha beta / gamma delta / omega.
+            var built = TapTimingBuilder.Build(lines, queue, new[] { 1000d, 1500, 2000, 2500, 2900 });
+            TypeBeatEditorOperations.ReplaceLines(editorBeatmap, built, TypeBeatEditorOperations.InferGranularity(built));
+
+            var after = TypeBeatEditorOperations.OrderedLines(editorBeatmap);
+
+            // "alpha" (5 chars) was tapped 500ms wide, so 100ms a character, and the line's last
+            // word "beta" (4 chars) is 400ms rather than a sliver or a whole 500ms.
+            Assert.That(after[0].Line.Units[1].StartTime, Is.EqualTo(1500));
+            Assert.That(after[0].Line.Units[1].EndTime, Is.EqualTo(1900));
+
+            // Backlog 246: end_ms is the last word's end. The tap pass writes whole lines through
+            // ReplaceLines, so the derivation has to hold by construction here, not by the
+            // syncSingEndToLastUnit guard the single-unit ops go through.
+            foreach (var o in after)
+                Assert.That(o.Line.SingEndTime, Is.EqualTo(o.Line.Units[^1].EndTime).Within(1e-6), "end_ms follows the last word");
+
+            // And the last line's typeable window is re-derived from that sung end, the way reload
+            // computes it, so the map reopens showing what the mapper just tapped.
+            Assert.That(after[^1].Line.EndTime,
+                Is.EqualTo(after[^1].Line.SingEndTime + TypeBeatEditorOperations.LAST_LINE_TAIL_MS).Within(1e-6));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
         public void SubMinSpanWindowsNeverThrow()
         {
             // A map whose lines and words are packed tighter than MIN_SPAN_MS: legal aligner

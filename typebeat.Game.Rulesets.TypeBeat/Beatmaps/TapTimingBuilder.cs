@@ -35,10 +35,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// subdivided word is one slot per syllable, where syllable 0 sets the word's start and each
     /// later syllable sets one of the word's subdivision boundary times.</item>
     /// <item>A word's END is the next word's start when that next word is in the SAME line (words in
-    /// a phrase run together). A line's LAST word ends at
-    /// min(next line's start, start + the line's mean tapped word duration), so an instrumental gap
-    /// after a line survives as a gap instead of being sung through. The very last word of all uses
-    /// the same mean duration with no cap.</item>
+    /// a phrase run together). A line's LAST word has no such next word, so it is given a DEFAULT
+    /// WIDTH that scales with its character count (<see cref="DefaultWordDuration"/>) at the line's
+    /// own measured per-character rate, so an instrumental gap after a line survives as a gap
+    /// instead of being sung through, "everything" is held longer than "on", and the very last word
+    /// of all is timed by the same rule. Whatever follows that word is pushed out far enough to
+    /// leave it its default width at <see cref="DEFAULT_CHAR_MS"/> (see the ordering pass), because
+    /// otherwise a squashed untimed sheet behind the pass collapses the word into an unreadable
+    /// sliver; it grows past that, to the line's own cadence, only where the content behind already
+    /// leaves the room, and the one thing never pushed is another TAP, which is the mapper's own
+    /// word.</item>
     /// <item>A line's StartTime is its first word's start whenever that word was (re)timed; its
     /// SingEndTime is its last word's end; its EndTime is the next line's start (last line:
     /// SingEndTime + <see cref="TypeBeatEditorOperations.LAST_LINE_TAIL_MS"/>), preserving the
@@ -68,6 +74,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     {
         /// <summary>Word duration assumed when there is nothing to measure one from (single tap, empty line).</summary>
         public const double DEFAULT_WORD_MS = 400;
+
+        /// <summary>
+        /// Sung length assumed per TYPEABLE character when neither the line nor the pass offers a
+        /// cadence to measure. <see cref="DEFAULT_WORD_MS"/> is exactly this times five, the mean
+        /// length of an English word, so a five-letter word still gets the old flat default.
+        /// </summary>
+        public const double DEFAULT_CHAR_MS = DEFAULT_WORD_MS / 5;
 
         /// <summary>
         /// The contiguous run of word slots from (<paramref name="firstLine"/>,
@@ -264,26 +277,62 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 }
             }
 
+            // Per-typeable-character rate of the whole pass: the fallback for a line that offers no
+            // cadence of its own (only its last word retimed, say).
+            double charPace = meanCharGap(lines, queue, taps, tapped);
+
             // ONE forward pass fixes every ordering collision, against the final numbers. Slots
             // before the queue are already monotonic and untouched, so this only ever bites where a
             // tap crowded its predecessor or where content after the queue would now overlap.
+            //
+            // The gap it enforces is MIN_SPAN_MS everywhere except behind a retimed word that ENDS
+            // a line, which is given room to be READ. That word has no next word of its own line to
+            // run to, so without the room whatever sits behind it (a squashed untimed sheet, a line
+            // the pass never reached) lands MIN_SPAN_MS later and collapses it into an unreadable
+            // sliver. Two tiers, because moving content the mapper did not tap is a cost:
+            //   - GUARANTEED room is the word's default width at DEFAULT_CHAR_MS, which is small
+            //     (80ms a character) and bounded by the word's own length, so the shove is one
+            //     word wide at worst however sloppy the taps were.
+            //   - Room BEYOND that, up to the line's own measured cadence, is taken only where the
+            //     content behind already leaves it, so a line's last word matches its line-mates
+            //     whenever that costs nothing.
+            // The one follower never pushed at all is another TAP: there the mapper said where the
+            // next word goes, and a word between two real taps is exactly as long as they made it.
+            double[] lastWidth = new double[lines.Count];
             double previous = double.NegativeInfinity;
+            double required = TypeBeatEditorOperations.MIN_SPAN_MS;
 
             for (int p = 0; p < n; p++)
             {
-                start[p] = Math.Max(start[p], previous + TypeBeatEditorOperations.MIN_SPAN_MS);
+                start[p] = Math.Max(start[p], previous + required);
                 previous = start[p];
+                required = TypeBeatEditorOperations.MIN_SPAN_MS;
+
+                var (sl, su) = slots[p];
+
+                if (su != lines[sl].Units.Count - 1 || !retimed[p])
+                    continue;
+
+                // Every start of this line is settled by the time the pass reaches its last slot
+                // (it runs in sheet order), so the line's cadence is measured here, once, at the one
+                // slot that needs it.
+                lastWidth[sl] = DefaultWordDuration(lines[sl].Units[su].Text,
+                    lineCharPaceOf(lines, slotIndex, start, retimed, sl, charPace));
+
+                if (p + 1 >= n || (retimed[p + 1] && !paced[p + 1]))
+                    continue;
+
+                // The next slot opens the next LINE, and no word may spill past its own line's end,
+                // which is where that line STARTS, lead-in included (see the line-boundary pass
+                // below). So the room to clear is the guaranteed width plus that lead-in.
+                int following = slots[p + 1].line;
+                double guaranteed = Math.Min(lastWidth[sl], DefaultWordDuration(lines[sl].Units[su].Text, DEFAULT_CHAR_MS));
+                required = guaranteed - Math.Min(0, lines[following].StartTime - lines[following].Units[0].StartTime);
             }
 
-            // Per-line mean word duration, measured from the retimed words of that line, so a line's
-            // last word gets a plausible sung length instead of running to the next line's start.
-            double[] linePace = new double[lines.Count];
-
-            for (int l = 0; l < lines.Count; l++)
-                linePace[l] = linePaceOf(lines, slotIndex, start, retimed, l, pace);
-
-            // Word ends. Inside a line a word runs to the next word; the last word of a line is
-            // capped so a gap before the next line survives.
+            // Word ends. Inside a line a word runs to the next word; the last word of a line takes
+            // its default width, which the pass above has just made room for (the cap still bites
+            // when the follower is a tap, where the mapper's own next word is the truth).
             for (int p = 0; p < n; p++)
             {
                 var (l, u) = slots[p];
@@ -293,7 +342,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 if (retimed[p])
                 {
                     end[p] = lastOfLine
-                        ? Math.Min(ceiling, start[p] + linePace[l])
+                        ? Math.Min(ceiling, start[p] + lastWidth[l])
                         : ceiling;
                 }
 
@@ -484,14 +533,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// Mean gap between consecutive RETIMED words of one line, which is how long a word of that
-        /// line takes; falls back to the whole pass's mean when the line has fewer than two.
+        /// The sung length <paramref name="text"/> is given when nothing else decides it, at
+        /// <paramref name="perCharMs"/> per TYPEABLE character. This is what a line's LAST word
+        /// takes: it has no next word of its own line to run to, and a flat default made either
+        /// "on" or "everything" look wrong, so the width scales with what the player has to type.
+        /// Never narrower than <see cref="TypeBeatEditorOperations.MIN_SPAN_MS"/>, and a word with
+        /// no typeable character at all still counts as one.
         /// </summary>
-        private static double linePaceOf(IReadOnlyList<LyricLine> lines, Dictionary<(int, int), int> slotIndex,
-                                         double[] start, bool[] retimed, int line, double fallback)
+        public static double DefaultWordDuration(string text, double perCharMs)
+            => Math.Max(charsOf(text) * perCharMs, TypeBeatEditorOperations.MIN_SPAN_MS);
+
+        /// <summary>A word's typeable character count, never zero (a word of pure punctuation still has a width).</summary>
+        private static double charsOf(string text) => Math.Max(1, Typeability.TypeableCount(text));
+
+        /// <summary>
+        /// Milliseconds per typeable character of ONE line, measured from its own retimed words: how
+        /// long each consecutive retimed pair gave the earlier word, over that word's characters.
+        /// Falls back to <paramref name="fallback"/> (the pass's own rate) when the line has fewer
+        /// than two retimed words to measure between.
+        /// </summary>
+        private static double lineCharPaceOf(IReadOnlyList<LyricLine> lines, Dictionary<(int, int), int> slotIndex,
+                                             double[] start, bool[] retimed, int line, double fallback)
         {
             double total = 0;
-            int gaps = 0;
+            double chars = 0;
             int count = lines[line].Units.Count;
 
             for (int u = 1; u < count; u++)
@@ -503,11 +568,53 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     continue;
 
                 total += start[p] - start[previous];
-                gaps++;
+                chars += charsOf(lines[line].Units[u - 1].Text);
             }
 
-            double pace = gaps > 0 ? total / gaps : fallback;
-            return Math.Max(pace, TypeBeatEditorOperations.MIN_SPAN_MS);
+            return chars > 0 && total > 0 ? total / chars : fallback;
+        }
+
+        /// <summary>
+        /// Milliseconds per typeable character across the WHOLE pass, measured between consecutive
+        /// word-start taps over the characters of the word each one opened. Syllable taps are
+        /// excluded for the same reason <see cref="meanWordGap"/> excludes them: they time part of a
+        /// word, not a word. Falls back to <see cref="DEFAULT_CHAR_MS"/> when the pass has fewer
+        /// than two word starts to measure between.
+        /// </summary>
+        private static double meanCharGap(IReadOnlyList<LyricLine> lines, IReadOnlyList<TapTarget> queue,
+                                          IReadOnlyList<double> taps, int tapped)
+        {
+            double total = 0;
+            double chars = 0;
+            double previousTime = 0;
+            string? previousText = null;
+
+            for (int i = 0; i < tapped; i++)
+            {
+                if (queue[i].SyllableIndex != 0)
+                    continue;
+
+                if (previousText != null)
+                {
+                    total += taps[i] - previousTime;
+                    chars += charsOf(previousText);
+                }
+
+                previousTime = taps[i];
+                previousText = textOf(lines, queue[i]);
+            }
+
+            return chars > 0 && total > 0 ? total / chars : DEFAULT_CHAR_MS;
+        }
+
+        /// <summary>The text of the word a tap slot points at, or empty when it points outside the sheet.</summary>
+        private static string textOf(IReadOnlyList<LyricLine> lines, TapTarget target)
+        {
+            if (target.LineIndex < 0 || target.LineIndex >= lines.Count)
+                return string.Empty;
+
+            var units = lines[target.LineIndex].Units;
+            return target.UnitIndex >= 0 && target.UnitIndex < units.Count ? units[target.UnitIndex].Text : string.Empty;
         }
     }
 }

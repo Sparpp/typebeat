@@ -112,8 +112,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(built[0].Units.Select(u => (u.StartTime, u.EndTime)),
                 Is.EqualTo(new[] { (5000d, 5500d), (5500d, 6000d) }));
 
-            // The line's LAST word is capped at the line's own mean word duration (500ms here), so
-            // the 200ms gap before the next line survives instead of being sung through.
+            // The line's LAST word takes its default width instead of running to the next line:
+            // "one" (3 chars) was given 500ms, so 166.67ms a character, and "two" is also 3 chars,
+            // so the 200ms gap before the next line survives instead of being sung through.
             Assert.That(built[0].SingEndTime, Is.EqualTo(6000));
 
             // Boundary invariant: EndTime_i == StartTime_(i+1).
@@ -122,11 +123,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(built[1].StartTime, Is.EqualTo(6200));
 
             Assert.That(built[1].Units.Select(u => (u.StartTime, u.EndTime)),
-                Is.EqualTo(new[] { (6200d, 6800d), (6800d, 7400d) }));
+                Is.EqualTo(new[] { (6200d, 6800d), (6800d, 7280d) }));
 
-            // The very last word has no next tap: it takes the line's mean word duration (600ms).
-            Assert.That(built[1].SingEndTime, Is.EqualTo(7400));
-            Assert.That(built[1].EndTime, Is.EqualTo(7400 + tail));
+            // The very last word has no next tap, so it takes its DEFAULT WIDTH at the line's own
+            // measured rate: "three" (5 chars) was given 600ms, so 120ms a character, and "four"
+            // (4 chars) is 480ms. A flat mean would have given the shorter word the longer one's
+            // 600ms; the width scales with what the player has to type.
+            Assert.That(built[1].SingEndTime, Is.EqualTo(7280));
+            Assert.That(built[1].EndTime, Is.EqualTo(7280 + tail));
 
             Assert.That(built.SelectMany(l => l.Units).All(u => u.Source == TimingSource.Explicit), Is.True,
                 "tapped words are hand timing");
@@ -186,11 +190,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.That(built[1].Units[1].StartTime, Is.EqualTo(6500), "the tap wins");
 
-            // Line 3 is pushed just far enough to stay ordered, and nothing more: its second word,
-            // which never collided, does not move at all.
-            Assert.That(built[2].StartTime, Is.EqualTo(6500 + TypeBeatEditorOperations.MIN_SPAN_MS));
-            Assert.That(built[2].Units[0].StartTime, Is.EqualTo(6500 + TypeBeatEditorOperations.MIN_SPAN_MS));
-            Assert.That(built[2].Units[1].StartTime, Is.EqualTo(6900));
+            // Line 3 is pushed just far enough to stay ordered AND to leave the tapped last word
+            // ("delta", 5 chars) its guaranteed default width of 5 * DEFAULT_CHAR_MS = 400ms, and
+            // nothing more. The guarantee is deliberately the flat default and not this line's own
+            // 3000ms-a-word cadence: the shove lands on content the mapper never tapped, so it is
+            // bounded by the word's length rather than by how slowly they were tapping.
+            Assert.That(built[1].Units[1].EndTime, Is.EqualTo(6900), "the last word is not a 30ms sliver");
+            Assert.That(built[2].StartTime, Is.EqualTo(6900));
+            Assert.That(built[2].Units[0].StartTime, Is.EqualTo(6900));
+            Assert.That(built[2].Units[1].StartTime, Is.EqualTo(6930), "ordering only, no retiming");
 
             // Boundary invariant survives the push.
             Assert.That(built[1].EndTime, Is.EqualTo(built[2].StartTime));
@@ -269,6 +277,97 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(built[1].Units[1].EndTime, Is.EqualTo(4600 + TapTimingBuilder.DEFAULT_WORD_MS));
             Assert.That(built[1].Units[1].Source, Is.EqualTo(TimingSource.Explicit));
             Assert.That(built[1].Units[0].Source, Is.EqualTo(TimingSource.Explicit));
+        }
+
+        [Test]
+        public void TestLastWordWidthScalesWithItsCharacterCount()
+        {
+            // Two lines tapped at the SAME cadence (200ms per two-character word, so 100ms a
+            // character), differing only in how long their last word is.
+            var lines = new List<LyricLine>
+            {
+                line("aa bb cccc", 0, 1000, 900, (0, 300), (300, 600), (600, 900)),
+                line("aa bb cc", 1000, 2000, 1900, (1000, 1300), (1300, 1600), (1600, 1900)),
+            };
+
+            var built = TapTimingBuilder.Build(lines, TapTimingBuilder.BuildQueue(lines),
+                new[] { 1000d, 1200, 1400, 5000, 5200, 5400 });
+
+            // Inside a line a word still runs to the next word, unchanged.
+            Assert.That(built[0].Units.Select(u => (u.StartTime, u.EndTime)).Take(2),
+                Is.EqualTo(new[] { (1000d, 1200d), (1200d, 1400d) }));
+
+            // The last word has no next word of its own line, so it takes the line's rate times its
+            // own character count: 4 chars -> 400ms, 2 chars -> 200ms, at the same 100ms a char.
+            Assert.That(built[0].Units[^1].EndTime - built[0].Units[^1].StartTime, Is.EqualTo(400));
+            Assert.That(built[1].Units[^1].EndTime - built[1].Units[^1].StartTime, Is.EqualTo(200));
+
+            // Backlog 246: the line's sung end is its last word's end, so it follows the widening.
+            Assert.That(built[0].SingEndTime, Is.EqualTo(1800));
+            Assert.That(built[1].SingEndTime, Is.EqualTo(5600));
+            Assert.That(built[1].EndTime, Is.EqualTo(5600 + tail));
+            assertMonotonic(built);
+        }
+
+        [Test]
+        public void TestLastWordFallsBackToTheDefaultCharRate()
+        {
+            // Nothing to measure a cadence from: one tap, on the last word of its line, with the
+            // word before it untouched. The width is then the flat per-character default.
+            var lines = new List<LyricLine>
+            {
+                line("alpha go", 1000, 3000, 2800, (1000, 1800), (1900, 2800)),
+                line("omega", 3000, 5000, 4800, (3000, 4800)),
+            };
+
+            var built = TapTimingBuilder.Build(lines, TapTimingBuilder.BuildQueue(lines, 0, 1, 0, 1), new[] { 2000d });
+
+            // "go" is TWO characters, so the old flat DEFAULT_WORD_MS would have been 2.5x too wide.
+            Assert.That(TapTimingBuilder.DEFAULT_WORD_MS, Is.EqualTo(5 * TapTimingBuilder.DEFAULT_CHAR_MS),
+                "the flat default is the per-char default at the mean English word length");
+            Assert.That(built[0].Units[1].EndTime, Is.EqualTo(2000 + 2 * TapTimingBuilder.DEFAULT_CHAR_MS));
+            Assert.That(built[0].SingEndTime, Is.EqualTo(2000 + 2 * TapTimingBuilder.DEFAULT_CHAR_MS));
+
+            // The default is small enough that the line behind it never has to move for it.
+            Assert.That(built[1].StartTime, Is.EqualTo(3000));
+            assertMonotonic(built);
+        }
+
+        [Test]
+        public void TestLastWordIsNotSquashedByUntimedContentBehindIt()
+        {
+            // The reported bug: ONE line of a freshly pasted sheet is tap-timed. Everything behind
+            // the pass still carries the import's meaningless times, so the ordering pass used to
+            // drop the next line MIN_SPAN_MS after the final tap and leave the last word a 30ms
+            // sliver. It now clears the word's default width first.
+            var lines = untimedSheet();
+            var built = TapTimingBuilder.Build(lines, TapTimingBuilder.BuildQueue(lines, 0, 0, 0, 1), new[] { 5000d, 5500 });
+
+            double width = built[0].Units[1].EndTime - built[0].Units[1].StartTime;
+
+            Assert.That(width, Is.EqualTo(3 * TapTimingBuilder.DEFAULT_CHAR_MS), "\"two\" is three characters");
+            Assert.That(width, Is.GreaterThan(TypeBeatEditorOperations.MIN_SPAN_MS));
+            Assert.That(built[0].SingEndTime, Is.EqualTo(built[0].Units[1].EndTime));
+
+            // The untimed line behind it is only ORDERED, never retimed: it lands exactly where the
+            // room ran out and keeps its own shape from there.
+            Assert.That(built[1].StartTime, Is.EqualTo(5500 + 3 * TapTimingBuilder.DEFAULT_CHAR_MS));
+            assertMonotonic(built);
+        }
+
+        [Test]
+        public void TestLastWordNeverPushesOverTheNextTap()
+        {
+            // The mapper tapped the next line's first word 100ms after the line's last word: that is
+            // what they sang, so the word is 100ms and nothing moves. The width is a default for
+            // when there is nothing better, never an override of a tap.
+            var lines = untimedSheet();
+            var built = TapTimingBuilder.Build(lines, TapTimingBuilder.BuildQueue(lines), new[] { 5000d, 5500, 5600, 6200 });
+
+            Assert.That(built[0].Units[1].EndTime, Is.EqualTo(5600));
+            Assert.That(built[1].StartTime, Is.EqualTo(5600));
+            Assert.That(built[1].Units[0].StartTime, Is.EqualTo(5600));
+            assertMonotonic(built);
         }
 
         [Test]
