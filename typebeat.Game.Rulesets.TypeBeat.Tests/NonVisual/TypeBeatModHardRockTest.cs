@@ -377,16 +377,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The rule where it can be seen: 'c' pressed at 1300 is INSIDE the span "cake" is sung
-        /// over ([1000, 3000]) and 300 ms past its own point target (1000). Under every other stack
+        /// The rule where it can be seen: 'a' pressed at 1800 is INSIDE the span "cake" is sung
+        /// over ([1000, 3000]) and 300 ms past its own point target (1500). Under every other stack
         /// that is delta 0 and a Great; under Hard Rock it is delta 300, which the halved ladder
         /// prices as an Ok (its Great window ends 200 ms late). One press, two rules, and the mod
         /// is the only difference between the two engines.
+        ///
+        /// <para>The demonstrating cell is 'a', the span's second char, and deliberately NOT 'c':
+        /// since backlog 247 the FIRST char of a syllable is judged on its distance from the span's
+        /// start under the live stack too, and "cake" opens on 'c''s own target, so a press on 'c'
+        /// would grade the same number under both rules and prove nothing. 'c' is pressed dead on
+        /// first (delta 0 under both) purely to hand the caret over.</para>
         /// </summary>
         [Test]
         public void AnInSpanOffTargetPressIsJudgedOnItsPointTargetUnderHardRock()
         {
-            const double press_time = 1300;
+            const double press_time = 1800;
 
             var hard = liveEngine(new TypeBeatModHardRock());
             var plain = liveEngine();
@@ -394,16 +400,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // The press really is in span, so this is a test of the RULE and not of a press that
             // would have been graded the same either way.
             var line = hard.Lines[0];
-            var span = line.Syllables[line.SyllableIndexOf(0)];
+            var span = line.Syllables[line.SyllableIndexOf(1)];
 
             Assert.AreEqual(1000, span.StartTime, 1e-9);
             Assert.AreEqual(3000, span.EndTime, 1e-9);
-            Assert.AreEqual(1000, line.Cells[0].TargetTime, 1e-9);
+            Assert.AreEqual(1500, line.Cells[1].TargetTime, 1e-9);
             Assert.GreaterOrEqual(press_time, span.StartTime);
             Assert.LessOrEqual(press_time, span.EndTime);
 
-            var hardJudgement = press(hard, 'c', press_time);
-            var plainJudgement = press(plain, 'c', press_time);
+            Assert.AreEqual(0, press(hard, 'c', 1000).Delta, 1e-9);
+            Assert.AreEqual(0, press(plain, 'c', 1000).Delta, 1e-9);
+
+            var hardJudgement = press(hard, 'a', press_time);
+            var plainJudgement = press(plain, 'a', press_time);
 
             Assert.AreEqual(300, hardJudgement.Delta, 1e-9, "Hard Rock judges the distance to the point target");
             Assert.AreEqual(JudgementType.Ok, hardJudgement.Type);
@@ -412,8 +421,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(JudgementType.Great, plainJudgement.Type);
 
             // Stored, not just announced, so every readout that re-reads JudgedDelta agrees.
-            Assert.AreEqual(300, hard.Lines[0].Cells[0].JudgedDelta!.Value, 1e-9);
-            Assert.AreEqual(0, plain.Lines[0].Cells[0].JudgedDelta!.Value, 1e-9);
+            Assert.AreEqual(300, hard.Lines[0].Cells[1].JudgedDelta!.Value, 1e-9);
+            Assert.AreEqual(0, plain.Lines[0].Cells[1].JudgedDelta!.Value, 1e-9);
         }
 
         /// <summary>

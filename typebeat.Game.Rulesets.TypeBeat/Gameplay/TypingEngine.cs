@@ -190,6 +190,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool CharTimedStretch { get; set; }
 
         /// <summary>
+        /// The second narrowing on <see cref="SyllableTiming"/> (backlog 247): the FIRST cell of a
+        /// syllable group is judged on its distance from the group's <see cref="SyllableGroup.StartTime"/>
+        /// rather than paid 0 anywhere inside the span, so pacing a syllable out beats bursting its
+        /// characters just before the window closes. Every other cell of the group keeps the span
+        /// rule, which is what makes this a hybrid: the syllable's opening is back on the clock and
+        /// the rest of the syllable stays as forgiving as backlog 179 made it.
+        ///
+        /// <para>The anchor is the SPAN START, deliberately not the cell's own
+        /// <see cref="TypingCell.TargetTime"/>: the playhead reaches a syllable's first character
+        /// when the syllable starts being sung, and under mapper subtimings the flat-ramp target
+        /// routinely sits OUTSIDE its own group's span (see
+        /// <see cref="Replays.TypeBeatAutoGenerator"/>, whose 99.23% autoplay incident came from
+        /// exactly that gap). The EARLY side is unchanged either way, since a press before
+        /// <see cref="SyllableGroup.StartTime"/> already judges on that same distance; only the late
+        /// side tightens. A stretch cell (<see cref="CharTimedStretch"/>) that opens a group is NOT
+        /// re-anchored: it is already point-judged, and stricter, so the stretch narrowing keeps
+        /// precedence.</para>
+        ///
+        /// <para>FALSE by default, and era-styled exactly like the flags above: set before the first
+        /// keypress and left alone. Live play sets it for EVERY mod stack
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c>), Hard Rock included, where it is inert
+        /// because HR turns <see cref="SyllableTiming"/> off; recording it unconditionally is what
+        /// keeps re-derivation uniform. It travels per replay on the CONFIG frame's flags bit 8
+        /// (<see cref="Replays.TypeBeatReplayFrame.FirstCharTiming"/>) and is applied in
+        /// <see cref="Replays.ReplayEngineFeed.Apply"/>, so every replay recorded before it existed
+        /// carries the bit clear and re-derives with the whole span paying its first character 0,
+        /// exactly as its player was scored.</para>
+        /// </summary>
+        public bool FirstCharTiming { get; set; }
+
+        /// <summary>
         /// Whether <see cref="AllowWrongInput"/> reaches the WORD GAP as well as the lyric
         /// characters (backlog 181). With it on, a wrong (non-space) key pressed while the caret
         /// sits on a space cell is typed THROUGH exactly like a wrong letter on a lyric cell: the
@@ -2780,6 +2811,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// three or more identical characters inside one syllable), whose span would otherwise pay
         /// a whole mashed run a delta of zero. Everything else keeps the span rule, so this narrows
         /// backlog 179 rather than replacing it.</para>
+        ///
+        /// <para>Under <see cref="FirstCharTiming"/> the group's FIRST cell narrows again, to the
+        /// signed distance from the span's start (backlog 247): pacing a syllable out beats bursting
+        /// it at the window's edge, and the early side is byte-identical to the span rule since a
+        /// press before the start already judged on that distance. The stretch exclusion above wins
+        /// for a stretch cell that opens a group, which stays on its own (stricter) point target.</para>
         /// </summary>
         private double judgedDeltaFor(TypingLine line, int cellIndex, double time)
         {
@@ -2790,6 +2827,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 if (syllable >= 0 && !(CharTimedStretch && line.IsCharTimedStretch(cellIndex)))
                 {
                     var group = line.Syllables[syllable];
+
+                    if (FirstCharTiming && cellIndex == group.StartCell)
+                        return time - group.StartTime;
 
                     if (time < group.StartTime)
                         return time - group.StartTime;

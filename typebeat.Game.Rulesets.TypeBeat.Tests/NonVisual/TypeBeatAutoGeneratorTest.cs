@@ -304,9 +304,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var map = createSubtimedMap();
 
-            double[] span = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: true).Generate());
+            // The live span stack carries both narrowings (backlog 209's stretch cells and backlog
+            // 247's first chars), exactly as createEngine stamps them; the classic arm is inert to
+            // both, so it needs neither.
+            double[] span = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: true, charTimedStretch: true, firstCharTiming: true).Generate());
             double[] classic = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: false).Generate());
-            double[] literateSpan = frameTimes(new TypeBeatAutoGenerator(map, literate: true, syllableTiming: true).Generate());
+            double[] literateSpan = frameTimes(new TypeBeatAutoGenerator(map, literate: true, syllableTiming: true, charTimedStretch: true, firstCharTiming: true).Generate());
 
             Assert.That(span, Is.Not.EqualTo(classic), "the fixture must distinguish the two eras");
 

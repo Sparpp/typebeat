@@ -23,7 +23,12 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using NUnit.Framework;
+using typebeat.Game.Beatmaps;
+using typebeat.Game.Beatmaps.ControlPoints;
 using typebeat.Game.IO;
+using typebeat.Game.Replays;
+using typebeat.Game.Rulesets.Mods;
+using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
@@ -85,9 +90,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static LyricBeatmap sayStylisedNow(params double[] stylisedBoundaries) => map(line("say wooooooords now", 1000, 60000, 5000,
             unit("say", 1000, 2000), unit("wooooooords", 2000, 4000, stylisedBoundaries), unit("now", 4000, 5000)));
 
-        private static TypingEngine started(LyricBeatmap beatmap, bool syllableTiming)
+        private static TypingEngine started(LyricBeatmap beatmap, bool syllableTiming, bool firstCharTiming = false)
         {
-            var engine = new TypingEngine(beatmap) { SyllableTiming = syllableTiming };
+            var engine = new TypingEngine(beatmap) { SyllableTiming = syllableTiming, FirstCharTiming = firstCharTiming };
             engine.Update(1000);
             Assert.AreEqual(0, engine.ActiveLineIndex);
             return engine;
@@ -297,8 +302,57 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #region Flag on: the syllable span is the window
 
+        /// <summary>
+        /// THE LIVE RULE since backlog 247 is a HYBRID: any char of a syllable EXCEPT ITS FIRST is
+        /// perfect while the syllable is sung, and the first char is judged on its distance from
+        /// the syllable's start, so pacing the syllable out beats bursting it late in the span.
+        /// The keystream here is the one the pure-span pin below re-derives, so the two tests state
+        /// the era split as a diff: 'p' (a syllable's first char, 650 into its span) and 'd' are
+        /// what moved, and 'e' pressed at the very same instant as 'p' is what did not.
+        /// </summary>
         [Test]
-        public void AnyCharOfASyllableIsPerfectWhileItIsSung()
+        public void EveryCharButTheFirstIsPerfectWhileItsSyllableIsSung()
+        {
+            var engine = started(openDoor(), syllableTiming: true, firstCharTiming: true);
+            var judged = record(engine);
+
+            Assert.IsTrue(engine.ProcessKey('o', 1000)); // first char of [1000, 1250], ON the start: delta 0, Great, 300
+            // TWO DIFFERENT CHARS of the "pen" syllable pressed at the same in-span time: 'p' OPENS
+            // the syllable, so it grades 650 from the start (Ok), while 'e' keeps span delta 0.
+            Assert.IsTrue(engine.ProcessKey('p', 1900)); // first char of [1250, 2000]: delta 650 -> Ok, 153
+            Assert.IsTrue(engine.ProcessKey('e', 1900)); // non-first, in [1250, 2000]: delta 0, Great, 312
+            // Outside the span a non-first char still grades DISTANCE FROM THE EDGE:
+            // n at 2700 is 700 past the syllable's end 2000 -> Ok (400 < 700 <= 1000), 159.
+            Assert.IsTrue(engine.ProcessKey('n', 2700));
+            Assert.IsTrue(engine.ProcessKey(' ', 2700)); // no group; untimed space, delta 0, Great, 324
+            // d at 900 is 1100 before the "door" syllable's start 2000 -> Meh (600 < 1100 <= 1200),
+            // 55. BYTE-IDENTICAL to the pure span rule: the early side of a first char always
+            // measured distance from the start, so only the late side tightened.
+            Assert.IsTrue(engine.ProcessKey('d', 900));
+
+            Assert.AreEqual(new[] { JudgementType.Great, JudgementType.Ok, JudgementType.Great, JudgementType.Ok, JudgementType.Great, JudgementType.Meh },
+                judged.Select(j => j.Type).ToArray());
+            Assert.AreEqual(new double[] { 0, 650, 0, 700, 0, -1100 }, judged.Select(j => j.Delta).ToArray());
+
+            // The hybrid delta is what is STORED, so every readout that re-reads JudgedDelta (sync
+            // tint, sync percent, results) agrees with the judgement it was handed.
+            Assert.AreEqual(650, engine.Lines[0].Cells[1].JudgedDelta!.Value, 1e-9);
+            Assert.AreEqual(0, engine.Lines[0].Cells[2].JudgedDelta!.Value, 1e-9);
+            Assert.AreEqual(700, engine.Lines[0].Cells[3].JudgedDelta!.Value, 1e-9);
+            Assert.AreEqual(-1100, engine.Lines[0].Cells[5].JudgedDelta!.Value, 1e-9);
+
+            Assert.AreEqual(300 + 153 + 312 + 159 + 324 + 55, engine.Score);
+            Assert.AreEqual(6, engine.MaxCombo);
+        }
+
+        /// <summary>
+        /// The PURE SPAN era (backlog 179 to 246, CONFIG bit 8 clear), which every replay stored
+        /// before the hybrid re-derives under forever: the same keystream as the live pin above,
+        /// with the first chars paid 0 anywhere inside their spans. This is the pre-247 test body
+        /// verbatim, demoted from "the live rule" to "the stored era".
+        /// </summary>
+        [Test]
+        public void TheStoredEraPaysAnyCharOfASyllableWhileItIsSung()
         {
             var engine = started(openDoor(), syllableTiming: true);
             var judged = record(engine);
@@ -488,6 +542,211 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
+        #region The hybrid (backlog 247): the first char is back on the clock
+
+        /// <summary>
+        /// The first char of a syllable grades on its DISTANCE FROM THE SPAN'S START, crossing
+        /// tiers as the distance grows, in-span presses included: the whole point of the hybrid is
+        /// that "inside the span" is no longer free for the press that opens it. Cross-checks
+        /// against the Line ladder (Great late 400, Ok late 1000, Meh late 2000): "door" is sung
+        /// over [2000, 3000], so a 'd' at 2500 is 500 from the start, an Ok the pure span rule
+        /// would have paid 0.
+        /// </summary>
+        [TestCase(2000, 0, JudgementType.Great)]
+        [TestCase(2400, 400, JudgementType.Great)]
+        [TestCase(2500, 500, JudgementType.Ok)]
+        [TestCase(2999, 999, JudgementType.Ok)]
+        [TestCase(3500, 1500, JudgementType.Meh)] // past the end too: 1500 from the START, not the 500 from the end the span rule grades
+        public void FirstCharGradesOnDistanceFromTheSpanStart(double pressTime, double expectedDelta, JudgementType expectedType)
+        {
+            var engine = started(openDoor(), syllableTiming: true, firstCharTiming: true);
+            var judged = record(engine);
+
+            Assert.IsTrue(engine.ProcessKey('o', 1000));
+            Assert.IsTrue(engine.ProcessKey('p', 1300));
+            Assert.IsTrue(engine.ProcessKey('e', 1500));
+            Assert.IsTrue(engine.ProcessKey('n', 1900));
+            Assert.IsTrue(engine.ProcessKey(' ', 1900));
+
+            Assert.IsTrue(engine.ProcessKey('d', pressTime));
+
+            Assert.AreEqual(expectedDelta, judged[5].Delta, 1e-9);
+            Assert.AreEqual(expectedType, judged[5].Type);
+            Assert.AreEqual(expectedDelta, engine.Lines[0].Cells[5].JudgedDelta!.Value, 1e-9);
+        }
+
+        /// <summary>
+        /// Every NON-first char keeps delta 0 across its whole span, both edges inclusive: the
+        /// hybrid narrows exactly one cell per syllable and nothing else.
+        /// </summary>
+        [Test]
+        public void NonFirstCharsKeepDeltaZeroAcrossTheWholeSpan()
+        {
+            var engine = started(openDoor(), syllableTiming: true, firstCharTiming: true);
+            var judged = record(engine);
+
+            Assert.IsTrue(engine.ProcessKey('o', 1000)); // first char ON its start: 0
+            Assert.IsTrue(engine.ProcessKey('p', 1250)); // first char ON its start: 0
+            Assert.IsTrue(engine.ProcessKey('e', 1250)); // non-first at the span's START edge
+            Assert.IsTrue(engine.ProcessKey('n', 2000)); // non-first at the span's END edge
+            Assert.IsTrue(engine.ProcessKey(' ', 2000)); // untimed
+            Assert.IsTrue(engine.ProcessKey('d', 2000)); // first char ON its start: 0
+            Assert.IsTrue(engine.ProcessKey('o', 3000)); // non-first at the span's END edge
+            Assert.IsTrue(engine.ProcessKey('o', 3000));
+            Assert.IsTrue(engine.ProcessKey('r', 3000));
+
+            Assert.IsTrue(judged.All(j => j.Delta == 0), "every press judges a delta of zero");
+            Assert.IsTrue(judged.All(j => j.Type == JudgementType.Great));
+        }
+
+        /// <summary>
+        /// A first char pressed EARLY is byte-identical across the two eras: a press before the
+        /// span already judged on distance from the start, so the hybrid only tightened the late
+        /// side. Pinned pairwise over the same keystream, one engine per arm.
+        /// </summary>
+        [Test]
+        public void FirstCharEarlyPressesAreByteIdenticalAcrossTheEras()
+        {
+            var span = started(openDoor(), syllableTiming: true);
+            var hybrid = started(openDoor(), syllableTiming: true, firstCharTiming: true);
+
+            var spanJudged = record(span);
+            var hybridJudged = record(hybrid);
+
+            foreach (var engine in new[] { span, hybrid })
+            {
+                Assert.IsTrue(engine.ProcessKey('o', 800));  // first char, 200 before its span
+                Assert.IsTrue(engine.ProcessKey('p', 1100)); // first char, 150 before its span
+                Assert.IsTrue(engine.ProcessKey('e', 1100)); // non-first, same instant
+                Assert.IsTrue(engine.ProcessKey('n', 1100));
+                Assert.IsTrue(engine.ProcessKey(' ', 1100));
+                Assert.IsTrue(engine.ProcessKey('d', 900));  // first char, 1100 before its span
+            }
+
+            Assert.AreEqual(spanJudged.Select(j => j.Delta).ToArray(), hybridJudged.Select(j => j.Delta).ToArray());
+            Assert.AreEqual(spanJudged.Select(j => j.Type).ToArray(), hybridJudged.Select(j => j.Type).ToArray());
+            Assert.AreEqual(new double[] { -200, -150, -150, -150, 0, -1100 }, hybridJudged.Select(j => j.Delta).ToArray());
+        }
+
+        /// <summary>
+        /// The anchor is the SPAN START, not the first cell's own TargetTime. Under mapper
+        /// subtimings the flat-ramp target routinely sits away from (or outside) its own group's
+        /// span ("probably": cell 3 is timed at 1281.25 while its syllable opens at 1250), so a
+        /// press exactly ON the cell's own target is 31.25 from the anchor and a press on the
+        /// span's start is 0. Anchoring on TargetTime would resurrect the class of bug the
+        /// generator's 99.23% autoplay incident came from.
+        /// </summary>
+        [Test]
+        public void TheFirstCharAnchorIsTheSpanStartNotItsOwnTarget()
+        {
+            var onTarget = started(probably(), syllableTiming: true, firstCharTiming: true);
+            var onStart = started(probably(), syllableTiming: true, firstCharTiming: true);
+
+            Assert.AreEqual(1281.25, onTarget.Lines[0].Cells[3].TargetTime, 1e-9, "the fixture's disagreement");
+            Assert.AreEqual(1250, onTarget.Lines[0].Syllables[1].StartTime, 1e-9);
+
+            var judgedTarget = record(onTarget);
+            var judgedStart = record(onStart);
+
+            foreach (var engine in new[] { onTarget, onStart })
+            {
+                Assert.IsTrue(engine.ProcessKey('p', 1000));
+                Assert.IsTrue(engine.ProcessKey('r', 1100));
+                Assert.IsTrue(engine.ProcessKey('o', 1200));
+            }
+
+            Assert.IsTrue(onTarget.ProcessKey('b', 1281.25)); // the cell's own target
+            Assert.IsTrue(onStart.ProcessKey('b', 1250));     // the span's start
+
+            Assert.AreEqual(31.25, judgedTarget[3].Delta, 1e-9, "a press on the cell's own target is NOT the perfect instant");
+            Assert.AreEqual(0, judgedStart[3].Delta, 1e-9, "the span's start is");
+            Assert.AreEqual(JudgementType.Great, judgedTarget[3].Type);
+        }
+
+        /// <summary>
+        /// The engine's own default is the STORED era, so nothing that does not ask for the hybrid
+        /// gets it: a replay with no CONFIG frame at all, and every call site that predates the
+        /// flag, keeps paying a first char anywhere in its span.
+        /// </summary>
+        [Test]
+        public void TheHybridDefaultIsTheStoredEra()
+        {
+            Assert.IsFalse(new TypingEngine(openDoor()).FirstCharTiming);
+            Assert.IsFalse(TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true).FirstCharTiming);
+        }
+
+        private static TypeBeatBeatmap scoredBeatmap(LyricLine lyric)
+        {
+            var beatmap = new TypeBeatBeatmap();
+            beatmap.HitObjects.Add(new TypeBeatHitObject { StartTime = lyric.StartTime, LineIndex = 0, Line = lyric, Granularity = TimingGranularity.Line });
+
+            foreach (var hitObject in beatmap.HitObjects)
+                hitObject.ApplyDefaults(new ControlPointInfo(), new BeatmapDifficulty(), CancellationToken.None);
+
+            return beatmap;
+        }
+
+        private static int count(TypeBeatReplayAccount account, HitResult result)
+            => account.Statistics.GetValueOrDefault(result);
+
+        /// <summary>"open door" with every syllable's first char BURST late into its span (o 240 in,
+        /// p 650 in, d 900 in), as a live client would record it, with bit 8 the parameter.</summary>
+        private static Replay burstReplay(bool firstCharTiming)
+        {
+            var replay = new Replay();
+
+            replay.Frames.Add(TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true, spaceSkipsWord: false,
+                syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, firstCharTiming: firstCharTiming));
+
+            replay.Frames.Add(new TypeBeatReplayFrame(1240, 'o'));
+            replay.Frames.Add(new TypeBeatReplayFrame(1900, 'p'));
+            replay.Frames.Add(new TypeBeatReplayFrame(1900, 'e'));
+            replay.Frames.Add(new TypeBeatReplayFrame(1900, 'n'));
+            replay.Frames.Add(new TypeBeatReplayFrame(1900, ' '));
+            replay.Frames.Add(new TypeBeatReplayFrame(2900, 'd'));
+            replay.Frames.Add(new TypeBeatReplayFrame(2900, 'o'));
+            replay.Frames.Add(new TypeBeatReplayFrame(2900, 'o'));
+            replay.Frames.Add(new TypeBeatReplayFrame(2900, 'r'));
+
+            return replay;
+        }
+
+        /// <summary>
+        /// The whole account of a burst-typed run, re-derived under both arms of the CONFIG frame's
+        /// bit 8. Clear (every replay stored before backlog 247) pays every in-span press 0 and the
+        /// run is perfect; set (the live client) prices the three first chars on their distance
+        /// from each syllable's start. The two disagree on statistics, accuracy and total_score,
+        /// which is why the bit has to exist: without it the recalculation tool would report every
+        /// stored burst run as unreproducible. Completion and max combo do NOT move, because every
+        /// press is still a hit.
+        /// </summary>
+        [Test]
+        public void TheStoredEraKeepsBurstFirstCharsPerfect()
+        {
+            var beatmap = scoredBeatmap(openDoor().Lines[0]);
+
+            var stored = TypeBeatReplayScorer.Score(beatmap, Array.Empty<Mod>(), burstReplay(firstCharTiming: false), TypoRule.Deferred, ComboRestoreRule.OnFix);
+            var live = TypeBeatReplayScorer.Score(beatmap, Array.Empty<Mod>(), burstReplay(firstCharTiming: true), TypoRule.Deferred, ComboRestoreRule.OnFix);
+
+            Assert.AreEqual(9, count(stored, HitResult.Great), "the pure span rule paid every in-span press");
+            Assert.AreEqual(0, count(stored, HitResult.Ok));
+            Assert.AreEqual(1, stored.Accuracy, 1e-9);
+
+            Assert.AreEqual(7, count(live, HitResult.Great), "o at 240 in stays Great; p at 650 and d at 900 do not");
+            Assert.AreEqual(2, count(live, HitResult.Ok));
+            Assert.AreEqual(0, count(live, HitResult.Miss), "an off-time press is still a hit");
+
+            Assert.Less(live.Accuracy, stored.Accuracy);
+            Assert.Less(live.TotalScore, stored.TotalScore);
+
+            // The burst still fills every cell, so the play is complete under both arms: what
+            // moved is what the presses were WORTH, not whether they landed.
+            Assert.AreEqual(9, stored.MaxCombo);
+            Assert.AreEqual(9, live.MaxCombo);
+        }
+
+        #endregion
+
         #region Line-level invariants, incl. real maps
 
         private static void assertLineInvariants(TypingLine tl)
@@ -650,9 +909,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// stretch cell is pressed on one rule and graded on the other. It defaults to the LIVE
         /// value, so every autoplay pin below runs under the rule players actually get;
         /// <see cref="CharTimedStretchTest"/> holds the rule itself.</para>
+        ///
+        /// <para><paramref name="firstChar"/> is backlog 247's narrowing on the same terms: one
+        /// parameter, both sides, defaulting to the LIVE value (a syllable's first char pressed at
+        /// the span's start). The two backlog 181 fixtures below pass it false, because they pin
+        /// the pre-247 era those stored runs re-derive under.</para>
         /// </summary>
         private static (TypingEngine engine, IReadOnlyList<TypeBeatReplayFrame> frames) autoplay(
-            IReadOnlyList<TypeBeatHitObject> lineObjects, string title, bool generatorEra, bool engineEra, double windowScale = 1, bool charTimed = true)
+            IReadOnlyList<TypeBeatHitObject> lineObjects, string title, bool generatorEra, bool engineEra, double windowScale = 1, bool charTimed = true, bool firstChar = true)
         {
             const double frame_ms = 1000.0 / 60;
 
@@ -668,10 +932,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Granularity = lineObjects[0].Granularity,
             };
 
-            var frames = new TypeBeatAutoGenerator(beatmap, syllableTiming: generatorEra, charTimedStretch: charTimed).Generate().Frames.Cast<TypeBeatReplayFrame>().ToList();
+            var frames = new TypeBeatAutoGenerator(beatmap, syllableTiming: generatorEra, charTimedStretch: charTimed, firstCharTiming: firstChar).Generate().Frames.Cast<TypeBeatReplayFrame>().ToList();
             Assert.That(frames, Is.Not.Empty);
 
-            var engine = new TypingEngine(lyricBeatmap) { SyllableTiming = engineEra, CharTimedStretch = charTimed, WindowScale = windowScale };
+            var engine = new TypingEngine(lyricBeatmap) { SyllableTiming = engineEra, CharTimedStretch = charTimed, FirstCharTiming = firstChar, WindowScale = windowScale };
 
             int next = 0;
             double end = lyricBeatmap.LastLineEnd + 10000;
@@ -736,6 +1000,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// line's first press up to one millisecond past a span that opens with it. Neither is
         /// worth fighting against a 112.5 ms Great window, and neither may grow: this pin is what
         /// says so.</para>
+        ///
+        /// <para>Since backlog 247 this runs the full LIVE stack (the autoplay helper defaults
+        /// <c>firstChar</c> on), so it also pins that pressing every group's first cell at the
+        /// span's start survives real fractional map data at a delta of zero.</para>
         /// </summary>
         [TestCase("wii-shop.osu")]
         [TestCase("immortal-flame.osu")]
@@ -833,7 +1101,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void TargetPressesLoseGreatsWhereASubtimedTargetFallsOutsideItsSpan()
         {
-            var (engine, frames) = autoplay(subtimedDisagreement(), "subtimed", generatorEra: false, engineEra: true);
+            // firstChar: false, because this pins the backlog 181 incident under the era it
+            // happened in (pure spans, bit 8 clear); the hybrid has its own autoplay pin below.
+            var (engine, frames) = autoplay(subtimedDisagreement(), "subtimed", generatorEra: false, engineEra: true, firstChar: false);
 
             var results = engine.BuildResults();
             Assert.AreEqual(2, results.Counts[JudgementType.Ok], "the two out-of-span targets drop to Ok");
@@ -861,7 +1131,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void AutoplayPressesTheSpanEdgeWhereASubtimedTargetFallsOutsideIt()
         {
-            var (engine, frames) = autoplay(subtimedDisagreement(), "subtimed", generatorEra: true, engineEra: true);
+            // firstChar: false, because this pins the backlog 181 fix under the pure-span era it
+            // shipped in (bit 8 clear): the clamp moves ONLY a target outside its span. Under the
+            // hybrid the first cell of every group moves too, which the pin below holds instead.
+            var (engine, frames) = autoplay(subtimedDisagreement(), "subtimed", generatorEra: true, engineEra: true, firstChar: false);
 
             // The early press waits for its span to open, the late one is taken before it closes.
             Assert.AreEqual(2600, frames[4].Time, 1e-9);
@@ -880,6 +1153,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 if (out_of_span.All(o => o.cell != i))
                     Assert.AreEqual(targets[i], frames[i].Time, 1e-9, $"frame {i} must not move");
             }
+
+            assertPerfectRun(engine, frames.Count, 1e-9);
+        }
+
+        /// <summary>
+        /// THE HYBRID'S AUTOPLAY (backlog 247), over the same subtimed fixture: the generator
+        /// presses the FIRST cell of every group at that group's span START (the only instant the
+        /// hybrid judges it 0), keeps every stretch-free non-first cell on the 181 clamp, and the
+        /// whole line still judges on a delta of exactly zero. The three pinned moves are the
+        /// group-first cells whose targets sat later than (or outside) their span's opening; the
+        /// two pinned non-moves are group-first cells the 181 clamp already pressed on their
+        /// span's start, so the hybrid agrees with it there. Press times stay monotonic (cell 16's
+        /// clamp and cell 17's start share the instant 6000, which the edge-inclusive span and the
+        /// start anchor both pay 0).
+        /// </summary>
+        [Test]
+        public void AutoplayPressesTheSpanStartForFirstCharsUnderTheHybrid()
+        {
+            var (engine, frames) = autoplay(subtimedDisagreement(), "subtimed", generatorEra: true, engineEra: true);
+
+            // Moved by the hybrid: first cells whose target sat past their span's opening.
+            Assert.AreEqual(1800, frames[3].Time, 1e-9, "'a' of avi|a|tion, timed 1900, opens its span at 1800");
+            Assert.AreEqual(5000, frames[14].Time, 1e-9, "'t' of the tee group, timed 5222, opens its span at 5000");
+            Assert.AreEqual(6000, frames[17].Time, 1e-9, "the held 'n', timed 8778, opens its span at 6000");
+
+            // Already on their span starts under the 181 clamp (their targets were EARLY of the
+            // span), so the hybrid moves nothing: the two rules agree wherever the clamp's answer
+            // was the start.
+            Assert.AreEqual(2600, frames[4].Time, 1e-9);
+            Assert.AreEqual(4500, frames[11].Time, 1e-9);
 
             assertPerfectRun(engine, frames.Count, 1e-9);
         }

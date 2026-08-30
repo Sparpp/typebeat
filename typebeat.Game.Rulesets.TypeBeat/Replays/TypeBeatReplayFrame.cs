@@ -34,9 +34,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// every gap), bit 5 <see cref="FlexibleLines"/> (whether the caret was unpinned from the
     /// playhead AND snapped forward when the next line started), bit 6
     /// <see cref="CharTimedStretch"/> (whether a freestyle slot or a stretched identical-character
-    /// run was judged on its own character target rather than its syllable's span) and bit 7
+    /// run was judged on its own character target rather than its syllable's span), bit 7
     /// <see cref="BoundedRush"/> (whether rushing onto the next line was bounded to the same
-    /// 1500 ms before its cue that dragging is granted past a line's end). Other mods
+    /// 1500 ms before its cue that dragging is granted past a line's end) and bit 8
+    /// <see cref="FirstCharTiming"/> (whether the first character of a syllable was judged on its
+    /// distance from the syllable's start rather than paid 0 anywhere in the span). Other mods
     /// (Literate/Mashing/rate) travel in the score itself and need no frames.
     ///
     /// <para>Backlog 107 turned that model from a local SETTING into a mod (Gatekeeper), so it now
@@ -53,16 +55,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <see cref="typebeat.Game.Scoring.Legacy.LegacyScoreEncoder"/>/<c>Decoder</c> untouched:
     /// MouseX = character code, MouseY = config flags (bit 0 = allow-wrong-input, bit 1 =
     /// space-skips-word, bit 2 = syllable-span timing, bit 3 = wrong-input-on-word-gaps, bit 4 =
-    /// strict-spaces, bit 5 = flexible-lines, bit 6 = char-timed-stretch, bit 7 = bounded-rush; only
+    /// strict-spaces, bit 5 = flexible-lines, bit 6 = char-timed-stretch, bit 7 = bounded-rush,
+    /// bit 8 = first-char-timing; only
     /// meaningful on CONFIG frames),
-    /// ButtonState = None, time = the integral frame time. A flags word of at most 255 is as harmless
+    /// ButtonState = None, time = the integral frame time. A flags word of at most 511 is as harmless
     /// to the encoder as the single bit was, and each new bit is appended ABOVE the existing ones,
     /// never renumbered: bits 0 to 4 keep their meaning and their positions untouched, so every
     /// replay already on disk decodes identically and simply reads false for the newer bits. All
     /// typeable characters (a-z, A-Z, 0-9, space, plus the Literate mod's punctuation, whose
     /// highest code point is ']' at 0x5D) and all three sentinels are far below the decoder's
     /// coordinate parse limits and its (256, -500) stable-header positions, so no stable fixup can
-    /// mangle them. The sentinels sit at 0x00, 0x08 and 0x0A, below every printable mark, so nothing
+    /// mangle them. Bit 8 pushes the flags word itself to 256 and beyond, which is still safe: the
+    /// stable-header strip matches the POSITION PAIR (256, -500) exactly, and a CONFIG frame's
+    /// MouseX is 0x00 with a MouseY that is never negative, so neither coordinate can match. The
+    /// sentinels sit at 0x00, 0x08 and 0x0A, below every printable mark, so nothing
     /// collides.</para>
     ///
     /// <para><b>A sentinel this client does not know</b> is IGNORED rather than typed
@@ -201,6 +207,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// </summary>
         public bool BoundedRush;
 
+        /// <summary>
+        /// The engine's first-char-timing setting at record time (see
+        /// <see cref="Gameplay.TypingEngine.FirstCharTiming"/>). Only meaningful on
+        /// <see cref="CONFIG"/> frames, and the ERA carrier for backlog 247: the live client records
+        /// it true, and every replay stored before it existed carries the bit clear, so a syllable
+        /// whose first character its player pressed late in the sung span still grades that press a
+        /// delta of zero, exactly as it did when the run was played. Judgement relevant in the
+        /// strongest sense, since it decides the delta of every press that opens a syllable.
+        /// </summary>
+        public bool FirstCharTiming;
+
         public bool IsBackspace => Character == BACKSPACE;
 
         public bool IsEnter => Character == ENTER;
@@ -221,21 +238,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// The header frame for a run. <paramref name="spaceSkipsWord"/>,
         /// <paramref name="syllableTiming"/>, <paramref name="wrongInputOnWordGaps"/>,
         /// <paramref name="strictSpaces"/>, <paramref name="charTimedStretch"/>,
-        /// <paramref name="flexibleLines"/> and <paramref name="boundedRush"/> are optional so the
+        /// <paramref name="flexibleLines"/>, <paramref name="boundedRush"/> and
+        /// <paramref name="firstCharTiming"/> are optional so the
         /// older call sites keep meaning what they always did (bit clear = no word skipping, classic
         /// point-target judgement, a wrong key on a word gap rejected, a gap typo carrying the caret
         /// forward, a mid-word space rejected, a mashed stretch paid across its whole syllable span,
-        /// a caret pinned to the playhead and an unbounded rush onto the next line), which is also
+        /// a caret pinned to the playhead, an unbounded rush onto the next line and a syllable's
+        /// first character paid anywhere in its span), which is also
         /// exactly how a replay recorded before each setting existed decodes.
         ///
         /// <para>The PARAMETER order is append-only and therefore does NOT track bit order:
         /// <paramref name="charTimedStretch"/> (bit 6) shipped first and holds slot 7, so
         /// <paramref name="flexibleLines"/> (bit 5) is appended after it rather than renumbering a
-        /// positional argument out from under a call site that already passes it, and
-        /// <paramref name="boundedRush"/> (bit 7) is appended after both. Pass the newer three by
+        /// positional argument out from under a call site that already passes it,
+        /// <paramref name="boundedRush"/> (bit 7) is appended after both, and
+        /// <paramref name="firstCharTiming"/> (bit 8) after that. Pass the newer four by
         /// name.</para>
         /// </summary>
-        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false, bool flexibleLines = false, bool boundedRush = false) => new TypeBeatReplayFrame(time, CONFIG)
+        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false, bool flexibleLines = false, bool boundedRush = false, bool firstCharTiming = false) => new TypeBeatReplayFrame(time, CONFIG)
         {
             AllowWrongInput = allowWrongInput,
             SpaceSkipsWord = spaceSkipsWord,
@@ -245,6 +265,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             FlexibleLines = flexibleLines,
             CharTimedStretch = charTimedStretch,
             BoundedRush = boundedRush,
+            FirstCharTiming = firstCharTiming,
         };
 
         /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>
@@ -276,6 +297,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// the same margin dragging is granted at the other end of a line (backlog 218).</summary>
         private const int flag_bounded_rush = 128;
 
+        /// <summary>Bit 8 of the CONFIG frame's flags word: the first character of a syllable is
+        /// judged on its distance from the syllable's start rather than paid 0 anywhere in the sung
+        /// span (backlog 247).</summary>
+        private const int flag_first_char_timing = 256;
+
         public void FromLegacy(LegacyReplayFrame currentFrame, IBeatmap beatmap, ReplayFrame? lastFrame = null)
         {
             Character = (char)(int)(currentFrame.MouseX ?? 0);
@@ -290,6 +316,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             FlexibleLines = (flags & flag_flexible_lines) != 0;
             CharTimedStretch = (flags & flag_char_timed_stretch) != 0;
             BoundedRush = (flags & flag_bounded_rush) != 0;
+            FirstCharTiming = (flags & flag_first_char_timing) != 0;
         }
 
         public LegacyReplayFrame ToLegacy(IBeatmap beatmap) =>
@@ -303,7 +330,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             | (StrictSpaces ? flag_strict_spaces : 0)
             | (FlexibleLines ? flag_flexible_lines : 0)
             | (CharTimedStretch ? flag_char_timed_stretch : 0)
-            | (BoundedRush ? flag_bounded_rush : 0);
+            | (BoundedRush ? flag_bounded_rush : 0)
+            | (FirstCharTiming ? flag_first_char_timing : 0);
 
         /// <summary>
         /// Never equivalent: every frame is a discrete keystroke. Two identical characters at the

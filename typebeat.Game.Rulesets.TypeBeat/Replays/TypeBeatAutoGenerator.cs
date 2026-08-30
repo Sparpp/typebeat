@@ -34,6 +34,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         private readonly bool literate;
         private readonly bool syllableTiming;
         private readonly bool charTimedStretch;
+        private readonly bool firstCharTiming;
 
         /// <param name="beatmap">The map to perfect.</param>
         /// <param name="literate">
@@ -54,12 +55,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// defaulting to the same OLD era. Inert unless <paramref name="syllableTiming"/> is set,
         /// because a classic engine already presses and judges every cell on its point target.
         /// </param>
-        public TypeBeatAutoGenerator(IBeatmap beatmap, bool literate = false, bool syllableTiming = false, bool charTimedStretch = false)
+        /// <param name="firstCharTiming">
+        /// Whether the grading engine narrows the span rule again for the FIRST cell of each
+        /// syllable group (backlog 247, see <see cref="Gameplay.TypingEngine.FirstCharTiming"/>),
+        /// era-styled the same way and defaulting to the same OLD era. Inert unless
+        /// <paramref name="syllableTiming"/> is set, for the same reason
+        /// <paramref name="charTimedStretch"/> is.
+        /// </param>
+        public TypeBeatAutoGenerator(IBeatmap beatmap, bool literate = false, bool syllableTiming = false, bool charTimedStretch = false, bool firstCharTiming = false)
             : base(beatmap)
         {
             this.literate = literate;
             this.syllableTiming = syllableTiming;
             this.charTimedStretch = charTimedStretch;
+            this.firstCharTiming = firstCharTiming;
         }
 
         protected override void GenerateFrames()
@@ -169,6 +178,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 return target;
 
             var group = line.Syllables[syllable];
+
+            // The hybrid era (backlog 247): the group's first cell is judged on distance from the
+            // span's start, so the only press that grades 0 is the start itself. The stretch arm
+            // above keeps precedence, exactly as it does in the engine: a stretch cell that opens
+            // a group is point-judged, and pressing the span start would hand autoplay the very
+            // off-target press the narrowing prices. Span starts are monotonic across the line
+            // (TypingLine clamps them so at construction) and every later cell of the group is
+            // clamped to at least this same start, so the generated press times stay monotonic.
+            if (firstCharTiming && cellIndex == group.StartCell)
+                return group.StartTime;
 
             return Math.Clamp(target, group.StartTime, group.EndTime);
         }

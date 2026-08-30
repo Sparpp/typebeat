@@ -34,10 +34,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             // Backlog 209's narrowing rides along unconditionally, exactly as createEngine stamps
             // it: a stretch cell is judged on its own character target, so autoplay must press that
             // target rather than the span edge it would otherwise be clamped to.
+            //
+            // Backlog 247's narrowing rides along the same way: a syllable's first character is
+            // judged on distance from the span's start, so autoplay must press that start rather
+            // than a target sitting later inside the span. Both are inert under Hard Rock, whose
+            // classic engine presses and judges every cell on its point target.
             => new ModReplayData(new TypeBeatAutoGenerator(beatmap,
                     literate: mods.Any(m => m is TypeBeatModLiterate),
                     syllableTiming: !mods.Any(m => m is TypeBeatModHardRock),
-                    charTimedStretch: true).Generate(),
+                    charTimedStretch: true,
+                    firstCharTiming: true).Generate(),
                 new ModCreatedUser { Username = "typebot" });
     }
 }

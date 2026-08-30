@@ -40,7 +40,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             if (frame.IsConfig)
             {
                 // The recorded machine's judgement-relevant settings win over local config, all
-                // eight of them: a replay of a run played WITHOUT space-skip must not start skipping
+                // nine of them: a replay of a run played WITHOUT space-skip must not start skipping
                 // words because the watcher turned the setting on, and vice versa. Every replay
                 // recorded before a setting existed carries its bit clear, which decodes to false,
                 // i.e. to exactly the model those runs were played under.
@@ -67,6 +67,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 engine.WrongInputOnWordGaps = frame.WrongInputOnWordGaps;
                 engine.StrictSpaces = frame.StrictSpaces;
                 engine.CharTimedStretch = frame.CharTimedStretch;
+
+                // FirstCharTiming (backlog 247) is the second narrowing on SyllableTiming, and an
+                // era bit for the same reason bit 6 is: with it clear a syllable's first character
+                // pressed late in the sung span keeps the delta of zero its whole span paid it,
+                // which is what every run stored before the hybrid was scored on.
+                engine.FirstCharTiming = frame.FirstCharTiming;
 
                 // BoundedRush (backlog 218) is the fifth, and the sharpest of them on the caret
                 // question: with it clear a player's finished line handed them the next one however

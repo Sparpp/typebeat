@@ -228,6 +228,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // targets would invent a worse score than the one the player was shown.
                 CharTimedStretch = true,
 
+                // THE SECOND narrowing since backlog 247, unconditional for every mod stack: the
+                // FIRST character of a syllable is judged on its distance from the syllable's
+                // start, so pacing a syllable out beats bursting its characters at the window's
+                // edge, while every other character keeps the span rule above.
+                //
+                // Set even under Hard Rock, where it is INERT for the same reason CharTimedStretch
+                // is: HR turns SyllableTiming off, and this arm lives inside the grouped branch.
+                // Recording it regardless keeps re-derivation uniform, the same convention bits 3,
+                // 4, 6 and 7 follow.
+                //
+                // An ERA flag on CONFIG frame bit 8, because every replay recorded before it holds
+                // first-character presses that WERE paid across the whole span, and re-deriving
+                // those on the span's start would invent a worse score than the one the player was
+                // shown.
+                FirstCharTiming = true,
+
                 // THE LIVE CARET SINCE BACKLOG 208, for every stack except the pinning mod's. The
                 // three freedoms that shipped as the "FT" mod (open the next line the moment you
                 // finish one, keep a line the song has left, character distance instead of a timing

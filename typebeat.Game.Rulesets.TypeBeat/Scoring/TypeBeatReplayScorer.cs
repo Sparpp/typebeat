@@ -368,9 +368,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// plus the engine flags the mods set through <c>ApplyToDrawableRuleset</c>.
         /// <c>AllowWrongInput</c>, <c>SpaceSkipsWord</c>, <c>SyllableTiming</c>,
         /// <c>WrongInputOnWordGaps</c>, <c>StrictSpaces</c>, <c>CharTimedStretch</c>,
-        /// <c>FlexibleLineSnap</c> and <c>BoundedRush</c> are
+        /// <c>FlexibleLineSnap</c>, <c>BoundedRush</c> and <c>FirstCharTiming</c> are
         /// deliberately NOT set from the mods or from any config: the replay's CONFIG frame carries
-        /// what the run was judged under and overwrites all seven, which is the only thing that judges
+        /// what the run was judged under and overwrites all nine, which is the only thing that judges
         /// a pre-Gatekeeper strict run right.
         /// </summary>
         private static TypingEngine createEngine(IBeatmap playable, IReadOnlyList<TypeBeatHitObject> lineObjects, IReadOnlyList<Mod> mods, RateWindowRule rateRule)
@@ -423,6 +423,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // run is judged on its own character target. The default is the pure span rule every
             // stored replay was scored on, mashed sections included, and the bit is set for every
             // live stack (inert under Hard Rock, which has SyllableTiming clear anyway).
+            //
+            // FirstCharTiming (backlog 247, CONFIG frame bit 8) is the fifth, and the second
+            // narrowing on the same axis: a syllable's first character is judged on its distance
+            // from the syllable's start rather than paid 0 anywhere in the span. The default is
+            // the whole-span rule every stored replay's first characters were scored on, and the
+            // bit is set for every live stack on the same terms as bit 6.
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the three arms below compose in any order. A replay

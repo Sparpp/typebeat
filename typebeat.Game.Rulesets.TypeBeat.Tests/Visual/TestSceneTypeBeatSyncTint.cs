@@ -74,11 +74,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         /// <summary>
         /// The press time that earns cell <paramref name="index"/> a judged delta of exactly
-        /// <paramref name="delta"/> under the LIVE rule (backlog 179). A cell inside a syllable
-        /// group is judged on that group's sung SPAN, so lateness is measured from the span's end
-        /// and earliness from its start, and a delta of 0 is the edge itself (the span is
-        /// edge-inclusive). A cell in no group keeps the classic point target, so this reduces to
-        /// the old expression for one.
+        /// <paramref name="delta"/> under the LIVE rule (backlog 179, narrowed by 209 and 247). A
+        /// cell inside a syllable group is judged on that group's sung SPAN, so lateness is
+        /// measured from the span's end and earliness from its start, and a delta of 0 is the edge
+        /// itself (the span is edge-inclusive). Two kinds of grouped cell are narrower: a STRETCH
+        /// cell (backlog 209; the freestyle slot here) is judged on its own point target, and the
+        /// group's FIRST cell (backlog 247; cell 0 here) on its distance from the span's start,
+        /// both signs. A cell in no group keeps the classic point target, so this reduces to the
+        /// old expression for one.
         ///
         /// <para>The engine is not being ticked to these times, only judged at them, exactly as
         /// before: the scene's own clock stays near zero throughout, which is what keeps the line's
@@ -89,10 +92,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             var line = engine.Lines[0];
             int group = line.SyllableIndexOf(index);
 
-            if (group < 0)
+            if (group < 0 || (engine.CharTimedStretch && line.IsCharTimedStretch(index)))
                 return cell(index).TargetTime + delta;
 
             var span = line.Syllables[group];
+
+            if (engine.FirstCharTiming && index == span.StartCell)
+                return span.StartTime + delta;
 
             return delta < 0 ? span.StartTime + delta : span.EndTime + delta;
         }

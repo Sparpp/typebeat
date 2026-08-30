@@ -484,6 +484,47 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(judged.Skip(4).All(j => j.Type == JudgementType.Premature));
         }
 
+        /// <summary>
+        /// PRECEDENCE against backlog 247's first-char hybrid: a stretch cell that OPENS a group
+        /// stays on its own point target, which is already stricter than any span rule. Cell 7 of
+        /// the autoplay fixture is exactly that shape (first cell of the [9000, 17000] group, timed
+        /// at 8200): pressed on its target it judges 0, and pressed on the span's start it judges
+        /// the 800 its target is away, where the first-char arm would have graded those two presses
+        /// the other way around (-800 and 0).
+        /// </summary>
+        [Test]
+        public void AStretchCellOpeningAGroupKeepsItsPointTargetUnderTheHybrid()
+        {
+            var beatmap = map(autoplayLine());
+
+            var onTarget = new TypingEngine(beatmap) { SyllableTiming = true, CharTimedStretch = true, FirstCharTiming = true };
+            var onSpanStart = new TypingEngine(beatmap) { SyllableTiming = true, CharTimedStretch = true, FirstCharTiming = true };
+            onTarget.Update(1000);
+            onSpanStart.Update(1000);
+
+            var judgedTarget = record(onTarget);
+            var judgedStart = record(onSpanStart);
+
+            foreach (var engine in new[] { onTarget, onSpanStart })
+            {
+                Assert.IsTrue(engine.ProcessKey('q', 1000)); // four freestyle slots on their targets
+                Assert.IsTrue(engine.ProcessKey('q', 2000));
+                Assert.IsTrue(engine.ProcessKey('q', 3000));
+                Assert.IsTrue(engine.ProcessKey('q', 4000));
+                Assert.IsTrue(engine.ProcessKey(' ', 4000));
+                Assert.IsTrue(engine.ProcessKey('a', 5000)); // cell 5 opens [5000, 9000] on its start
+                Assert.IsTrue(engine.ProcessKey('a', 6000)); // cell 6, non-first, in span
+            }
+
+            Assert.IsTrue(onTarget.ProcessKey('a', 8200));   // cell 7 on its own target
+            Assert.IsTrue(onSpanStart.ProcessKey('a', 9000)); // cell 7 on its group's start
+
+            Assert.AreEqual(0, judgedTarget[7].Delta, 1e-9, "the stretch cell's own target is still the perfect instant");
+            Assert.AreEqual(800, judgedStart[7].Delta, 1e-9, "and the span start its group opens at is not");
+            Assert.AreEqual(JudgementType.Great, judgedTarget[7].Type);
+            Assert.AreEqual(JudgementType.Ok, judgedStart[7].Type);
+        }
+
         #endregion
 
         #region The era: bit 6 clear re-derives what the run was played on
@@ -588,23 +629,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// cell on its own target (never the span edge it would be clamped to) and every other cell
         /// on the span it is still judged against, so the whole line judges Great on a delta of
         /// zero. This covers both arms at once, freestyle slots and a subtimed run.
+        ///
+        /// <para>Run under BOTH values of backlog 247's first-char hybrid, which pins the
+        /// PRECEDENCE in the generator: cell 7 opens its group AND is a stretch cell, and the
+        /// stretch arm wins, so its press stays its own 8200 target rather than moving to the 9000
+        /// span start the hybrid would otherwise press. The two other group-first cells (the
+        /// opening freestyle marker and the 'a' at cell 5) are already timed exactly on their
+        /// spans' starts, so this fixture's frames are byte-identical across the eras.</para>
         /// </summary>
         [Test]
-        public void AutoplayIsAllGreatOverAFreestyleAndAStretch()
+        public void AutoplayIsAllGreatOverAFreestyleAndAStretch([Values] bool firstChar)
         {
             var lyric = autoplayLine();
             var beatmap = scored(lyric);
 
-            var frames = new TypeBeatAutoGenerator(beatmap, syllableTiming: true, charTimedStretch: true)
+            var frames = new TypeBeatAutoGenerator(beatmap, syllableTiming: true, charTimedStretch: true, firstCharTiming: firstChar)
                 .Generate().Frames.Cast<TypeBeatReplayFrame>().ToList();
 
             Assert.AreEqual(10, frames.Count);
 
             // The clamp is skipped for the stretch cell, so its press is its own target and not the
-            // 9000 span edge. That is the whole generator change, stated as one number.
+            // 9000 span edge (nor, under the hybrid, the 9000 span START: the stretch arm keeps
+            // precedence over the first-char arm). That is the whole generator change, stated as
+            // one number.
             Assert.AreEqual(8200, frames[7].Time, 1e-9);
 
-            var engine = new TypingEngine(map(lyric)) { SyllableTiming = true, CharTimedStretch = true };
+            var engine = new TypingEngine(map(lyric)) { SyllableTiming = true, CharTimedStretch = true, FirstCharTiming = firstChar };
             engine.Update(1000);
 
             foreach (var frame in frames)

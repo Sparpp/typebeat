@@ -248,12 +248,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && frames[0].StrictSpaces
                 && playfield.Engine.StrictSpaces);
 
-            // The recorded time IS the time the cell was judged at. Under the span rule that no
-            // longer reads as "target + delta": 'z' is typed while its syllable is being sung, so
-            // the judged delta is 0 and the recorded time is what carries the press. Under Hard Rock
-            // the same in-span press is priced by its distance from the cell's own point target
-            // instead, which is the whole of backlog 180. The determinism assertion below is what
-            // turns either into a check, by re-deriving every delta from these times alone.
+            // Backlog 247's era bit (flags bit 8), stamped for EVERY stack, Hard Rock included,
+            // where it is inert (SyllableTiming is off there): recording it uniformly is the same
+            // convention bits 3, 4, 6 and 7 follow, and a replay written before it exists carries
+            // the bit clear so its burst first chars keep the whole span they were paid on.
+            AddAssert("config frame records the first-char hybrid", () =>
+                frames[0].IsConfig
+                && frames[0].FirstCharTiming
+                && playfield.Engine.FirstCharTiming);
+
+            // The recorded time IS the time the cell was judged at. Under the live rule that no
+            // longer reads as "target + delta": 'z' OPENS its syllable, so since backlog 247 its
+            // judged delta is the recorded time's distance from the span's start (here equal to the
+            // point delta, because the span opens on the cell's own target), and Hard Rock prices
+            // the same press off the point target outright. The cell that tells the two eras apart
+            // is 'a', the span's NON-first cell: in the syllable era an in-span press on it judges
+            // 0, and under Hard Rock its distance from a point target tens of seconds away (the
+            // Hard Rock test pins that half). The determinism assertion below is what turns either
+            // into a check, by re-deriving every delta from these times alone.
             AddAssert("the recorded press landed inside its syllable and was judged on the era's rule", () =>
             {
                 var line = playfield.Engine.Lines[0];
@@ -261,7 +273,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
                 bool inSpan = frames[1].Time >= span.StartTime && frames[1].Time <= span.EndTime;
 
-                return inSpan && line.Cells[0].JudgedDelta == (syllableEra ? 0 : frames[1].Time - line.Cells[0].TargetTime);
+                return inSpan
+                       && line.Cells[0].JudgedDelta == frames[1].Time - (syllableEra ? span.StartTime : line.Cells[0].TargetTime)
+                       && line.Cells[1].JudgedDelta == (syllableEra ? 0 : frames.First(f => f.Character == 'a').Time - line.Cells[1].TargetTime);
             });
 
             // Determinism: replaying the recorded frames into a fresh engine (the exact call
@@ -304,6 +318,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                         // wrong key on a word gap, so a run that typed one through would replay with
                         // its caret a cell behind from that keystroke on.
                         replayed.WrongInputOnWordGaps = frame.WrongInputOnWordGaps;
+                        // Backlog 247: the first-char hybrid travels in the same header (bit 8). A
+                        // fresh engine defaults to the whole-span rule, so without this the replayed
+                        // delta of every syllable-opening press would be the one this run was NOT
+                        // judged under.
+                        replayed.FirstCharTiming = frame.FirstCharTiming;
                         continue;
                     }
 
