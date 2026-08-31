@@ -391,6 +391,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
             accumulator = Math.Min(accumulator + pacing.AdvanceMs, max_steps_per_frame * ConductorController.STEP_MS);
 
+            (double lo, double hi) = rateBand();
+
             // IsLineComplete is a CARET predicate (caret past the last cell), and that is the read
             // this controller wants rather than "every cell of the line was typed". A player who
             // finished the line early, one who gave it up with the line skip and one who simply
@@ -400,8 +402,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             // invalidates it (TypeBeatPlayfield.Update), so it can only ever be open while the
             // player is idle, and the keystroke that consumes it pulls the caret back inside the
             // line before the next step reads this.
-            (double lo, double hi) = rateBand();
-
             var inputs = new ConductorInputs(0, demandFor(engine), phaseErrorFor(engine, time), engine.LineIsActive, engine.IsLineComplete);
             var tuning = ConductorTuning.Default.WithRateBand(lo, hi);
 
