@@ -29,7 +29,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// The whole screen is organised around the mapper's loop (listen, nudge, listen):
     /// the active line follows the playhead unless a line is explicitly selected, R replays the
     /// active line with pre-roll and auto-pause, T stamps the focused word's start at the
-    /// playhead, Enter stamps the active line's start.
+    /// playhead, Enter stamps the active line's start, Delete removes what is selected (words
+    /// within the active line, or the selected lines: see <see cref="deleteSelection"/>).
     ///
     /// Clipboard (Ctrl+C/V via the editor's platform-action plumbing) carries TIMING patterns:
     /// with two or more lines multi-selected, copy takes their internal line timings; otherwise a
@@ -182,6 +183,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 // undo, or a transaction still open) must not pan on some later, unrelated edit.
                 Schedule(() => historyMarkers = null);
             }
+
+            // The Delete key. Taken as a PLATFORM ACTION rather than in OnKeyDown (where the other
+            // editing hotkeys live) because a focused line-text box must keep its own forward
+            // delete: the focused drawable sees the RAW key ahead of the platform-action container,
+            // so an OnKeyDown case here would eat the character the box was about to remove. As an
+            // action, a focused box's own delete wins and this is never reached.
+            if (e.Action == PlatformAction.Delete && !e.Repeat)
+                return deleteSelection();
 
             return false;
         }
@@ -624,6 +633,67 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             }
 
             return base.OnKeyDown(e);
+        }
+
+        /// <summary>
+        /// Deletes the current selection, the same mutations the panel's own buttons make: selected
+        /// WORDS go through <see cref="TypeBeatEditorOperations.RemoveWords"/> ("remove word"),
+        /// selected LINES through <see cref="TypeBeatEditorOperations.DeleteLines"/> ("delete line"),
+        /// either way as one undo step.
+        ///
+        /// <para>Precedence is <see cref="Copy"/>'s: two or more lines multi-selected means the user
+        /// is operating on lines; below that a word selection wins (one exists implicitly whenever a
+        /// word is focused); below that the explicitly selected line. Nothing EXPLICITLY selected
+        /// deletes NOTHING: with no selection the active line is merely the one the playhead is
+        /// passing through, and a stray Delete must not eat it.</para>
+        ///
+        /// <para>Returns whether anything was deleted, so an unhandled press stays available to the
+        /// rest of the editor.</para>
+        /// </summary>
+        private bool deleteSelection()
+        {
+            // Record-then-commit: no hotkey may mutate the beatmap mid-pass (the overlay swallows
+            // this action for the duration too; this is the belt-and-braces guard).
+            if (tapOverlay.Active)
+                return false;
+
+            var active = state.ActiveLine.Value;
+
+            if (state.MultiSelectedLines.Count < 2 && active != null)
+            {
+                int words = TypeBeatEditorOperations.WordCount(active.Line);
+                int[] targets = state.SelectedUnitsInOrder(words);
+
+                if (targets.Length > 0)
+                {
+                    // A selection covering the WHOLE line is refused exactly as the greyed-out
+                    // "remove word" button refuses it (the format has no wordless line). It does not
+                    // escalate to deleting the line: that is a bigger edit than the one asked for.
+                    if (targets.Length >= words)
+                        return false;
+
+                    TypeBeatEditorOperations.RemoveWords(EditorBeatmap, active, targets);
+
+                    // Keep the focus where the deletion happened, as the button does.
+                    state.SelectUnit(Math.Min(targets[0], active.Line.Units.Count - 1));
+                    return true;
+                }
+            }
+
+            if (state.SelectedLine.Value == null && state.MultiSelectedLines.Count == 0)
+                return false;
+
+            var lines = state.SelectedLinesInOrder(TypeBeatEditorOperations.OrderedLines(EditorBeatmap));
+
+            if (lines.Count == 0)
+                return false;
+
+            TypeBeatEditorOperations.DeleteLines(EditorBeatmap, lines);
+
+            // Nothing selected is left to point at; back to playhead-follow, as "delete line" does.
+            state.SelectedLine.Value = null;
+            state.ClearMultiLineSelection();
+            return true;
         }
 
         /// <summary>

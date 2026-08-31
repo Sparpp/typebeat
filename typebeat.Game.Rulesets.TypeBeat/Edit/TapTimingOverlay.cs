@@ -307,6 +307,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 case PlatformAction.Redo:
                 case PlatformAction.Cut:
                 case PlatformAction.Paste:
+                // The Delete key reaches the compose screen the same way (a platform action, not a
+                // raw key), so it needs the same mid-pass swallow.
+                case PlatformAction.Delete:
                     return true;
             }
 

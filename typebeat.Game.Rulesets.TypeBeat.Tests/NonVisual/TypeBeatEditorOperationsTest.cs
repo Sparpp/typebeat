@@ -411,6 +411,89 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             assertReloadStable(editorBeatmap);
         }
 
+        /// <summary>
+        /// The multi-line delete (what the editor's Delete key runs over a line multi-selection) is
+        /// exactly its lines deleted one at a time: each freed span is inherited by the line before
+        /// it, so the whole run telescopes onto the surviving predecessor, whose window then caps
+        /// where a reload would derive it.
+        /// </summary>
+        [Test]
+        public void DeleteLinesEqualsDeletingEachLineBackToFront()
+        {
+            var batch = createBeatmap();
+            var oneByOne = createBeatmap();
+
+            TypeBeatEditorOperations.DeleteLines(batch, new[] { lineAt(batch, 1), lineAt(batch, 2) });
+
+            TypeBeatEditorOperations.DeleteLine(oneByOne, lineAt(oneByOne, 2));
+            TypeBeatEditorOperations.DeleteLine(oneByOne, lineAt(oneByOne, 1));
+
+            Assert.That(TypeBeatEditorOperations.OrderedLines(batch), Has.Count.EqualTo(1));
+            Assert.That(encode(batch), Is.EqualTo(encode(oneByOne)));
+
+            // The survivor is now the last line, so its window caps at singEnd + tail (2800 + 3000).
+            Assert.That(lineAt(batch, 0).Line.EndTime, Is.EqualTo(2800 + TypeBeatEditorOperations.LAST_LINE_TAIL_MS));
+
+            assertReloadStable(batch);
+        }
+
+        /// <summary>
+        /// The multi-word removal (the "remove word" button and the Delete key both run it) is
+        /// exactly its words removed one at a time, highest index first: any other order would
+        /// address the wrong words as the list shrinks under it.
+        /// </summary>
+        [Test]
+        public void RemoveWordsEqualsRemovingEachWordHighestFirst()
+        {
+            var batch = createThreeWordBeatmap();
+            var oneByOne = createThreeWordBeatmap();
+
+            Assert.That(TypeBeatEditorOperations.RemoveWords(batch, lineAt(batch, 0), new[] { 0, 1 }), Is.EqualTo(2));
+
+            TypeBeatEditorOperations.RemoveWord(oneByOne, lineAt(oneByOne, 0), 1);
+            TypeBeatEditorOperations.RemoveWord(oneByOne, lineAt(oneByOne, 0), 0);
+
+            Assert.That(lineAt(batch, 0).Line.RawText, Is.EqualTo("gamma"));
+            Assert.That(encode(batch), Is.EqualTo(encode(oneByOne)));
+
+            assertReloadStable(batch);
+        }
+
+        /// <summary>
+        /// Indices <see cref="TypeBeatEditorOperations.RemoveWord"/> refuses are skipped rather than
+        /// aborting the batch, so a caller may hand over a whole selection unfiltered: the line's
+        /// last surviving word stays, and an empty batch leaves the map untouched.
+        /// </summary>
+        [Test]
+        public void RemoveWordsSkipsWhatRemoveWordRefuses()
+        {
+            var editorBeatmap = createThreeWordBeatmap();
+            string before = encode(editorBeatmap);
+
+            Assert.That(TypeBeatEditorOperations.RemoveWords(editorBeatmap, lineAt(editorBeatmap, 1), new[] { 0 }), Is.EqualTo(0));
+            Assert.That(TypeBeatEditorOperations.RemoveWords(editorBeatmap, lineAt(editorBeatmap, 0), Array.Empty<int>()), Is.EqualTo(0));
+            Assert.That(encode(editorBeatmap), Is.EqualTo(before));
+
+            // Every word of the line at once: all but the last go (an empty line cannot exist).
+            Assert.That(TypeBeatEditorOperations.RemoveWords(editorBeatmap, lineAt(editorBeatmap, 0), new[] { 0, 1, 2 }), Is.EqualTo(2));
+            Assert.That(lineAt(editorBeatmap, 0).Line.RawText, Is.EqualTo("alpha"));
+        }
+
+        /// <summary>A three-word first line (the two-word fixture cannot show removal ordering) plus a one-word second.</summary>
+        private static EditorBeatmap createThreeWordBeatmap()
+        {
+            var beatmap = new Beatmap();
+            beatmap.BeatmapInfo.Ruleset = new TypeBeatRuleset().RulesetInfo;
+            beatmap.Metadata.Artist = "Op";
+            beatmap.Metadata.Title = "Test";
+            beatmap.Metadata.AudioFile = "audio.mp3";
+
+            addLine(beatmap, 0, "alpha beta gamma", 1000, 5000, 4500, (1000, 2000), (2100, 3000), (3100, 4500));
+            addLine(beatmap, 1, "omega", 5000, 8000, 7000, (5000, 7000));
+
+            return new EditorBeatmap(beatmap);
+        }
+
         /// <summary>Line-granularity fixture: no persisted word data; units are loader interpolations.</summary>
         private static EditorBeatmap createLineGranularityBeatmap()
         {

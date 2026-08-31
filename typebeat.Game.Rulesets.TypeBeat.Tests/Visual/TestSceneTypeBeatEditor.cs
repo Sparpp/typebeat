@@ -1209,5 +1209,231 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         #endregion
+
+        #region The Delete key
+
+        /// <summary>
+        /// Delete over a WORD selection is the "remove word" button: the same op over the same
+        /// selection, so the two land byte-identical maps, as one undo step each.
+        /// </summary>
+        [Test]
+        public void TestDeleteKeyRemovesTheSelectedWordsAsTheButtonDoes()
+        {
+            string afterButton = null!;
+
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            settleTheFixtureThroughOneUndo();
+            selectWordTwoOfLineOne();
+
+            AddStep("click remove word", () => clickPanelButton("remove word"));
+            AddUntilStep("the button removed it", () => lineAt(0).Line.RawText == "hello");
+            AddStep("photograph the button's result", () => afterButton = snapshot());
+
+            AddStep("undo", () => Editor.Undo());
+            AddUntilStep("the word came back", () => lineAt(0).Line.RawText == "hello world");
+
+            selectWordTwoOfLineOne();
+
+            pressDelete();
+            AddUntilStep("the key removed it too", () => lineAt(0).Line.RawText == "hello");
+            AddAssert("and left exactly the same map", () => snapshot(), () => Is.EqualTo(afterButton));
+
+            AddStep("undo", () => Editor.Undo());
+            AddUntilStep("one undo restored the word", () => lineAt(0).Line.RawText == "hello world");
+        }
+
+        /// <summary>
+        /// Delete over a LINE selection is the "delete line" button, down to the predecessor
+        /// inheriting the freed window.
+        /// </summary>
+        [Test]
+        public void TestDeleteKeyDeletesTheSelectedLineAsTheButtonDoes()
+        {
+            string afterButton = null!;
+
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            settleTheFixtureThroughOneUndo();
+
+            AddStep("select line 2", () => clickRow(1));
+            AddUntilStep("line 2 active", () => state().ActiveLine.Value == lineAt(1));
+
+            AddStep("click delete line", () => clickPanelButton("delete line"));
+            AddUntilStep("the button deleted it", () => EditorBeatmap.HitObjects.Count == 1);
+            AddStep("photograph the button's result", () => afterButton = snapshot());
+
+            AddStep("undo", () => Editor.Undo());
+            AddUntilStep("the line came back", () => EditorBeatmap.HitObjects.Count == 2);
+
+            AddStep("select line 2 again", () => clickRow(1));
+            AddUntilStep("line 2 active", () => state().ActiveLine.Value == lineAt(1));
+            AddAssert("no word is focused", () => state().SelectedUnitIndex.Value < 0 && state().SelectedUnitIndices.Count == 0);
+
+            pressDelete();
+            AddUntilStep("the key deleted it too", () => EditorBeatmap.HitObjects.Count == 1);
+            AddAssert("and left exactly the same map", () => snapshot(), () => Is.EqualTo(afterButton));
+
+            AddStep("undo", () => Editor.Undo());
+            AddUntilStep("one undo restored the line", () => EditorBeatmap.HitObjects.Count == 2);
+        }
+
+        /// <summary>A whole multi-line section goes at once, and comes back on a SINGLE undo.</summary>
+        [Test]
+        public void TestDeleteKeyDeletesAWholeLineSelectionAsOneUndo()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("select line 1", () => clickRow(0));
+            AddStep("ctrl+click line 2", () => clickRow(1, ctrl: true));
+            AddUntilStep("both lines selected", () => state().MultiSelectedLines.Count == 2);
+
+            pressDelete();
+            AddUntilStep("the sheet is empty", () => EditorBeatmap.HitObjects.Count == 0);
+            AddAssert("selection dropped with it", () =>
+                state().SelectedLine.Value == null && state().MultiSelectedLines.Count == 0);
+
+            AddStep("undo once", () => Editor.Undo());
+            AddUntilStep("one undo restored both lines", () =>
+                EditorBeatmap.HitObjects.Count == 2
+                && lineAt(0).Line.RawText == "hello world" && lineAt(1).Line.RawText == "second line");
+        }
+
+        /// <summary>
+        /// With NOTHING explicitly selected the active line is merely the one the playhead is
+        /// passing through, so Delete must not eat it (or anything else).
+        /// </summary>
+        [Test]
+        public void TestDeleteKeyWithNothingSelectedDeletesNothing()
+        {
+            string before = null!;
+
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("drop every selection", () =>
+            {
+                state().SelectedLine.Value = null;
+                state().ClearMultiLineSelection();
+                state().ClearUnitSelection();
+            });
+
+            // There IS a line under the playhead, which is exactly what must survive the press.
+            AddUntilStep("following the playhead, nothing selected", () =>
+                state().SelectedLine.Value == null && state().MultiSelectedLines.Count == 0
+                && state().SelectedUnitIndex.Value < 0 && state().ActiveLine.Value != null);
+
+            AddStep("photograph the map", () => before = snapshot());
+
+            pressDelete();
+            AddAssert("nothing was deleted", () => snapshot() == before && EditorBeatmap.HitObjects.Count == 2);
+        }
+
+        /// <summary>
+        /// A focused line text box keeps its OWN forward delete: the box is where the key press
+        /// lands, so the character goes and the selected line stays.
+        /// </summary>
+        [Test]
+        public void TestFocusedTextBoxKeepsItsOwnDelete()
+        {
+            string before = null!;
+
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddUntilStep("rows built", () => rows().Count == 2);
+
+            AddStep("select line 1", () => clickRow(0));
+            AddUntilStep("line 1 selected", () => state().SelectedLine.Value == rows()[0].HitObject);
+
+            AddStep("click into line 1's text box", () =>
+            {
+                InputManager.MoveMouseTo(textBoxOf(0));
+                InputManager.Click(MouseButton.Left);
+            });
+            AddUntilStep("box focused", () => textBoxOf(0).HasFocus);
+
+            AddStep("type a trailing character", () => textBoxOf(0).Text = "hello worldx");
+            AddStep("photograph the map", () => before = snapshot());
+            AddStep("step the caret back over it", () => InputManager.Key(Key.Left));
+
+            pressDelete();
+            AddUntilStep("the box lost the character", () => textBoxOf(0).Text == "hello world");
+            AddAssert("the box kept focus", () => textBoxOf(0).HasFocus);
+            AddAssert("the selected line survived", () =>
+                snapshot() == before && EditorBeatmap.HitObjects.Count == 2 && state().SelectedLine.Value != null);
+        }
+
+        /// <summary>
+        /// Record-then-commit: a tap-timing pass refuses Delete along with every other mutating
+        /// action, so the sheet it is timing cannot change under it.
+        /// </summary>
+        [Test]
+        public void TestDeleteKeyIsRefusedDuringATapPass()
+        {
+            string before = null!;
+
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("select line 1", () => clickRow(0));
+            AddUntilStep("line 1 selected", () => state().SelectedLine.Value == rows()[0].HitObject);
+
+            AddStep("start a pass", () => compose().ToggleTapTiming());
+            AddUntilStep("recording", () => compose().TapTiming.Active);
+
+            // A pass starts playback, and playback hands the active line to the playhead: pause it
+            // so the selection the press must NOT delete is still there to be deleted.
+            AddStep("pause the pass", () => EditorClock.Stop());
+            AddAssert("line 1 still selected", () => state().SelectedLine.Value == rows()[0].HitObject);
+            AddStep("photograph the map", () => before = snapshot());
+
+            pressDelete();
+            AddAssert("still recording", () => compose().TapTiming.Active);
+            AddAssert("mid-pass delete mutated nothing", () => snapshot() == before && EditorBeatmap.HitObjects.Count == 2);
+
+            AddStep("cancel the pass", () => compose().TapTiming.Cancel());
+            AddUntilStep("no longer recording", () => !compose().TapTiming.Active);
+            AddStep("keep the clock paused", () => EditorClock.Stop());
+            AddAssert("still the same selection", () => state().SelectedLine.Value == rows()[0].HitObject);
+
+            pressDelete();
+            AddUntilStep("delete works again once the pass ended", () => EditorBeatmap.HitObjects.Count == 1);
+        }
+
+        private void pressDelete() => AddStep("press delete", () => InputManager.Key(Key.Delete));
+
+        /// <summary>
+        /// Round-trips the map through one undo before a measurement. This fixture hand-builds each
+        /// line with ONE unit spanning its whole text, and a restore re-interpolates those into one
+        /// unit per word (exactly as a reload does), so a run made before the first undo and one
+        /// made after it would start from different maps and could not be compared.
+        /// </summary>
+        private void settleTheFixtureThroughOneUndo()
+        {
+            AddStep("add a scratch line", () => TypeBeatEditorOperations.AddLine(EditorBeatmap, 6000, "scratch line"));
+            AddUntilStep("three lines", () => EditorBeatmap.HitObjects.Count == 3);
+            AddStep("undo it", () => Editor.Undo());
+            AddUntilStep("back to two lines", () => EditorBeatmap.HitObjects.Count == 2);
+        }
+
+        /// <summary>
+        /// Selects line 1 and focuses its second word, in that order and each confirmed: the word
+        /// selection is dropped whenever the ACTIVE LINE changes, so focusing a word before the
+        /// line has settled would leave nothing selected.
+        /// </summary>
+        private void selectWordTwoOfLineOne()
+        {
+            AddStep("select line 1", () => clickRow(0));
+            AddUntilStep("line 1 active", () => state().ActiveLine.Value == lineAt(0));
+            AddStep("focus word 2", () => state().SelectUnit(1));
+            AddAssert("word 2 focused", () => state().SelectedUnitIndex.Value == 1);
+        }
+
+        /// <summary>Every persisted field of the whole sheet, for comparing two edits' outcomes.</summary>
+        private string snapshot() => string.Join("\n", TypeBeatEditorOperations.OrderedLines(EditorBeatmap).Select(o =>
+            $"{o.LineIndex}|{o.Granularity}|{o.Line.RawText}|{o.Line.StartTime}|{o.Line.SingEndTime}|{o.Line.EndTime}|{o.Line.SealGraceMs}|"
+            + string.Join(";", o.Line.Units.Select(u => $"{u.Text}@{u.StartTime}-{u.EndTime}[{string.Join(',', u.SyllableBoundaries)}]"))));
+
+        private typebeat.Game.Graphics.UserInterface.OsuTextBox textBoxOf(int index)
+            => rows()[index].ChildrenOfType<typebeat.Game.Graphics.UserInterface.OsuTextBox>().Single();
+
+        #endregion
     }
 }

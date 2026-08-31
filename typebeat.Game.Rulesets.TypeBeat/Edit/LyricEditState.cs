@@ -215,6 +215,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             SelectedUnitIndex.Value = index;
         }
 
+        /// <summary>
+        /// The word units a WORD-level action addresses: the multi-selection when there is one, else
+        /// the primary focused word, else none (each action decides what "nothing selected" means for
+        /// it). Ascending, and never past <paramref name="wordCount"/>, the active line's word count.
+        /// </summary>
+        public int[] SelectedUnitsInOrder(int wordCount)
+        {
+            IEnumerable<int> selected = SelectedUnitIndices.Count > 0
+                ? SelectedUnitIndices
+                : SelectedUnitIndex.Value >= 0
+                    ? new[] { SelectedUnitIndex.Value }
+                    : Array.Empty<int>();
+
+            return selected.Where(i => i >= 0 && i < wordCount).OrderBy(i => i).ToArray();
+        }
+
         /// <summary>Clears the word-unit selection (e.g. when the active line changes).</summary>
         public void ClearUnitSelection()
         {

@@ -1141,6 +1141,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return true;
         }
 
+        /// <summary>Words in a line: one per whitespace token (the unit list mirrors them).</summary>
+        public static int WordCount(LyricLine line) => line.RawText.Split(' ').Length;
+
+        /// <summary>
+        /// Removes several words of one line as a SINGLE undo step: <see cref="RemoveWord"/> per
+        /// index, highest first so the pending ones stay addressable as the word list shrinks.
+        /// Indices that <see cref="RemoveWord"/> refuses (out of range, or the line's last surviving
+        /// word) are skipped, so a caller may pass a whole selection without pre-filtering it.
+        /// Returns how many words actually went.
+        /// </summary>
+        public static int RemoveWords(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, IReadOnlyList<int> unitIndices)
+        {
+            if (unitIndices.Count == 0)
+                return 0;
+
+            int removed = 0;
+
+            editorBeatmap.BeginChange();
+
+            foreach (int i in unitIndices.OrderByDescending(i => i))
+            {
+                if (RemoveWord(editorBeatmap, hitObject, i))
+                    removed++;
+            }
+
+            editorBeatmap.EndChange();
+            return removed;
+        }
+
         /// <summary>
         /// Splits a line before the given unit index: words [0, index) stay, words [index, n)
         /// become a new line starting at that word's start time. No-op for edge indices.
@@ -1314,6 +1343,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             editorBeatmap.Remove(hitObject);
             renumber(editorBeatmap);
+            editorBeatmap.EndChange();
+        }
+
+        /// <summary>
+        /// Deletes several lines as a SINGLE undo step: <see cref="DeleteLine"/> per line, LAST one
+        /// first (the order <see cref="RemoveWords"/> takes, and the order a mapper deleting a run by
+        /// hand would). Each freed span is inherited by the line before it, so the run telescopes
+        /// back onto the surviving predecessor, whose window then caps as a reload would derive it.
+        /// Lines already gone from the beatmap are skipped by <see cref="DeleteLine"/> itself.
+        /// </summary>
+        public static void DeleteLines(EditorBeatmap editorBeatmap, IReadOnlyList<TypeBeatHitObject> hitObjects)
+        {
+            if (hitObjects.Count == 0)
+                return;
+
+            editorBeatmap.BeginChange();
+
+            // Snapshotted before the loop: DeleteLine renumbers, so the sort keys move under it.
+            foreach (var hitObject in hitObjects.OrderByDescending(o => o.Line.StartTime).ThenByDescending(o => o.LineIndex).ToList())
+                DeleteLine(editorBeatmap, hitObject);
+
             editorBeatmap.EndChange();
         }
 

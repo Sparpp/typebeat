@@ -1,7 +1,6 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
@@ -328,18 +327,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// primary focused word, else none (each action decides what "nothing selected" means for
         /// it). Ascending, and never past the end of the line's word list.
         /// </summary>
-        private int[] selectedWords(TypeBeatHitObject line)
-        {
-            int words = wordCount(line);
-
-            IEnumerable<int> selected = state.SelectedUnitIndices.Count > 0
-                ? state.SelectedUnitIndices
-                : state.SelectedUnitIndex.Value >= 0
-                    ? new[] { state.SelectedUnitIndex.Value }
-                    : System.Array.Empty<int>();
-
-            return selected.Where(i => i >= 0 && i < words).OrderBy(i => i).ToArray();
-        }
+        private int[] selectedWords(TypeBeatHitObject line) => state.SelectedUnitsInOrder(wordCount(line));
 
         /// <summary>
         /// The words "remove word" would delete: the selection, or the LAST word when nothing is
@@ -357,8 +345,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             return targets.Length < words ? targets : System.Array.Empty<int>();
         }
 
-        /// <summary>Words in a line: one per whitespace token (the unit list mirrors them).</summary>
-        private static int wordCount(TypeBeatHitObject line) => line.Line.RawText.Split(' ').Length;
+        private static int wordCount(TypeBeatHitObject line) => TypeBeatEditorOperations.WordCount(line.Line);
 
         private void addWord()
         {
@@ -384,14 +371,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (targets.Length == 0)
                 return;
 
-            // Every selected word goes as ONE undo (same idiom as subdivide), highest index first
-            // so the pending ones stay addressable as the list shrinks.
-            editorBeatmap.BeginChange();
-
-            foreach (int i in targets.OrderByDescending(i => i))
-                TypeBeatEditorOperations.RemoveWord(editorBeatmap, line, i);
-
-            editorBeatmap.EndChange();
+            // Every selected word goes as ONE undo (same idiom as subdivide). Shared with the
+            // Delete key, which runs the same op over the same selection (LyricComposeScreen).
+            TypeBeatEditorOperations.RemoveWords(editorBeatmap, line, targets);
 
             // Keep the focus where the deletion happened: whatever shifted into the lowest removed
             // slot, clamped to the line's new end.
