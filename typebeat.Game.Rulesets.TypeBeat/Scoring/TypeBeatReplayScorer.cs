@@ -208,7 +208,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             for (int i = 0; i < lineObjects.Count; i++)
                 lineObjects[i].LineIndex = i;
 
-            var engine = createEngine(playable, lineObjects, mods, rateRule);
+            // THE FRAME AXIS comes first, before an engine exists and before a frame is fed
+            // (backlog 256). A Puppeteer run stores WALL stamps, not lyric times, and its track
+            // times are re-derived by re-running the tape model; keyed on the CONFIG frame's own
+            // bit 9 rather than on the mod list, so the frames describe themselves. For every other
+            // replay this returns the same object and the pipeline below is untouched.
+            replay = PuppeteerReplayTransform.Derived(playable, mods, replay);
+
+            var engine = CreateEngine(playable, lineObjects, mods, rateRule);
 
             // The combo-restore rule is IMPLEMENTED in the engine (TypeBeatResultMapping
             // .FixRestoresTheComboBreak is read there and nowhere else), so setting it here is the
@@ -372,8 +379,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// deliberately NOT set from the mods or from any config: the replay's CONFIG frame carries
         /// what the run was judged under and overwrites all nine, which is the only thing that judges
         /// a pre-Gatekeeper strict run right.
+        ///
+        /// <para>Public because <see cref="PuppeteerReplayTransform"/> builds its scratch engine
+        /// here too (backlog 256). That engine exists to produce the tape's ARMS rather than
+        /// judgements, but it has to be the same engine this one is or a wall-stamped run would be
+        /// re-timed against a line lifecycle it was never judged on, so the two share a builder
+        /// rather than agreeing by inspection.</para>
         /// </summary>
-        private static TypingEngine createEngine(IBeatmap playable, IReadOnlyList<TypeBeatHitObject> lineObjects, IReadOnlyList<Mod> mods, RateWindowRule rateRule)
+        public static TypingEngine CreateEngine(IBeatmap playable, IReadOnlyList<TypeBeatHitObject> lineObjects, IReadOnlyList<Mod> mods, RateWindowRule rateRule)
         {
             TimingGranularity granularity = lineObjects.Count > 0 ? lineObjects[0].Granularity : TimingGranularity.Line;
 

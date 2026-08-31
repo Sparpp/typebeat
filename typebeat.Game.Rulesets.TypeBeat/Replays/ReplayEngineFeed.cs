@@ -97,6 +97,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // still parked behind.
                 engine.FlexibleLineSnap = frame.FlexibleLines;
                 engine.FletcherEnabled = frame.FlexibleLines || engine.FlexibleCaretFromMod;
+
+                // WallClockFrames (backlog 256, bit 9) is deliberately NOT applied to anything here,
+                // and it is the only bit on the header that is not. Every bit above selects a rule
+                // the engine judges under; that one says what the numbers on the frames MEAN, which
+                // has to be settled before a frame reaches an engine at all. Its single consumer is
+                // Scoring.PuppeteerReplayTransform, which both the headless scorer and the watch
+                // path run up front; by the time a frame arrives here it is always on the track
+                // axis, and a derived stream carries the bit clear to say so.
                 return;
             }
 

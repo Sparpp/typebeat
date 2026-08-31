@@ -65,6 +65,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// <para><b>Deliberately not <c>IApplicableToRate</c>.</b> Song select and the star-rating
     /// calculator want one number describing the whole play; for a follower there is none, so they
     /// show 1.00x, which is the honest answer. Same reasoning as the Conductor's.</para>
+    ///
+    /// <para><b>Replays (backlog 256).</b> The Conductor stores lyric times and simply does not
+    /// reproduce its rate curve. This mod cannot do that, because under strict following a
+    /// keystroke's lyric time is an OUTPUT of the model rather than an input to it. A Puppeteer run
+    /// therefore records the input axis instead, WALL time, behind CONFIG frame bit 9
+    /// (<see cref="Replays.TypeBeatReplayFrame.WallClockFrames"/>), and playback and rescoring
+    /// re-derive every track time by re-running <see cref="PuppeteerClock"/> over those stamps (see
+    /// <c>PuppeteerReplayTransform</c>). <see cref="WallStampMs"/> is the axis, and the reason every
+    /// constant in this file is now a contract.</para>
     /// </summary>
     public class TypeBeatModPuppeteer : Mod, IUpdatableByPlayfield, IApplicableToTrack, IApplicableToDrawableRuleset<TypeBeatHitObject>
     {
@@ -104,9 +113,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         };
 
         // ---------------------------------------------------------------------------------------
-        // Tuning. Playtest starting points rather than contracts: nothing stored, submitted or
-        // judged reads any of them. The one exception is WINDOW_SCALE, which the replay scorer also
-        // reads so a stored run is re-judged on the ladder it was played on.
+        // Tuning, and it is a CONTRACT rather than a set of playtest knobs, which is the price
+        // backlog 256's replay era charges. A bit-9 replay stores WALL stamps and re-derives its
+        // track times by re-running this model (PuppeteerReplayTransform), so every constant below
+        // that the model reads is part of what a stored run means: move one and every Puppeteer
+        // replay already on disk re-derives on a tape its player never heard. If one ever has to
+        // move, it needs an era of its own, exactly as the judgement rules did.
+        //
+        // WINDOW_SCALE is a contract for the older, ordinary reason: the replay scorer reads it too,
+        // so a stored run is re-judged on the ladder it was played on.
         // ---------------------------------------------------------------------------------------
 
         /// <summary>
@@ -235,6 +250,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// <summary>The model's state, or null before the first frame anchors it.</summary>
         public PuppeteerState? Tape => tape;
 
+        /// <summary>
+        /// THE RECORDING AXIS (backlog 256), or null before the first frame anchors the tape.
+        /// <c>TypeBeatReplayRecorder</c> stamps every frame of a Puppeteer run with this
+        /// instead of the lyric time, and <c>PuppeteerReplayTransform</c> re-derives the lyric times
+        /// by re-running the model over it. It is <c>anchor + the number of model TICKS taken since
+        /// the anchor</c>, and every word of that is load-bearing:
+        ///
+        /// <list type="bullet">
+        /// <item>THE TICK COUNT, not the raw stopwatch. The two differ: a stalled frame is thrown
+        /// out of the integration entirely (see <see cref="MAX_REAL_FRAME_MS"/>), and the sub
+        /// millisecond remainder of every frame is carried rather than integrated. Stamping the raw
+        /// wall clock would hand the transform wall milliseconds the live model never spent, and it
+        /// would run that many extra ticks. Stamping the tick count makes the axis literally "how
+        /// far this model has been stepped", so the transform steps it exactly as far.</item>
+        /// <item>THE ANCHOR, which is <see cref="AnchorMs"/>: the origin of the axis AND the track
+        /// position the tape starts at, one number doing both jobs. That is what lets a stored run
+        /// carry it in one field (the CONFIG frame's own time) and what makes the recorder and the
+        /// transform provably agree about where the tape started.</item>
+        /// <item>INTEGRAL by construction, since the anchor is rounded once and the tick count is an
+        /// integer, so the legacy .osr encoding (integral frame deltas) is lossless and the deltas
+        /// between successive frames are never negative.</item>
+        /// </list>
+        ///
+        /// <para>The axis assumes the run never SEEKS, which live play guarantees (only a replay can
+        /// seek, and a replay is not recorded). A rewind re-anchors the tape but deliberately leaves
+        /// this axis alone, because a stamp that went backwards would scramble the stored order,
+        /// which is worse than the times being wrong in a situation that cannot arise.</para>
+        /// </summary>
+        public double? WallStampMs => tape is null ? null : anchorPositionMs + integratedTicks;
+
+        /// <summary>
+        /// The track position the tape was anchored at, rounded to a millisecond, or null before the
+        /// first frame. The origin of <see cref="WallStampMs"/>, and what a bit-9 CONFIG frame's own
+        /// time carries.
+        /// </summary>
+        public double? AnchorMs => tape is null ? null : anchorPositionMs;
+
         private IAdjustableAudioComponent? track;
         private DrawableTypeBeatRuleset? drawableRuleset;
 
@@ -251,6 +303,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
         private PuppeteerState? tape;
         private double? lastTrackTime;
+
+        /// <summary>The rounded track position the tape was anchored at. See <see cref="AnchorMs"/>.</summary>
+        private double anchorPositionMs;
+
+        /// <summary>Model ticks taken since the anchor. See <see cref="WallStampMs"/>.</summary>
+        private long integratedTicks;
 
         public void ApplyToTrack(IAdjustableAudioComponent track)
         {
@@ -324,6 +382,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
                 // correction term drag the rate to a bound while it catches up. Velocity goes to
                 // zero rather than to 1: the reel is being restarted, and it spins up under the
                 // smoothing constant from wherever the arm asks it to.
+                //
+                // The RECORDING axis is deliberately not re-anchored with it (see WallStampMs): a
+                // stamp that went backwards would scramble the stored frame order, and a seek cannot
+                // happen while recording anyway, since only a replay can seek and a replay is not
+                // recorded.
                 tape = new PuppeteerState(time, 0);
                 pendingWallMs = 0;
                 publish();
@@ -332,12 +395,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
             pendingWallMs += Math.Max(wallElapsed, 0);
 
-            int ticks = (int)pendingWallMs;
+            int ticks = Math.Min((int)pendingWallMs, max_ticks_per_frame);
 
+            // Only the ticks actually integrated leave the accumulator, and only they are counted on
+            // the recording axis. The two must never come apart: WallStampMs is a promise about how
+            // far the model has been stepped, and the transform steps it exactly that far.
             pendingWallMs -= ticks;
-
-            if (ticks > max_ticks_per_frame)
-                ticks = max_ticks_per_frame;
+            integratedTicks += ticks;
 
             // One arm for this frame's ticks. The model is pure and the driver feeds it: the arm is
             // sampled once because that is when the engine state is readable, and the ticks are
@@ -405,9 +469,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         public static double CommandedFrequency(PuppeteerState state, double clockTime)
             => Math.Clamp(state.Velocity + ((state.PositionMs - clockTime) / T_CORRECT_MS), V_EPSILON, V_MAX);
 
+        /// <summary>
+        /// Start the tape. The position is ROUNDED to a millisecond, and the model starts on the
+        /// rounded value rather than merely reporting it: the anchor is the one number a stored
+        /// replay carries (see <see cref="AnchorMs"/>), so the live tape and a re-derived one have
+        /// to start on the same double or every position after it differs.
+        /// </summary>
         private void anchor(double time)
         {
-            tape = PuppeteerState.AnchoredAt(time);
+            anchorPositionMs = Math.Round(time);
+            integratedTicks = 0;
+
+            tape = PuppeteerState.AnchoredAt(anchorPositionMs);
             lastTrackTime = time;
             pendingWallMs = 0;
         }
@@ -418,6 +491,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             lastTrackTime = null;
             pendingWallMs = 0;
             lastWallMs = 0;
+            anchorPositionMs = 0;
+            integratedTicks = 0;
             wallClock.Restart();
 
             SpeedChange.Value = 1;

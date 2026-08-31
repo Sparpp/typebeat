@@ -16,6 +16,7 @@ using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Objects.Drawables;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
+using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.UI;
 using typebeat.Game.Scoring;
 using typebeat.Game.Screens.Play;
@@ -99,7 +100,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         protected override ReplayInputHandler CreateReplayInputHandler(Replay replay) => new TypeBeatFramedReplayInputHandler(replay);
 
-        protected override ReplayRecorder CreateReplayRecorder(Score score) => new TypeBeatReplayRecorder(score, Engine);
+        /// <summary>
+        /// THE WATCH SEAM for a wall-stamped run (backlog 256). A Puppeteer replay stores WALL
+        /// stamps, so its track times are re-derived here, ONCE, before anything reads a frame.
+        /// This is the right seam and the input handler is not: two consumers read these frames
+        /// independently, the handler (which paces the clock through them, and re-sorts them) and
+        /// <c>TypeBeatPlayfield.EngineTicker</c> (which reads <c>ReplayScore.Replay</c> straight),
+        /// and both have to see the same derived stream. The base call creates the handler from what
+        /// it is given, so swapping the score before it is the one point that covers both.
+        ///
+        /// <para>A NEW <see cref="Score"/> around the derived frames rather than a rewrite of the
+        /// caller's: the <see cref="ScoreInfo"/> is shared by reference, because the results screen
+        /// and submission must see the real one, while the caller's own replay keeps its stored
+        /// wall stamps and stays exportable as what it is.</para>
+        ///
+        /// <para>Untouched for every other replay, where <c>Derived</c> hands back the very object it
+        /// was given and no clone is made at all.</para>
+        /// </summary>
+        public override void SetReplayScore(Score replayScore)
+        {
+            if (replayScore != null)
+            {
+                var derived = PuppeteerReplayTransform.Derived(Beatmap, Mods.ToList(), replayScore.Replay);
+
+                if (!ReferenceEquals(derived, replayScore.Replay))
+                    replayScore = new Score { ScoreInfo = replayScore.ScoreInfo, Replay = derived };
+            }
+
+            base.SetReplayScore(replayScore);
+        }
+
+        /// <summary>
+        /// The recorder is handed the Puppeteer mod when one is in the stack, because a run under it
+        /// is stamped on that mod's own wall axis rather than on lyric time (see
+        /// <see cref="TypeBeatReplayRecorder"/>). This is the one place that holds both the mods and
+        /// the recorder, which is why the wiring lives here rather than inside the recorder.
+        /// </summary>
+        protected override ReplayRecorder CreateReplayRecorder(Score score) =>
+            new TypeBeatReplayRecorder(score, Engine, Mods.OfType<TypeBeatModPuppeteer>().FirstOrDefault());
 
         /// <summary>
         /// Recording seam for the playfield's key handler: forwards one EFFECTIVE typing input
