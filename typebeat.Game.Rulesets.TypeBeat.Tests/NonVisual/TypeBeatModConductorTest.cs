@@ -52,7 +52,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>A player typing at exactly <paramref name="cellsPerSecond"/>, perfectly smoothly.</summary>
         private static ConductorInputs typing(double cellsPerSecond, double demand, double? phaseErrorMs = null)
-            => new ConductorInputs(cellsPerSecond * ConductorController.STEP_SECONDS, demand, phaseErrorMs, true);
+            => new ConductorInputs(cellsPerSecond * ConductorController.STEP_SECONDS, demand, phaseErrorMs, true, false);
+
+        /// <summary>
+        /// A player who has run out of line: the caret is past the last cell of a line that is still
+        /// active, so nothing is typeable, nothing is accepted and there is no judgeable cell to take
+        /// a phase error from. This is what finishing a line EARLY looks like to the controller, and
+        /// it is also what a skipped or abandoned line looks like.
+        /// </summary>
+        private static ConductorInputs finishedLine(double demand)
+            => new ConductorInputs(0, demand, null, true, true);
 
         // -----------------------------------------------------------------------------------------
         // The shipping surface.
@@ -453,27 +462,116 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// The intro, an instrumental gap and the outro: nothing to follow, so the song plays at its
-        /// own pace and the skip overlays behave exactly as they do unmodded. The filter relaxes
-        /// while that lasts, so the next line is not entered holding a stale reading of a player who
-        /// was necessarily silent.
+        /// own pace and the skip overlays behave exactly as they do unmodded. The filter is HELD
+        /// while that lasts (backlog 253): the player is not typing because there is nothing to type,
+        /// which is no evidence at all about their pace, so relaxing toward zero would open the next
+        /// line reading them as silent and dip the rate at every line start after a gap.
         /// </summary>
         [Test]
-        public void NoActiveLineEasesTheRateBackToNormal()
+        public void NoActiveLineEasesTheRateBackToNormalAndHoldsTheFilter()
         {
             var running = ConductorState.Initial with { Rate = 1.4, SupplyCellsPerSecond = 8, Authority = 1 };
-            var idle = new ConductorInputs(0, 0, null, false);
+            var idle = new ConductorInputs(0, 0, null, false, false);
 
             var state = run(running, idle, tuning(), 100);
 
             Assert.AreEqual(1.0, state.Rate, 1e-9);
-            Assert.Less(state.SupplyCellsPerSecond, 0.5, "the typing estimate must not survive a gap intact");
-            Assert.Less(state.Authority, 0.1);
+            Assert.AreEqual(8, state.SupplyCellsPerSecond, 1e-9, "the measured pace must survive a gap it says nothing about");
+            Assert.AreEqual(1, state.Authority, 1e-9, "authority freezes with the supply it weighs");
 
             // It EASES: half a second of track time at the slew limit is 0.4, exactly the distance.
             Assert.Greater(run(running, idle, tuning(), 10).Rate, 1.2);
 
             // A band that excludes 1.00x still wins: the user's floor is a floor even when idling.
             Assert.AreEqual(1.1, run(running, idle, tuning(1.1, 1.5), 100).Rate, 1e-9);
+        }
+
+        /// <summary>
+        /// FINISHING A LINE EARLY (backlog 253). A player fast enough to run out of characters before
+        /// the next line's cue parks the caret past the last cell, where nothing is typeable: the line
+        /// is still active, no cell is accepted and there is no judgeable cell to take a phase error
+        /// from. Read as ordinary gameplay that is three separate reasons to slow down, which had the
+        /// controller hauling the song to the band floor for exactly the player who was ahead of it.
+        /// It is the same bypass as no line at all: ease to 1.00x, never under, and hold the filter.
+        /// </summary>
+        [Test]
+        public void FinishingALineEarlyEasesToNormalRatherThanPunishingThePlayer()
+        {
+            // A converged player running 40% hot: 5.6 characters a second on a line asking for 4.
+            var running = run(ConductorState.Initial, typing(5.6, 4), tuning(), 2000);
+
+            Assert.AreEqual(1.4, running.Rate, 1e-9);
+            Assert.AreEqual(5.6, running.SupplyCellsPerSecond, 1e-9);
+
+            var state = running;
+            var waiting = finishedLine(4);
+
+            for (int i = 0; i < 200; i++)
+            {
+                state = ConductorController.Step(state, waiting, tuning(), ConductorController.STEP_SECONDS);
+
+                Assert.GreaterOrEqual(state.Rate, 1.0 - 1e-12,
+                    $"the song dropped below its own pace at step {i} for a player who was AHEAD");
+            }
+
+            Assert.AreEqual(1.0, state.Rate, 1e-9);
+            Assert.AreEqual(5.6, state.SupplyCellsPerSecond, 1e-9, "the pace the player actually typed at must be held, not decayed");
+            Assert.AreEqual(1, state.Authority, 1e-9);
+        }
+
+        /// <summary>
+        /// ...and the reason the filter is held rather than relaxed: the next line has to open on the
+        /// pace that was really measured. With a decaying filter the four seconds of waiting above
+        /// would empty it, the feed-forward would read 0/demand + 1 = 1.00x, and the same typist
+        /// resuming at the same speed would be held at 1.00x while the EMA refilled, a dip at the
+        /// start of every line that follows a gap.
+        /// </summary>
+        [Test]
+        public void TheNextLineOpensAtThePaceTheFrozenFilterMeasured()
+        {
+            var running = run(ConductorState.Initial, typing(5.6, 4), tuning(), 2000);
+            var held = run(running, finishedLine(4), tuning(), 200);
+
+            Assert.AreEqual(1.0, held.Rate, 1e-9);
+
+            var resumed = ConductorController.Step(held, typing(5.6, 4), tuning(), ConductorController.STEP_SECONDS);
+
+            // The very first step of the new line already asks for 1.4 and gets a full slew step
+            // toward it. A collapsed filter would have asked for exactly 1.00x and not moved at all.
+            Assert.AreEqual(1.0 + (TypeBeatModConductor.SLEW_PER_SECOND * ConductorController.STEP_SECONDS), resumed.Rate, 1e-9);
+
+            var state = held;
+
+            for (int i = 0; i < 200; i++)
+            {
+                state = ConductorController.Step(state, typing(5.6, 4), tuning(), ConductorController.STEP_SECONDS);
+
+                Assert.GreaterOrEqual(state.Rate, 1.0 - 1e-12, $"the resumed line dipped below the normal rate at step {i}");
+            }
+
+            Assert.AreEqual(1.4, state.Rate, 1e-9, "back to the player's own pace");
+        }
+
+        /// <summary>
+        /// The guard against overcorrecting. Silence MID-LINE, with characters still in front of the
+        /// caret, is the real thing the filter is for: that player is genuinely behind, so the supply
+        /// must still decay and the song must still slow down to wait for them. Only the caret having
+        /// nowhere left to go buys the freeze.
+        /// </summary>
+        [Test]
+        public void SilenceMidLineStillDecaysTheFilterAndSlowsTheSong()
+        {
+            var running = run(ConductorState.Initial, typing(5.6, 4), tuning(), 2000);
+
+            // Same shape as the finish-early input except the caret still has cells in front of it,
+            // so there IS a judgeable cell and the song is 200 ms past it.
+            var stalled = new ConductorInputs(0, 4, -200, true, false);
+
+            var state = run(running, stalled, tuning(), 200);
+
+            Assert.Less(state.SupplyCellsPerSecond, 0.5, "a player with characters left in front of them who types nothing IS behind");
+            Assert.AreEqual(1, state.Authority, 1e-9, "the filter is full and trusted here; it is the supply reading that falls");
+            Assert.AreEqual(TypeBeatModConductor.DEFAULT_MIN_RATE, state.Rate, 1e-9, "the song must still drop to wait");
         }
 
         [Test]
@@ -527,9 +625,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// A reproducible stand-in for a play: bursts of typing, varying line density, a phase error
-        /// that wanders either side of the deadband, and two stretches with no active line. Built
-        /// off an explicit LCG rather than <c>Random</c> so the fixture does not depend on the
-        /// runtime's generator.
+        /// that wanders either side of the deadband, two stretches with no active line and one where
+        /// the line is active but finished. Built off an explicit LCG rather than <c>Random</c> so
+        /// the fixture does not depend on the runtime's generator.
         /// </summary>
         private static ConductorInputs[] scriptedInputs(int count)
         {
@@ -544,11 +642,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 bool active = i < 200 || i >= 260;
                 active &= i < 420 || i >= 460;
 
+                // Two stretches with no line at all, and a third where the line is still active but
+                // the caret has run off the end of it (a player who finished early and is waiting).
+                bool finished = active && i >= 300 && i < 340;
+
                 script[i] = new ConductorInputs(
-                    active && roll > 0.7 ? 1 : 0,
+                    active && !finished && roll > 0.7 ? 1 : 0,
                     3 + (i % 7),
-                    active ? (roll - 0.5) * 400 : null,
-                    active);
+                    active && !finished ? (roll - 0.5) * 400 : null,
+                    active,
+                    finished);
             }
 
             return script;

@@ -58,11 +58,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// <c>-TypingEngine.CurrentLeadLag(time)</c>; null when the caret has no judgeable cell.
     /// </param>
     /// <param name="HasActiveLine">Whether a lyric line is active at all (false in the intro, an instrumental gap, the outro).</param>
+    /// <param name="LineComplete">
+    /// Whether the caret has nothing left to type on the active line, i.e.
+    /// <c>TypingEngine.IsLineComplete</c>. That is a CARET predicate (the caret sits past the last
+    /// cell), not a "every cell was typed correctly" one, and the caret is what this controller
+    /// follows: a line the player finished early, one they gave up with the line skip and one they
+    /// walked away from all park the caret in the same place, and in every one of them the player is
+    /// waiting for the song rather than being late for it.
+    /// </param>
     public readonly record struct ConductorInputs(
         double AcceptedCells,
         double DemandCellsPerSecond,
         double? PhaseErrorMs,
-        bool HasActiveLine);
+        bool HasActiveLine,
+        bool LineComplete);
 
     /// <summary>
     /// Everything the controller carries between steps.
@@ -105,11 +114,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// accumulated gameplay time against rate * elapsed with a 300 ms tolerance.</item>
     /// </list>
     ///
-    /// <para>With NO ACTIVE LINE the whole law is bypassed and the target is simply 1.00x (clamped
-    /// into the user's band), so intros, instrumental gaps and outros sound normal and the skip
-    /// overlays behave exactly as they do unmodded. The supply filter relaxes toward "no evidence"
-    /// over the same time constant while that lasts, so a short gap between two lines barely
-    /// disturbs it and a long one starts the next line fresh.</para>
+    /// <para>WHEN THERE IS NOTHING TYPEABLE between the caret and the playhead the whole law is
+    /// bypassed and the target is simply 1.00x (clamped into the user's band), so intros,
+    /// instrumental gaps and outros sound normal and the skip overlays behave exactly as they do
+    /// unmodded. That is two states, not one: no active line at all
+    /// (<see cref="ConductorInputs.HasActiveLine"/>), and an active line whose caret has run off the
+    /// end (<see cref="ConductorInputs.LineComplete"/>), which is where a player who FINISHED EARLY
+    /// waits out the rest of the line.</para>
+    ///
+    /// <para>Through both of them the supply EMA and the authority are FROZEN, not relaxed. Letting
+    /// them decay makes the controller punish the player for being ahead: the phase error is null
+    /// there and no cell is accepted, so the filter would empty toward "this player has stopped
+    /// typing" and drag the rate to the band floor for exactly the player who got in front of the
+    /// song. Freezing means the next line opens on the pace that was actually measured, instead of
+    /// dipping at every line start that follows a gap while the EMA refills. The two freeze
+    /// TOGETHER: authority is the share of the filter credited back to the map's own pace, so
+    /// freezing supply while authority decayed would add a spurious +1 to the feed-forward and
+    /// overshoot the moment the next line opened.</para>
     /// </summary>
     public static class ConductorController
     {
@@ -141,27 +162,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             double lo = Math.Min(tuning.MinRate, tuning.MaxRate);
             double hi = Math.Max(tuning.MinRate, tuning.MaxRate);
 
-            // Exponential blend for a step of this length. A non-positive time constant means "no
-            // filter at all", which is what the term-isolating tests want.
-            double alpha = tuning.SupplyTauSeconds > 0
-                ? 1 - Math.Exp(-dtSeconds / tuning.SupplyTauSeconds)
-                : 1;
-
             double supply = state.SupplyCellsPerSecond;
             double authority = state.Authority;
             double target;
 
-            if (!inputs.HasActiveLine)
+            if (!inputs.HasActiveLine || inputs.LineComplete)
             {
-                // Nothing to follow. Relax the filter toward "no evidence" so the next line is not
-                // entered holding a stale reading, and aim at the normal rate.
-                supply += (0 - supply) * alpha;
-                authority += (0 - authority) * alpha;
-
+                // Nothing typeable between the caret and the playhead: no line at all, or a line
+                // whose caret has run off the end. Aim at the normal rate and FREEZE the filter.
+                //
+                // Freezing rather than relaxing is the whole point. A player who finished a line
+                // early sits here with no phase error and no accepted cells, so a decaying filter
+                // would read them as silent and haul the rate down to the band floor, punishing the
+                // one player who is ahead. Held, the filter still describes the pace they actually
+                // typed at, which is the reading the next line has to open on. Supply and authority
+                // freeze as a pair: authority is the unobserved share credited at the map's own
+                // pace, so decaying it alone would add a spurious +1 to the next line's feed-forward.
                 target = Math.Clamp(1d, lo, hi);
             }
             else
             {
+                // Exponential blend for a step of this length. A non-positive time constant means
+                // "no filter at all", which is what the term-isolating tests want.
+                double alpha = tuning.SupplyTauSeconds > 0
+                    ? 1 - Math.Exp(-dtSeconds / tuning.SupplyTauSeconds)
+                    : 1;
+
                 double instant = dtSeconds > 0 ? inputs.AcceptedCells / dtSeconds : 0;
 
                 supply += (instant - supply) * alpha;

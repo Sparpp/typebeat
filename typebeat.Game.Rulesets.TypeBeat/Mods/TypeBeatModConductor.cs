@@ -265,7 +265,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
             accumulator = Math.Min(accumulator + elapsed, max_steps_per_frame * ConductorController.STEP_MS);
 
-            var inputs = new ConductorInputs(0, demandFor(engine), phaseErrorFor(engine, time), engine.LineIsActive);
+            // IsLineComplete is a CARET predicate (caret past the last cell), and that is the read
+            // this controller wants rather than "every cell of the line was typed". A player who
+            // finished the line early, one who gave it up with the line skip and one who simply
+            // walked away from it all park the caret in the same place, and all three of them are
+            // now WAITING for the song rather than lagging it. A live retype selection is not gated
+            // out here on purpose: the selection is held between two keystrokes and any caret move
+            // invalidates it (TypeBeatPlayfield.Update), so it can only ever be open while the
+            // player is idle, and the keystroke that consumes it pulls the caret back inside the
+            // line before the next step reads this.
+            var inputs = new ConductorInputs(0, demandFor(engine), phaseErrorFor(engine, time), engine.LineIsActive, engine.IsLineComplete);
             var tuning = ConductorTuning.Default.WithRateBand(MinRate.Value, MaxRate.Value);
 
             while (accumulator >= ConductorController.STEP_MS)
