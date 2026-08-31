@@ -44,6 +44,14 @@ namespace typebeat.Game.Online.API
         public EndpointConfiguration Endpoints { get; }
 
         /// <summary>
+        /// Picks which host <see cref="Endpoints"/> points the API at, and pins the direct-origin
+        /// fallback for the rest of the session once the Cloudflare-proxied one has failed in a
+        /// transport-class way. See <see cref="ApiHostSelector"/> for why that ordering and why the
+        /// pin is permanent.
+        /// </summary>
+        private readonly ApiHostSelector hostSelector;
+
+        /// <summary>
         /// The API response version.
         /// See: https://osu.ppy.sh/docs/index.html#api-versions
         /// </summary>
@@ -93,9 +101,14 @@ namespace typebeat.Game.Online.API
             }
 
             Endpoints = endpoints;
+            hostSelector = new ApiHostSelector(Endpoints.APIUrl);
             NotificationsClient = setUpNotificationsClient();
 
-            authentication = new OAuth(endpoints.APIClientID, endpoints.APIClientSecret, Endpoints.APIUrl);
+            // the endpoint configuration is handed over whole rather than its API root copied out:
+            // the root can change mid-session (see `hostSelector`), and a session pinned to the
+            // fallback host that kept refreshing its token through the dead one would die at the
+            // next refresh instead of at the next request.
+            authentication = new OAuth(endpoints.APIClientID, endpoints.APIClientSecret, Endpoints);
 
             log = Logger.GetLogger(LoggingTarget.Network);
             log.Add($@"API endpoint root: {Endpoints.APIUrl}");
@@ -649,6 +662,31 @@ namespace typebeat.Game.Online.API
 
         private void handleFailure()
         {
+            // Everything that reaches here is transport-class by construction, and this is the only
+            // place that is true of: `handleRequest` routes `HttpRequestException` and
+            // `SocketException` straight in, and `handleWebException` only lands here for an idle
+            // timeout (a request that neither answered nor was refused). A server verdict does not
+            // pass through: the framework raises a non-success status as a `WebException` whose
+            // `Status` is `UnknownError`, which maps to `NotAcceptable` above and stops there, and a
+            // decoded `APIException` never reaches this method at all. Nor does a queue flush, which
+            // is a CONSEQUENCE of failures already counted here rather than a signal of its own.
+            //
+            // So this is the one seam the host failover needs: every API request is built from
+            // `Endpoints.APIUrl` at perform time (`APIRequest.Uri`), so publishing the new root here
+            // re-routes the whole API, the notifications websocket included (its endpoint is derived
+            // by the server from the host the request that asked for it arrived on, and the connector
+            // re-runs that request on every reconnect).
+            //
+            // This runs on the API thread, which is the only writer. Other threads read `APIUrl` (the
+            // `PerformAsync` path does), and a reference assignment is atomic, so the worst a racing
+            // reader sees is the previous root, which is exactly what it would have seen a moment
+            // earlier anyway.
+            if (hostSelector.NotifyTransportFailure())
+            {
+                Endpoints.APIUrl = hostSelector.CurrentApiRoot;
+                log.Add($@"API host failover: requests now target {Endpoints.APIUrl} for the rest of this session", LogLevel.Important);
+            }
+
             failureCount++;
             log.Add($@"API failure count is now {failureCount}");
 

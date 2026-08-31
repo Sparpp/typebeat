@@ -16,7 +16,7 @@ namespace typebeat.Game.Online.API
     {
         private readonly string clientId;
         private readonly string clientSecret;
-        private readonly string endpoint;
+        private readonly EndpointConfiguration endpoints;
 
         public readonly Bindable<OAuthToken> Token = new Bindable<OAuthToken>();
 
@@ -26,16 +26,29 @@ namespace typebeat.Game.Online.API
             set => Token.Value = string.IsNullOrEmpty(value) ? null : OAuthToken.Parse(value);
         }
 
-        internal OAuth(string clientId, string clientSecret, string endpoint)
+        internal OAuth(string clientId, string clientSecret, EndpointConfiguration endpoints)
         {
             Debug.Assert(clientId != null);
             Debug.Assert(clientSecret != null);
-            Debug.Assert(endpoint != null);
+            Debug.Assert(endpoints != null);
 
             this.clientId = clientId;
             this.clientSecret = clientSecret;
-            this.endpoint = endpoint;
+            this.endpoints = endpoints;
         }
+
+        /// <summary>
+        /// Where tokens are minted and refreshed, resolved LIVE on every use rather than captured
+        /// when this instance was built.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="ApiHostSelector"/> can move the API root to the direct-origin host part way
+        /// through a session (see <see cref="APIAccess"/>). Auth has to follow it: bearer tokens are
+        /// host-agnostic, so a session pinned to the fallback keeps working on the token it already
+        /// holds, but a refresh aimed at the host that just proved unreachable would kill the
+        /// session at the token's expiry instead, which is the failure the pin exists to avoid.
+        /// </remarks>
+        internal string TokenEndpoint => $@"{endpoints.APIUrl}/oauth/token";
 
         internal void AuthenticateWithLogin(string username, string password)
         {
@@ -44,7 +57,7 @@ namespace typebeat.Game.Online.API
 
             var accessTokenRequest = new AccessTokenRequestPassword(username, password)
             {
-                Url = $@"{endpoint}/oauth/token",
+                Url = TokenEndpoint,
                 Method = HttpMethod.Post,
                 ClientId = clientId,
                 ClientSecret = clientSecret
@@ -86,7 +99,7 @@ namespace typebeat.Game.Online.API
             {
                 var refreshRequest = new AccessTokenRequestRefresh(refresh)
                 {
-                    Url = $@"{endpoint}/oauth/token",
+                    Url = TokenEndpoint,
                     Method = HttpMethod.Post,
                     ClientId = clientId,
                     ClientSecret = clientSecret

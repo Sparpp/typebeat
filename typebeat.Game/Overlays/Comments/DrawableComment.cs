@@ -325,7 +325,11 @@ namespace typebeat.Game.Overlays.Comments
             if (WasDeleted)
                 makeDeleted();
 
-            actionsContainer.AddLink(WebCommonStrings.ButtonsPermalink, () => game?.CopyToClipboard($@"{api.Endpoints.APIUrl}/comments/{Comment.Id}"));
+            // WebsiteUrl, not APIUrl: this is a link a human copies and shares, and the API root can
+            // be swapped to the direct-origin host mid-session (see ApiHostSelector), which would
+            // hand out permalinks on a host that exists to route around a broken edge rather than to
+            // be typed into an address bar. The two are the same string on an unpinned session.
+            actionsContainer.AddLink(WebCommonStrings.ButtonsPermalink, () => game?.CopyToClipboard($@"{api.Endpoints.WebsiteUrl}/comments/{Comment.Id}"));
             actionsContainer.AddArbitraryDrawable(Empty().With(d => d.Width = 10));
             actionsContainer.AddLink(WebCommonStrings.ButtonsReply.ToLower(), toggleReply);
             actionsContainer.AddArbitraryDrawable(Empty().With(d => d.Width = 10));

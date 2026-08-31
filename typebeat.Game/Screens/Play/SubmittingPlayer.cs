@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
 using osu.Framework.Allocation;
+using osu.Framework.Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Logging;
 using osu.Framework.Screens;
@@ -101,8 +102,6 @@ namespace typebeat.Game.Screens.Play
         private bool handleTokenRetrieval()
         {
             // Token request construction should happen post-load to allow derived classes to potentially prepare DI backings that are used to create the request.
-            var tcs = new TaskCompletionSource<bool>();
-
             if (Mods.Value.Any(m => !m.UserPlayable))
             {
                 handleTokenFailure(new InvalidOperationException("Non-user playable mod selected."));
@@ -123,26 +122,31 @@ namespace typebeat.Game.Screens.Play
                 return false;
             }
 
-            req.Success += r =>
+            string routeWhenSent = api.Endpoints.APIUrl;
+            var failure = runTokenRequest(req, out bool stalled);
+
+            // If that attempt is what moved the session on to the fallback API host, the token was
+            // lost to a route the game has now abandoned, and the play would go unsubmitted for a
+            // reason that has already stopped being true. One repeat, on the new host, with a fresh
+            // request (a completed one can never fire again).
+            if (failure != null && (stalled || ApiHostSelector.IsFailoverRetryable(failure)) && api.Endpoints.APIUrl != routeWhenSent)
             {
-                Logger.Log($"Score submission token retrieved ({r.ID})");
-                token = r.ID;
-                tcs.SetResult(true);
-            };
-            req.Failure += ex => handleTokenFailure(ex, displayNotification: true);
+                var retry = CreateTokenRequest();
 
-            api.Queue(req);
+                if (retry != null)
+                {
+                    Logger.Log($"Score submission token retrieval failed on {routeWhenSent}, retrying on {api.Endpoints.APIUrl}");
+                    failure = runTokenRequest(retry, out _);
+                }
+            }
 
-            // Generally a timeout would not happen here as APIAccess will timeout first.
-            if (!tcs.Task.Wait(30000))
-                req.TriggerFailure(new InvalidOperationException("Token retrieval timed out (request never run)"));
+            if (failure != null)
+                handleTokenFailure(failure, displayNotification: true);
 
             return true;
 
             void handleTokenFailure(Exception exception, bool displayNotification = false)
             {
-                tcs.SetResult(false);
-
                 bool shouldExit = ShouldExitOnTokenRetrievalFailure(exception);
 
                 if (displayNotification || shouldExit)
@@ -166,6 +170,45 @@ namespace typebeat.Game.Screens.Play
                     });
                 }
             }
+        }
+
+        /// <summary>
+        /// Run one token request through to completion, populating <see cref="token"/> on success.
+        /// </summary>
+        /// <param name="req">The request to run. Must not have been performed before.</param>
+        /// <param name="stalled">
+        /// Whether the wait expired rather than the request reporting anything, which is
+        /// transport-class by construction: nothing answered and nothing was refused.
+        /// </param>
+        /// <returns>The failure to report, or <see langword="null"/> if the token was retrieved.</returns>
+        private Exception runTokenRequest(APIRequest<APIScoreToken> req, out bool stalled)
+        {
+            var tcs = new TaskCompletionSource<Exception>();
+
+            req.Success += r =>
+            {
+                Logger.Log($"Score submission token retrieved ({r.ID})");
+                token = r.ID;
+                tcs.TrySetResult(null);
+            };
+            // TrySetResult, because the request may report its own failure after the wait below has
+            // already given up on it: `TriggerFailure` schedules this handler rather than running it
+            // inline, and the request stays in flight on the API thread until its own timeout.
+            req.Failure += ex => tcs.TrySetResult(ex);
+
+            api.Queue(req);
+
+            // Generally a timeout would not happen here as APIAccess will timeout first.
+            if (!tcs.Task.Wait(30000))
+            {
+                var timeout = new InvalidOperationException("Token retrieval timed out (request never run)");
+                req.TriggerFailure(timeout);
+                stalled = true;
+                return timeout;
+            }
+
+            stalled = false;
+            return tcs.Task.GetResultSafely();
         }
 
         /// <summary>
@@ -329,6 +372,34 @@ namespace typebeat.Game.Screens.Play
             }
 
             Logger.Log($"Beginning score submission (token:{token.Value})...");
+            queueSubmission(score, api.Endpoints.APIUrl, isRetry: false);
+
+            return scoreSubmissionSource.Task;
+        }
+
+        /// <summary>
+        /// Build and queue one attempt at submitting <paramref name="score"/>, resolving
+        /// <see cref="scoreSubmissionSource"/> unless the attempt is worth repeating on a host the
+        /// session has moved to since.
+        /// </summary>
+        /// <param name="score">The score to submit.</param>
+        /// <param name="routeWhenSent">The API root this attempt is being built against.</param>
+        /// <param name="isRetry">Whether this attempt is itself the repeat, which is never repeated again.</param>
+        /// <remarks>
+        /// The play this is here for is the one whose own stall triggers the failover: the score PUT
+        /// sits on the Cloudflare-proxied host for its full 30 second idle timeout, that timeout is
+        /// what pins the direct-origin host (see <see cref="ApiHostSelector"/>), and without a repeat
+        /// the play is lost to a route the game abandoned in the same breath. Exactly one repeat,
+        /// because the pin only happens once, so a second failure is telling us something else.
+        ///
+        /// The repeat is a FRESH request from <see cref="CreateSubmissionRequest"/> rather than the
+        /// same object performed again: an <see cref="APIRequest"/> completes exactly once (both
+        /// trigger paths are gated on its completion state under a lock), so a failed one can never
+        /// fire again. Each attempt's handlers close over their own request, so nothing here depends
+        /// on telling two in-flight requests apart.
+        /// </remarks>
+        private void queueSubmission(Score score, string routeWhenSent, bool isRetry)
+        {
             var request = CreateSubmissionRequest(score, token.Value);
 
             request.Success += s =>
@@ -352,12 +423,18 @@ namespace typebeat.Game.Screens.Play
 
             request.Failure += e =>
             {
+                if (!isRetry && ApiHostSelector.ShouldRetryOnNewHost(e, routeWhenSent, api.Endpoints.APIUrl))
+                {
+                    Logger.Log($"Score submission failed on {routeWhenSent}, retrying on {api.Endpoints.APIUrl} (id: {token.Value})");
+                    queueSubmission(score, api.Endpoints.APIUrl, isRetry: true);
+                    return;
+                }
+
                 Logger.Error(e, $"{getUserFacingAPIError(e)}\n\nScore was not submitted (id: {token.Value})");
                 scoreSubmissionSource.SetResult(false);
             };
 
             api.Queue(request);
-            return scoreSubmissionSource.Task;
         }
 
         private static string getUserFacingAPIError(Exception exception)
