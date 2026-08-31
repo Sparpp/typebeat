@@ -8,6 +8,7 @@ using NUnit.Framework;
 using typebeat.Game.Beatmaps.Formats;
 using typebeat.Game.IO;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Import;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
@@ -17,6 +18,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// (via <see cref="LyricOsuFormat"/>, the same writer the .osz tool uses) -> decode
     /// (via the registered <see cref="LyricBeatmapDecoder"/>) -> hit objects identical to
     /// what <see cref="TimingJsonLoader.TryLoad"/> produces from the source file directly.
+    ///
+    /// <para>The trip goes through <see cref="LyricMapImporter.StripBackingVocalLines"/> on the way
+    /// in, because that is where an import loses its backing vocals since backlog 255: the writer
+    /// re-emits line objects verbatim, and the DECODE no longer strips (a '(' in a stored [Lyrics]
+    /// line is a literal lyric mark). The equality with <see cref="TimingJsonLoader.TryLoad"/>, the
+    /// import-side reader, is what pins the two halves of the seam to the same answer.</para>
     /// </summary>
     [TestFixture]
     public class LyricBeatmapDecoderTest
@@ -40,7 +47,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void SyntheticRoundTripMatchesLoader()
         {
-            string osuText = LyricOsuFormat.GenerateOsu("An Artist", "A Title", "audio.mp3", "tester", synthetic_timing_json);
+            string osuText = LyricOsuFormat.GenerateOsu("An Artist", "A Title", "audio.mp3", "tester",
+                LyricMapImporter.StripBackingVocalLines(synthetic_timing_json));
 
             // Loader ground truth (via a temp file, its only entry point).
             string tempPath = Path.Combine(Path.GetTempPath(), $"tb_dec_{System.Guid.NewGuid():N}.json");
@@ -53,7 +61,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 var beatmap = decode(osuText);
                 var hitObjects = beatmap.HitObjects.OfType<TypeBeatHitObject>().ToList();
 
-                // The backing-vocal-only line is dropped by both paths.
+                // The backing-vocal-only line is dropped by both paths: the loader drops it as it
+                // reads the aligner document, the writer never puts it in the .osu at all.
                 Assert.That(beatmap.HitObjects.Count, Is.EqualTo(hitObjects.Count));
                 Assert.That(hitObjects.Count, Is.EqualTo(expected.Count));
                 Assert.That(hitObjects.Count, Is.EqualTo(2));
@@ -90,7 +99,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.That(TimingJsonLoader.TryLoad(timingPath, out var expected), Is.True);
 
-            string osuText = LyricOsuFormat.GenerateOsu("Friday Pilots Club", "Spectator", "audio.mp3", "typebeat-lyriclab", timingJson);
+            string osuText = LyricOsuFormat.GenerateOsu("Friday Pilots Club", "Spectator", "audio.mp3", "typebeat-lyriclab",
+                LyricMapImporter.StripBackingVocalLines(timingJson));
             var beatmap = decode(osuText);
             var hitObjects = beatmap.HitObjects.OfType<TypeBeatHitObject>().ToList();
 
@@ -99,6 +109,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             for (int i = 0; i < expected.Count; i++)
                 assertLinesEqual(expected[i], hitObjects[i], i);
+
+            // The .osu an import writes carries no bracket at all: the strip happened on the way
+            // in, which is why the preserving decode above still reproduces the loader exactly.
+            Assert.That(hitObjects.Any(h => h.Line.RawText.Contains('(')), Is.False);
+        }
+
+        /// <summary>
+        /// Backlog 255, the other half of the seam. A bracket that IS in a stored [Lyrics] line is
+        /// a literal lyric mark: the decode keeps it, keeps the whole bracketed line, and hands the
+        /// player its content as ordinary typed lyric. (Only a FILE IMPORT reads "(oh)" as a
+        /// backing vocal, and it strips before the map is written, which is what the round-trip
+        /// pins above rely on.)
+        /// </summary>
+        [Test]
+        public void LiteralBracketsInAStoredMapSurviveTheDecode()
+        {
+            const string stored =
+                "{\"version\":2,\"song_end_ms\":20000,\"lines\":[" +
+                "{\"text\":\"hello (oh) now\",\"start_ms\":1000,\"end_ms\":4000}," +
+                "{\"text\":\"[all of it]\",\"start_ms\":5000,\"end_ms\":7000}]}";
+
+            var hitObjects = decode(LyricOsuFormat.GenerateOsu("An Artist", "A Title", "audio.mp3", "tester", stored))
+                             .HitObjects.OfType<TypeBeatHitObject>().ToList();
+
+            // Both lines survive, marks and all: nothing is deleted and nothing is dropped.
+            Assert.That(hitObjects.Count, Is.EqualTo(2));
+            Assert.That(hitObjects[0].Line.RawText, Is.EqualTo("hello (oh) now"));
+            Assert.That(hitObjects[1].Line.RawText, Is.EqualTo("[all of it]"));
+
+            // The bracketed CONTENT is typed lyric; the marks themselves are display-only without
+            // the Literate mod, like every other supported mark.
+            Assert.That(Typeability.ToDefaultStream(hitObjects[0].Line.RawText), Is.EqualTo("hello oh now"));
+            Assert.That(Typeability.ToDefaultStream(hitObjects[1].Line.RawText), Is.EqualTo("all of it"));
+
+            // Feeding the SAME document through the import boundary instead strips it exactly as it
+            // always did, whole-line drop included.
+            string imported = LyricMapImporter.StripBackingVocalLines(stored);
+            var importedObjects = decode(LyricOsuFormat.GenerateOsu("An Artist", "A Title", "audio.mp3", "tester", imported))
+                                  .HitObjects.OfType<TypeBeatHitObject>().ToList();
+
+            Assert.That(importedObjects.Count, Is.EqualTo(1));
+            Assert.That(importedObjects[0].Line.RawText, Is.EqualTo("hello now"));
         }
 
         [Test]

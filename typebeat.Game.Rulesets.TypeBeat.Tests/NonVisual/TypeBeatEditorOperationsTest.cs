@@ -320,8 +320,108 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var editorBeatmap = createBeatmap();
             var line = lineAt(editorBeatmap, 0);
 
-            Assert.That(TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "(backing only)"), Is.False);
+            // Nothing to TYPE, measured on the default stream: a line of nothing but marks (the
+            // empty brackets included, since backlog 255 made them ordinary punctuation) gives the
+            // player no cell at all, and an empty line cannot exist in the format.
+            Assert.That(TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "()"), Is.False);
+            Assert.That(TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "..."), Is.False);
+            Assert.That(TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "   "), Is.False);
             Assert.That(line.Line.RawText, Is.EqualTo("alpha beta")); // unchanged
+        }
+
+        /// <summary>
+        /// Backlog 255. The editor no longer runs the backing-vocal strip, so a bracket typed into
+        /// the line box is an ordinary lyric mark: it commits verbatim, the box shows it back, and
+        /// the text it wraps is typed lyric like any other. "(backing only)" is therefore ACCEPTED
+        /// now (its default stream, "backingonly", is non-empty); the rejection above keeps its own
+        /// pin with genuinely empty input.
+        /// </summary>
+        [Test]
+        public void BracketsCommitAsLiteralLyricText()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            Assert.That(TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "hello (oh) now"), Is.True);
+            Assert.That(line.Line.RawText, Is.EqualTo("hello (oh) now"));
+
+            // What the line box is pre-filled with on the next edit is the text itself, so the
+            // mapper reads back exactly what they typed.
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(line.Line), Is.EqualTo("hello (oh) now"));
+
+            // The bracketed CONTENT is typed lyric; the marks are display-only without Literate.
+            Assert.That(Typeability.ToDefaultStream(line.Line.RawText), Is.EqualTo("hello oh now"));
+
+            // A whole-line backing vocal is now just a line, because only a FILE IMPORT reads
+            // brackets as backing vocals.
+            Assert.That(TypeBeatEditorOperations.SetLineText(editorBeatmap, lineAt(editorBeatmap, 1), "(backing only)"), Is.True);
+            Assert.That(lineAt(editorBeatmap, 1).Line.RawText, Is.EqualTo("(backing only)"));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>
+        /// The failure mode that made the old strip so hostile in the editor: an UNPAIRED opener ate
+        /// the rest of the line, so a mapper halfway through typing "hello (world)" watched the tail
+        /// of their line disappear. Nothing is eaten now.
+        /// </summary>
+        [Test]
+        public void AnUnpairedBracketNoLongerEatsTheRestOfTheLine()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            Assert.That(TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "hello (world"), Is.True);
+            Assert.That(line.Line.RawText, Is.EqualTo("hello (world"));
+
+            // An unpaired closer is just as literal.
+            Assert.That(TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "hello world)"), Is.True);
+            Assert.That(line.Line.RawText, Is.EqualTo("hello world)"));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>
+        /// Backlog 255's save/load half: a line carrying brackets, an underscore and a tilde
+        /// survives the encode/decode round-trip byte for byte (the encoder writes RawText as JSON,
+        /// so no mark needs escaping, and the decode no longer strips).
+        /// </summary>
+        [Test]
+        public void NewMarksRoundTripThroughSaveAndReload()
+        {
+            var editorBeatmap = createBeatmap();
+
+            Assert.That(TypeBeatEditorOperations.SetLineText(editorBeatmap, lineAt(editorBeatmap, 0), "slow_down (oh~oh)"), Is.True);
+            Assert.That(TypeBeatEditorOperations.SetLineText(editorBeatmap, lineAt(editorBeatmap, 1), "[bridge] a_b~c"), Is.True);
+
+            Assert.That(lineAt(editorBeatmap, 0).Line.RawText, Is.EqualTo("slow_down (oh~oh)"));
+            Assert.That(lineAt(editorBeatmap, 1).Line.RawText, Is.EqualTo("[bridge] a_b~c"));
+
+            // The default stream deletes every one of the marks, exactly as it always has: this is
+            // why no stored statistic anywhere has to be recomputed for '_' and '~'.
+            Assert.That(Typeability.ToDefaultStream(lineAt(editorBeatmap, 0).Line.RawText), Is.EqualTo("slowdown ohoh"));
+            Assert.That(Typeability.ToDefaultStream(lineAt(editorBeatmap, 1).Line.RawText), Is.EqualTo("bridge abc"));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>
+        /// A word added through <see cref="TypeBeatEditorOperations.AddWord"/> keeps its brackets
+        /// too, and an added LINE does: the three editor write paths dropped the strip together.
+        /// </summary>
+        [Test]
+        public void AddWordAndAddLineKeepTheirBrackets()
+        {
+            var editorBeatmap = createBeatmap();
+
+            Assert.That(TypeBeatEditorOperations.AddWord(editorBeatmap, lineAt(editorBeatmap, 0), 0, "(oh)"), Is.True);
+            Assert.That(lineAt(editorBeatmap, 0).Line.RawText, Is.EqualTo("alpha (oh) beta"));
+
+            var added = TypeBeatEditorOperations.AddLine(editorBeatmap, 9000, "(new one)");
+            Assert.That(added, Is.Not.Null);
+            Assert.That(added!.Line.RawText, Is.EqualTo("(new one)"));
+
+            assertReloadStable(editorBeatmap);
         }
 
         [Test]

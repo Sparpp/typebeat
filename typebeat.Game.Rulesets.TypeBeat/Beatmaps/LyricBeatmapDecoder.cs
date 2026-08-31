@@ -107,7 +107,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     return;
                 }
 
-                if (TimingJsonLoader.TryParseRawLine(root, out var rawLine))
+                // Decoding a STORED map, so brackets are literal lyric marks and stay (backlog 255).
+                // The strip lives on the import side of the seam; see TryParseRawLine.
+                if (TimingJsonLoader.TryParseRawLine(root, out var rawLine, stripBackingVocals: false))
                     rawLines.Add(rawLine);
             }
             catch (JsonException e)

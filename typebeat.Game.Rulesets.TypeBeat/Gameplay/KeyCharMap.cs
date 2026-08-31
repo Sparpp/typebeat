@@ -189,11 +189,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 Key.Comma => shift ? '<' : ',',
                 Key.Period => shift ? '>' : '.',
                 Key.Quote => shift ? '"' : '\'',
-                Key.Minus => shift ? default : '-',
+                Key.Minus => shift ? '_' : '-',
                 Key.Slash => shift ? '?' : '/',
                 Key.Semicolon => shift ? ':' : ';',
                 Key.BracketLeft => shift ? default : '[',
                 Key.BracketRight => shift ? default : ']',
+                // Key.Grave is the same enum value: left of the 1 key, '`' unshifted (outside the
+                // set, so the position is left unclaimed there) and '~' on Shift.
+                Key.Tilde => shift ? '~' : default,
                 Key.Number1 => shift ? '!' : default,
                 Key.Number4 => shift ? '$' : default,
                 Key.Number5 => shift ? '%' : default,
@@ -231,17 +234,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// (shifted Comma and Period) is taken.</item>
         /// </list>
         ///
-        /// <para>PARKED, the two deliberate exceptions to the keycap rule: '[' and ']' have no
+        /// <para>PARKED, the three deliberate exceptions to the keycap rule: '[' and ']' have no
         /// AZERTY home this map can reach, because theirs is AltGr+5 and AltGr+the-Minus-position
         /// and AltGr is not modelled at all. They sit on the SHIFTED US bracket positions, whose
         /// real legends (the diaeresis dead key and the pound sign) are outside the supported set,
-        /// so nothing faithful is displaced and the US positional memory survives. Parking beats
-        /// stranding: a mark with no key makes maps uncompletable, while a mark on a spare shifted
-        /// legend is merely undiscoverable.</para>
+        /// so nothing faithful is displaced and the US positional memory survives. '~' is the third
+        /// (backlog 255): its French home is AltGr+2, so it parks on the shifted grave position,
+        /// whose superscript-two legend is unsupported and which is the tilde's US home too.
+        /// Parking beats stranding: a mark with no key makes maps uncompletable, while a mark on a
+        /// spare shifted legend is merely undiscoverable. The UNDERSCORE needs no park: '_' is the
+        /// unshifted legend of the 8 key here, so it is placed faithfully.</para>
         ///
-        /// <para>INERT, everything else this table claims: 1 2 7 8 9 0 unshifted (the ampersand,
-        /// the accented letters and the underscore), shifted Quote, shifted BackSlash, shifted
-        /// Slash and shifted Minus. All are legends outside
+        /// <para>INERT, everything else this table claims: 1 2 7 9 0 unshifted (the ampersand and
+        /// the accented letters), shifted Quote, shifted BackSlash, shifted Slash, shifted Minus
+        /// and the unshifted grave. All are legends outside
         /// <see cref="Beatmaps.Typeability.PUNCTUATION"/>, and <see cref="PunctuationMapping.Inert"/>
         /// is what stops the six digit keys among them falling through to a digit their keycap does
         /// not show unshifted.</para>
@@ -276,7 +282,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     Key.Number4 => '\'',
                     Key.Number5 => '(',
                     Key.Number6 => '-',
-                    // 1 '&', 2 e-acute, 7 e-grave, 8 '_', 9 c-cedilla, 0 a-grave: none supported.
+                    // The underscore has a real French home, so backlog 255 places it rather than
+                    // parking it: '_' IS the 8 key's unshifted legend here.
+                    Key.Number8 => '_',
+                    // 1 '&', 2 e-acute, 7 e-grave, 9 c-cedilla, 0 a-grave: none supported.
                     _ => default,
                 };
 
@@ -337,6 +346,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     c = shifted ? '>' : '<';
                     break;
 
+                case Key.Tilde:
+                    // Key.Grave is the same enum value. Left of the 1 key: the superscript-two
+                    // keycap, outside the supported set, so '~' is PARKED on its shifted legend,
+                    // which is also the US home of the tilde (backlog 255). Its faithful French
+                    // home is AltGr+2, and AltGr is not modelled at all.
+                    c = shifted ? '~' : default;
+                    break;
+
                 default:
                     return PunctuationMapping.Unclaimed;
             }
@@ -363,7 +380,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// diacritics, so a lyric never asks for one), and the letter map does not claim them, so
         /// they are CLAIMED-INERT here rather than left to hand back the US ';' ':' '\'' '"' '-'.
         /// Only the eszett key's SHIFTED legend, '?', is a supported mark.</item>
-        /// <item>THE REST: the US Slash position is '-' unshifted ('_' shifted), the US BackSlash
+        /// <item>THE REST: the US Slash position is '-' unshifted and '_' shifted, the US BackSlash
         /// position is '#' unshifted and the apostrophe shifted, the US BracketRight position is '+'
         /// unshifted and '*' shifted, Comma and Period carry ',' '.' unshifted and ';' ':' shifted,
         /// the key left of 1 (the US grave/tilde position) is the circumflex dead key whose legend
@@ -371,21 +388,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// brackets, whose US home (shifted Comma and Period) is taken.</item>
         /// </list>
         ///
-        /// <para>PARKED, the two deliberate exceptions to the keycap rule: '[' and ']' are AltGr+8
+        /// <para>PARKED, the three deliberate exceptions to the keycap rule: '[' and ']' are AltGr+8
         /// and AltGr+9 on a real German keyboard and AltGr is not modelled at all. They sit on the
         /// UNSHIFTED US bracket positions, which is both their US home and, here, spare: those two
         /// keycaps show the u-umlaut and '+', neither of them in
         /// <see cref="Beatmaps.Typeability.PUNCTUATION"/>, so nothing faithful is displaced and the
-        /// US positional memory survives intact. Parking beats stranding: a mark with no key makes
-        /// every lyric containing it uncompletable, while a mark on a spare legend is merely
-        /// undiscoverable.</para>
+        /// US positional memory survives intact. '~' is the third (backlog 255): AltGr on the '+'
+        /// key here, so it parks on the SHIFTED grave position, whose degree-sign legend is
+        /// unsupported and which is the tilde's US home too. Parking beats stranding: a mark with
+        /// no key makes every lyric containing it uncompletable, while a mark on a spare legend is
+        /// merely undiscoverable. The UNDERSCORE needs no park: '_' is the shifted legend of the
+        /// German '-' key, so it is placed faithfully.</para>
         ///
         /// <para>INERT, everything else this table claims: shifted 3 0 (the section sign and '='),
         /// shifted 6 (the AMPERSAND, which is the freestyle marker and deliberately outside the
-        /// supported set, so it must never be produced), unshifted eszett, shifted Slash (the
-        /// underscore), unshifted BackSlash ('#'), shifted BracketLeft (the capital u-umlaut),
-        /// shifted grave (the degree sign), both umlaut home-row positions and the dead acute/grave
-        /// key right of the eszett. <see cref="PunctuationMapping.Inert"/> is what stops the shifted
+        /// supported set, so it must never be produced), unshifted eszett, unshifted BackSlash
+        /// ('#'), shifted BracketLeft (the capital u-umlaut), both umlaut home-row positions and
+        /// the dead acute/grave key right of the eszett.
+        /// <see cref="PunctuationMapping.Inert"/> is what stops the shifted
         /// digits among them falling through to a digit their keycap only shows unshifted.</para>
         ///
         /// <para>The flag here IS the Shift key, unlike the AZERTY table's (backlog 238): the German
@@ -455,9 +475,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     break;
 
                 case Key.Slash:
-                    // '-' unshifted, the underscore (outside the set) shifted, the reverse of the
-                    // US key's '/' and '?'.
-                    c = shift ? default : '-';
+                    // '-' unshifted, '_' shifted, the reverse of the US key's '/' and '?'. The
+                    // underscore joined the supported set in backlog 255, and this is its faithful
+                    // German home, so it is placed rather than parked.
+                    c = shift ? '_' : '-';
                     break;
 
                 case Key.Comma:
@@ -476,8 +497,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 case Key.Tilde:
                     // Key.Grave is the same enum value. Left of the 1 key: the circumflex dead key,
-                    // whose legend '^' is a supported mark; shifted is the degree sign.
-                    c = shift ? default : '^';
+                    // whose legend '^' is a supported mark. Shifted is the degree sign, outside the
+                    // set, so '~' is PARKED there (backlog 255), which is also its US home; its
+                    // faithful German home is AltGr on the '+' key, and AltGr is not modelled.
+                    c = shift ? '~' : '^';
                     break;
 
                 case Key.NonUSBackSlash:

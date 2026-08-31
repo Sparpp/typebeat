@@ -714,6 +714,94 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         }
 
         /// <summary>
+        /// THE IMPORT-SIDE BACKING-VOCAL STRIP (backlog 255). Removes every bracketed span from the
+        /// line texts of an ALIGNER-produced timing.json and drops the lines that are left with
+        /// nothing to type, so the .osu an import writes never stores a bracket in the first place.
+        ///
+        /// <para>It exists because the strip used to happen on DECODE, and the map format now
+        /// preserves a literal '(' instead. The two halves of the owner's decision meet exactly
+        /// here: the file being ingested still loses its backing vocals, and everything downstream
+        /// of the stored map treats a bracket as ordinary punctuation. Because
+        /// <see cref="LyricOsuFormat.GenerateOsu"/> re-emits these line objects verbatim into
+        /// [Lyrics], stripping here is what keeps an import's decoded lines byte-identical to what
+        /// <see cref="TimingJsonLoader.TryLoad"/> reports for the same timing.json.</para>
+        ///
+        /// <para>Only the line <c>text</c> is touched: words[] is deliberately left alone, so a
+        /// PARTIAL strip still changes the token count and still sends that line to the
+        /// interpolation fallback in <see cref="TimingJsonLoader.BuildLines"/>, exactly as the
+        /// decode-side strip did. A whole bracketed line is REMOVED from lines[], which is the same
+        /// outcome as the decode dropping it (the previous line's window runs to the next surviving
+        /// line's start). A document whose line texts carry no bracket at all is returned VERBATIM,
+        /// so no map that could not have been affected has a single byte moved, and any parse
+        /// problem also returns the input unchanged: this is a polish pass, not a gate.</para>
+        /// </summary>
+        public static string StripBackingVocalLines(string timingJson)
+        {
+            if (string.IsNullOrEmpty(timingJson))
+                return timingJson;
+
+            try
+            {
+                if (JsonNode.Parse(timingJson) is not JsonObject root
+                    || root["lines"] is not JsonArray lines)
+                {
+                    return timingJson;
+                }
+
+                var kept = new JsonArray();
+                bool changed = false;
+
+                foreach (JsonNode? node in lines)
+                {
+                    // A non-object element, or one whose "text" is missing or not a string, is
+                    // carried through untouched: the decode rejects it on its own terms, and
+                    // second-guessing that here would be a second copy of the same rule.
+                    if (node is not JsonObject line
+                        || line["text"] is not JsonValue textValue
+                        || !textValue.TryGetValue(out string? text))
+                    {
+                        kept.Add(node?.DeepClone());
+                        continue;
+                    }
+
+                    string stripped = Typeability.StripBackingVocals(text);
+
+                    if (stripped == text)
+                    {
+                        kept.Add(line.DeepClone());
+                        continue;
+                    }
+
+                    changed = true;
+
+                    // The same emptiness rule the decode applies, so an import cannot store a line
+                    // the decode would then drop (or drop one it would have kept).
+                    bool freestyle = line["freestyle"] is JsonValue flag && flag.TryGetValue(out bool on) && on;
+                    string normalized = Typeability.Normalize(stripped, keepFreestyleMarkers: freestyle, keepSplitMarkers: true);
+
+                    if (TimingJsonLoader.YieldsNoCells(normalized))
+                        continue;
+
+                    // The STRIPPED RAW text, not the normalized form: the rest of the normalization
+                    // still happens on decode, exactly where it always did.
+                    var copy = (JsonObject)line.DeepClone();
+                    copy["text"] = stripped;
+                    kept.Add(copy);
+                }
+
+                if (!changed)
+                    return timingJson;
+
+                root["lines"] = kept;
+                return root.ToJsonString();
+            }
+            catch (Exception)
+            {
+                return timingJson;
+            }
+        }
+
+        /// <summary>
         /// Zips a self-contained .osz: generated .osu (with computed preview/lead-in), the original
         /// audio, and provenance (timing.json + lyrics.txt). Overwrites <paramref name="oszPath"/>.
         ///
@@ -730,13 +818,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             try
             {
                 string audioFilename = Path.GetFileName(audioSourcePath);
+
+                // Deliberately the UNSTRIPPED document: preview point and lead-in are read off the
+                // aligner's own line times, so they are the same numbers this map has always got.
                 (double previewTime, double audioLeadIn) = computePolish(timingJson);
 
                 string? videoSource = videoSourcePath ?? (LyricImportExtensions.IsVideo(audioSourcePath) ? audioSourcePath : null);
                 string? videoFilename = videoSource == null ? null : Path.GetFileName(videoSource);
 
-                string osuText = LyricOsuFormat.GenerateOsu(artist, title, audioFilename, CREATOR, timingJson, previewTime, audioLeadIn,
-                    videoFilename: videoFilename);
+                // The import boundary (backlog 255): backing vocals leave the lyric HERE, on the way
+                // into the stored map, because the decode now reads a bracket as a literal mark.
+                // The provenance timing.json written below keeps the aligner's text untouched.
+                string osuText = LyricOsuFormat.GenerateOsu(artist, title, audioFilename, CREATOR, StripBackingVocalLines(timingJson),
+                    previewTime, audioLeadIn, videoFilename: videoFilename);
 
                 if (File.Exists(oszPath))
                     File.Delete(oszPath);

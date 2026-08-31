@@ -461,14 +461,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.IsTrue(KeyCharMap.TryMap(key, KeyboardLayout.Azerty, shift: false, punctuation: true, capsLock: true, out char digit), $"caps digit {d}");
                 Assert.AreEqual((char)('0' + d), digit, $"caps digit {d}");
 
-                // Shift over the lock is the unshifted French legend: 3 4 5 6 carry marks, the rest
-                // are the ampersand, the accented letters and the underscore, none of them typeable.
+                // Shift over the lock is the unshifted French legend: 3 4 5 6 carry marks and 8
+                // carries '_' (a supported mark since backlog 255); the rest are the ampersand and
+                // the accented letters, none of them typeable.
                 char legend = d switch
                 {
                     3 => '"',
                     4 => '\'',
                     5 => '(',
                     6 => '-',
+                    8 => '_',
                     _ => '\0',
                 };
 

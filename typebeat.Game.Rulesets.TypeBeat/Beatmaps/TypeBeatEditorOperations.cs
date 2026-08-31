@@ -627,7 +627,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         public static bool SetLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText)
         {
             // Both authoring seams survive Normalize here; every other untypeable char is stripped.
-            string withMarkers = Typeability.Normalize(Typeability.StripBackingVocals(rawUserText),
+            // No backing-vocal strip (backlog 255): what the mapper typed is what the line stores,
+            // so "hello (oh) now" commits verbatim and the brackets are ordinary lyric marks.
+            string withMarkers = Typeability.Normalize(rawUserText,
                 keepFreestyleMarkers: true, keepSplitMarkers: true);
 
             var (normalized, pipes) = SplitMarkers.Strip(withMarkers);
@@ -1006,8 +1008,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         public static bool AddWord(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int afterUnitIndex, string text = NEW_WORD_TEXT)
         {
             // Same authoring seam as SetLineText: '&' survives as a FREESTYLE cell, everything
-            // else untypeable is stripped.
-            string normalized = Typeability.Normalize(Typeability.StripBackingVocals(text), keepFreestyleMarkers: true);
+            // else untypeable is stripped, and brackets are literal marks (backlog 255).
+            string normalized = Typeability.Normalize(text, keepFreestyleMarkers: true);
 
             if (Typeability.ToDefaultStream(normalized).Length == 0 || normalized.Contains(' '))
                 return false;
@@ -1261,7 +1263,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         public static TypeBeatHitObject? AddLine(EditorBeatmap editorBeatmap, double startTime, string text = "new line")
         {
-            string normalized = Typeability.Normalize(Typeability.StripBackingVocals(text));
+            // Brackets are literal marks here too (backlog 255): no backing-vocal strip.
+            string normalized = Typeability.Normalize(text);
 
             if (Typeability.ToDefaultStream(normalized).Length == 0)
                 return null;

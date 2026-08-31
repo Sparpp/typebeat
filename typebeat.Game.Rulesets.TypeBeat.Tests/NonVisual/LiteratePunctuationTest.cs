@@ -44,11 +44,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void TheSupportedSetIsExactlyTheDocumentedTwentyMarks()
+        public void TheSupportedSetIsExactlyTheDocumentedTwentyTwoMarks()
         {
-            Assert.AreEqual(",.'-?!;:()[]\"$%^*<>/", Typeability.PUNCTUATION);
-            Assert.AreEqual(20, Typeability.PUNCTUATION.Length);
-            Assert.AreEqual(20, Typeability.PUNCTUATION.Distinct().Count(), "no mark may be listed twice");
+            Assert.AreEqual(",.'-?!;:()[]\"$%^*<>/_~", Typeability.PUNCTUATION);
+            Assert.AreEqual(22, Typeability.PUNCTUATION.Length);
+            Assert.AreEqual(22, Typeability.PUNCTUATION.Distinct().Count(), "no mark may be listed twice");
 
             foreach (char c in Typeability.PUNCTUATION)
             {
@@ -59,10 +59,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             }
 
             // Neighbours that are deliberately OUT: the freestyle marker, the split marker, the
-            // underscore, the backtick, the hash, the at sign, plus/equals, tilde, backslash.
-            // Backlog 202 moved '$', '%', '^', '*', '<', '>' and '/' out of this list and into the
-            // supported set above.
-            foreach (char c in "&_`#@+=|~\\")
+            // backtick, the hash, the at sign, plus/equals, backslash. Backlog 202 moved '$', '%',
+            // '^', '*', '<', '>' and '/' out of this list and into the supported set above, and
+            // backlog 255 moved '_' and '~'.
+            foreach (char c in "&`#@+=|\\")
                 Assert.IsFalse(Typeability.IsPunctuation(c), $"'{c}' must not be a supported mark");
         }
 
@@ -70,8 +70,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void NormalizeKeepsEveryMarkAndFoldsTheTypographicVariants()
         {
             // Every supported mark survives, in one line, exactly once.
-            Assert.AreEqual("a,b.c'd-e?f!g;h:i(j)k[l]m\"n$o%p^q*r<s>t/u",
-                Typeability.Normalize("a,b.c'd-e?f!g;h:i(j)k[l]m\"n$o%p^q*r<s>t/u"));
+            Assert.AreEqual("a,b.c'd-e?f!g;h:i(j)k[l]m\"n$o%p^q*r<s>t/u_v~w",
+                Typeability.Normalize("a,b.c'd-e?f!g;h:i(j)k[l]m\"n$o%p^q*r<s>t/u_v~w"));
 
             // Curly quotes/apostrophes and en/em/horizontal dashes and the minus sign all fold into
             // the ASCII forms, so only the supported set can ever reach a map.
@@ -81,10 +81,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual("a*b", Typeability.Normalize("a*b"));
             Assert.AreEqual("a/b", Typeability.Normalize("a/b"));
 
+            // The underscore and the tilde are supported since backlog 255, so they survive too.
+            Assert.AreEqual("a_b", Typeability.Normalize("a_b"));
+            Assert.AreEqual("a~b", Typeability.Normalize("a~b"));
+
             // Unsupported punctuation is still dropped outright, before anything else sees it.
             Assert.AreEqual("ab", Typeability.Normalize("a&b"));
-            Assert.AreEqual("ab", Typeability.Normalize("a_b"));
             Assert.AreEqual("ab", Typeability.Normalize("a#b"));
+            Assert.AreEqual("ab", Typeability.Normalize("a`b"));
 
             // Diacritics still strip first, so a mark next to an accent is unaffected.
             Assert.AreEqual("Hello, world!", Typeability.Normalize("Héllo,  wörld!"));
@@ -135,6 +139,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual("ab", Typeability.ToDefaultStream("a<b"));
             Assert.AreEqual("ab", Typeability.ToDefaultStream("a>b"));
             Assert.AreEqual("ab", Typeability.ToDefaultStream("a/b"));
+
+            // The two marks backlog 255 added go the same way. This is the whole reason no stored
+            // statistic anywhere needs recomputing for them: they used to be DELETED by Normalize
+            // and are now KEPT in the author's form and deleted from the default stream instead, so
+            // the stream every non-Literate play, difficulty figure and pace count is measured on
+            // is character for character what it was.
+            Assert.AreEqual("ab", Typeability.ToDefaultStream("a_b"));
+            Assert.AreEqual("ab", Typeability.ToDefaultStream("a~b"));
+            Assert.AreEqual(Typeability.ToDefaultStream(Typeability.Normalize("a_b~c")),
+                Typeability.ToDefaultStream("abc"));
 
             // The hyphen alone is a WORD BREAK.
             Assert.AreEqual("a b", Typeability.ToDefaultStream("a-b"));
@@ -250,6 +264,98 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                                           .Select(c => (char.ToLowerInvariant(c.Expected), c.TargetTime)).ToList();
 
             Assert.AreEqual(literateLetters, plainLetters);
+        }
+
+        /// <summary>
+        /// Backlog 255. A bracketed token is ordinary lyric now, so the CELL FLATTENING has to
+        /// treat it as one: without Literate the player types the content and not the marks, with
+        /// it they type both. Nothing here is special-cased for brackets, which is the point.
+        /// </summary>
+        [Test]
+        public void ABracketedTokenIsTypedContentAndNotADeletedSpan()
+        {
+            var source = map(TimingGranularity.Word,
+                line("hello (oh) now", 0, 8000, 6000,
+                    unit("hello", 1000, 2000), unit("(oh)", 2000, 3000), unit("now", 3000, 4000)));
+
+            var plain = new TypingEngine(source).Lines[0];
+            var literate = new TypingEngine(source, literate: true).Lines[0];
+
+            Assert.AreEqual("hello oh now", plain.DisplayText);
+            Assert.AreEqual("hello (oh) now", literate.DisplayText);
+
+            // The same derivation the string form uses, so the screen and the engine cannot drift.
+            Assert.AreEqual(Typeability.ToDefaultStream("hello (oh) now"), plain.DisplayText);
+            Assert.AreEqual("hello oh now", string.Concat(plain.Cells.Select(c => c.Expected)));
+
+            // The bracket cells only exist under the mod, and there they are typeable cells of
+            // their own rather than auto-skipped junk.
+            Assert.AreEqual(0, plain.Cells.Count(c => Typeability.IsPunctuation(c.Expected)));
+            Assert.AreEqual(2, literate.Cells.Count(c => c.Expected == '(' || c.Expected == ')'));
+            Assert.IsTrue(literate.Cells.Where(c => c.Expected == '(' || c.Expected == ')').All(c => c.IsTypeable));
+        }
+
+        /// <summary>
+        /// The reachability invariant stated for exactly the four marks backlog 255 turns into
+        /// cells the editor and the format can now emit: '(' and ')' (literal at last) and the two
+        /// new marks. A mark with no key on some layout makes every lyric containing it
+        /// uncompletable under Literate, which is the failure history the key tables carry.
+        /// </summary>
+        [Test]
+        public void TheFourNewlyReachableMarksHaveAKeyOnEveryLayout()
+        {
+            foreach (var layout in new[] { KeyboardLayout.Qwerty, KeyboardLayout.Qwertz, KeyboardLayout.Azerty })
+            {
+                foreach (char mark in "()_~")
+                {
+                    bool found = false;
+
+                    foreach (Key key in Enum.GetValues<Key>())
+                    {
+                        foreach (bool shift in new[] { false, true })
+                        {
+                            foreach (bool caps in new[] { false, true })
+                            {
+                                if (KeyCharMap.TryMap(key, layout, shift, true, caps, out char c) && c == mark)
+                                    found = true;
+                            }
+                        }
+                    }
+
+                    Assert.IsTrue(found, $"'{mark}' has no key on {layout}");
+                }
+            }
+
+            // And the exact positions, so a silent relocation reds here rather than in a field
+            // report. US: '_' above the hyphen, '~' above the grave, the brackets on their own keys.
+            assertProduces(KeyboardLayout.Qwerty, Key.Minus, true, '_');
+            assertProduces(KeyboardLayout.Qwerty, Key.Tilde, true, '~');
+            assertProduces(KeyboardLayout.Qwerty, Key.Number9, true, '(');
+            assertProduces(KeyboardLayout.Qwerty, Key.Number0, true, ')');
+
+            // QWERTZ: '_' is the faithful shifted legend of the German '-' key, '~' is PARKED on
+            // the spare shifted grave (its US home), the brackets stay parked where 216 put them.
+            assertProduces(KeyboardLayout.Qwertz, Key.Slash, true, '_');
+            assertProduces(KeyboardLayout.Qwertz, Key.Tilde, true, '~');
+            assertProduces(KeyboardLayout.Qwertz, Key.Number8, true, '(');
+            assertProduces(KeyboardLayout.Qwertz, Key.Number9, true, ')');
+
+            // AZERTY: '_' is the faithful UNSHIFTED legend of the 8 key, '~' is PARKED on the spare
+            // shifted grave, the brackets keep their own homes (5 unshifted, the Minus position).
+            assertProduces(KeyboardLayout.Azerty, Key.Number8, false, '_');
+            assertProduces(KeyboardLayout.Azerty, Key.Tilde, true, '~');
+            assertProduces(KeyboardLayout.Azerty, Key.Number5, false, '(');
+            assertProduces(KeyboardLayout.Azerty, Key.Minus, false, ')');
+        }
+
+        private static void assertProduces(KeyboardLayout layout, Key key, bool shift, char expected)
+        {
+            Assert.IsTrue(KeyCharMap.TryMap(key, layout, shift, true, out char c), $"{layout} {key} shift={shift}");
+            Assert.AreEqual(expected, c, $"{layout} {key} shift={shift}");
+
+            // Inert without the mod, like every other punctuation position.
+            Assert.IsFalse(KeyCharMap.TryMap(key, layout, shift, false, out char plain) && plain == expected,
+                $"{layout} {key} shift={shift} leaked outside Literate");
         }
 
         [Test]
@@ -387,6 +493,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 [(Key.Number8, true)] = '*',
                 [(Key.Comma, true)] = '<',
                 [(Key.Period, true)] = '>',
+                // Backlog 255: '_' above the US hyphen, '~' above the grave.
+                [(Key.Minus, true)] = '_',
+                [(Key.Tilde, true)] = '~',
             };
 
             foreach (var ((key, shift), mark) in expected)
@@ -404,9 +513,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual('/', slash);
             Assert.IsFalse(KeyCharMap.TryMap(Key.Slash, KeyboardLayout.Qwerty, false, out _));
 
-            // Keys with no mark on either legend stay inert even under the mod.
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Minus, KeyboardLayout.Qwerty, true, true, out _));
+            // Keys with no mark on either legend stay inert even under the mod. (The shifted hyphen
+            // used to be one of them; backlog 255 gave it '_'.)
             Assert.IsFalse(KeyCharMap.TryMap(Key.BracketLeft, KeyboardLayout.Qwerty, true, true, out _));
+            Assert.IsFalse(KeyCharMap.TryMap(Key.BracketRight, KeyboardLayout.Qwerty, true, true, out _));
+            Assert.IsFalse(KeyCharMap.TryMap(Key.Tilde, KeyboardLayout.Qwerty, false, true, out _));
 
             // Letters are untouched by the wider surface.
             Assert.IsTrue(KeyCharMap.TryMap(Key.A, KeyboardLayout.Qwerty, true, true, out char shifted));
@@ -504,6 +615,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 [Key.Number4] = '\'',
                 [Key.Number5] = '(',
                 [Key.Number6] = '-',
+                // The underscore, supported since backlog 255, is the 8 key's own French legend, so
+                // it is PLACED here rather than parked on a spare shifted position.
+                [Key.Number8] = '_',
                 [Key.Minus] = ')', // the key immediately right of 0
             };
 
@@ -513,10 +627,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.AreEqual(mark, produced, $"{key}");
             }
 
-            // The six whose unshifted legend is outside the supported set ('&', the accented
-            // letters, '_') produce NOTHING rather than falling through to the digit their keycap
+            // The five whose unshifted legend is outside the supported set ('&' and the accented
+            // letters) produce NOTHING rather than falling through to the digit their keycap
             // shows only on Shift: a digit the player never asked for is a wrong key like any other.
-            foreach (var key in new[] { Key.Number1, Key.Number2, Key.Number7, Key.Number8, Key.Number9, Key.Number0 })
+            foreach (var key in new[] { Key.Number1, Key.Number2, Key.Number7, Key.Number9, Key.Number0 })
                 Assert.IsFalse(KeyCharMap.TryMap(key, KeyboardLayout.Azerty, false, true, out _), $"{key}");
 
             // Shift is the digit, on all ten.
@@ -643,12 +757,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 [(Key.Quote, false)] = '\'',
                 [(Key.Quote, true)] = '"',
                 [(Key.Minus, false)] = '-',
+                [(Key.Minus, true)] = '_',
                 [(Key.Slash, false)] = '/',
                 [(Key.Slash, true)] = '?',
                 [(Key.Semicolon, false)] = ';',
                 [(Key.Semicolon, true)] = ':',
                 [(Key.BracketLeft, false)] = '[',
                 [(Key.BracketRight, false)] = ']',
+                // Key.Grave is the same enum value: '`' unshifted is outside the set, '~' above it.
+                [(Key.Tilde, true)] = '~',
                 [(Key.Number1, true)] = '!',
                 [(Key.Number4, true)] = '$',
                 [(Key.Number5, true)] = '%',
@@ -658,7 +775,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 [(Key.Number0, true)] = ')',
             };
 
-            // The 20 claimed states are exactly the 20 supported marks, one each.
+            // The 22 claimed states are exactly the 22 supported marks, one each.
             Assert.AreEqual(Typeability.PUNCTUATION.OrderBy(c => c).ToArray(), usSurface.Values.OrderBy(c => c).ToArray());
 
             foreach (Key key in Enum.GetValues<Key>())
@@ -786,9 +903,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // it produces nothing AND does not fall through.
             var expected = new Dictionary<(Key, bool), char?>
             {
-                // Left of the 1 key: the circumflex dead key, degree sign above it.
+                // Left of the 1 key: the circumflex dead key, degree sign above it ('~' PARKED on
+                // that spare shifted legend since backlog 255, which is also its US home).
                 [(Key.Tilde, false)] = '^',
-                [(Key.Tilde, true)] = null,
+                [(Key.Tilde, true)] = '~',
                 // Right of 0: the eszett keycap, '?' above it.
                 [(Key.Minus, false)] = null,
                 [(Key.Minus, true)] = '?',
@@ -809,7 +927,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 [(Key.BackSlash, false)] = null,
                 [(Key.BackSlash, true)] = '\'',
                 // Bottom row: the ISO key US keyboards do not have, then ',' '.' '-' with ';' ':'
-                // and the underscore above them.
+                // and '_' above them.
                 [(Key.NonUSBackSlash, false)] = '<',
                 [(Key.NonUSBackSlash, true)] = '>',
                 [(Key.Comma, false)] = ',',
@@ -817,7 +935,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 [(Key.Period, false)] = '.',
                 [(Key.Period, true)] = ':',
                 [(Key.Slash, false)] = '-',
-                [(Key.Slash, true)] = null,
+                [(Key.Slash, true)] = '_',
             };
 
             foreach (var ((key, shift), mark) in expected)
@@ -990,9 +1108,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 (Key.Quote, false), // '\'' -> a-umlaut
                 (Key.Quote, true), // '"' -> capital a-umlaut
                 (Key.Minus, false), // '-' -> eszett
-                (Key.Minus, true), // nothing -> '?'
+                (Key.Minus, true), // '_' -> '?'
                 (Key.Slash, false), // '/' -> '-'
-                (Key.Slash, true), // '?' -> the underscore
+                (Key.Slash, true), // '?' -> '_'
                 (Key.Semicolon, false), // ';' -> o-umlaut
                 (Key.Semicolon, true), // ':' -> capital o-umlaut
                 (Key.BracketRight, true), // nothing -> '*'
@@ -1003,7 +1121,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 (Key.Number7, true), // the digit -> '/'
                 (Key.Number8, true), // '*' -> '('
                 (Key.Number9, true), // '(' -> ')'
-                (Key.Tilde, false), // nothing -> '^'
+                (Key.Tilde, false), // nothing -> '^' (shifted both layouts give '~', so no diff)
                 (Key.BackSlash, true), // nothing -> the apostrophe
                 (Key.NonUSBackSlash, false), // nothing -> '<'
                 (Key.NonUSBackSlash, true), // nothing -> '>'

@@ -175,9 +175,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(Typeability.ToDefaultStream(punct[0].RawText), Is.EqualTo("its his half cut voice through my lips"));
 
             // Unsupported chars still vanish outright, before the derivation ever sees them.
-            // ('*' was one of these until backlog 202 made it a supported mark.)
-            var unsupported = LrcParser.Parse("[00:01.00] a~b #c\n");
+            // ('*' was one of these until backlog 202 made it a supported mark, and '~' until
+            // backlog 255 did, so both now belong on the line above instead.)
+            var unsupported = LrcParser.Parse("[00:01.00] a`b #c\n");
             Assert.That(unsupported[0].RawText, Is.EqualTo("ab c"));
+
+            // The two marks backlog 255 added survive an import like any other supported mark; the
+            // backing-vocal strip an import still runs is about BRACKETS, not about them.
+            var newMarks = LrcParser.Parse("[00:01.00] slow_down oh~oh\n");
+            Assert.That(newMarks[0].RawText, Is.EqualTo("slow_down oh~oh"));
+            Assert.That(Typeability.ToDefaultStream(newMarks[0].RawText), Is.EqualTo("slowdown ohoh"));
 
             // The real file carries nothing but typeable chars and supported marks.
             var real = LrcParser.Parse(spectator_lyrics);

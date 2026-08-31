@@ -703,15 +703,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // A char outside both the typeable surface and the supported punctuation set (Normalize
             // strips these, so this is the defensive path for hand-built or legacy data) is still a
-            // non-typeable cell the caret hops. "~ab~", unit [1000, 2000], k=2 => a=1000, b=1500.
-            // The leading '~' has nothing before it so it takes the FOLLOWING target (1000); the
-            // trailing '~' has nothing after it so it takes the PRECEDING one (1500).
-            // ('*' stood in here until backlog 202 made it a supported mark.)
+            // non-typeable cell the caret hops. "`ab`", unit [1000, 2000], k=2 => a=1000, b=1500.
+            // The leading '`' has nothing before it so it takes the FOLLOWING target (1000); the
+            // trailing '`' has nothing after it so it takes the PRECEDING one (1500).
+            // ('*' stood in here until backlog 202 made it a supported mark, and '~' until
+            // backlog 255 did.)
             var engine = new TypingEngine(map(TimingGranularity.Line,
-                line("~ab~", 1000, 4000, 2000, unit("~ab~", 1000, 2000))));
+                line("`ab`", 1000, 4000, 2000, unit("`ab`", 1000, 2000))));
 
             engine.Update(1000);
-            // Leading '~' is auto-skipped at activation: caret starts on 'a' (idx 1).
+            // Leading '`' is auto-skipped at activation: caret starts on 'a' (idx 1).
             Assert.AreEqual(1, engine.CaretIndex);
             Assert.AreEqual(CellState.AutoSkipped, engine.Lines[0].Cells[0].State);
             Assert.AreEqual(1000, engine.Lines[0].Cells[0].TargetTime);
@@ -719,7 +720,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             engine.ProcessKey('a', 1000);
             engine.ProcessKey('b', 1500);
-            // Trailing '~' auto-skipped; line completes with just two keys.
+            // Trailing '`' auto-skipped; line completes with just two keys.
             Assert.IsTrue(engine.IsLineComplete);
             Assert.AreEqual(CellState.AutoSkipped, engine.Lines[0].Cells[3].State);
 

@@ -78,11 +78,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         public static bool IsFreestyle(char c) => c == FREESTYLE_MARKER;
 
         /// <summary>
-        /// The punctuation type!beat supports inside an authored lyric line, defined ONCE here, twenty
-        /// marks: comma, period, apostrophe, hyphen, question mark, exclamation mark, semicolon,
-        /// colon, round brackets, square brackets, straight double quote, and (added by backlog 202)
-        /// dollar, percent, caret, asterisk, angle brackets, forward slash. Nothing else may carry
-        /// its own list.
+        /// The punctuation type!beat supports inside an authored lyric line, defined ONCE here,
+        /// twenty-two marks: comma, period, apostrophe, hyphen, question mark, exclamation mark,
+        /// semicolon, colon, round brackets, square brackets, straight double quote, (added by
+        /// backlog 202) dollar, percent, caret, asterisk, angle brackets, forward slash, and (added
+        /// by backlog 255) underscore and tilde. Nothing else may carry its own list.
+        ///
+        /// <para>The round and square brackets are ORDINARY marks here (backlog 255): the strip
+        /// that used to delete bracketed backing-vocal spans before this ran now lives at the FILE
+        /// IMPORT boundary alone (see <see cref="StripBackingVocals"/>), so the editor and the map
+        /// format carry a literal '(' exactly as they carry a comma.</para>
         ///
         /// <para>A map stores the AUTHOR'S form: punctuated and case-sensitive. What the player
         /// actually types (and therefore sees) is derived from it: verbatim under the LITERATE mod,
@@ -95,7 +100,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// to it: the two normalizers decide what text a map stores, and a divergence stores
         /// different lyrics on the two sides of an import.</para>
         /// </summary>
-        public const string PUNCTUATION = ",.'-?!;:()[]\"$%^*<>/";
+        public const string PUNCTUATION = ",.'-?!;:()[]\"$%^*<>/_~";
 
         /// <summary>
         /// The one supported mark that reads as a WORD BREAK rather than as decoration: without
@@ -120,8 +125,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// Removes bracketed backing-vocal spans, "(...)" and "[...]", from lyric text; the
         /// player never types them. A whole-line backing vocal therefore normalizes to empty and
-        /// the line is dropped by both loaders (the previous line extends over its time span).
+        /// the line is dropped by the import (the previous line extends over its time span).
         /// An unclosed bracket strips to the end of the string. Call BEFORE <see cref="Normalize"/>.
+        ///
+        /// <para>IMPORT-ONLY since backlog 255. Owner decision: a bracket is a literal lyric mark
+        /// in the EDITOR and in the MAP FORMAT (it is one of the supported
+        /// <see cref="PUNCTUATION"/> marks and has been Literate-typeable all along), and only the
+        /// ingest of a foreign lyrics file still reads "(oh oh)" as a backing vocal to throw away.
+        /// The two surviving callers are exactly that boundary: <see cref="LrcParser"/> and
+        /// <see cref="TimingJsonLoader.TryParse"/> (the aligner's own timing.json), plus the .osu
+        /// writer's import-side sweep in <c>LyricMapImporter.StripBackingVocalLines</c>. The
+        /// editor's write paths and the stored-map decode call <see cref="Normalize"/> directly and
+        /// keep the brackets.</para>
         /// </summary>
         public static string StripBackingVocals(string raw)
         {

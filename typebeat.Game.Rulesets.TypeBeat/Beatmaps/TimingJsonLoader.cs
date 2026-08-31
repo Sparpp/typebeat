@@ -45,6 +45,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// In-memory equivalent of <see cref="TryLoad"/>: parses timing.json (v2) text directly.
         /// Used by the editor's align-in-place import, which holds the aligner output as a string.
+        ///
+        /// <para>THE IMPORT SIDE of the seam backlog 255 cut: a timing.json is an ALIGNER document,
+        /// a file being ingested, so its bracketed spans are backing vocals and are stripped exactly
+        /// as they always have been. The stored map is the other side (see
+        /// <see cref="TryParseRawLine"/>), and there a bracket is a literal lyric mark.</para>
         /// </summary>
         public static bool TryParse(string json, out IReadOnlyList<LyricLine> lines)
         {
@@ -87,7 +92,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 foreach (JsonElement lineElement in linesElement.EnumerateArray())
                 {
-                    if (TryParseRawLine(lineElement, out var rawLine))
+                    if (TryParseRawLine(lineElement, out var rawLine, stripBackingVocals: true))
                         raw.Add(rawLine);
                 }
 
@@ -105,16 +110,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
+        /// THE DROP RULE for a lyric line, defined once: a line whose normalized text gives the
+        /// player no cell at all is dropped, and the previous line extends over its span.
+        ///
+        /// <para>Tested on the DEFAULT stream, not on the normalized text, because a line that is
+        /// nothing but punctuation ("...") normalizes non-empty yet still gives the player no cell.
+        /// The two conditions coincide exactly for every other input, so this is the same rule the
+        /// loader has always applied. Measured on the STORED text, so a token of nothing but pipes
+        /// cannot smuggle an empty line through.</para>
+        ///
+        /// <para>Public because the import boundary has to apply the SAME rule when it strips
+        /// backing vocals out of a timing.json on the way into an .osu
+        /// (<c>LyricMapImporter.StripBackingVocalLines</c>): if the two rules could drift, an
+        /// import would store a line the decode then drops, or drop one the decode would have
+        /// kept.</para>
+        /// </summary>
+        public static bool YieldsNoCells(string normalizedText)
+            => Typeability.ToDefaultStream(SplitMarkers.Carries(normalizedText)
+                ? SplitMarkers.Strip(normalizedText).Text
+                : normalizedText).Length == 0;
+
+        /// <summary>
         /// Parses one timing.json "lines[]" element into a <see cref="RawLine"/>.
-        /// False for non-objects, missing text/start_ms, and lines whose text normalizes to
-        /// empty (whole-line bracketed backing vocals, dropped so the previous line extends
-        /// over their span, which also dissolves the overlapping-lines case at its source).
-        /// A partial strip changes the token count, so the words[] alignment in
-        /// <see cref="BuildLines"/> falls back to interpolation for that line, which is acceptable.
+        /// False for non-objects, missing text/start_ms, and lines whose text gives the player no
+        /// cell at all, dropped so the previous line extends over their span (which also dissolves
+        /// the overlapping-lines case at its source).
         /// Besides the aligner's own fields, two type!beat editor extensions are honoured here:
         /// <c>seal_grace_ms</c> and <c>freestyle</c> (both documented at their read sites below).
+        ///
+        /// <para><paramref name="stripBackingVocals"/> is THE SEAM backlog 255 cut, and it is the
+        /// difference between reading an IMPORT and reading a STORED MAP. It defaults to false, the
+        /// map-format contract: a '(' in a saved [Lyrics] line is a literal lyric mark and survives
+        /// the decode, so brackets round-trip through save and reload like any other punctuation.
+        /// <see cref="TryParse"/> (and through it <see cref="TryLoad"/>) passes true, because a
+        /// lyriclab timing.json is a file being ingested and its bracketed spans are backing vocals
+        /// the player never types: there a whole bracketed line still normalizes to nothing and is
+        /// dropped, and a partial strip still changes the token count so the words[] pairing in
+        /// <see cref="BuildLines"/> falls back to interpolation for that line, exactly as before.
+        /// The .osu writer strips on the same side of the seam
+        /// (<c>LyricMapImporter.StripBackingVocalLines</c>), so an imported map is bracket-free
+        /// before it is ever stored and the two readings agree line for line.</para>
         /// </summary>
-        public static bool TryParseRawLine(JsonElement lineElement, out RawLine rawLine)
+        public static bool TryParseRawLine(JsonElement lineElement, out RawLine rawLine, bool stripBackingVocals = false)
         {
             rawLine = default;
 
@@ -138,16 +175,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // The '|' authoring mark survives normalization too (backlog 202): the aligner passes
             // it through in a line's display text, and it names where that word's syllables cut.
             // BuildLines strips it once it has read the positions, so no stored lyric carries one.
-            string normalized = Typeability.Normalize(Typeability.StripBackingVocals(textElement.GetString() ?? string.Empty),
+            string raw = textElement.GetString() ?? string.Empty;
+
+            string normalized = Typeability.Normalize(stripBackingVocals ? Typeability.StripBackingVocals(raw) : raw,
                 keepFreestyleMarkers: freestyle, keepSplitMarkers: true);
 
             // A line with nothing to TYPE is dropped, and the previous line extends over its span.
-            // Tested on the DEFAULT stream, not on the normalized text, because a line that is
-            // nothing but punctuation ("...") now normalizes non-empty yet still gives the player
-            // no cell at all. The two conditions coincide exactly for every other input, so this is
-            // the same rule the loader has always applied. Measured on the STORED text, so a token
-            // of nothing but pipes cannot smuggle an empty line through.
-            if (Typeability.ToDefaultStream(SplitMarkers.Carries(normalized) ? SplitMarkers.Strip(normalized).Text : normalized).Length == 0)
+            if (YieldsNoCells(normalized))
                 return false;
 
             if (!lineElement.TryGetProperty("start_ms", out JsonElement startElement)
