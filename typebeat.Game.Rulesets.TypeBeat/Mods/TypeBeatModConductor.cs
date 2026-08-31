@@ -61,10 +61,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     ///
     /// <para><b>Replays.</b> A frame is (track time, character) and nothing rate-derived is stored,
     /// so re-scoring a Conductor replay is bit-identical to re-scoring the same keystrokes unmodded
-    /// (<c>TypeBeatModConductorTest</c> pins this). The rate CURVE is not stored either: it is
-    /// re-derived by running this same controller over the same frames, which is why the integration
-    /// is fixed-step in TRACK time and reads no wall clock at all. Any residual divergence is
-    /// audio-only.</para>
+    /// (<c>TypeBeatModConductorTest</c> pins this). The rate CURVE is not stored and is not
+    /// reproduced either: since backlog 254 the controller is integrated on REAL time, so a watched
+    /// replay re-derives the curve from the watcher's own frame timing rather than the player's, and
+    /// the two agree only approximately. That is the right trade, because the curve is heard and
+    /// never scored: the law measures how fast a human is typing and how far the song has walked
+    /// from their caret, and both of those are real-world quantities that stop meaning anything when
+    /// they are integrated on a clock the law itself controls the speed of.</para>
     /// </summary>
     public class TypeBeatModConductor : Mod, IUpdatableByPlayfield, IApplicableToTrack, IApplicableToDrawableRuleset<TypeBeatHitObject>
     {
@@ -105,17 +108,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         // single score.
         // ---------------------------------------------------------------------------------------
 
-        /// <summary>Rate added per millisecond of phase error outside the deadband.</summary>
+        /// <summary>
+        /// Rate added per millisecond of phase error outside the deadband. The error is MAP
+        /// milliseconds (how far the song is from the caret's own target time), which is the one
+        /// quantity in the law that is properly measured in song time and stays that way; only the
+        /// CADENCE the law is integrated at moved to real time in backlog 254.
+        ///
+        /// <para>It is also what sets how hard a gap is closed: an on-pace player who is <c>E</c> ms
+        /// behind is asking the song for <c>1 - 0.002 * (E - 40)</c>, so half a second of lag is a
+        /// target of 0.08x. That is meant to look drastic. The song has to fall behind the player to
+        /// give the ground back, and it only stays there until the gap is inside the deadband.</para>
+        /// </summary>
         public const double PROPORTIONAL_GAIN_PER_MS = 0.002;
 
-        /// <summary>Phase error inside which the song holds its pace instead of chasing jitter.</summary>
+        /// <summary>Phase error inside which the song holds its pace instead of chasing jitter. Also
+        /// the bound on the loop's steady-state lag, since it is the only place the position term
+        /// stops pulling.</summary>
         public const double DEADBAND_MS = 40;
 
-        /// <summary>Maximum change in rate per second of track time. Small enough that
-        /// <c>MasterGameplayClockContainer.checkPlaybackValidity</c>'s 300 ms tolerance never trips.</summary>
+        /// <summary>Maximum change in rate per second of REAL time (backlog 254). Small enough that
+        /// <c>MasterGameplayClockContainer.checkPlaybackValidity</c>'s 300 ms tolerance never trips,
+        /// and, being real, it is also a bound on how fast the change is HEARD: on track seconds the
+        /// same number meant 0.8 * rate per real second, which decayed toward the band floor without
+        /// ever landing on it.</summary>
         public const double SLEW_PER_SECOND = 0.8;
 
-        /// <summary>Time constant of the typing-speed EMA. 90% of its weight is the last 1.6 seconds.</summary>
+        /// <summary>Time constant of the typing-speed EMA, in REAL seconds (backlog 254). 90% of its
+        /// weight is the last 1.6 seconds of the player's actual life, at any playback rate.</summary>
         public const double SUPPLY_TAU_SECONDS = 0.7;
 
         public const double DEFAULT_MIN_RATE = 0.5;
@@ -124,9 +143,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// <summary>
         /// A TRUE zero (backlog 252): "wait for me" all the way to a standstill. The song does not
         /// actually stop, and neither does the controller: <see cref="TrackAdjustmentsFor"/> keeps a
-        /// crawl on the track, and <see cref="ConductorPacing"/> paces the driver on REAL time below
+        /// crawl on the track, and <see cref="ConductorPacing"/> paces the driver on REAL time, which
+        /// since backlog 254 it does at every rate rather than only under
         /// <see cref="TEMPO_FLOOR_RATE"/>, so the keypress that lifts the rate again still lands on a
         /// step. Without both of those a floor of 0 is a one-way door.
+        ///
+        /// <para>A floor of exactly 0 is also the whole of the "pause when I stop typing" behaviour:
+        /// a player who walks away mid-line is read as silent, the position term drags the target to
+        /// the bottom of their band, and the song stops there. There is no pause machinery, and a
+        /// player whose floor is above 0 gets the floor instead, which is the same rule.</para>
         /// </summary>
         public const double ABSOLUTE_MIN_RATE = 0;
 
@@ -152,8 +177,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// The lowest tempo the audio stack will take: <c>TrackBass</c>'s constructor installs a
         /// handler that THROWS <c>ArgumentException</c> if the aggregate tempo drops below it. Rates
         /// under this are published as this tempo times a frequency fraction instead, see
-        /// <see cref="TrackAdjustmentsFor"/>. It is also the line the driver's pacing switches to real
-        /// time at, since a song this slow has stopped in all but name.
+        /// <see cref="TrackAdjustmentsFor"/>. It used to be the line the driver's pacing switched to
+        /// real time at as well; since backlog 254 the pacing is real time everywhere and this is
+        /// purely an audio-stack bound.
         /// </summary>
         public const double TEMPO_FLOOR_RATE = 0.05;
 
@@ -167,7 +193,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// </summary>
         public const double MIN_FREQUENCY_SCALE = 1 / 512d;
 
-        /// <summary>Cap on catch-up steps after a long frame, so a hitch cannot spin the controller.</summary>
+        /// <summary>
+        /// Cap on catch-up steps after a long frame, so a hitch cannot spin the controller. Since
+        /// the accumulator advances on REAL time (backlog 254) the only frame that can reach it is a
+        /// real one just under <see cref="ConductorPacing.MAX_REAL_FRAME_MS"/>, i.e. a hitch between
+        /// 160 and 250 ms; anything longer is thrown out by the stall test instead. It used to be
+        /// load-bearing at speed as well, where a 16 ms frame at 51x was 816 ms of track time.
+        /// </summary>
         private const int max_steps_per_frame = 8;
 
         [SettingSource("Minimum rate", "The slowest the song will drop to while it waits for you", SettingControlType = typeof(MultiplierSettingsSlider))]
@@ -238,10 +270,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         private IAdjustableAudioComponent? track;
 
         /// <summary>
-        /// Wall clock, read ONLY by the pacing decision (see <see cref="ConductorPacing"/>). Nothing
-        /// that reaches the control law is derived from it, so the rate curve a replay re-derives is
-        /// unchanged everywhere the song is actually moving; it exists because a rate parked under
-        /// <see cref="TEMPO_FLOOR_RATE"/> freezes the only other clock there is.
+        /// Wall clock. It is the controller's TIME BASE (backlog 254): the pacing decision turns it
+        /// into the fixed-step accumulator's advance, and it is still the only place the mod reads
+        /// wall time. Nothing derived from it reaches a target time, a judgement or a replay frame,
+        /// so what it can move is the rate curve and nothing else.
         /// </summary>
         private readonly Stopwatch realClock = new Stopwatch();
 
@@ -377,7 +409,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
             lastTrackTime = time;
 
-            var pacing = ConductorPacing.Decide(time - previous, realElapsed, state.Rate);
+            var pacing = ConductorPacing.Decide(time - previous, realElapsed);
 
             if (pacing.ClearFilter)
             {

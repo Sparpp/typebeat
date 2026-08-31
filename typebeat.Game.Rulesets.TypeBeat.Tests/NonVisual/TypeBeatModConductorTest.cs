@@ -665,56 +665,188 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(TypeBeatModConductor.DEFAULT_MIN_RATE, state.Rate, 1e-9, "the song must still drop to wait");
         }
 
+        /// <summary>
+        /// WALKING AWAY (backlog 254, complaint 1). A player who stops typing entirely, mid-line,
+        /// with the band floor at a true 0, must have the song come to a full stop, and soon enough
+        /// that it reads as the song waiting for them rather than as the song ignoring them.
+        ///
+        /// <para>There is no pause machinery: the supply EMA empties over its own time constant, the
+        /// song walks away from the parked caret so the position term grows without bound, the target
+        /// pins to the bottom of the band and the slew carries the rate down to an EXACT zero. The
+        /// only thing that makes any of that land in bounded time is the clock it is integrated on
+        /// being REAL: on track seconds the slew bound was 0.8 * rate per real second, which is an
+        /// exponential decay that approaches 0 and never arrives, and the EMA emptied more slowly the
+        /// more the song had already slowed.</para>
+        /// </summary>
+        [Test]
+        public void SilenceAtAZeroFloorBringsTheSongToAFullStopInBoundedRealTime()
+        {
+            var band = tuning(TypeBeatModConductor.ABSOLUTE_MIN_RATE, TypeBeatModConductor.DEFAULT_MAX_RATE);
+
+            // A converged typist running 40% hot, who then takes their hands off the keyboard.
+            var state = run(ConductorState.Initial, typing(5.6, 4), band, 2000);
+
+            Assert.AreEqual(1.4, state.Rate, 1e-9);
+
+            // Three real seconds at the fixed step. The steps ARE real seconds now, which is the
+            // whole point: under the old law this many steps was three TRACK seconds, an interval
+            // that stretches without limit as the rate it is measuring falls.
+            const int budget = 150;
+
+            double error = 0;
+            int parkedAt = -1;
+
+            for (int i = 0; i < budget; i++)
+            {
+                // The caret has not moved, so the song walks away from it by exactly as much of
+                // itself as this step actually played.
+                error -= state.Rate * ConductorController.STEP_MS;
+
+                state = ConductorController.Step(state, new ConductorInputs(0, 4, error, true, false), band, ConductorController.STEP_SECONDS);
+
+                if (parkedAt < 0 && state.Rate.Equals(0d))
+                    parkedAt = i + 1;
+            }
+
+            Assert.Greater(parkedAt, 0,
+                $"three real seconds after the last keypress the song was still playing at {state.Rate:R}");
+
+            // It glides there rather than cutting out: 1.4 of rate at the slew limit cannot be spent
+            // in less than 1.75 real seconds however hard the law wants to.
+            Assert.GreaterOrEqual(parkedAt, (int)Math.Ceiling(1.4 / TypeBeatModConductor.SLEW_PER_SECOND / ConductorController.STEP_SECONDS),
+                "the song stopped faster than the slew limit allows, which would be audible as a cut");
+
+            // ...and it STAYS stopped. Track time is frozen now, so the phase error stops growing
+            // and the line is never sealed: the song waits for as long as the player is away.
+            for (int i = 0; i < 500; i++)
+            {
+                error -= state.Rate * ConductorController.STEP_MS;
+                state = ConductorController.Step(state, new ConductorInputs(0, 4, error, true, false), band, ConductorController.STEP_SECONDS);
+
+                Assert.IsTrue(state.Rate.Equals(0d), $"the parked song crept back to {state.Rate:R} at step {i}");
+            }
+
+            // A floor above zero is the same rule with a different answer: it sits at the floor.
+            var floored = run(run(ConductorState.Initial, typing(5.6, 4), tuning(0.25, 1.5), 2000),
+                new ConductorInputs(0, 4, -5000, true, false), tuning(0.25, 1.5), 400);
+
+            Assert.AreEqual(0.25, floored.Rate, 1e-9, "the pause IS the band floor, so a floor above 0 is where it stops");
+        }
+
+        /// <summary>
+        /// CLOSING A GAP (backlog 254, complaint 2). A player typing at a perfectly steady pace, but
+        /// half a second BEHIND the playhead, must have the song fall back onto their caret rather
+        /// than hold the gap open forever.
+        ///
+        /// <para>This is the pin the old time base failed. The feed-forward is <c>supply / demand</c>
+        /// and supply was measured per unit of the integration clock, so a player typing s cells a
+        /// real second while the song ran at rate r read as s/r and the term came out (s/d)/r: it
+        /// grew exactly as fast as the proportional term pulled the rate down, and the loop settled
+        /// at the r solving r^2 + 0.002 * (E - 40) * r - 1 = 0 with the gap E still open (about 0.43x
+        /// at E = 1000 ms), easing off as E shrank so the gap only ever closed asymptotically. On
+        /// real time supply is real cells a real second, the ratio is rate-invariant, and the
+        /// position term is the only thing left steering: it can only be satisfied by the gap
+        /// actually closing.</para>
+        /// </summary>
+        [Test]
+        public void AnOnPaceTypistBehindTheSongPullsItBackOntoTheirCaret()
+        {
+            var band = tuning(TypeBeatModConductor.ABSOLUTE_MIN_RATE, TypeBeatModConductor.DEFAULT_MAX_RATE);
+
+            // Exactly on pace (4 cells a second on a line asking for 4) and 500 ms behind.
+            var behind = run(ConductorState.Initial, typing(4, 4, -500), band, 2000);
+
+            Assert.AreEqual(4, behind.SupplyCellsPerSecond, 1e-9);
+            Assert.AreEqual(1, behind.Authority, 1e-6);
+
+            // supply/demand is exactly 1, so the whole target is the position term:
+            // 1 - 0.002 * (500 - 40) = 0.08. The song has to run BELOW the player's own pace to
+            // give the ground back, and under the old law it could not, because the feed-forward
+            // grew by 1/r as fast as this term pushed r down.
+            Assert.AreEqual(0.08, behind.Rate, 1e-9, "an on-pace player 500 ms behind is not being caught up with");
+            Assert.Less(behind.Rate, 0.5, "the gap is being closed, not maintained");
+
+            // Once the gap is inside the deadband the position term stops pulling and the song rides
+            // at the player's own sustainable pace, which is what supply/demand says it is. That is
+            // the steady state, and the deadband is the bound on the lag it settles with.
+            var settled = run(ConductorState.Initial, typing(4, 4, -30), band, 2000);
+
+            Assert.AreEqual(1.0, settled.Rate, 1e-9, "inside the deadband the target is exactly supply/demand");
+
+            // ...and the same player who is FASTER than the map still gets their own pace back once
+            // the gap is closed, so closing it is not a permanent tax.
+            Assert.AreEqual(1.4, run(ConductorState.Initial, typing(5.6, 4, -30), band, 2000).Rate, 1e-9);
+
+            // The one line of the driver's time base this whole story rests on: a half-rate frame
+            // advances the controller by the frame's own REAL milliseconds, not by the 8 ms of song
+            // it played. Without that, supply above reads 4/r instead of 4 and the feed-forward stops
+            // being 1. PacingAdvancesOnRealTimeAtEveryRate is the honest pin for it.
+            Assert.AreEqual(16, ConductorPacing.Decide(8, 16).AdvanceMs, 1e-12);
+        }
+
         // -----------------------------------------------------------------------------------------
-        // Frame pacing (backlog 252). The driver's own decision, extracted so it is pinned without a
-        // playfield: how far to advance the fixed-step accumulator, and when the filter is stale.
+        // Frame pacing (backlog 252, re-based on real time by backlog 254). The driver's own
+        // decision, extracted so it is pinned without a playfield: how far to advance the fixed-step
+        // accumulator, and when the filter is stale.
         // -----------------------------------------------------------------------------------------
 
         /// <summary>
-        /// The region the mod has always shipped in is unchanged: the accumulator advances on TRACK
-        /// time, which is the axis a replay agrees on. Under the tempo floor it cannot, because there
-        /// track time has stopped and a driver stepping on it stops with it, taking the keypress that
-        /// should have lifted the rate with it.
+        /// THE TIME BASE (backlog 254). The accumulator advances by the frame's REAL milliseconds at
+        /// every rate in the band, and never by its track milliseconds. Both halves of the law are
+        /// measurements of the real world (cells a second out of a human, and how far the song has
+        /// walked away from their caret), so integrating them on a clock whose speed the law itself
+        /// sets put a factor of the rate through each: the feed-forward read supply as s/r and
+        /// self-inflated as the song slowed, and the slew bound became 0.8 * r per real second, an
+        /// exponential decay that could not land on the band floor of 0.
         /// </summary>
         [Test]
-        public void PacingStepsOnTrackTimeNormallyAndOnRealTimeWhileParked()
+        public void PacingAdvancesOnRealTimeAtEveryRate()
         {
-            var normal = ConductorPacing.Decide(16, 16, 1.0);
+            // One real 16 ms frame, seen at four rates spanning the whole band: parked, half speed,
+            // normal, and BASS_FX's 51x ceiling. The TRACK elapsed varies over five orders of
+            // magnitude across these and the advance does not move at all.
+            foreach ((double rate, double trackElapsed) in new[] { (0d, 0d), (0.5d, 8d), (1d, 16d), (51d, 816d) })
+            {
+                var pacing = ConductorPacing.Decide(trackElapsed, 16);
 
-            Assert.IsFalse(normal.ClearFilter);
-            Assert.AreEqual(16, normal.AdvanceMs, 1e-12, "an ordinary frame advances by its own track time");
+                Assert.IsFalse(pacing.ClearFilter, $"an ordinary 16 ms frame at {rate}x is not a stall");
+                Assert.AreEqual(16, pacing.AdvanceMs, 1e-12,
+                    $"the frame at {rate}x advanced by something other than the 16 real ms it took");
+            }
 
-            // Half speed: the frame is worth half as much of the song, and always was.
-            Assert.AreEqual(8, ConductorPacing.Decide(8, 16, 0.5).AdvanceMs, 1e-12);
+            // Said the other way round, because it is the thing that regressed: a frame is never
+            // worth its track time. At half speed that would be 8, at 51x it would be 816.
+            Assert.AreNotEqual(8, ConductorPacing.Decide(8, 16).AdvanceMs);
+            Assert.AreNotEqual(816, ConductorPacing.Decide(816, 16).AdvanceMs);
 
-            // The floor itself is still the normal region; the switch is strictly below it.
-            Assert.AreEqual(0.8, ConductorPacing.Decide(0.8, 16, TypeBeatModConductor.TEMPO_FLOOR_RATE).AdvanceMs, 1e-12);
+            // The floor the old law switched at is not a boundary any more, and neither is 0.
+            Assert.AreEqual(16, ConductorPacing.Decide(0.8, 16).AdvanceMs, 1e-12);
+            Assert.AreEqual(16, ConductorPacing.Decide(0.0016, 16).AdvanceMs, 1e-12);
 
-            var parked = ConductorPacing.Decide(0, 16, 0);
-
-            Assert.IsFalse(parked.ClearFilter, "a parked frame must keep the keypresses waiting on it");
-            Assert.AreEqual(16, parked.AdvanceMs, 1e-12, "a parked controller has to run on the only clock still moving");
-
-            Assert.AreEqual(16, ConductorPacing.Decide(0.0016, 16, 0.0001).AdvanceMs, 1e-12);
+            // A wall clock read that goes backwards (a Stopwatch is monotonic, but the field it is
+            // differenced against is reset) is worth no time rather than negative time.
+            Assert.AreEqual(0, ConductorPacing.Decide(16, -1).AdvanceMs, 1e-12);
         }
 
         /// <summary>
         /// The two things that DO invalidate the filter, and the one that used to be confused for
         /// them. A stall is 250 ms of REAL time: measured in track time the same guard fired on every
         /// single frame above roughly 15x, which killed the controller over exactly the part of the
-        /// band backlog 252 opened up.
+        /// band backlog 252 opened up. A forward jump in track time is NOT a clear: skipping an
+        /// instrumental gap does not mean the player changed.
         /// </summary>
         [Test]
         public void PacingClearsOnARewindOrARealStallButNotOnAFastSong()
         {
-            Assert.IsTrue(ConductorPacing.Decide(-1, 16, 1).ClearFilter, "a backwards step in track time is a seek");
-            Assert.IsTrue(ConductorPacing.Decide(16, 400, 1).ClearFilter, "400 ms of wall time is a hitch, not a frame");
+            Assert.IsTrue(ConductorPacing.Decide(-1, 16).ClearFilter, "a backwards step in track time is a seek");
+            Assert.IsTrue(ConductorPacing.Decide(16, 400).ClearFilter, "400 ms of wall time is a hitch, not a frame");
             Assert.AreEqual(250, ConductorPacing.MAX_REAL_FRAME_MS, 1e-12);
 
-            var fast = ConductorPacing.Decide(816, 16, 51);
+            var fast = ConductorPacing.Decide(816, 16);
 
             Assert.IsFalse(fast.ClearFilter, "816 ms of track time in a 16 ms frame is just 51x, not a stall");
-            Assert.AreEqual(816, fast.AdvanceMs, 1e-12);
+
+            Assert.IsFalse(ConductorPacing.Decide(30000, 16).ClearFilter, "a forward gap-skip is not a stall either");
         }
 
         /// <summary>
@@ -751,7 +883,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 // Track time is frozen at rate 0, so this is what every frame looks like: a real
                 // 16 ms, and nothing at all of the song.
-                var pacing = ConductorPacing.Decide(state.Rate * 16, 16, state.Rate);
+                var pacing = ConductorPacing.Decide(state.Rate * 16, 16);
 
                 Assert.IsFalse(pacing.ClearFilter, $"the parked frame {frames} threw the waiting keypress away");
 
