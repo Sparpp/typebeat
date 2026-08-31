@@ -18,9 +18,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// <summary>
     /// The ruleset's half of Settings > Experimental: the settings that work but are not settled.
     /// Two of them change how the spacebar reads (skipping the rest of a word, and the dot marking a
-    /// word you left spoiled), one marks the mapper's syllable subdivisions on the lyric line, and
-    /// the last is the local auto-aligner, an opt-in multi-gigabyte install that times imported
-    /// lyrics on this machine instead of on the server. They live here rather than in
+    /// word you left spoiled), one marks the mapper's syllable subdivisions on the lyric line, one
+    /// puts the sync metric back on screen for anyone who wants it (backlog 251 took it off by
+    /// default and cut it out of the grade), and the last is the local auto-aligner, an opt-in
+    /// multi-gigabyte install that times imported lyrics on this machine instead of on the server.
+    /// They live here rather than in
     /// <see cref="TypeBeatSettingsSubsection"/> so the type!beat section stays the settled set;
     /// nothing about the bindables behind them changes with the move, and none of the enum members
     /// may be renamed (Realm keys them by member name).
@@ -78,6 +80,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     LabelText = "Show syllable markers",
                     TooltipText = "Mark the syllable boundaries inside a word the mapper timed syllable by syllable: a tiny triangle sits in the gap between the last character of one syllable and the first of the next, so you can see the subdivision coming. Display only, nothing about your score or your judgements changes.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyllableMarkers),
+                },
+                new SettingsCheckbox
+                {
+                    LabelText = "Show sync metric",
+                    TooltipText = "Show how in time your keypresses are: a \"sync\" readout beside wpm during play, and a brightness ramp on each character you type (bright when you hit the beat, dull when you drift). Display only, and off by default: nothing about your grade, score, judgements or submitted play reads it.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyncMetric),
                 },
                 new SettingsCheckbox
                 {

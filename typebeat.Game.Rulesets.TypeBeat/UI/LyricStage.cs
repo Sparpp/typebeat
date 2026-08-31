@@ -44,6 +44,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // which is every bare test scene, must start on what the game actually ships.
         private readonly Bindable<bool> syllableMarkers = new Bindable<bool>(true);
 
+        // The sync tint (TypeBeatRulesetSetting.ShowSyncMetric, off by default since backlog 251),
+        // the same shape of display-only setting again. Initialised FALSE for the reason the two
+        // above carry their own initialisers: a stage built with no config, which is every bare test
+        // scene, must start on what the game actually ships.
+        private readonly Bindable<bool> syncTint = new Bindable<bool>();
+
         // The "get ready" cue: two depleting bars under the upcoming line's first char. A solid
         // bar lands on the line BOUNDARY (StartTime) and a 50%-opaque bar lands on the FIRST
         // WORD; a mapper may set the boundary earlier than the first word, so the two can be
@@ -240,6 +246,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 foreach (var d in displays)
                     d.SetSyllableMarkersEnabled(e.NewValue);
+            }, true);
+
+            // The sync tint (backlog 251) is a DISPLAY setting on those same terms, and the terms
+            // are the whole point of it: the tint reads the judged delta a keypress already earned,
+            // so hiding it removes a readout and nothing else. It never reaches the replay CONFIG
+            // frame either, which is what lets a replay re-derive identically whichever way the
+            // player who recorded it had the metric set.
+            config?.BindWith(TypeBeatRulesetSetting.ShowSyncMetric, syncTint);
+            syncTint.BindValueChanged(e =>
+            {
+                foreach (var d in displays)
+                    d.SetSyncTintEnabled(e.NewValue);
             }, true);
 
             // Line spacing is user-adjustable and applies live: a change invalidates the laid-out

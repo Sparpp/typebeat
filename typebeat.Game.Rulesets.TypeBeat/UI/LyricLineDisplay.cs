@@ -64,9 +64,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// feedback (Great pop / Wrong shake), and the sung-position underline sweep. State is
     /// read pull-based via <see cref="RefreshCell"/>; no engine reference is held.
     ///
-    /// <para>A correctly typed char is tinted by how in sync its keypress was, on a ramp between the
-    /// untyped grey and the full typed off-white (see <see cref="CorrectCharColour"/>), so the trail
-    /// behind the caret reads as brightness.</para>
+    /// <para>A correctly typed char CAN be tinted by how in sync its keypress was, on a ramp between
+    /// the untyped grey and the full typed off-white (see <see cref="CorrectCharColour"/>), so the
+    /// trail behind the caret reads as brightness. Opt-in since backlog 251
+    /// (<see cref="Configuration.TypeBeatRulesetSetting.ShowSyncMetric"/>, off by default, applied
+    /// through <see cref="SetSyncTintEnabled"/>); off, every Correct char takes the flat typed
+    /// off-white.</para>
     ///
     /// <para>FREESTYLE cells (see <see cref="FreestyleGlyphs"/>) render in
     /// <see cref="TypeBeatStyle.FreestyleChar"/> and, while still open, shimmer through
@@ -149,6 +152,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // Default ON, matching the shipped setting, so a display built with no stage or config
         // (every bare test scene) shows what a player sees rather than an accidental blank.
         private bool syllableMarkersEnabled = true;
+
+        // The SYNC TINT (TypeBeatRulesetSetting.ShowSyncMetric), default OFF for the same reason the
+        // flag above defaults on: it matches the shipped setting, so a display built with no stage
+        // or config shows what a player sees. Off, a Correct cell takes the flat typed off-white.
+        private bool syncTintEnabled;
 
         // --- Freestyle cells (see FreestyleGlyphs) ---
         // Display indices of this line's freestyle cells (empty for the overwhelming majority of
@@ -849,11 +857,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         ///
         /// <para>Purely cosmetic, and deliberately driven by the SAME quality
         /// <c>TypingEngine.BuildResults</c> sums into the results screen's sync percent, so the trail
-        /// is a live preview of the number the play is graded on rather than a second opinion about
-        /// it (and it inherits the asymmetric early/late tolerance and the per-cell granularity
-        /// widening for free). A dead-on press returns <see cref="TypeBeatStyle.TypedChar"/> exactly,
-        /// so nothing about a perfectly timed line looks different from before this ramp existed.
-        /// Out-of-range and NaN qualities clamp. Pure, so it is unit-testable.</para>
+        /// is a live preview of that number rather than a second opinion about it (and it inherits
+        /// the asymmetric early/late tolerance and the per-cell granularity widening for free).
+        /// Since backlog 251 that number is itself display-only, so the ramp previews a readout and
+        /// not a grade: both halves of the metric are drawn only when
+        /// <see cref="Configuration.TypeBeatRulesetSetting.ShowSyncMetric"/> is on, and neither
+        /// decides anything when it is. A dead-on press returns
+        /// <see cref="TypeBeatStyle.TypedChar"/> exactly, which is also what the whole line wears
+        /// with the metric off, so nothing about a perfectly timed line looks different from before
+        /// this ramp existed. Out-of-range and NaN qualities clamp. Pure, so it is
+        /// unit-testable.</para>
         /// </summary>
         public static Color4 CorrectCharColour(double syncQuality)
         {
@@ -1118,6 +1131,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
+        /// Turn the SYNC TINT on or off for this line (the user setting, live-bound by
+        /// <see cref="LyricStage"/>). Off is the shipped default (backlog 251), which paints every
+        /// Correct cell the flat <see cref="TypeBeatStyle.TypedChar"/> instead of a point on the
+        /// ramp; on restores the ramp. Nothing but a colour moves either way: the judged deltas the
+        /// ramp reads are recorded whatever this says, so a toggle mid-play cannot change what a
+        /// press was worth.
+        ///
+        /// <para>Repaints every cell rather than only the Correct ones, because
+        /// <see cref="RefreshCell"/> is the one place a fill is decided and re-deriving a cell that
+        /// was not going to move is cheaper than working out which ones were. Safe before the
+        /// display has loaded (the stage pushes the bound value the moment it binds): the cell array
+        /// is empty until then and <c>LoadComplete</c> refreshes every cell.</para>
+        /// </summary>
+        public void SetSyncTintEnabled(bool enabled)
+        {
+            if (syncTintEnabled == enabled)
+                return;
+
+            syncTintEnabled = enabled;
+
+            for (int i = 0; i < cells.Length; i++)
+                RefreshCell(i);
+        }
+
+        /// <summary>
         /// Paints the markers' alpha: the setting, then the HIDING mods folded in through the
         /// DARKER of the two cells the mark sits between.
         ///
@@ -1183,7 +1221,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // SCORED. A scoring-inert retype (backspace over a cell that was ever correct)
             // has the first correct delta written back into it, so a player cannot
             // backspace-retype to brighten a char beyond what it earned.
-            double? syncQuality = source.JudgedDelta is double delta
+            //
+            // OPT-IN since backlog 251: with the sync metric off (the shipped default) no quality is
+            // resolved at all and the cell falls to the flat TypedChar CellFillColour already uses
+            // for a Correct cell with no delta, which is exactly the pre-tint painting. The delta is
+            // untouched either way; only whether it is read is.
+            double? syncQuality = syncTintEnabled && source.JudgedDelta is double delta
                 ? SyncWindows.For(source.JudgeGranularity).SyncQuality(delta)
                 : null;
 

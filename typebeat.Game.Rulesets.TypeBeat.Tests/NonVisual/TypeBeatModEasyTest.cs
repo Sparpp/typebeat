@@ -224,8 +224,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// Both are means of <c>SyncQuality</c>, which measures a delta against the WIDEST window,
         /// so the scale has to reach them: a press 2000 ms late is exactly worthless on the unscaled
         /// ladder (q = 1 - 2000/2000) and worth half on the doubled one (q = 1 - 2000/4000). Getting
-        /// this wrong would grade a press Great while telling the player its timing scored zero, and
-        /// SyncPercent gates the letter grade.
+        /// this wrong would grade a press Great while telling the player its timing scored zero.
+        /// Backlog 251 made both readouts display-only (the letter grade is accuracy alone now), so
+        /// what is at stake is the readout's honesty rather than a grade, which is reason enough:
+        /// they are shown to a player who deliberately asked to see them.
         /// </summary>
         [Test]
         public void TheScaleReachesBothSyncReadouts()

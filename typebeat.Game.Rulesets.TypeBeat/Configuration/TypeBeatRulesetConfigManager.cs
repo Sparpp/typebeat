@@ -114,7 +114,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// from <see cref="Gameplay.TypingLine.SyllableMarkerCells"/>, derived with the judgement
         /// groups themselves, so the mark cannot disagree with what is being judged.</para>
         /// </summary>
-        ShowSyllableMarkers
+        ShowSyllableMarkers,
+
+        /// <summary>
+        /// Whether the SYNC METRIC is shown at all: the gameplay HUD's "sync" readout
+        /// (<see cref="UI.TypeBeatHudOverlay"/>) and the sync TINT that paints a correctly typed
+        /// character on a brightness ramp by how in time the press was
+        /// (<see cref="UI.LyricLineDisplay.CorrectCharColour"/>). OFF by default (backlog 251).
+        ///
+        /// <para>The metric was removed from the game because it AFFECTED things, and the fix was to
+        /// stop it affecting them rather than to delete it: since backlog 251 no grade, score,
+        /// judgement or submission reads sync anywhere (<see cref="Gameplay.ResultsSummary.Grade"/>
+        /// is accuracy alone), so this key decides nothing but whether the figure is drawn. The
+        /// numbers behind it (<see cref="Gameplay.TypingEngine.LiveSyncPercent"/>,
+        /// <see cref="Gameplay.ResultsSummary.SyncPercent"/>) are computed either way, which is what
+        /// lets the toggle be a pure display switch with no mid-play consequence.</para>
+        ///
+        /// <para>Purely visual on exactly the terms <see cref="UseSpaceErrorDot"/> and
+        /// <see cref="ShowSyllableMarkers"/> are: it binds straight to the HUD and the lyric
+        /// displays and never reaches the replay CONFIG frame, so a replay re-derives identically
+        /// whichever way the player left it.</para>
+        /// </summary>
+        ShowSyncMetric
     }
 
     /// <summary>
@@ -236,6 +257,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
             SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, false);
             SetDefault(TypeBeatRulesetSetting.ShowSyllableMarkers, true);
+            SetDefault(TypeBeatRulesetSetting.ShowSyncMetric, false);
         }
     }
 }

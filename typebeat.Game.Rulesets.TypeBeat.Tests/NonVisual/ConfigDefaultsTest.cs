@@ -149,5 +149,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(rulesetConfig.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyllableMarkers).Default, Is.True);
             }
         }
+
+        /// <summary>
+        /// The sync metric ships OFF (backlog 251), which is the whole shape of that change: the
+        /// owner asked for it out of the gameplay UI, and it comes back only for a player who ticks
+        /// the box. The key is brand new, so unlike the two above this default is NOT harmless to
+        /// flip: nobody holds a stored row for it yet, so every install reads this value on its next
+        /// boot and is then pinned to whatever it said (the reasoning on
+        /// <see cref="TheTwoCaretHeadsHaveSeparateDefaults"/>'s playhead half, verbatim).
+        /// </summary>
+        [Test]
+        public void SyncMetricDefaultsToOff()
+        {
+            using (var rulesetConfig = new TypeBeatRulesetConfigManager(null, new TypeBeatRuleset().RulesetInfo))
+            {
+                Assert.That(rulesetConfig.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyncMetric).Default, Is.False);
+            }
+        }
     }
 }

@@ -6,17 +6,21 @@
 // ScoreProcessor); the SyncBar and hit-error meters were removed by design; the only
 // engine-authoritative extras left are the WPM / sync% readouts, plus the live pp counter
 // (which is score-processor authoritative, not engine authoritative, see below).
+// The sync% readout is OPT-IN since backlog 251 (TypeBeatRulesetSetting.ShowSyncMetric, off by
+// default), and by then it is a number and nothing else: no grade, score or judgement reads it.
 
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using osu.Framework.Allocation;
+using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Scoring;
+using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 
@@ -52,6 +56,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// an alpha of 0 takes the column out of the row entirely rather than leaving a hole.
         /// </summary>
         private Drawable rateStat = null!;
+
+        /// <summary>
+        /// The "sync" stat, hidden the same way and for the same layout reason as
+        /// <see cref="rateStat"/>: alpha 0 takes the column out of the row, so with the metric off
+        /// the HUD reads "wpm pp" with no gap where sync used to sit.
+        /// </summary>
+        private Drawable syncStat = null!;
+
+        /// <summary>
+        /// <see cref="Configuration.TypeBeatRulesetSetting.ShowSyncMetric"/>, live-bound so the
+        /// checkbox applies without re-entering gameplay. Initialised FALSE, which is the shipped
+        /// default, so a HUD built with no config (every bare test scene) starts where the game
+        /// ships rather than on <c>default(bool)</c> by luck.
+        /// </summary>
+        private readonly Bindable<bool> showSync = new Bindable<bool>();
 
         /// <summary>Last whole percent rendered, so a steady rate costs no string allocation.</summary>
         private int lastRatePercent = -1;
@@ -116,7 +135,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         [BackgroundDependencyLoader(true)]
-        private void load(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? gameplayMods)
+        private void load(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? gameplayMods, TypeBeatRulesetConfigManager? config)
         {
             InternalChild = new FillFlowContainer
             {
@@ -129,13 +148,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 Children = new[]
                 {
                     stat("wpm", out wpmValue),
-                    stat("sync", out syncValue),
+                    syncStat = stat("sync", out syncValue),
                     stat("pp", out ppValue),
                     rateStat = stat("rate", out rateValue),
                 },
             };
 
             rateStat.Alpha = 0;
+
+            // The sync readout is a DISPLAY setting (backlog 251), so it binds straight here and
+            // deliberately never reaches the replay CONFIG frame the playfield writes for
+            // judgement-affecting settings: nothing about a keystroke, a judgement, a grade or a
+            // stored score moves with it. Fired immediately so a HUD built with no config (every
+            // bare test scene) starts hidden, which is what the game ships.
+            config?.BindWith(TypeBeatRulesetSetting.ShowSyncMetric, showSync);
+            showSync.BindValueChanged(e => syncStat.Alpha = e.NewValue ? 1 : 0, true);
 
             mods = gameplayMods;
             starRating = StarRatingFor(playableBeatmap, gameplayMods);
@@ -154,6 +181,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         public static double? StarRatingFor(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? mods)
             => PerformancePointsDisplay.StarRatingFor(playableBeatmap, mods);
+
+        /// <summary>Whether the sync column is on screen; test support for the opt-in toggle.</summary>
+        public bool SyncReadoutVisible => syncStat.Alpha > 0;
+
+        /// <summary>The text the sync column is showing; test support.</summary>
+        public string SyncReadoutText => syncValue.Text.ToString();
 
         private Drawable stat(string caption, out OsuSpriteText value)
         {
@@ -196,7 +229,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // Rolling window over the last few dozen keypresses, not the whole-run average: the live
             // readout should track current pace. The results screen still reports the whole-run figure.
             wpmValue.Text = engine.LiveRollingWpm.ToString("0");
-            syncValue.Text = engine.LiveSyncPercent.ToString("0.0") + "%";
+
+            // Skipped entirely while the column is hidden: LiveSyncPercent walks every cell of the
+            // map, so a metric nobody asked for should cost nothing per frame either.
+            if (showSync.Value)
+                syncValue.Text = engine.LiveSyncPercent.ToString("0.0") + "%";
 
             updatePerformancePoints();
             updateRate();

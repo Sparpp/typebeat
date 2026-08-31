@@ -107,6 +107,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private void setSungStyle(CaretStyle style)
             => AddStep($"song playhead style = {style}", () => config.SetValue(TypeBeatRulesetSetting.SungCaretStyle, style));
 
+        /// <summary>
+        /// The sync tint is opt-in since backlog 251 and ships OFF, so the one assertion below that
+        /// reads a ramp has to ask for it, on the same "set it explicitly rather than inherit it"
+        /// terms as the style above. It changes nothing else this fixture pins: the lit group, the
+        /// playhead and the error red are all decided before the ramp is consulted.
+        /// </summary>
+        private void setSyncMetric(bool enabled)
+            => AddStep($"sync metric {(enabled ? "on" : "off")}", () => config.SetValue(TypeBeatRulesetSetting.ShowSyncMetric, enabled));
+
         protected override IBeatmap CreateBeatmap(RulesetInfo ruleset)
         {
             var beatmap = new Beatmap
@@ -186,6 +195,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // classic red. The press below lands 500ms past the end of 'o's sung span [3000, 4500],
             // so it is off the beat under the live rule too, and what is pinned is that it is ON the
             // ramp, not white.
+            setSyncMetric(true);
             AddStep("type 'o' correctly, then 'x' for 'p'", () =>
             {
                 playfield.Engine.ProcessKey('o', 5000);

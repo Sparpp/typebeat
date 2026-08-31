@@ -10,6 +10,7 @@ using osu.Framework.Testing;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
@@ -25,6 +26,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// pinned by <c>SyncTintTest</c>, which needs no font; what is pinned HERE is the wiring, that
     /// the display actually reads the engine's judged delta at the cell's own window tier and repaints
     /// with it, plus the two states that deliberately take no ramp.
+    ///
+    /// <para>OPT-IN since backlog 251: the ramp is drawn only while
+    /// <see cref="TypeBeatRulesetSetting.ShowSyncMetric"/> is on, so this fixture turns it on
+    /// explicitly in its setup and <see cref="TestTheRampIsAbsentWhenTheMetricIsOff"/> pins the
+    /// other arm. The machinery is unchanged: the toggle decides whether a stored delta is READ for
+    /// colour, never what the delta is.</para>
     ///
     /// <para>This scene's line is a single syllable group sung from the first frame, so its UNTYPED
     /// cells wear the sung-group highlight (backlog 177) rather than the plain untyped grey. Backlog
@@ -111,9 +118,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         /// would render as the untyped grey if the ramp had no floor.</summary>
         private double hopelesslyLateDelta(int index) => SyncWindows.For(cell(index).JudgeGranularity).MehLate * 3;
 
+        // The same cached-per-ShortName manager the gameplay bindings read, so setting a value here
+        // drives the live stage exactly as ticking the settings checkbox would.
+        private TypeBeatRulesetConfigManager config => (TypeBeatRulesetConfigManager)RulesetConfigs.GetConfigFor(new TypeBeatRuleset())!;
+
+        private void setSyncMetric(bool enabled)
+            => AddStep($"sync metric {(enabled ? "on" : "off")}", () => config.SetValue(TypeBeatRulesetSetting.ShowSyncMetric, enabled));
+
         [SetUpSteps]
         public void SetUpSteps()
         {
+            // Written explicitly rather than inherited, for both of the reasons the other fixtures
+            // do it: the manager is cached across the whole fixture so a previous test's toggle
+            // would carry over, and the shipped default is OFF, so without this every ramp
+            // assertion below would be testing the flat typed colour.
+            setSyncMetric(true);
+
             AddStep("create drawable ruleset", () =>
             {
                 var ruleset = new TypeBeatRuleset();
@@ -255,6 +275,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // The ramp is gone and the cell is an ordinary untyped cell again, which in this scene
             // is one the song is on, so it goes back to the highlight grey it started at.
             AddUntilStep("char is back to its untyped colour", () => same(colour(0), TypeBeatStyle.SungChar));
+        }
+
+        /// <summary>
+        /// The other arm of the toggle (backlog 251), and the one the game actually ships: with the
+        /// sync metric off, a badly timed correct char is painted the SAME flat off-white as a
+        /// perfect one, which is the pre-ramp painting. Both directions are driven live inside one
+        /// test rather than across two fixtures, because the claim is that the toggle moves the
+        /// colour and nothing else, and a press whose tint changes under it while its judged delta
+        /// does not is exactly what that means.
+        /// </summary>
+        [Test]
+        public void TestTheRampIsAbsentWhenTheMetricIsOff()
+        {
+            AddStep("type 'a' dead on", () => press(0, 'a', 0));
+            AddStep("type 'b' half a window late", () => press(1, 'b', halfQualityLateDelta(1)));
+
+            AddUntilStep("both repainted on the ramp", () => same(colour(0), TypeBeatStyle.TypedChar)
+                                                            && same(colour(1), LyricLineDisplay.CorrectCharColour(0.5)));
+
+            setSyncMetric(false);
+
+            // The headline: the late char stops being duller than the dead-on one. Nothing about the
+            // press moved, only what the display reads off it.
+            AddUntilStep("the late char goes flat typed", () => same(colour(1), TypeBeatStyle.TypedChar));
+            AddAssert("so does the dead-on one, unchanged", () => same(colour(0), TypeBeatStyle.TypedChar));
+            AddAssert("and the two are now indistinguishable", () => same(colour(0), colour(1)));
+
+            // The delta the ramp reads is still recorded, which is what makes this a display switch
+            // rather than a judgement one: turning the metric back on restores the exact same tint.
+            AddAssert("the late press kept its judged delta", () => cell(1).JudgedDelta != null);
+
+            setSyncMetric(true);
+
+            AddUntilStep("the ramp comes back where it was", () => same(colour(1), LyricLineDisplay.CorrectCharColour(0.5)));
         }
     }
 }

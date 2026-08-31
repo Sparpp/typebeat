@@ -259,7 +259,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Active time (accrued only while active AND incomplete): 1000->1500->2000->2500 = 1500 ms.
             // WPM = (5 correct cells / 5) words / (1500/60000 min) = 1 / 0.025 = 40.
             Assert.AreEqual(40.0, results.Wpm, 1e-9);
-            Assert.AreEqual("S", results.Grade); // sync 100 >= 95 && acc 1.0 >= 0.95
+            Assert.AreEqual("S", results.Grade); // acc 1.0 >= 0.95 (sync is not consulted, backlog 251)
         }
 
         [Test]
@@ -1171,23 +1171,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual("Test", results.Artist);
             Assert.AreEqual("Song", results.Title);
-            Assert.AreEqual("D", results.Grade); // sync 39.58 fails every tier floor => D
+            // This run typed every key it pressed correctly (accuracy 1.0) while sitting a long way
+            // off the beat, and a sync of 39.58 used to drag it to a D. Backlog 251 stopped the
+            // grade consulting sync at all, so the same run is now the S its accuracy earned. This
+            // is the END-TO-END form of the same claim GradeThresholds pins on the property.
+            Assert.AreEqual("S", results.Grade);
         }
 
+        /// <summary>
+        /// The letter grade reads ACCURACY and nothing else since backlog 251. Every case below
+        /// therefore names an accuracy floor, and the sync percent handed alongside it is chosen to
+        /// be actively hostile: each one is the value that would have DEMOTED the play under the old
+        /// paired rule, so the fixture fails the moment the second gate comes back.
+        /// </summary>
         [Test]
         public void GradeThresholds()
         {
-            // Both thresholds must hold at a tier; otherwise fall to the highest tier where both do.
-            Assert.AreEqual("S", summary(95, 0.95).Grade);      // exactly on the S floor
-            Assert.AreEqual("A", summary(94.999, 1.0).Grade);   // sync just below S => A (acc fine)
-            Assert.AreEqual("A", summary(100, 0.949).Grade);    // acc just below S => A (sync fine)
-            Assert.AreEqual("A", summary(90, 0.90).Grade);      // exactly on the A floor
-            Assert.AreEqual("B", summary(89.999, 1.0).Grade);   // sync just below A
-            Assert.AreEqual("B", summary(80, 0.80).Grade);      // exactly on the B floor
-            Assert.AreEqual("C", summary(79.999, 0.80).Grade);  // sync just below B
-            Assert.AreEqual("C", summary(65, 0.65).Grade);      // exactly on the C floor
-            Assert.AreEqual("D", summary(64.999, 1.0).Grade);   // sync below every floor
-            Assert.AreEqual("D", summary(100, 0.5).Grade);      // perfect sync can't rescue bad accuracy
+            // Sync 0 throughout: the worst possible, and it moves nothing.
+            Assert.AreEqual("S", summary(0, 0.95).Grade);       // exactly on the S floor
+            Assert.AreEqual("A", summary(0, 0.949).Grade);      // just under it
+            Assert.AreEqual("A", summary(0, 0.90).Grade);       // exactly on the A floor
+            Assert.AreEqual("B", summary(0, 0.899).Grade);      // just under it
+            Assert.AreEqual("B", summary(0, 0.80).Grade);       // exactly on the B floor
+            Assert.AreEqual("C", summary(0, 0.799).Grade);      // just under it
+            Assert.AreEqual("C", summary(0, 0.65).Grade);       // exactly on the C floor
+            Assert.AreEqual("D", summary(0, 0.649).Grade);      // just under it
+            Assert.AreEqual("D", summary(100, 0.5).Grade);      // perfect sync still can't rescue bad accuracy
+
+            // The demotions the old rule would have made, one per tier, each now a no-op. Read as a
+            // pair with the S/A/B/C line above: same accuracies, sync moved from 0 to just under the
+            // tier's old floor, same letters out.
+            Assert.AreEqual("S", summary(94.999, 0.95).Grade);
+            Assert.AreEqual("A", summary(89.999, 0.90).Grade);
+            Assert.AreEqual("B", summary(79.999, 0.80).Grade);
+            Assert.AreEqual("C", summary(64.999, 0.65).Grade);
 
             static ResultsSummary summary(double syncPercent, double accuracy) => new ResultsSummary
             {

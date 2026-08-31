@@ -507,10 +507,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// Mean sync quality (x100) over TIMED cells resolved so far (judged correct + sealed); 100
         /// before anything resolves. SPACE cells are excluded from both halves of the mean since
         /// backlog 148: an untimed space is judged on a zeroed delta, so counting it would hand back
-        /// a full 1.0 quality it never earned and lift this readout (and the grade the results
-        /// screen computes from its final form) for free. Out of the numerator AND the denominator,
-        /// so a space neither helps nor hurts, which is the same treatment the sync timeline gives
-        /// it (see <see cref="ProcessKey"/>).
+        /// a full 1.0 quality it never earned and lift this readout for free. Out of the numerator
+        /// AND the denominator, so a space neither helps nor hurts, which is the same treatment the
+        /// sync timeline gives it (see <see cref="ProcessKey"/>).
+        ///
+        /// <para>DISPLAY ONLY, and only when asked for: the HUD reads this behind
+        /// <c>TypeBeatRulesetSetting.ShowSyncMetric</c> (off by default since backlog 251) and
+        /// nothing else reads it at all. It is still computed unconditionally, which is what keeps
+        /// the toggle a pure display switch.</para>
         /// </summary>
         public double LiveSyncPercent
         {
@@ -2780,8 +2784,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// the two <see cref="SyncWindows.SyncQuality"/> ones behind
         /// <see cref="LiveSyncPercent"/> and <see cref="BuildResults"/>) all resolve it here and
         /// none of them can quietly miss the scale. Scaling the sync readouts is correct rather than
-        /// incidental: a wider window really is easier to sit inside, and SyncPercent gates the
-        /// letter grade.
+        /// incidental even now that they are display-only (backlog 251 cut SyncPercent out of the
+        /// letter grade): a wider window really is easier to sit inside, so a readout that ignored
+        /// the scale would be telling the player something untrue about their own play.
         /// </summary>
         private SyncWindows windowsFor(TypingCell cell)
         {
@@ -3227,8 +3232,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // correct delta); everything else (Missed / Wrong / unresolved) is 0. SPACE cells are
             // out of both the sum and the divisor since backlog 148, for the reason on
             // LiveSyncPercent: their delta is zeroed by rule, so leaving them in would pay a full
-            // quality per word gap for nothing and lift the Grade thresholds' input (a map runs
-            // roughly one space in six typeable cells, which is enough to carry a 90 to an S).
+            // quality per word gap for nothing and inflate the readout (a map runs roughly one space
+            // in six typeable cells, which used to be enough to carry a 90 to an S back when this
+            // figure gated the letter grade; backlog 251 cut that tie, and the exclusion outlives it
+            // because a readout nobody is graded on still has to be true).
             double qualitySum = 0;
 
             foreach (var line in lines)

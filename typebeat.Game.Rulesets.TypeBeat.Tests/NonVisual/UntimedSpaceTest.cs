@@ -286,8 +286,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// in would pay a full 1.0 quality per word gap for a press that measured nothing. It is
         /// taken out of the NUMERATOR AND THE DENOMINATOR of both, so a space neither helps nor
         /// hurts. Neutrality, not credit: the exemption is meant to stop spaces being a timing
-        /// hazard, and turning them into free sync would have lifted the letter grade (which
-        /// <see cref="ResultsSummary.Grade"/> gates on SyncPercent) for nothing.
+        /// hazard, and turning them into free sync would have lifted the letter grade for nothing
+        /// back when the grade was gated on SyncPercent. Backlog 251 cut that gate, so the readouts
+        /// are display-only now (<see cref="ResultsSummary.Grade"/> is accuracy alone) and the
+        /// exemption is simply about them telling the truth.
         /// </summary>
         [Test]
         public void TheExemptSpaceIsLeftOutOfBothSyncReadouts()
