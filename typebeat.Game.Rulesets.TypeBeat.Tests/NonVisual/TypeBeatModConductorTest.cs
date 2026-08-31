@@ -79,7 +79,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 "the song meeting the player halfway is exactly the kind of generosity a leaderboard cannot price");
             Assert.IsTrue(mod.HasImplementation);
             Assert.IsNotNull(mod.Icon);
-            Assert.AreEqual("The song follows you.", mod.Description.ToString());
+            Assert.AreEqual("The song follows you. Audio quality degrades at extreme rates.", mod.Description.ToString(),
+                "the band reaches 51x now (backlog 252), and a player should be told the audio suffers there before they drag it");
 
             // A follower's rate is one player's typing; there is nothing to share with a room.
             Assert.IsFalse(mod.ValidForMultiplayer);
@@ -186,6 +187,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0.5, mod.MinRate.Default, 1e-9);
             Assert.AreEqual(1.5, mod.MaxRate.Default, 1e-9);
 
+            // Backlog 252 uncapped the band at both ends, and neither end is a taste call: 0 is
+            // "stop and wait for me" and 51 is BASS_FX's own +5000% tempo limit.
+            Assert.AreEqual(0, TypeBeatModConductor.ABSOLUTE_MIN_RATE, 1e-12);
+            Assert.AreEqual(51.0, TypeBeatModConductor.ABSOLUTE_MAX_RATE, 1e-12);
+
             foreach (var setting in new[] { mod.MinRate, mod.MaxRate })
             {
                 Assert.AreEqual(TypeBeatModConductor.ABSOLUTE_MIN_RATE, setting.MinValue, 1e-9);
@@ -204,11 +210,53 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// The pitch mode's own ceiling (backlog 252). Its path multiplies the track's FREQUENCY, and
+        /// BASS caps an absolute frequency at 100 kHz, so a 44.1 kHz song stops speeding up at about
+        /// 2.27x while the gameplay clock (which reads the bindable, not the hardware) carries on
+        /// accelerating: past the wall the music and the judgement times come apart silently. The
+        /// band is therefore pulled in to 2.0x whenever the setting is on, and let back out when it
+        /// is off.
+        /// </summary>
+        [Test]
+        public void AdjustingPitchDropsTheBandToWhatTheFrequencyPathCanTrack()
+        {
+            var mod = new TypeBeatModConductor();
+
+            mod.MaxRate.Value = TypeBeatModConductor.ABSOLUTE_MAX_RATE;
+            Assert.AreEqual(51.0, mod.MaxRate.Value, 1e-9);
+
+            mod.AdjustPitch.Value = true;
+
+            foreach (var setting in new[] { mod.MinRate, mod.MaxRate, mod.SpeedChange })
+                Assert.AreEqual(TypeBeatModConductor.PITCH_ABSOLUTE_MAX_RATE, setting.MaxValue, 1e-9);
+
+            Assert.AreEqual(2.0, mod.MaxRate.Value, 1e-9,
+                "a band the frequency path cannot honour must be pulled in, not silently desynced from the clock");
+
+            mod.AdjustPitch.Value = false;
+
+            foreach (var setting in new[] { mod.MinRate, mod.MaxRate, mod.SpeedChange })
+                Assert.AreEqual(TypeBeatModConductor.ABSOLUTE_MAX_RATE, setting.MaxValue, 1e-9);
+
+            Assert.AreEqual(2.0, mod.MaxRate.Value, 1e-9, "the re-clamped value stays where the toggle left it");
+
+            // The FLOOR is the same on both paths: a true zero.
+            Assert.AreEqual(0, mod.MinRate.MinValue, 1e-12);
+            Assert.AreEqual(0, mod.SpeedChange.MinValue, 1e-12);
+        }
+
+        /// <summary>
         /// What the mod does to audio, and the only thing it does: it writes its rate onto the
         /// aggregate the gameplay clock's rate is read off
         /// (<c>GameplayClockExtensions.GetTrueGameplayRate</c> is sign * AggregateFrequency *
         /// AggregateTempo of exactly this component). So this is the clock-level proof that a
         /// controller write moves gameplay time, without standing up a Player.
+        ///
+        /// <para>Since backlog 252 it is a PAIR of adjustments on the default path, because the band
+        /// now reaches under the 0.05 tempo TrackBass throws below: there the tempo is pinned at that
+        /// floor and the remainder is handed to the frequency as a power of two, so the product is
+        /// still the rate bit for bit. Only a rate of exactly 0 publishes something else, a crawl of
+        /// about 1e-4 rather than the zero frequency that would make the framework stop the track.</para>
         /// </summary>
         [Test]
         public void SpeedChangeMovesTheGameplayRateAsTempoByDefaultAndPitchOnDemand()
@@ -227,14 +275,57 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(1.25, adjustments.AggregateTempo.Value * adjustments.AggregateFrequency.Value, 1e-9,
                 "this product IS GetTrueGameplayRate");
 
+            foreach (double rate in new[] { 51.0, 1.5, 1.0, 0.05, 0.02, 0.0 })
+            {
+                mod.SpeedChange.Value = rate;
+
+                double tempo = adjustments.AggregateTempo.Value;
+                double frequency = adjustments.AggregateFrequency.Value;
+
+                Assert.GreaterOrEqual(tempo, TypeBeatModConductor.TEMPO_FLOOR_RATE,
+                    $"TrackBass THROWS on an aggregate tempo below 0.05, and the rate here is {rate}");
+                Assert.Greater(frequency, 0,
+                    $"a frequency of exactly zero STOPS the track rather than slowing it, and the rate here is {rate}");
+
+                if (rate > 0)
+                {
+                    Assert.IsTrue((tempo * frequency).Equals(rate),
+                        $"the published pair must reconstruct {rate} exactly, got {tempo * frequency:R} ({tempo:R} * {frequency:R})");
+                }
+                else
+                {
+                    Assert.AreEqual(TypeBeatModConductor.TEMPO_FLOOR_RATE * TypeBeatModConductor.MIN_FREQUENCY_SCALE,
+                        tempo * frequency, 1e-12, "a rate of 0 crawls instead of stopping");
+                    Assert.AreEqual(0, (int)Math.Round(tempo * frequency * 100), "...and still reads 0% on the HUD");
+                }
+            }
+
             mod.AdjustPitch.Value = true;
 
+            mod.SpeedChange.Value = 1.25;
+
             Assert.AreEqual(1.25, adjustments.AggregateFrequency.Value, 1e-9);
-            Assert.AreEqual(1.0, adjustments.AggregateTempo.Value, 1e-9);
+            Assert.AreEqual(1.0, adjustments.AggregateTempo.Value, 1e-9, "the tempo adjustment leaves the track entirely in pitch mode");
             Assert.AreEqual(1.25, adjustments.AggregateTempo.Value * adjustments.AggregateFrequency.Value, 1e-9);
 
-            mod.SpeedChange.Value = 0.6;
-            Assert.AreEqual(0.6, adjustments.AggregateTempo.Value * adjustments.AggregateFrequency.Value, 1e-9);
+            mod.SpeedChange.Value = TypeBeatModConductor.ABSOLUTE_MAX_RATE;
+
+            Assert.AreEqual(TypeBeatModConductor.PITCH_ABSOLUTE_MAX_RATE,
+                adjustments.AggregateTempo.Value * adjustments.AggregateFrequency.Value, 1e-9,
+                "the frequency path is capped where it stops tracking, it does not get the tempo path's ceiling");
+
+            mod.SpeedChange.Value = 0;
+
+            Assert.Greater(adjustments.AggregateFrequency.Value, 0, "still never exactly zero");
+            Assert.Less(adjustments.AggregateFrequency.Value, 0.005);
+            Assert.AreEqual(1.0, adjustments.AggregateTempo.Value, 1e-9);
+
+            // ...and switching back restores the tempo path without doubling either adjustment up.
+            mod.AdjustPitch.Value = false;
+            mod.SpeedChange.Value = 3;
+
+            Assert.AreEqual(3.0, adjustments.AggregateTempo.Value, 1e-9);
+            Assert.AreEqual(1.0, adjustments.AggregateFrequency.Value, 1e-9);
         }
 
         [Test]
@@ -572,6 +663,111 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Less(state.SupplyCellsPerSecond, 0.5, "a player with characters left in front of them who types nothing IS behind");
             Assert.AreEqual(1, state.Authority, 1e-9, "the filter is full and trusted here; it is the supply reading that falls");
             Assert.AreEqual(TypeBeatModConductor.DEFAULT_MIN_RATE, state.Rate, 1e-9, "the song must still drop to wait");
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // Frame pacing (backlog 252). The driver's own decision, extracted so it is pinned without a
+        // playfield: how far to advance the fixed-step accumulator, and when the filter is stale.
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// The region the mod has always shipped in is unchanged: the accumulator advances on TRACK
+        /// time, which is the axis a replay agrees on. Under the tempo floor it cannot, because there
+        /// track time has stopped and a driver stepping on it stops with it, taking the keypress that
+        /// should have lifted the rate with it.
+        /// </summary>
+        [Test]
+        public void PacingStepsOnTrackTimeNormallyAndOnRealTimeWhileParked()
+        {
+            var normal = ConductorPacing.Decide(16, 16, 1.0);
+
+            Assert.IsFalse(normal.ClearFilter);
+            Assert.AreEqual(16, normal.AdvanceMs, 1e-12, "an ordinary frame advances by its own track time");
+
+            // Half speed: the frame is worth half as much of the song, and always was.
+            Assert.AreEqual(8, ConductorPacing.Decide(8, 16, 0.5).AdvanceMs, 1e-12);
+
+            // The floor itself is still the normal region; the switch is strictly below it.
+            Assert.AreEqual(0.8, ConductorPacing.Decide(0.8, 16, TypeBeatModConductor.TEMPO_FLOOR_RATE).AdvanceMs, 1e-12);
+
+            var parked = ConductorPacing.Decide(0, 16, 0);
+
+            Assert.IsFalse(parked.ClearFilter, "a parked frame must keep the keypresses waiting on it");
+            Assert.AreEqual(16, parked.AdvanceMs, 1e-12, "a parked controller has to run on the only clock still moving");
+
+            Assert.AreEqual(16, ConductorPacing.Decide(0.0016, 16, 0.0001).AdvanceMs, 1e-12);
+        }
+
+        /// <summary>
+        /// The two things that DO invalidate the filter, and the one that used to be confused for
+        /// them. A stall is 250 ms of REAL time: measured in track time the same guard fired on every
+        /// single frame above roughly 15x, which killed the controller over exactly the part of the
+        /// band backlog 252 opened up.
+        /// </summary>
+        [Test]
+        public void PacingClearsOnARewindOrARealStallButNotOnAFastSong()
+        {
+            Assert.IsTrue(ConductorPacing.Decide(-1, 16, 1).ClearFilter, "a backwards step in track time is a seek");
+            Assert.IsTrue(ConductorPacing.Decide(16, 400, 1).ClearFilter, "400 ms of wall time is a hitch, not a frame");
+            Assert.AreEqual(250, ConductorPacing.MAX_REAL_FRAME_MS, 1e-12);
+
+            var fast = ConductorPacing.Decide(816, 16, 51);
+
+            Assert.IsFalse(fast.ClearFilter, "816 ms of track time in a 16 ms frame is just 51x, not a stall");
+            Assert.AreEqual(816, fast.AdvanceMs, 1e-12);
+        }
+
+        /// <summary>
+        /// THE RESUME (backlog 252). With the band floor at a true 0 the song can be brought to a
+        /// complete stop, and a stopped song freezes the very axis the controller integrates on. The
+        /// law reaches an exact 0 (pinned here rather than assumed: the slew lands on the target
+        /// rather than approaching it), and from there the pacing seam is the whole of what makes the
+        /// floor a door rather than a wall: one accepted keypress, stepped at real-time pace, lifts
+        /// the rate off zero and the song starts again.
+        /// </summary>
+        [Test]
+        public void AParkedSongIsStartedAgainByASingleKeypress()
+        {
+            var band = tuning(TypeBeatModConductor.ABSOLUTE_MIN_RATE, TypeBeatModConductor.DEFAULT_MAX_RATE);
+
+            // A converged typist who then goes silent MID-LINE, with characters still in front of the
+            // caret: the one reading that really does mean "behind", so the song slows to wait, and
+            // with a floor of 0 it waits all the way to a standstill.
+            var state = run(ConductorState.Initial, typing(5.6, 4), band, 2000);
+
+            Assert.AreEqual(1.4, state.Rate, 1e-9);
+
+            state = run(state, new ConductorInputs(0, 4, -200, true, false), band, 400);
+
+            Assert.IsTrue(state.Rate.Equals(0d), $"the law must reach a TRUE zero, got {state.Rate:R}");
+
+            double accumulator = 0;
+            double pending = 1;
+            int frames = 0;
+
+            while (state.Rate <= 0 && frames < 20)
+            {
+                frames++;
+
+                // Track time is frozen at rate 0, so this is what every frame looks like: a real
+                // 16 ms, and nothing at all of the song.
+                var pacing = ConductorPacing.Decide(state.Rate * 16, 16, state.Rate);
+
+                Assert.IsFalse(pacing.ClearFilter, $"the parked frame {frames} threw the waiting keypress away");
+
+                accumulator = Math.Min(accumulator + pacing.AdvanceMs, 8 * ConductorController.STEP_MS);
+
+                while (accumulator >= ConductorController.STEP_MS)
+                {
+                    accumulator -= ConductorController.STEP_MS;
+
+                    state = ConductorController.Step(state, new ConductorInputs(pending, 4, 0, true, false), band, ConductorController.STEP_SECONDS);
+                    pending = 0;
+                }
+            }
+
+            Assert.Greater(state.Rate, 0, $"the song never restarted, {frames} real-time frames in");
+            Assert.LessOrEqual(frames, 3, "one keypress should lift a parked song inside a couple of frames");
         }
 
         [Test]

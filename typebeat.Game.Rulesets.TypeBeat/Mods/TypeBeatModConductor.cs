@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using osu.Framework.Audio;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics.Sprites;
@@ -77,7 +78,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// </summary>
         public override string Acronym => "CT";
 
-        public override LocalisableString Description => "The song follows you.";
+        public override LocalisableString Description => "The song follows you. Audio quality degrades at extreme rates.";
 
         public override IconUsage? Icon => OsuIcon.ModAdaptiveSpeed;
 
@@ -120,14 +121,51 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         public const double DEFAULT_MIN_RATE = 0.5;
         public const double DEFAULT_MAX_RATE = 1.5;
 
-        /// <summary>The widest band the two sliders may be dragged to. The floor is "stop and wait
-        /// for me" territory and the ceiling matches Double Time's own maximum.</summary>
-        public const double ABSOLUTE_MIN_RATE = 0.05;
+        /// <summary>
+        /// A TRUE zero (backlog 252): "wait for me" all the way to a standstill. The song does not
+        /// actually stop, and neither does the controller: <see cref="TrackAdjustmentsFor"/> keeps a
+        /// crawl on the track, and <see cref="ConductorPacing"/> paces the driver on REAL time below
+        /// <see cref="TEMPO_FLOOR_RATE"/>, so the keypress that lifts the rate again still lands on a
+        /// step. Without both of those a floor of 0 is a one-way door.
+        /// </summary>
+        public const double ABSOLUTE_MIN_RATE = 0;
 
-        public const double ABSOLUTE_MAX_RATE = 2.0;
+        /// <summary>
+        /// The ceiling on the default, pitch-preserved path, and it is hardware's number rather than
+        /// a taste call: BASS_FX documents <c>BASS_ATTRIB_TEMPO</c> over -95% to +5000%, i.e. a tempo
+        /// rate of 0.05x to 51x, and nothing in the framework clamps the top.
+        /// </summary>
+        public const double ABSOLUTE_MAX_RATE = 51.0;
 
-        /// <summary>A frame longer than this is a pause, a seek or a stall rather than a frame.</summary>
-        private const double max_frame_elapsed_ms = 250;
+        /// <summary>
+        /// The ceiling while <see cref="AdjustPitch"/> is on, which is a different and much lower
+        /// wall. That path resamples rather than time-stretching, so the rate multiplies the track's
+        /// FREQUENCY, and BASS refuses a frequency above 100 kHz: a 44.1 kHz song stops tracking at
+        /// about 2.27x, a 48 kHz one at about 2.08x. Past that wall the audio holds still while the
+        /// gameplay CLOCK, which reads the bindable and not the hardware, goes on accelerating, so
+        /// the music and every judgement time silently come apart. 2.0x sits under the lowest of the
+        /// sample-rate-dependent walls, so the ceiling does not depend on which song is loaded.
+        /// </summary>
+        public const double PITCH_ABSOLUTE_MAX_RATE = 2.0;
+
+        /// <summary>
+        /// The lowest tempo the audio stack will take: <c>TrackBass</c>'s constructor installs a
+        /// handler that THROWS <c>ArgumentException</c> if the aggregate tempo drops below it. Rates
+        /// under this are published as this tempo times a frequency fraction instead, see
+        /// <see cref="TrackAdjustmentsFor"/>. It is also the line the driver's pacing switches to real
+        /// time at, since a song this slow has stopped in all but name.
+        /// </summary>
+        public const double TEMPO_FLOOR_RATE = 0.05;
+
+        /// <summary>
+        /// The smallest frequency fraction ever published. A POWER OF TWO, which is what makes the
+        /// sub-floor split exact: scaling a double by a power of two rounds nothing, so tempo times
+        /// frequency reconstructs the rate bit for bit. A rate of 0 reaches the audio stack as
+        /// <see cref="TEMPO_FLOOR_RATE"/> * this, about 1e-4: the readout says 0%, the track crawls
+        /// instead of stopping, and neither the framework's "frequency reached zero, stop the track"
+        /// path nor TrackBass's tempo assertion is tripped.
+        /// </summary>
+        public const double MIN_FREQUENCY_SCALE = 1 / 512d;
 
         /// <summary>Cap on catch-up steps after a long frame, so a hitch cannot spin the controller.</summary>
         private const int max_steps_per_frame = 8;
@@ -150,17 +188,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
         /// <summary>
         /// Off by default, i.e. TEMPO adjustment: a follower rate moves constantly and a constantly
-        /// moving pitch is unlistenable. On, it becomes the frequency scale the rate mods use.
+        /// moving pitch is unlistenable. On, it becomes the frequency scale the rate mods use, and
+        /// the whole band is capped at <see cref="PITCH_ABSOLUTE_MAX_RATE"/> because that path stops
+        /// tracking well before the tempo path's ceiling.
         /// </summary>
         [SettingSource("Adjust pitch", "Should pitch be adjusted with speed")]
         public BindableBool AdjustPitch { get; } = new BindableBool();
 
         /// <summary>
-        /// The instantaneous rate, written once per frame and read by the audio stack. Bound to the
-        /// track through <see cref="RateAdjustModHelper"/> exactly as every other rate mod is: the
-        /// aggregate it is attached to (<c>GameplayClockContainer.AdjustmentsFromMods</c>) is bound
-        /// onto the real track, and the gameplay clock's source IS that track, so writing here moves
-        /// the music and gameplay time together with no new clock.
+        /// The instantaneous TOTAL rate, written once per frame and read by the HUD through
+        /// <see cref="CurrentRate"/>. Unlike every other rate mod this is not itself the bindable
+        /// handed to the track: it is split into a tempo and a frequency adjustment by
+        /// <see cref="TrackAdjustmentsFor"/>, whose PRODUCT is this value. The aggregate those two
+        /// are attached to (<c>GameplayClockContainer.AdjustmentsFromMods</c>) is bound onto the real
+        /// track and the gameplay clock's source IS that track, so writing here moves the music and
+        /// gameplay time together with no new clock.
         ///
         /// <para>No <c>Precision</c>, unlike the ramps: quantising a follower to 0.01 puts audible
         /// steps into a rate that is meant to glide.</para>
@@ -187,7 +229,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             }
         }
 
-        private readonly RateAdjustModHelper rateAdjustHelper;
+        /// <summary>The tempo half of the pair published to the track. See <see cref="TrackAdjustmentsFor"/>.</summary>
+        private readonly BindableDouble tempoAdjustment = new BindableDouble(1);
+
+        /// <summary>The frequency half of the pair published to the track.</summary>
+        private readonly BindableDouble frequencyAdjustment = new BindableDouble(1);
+
+        private IAdjustableAudioComponent? track;
+
+        /// <summary>
+        /// Wall clock, read ONLY by the pacing decision (see <see cref="ConductorPacing"/>). Nothing
+        /// that reaches the control law is derived from it, so the rate curve a replay re-derives is
+        /// unchanged everywhere the song is actually moving; it exists because a rate parked under
+        /// <see cref="TEMPO_FLOOR_RATE"/> freezes the only other clock there is.
+        /// </summary>
+        private readonly Stopwatch realClock = new Stopwatch();
+
+        private double lastRealMs;
 
         private ConductorState state = ConductorState.Initial;
 
@@ -205,14 +263,78 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
         public TypeBeatModConductor()
         {
-            rateAdjustHelper = new RateAdjustModHelper(SpeedChange);
-            rateAdjustHelper.HandleAudioAdjustments(AdjustPitch);
+            // Deliberately NOT RateAdjustModHelper, which binds SpeedChange straight onto one
+            // property: the sub-floor region needs both properties at once (see
+            // TrackAdjustmentsFor), and the two modes have different ceilings. The swap on toggling
+            // the setting is the helper's own pattern, remove the old set and add the new one.
+            SpeedChange.BindValueChanged(_ => updateTrackAdjustments());
+
+            AdjustPitch.BindValueChanged(adjustPitch =>
+            {
+                applyModeCeiling(adjustPitch.NewValue);
+
+                if (track != null)
+                {
+                    removeAdjustments(track, adjustPitch.OldValue);
+                    addAdjustments(track, adjustPitch.NewValue);
+                }
+
+                updateTrackAdjustments();
+            });
         }
 
         public void ApplyToTrack(IAdjustableAudioComponent track)
         {
             reset();
-            rateAdjustHelper.ApplyToTrack(track);
+
+            this.track = track;
+
+            // Old and new are the same here, so this removes and re-adds the same pair. Removing an
+            // adjustment a fresh track never carried is a no-op, which is what RateAdjustModHelper
+            // relies on for exactly this call too.
+            AdjustPitch.TriggerChange();
+        }
+
+        /// <summary>
+        /// Split an internal rate into the (tempo, frequency) pair published to the track. Their
+        /// PRODUCT is the rate the gameplay clock reads, since
+        /// <c>GameplayClockExtensions.GetTrueGameplayRate</c> is sign * AggregateFrequency *
+        /// AggregateTempo of exactly this adjustment set.
+        ///
+        /// <para>PITCH PRESERVED (the default): tempo carries the rate and frequency stays at 1,
+        /// exactly as every other rate mod does, until the rate drops under
+        /// <see cref="TEMPO_FLOOR_RATE"/>, which the audio stack throws on. Below that the tempo is
+        /// held at the floor and the remainder is handed to the frequency as a power of two, so the
+        /// product still reconstructs the rate bit for bit. The pitch drop that buys only exists in a
+        /// band where the song is barely moving anyway, and it is what makes a band floor of 0
+        /// possible at all.</para>
+        ///
+        /// <para>PITCH ADJUSTED: frequency carries the whole rate and the tempo stays at 1, again as
+        /// the rate mods do. There is no floor to work around there, only the epsilon: a frequency of
+        /// EXACTLY zero makes the framework stop the track outright, while any tiny non-zero value
+        /// merely floors the real output at 100 Hz and leaves the clock tracking the bindable.</para>
+        /// </summary>
+        public static (double Tempo, double Frequency) TrackAdjustmentsFor(double rate, bool adjustPitch)
+        {
+            if (adjustPitch)
+                return (1, Math.Max(rate, MIN_FREQUENCY_SCALE));
+
+            if (rate >= TEMPO_FLOOR_RATE)
+                return (rate, 1);
+
+            double tempo = rate;
+            double frequency = 1;
+
+            while (tempo < TEMPO_FLOOR_RATE && frequency > MIN_FREQUENCY_SCALE)
+            {
+                tempo *= 2;
+                frequency *= 0.5;
+            }
+
+            // The clamp only bites under TEMPO_FLOOR_RATE * MIN_FREQUENCY_SCALE (about 1e-4, which
+            // reads as 0%), and that is the only place the product stops being the rate exactly: the
+            // song crawls there instead of stopping.
+            return (Math.Max(tempo, TEMPO_FLOOR_RATE), frequency);
         }
 
         /// <summary>
@@ -242,6 +364,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
             double time = playfield.Clock.CurrentTime;
 
+            // Read every frame, including the ones that return early, so the wall-clock delta is a
+            // frame's worth and not a whole stretch of frames.
+            double realElapsed = realElapsedMs();
+
             if (lastTrackTime is not double previous)
             {
                 lastTrackTime = time;
@@ -251,19 +377,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
             lastTrackTime = time;
 
-            double elapsed = time - previous;
+            var pacing = ConductorPacing.Decide(time - previous, realElapsed, state.Rate);
 
-            if (!(elapsed > 0) || elapsed > max_frame_elapsed_ms)
+            if (pacing.ClearFilter)
             {
-                // Paused, seeked backwards, rewound or stalled. The filter describes a stretch of
-                // the song that is no longer the one being played, so empty it; the RATE is kept,
-                // because the audio cannot teleport and the slew limit is what stops it trying.
+                // Seeked backwards, rewound or stalled. The filter describes a stretch of the song
+                // that is no longer the one being played, so empty it; the RATE is kept, because the
+                // audio cannot teleport and the slew limit is what stops it trying.
                 clearFilter();
                 publish();
                 return;
             }
 
-            accumulator = Math.Min(accumulator + elapsed, max_steps_per_frame * ConductorController.STEP_MS);
+            accumulator = Math.Min(accumulator + pacing.AdvanceMs, max_steps_per_frame * ConductorController.STEP_MS);
 
             // IsLineComplete is a CARET predicate (caret past the last cell), and that is the read
             // this controller wants rather than "every cell of the line was typed". A player who
@@ -274,8 +400,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             // invalidates it (TypeBeatPlayfield.Update), so it can only ever be open while the
             // player is idle, and the keystroke that consumes it pulls the caret back inside the
             // line before the next step reads this.
+            (double lo, double hi) = rateBand();
+
             var inputs = new ConductorInputs(0, demandFor(engine), phaseErrorFor(engine, time), engine.LineIsActive, engine.IsLineComplete);
-            var tuning = ConductorTuning.Default.WithRateBand(MinRate.Value, MaxRate.Value);
+            var tuning = ConductorTuning.Default.WithRateBand(lo, hi);
 
             while (accumulator >= ConductorController.STEP_MS)
             {
@@ -417,14 +545,83 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
         private void reset()
         {
-            double lo = Math.Min(MinRate.Value, MaxRate.Value);
-            double hi = Math.Max(MinRate.Value, MaxRate.Value);
+            (double lo, double hi) = rateBand();
 
             state = ConductorState.Initial with { Rate = Math.Clamp(1d, lo, hi) };
             pendingCells = 0;
             accumulator = 0;
             lastTrackTime = null;
+            lastRealMs = 0;
+            realClock.Restart();
             SpeedChange.Value = state.Rate;
+        }
+
+        /// <summary>
+        /// The user's band as an ordered pair, pulled into the ceiling the active mode can actually
+        /// honour. The sliders' own <c>MaxValue</c> already moves with the mode, so this only matters
+        /// for the instant a toggle is being processed, but the law must never be handed a target the
+        /// audio path cannot follow.
+        /// </summary>
+        private (double Lo, double Hi) rateBand()
+        {
+            double ceiling = AdjustPitch.Value ? PITCH_ABSOLUTE_MAX_RATE : ABSOLUTE_MAX_RATE;
+
+            double lo = Math.Clamp(Math.Min(MinRate.Value, MaxRate.Value), ABSOLUTE_MIN_RATE, ceiling);
+            double hi = Math.Clamp(Math.Max(MinRate.Value, MaxRate.Value), ABSOLUTE_MIN_RATE, ceiling);
+
+            return (lo, hi);
+        }
+
+        /// <summary>
+        /// Move both sliders and the published rate onto the active mode's ceiling.
+        /// <c>BindableNumber</c> re-clamps its current value when <c>MaxValue</c> moves, so a band
+        /// left at 51x collapses to 2x the moment "Adjust pitch" goes on, and stays where it landed
+        /// if it goes off again.
+        /// </summary>
+        private void applyModeCeiling(bool adjustPitch)
+        {
+            double ceiling = adjustPitch ? PITCH_ABSOLUTE_MAX_RATE : ABSOLUTE_MAX_RATE;
+
+            MinRate.MaxValue = ceiling;
+            MaxRate.MaxValue = ceiling;
+            SpeedChange.MaxValue = ceiling;
+        }
+
+        private void addAdjustments(IAdjustableAudioComponent target, bool adjustPitch)
+        {
+            if (!adjustPitch)
+                target.AddAdjustment(AdjustableProperty.Tempo, tempoAdjustment);
+
+            target.AddAdjustment(AdjustableProperty.Frequency, frequencyAdjustment);
+        }
+
+        private void removeAdjustments(IAdjustableAudioComponent target, bool adjustPitch)
+        {
+            if (!adjustPitch)
+                target.RemoveAdjustment(AdjustableProperty.Tempo, tempoAdjustment);
+
+            target.RemoveAdjustment(AdjustableProperty.Frequency, frequencyAdjustment);
+        }
+
+        private void updateTrackAdjustments()
+        {
+            (double tempo, double frequency) = TrackAdjustmentsFor(SpeedChange.Value, AdjustPitch.Value);
+
+            tempoAdjustment.Value = tempo;
+            frequencyAdjustment.Value = frequency;
+        }
+
+        private double realElapsedMs()
+        {
+            if (!realClock.IsRunning)
+                realClock.Start();
+
+            double now = realClock.Elapsed.TotalMilliseconds;
+            double elapsed = now - lastRealMs;
+
+            lastRealMs = now;
+
+            return elapsed;
         }
 
         private void publish()

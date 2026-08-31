@@ -94,6 +94,60 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     }
 
     /// <summary>
+    /// The per-frame PACING decision for <see cref="TypeBeatModConductor"/>'s driver: how far to
+    /// advance the fixed-step accumulator, and whether what just happened means the filter is
+    /// describing a run that is no longer being played. Pure, like the law itself, so it is pinned
+    /// with no playfield, no clock and no track.
+    ///
+    /// <para>The controller integrates on TRACK time, because track time is the axis a replay agrees
+    /// on, and that is unchanged for the whole region the mod has ever shipped in. Backlog 252 opened
+    /// two regions either side of it where track time cannot be the measure:</para>
+    /// <list type="number">
+    /// <item>PARKED, under <see cref="TypeBeatModConductor.TEMPO_FLOOR_RATE"/>. The song has stopped
+    /// in all but name and track time barely moves, so a driver stepping on it would freeze with the
+    /// song: the keypress that ought to lift the rate would land on a controller that never takes
+    /// another step, and the band floor of 0 would be a one-way door. There the accumulator advances
+    /// on REAL time, a wall clock the rest of the play never reads and can afford to read here
+    /// precisely because the song is standing still.</item>
+    /// <item>THE STALL TEST, which is now made on REAL elapsed. Making it on track elapsed inverted
+    /// the guard at speed: at 51x an ordinary 16 ms frame is 816 ms of track time, over any sane
+    /// threshold, so the guard fired every frame and the controller was dead above roughly 15x. What
+    /// bounds the work per frame at speed is the driver's catch-up cap, not this.</item>
+    /// </list>
+    /// </summary>
+    /// <param name="AdvanceMs">Milliseconds to add to the driver's fixed-step accumulator.</param>
+    /// <param name="ClearFilter">Whether to empty the filter (the rate itself is always kept).</param>
+    public readonly record struct ConductorPacing(double AdvanceMs, bool ClearFilter)
+    {
+        /// <summary>A frame longer than this in REAL time is a seek, a hitch or a stall, not a frame.</summary>
+        public const double MAX_REAL_FRAME_MS = 250;
+
+        /// <summary>
+        /// Decide how one frame is paced.
+        /// </summary>
+        /// <param name="trackElapsedMs">Gameplay-clock time since the previous frame.</param>
+        /// <param name="realElapsedMs">Wall time since the previous frame. Nearly zero for the
+        /// catch-up iterations a frame-stability container runs, which is correct: they are one
+        /// frame's worth of real time between them.</param>
+        /// <param name="currentRate">The rate that was in force over the frame.</param>
+        public static ConductorPacing Decide(double trackElapsedMs, double realElapsedMs, double currentRate)
+        {
+            // A backwards step in track time is a seek or a rewind: the run the filter describes did
+            // not happen.
+            if (trackElapsedMs < 0)
+                return new ConductorPacing(0, true);
+
+            if (realElapsedMs > MAX_REAL_FRAME_MS)
+                return new ConductorPacing(0, true);
+
+            if (currentRate < TypeBeatModConductor.TEMPO_FLOOR_RATE)
+                return new ConductorPacing(Math.Max(realElapsedMs, 0), false);
+
+            return new ConductorPacing(trackElapsedMs, false);
+        }
+    }
+
+    /// <summary>
     /// The Conductor mod's control law, as a pure function so it can be driven headlessly with no
     /// drawables, no clock and no audio (see <c>TypeBeatModConductorTest</c>). It is called at a
     /// FIXED step of TRACK time, which is what keeps a live play and a replay of it on nearly the

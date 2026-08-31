@@ -377,6 +377,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// ...and the same at the uncapped extremes (backlog 252), which is where a leak would show
+        /// first if one were ever introduced. A band of 0 to 51x means the rate can park the song
+        /// dead or run it at fifty times its own speed, and neither is visible in a replay: the
+        /// frames are TRACK times and a rate plateau merely repeats a timestamp, which the scorer has
+        /// always been allowed to see.
+        /// </summary>
+        [Test]
+        public void ConductorRescoresAReplayIdenticallyAcrossTheWholeUncappedBand()
+        {
+            var plain = scoreThreeLatePresses(500);
+
+            var conducted = scoreThreeLatePresses(500, new TypeBeatModConductor
+            {
+                MinRate = { Value = TypeBeatModConductor.ABSOLUTE_MIN_RATE },
+                MaxRate = { Value = TypeBeatModConductor.ABSOLUTE_MAX_RATE },
+            });
+
+            Assert.AreEqual(plain.TotalScore, conducted.TotalScore);
+            Assert.AreEqual(plain.TotalScoreWithoutMods, conducted.TotalScoreWithoutMods);
+            Assert.AreEqual(plain.MaxCombo, conducted.MaxCombo);
+            Assert.AreEqual(plain.Accuracy, conducted.Accuracy, 1e-12);
+            Assert.AreEqual(plain.Completion, conducted.Completion, 1e-12);
+            Assert.AreEqual(plain.Rank, conducted.Rank);
+            Assert.AreEqual(plain.UnconsumedFrames, conducted.UnconsumedFrames);
+
+            foreach (var (result, count) in plain.Statistics)
+                Assert.AreEqual(count, conducted.Statistics.GetValueOrDefault(result), $"{result} count moved under an uncapped Conductor");
+
+            Assert.AreEqual(plain.Statistics.Count, conducted.Statistics.Count);
+
+            // The band really was the extreme one, not a mod that quietly refused it.
+            var extreme = new TypeBeatModConductor
+            {
+                MinRate = { Value = TypeBeatModConductor.ABSOLUTE_MIN_RATE },
+                MaxRate = { Value = TypeBeatModConductor.ABSOLUTE_MAX_RATE },
+            };
+
+            Assert.AreEqual(0, extreme.MinRate.Value, 1e-12);
+            Assert.AreEqual(51.0, extreme.MaxRate.Value, 1e-12);
+        }
+
+        /// <summary>
         /// The engine works in MAP time and holds no rate, so a fixed map-time window elapses in
         /// 1/rate of the real time it used to: before this, speeding the track up TIGHTENED the
         /// windows and slowing it down LOOSENED them, on top of the rate change itself. Scaling the
