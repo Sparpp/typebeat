@@ -99,8 +99,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// <c>ModAdaptiveSpeed</c> is included even though this fork does not currently offer it: it
         /// is a per-frame rate controller with a different control law, and two of those fighting
         /// over one track is exactly the collision this list exists to stop.
+        /// <see cref="TypeBeatModPuppeteer"/> is the sibling follower, and it is the one entry named
+        /// from BOTH sides: where both files can be edited the convention is to declare the pair
+        /// twice, and only the framework types above (which predate this ruleset and cannot name
+        /// anything in it) are left to be matched from one side.
         /// </summary>
-        public override Type[] IncompatibleMods => new[] { typeof(ModRateAdjust), typeof(ModTimeRamp), typeof(ModAdaptiveSpeed) };
+        public override Type[] IncompatibleMods => new[]
+        {
+            typeof(ModRateAdjust),
+            typeof(ModTimeRamp),
+            typeof(ModAdaptiveSpeed),
+            typeof(TypeBeatModPuppeteer),
+        };
 
         // ---------------------------------------------------------------------------------------
         // Tuning. Every number here is a playtest starting point rather than a contract: nothing

@@ -57,15 +57,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public bool HideUpcomingText { get; set; }
 
         /// <summary>
-        /// Conductor mod: the playback rate its per-frame controller is currently asking for, or
-        /// null when no mod is following the player (which is every ordinary play). Written each
-        /// frame by <see cref="Mods.TypeBeatModConductor"/> and read by
+        /// The playback rate a FOLLOWER mod is currently asking for, or null when no mod is
+        /// following the player (which is every ordinary play). Written each frame by
+        /// <see cref="Mods.TypeBeatModConductor"/> or <see cref="Mods.TypeBeatModPuppeteer"/> (they
+        /// exclude each other, so at most one writer exists in any stack) and read by
         /// <see cref="TypeBeatHudOverlay"/>, which shows a rate readout exactly while it is present.
         /// Same shape as <see cref="FlashlightVisibleRadius"/>, and for the same reason: the HUD
-        /// never has to know which mod (if any) published the value.
+        /// never has to know which mod (if any) published the value. The NAME is the Conductor's
+        /// because it was the first publisher; it is deliberately not renamed, since the property is
+        /// already documented as a mod-published readout rather than as one mod's field.
         ///
-        /// <para>A readout only. The rate that actually moves the music is the mod's own
-        /// <c>SpeedChange</c> bindable on the gameplay clock's mod adjustments.</para>
+        /// <para>A readout only. The rate that actually moves the music is the publishing mod's own
+        /// bindable on the gameplay clock's mod adjustments (the Conductor's <c>SpeedChange</c>
+        /// split into a tempo/frequency pair, Puppeteer's single frequency adjustment).</para>
         /// </summary>
         public double? ConductorRate { get; set; }
 

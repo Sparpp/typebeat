@@ -302,11 +302,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <see cref="IApplicableToDrawableRuleset{T}"/>, or a live play and its own replay would be
         /// judged on different ladders. The ramps are outside both on purpose: a ramp's rate is a
         /// function of time, which one scale set before the first keypress cannot express.
+        ///
+        /// <para>This is the RATE half of the seam, and it is not the whole of it. The scorer also
+        /// carries a fixed-scale arm per window-scaling mod that is not a rate mod at all (Easy,
+        /// Hard Rock, and since backlog 256 Puppeteer), and the same both-ends rule applies to each:
+        /// every mod that scales the windows live must have an arm there. The walk below is over
+        /// EVERY mod the ruleset offers, so a new window-scaling mod cannot be added on one side
+        /// only without this failing.</para>
         /// </summary>
         [Test]
         public void EveryRateModCarriesTheLiveWindowScaleSeam()
         {
-            var rateMods = new TypeBeatRuleset().AllMods.OfType<ModRateAdjust>().ToList();
+            var ruleset = new TypeBeatRuleset();
+
+            var rateMods = ruleset.AllMods.OfType<ModRateAdjust>().ToList();
 
             Assert.AreEqual(3, rateMods.Count, "Double Time, Nightcore and Half Time");
 
@@ -318,6 +327,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.IsNotInstanceOf<ModRateAdjust>(new ModWindUp());
             Assert.IsNotInstanceOf<ModRateAdjust>(new ModWindDown());
+
+            // The mods that reach TypingEngine.WindowScale from ApplyToDrawableRuleset, and the
+            // exact population the scorer's createEngine has an arm for. Rate mods are covered by
+            // the loop above; the rest are named one by one, so adding a window-scaling mod without
+            // a replay arm (or the other way round) fails here rather than silently re-judging
+            // stored runs on a ladder nobody played on.
+            var windowScalers = ruleset.AllMods
+                                       .Where(m => m is TypeBeatModEasy or TypeBeatModHardRock or TypeBeatModPuppeteer)
+                                       .ToList();
+
+            Assert.AreEqual(3, windowScalers.Count, "Easy, Hard Rock and Puppeteer");
+
+            foreach (var mod in windowScalers)
+            {
+                Assert.IsInstanceOf<IApplicableToDrawableRuleset<TypeBeatHitObject>>(mod,
+                    $"{mod.Acronym} would scale a replay's windows but not a live play's");
+            }
         }
 
         /// <summary>

@@ -445,6 +445,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             if (mods.Any(m => m is TypeBeatModHardRock))
                 engine.WindowScale *= TypeBeatModHardRock.WINDOW_SCALE;
 
+            // PUPPETEER (backlog 256) is a third fixed-scale arm on the same terms as the two above,
+            // and NOT part of the ModRateAdjust loop below: its rate is a function of how the player
+            // types, but the scale it applies is one constant set before the first keypress, which is
+            // exactly what this seam can express. Under strict following the song meets the caret by
+            // construction, so timing carries no signal and every press on the right character is a
+            // Great; miss this arm and a stored Puppeteer replay re-derives with the model's own
+            // steady-state lag re-read as the player being early. It ships for the first time in this
+            // release, so no stored row can carry the acronym and there is no era in which the arm
+            // should be off.
+            if (mods.Any(m => m is TypeBeatModPuppeteer))
+                engine.WindowScale *= TypeBeatModPuppeteer.WINDOW_SCALE;
+
             // The rate mods scale the windows by the CLOCK RATE so the real-time tolerance is
             // constant (backlog 150). Matched on ModRateAdjust, the base the ruleset's three rate
             // mods share and the same set that carries the live ApplyToDrawableRuleset seam

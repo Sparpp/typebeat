@@ -156,13 +156,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var incompatible = mod.IncompatibleMods;
 
-            Assert.AreEqual(3, incompatible.Length);
+            Assert.AreEqual(4, incompatible.Length);
             Assert.Contains(typeof(ModRateAdjust), incompatible);
             Assert.Contains(typeof(ModTimeRamp), incompatible);
             Assert.Contains(typeof(ModAdaptiveSpeed), incompatible);
 
+            // The sibling follower (backlog 256), and the one entry declared from both sides:
+            // TypeBeatModPuppeteer names this type as well.
+            Assert.Contains(typeof(TypeBeatModPuppeteer), incompatible);
+
             foreach (var other in new Mod[]
                      {
+                         new TypeBeatModPuppeteer(),
                          new TypeBeatModDoubleTime(),
                          new TypeBeatModNightcore(),
                          new TypeBeatModHalfTime(),
