@@ -8,10 +8,16 @@ using System.Text.Json;
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
-    /// Writes the "type!beat file format v1" .osu variant from a lyriclab timing.json (v2).
+    /// Writes the "type!beat file format" .osu variant from a lyriclab timing.json (v2).
     /// The single source of truth for the [Lyrics] serialization, used by the map-conversion
     /// tool (tools/TypeBeatOszConverter) and the decoder round-trip tests, so what the tool
     /// produces is exactly what <see cref="LyricBeatmapDecoder"/> parses.
+    ///
+    /// <para><b>Format versions.</b> The magic line's number is a real discriminator since
+    /// backlog 255, not decoration (see <see cref="FORMAT_VERSION"/>): v1 files decode their
+    /// [Lyrics] text with the backing-vocal strip, v2 files keep a literal bracket. Every writer
+    /// here emits the current version, so a file only ever carries v1 if it was written before
+    /// that change.</para>
     ///
     /// <para><b>type!beat line-object extensions</b> (beyond the aligner's own schema; both are
     /// optional, and a line without them decodes exactly as it always has):</para>
@@ -27,6 +33,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// </summary>
     public static class LyricOsuFormat
     {
+        /// <summary>
+        /// The format version every writer here stamps on the magic line, and the one thing that
+        /// tells a reader how to read a BRACKET in a stored [Lyrics] line (backlog 255).
+        ///
+        /// <list type="bullet">
+        /// <item><b>v1</b>: brackets are BACKING VOCALS. No write path that produced a v1 file could
+        /// store a literal bracket, because every one of them ran
+        /// <see cref="Typeability.StripBackingVocals"/> before the text was written or on the way
+        /// back out, so a '(' in a v1 file is a backing vocal by construction and the decoder still
+        /// strips it. That makes the version a perfect discriminator with no ambiguity: an existing
+        /// map decodes exactly as it always has, and not one byte of it moves.</item>
+        /// <item><b>v2</b>: brackets are LITERAL lyric marks, ordinary punctuation like a comma.
+        /// The strip now happens only where a foreign lyrics file is INGESTED
+        /// (<see cref="LrcParser"/>, <see cref="TimingJsonLoader.TryParse"/> and the .osu writer's
+        /// own sweep in <c>LyricMapImporter.StripBackingVocalLines</c>), so a v2 file is already
+        /// bracket-free unless a mapper typed the brackets in on purpose.</item>
+        /// </list>
+        ///
+        /// <para>A v1 map re-saved from the editor comes back out as v2, and correctly so: its
+        /// brackets were stripped when it was decoded, so the text being written carries none.</para>
+        /// </summary>
+        public const int FORMAT_VERSION = 2;
+
         /// <summary>
         /// Generates the full .osu text. Each timing.json line object is re-emitted compact
         /// (one per line, full fidelity including fields the decoder ignores) so the .osu
@@ -126,7 +155,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             var sb = new StringBuilder();
 
-            sb.AppendLine("type!beat file format v1");
+            sb.AppendLine($"{LyricBeatmapDecoder.MAGIC}{FORMAT_VERSION.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
             sb.AppendLine();
             sb.AppendLine("[General]");
             sb.AppendLine($"AudioFilename: {audioFilename}");
@@ -244,5 +273,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// start of a line so a lyric that happens to contain "Video,12," is left alone.</para>
         /// </summary>
         public static string StripVideoOffset(string osu) => video_offset_field.Replace(osu, "Video,0,");
+
+        private static readonly System.Text.RegularExpressions.Regex format_version_field =
+            new System.Text.RegularExpressions.Regex(@"^" + System.Text.RegularExpressions.Regex.Escape(LyricBeatmapDecoder.MAGIC) + "[0-9]+",
+                System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>
+        /// Normalises the magic line's FORMAT VERSION away, so two encodings that differ only by it
+        /// compare equal. Same purpose as <see cref="StripBeatdrop"/> and
+        /// <see cref="StripVideoOffset"/>: without it, backlog 255's v1 to v2 bump would demote
+        /// every ranked map to locally-modified the first time its author opened the editor and
+        /// saved, since the writer's version moved under them and nothing else had to change.
+        ///
+        /// <para>It is safe precisely because the version says how to READ brackets and a v1 map
+        /// carrying any has already lost them at decode: a save that actually changes the lyric
+        /// changes the [Lyrics] lines too, and those still compare. Anchored to the start of the
+        /// file, so only the magic line is touched.</para>
+        /// </summary>
+        public static string StripFormatVersion(string osu) => format_version_field.Replace(osu, LyricBeatmapDecoder.MAGIC);
     }
 }

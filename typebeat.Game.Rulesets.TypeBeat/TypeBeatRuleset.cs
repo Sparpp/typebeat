@@ -131,9 +131,10 @@ namespace typebeat.Game.Rulesets.TypeBeat
             new TypeBeatScoreMultiplierCalculator(context);
 
         /// <summary>
-        /// type!beat maps are stored in the "type!beat file format v1" .osu variant; the legacy
-        /// encoder cannot represent the [Lyrics] section, so the ruleset serialises itself. This
-        /// also makes the editor treat the ruleset as save-capable despite not being legacy.
+        /// type!beat maps are stored in the "type!beat file format" .osu variant (currently v2,
+        /// <see cref="LyricOsuFormat.FORMAT_VERSION"/>); the legacy encoder cannot represent the
+        /// [Lyrics] section, so the ruleset serialises itself. This also makes the editor treat the
+        /// ruleset as save-capable despite not being legacy.
         /// </summary>
         public override bool CanEncodeToNativeFormat => true;
 
@@ -141,17 +142,19 @@ namespace typebeat.Game.Rulesets.TypeBeat
             TypeBeatBeatmapEncoder.Encode(beatmap, storyboard, writer);
 
         /// <summary>
-        /// Two things in this format are cosmetic for online status. The intro beatdrop
-        /// (<c>beatdrop_ms</c>) only soundtracks the main-menu intro, and the [Events] video offset
-        /// only syncs a decorative clip to the song; neither has any bearing on gameplay or scoring.
-        /// So a save that changes only those must not demote a ranked map to LocallyModified: compare
-        /// with both fields normalised out. Everything else, the video's FILE included, still counts.
+        /// Three things in this format are cosmetic for online status. The intro beatdrop
+        /// (<c>beatdrop_ms</c>) only soundtracks the main-menu intro, the [Events] video offset only
+        /// syncs a decorative clip to the song, and the magic line's FORMAT VERSION says how to read
+        /// the file rather than what is in it; none of the three has any bearing on gameplay or
+        /// scoring. So a save that changes only those must not demote a ranked map to
+        /// LocallyModified: compare with all three normalised out. Everything else, the video's FILE
+        /// included, still counts.
         /// </summary>
         public override bool NativeEncodingsEquivalentForStatus(string encodedA, string encodedB) =>
             normaliseForStatus(encodedA) == normaliseForStatus(encodedB);
 
         private static string normaliseForStatus(string encoded) =>
-            LyricOsuFormat.StripVideoOffset(LyricOsuFormat.StripBeatdrop(encoded));
+            LyricOsuFormat.StripFormatVersion(LyricOsuFormat.StripVideoOffset(LyricOsuFormat.StripBeatdrop(encoded)));
 
         /// <summary>Compose mode is type!beat's own lyric surface, not a circle composer.</summary>
         public override typebeat.Game.Screens.Edit.EditorScreen CreateEditorComposeScreen() => new LyricComposeScreen();

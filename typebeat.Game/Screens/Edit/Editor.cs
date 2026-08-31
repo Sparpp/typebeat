@@ -1318,7 +1318,7 @@ namespace typebeat.Game.Screens.Edit
 
         private EditorMenuItem createExportMenu()
         {
-            // type!beat maps store as the "type!beat file format v1" .osu; only the native
+            // type!beat maps store as the "type!beat file format" .osu; only the native
             // (.typb) export archives the stored files verbatim. The legacy (.osz) export
             // re-encodes through LegacyBeatmapEncoder, which cannot represent the [Lyrics]
             // section, so it is intentionally omitted here.

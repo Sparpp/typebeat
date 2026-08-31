@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.Json;
 using osu.Framework.Logging;
 using typebeat.Game.Beatmaps;
@@ -14,12 +15,18 @@ using typebeat.Game.Storyboards;
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
-    /// Decoder for the "type!beat file format v1" .osu variant (M6 format skeleton):
+    /// Decoder for the "type!beat file format" .osu variant (M6 format skeleton):
     /// [General]/[Metadata]/[Difficulty]/[TimingPoints] are handled by the inherited legacy
     /// parsing; a [Lyrics] section carries one compact JSON object per line: an optional
     /// header object (version/song_end_ms/granularity, no "text" key) followed by one
     /// timing.json v2 line object per lyric line, parsed by the regression-anchored
     /// <see cref="TimingJsonLoader"/> logic straight into <see cref="TypeBeatHitObject"/>s.
+    ///
+    /// <para>The magic line's VERSION is read (<see cref="LyricFormatVersion"/>) and decides one
+    /// thing, backlog 255: whether a bracket in a stored [Lyrics] line is a backing vocal to strip
+    /// (v1, and anything unversioned or unparseable) or a literal lyric mark to keep (v2 and up).
+    /// See <see cref="LyricOsuFormat.FORMAT_VERSION"/> for why the version is a sound discriminator
+    /// rather than a guess.</para>
     ///
     /// Registration (<see cref="Register"/>) is invoked from <see cref="TypeBeatRuleset"/>'s
     /// static constructor, which runs when RulesetStore instantiates the ruleset at startup,
@@ -28,8 +35,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// </summary>
     public class LyricBeatmapDecoder : LegacyBeatmapDecoder
     {
-        /// <summary>First line of the file; the version suffix is currently informational.</summary>
+        /// <summary>
+        /// First line of the file, up to but not including the version number. Matched as a PREFIX
+        /// by the decoder registry, so every version of the format routes here and the number after
+        /// it is read by <see cref="ParseFormatVersion"/>.
+        /// </summary>
         public const string MAGIC = @"type!beat file format v";
+
+        /// <summary>
+        /// The version a file with no readable number is treated as. It is the ORIGINAL format, so
+        /// an unparseable magic line falls back to the historical reading (brackets stripped)
+        /// rather than to the current one, which is the direction that cannot invent lyric content
+        /// for a map that never had it.
+        /// </summary>
+        public const int FALLBACK_FORMAT_VERSION = 1;
+
+        /// <summary>
+        /// The first format version whose [Lyrics] brackets are LITERAL lyric marks rather than
+        /// backing-vocal spans to strip (backlog 255). Below it the decode strips, at or above it
+        /// the decode preserves.
+        /// </summary>
+        public const int LITERAL_BRACKETS_FROM_VERSION = 2;
+
+        /// <summary>
+        /// The version number off the magic line, or <see cref="FALLBACK_FORMAT_VERSION"/> when
+        /// there is none to read. Only the digits immediately after <see cref="MAGIC"/> are taken,
+        /// so trailing whitespace or anything else on the line is ignored rather than fatal.
+        /// </summary>
+        public static int ParseFormatVersion(string magicLine)
+        {
+            if (string.IsNullOrEmpty(magicLine) || !magicLine.StartsWith(MAGIC, StringComparison.InvariantCulture))
+                return FALLBACK_FORMAT_VERSION;
+
+            int end = MAGIC.Length;
+
+            while (end < magicLine.Length && char.IsAsciiDigit(magicLine[end]))
+                end++;
+
+            return int.TryParse(magicLine.AsSpan(MAGIC.Length, end - MAGIC.Length), NumberStyles.None,
+                CultureInfo.InvariantCulture, out int version)
+                ? version
+                : FALLBACK_FORMAT_VERSION;
+        }
 
         private static bool registered;
 
@@ -40,7 +87,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             registered = true;
 
-            AddDecoder<Beatmap>(MAGIC, _ => new LyricBeatmapDecoder());
+            // The registry hands the factory the file's own first line, which is where the format
+            // version lives; the storyboard decoder below has no use for it.
+            AddDecoder<Beatmap>(MAGIC, magicLine => new LyricBeatmapDecoder(ParseFormatVersion(magicLine)));
 
             // The same .osu file is also decoded for storyboards (WorkingBeatmap.Storyboard);
             // without a magic match that path throws. type!beat files with an imported background
@@ -55,9 +104,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private double? beatdropMs;
         private TimingGranularity? headerGranularity;
 
+        /// <summary>
+        /// The type!beat format version of the file being decoded. Deliberately NOT the base
+        /// decoder's <c>FormatVersion</c>, which is the LEGACY osu version driving the inherited
+        /// [General]/[Metadata]/[TimingPoints] parsing and must stay at <c>LATEST_VERSION</c>.
+        /// </summary>
+        public int LyricFormatVersion { get; }
+
         public LyricBeatmapDecoder()
+            : this(LyricOsuFormat.FORMAT_VERSION)
+        {
+        }
+
+        public LyricBeatmapDecoder(int lyricFormatVersion)
             : base(LATEST_VERSION)
         {
+            LyricFormatVersion = lyricFormatVersion;
         }
 
         protected override void ParseStreamInto(LineBufferedReader stream, bool isPrimaryStream, Beatmap beatmap)
@@ -107,10 +169,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     return;
                 }
 
-                // Decoding a STORED map, so brackets are literal lyric marks and stay (backlog 255).
-                // The strip lives on the import side of the seam; see TryParseRawLine.
-                if (TimingJsonLoader.TryParseRawLine(root, out var rawLine, stripBackingVocals: false))
+                // THE VERSION GATE (backlog 255). From v2 on, a bracket in a stored [Lyrics] line is
+                // a literal lyric mark and stays; the strip lives on the import side of the seam
+                // (see TryParseRawLine). A v1 file predates that, and no v1 write path could store a
+                // literal bracket, so its brackets ARE backing vocals and are stripped exactly as
+                // they always were: an existing map decodes byte-identically to before.
+                if (TimingJsonLoader.TryParseRawLine(root, out var rawLine,
+                        stripBackingVocals: LyricFormatVersion < LITERAL_BRACKETS_FROM_VERSION))
+                {
                     rawLines.Add(rawLine);
+                }
             }
             catch (JsonException e)
             {

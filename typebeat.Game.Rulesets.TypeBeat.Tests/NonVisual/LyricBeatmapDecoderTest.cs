@@ -115,23 +115,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(hitObjects.Any(h => h.Line.RawText.Contains('(')), Is.False);
         }
 
+        /// <summary>The bracket fixture both version pins below read, as [Lyrics] source.</summary>
+        private const string bracket_timing_json =
+            "{\"version\":2,\"song_end_ms\":20000,\"lines\":[" +
+            "{\"text\":\"hello (oh) now\",\"start_ms\":1000,\"end_ms\":4000}," +
+            "{\"text\":\"[all of it]\",\"start_ms\":5000,\"end_ms\":7000}]}";
+
+        /// <summary>Rewrites an encoded .osu onto a different type!beat format version.</summary>
+        private static string atFormatVersion(string osu, int version)
+            => LyricOsuFormat.StripFormatVersion(osu).Insert(LyricBeatmapDecoder.MAGIC.Length, version.ToString());
+
         /// <summary>
-        /// Backlog 255, the other half of the seam. A bracket that IS in a stored [Lyrics] line is
-        /// a literal lyric mark: the decode keeps it, keeps the whole bracketed line, and hands the
-        /// player its content as ordinary typed lyric. (Only a FILE IMPORT reads "(oh)" as a
-        /// backing vocal, and it strips before the map is written, which is what the round-trip
-        /// pins above rely on.)
+        /// Backlog 255, the other half of the seam, at FORMAT VERSION 2. A bracket that is in a
+        /// stored v2 [Lyrics] line is a literal lyric mark: the decode keeps it, keeps the whole
+        /// bracketed line, and hands the player its content as ordinary typed lyric. (Only a FILE
+        /// IMPORT reads "(oh)" as a backing vocal, and it strips before the map is written, which
+        /// is what the round-trip pins above rely on.)
         /// </summary>
         [Test]
         public void LiteralBracketsInAStoredMapSurviveTheDecode()
         {
-            const string stored =
-                "{\"version\":2,\"song_end_ms\":20000,\"lines\":[" +
-                "{\"text\":\"hello (oh) now\",\"start_ms\":1000,\"end_ms\":4000}," +
-                "{\"text\":\"[all of it]\",\"start_ms\":5000,\"end_ms\":7000}]}";
+            string osuText = LyricOsuFormat.GenerateOsu("An Artist", "A Title", "audio.mp3", "tester", bracket_timing_json);
 
-            var hitObjects = decode(LyricOsuFormat.GenerateOsu("An Artist", "A Title", "audio.mp3", "tester", stored))
-                             .HitObjects.OfType<TypeBeatHitObject>().ToList();
+            // The writer stamps the current version, and it is the version that decides this.
+            Assert.That(osuText, Does.StartWith($"{LyricBeatmapDecoder.MAGIC}2"));
+            Assert.That(LyricOsuFormat.FORMAT_VERSION, Is.EqualTo(2));
+
+            var hitObjects = decode(osuText).HitObjects.OfType<TypeBeatHitObject>().ToList();
 
             // Both lines survive, marks and all: nothing is deleted and nothing is dropped.
             Assert.That(hitObjects.Count, Is.EqualTo(2));
@@ -145,13 +155,88 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // Feeding the SAME document through the import boundary instead strips it exactly as it
             // always did, whole-line drop included.
-            string imported = LyricMapImporter.StripBackingVocalLines(stored);
+            string imported = LyricMapImporter.StripBackingVocalLines(bracket_timing_json);
             var importedObjects = decode(LyricOsuFormat.GenerateOsu("An Artist", "A Title", "audio.mp3", "tester", imported))
                                   .HitObjects.OfType<TypeBeatHitObject>().ToList();
 
             Assert.That(importedObjects.Count, Is.EqualTo(1));
             Assert.That(importedObjects[0].Line.RawText, Is.EqualTo("hello now"));
         }
+
+        /// <summary>
+        /// The version gate itself, and the reason it exists: a file that says v1 predates literal
+        /// brackets, so every bracket in it IS a backing vocal (no v1 write path could store one)
+        /// and it decodes exactly as it did before backlog 255. The same bytes at v2 keep them.
+        /// </summary>
+        [Test]
+        public void AV1FileStillStripsItsBackingVocals()
+        {
+            string v2 = LyricOsuFormat.GenerateOsu("An Artist", "A Title", "audio.mp3", "tester", bracket_timing_json);
+            string v1 = atFormatVersion(v2, 1);
+
+            // The ONLY difference is the magic line's number.
+            Assert.That(LyricOsuFormat.StripFormatVersion(v1), Is.EqualTo(LyricOsuFormat.StripFormatVersion(v2)));
+
+            var lines = decode(v1).HitObjects.OfType<TypeBeatHitObject>().ToList();
+
+            // "hello (oh) now" loses its span, "[all of it]" is a whole backing-vocal line and is
+            // dropped so the previous line extends over it. Byte for byte the old behaviour.
+            Assert.That(lines.Count, Is.EqualTo(1));
+            Assert.That(lines[0].Line.RawText, Is.EqualTo("hello now"));
+            Assert.That(Typeability.ToDefaultStream(lines[0].Line.RawText), Is.EqualTo("hello now"));
+
+            // An unversioned or unreadable magic line falls back to v1, the direction that cannot
+            // invent lyric content for a map that never had it.
+            var unversioned = decode(atFormatVersion(v2, 1).Replace($"{LyricBeatmapDecoder.MAGIC}1", LyricBeatmapDecoder.MAGIC))
+                              .HitObjects.OfType<TypeBeatHitObject>().ToList();
+
+            Assert.That(unversioned.Count, Is.EqualTo(1));
+            Assert.That(unversioned[0].Line.RawText, Is.EqualTo("hello now"));
+        }
+
+        /// <summary>
+        /// The migration, stated as a pin: opening a v1 map and saving it writes a v2 file that is
+        /// bracket-free, because the brackets were stripped when it was decoded. So the version
+        /// number a map carries only ever moves forward, and it moves together with the reading its
+        /// text was already given. Saving does not resurrect a backing vocal, and it does not leave
+        /// a v2 file that would have to be read as v1.
+        /// </summary>
+        [Test]
+        public void AResavedV1MapComesOutAsBracketFreeV2()
+        {
+            string v1 = atFormatVersion(LyricOsuFormat.GenerateOsu("An Artist", "A Title", "audio.mp3", "tester", bracket_timing_json), 1);
+
+            var writer = new StringWriter();
+            TypeBeatBeatmapEncoder.Encode(decode(v1), writer);
+            string resaved = writer.ToString();
+
+            Assert.That(resaved, Does.StartWith($"{LyricBeatmapDecoder.MAGIC}2"));
+
+            // No round bracket anywhere in the file (the square ones are the section headers).
+            Assert.That(resaved, Does.Not.Contain("("), "no bracket survives into the re-saved map");
+
+            // And it reads back as the same single line the v1 file decoded to, so the round-trip
+            // through the version bump is stable.
+            var lines = decode(resaved).HitObjects.OfType<TypeBeatHitObject>().ToList();
+            Assert.That(lines.Count, Is.EqualTo(1));
+            Assert.That(lines[0].Line.RawText, Is.EqualTo("hello now"));
+            Assert.That(lines.Any(l => l.Line.RawText.Contains('[') || l.Line.RawText.Contains(']')), Is.False);
+        }
+
+        /// <summary>
+        /// <see cref="LyricBeatmapDecoder.ParseFormatVersion"/>, the one place the magic line's
+        /// number is read. Anything it cannot read is v1, never the current version.
+        /// </summary>
+        [TestCase("type!beat file format v1", 1)]
+        [TestCase("type!beat file format v2", 2)]
+        [TestCase("type!beat file format v17", 17)]
+        [TestCase("type!beat file format v2 ", 2)]
+        [TestCase("type!beat file format v", 1)]
+        [TestCase("type!beat file format vx", 1)]
+        [TestCase("osu file format v14", 1)]
+        [TestCase("", 1)]
+        public void TheMagicLineVersionIsRead(string magicLine, int expected)
+            => Assert.That(LyricBeatmapDecoder.ParseFormatVersion(magicLine), Is.EqualTo(expected));
 
         [Test]
         public void NonLyricFilesStillDecodeViaLegacyFallback()

@@ -20,7 +20,7 @@ namespace typebeat.Game.Screens.Edit.Submission
     /// <summary>
     /// Exports a beatmap set for submission, stamping the server-allocated online IDs into each
     /// difficulty. Unlike lazer's submission exporter this re-encodes each <c>.osu</c> through the
-    /// ruleset's NATIVE format encoder (the "type!beat file format v1" with its [Lyrics] section),
+    /// ruleset's NATIVE format encoder (the "type!beat file format" with its [Lyrics] section),
     /// the legacy encoder cannot represent [Lyrics] and would destroy the map. All other files
     /// (audio, background, video) are copied byte-for-byte by the base exporter.
     /// </summary>

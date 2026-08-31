@@ -66,6 +66,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        /// <summary>
+        /// Backlog 255 bumped the magic line from v1 to v2. The version says how to READ a file
+        /// rather than what is in it, so a save whose only difference is that bump must not demote a
+        /// ranked map: without this, every ranked map would drop to locally-modified the first time
+        /// its author opened the editor and saved. A v1 map that actually carried brackets changes
+        /// its [Lyrics] lines too (they were stripped at decode), and that still compares.
+        /// </summary>
+        [Test]
+        public void AFormatVersionBumpAloneIsStatusEquivalent()
+        {
+            var ruleset = new TypeBeatRuleset();
+            string atV2 = no_drop.Replace("file format v1", "file format v2");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ruleset.NativeEncodingsEquivalentForStatus(no_drop, atV2), Is.True);
+                Assert.That(ruleset.NativeEncodingsEquivalentForStatus(atV2, no_drop), Is.True);
+
+                // The normalisation is anchored to the magic line, so it cannot mask a real edit.
+                Assert.That(ruleset.NativeEncodingsEquivalentForStatus(atV2, with_drop_and_content_change.Replace("file format v1", "file format v2")), Is.False);
+            });
+        }
+
         [Test]
         public void RealContentChangeIsNotStatusEquivalent()
         {
