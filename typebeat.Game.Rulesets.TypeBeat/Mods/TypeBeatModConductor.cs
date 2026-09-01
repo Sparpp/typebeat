@@ -20,9 +20,35 @@ using typebeat.Game.Rulesets.UI;
 namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
     /// <summary>
-    /// UNRANKED. The song follows the PLAYER instead of the player chasing the song: a per-frame
-    /// controller bends the playback rate down when they fall behind and up when they run hot, like
-    /// an orchestra following its conductor.
+    /// THE RETIRED "CT" MOD (backlog 257): the song follows the PLAYER instead of the player chasing
+    /// the song, through a per-frame controller that bends the playback rate down when they fall
+    /// behind and up when they run hot, like an orchestra following its conductor. UNRANKED, and
+    /// nobody can select it any more: <see cref="TypeBeatModPuppeteer"/> replaced it as the one
+    /// follower, and took the NAME "Conductor" with it.
+    ///
+    /// <para><b>Nothing about its behaviour changed, and that is the point.</b> It stays in the
+    /// ruleset because SCORES AND REPLAYS ALREADY EXIST carrying "CT", and everything a stored run
+    /// flows through resolves its acronym here. Its class name, its acronym, its settings, its
+    /// control law in <see cref="ConductorController"/> and its tests are all untouched, so an old CT
+    /// replay still watches exactly as it did: the frames are track times and nothing rate-derived
+    /// was ever stored, so re-scoring is bit-identical to re-scoring the same keystrokes unmodded
+    /// either way. Only the LABEL and the LISTING moved. Deleting it instead would resolve every
+    /// stored CT row to <c>UnknownMod</c>.</para>
+    ///
+    /// <para><see cref="ModType.System"/> is what makes it unselectable without making it
+    /// unresolvable, exactly as it does for <see cref="TypeBeatModLegacyFletcher"/>:
+    /// <c>Ruleset.CreateAllMods</c> walks every <see cref="ModType"/>, so the acronym still resolves,
+    /// while <c>ModSelectOverlay</c> builds columns for the five player-facing types only and marks
+    /// every System mod invalid for selection. <see cref="UserPlayable"/> is false for the same
+    /// reason it is on <c>UnknownMod</c>: this is a record of how a stored play was configured, not
+    /// a thing anyone can put on a new one. <c>Ranked</c> is left false because these plays
+    /// never were ranked, so retiring the mod prices nothing differently (the multiplier was and
+    /// remains a flat 1.0x).</para>
+    ///
+    /// <para>It still declares <see cref="TypeBeatModPuppeteer"/> incompatible, and that is not
+    /// vestigial: a stored score can carry a System mod, so the pair can still be presented together
+    /// to <c>ModUtils.CheckCompatibleSet</c>, and two per-frame owners of the playback rate is
+    /// exactly the collision that list exists to refuse.</para>
     ///
     /// <para><b>Where the control law lives.</b> Entirely in
     /// <see cref="ConductorController.Step"/>, a pure function; this class is only the plumbing that
@@ -71,21 +97,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// </summary>
     public class TypeBeatModConductor : Mod, IUpdatableByPlayfield, IApplicableToTrack, IApplicableToDrawableRuleset<TypeBeatHitObject>
     {
-        public override string Name => "Conductor";
+        public override string Name => "Conductor (retired)";
 
         /// <summary>
         /// Free across the whole ruleset (pinned by
         /// <c>TypeBeatModConductorTest.AcronymDoesNotCollideWithAnyOtherRulesetMod</c>), and it must
         /// stay in step with the server's always-unranked acronym list, which is the only thing
-        /// keeping these plays off the ranked leaderboards.
+        /// keeping these plays off the ranked leaderboards. It can never be re-pointed at the
+        /// surviving follower: "CT" means THIS control law on every score already stored.
         /// </summary>
         public override string Acronym => "CT";
 
-        public override LocalisableString Description => "The song follows you. Audio quality degrades at extreme rates.";
+        public override LocalisableString Description => "The song follows you. Audio quality degrades at extreme rates. (retired: the Conductor is a tape reel now)";
 
         public override IconUsage? Icon => OsuIcon.ModAdaptiveSpeed;
 
-        public override ModType Type => ModType.Fun;
+        public override ModType Type => ModType.System;
+
+        /// <summary>Same reason it is false on <c>UnknownMod</c>: a record of a stored play, not an option on a new one.</summary>
+        public override bool UserPlayable => false;
 
         // A rate that is a function of one player's typing cannot be shared with anyone else in the
         // room, so this never reaches multiplayer, as a required mod or a free one.

@@ -22,13 +22,17 @@ using Assert = NUnit.Framework.Legacy.ClassicAssert;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
-    /// The Conductor mod (backlog 226): the song's playback rate follows the player. Two halves are
+    /// The Conductor mod (backlog 226): the song's playback rate follows the player. RETIRED in
+    /// backlog 257, when <see cref="TypeBeatModPuppeteer"/> replaced it as the one follower and took
+    /// its name; everything below is pinned unchanged BECAUSE it is retired, since stored "CT"
+    /// scores and replays still resolve here and still re-derive on this control law. Two halves are
     /// pinned here.
     ///
     /// <para>THE SHIPPING SURFACE: the acronym the server keys its always-unranked list off, the
-    /// unranked flag, the Fun category, the flat 1.0x, the rate-mod exclusions, and the one thing
-    /// the mod actually does to audio, which is write a tempo (not frequency) adjustment onto the
-    /// aggregate the gameplay clock's rate is read from.</para>
+    /// unranked flag, the System listing that makes it unselectable without making it unresolvable,
+    /// the flat 1.0x, the rate-mod exclusions, and the one thing the mod actually does to audio,
+    /// which is write a tempo (not frequency) adjustment onto the aggregate the gameplay clock's
+    /// rate is read from.</para>
     ///
     /// <para>THE CONTROL LAW: <see cref="ConductorController.Step"/> is a pure function, so the
     /// whole controller is driven here with no drawables, no clock and no audio at all. That is the
@@ -68,19 +72,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         // -----------------------------------------------------------------------------------------
 
         [Test]
-        public void ReportsUnrankedFunModWithCtAcronym()
+        public void ReportsUnrankedRetiredModWithCtAcronym()
         {
             var mod = new TypeBeatModConductor();
 
-            Assert.AreEqual("Conductor", mod.Name);
+            // RETIRED in backlog 257: Puppeteer replaced it as the one follower and took the NAME
+            // "Conductor" with it. Everything else about this mod is frozen, not removed, because
+            // scores and replays already exist carrying "CT".
+            Assert.AreEqual("Conductor (retired)", mod.Name);
             Assert.AreEqual("CT", mod.Acronym);
-            Assert.AreEqual(ModType.Fun, mod.Type);
+            Assert.AreEqual(ModType.System, mod.Type);
+            Assert.IsFalse(mod.UserPlayable, "nobody may put a retired mod on a new play");
             Assert.IsFalse(mod.Ranked,
                 "the song meeting the player halfway is exactly the kind of generosity a leaderboard cannot price");
-            Assert.IsTrue(mod.HasImplementation);
+            Assert.IsTrue(mod.HasImplementation, "an old CT replay still has to watch on the law it was played under");
             Assert.IsNotNull(mod.Icon);
-            Assert.AreEqual("The song follows you. Audio quality degrades at extreme rates.", mod.Description.ToString(),
-                "the band reaches 51x now (backlog 252), and a player should be told the audio suffers there before they drag it");
+            Assert.AreEqual("The song follows you. Audio quality degrades at extreme rates. (retired: the Conductor is a tape reel now)", mod.Description.ToString());
 
             // A follower's rate is one player's typing; there is nothing to share with a room.
             Assert.IsFalse(mod.ValidForMultiplayer);
@@ -98,13 +105,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(1, acronyms.Count(a => a == "CT"));
         }
 
+        /// <summary>
+        /// The retirement, on exactly the terms "FT" was retired on (see
+        /// <c>TypeBeatModFletcherTest</c>): unselectable, because the mod-select overlay builds
+        /// columns for the five player-facing types only and marks every System mod invalid, and
+        /// still RESOLVABLE, because <c>Ruleset.CreateAllMods</c> walks every ModType. Drop the
+        /// listing instead and every stored CT row resolves to <c>UnknownMod</c> and re-derives
+        /// without the mod it was played with.
+        /// </summary>
         [Test]
-        public void RulesetSurfacesConductorUnderFun()
+        public void RulesetHidesTheRetiredConductorButStillResolvesIt()
         {
             var ruleset = new TypeBeatRuleset();
 
-            Assert.IsTrue(ruleset.GetModsFor(ModType.Fun).Any(m => m is TypeBeatModConductor),
-                "Conductor must be offered in the mod-select overlay under Fun.");
+            foreach (var type in new[] { ModType.DifficultyReduction, ModType.DifficultyIncrease, ModType.Conversion, ModType.Automation, ModType.Fun })
+            {
+                Assert.IsFalse(ruleset.GetModsFor(type).Any(m => m is TypeBeatModConductor),
+                    $"the retired mod must not be selectable under {type}");
+            }
+
+            Assert.IsTrue(ruleset.GetModsFor(ModType.System).Any(m => m is TypeBeatModConductor),
+                "...but it must stay listed, or a stored CT score resolves to UnknownMod");
+
+            Assert.IsInstanceOf<TypeBeatModConductor>(ruleset.CreateModFromAcronym("CT"));
+
+            // The surviving follower is the one on offer, and it is the one called "Conductor" now.
+            var puppeteer = ruleset.GetModsFor(ModType.Fun).OfType<TypeBeatModPuppeteer>().SingleOrDefault();
+
+            Assert.IsNotNull(puppeteer, "the tape-reel follower must be the one in the Fun column");
+            Assert.AreEqual("Conductor", puppeteer!.Name);
+            Assert.AreEqual("PT", puppeteer.Acronym, "the display name moved; the wire identity did not");
         }
 
         [Test]

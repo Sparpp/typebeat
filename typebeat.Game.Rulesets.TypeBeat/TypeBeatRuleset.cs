@@ -112,18 +112,23 @@ namespace typebeat.Game.Rulesets.TypeBeat
                 new TypeBeatModMuted(),
                 new ModWindUp(),
                 new ModWindDown(),
-                new TypeBeatModConductor(),
                 new TypeBeatModPuppeteer(),
             },
             // NOT a player-facing column: ModSelectOverlay builds columns for the five types above
-            // only, and marks every System mod invalid for selection. What listing it here DOES buy
-            // is resolution: Ruleset.CreateAllMods walks every ModType, so a stored score's "FT"
-            // still resolves to a real mod instead of UnknownMod, keeping its 0.98x multiplier, its
-            // 0.90x pp and (crucially) the flexible-caret-without-snap era it was played under.
-            // See TypeBeatModLegacyFletcher.
+            // only, and marks every System mod invalid for selection. What listing them here DOES
+            // buy is resolution: Ruleset.CreateAllMods walks every ModType, so a stored score's
+            // acronym still resolves to a real mod instead of UnknownMod.
+            //
+            // "FT" keeps its 0.98x multiplier, its 0.90x pp and (crucially) the
+            // flexible-caret-without-snap era it was played under; see TypeBeatModLegacyFletcher.
+            // "CT" keeps its own control law, so an old Conductor replay still watches as it was
+            // played; backlog 257 retired it when Puppeteer took over as the one follower (and took
+            // the NAME "Conductor" with it), and see TypeBeatModConductor for why the acronym can
+            // never be re-pointed at the mod that replaced it.
             ModType.System => new Mod[]
             {
                 new TypeBeatModLegacyFletcher(),
+                new TypeBeatModConductor(),
             },
             _ => Array.Empty<Mod>(),
         };

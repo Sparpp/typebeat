@@ -22,6 +22,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// spins up, hesitate and it drags to a stop, walk away and it parks. It is frequency-only, so
     /// the pitch bends with the speed, and that is the aesthetic rather than a compromise.
     ///
+    /// <para><b>THE DISPLAY NAME IS "Conductor" AND THE CLASS NAME IS NOT (backlog 257).</b> This is
+    /// the only follower a player can pick: the older rate-follower it replaced
+    /// (<see cref="TypeBeatModConductor"/>) is retired to <see cref="ModType.System"/>, keeps its
+    /// class name and its "CT" acronym forever so its stored scores and replays go on resolving, and
+    /// has "(retired)" appended to its own display name. The two identities are deliberately kept
+    /// apart. The DISPLAY name is what the owner wants the one surviving follower called; the CODE
+    /// name is what every file, test and doc in this ruleset already says; and the ACRONYM is a WIRE
+    /// identity that can never be re-pointed, because "PT" is stamped into scores already recorded
+    /// and "CT" belongs to the retired mod. Renaming the class to match the label would either
+    /// collide with the retired type or quietly change which mod a stored acronym means, so the
+    /// label moved and nothing else did.</para>
+    ///
     /// <para><b>Where the model lives.</b> Entirely in <see cref="PuppeteerClock"/>, a pure function
     /// integrated in fixed one millisecond WALL ticks; this class is only the driver that feeds it
     /// (an arm read off the engine each frame, a commanded frequency out). The law, the arms and the
@@ -77,7 +89,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// </summary>
     public class TypeBeatModPuppeteer : Mod, IUpdatableByPlayfield, IApplicableToTrack, IApplicableToDrawableRuleset<TypeBeatHitObject>
     {
-        public override string Name => "Puppeteer";
+        /// <summary>
+        /// The label only. The class is still <c>TypeBeatModPuppeteer</c> and the acronym is still
+        /// "PT": see the class remarks for why those three are three different things.
+        /// </summary>
+        public override string Name => "Conductor";
 
         /// <summary>
         /// Free across the whole ruleset (pinned by
@@ -87,7 +103,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// </summary>
         public override string Acronym => "PT";
 
-        public override LocalisableString Description => "The song is on a string. It follows your typing exactly, and the pitch bends with it.";
+        public override LocalisableString Description => "The song follows you.";
 
         public override IconUsage? Icon => OsuIcon.ModAutopilot;
 
@@ -160,15 +176,52 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         public const double V_MAX = TypeBeatModConductor.PITCH_ABSOLUTE_MAX_RATE;
 
         /// <summary>
-        /// The velocity ceiling while COASTING: a finished line, or no line at all. Exactly 1.00x,
-        /// which is the whole of backlog 253's lesson applied to a tape reel. The target on a coast
-        /// arm is the NEXT line's first vocal, which can be many seconds away, so an uncapped chase
-        /// would sprint the tail of every line and every instrumental gap. Capped at the song's own
-        /// speed the finished line simply plays out, and then eases into a park AT the next vocal if
-        /// the player has not started typing yet: breaks sound normal and the skip overlays behave
+        /// The velocity while COASTING: a finished line, or no line at all. Exactly 1.00x, flat, and
+        /// since backlog 257 it really is flat rather than a ceiling on a chase: the coast arm's
+        /// target is unreachable (<see cref="PuppeteerArm.Coast"/>), so there is no position term
+        /// left to shape it. OFF A LINE THE SONG SIMPLY PLAYS, which is the owner's rule for every
+        /// instrumental stretch: an intro, the tail of a line the player has finished, a gap between
+        /// verses and the outro all sound exactly as they do unmodded, and the skip overlays behave
         /// exactly as they do unmodded.
+        ///
+        /// <para>The park in front of an untyped vocal did not go away with the coast's position
+        /// term, it MOVED to where it belongs: a line activates a cue lead before its first vocal, so
+        /// the ACTIVE arm has the caret in hand well before there is anything to sing, and it parks
+        /// the tape ON the caret cell rather than at the start of a gap. See
+        /// <see cref="PACE_HEADROOM"/> for the cap that keeps that approach at the song's own speed
+        /// instead of sprinting it.</para>
         /// </summary>
         public const double COAST_MAX_VELOCITY = 1.0;
+
+        /// <summary>
+        /// The most caret travel one model tick may credit to the typing-pace estimate, in track
+        /// milliseconds. It is a RATE LIMIT and not a clamp: what it holds back is released on the
+        /// ticks that follow (see <see cref="PuppeteerClock.StepPace"/>), so it costs the estimate no
+        /// accuracy at all, it only stops one keystroke arriving as an instantaneous spike. 20 ms per
+        /// wall millisecond is ten times the hardware ceiling this mod can ever command, so no pace a
+        /// human can produce is throttled by it.
+        /// </summary>
+        public const double PACE_RELEASE_MS_PER_TICK = 20;
+
+        /// <summary>
+        /// A forward caret step larger than this is a DISCONTINUITY and is credited to the pace
+        /// estimate as nothing. One second of song is far more than any single keystroke advances a
+        /// caret on a line anyone could outrun, and far less than the jumps that are not typing at
+        /// all: a line hand-over, a re-seed after a coast, a seek. Without it a single such jump
+        /// would be released into the estimate a tick at a time and would read as several hundred
+        /// milliseconds of furious typing that never happened.
+        /// </summary>
+        public const double PACE_STEP_MAX_MS = 1000;
+
+        /// <summary>
+        /// How much faster than the measured typing pace the tape may run, which is the whole of its
+        /// authority to CLOSE a gap rather than merely hold one. See
+        /// <see cref="PuppeteerClock.TypingSustainedCap"/>: at exactly 1.0 the tape would keep the
+        /// cue lead's 1500 ms gap for the rest of the song, and above it the cap stops binding in the
+        /// steady state, so the settled lag stays exactly <see cref="T_CHASE_MS"/> worth of the
+        /// player's pace and the chase horizon still means what it says.
+        /// </summary>
+        public const double PACE_HEADROOM = 1.5;
 
         /// <summary>
         /// The horizon the position CORRECTION is spread over, in wall milliseconds. The commanded
@@ -217,6 +270,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// far below any real seek.
         /// </summary>
         public const double REWIND_THRESHOLD_MS = -50;
+
+        /// <summary>
+        /// How far the gameplay clock has to step FORWARDS in one frame before the driver reads it as
+        /// a seek rather than as playback. The mirror of <see cref="REWIND_THRESHOLD_MS"/>, and the
+        /// fix for backlog 257's freeze.
+        ///
+        /// <para><b>The bug it closes.</b> Live play DOES seek forwards: the intro
+        /// <c>SkipOverlay</c> jumps the clock to <c>GameplayStartTime</c>, and every instrumental gap
+        /// long enough to earn one has an overlay that calls <c>Player.PerformSkipTo</c>. Either can
+        /// move the clock tens of seconds in a single frame. The tape does not move with it, so
+        /// <see cref="CommandedFrequency"/>'s correction term (<c>(P - clock) / T_CORRECT_MS</c>)
+        /// goes hugely negative and pins the command at <see cref="V_EPSILON"/>: the song stops dead
+        /// while the tape crawls up to the clock at the coast speed, which takes ONE REAL SECOND PER
+        /// SECOND SKIPPED. On a map with a long intro the skip overlay is the first thing a player
+        /// sees, so the symptom is "the song never starts".</para>
+        ///
+        /// <para><b>Where the number comes from.</b> The stall guard answers first, so every frame
+        /// that reaches this test is at most <see cref="MAX_REAL_FRAME_MS"/> (250 ms) of wall time,
+        /// and the fastest the mod can ever command is <see cref="V_MAX"/>: the most track time
+        /// ordinary playback can put in one testable frame is therefore 500 ms, and anything above
+        /// that was not played, it was seeked. 1000 ms is twice that bound and two orders below the
+        /// smallest gap that earns a skip overlay at all
+        /// (<c>InstrumentalGaps.MIN_GAP_MS</c> is ten seconds), so the guard cannot fire on a hitch
+        /// and cannot miss a skip.</para>
+        /// </summary>
+        public const double FORWARD_SEEK_THRESHOLD_MS = 1000;
 
         /// <summary>
         /// Cap on the ticks integrated for one frame. The stall guard already throws out anything
@@ -273,10 +352,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// between successive frames are never negative.</item>
         /// </list>
         ///
-        /// <para>The axis assumes the run never SEEKS, which live play guarantees (only a replay can
-        /// seek, and a replay is not recorded). A rewind re-anchors the tape but deliberately leaves
-        /// this axis alone, because a stamp that went backwards would scramble the stored order,
-        /// which is worse than the times being wrong in a situation that cannot arise.</para>
+        /// <para>A SEEK re-anchors the tape (see <see cref="SeekReanchor"/>) but deliberately leaves
+        /// this axis alone, because a stamp that went backwards would scramble the stored order.
+        /// KNOWN LIMITATION, and backlog 257 corrects what backlog 256 wrote here: live play is NOT
+        /// seek-free. The intro skip and the instrumental-gap skips seek forwards, and a run that
+        /// used one re-derives on a tape that never took the skip, so every keystroke after it
+        /// derives at a track time earlier than the one it was really played at. Closing that means
+        /// recording the seek (a second anchor in the stream), which is an era of its own; until then
+        /// a Puppeteer replay is exact only for a run that skipped nothing.</para>
         /// </summary>
         public double? WallStampMs => tape is null ? null : anchorPositionMs + integratedTicks;
 
@@ -375,19 +458,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
                 return;
             }
 
-            if (trackDelta < REWIND_THRESHOLD_MS)
+            if (SeekReanchor(time, trackDelta) is PuppeteerState reanchored)
             {
-                // A real seek backwards. The tape's position describes a part of the song that is no
-                // longer being played, so re-anchor onto the clock rather than letting the
-                // correction term drag the rate to a bound while it catches up. Velocity goes to
-                // zero rather than to 1: the reel is being restarted, and it spins up under the
-                // smoothing constant from wherever the arm asks it to.
+                // The tape's position describes a part of the song that is no longer the one being
+                // played, so re-anchor onto the clock rather than letting the correction term drag
+                // the rate to a bound while it catches up. See SeekReanchor for the two directions.
                 //
                 // The RECORDING axis is deliberately not re-anchored with it (see WallStampMs): a
-                // stamp that went backwards would scramble the stored frame order, and a seek cannot
-                // happen while recording anyway, since only a replay can seek and a replay is not
-                // recorded.
-                tape = new PuppeteerState(time, 0);
+                // stamp that went backwards would scramble the stored frame order.
+                tape = reanchored;
                 pendingWallMs = 0;
                 publish();
                 return;
@@ -413,31 +492,60 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         }
 
         /// <summary>
+        /// The tape a SEEK demands, or null when the clock moved by an amount ordinary playback can
+        /// explain. Pure and public so the two thresholds can be driven without a clock, a playfield
+        /// or an audio stack, which is how the freeze this closes is pinned.
+        ///
+        /// <para>BACKWARDS (a rewind, past <see cref="REWIND_THRESHOLD_MS"/>): re-anchor with the
+        /// velocity at ZERO rather than at 1. The reel is being restarted, and it spins up under the
+        /// smoothing constant from wherever the arm asks it to.</para>
+        ///
+        /// <para>FORWARDS (a skip, past <see cref="FORWARD_SEEK_THRESHOLD_MS"/>): re-anchor at the
+        /// song's own speed, which is <see cref="PuppeteerState.AnchoredAt"/>. The two differ on
+        /// purpose. A rewind is a deliberate re-entry into a stretch of song, and starting it from
+        /// still is what makes it audibly a re-entry; a forward skip lands where the music is
+        /// supposed to be playing, and starting it from still would be a smaller copy of the very
+        /// freeze this branch exists to remove. At velocity 1 with the tape on the clock,
+        /// <see cref="CommandedFrequency"/> is exactly 1.00x on the first frame after the skip.</para>
+        /// </summary>
+        public static PuppeteerState? SeekReanchor(double clockTime, double trackDelta)
+        {
+            if (trackDelta < REWIND_THRESHOLD_MS)
+                return PuppeteerState.AnchoredAt(clockTime) with { Velocity = 0 };
+
+            if (trackDelta > FORWARD_SEEK_THRESHOLD_MS)
+                return PuppeteerState.AnchoredAt(clockTime);
+
+            return null;
+        }
+
+        /// <summary>
         /// What the engine is asking the tape for, right now. Public and static because it is the
         /// whole of the play's side of the model, and a stored replay re-derives it from engine
         /// state alone.
         ///
-        /// <para>THREE ARMS. (1) A live caret on a judgeable cell: chase that cell's target time, at
-        /// up to <see cref="V_MAX"/>. The target FREEZES when the player stops, which is the whole
-        /// "hesitate and it drags to a stop" behaviour, and it steps backwards under a backspace,
-        /// which the model answers by parking rather than rewinding (see
-        /// <see cref="PuppeteerClock"/>). (2) An active line whose caret has run off the end: coast
-        /// at up to 1.00x toward the NEXT line's first vocal, so a player who finished early hears
-        /// the line play out and the tape parks on the next cue waiting for them. (3) No active line
-        /// at all (the intro, an instrumental gap, the outro): the same coast, toward
-        /// <see cref="TypingEngine.NextUnsealedLineIndex"/>'s first vocal.</para>
+        /// <para>TWO ARMS since backlog 257. (1) ON A LINE, with a live caret on a judgeable cell:
+        /// chase that cell's target time, at up to <see cref="V_MAX"/> and up to what the player's
+        /// own typing pace sustains (<see cref="PuppeteerClock.TypingSustainedCap"/>). The target
+        /// FREEZES when the player stops, which is the whole "hesitate and it drags to a stop"
+        /// behaviour, and it steps backwards under a backspace, which the model answers by parking
+        /// rather than rewinding (see <see cref="PuppeteerClock"/>). (2) OFF A LINE, which is the
+        /// intro, an instrumental gap, the tail of a line the caret has finished, and the outro:
+        /// <see cref="PuppeteerArm.Coast"/>, a flat 1.00x with no position term at all.</para>
         ///
-        /// <para>The line-complete arm looks at <c>ActiveLineIndex + 1</c> and NOT at
-        /// <see cref="TypingEngine.NextUnsealedLineIndex"/>, which is the one place the engine's real
-        /// line lifecycle bites: a finished line has not SEALED yet, so the next-unsealed index is
-        /// still that same line and its first vocal is already behind the tape. Aiming there would
-        /// be a backwards target and the tape would park in the middle of a line it should be
-        /// playing out.</para>
+        /// <para>The coast used to aim at the next line's first vocal, and getting the index right
+        /// was subtle (a finished line has not SEALED, so
+        /// <see cref="TypingEngine.NextUnsealedLineIndex"/> is still that same line). It aims at
+        /// nothing now, so the whole question is gone: the arm no longer reads the line lifecycle,
+        /// only the caret.</para>
         ///
         /// <para><see cref="TypingEngine.CurrentLeadLag"/> is what decides whether arm (1) applies,
         /// rather than a hand-rolled caret test: it is null in exactly the cases that must coast
         /// (finished, no active line, caret past the last cell, caret on a non-typeable cell), and
-        /// it is <c>time - TargetTime</c>, so the target comes straight back out of it.</para>
+        /// it is <c>time - TargetTime</c>, so the target comes straight back out of it. It is also
+        /// what keeps a caret PARKED ON A SPOILED WORD GAP under <c>StrictSpaces</c> on the typing
+        /// arm: that caret is mid-line and on a typeable cell, so the song correctly waits at the
+        /// gap for the fix rather than coasting away from the player.</para>
         /// </summary>
         public static PuppeteerArm ArmFor(TypingEngine engine, double time)
         {
@@ -446,15 +554,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             if (engine.CurrentLeadLag(time) is double leadLag)
                 return new PuppeteerArm(time - leadLag, V_MAX);
 
-            int next = engine.LineIsActive ? engine.ActiveLineIndex + 1 : engine.NextUnsealedLineIndex;
-
-            // No next line: the outro. Nothing to aim at, so the cap is the whole of the arm and the
-            // song plays itself out at its own speed.
-            double target = next >= 0 && next < engine.Lines.Count
-                ? engine.Lines[next].FirstVocalTime
-                : double.PositiveInfinity;
-
-            return new PuppeteerArm(target, COAST_MAX_VELOCITY);
+            return PuppeteerArm.Coast;
         }
 
         /// <summary>

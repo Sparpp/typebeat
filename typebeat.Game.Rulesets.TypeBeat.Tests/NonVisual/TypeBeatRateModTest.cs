@@ -361,7 +361,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var conductor = new TypeBeatModConductor();
 
             Assert.IsFalse(conductor.Ranked, "the song meeting the player halfway cannot be priced");
-            Assert.AreEqual(ModType.Fun, conductor.Type);
+            Assert.AreEqual(ModType.System, conductor.Type, "retired in backlog 257, and resolvable is the whole reason it is still listed");
 
             Assert.IsNotInstanceOf<ModRateAdjust>(conductor);
             Assert.IsNotInstanceOf<ModTimeRamp>(conductor);
