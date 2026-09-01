@@ -49,7 +49,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     [TestFixture]
     public class TypeBeatModPuppeteerTest
     {
-        private static PuppeteerTuning tuning() => PuppeteerTuning.Default;
+        /// <summary>
+        /// The FREQUENCY preset, and every law pin in the model section below is written against it,
+        /// because it is backlog 256's numbers unchanged: those pins therefore still say exactly what
+        /// they always said, to the digit. The TEMPO preset (the shipping default since backlog 258)
+        /// differs in two constants and has its own region at the bottom of the model section,
+        /// including the proof that the two really do produce different tapes.
+        /// </summary>
+        private static PuppeteerTuning tuning() => PuppeteerTuning.Frequency;
 
         /// <summary>A tape at a position and a velocity, with no typing behind it yet.</summary>
         private static PuppeteerState at(double positionMs, double velocity)
@@ -81,9 +88,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsFalse(mod.ValidForMultiplayer);
             Assert.IsFalse(mod.ValidForMultiplayerAsFreeMod);
 
-            // No settings in v1: the whole mod is one behaviour, and every number in it is a feel
-            // constant rather than a band the player is meant to reason about.
+            // ONE setting since backlog 258, where backlog 256 asserted none at all. It is SILENT at
+            // its default, which is the house convention: the icon says "PT", and the description
+            // earns a line only once the player has actually moved something.
+            Assert.IsFalse(mod.AdjustPitch.Value, "TEMPO is the default, so pitch is preserved and there is no scratch");
             Assert.IsEmpty(mod.SettingDescription.ToArray());
+
+            var pitched = new TypeBeatModPuppeteer { AdjustPitch = { Value = true } };
+
+            Assert.IsTrue(pitched.SettingDescription.Any(d => d.setting.ToString() == "Adjust pitch"),
+                "the toggle has to be described once it is on: it changes what the mod sounds like AND which preset a stored run re-derives under");
         }
 
         [Test]
@@ -198,14 +212,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// What the mod does to audio, and the only thing it does: it writes its commanded rate onto
-        /// the FREQUENCY half of the aggregate the gameplay clock's rate is read off
-        /// (<c>GameplayClockExtensions.GetTrueGameplayRate</c> is sign * AggregateFrequency *
-        /// AggregateTempo of exactly this component). The tempo half is never touched, which is what
-        /// "frequency only" means in practice, and it is why the pitch bends with the speed.
+        /// WHAT THE MOD DOES TO AUDIO BY DEFAULT (backlog 258): a TEMPO adjustment, so the pitch is
+        /// preserved and there is no vinyl scratch. It is published as a PAIR, because
+        /// <c>TrackBass</c> THROWS an <c>ArgumentException</c> below an aggregate tempo of 0.05 and
+        /// this model's floor is <see cref="TypeBeatModPuppeteer.V_EPSILON"/> (1/512), two orders
+        /// under it: the tempo is pinned at the floor and the remainder handed to the frequency as a
+        /// POWER OF TWO, so the product reconstructs the command bit for bit. That split is the
+        /// retired mod's <see cref="TypeBeatModConductor.TrackAdjustmentsFor"/>, called and not
+        /// copied.
+        ///
+        /// <para>The product is the whole of what the gameplay clock reads:
+        /// <c>GameplayClockExtensions.GetTrueGameplayRate</c> is sign * AggregateFrequency *
+        /// AggregateTempo of exactly this component.</para>
         /// </summary>
         [Test]
-        public void PublishesAFrequencyOnlyAdjustmentInsideTheModelsOwnBand()
+        public void PublishesATempoPairThatReconstructsTheCommandExactly()
         {
             var mod = new TypeBeatModPuppeteer();
             var adjustments = new AudioAdjustments();
@@ -215,6 +236,55 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(1.0, adjustments.AggregateFrequency.Value, 1e-12);
             Assert.AreEqual(1.0, adjustments.AggregateTempo.Value, 1e-12);
 
+            foreach (double rate in new[] { TypeBeatModPuppeteer.V_EPSILON, 0.02, 0.25, 1.0, 1.75, TypeBeatModPuppeteer.V_MAX })
+            {
+                mod.SpeedChange.Value = rate;
+
+                double tempo = adjustments.AggregateTempo.Value;
+                double frequency = adjustments.AggregateFrequency.Value;
+
+                Assert.GreaterOrEqual(tempo, TypeBeatModConductor.TEMPO_FLOOR_RATE,
+                    $"TrackBass THROWS on an aggregate tempo below 0.05, and the command here is {rate:R}");
+
+                Assert.Greater(frequency, 0,
+                    $"a frequency of exactly zero STOPS the track rather than slowing it, and the command here is {rate:R}");
+
+                Assert.IsTrue((tempo * frequency).Equals(rate),
+                    $"the published pair must reconstruct {rate:R} exactly, got {tempo * frequency:R} ({tempo:R} * {frequency:R})");
+            }
+
+            // Above the tempo floor the frequency half is exactly 1, which is "pitch preserved" in
+            // its plainest form: the whole band a player will ever hear while typing is pure tempo.
+            mod.SpeedChange.Value = 1.75;
+            Assert.IsTrue(adjustments.AggregateFrequency.Value.Equals(1d));
+            Assert.IsTrue(adjustments.AggregateTempo.Value.Equals(1.75));
+
+            // The band is enforced by the bindable, so nothing can publish a rate the audio path
+            // cannot track (or the exact zero that STOPS the track rather than slowing it).
+            mod.SpeedChange.Value = 0;
+            Assert.AreEqual(TypeBeatModPuppeteer.V_EPSILON, adjustments.AggregateTempo.Value * adjustments.AggregateFrequency.Value, 1e-12);
+
+            mod.SpeedChange.Value = 51;
+            Assert.AreEqual(TypeBeatModPuppeteer.V_MAX, adjustments.AggregateTempo.Value * adjustments.AggregateFrequency.Value, 1e-12);
+        }
+
+        /// <summary>
+        /// ...and WITH THE TOGGLE ON it is the frequency path exactly as backlog 256 shipped it: the
+        /// whole rate on the frequency, the tempo aggregate at exactly 1, so the resampler bends the
+        /// pitch with the speed. The toggle SWAPS the published set rather than adding to it, which
+        /// is the retired mod's remove-old / add-new pattern, and the round trip has to leave the
+        /// aggregates exactly where a fresh mod would.
+        /// </summary>
+        [Test]
+        public void AdjustPitchPublishesFrequencyOnlyAndTogglingDoesNotDoubleAdd()
+        {
+            var mod = new TypeBeatModPuppeteer();
+            var adjustments = new AudioAdjustments();
+
+            mod.ApplyToTrack(adjustments);
+
+            mod.AdjustPitch.Value = true;
+
             foreach (double rate in new[] { TypeBeatModPuppeteer.V_EPSILON, 0.25, 1.0, 1.75, TypeBeatModPuppeteer.V_MAX })
             {
                 mod.SpeedChange.Value = rate;
@@ -223,20 +293,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     $"the frequency must carry the whole rate exactly, got {adjustments.AggregateFrequency.Value:R} for {rate:R}");
 
                 Assert.IsTrue(adjustments.AggregateTempo.Value.Equals(1d),
-                    $"the tempo aggregate moved to {adjustments.AggregateTempo.Value:R} at rate {rate}: this mod publishes frequency ONLY");
-
-                Assert.AreEqual(rate, adjustments.AggregateFrequency.Value * adjustments.AggregateTempo.Value, 1e-12,
-                    "this product IS GetTrueGameplayRate");
+                    $"the tempo aggregate moved to {adjustments.AggregateTempo.Value:R} at rate {rate}: pitch mode publishes frequency ONLY");
             }
 
-            // The band is enforced by the bindable, so nothing can publish a frequency the audio
-            // path cannot track (or the exact zero that STOPS the track rather than slowing it).
-            mod.SpeedChange.Value = 0;
-            Assert.AreEqual(TypeBeatModPuppeteer.V_EPSILON, adjustments.AggregateFrequency.Value, 1e-12);
-            Assert.Greater(adjustments.AggregateFrequency.Value, 0);
+            // Back to tempo, and nothing is doubled up: the frequency half returns to exactly 1 and
+            // the tempo half carries the whole rate again. A leaked adjustment would show here as a
+            // squared rate or a stuck frequency.
+            mod.AdjustPitch.Value = false;
+            mod.SpeedChange.Value = 1.5;
 
-            mod.SpeedChange.Value = 51;
-            Assert.AreEqual(TypeBeatModPuppeteer.V_MAX, adjustments.AggregateFrequency.Value, 1e-12);
+            Assert.IsTrue(adjustments.AggregateTempo.Value.Equals(1.5));
+            Assert.IsTrue(adjustments.AggregateFrequency.Value.Equals(1d));
+
+            // ...and round and round, because the swap has to be idempotent, not merely correct once.
+            for (int i = 0; i < 3; i++)
+            {
+                mod.AdjustPitch.Value = true;
+                mod.AdjustPitch.Value = false;
+            }
+
+            Assert.IsTrue(adjustments.AggregateTempo.Value.Equals(1.5));
+            Assert.IsTrue(adjustments.AggregateFrequency.Value.Equals(1d));
 
             Assert.AreEqual(TypeBeatModConductor.PITCH_ABSOLUTE_MAX_RATE, TypeBeatModPuppeteer.V_MAX, 1e-12,
                 "the frequency path's wall is one fact, and both followers must read the same number for it");
@@ -244,11 +321,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The submission payload. The acronym is the whole of what the server needs, because the
-        /// server's only job for this mod is to recognise "PT" in its always-unranked list.
+        /// The submission payload. The acronym is the whole of what the server needs at the defaults,
+        /// because the server's only job for this mod is to recognise "PT" in its always-unranked
+        /// list. The MODE rides along when it is not the default, by the ordinary mod-settings route,
+        /// and that is what makes a stored frequency-mode run re-derivable (backlog 258): a payload
+        /// with no <c>adjust_pitch</c> means tempo, which is why the default can never quietly move.
         /// </summary>
         [Test]
-        public void WirePayloadIsTheBareAcronym()
+        public void WirePayloadIsTheBareAcronymAtTheDefaults()
         {
             Assert.AreEqual(@"{""acronym"":""PT""}", JsonConvert.SerializeObject(new APIMod(new TypeBeatModPuppeteer())));
 
@@ -256,6 +336,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.IsInstanceOf<TypeBeatModPuppeteer>(decoded, "a stored PT score must not resolve to UnknownMod");
             Assert.IsFalse(decoded.Ranked);
+            Assert.IsFalse(((TypeBeatModPuppeteer)decoded).AdjustPitch.Value, "an absent toggle is the tempo mode");
+
+            Assert.IsTrue(PuppeteerTuning.Tempo.Equals(TypeBeatModPuppeteer.TuningFor(new[] { decoded })),
+                "...and that is the preset a run stored without the field re-derives under");
+
+            const string pitched_payload = @"{""acronym"":""PT"",""settings"":{""adjust_pitch"":true}}";
+
+            Assert.AreEqual(pitched_payload,
+                JsonConvert.SerializeObject(new APIMod(new TypeBeatModPuppeteer { AdjustPitch = { Value = true } })));
+
+            var pitched = JsonConvert.DeserializeObject<APIMod>(pitched_payload)!.ToMod(new TypeBeatRuleset());
+
+            Assert.IsTrue(((TypeBeatModPuppeteer)pitched).AdjustPitch.Value, "the mode has to survive storage or the tape cannot be re-derived");
+
+            Assert.IsTrue(PuppeteerTuning.Frequency.Equals(TypeBeatModPuppeteer.TuningFor(new[] { pitched })));
         }
 
         // -----------------------------------------------------------------------------------------
@@ -268,13 +363,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// that walks a trajectory through this helper carries the no-rewind pin for free.
         /// </summary>
         private static PuppeteerState[] trajectory(PuppeteerState start, Func<int, PuppeteerArm> armAtMs, int wallMs)
+            => trajectory(tuning(), start, armAtMs, wallMs);
+
+        /// <summary>The same, under a named preset. See <see cref="tuning"/> for which one the law pins use.</summary>
+        private static PuppeteerState[] trajectory(PuppeteerTuning preset, PuppeteerState start, Func<int, PuppeteerArm> armAtMs, int wallMs)
         {
             var states = new PuppeteerState[wallMs + 1];
             states[0] = start;
 
             for (int ms = 1; ms <= wallMs; ms++)
             {
-                states[ms] = PuppeteerClock.Step(states[ms - 1], armAtMs(ms), tuning());
+                states[ms] = PuppeteerClock.Step(states[ms - 1], armAtMs(ms), preset);
 
                 Assert.GreaterOrEqual(states[ms].PositionMs, states[ms - 1].PositionMs,
                     $"the tape moved BACKWARDS at wall ms {ms}, which no arm schedule may ever make it do");
@@ -734,7 +833,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// The model and a real engine, one canonical tick at a time, which is exactly the cadence
         /// <c>PuppeteerReplayTransform</c> co-simulates at. Asserts the tape's monotonicity on every
-        /// step, as <see cref="trajectory"/> does.
+        /// step, as <c>trajectory</c> does.
         /// </summary>
         private static PuppeteerState[] against(TypingEngine engine, PuppeteerState start, int wallMs)
         {
@@ -1072,6 +1171,365 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual(1.0, TypeBeatModPuppeteer.CommandedFrequency(reanchored.Value, after), 1e-12,
                 "the song must be playing normally on the first frame after the skip");
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // The TEMPO preset (backlog 258), which is the shipping default.
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// THE TWO PRESETS, and the pin is that they differ in exactly TWO constants and no others.
+        /// Both differences are the time-stretcher's physics rather than taste: it analyses in
+        /// windows, so it answers a rate change a window late and smears under rapid modulation
+        /// (hence the longer ease), and it is only clean in roughly 0.6x to 1.6x (hence the lower
+        /// ceiling). Everything else, the chase horizon, the floor, the pace estimate and its
+        /// headroom, is one set of numbers, which is what "the caret coupling stays strict, only the
+        /// velocity trajectory is gentler" means in code.
+        /// </summary>
+        [Test]
+        public void TheTwoPresetsDifferInExactlyTheTwoStretcherNumbers()
+        {
+            var tempo = PuppeteerTuning.Tempo;
+            var frequency = PuppeteerTuning.Frequency;
+
+            Assert.IsTrue(PuppeteerTuning.For(false).Equals(tempo), "pitch preserved is the DEFAULT, and it is the tempo preset");
+            Assert.IsTrue(PuppeteerTuning.For(true).Equals(frequency));
+
+            Assert.AreEqual(300, TypeBeatModPuppeteer.SMOOTHING_TAU_TEMPO_MS, 1e-12);
+            Assert.AreEqual(1.6, TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY, 1e-12);
+
+            Assert.AreEqual(TypeBeatModPuppeteer.SMOOTHING_TAU_TEMPO_MS, tempo.SmoothingTauMs, 1e-12);
+            Assert.AreEqual(TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY, tempo.MaxVelocity, 1e-12);
+
+            // The frequency preset is backlog 256's tuning, unchanged to the digit.
+            Assert.AreEqual(TypeBeatModPuppeteer.SMOOTHING_TAU_MS, frequency.SmoothingTauMs, 1e-12);
+            Assert.AreEqual(TypeBeatModPuppeteer.V_MAX, frequency.MaxVelocity, 1e-12);
+
+            Assert.IsTrue(tempo.Equals(frequency with
+            {
+                SmoothingTauMs = TypeBeatModPuppeteer.SMOOTHING_TAU_TEMPO_MS,
+                MaxVelocity = TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY,
+            }), $"a third constant moved between the presets: {tempo} against {frequency}");
+
+            Assert.Greater(TypeBeatModPuppeteer.SMOOTHING_TAU_TEMPO_MS, TypeBeatModPuppeteer.SMOOTHING_TAU_MS,
+                "the stretcher needs a rate that moves more slowly than its own window");
+
+            Assert.Less(TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY, TypeBeatModPuppeteer.V_MAX,
+                "the stretcher's clean ceiling is below the resampler's hardware wall");
+
+            // The floor is one number in both modes, and it is the sub-floor SPLIT that makes that
+            // survivable on the tempo path: TrackBass throws below an aggregate tempo of 0.05.
+            Assert.IsTrue(tempo.MinVelocity.Equals(TypeBeatModPuppeteer.V_EPSILON));
+            Assert.Less(TypeBeatModPuppeteer.V_EPSILON, TypeBeatModConductor.TEMPO_FLOOR_RATE);
+        }
+
+        /// <summary>
+        /// NON-VACUITY FOR THE WHOLE MODE PLUMBING: the two presets really do produce different tapes
+        /// on the same key schedule. Without this every "the right preset was used" pin below and in
+        /// <c>TypeBeatPuppeteerReplayTest</c> could be satisfied by a transform that ignored the
+        /// toggle entirely.
+        /// </summary>
+        [Test]
+        public void TheTwoPresetsProduceGenuinelyDifferentTapesOnTheSameSchedule()
+        {
+            var schedule = keySchedule();
+            const int wall_ms = 9000;
+
+            var tempo = trajectory(PuppeteerTuning.Tempo, PuppeteerState.AnchoredAt(0), schedule, wall_ms);
+            var frequency = trajectory(PuppeteerTuning.Frequency, PuppeteerState.AnchoredAt(0), schedule, wall_ms);
+
+            Assert.Greater(Math.Abs(tempo[wall_ms].PositionMs - frequency[wall_ms].PositionMs), 100,
+                $"the two presets landed the tape in the same place ({tempo[wall_ms].PositionMs:N0} against {frequency[wall_ms].PositionMs:N0}), so nothing downstream can prove it read the toggle");
+
+            // Both are still tapes: monotonic (asserted by the helper) and inside their own bands.
+            Assert.LessOrEqual(tempo.Max(s => s.Velocity), TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY + 1e-12);
+            Assert.LessOrEqual(frequency.Max(s => s.Velocity), TypeBeatModPuppeteer.V_MAX + 1e-12);
+
+            // ...and the ceiling is the reason, not a rounding difference: the scripted typist
+            // genuinely runs past 1.6x under the frequency preset.
+            Assert.Greater(frequency.Max(s => s.Velocity), TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY);
+        }
+
+        /// <summary>
+        /// A TYPIST FASTER THAN THE STRETCHER'S CEILING IS TRAILED, NOT CHASED, which is the owner's
+        /// stated trade written as arithmetic. The chase law is a POSITION law, so a velocity it
+        /// cannot have simply leaves position error on the table: the tape settles at exactly
+        /// <see cref="TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY"/> and the gap to the caret grows at
+        /// exactly the difference. Nothing breaks, nothing is refused, and this mod does not judge on
+        /// that distance at all.
+        /// </summary>
+        [Test]
+        public void ATypistPastTheStretchersCeilingIsTrailedRatherThanChased()
+        {
+            // At the map's own pace the ceiling is not in the way, so the two modes agree on the
+            // steady state: it is the chase horizon's, exactly as it always was. It is measured at
+            // 12 seconds rather than at 6 because the longer ease costs DAMPING as well as speed
+            // (the chase loop is position over velocity, so a bigger time constant is a lower
+            // damping ratio, about 0.35 against the frequency preset's 0.56), and the ring takes
+            // roughly twice as long to die. It rings around 1.00x, not around anything else.
+            var onPace = trajectory(PuppeteerTuning.Tempo, PuppeteerState.AnchoredAt(0), steadyTypist(1), 12000);
+
+            Assert.AreEqual(1.0, onPace[12000].Velocity, 1e-6);
+            Assert.AreEqual(TypeBeatModPuppeteer.T_CHASE_MS, 12000 - onPace[12000].PositionMs, 1.5,
+                "an on-pace player must trail by the chase horizon in tempo mode too");
+
+            const double pace = 1.9;
+
+            var fast = trajectory(PuppeteerTuning.Tempo, PuppeteerState.AnchoredAt(0), steadyTypist(pace), 8000);
+
+            Assert.AreEqual(TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY, fast[8000].Velocity, 1e-9,
+                "the tape must pin at the stretcher's ceiling rather than push through it");
+
+            double gapAt6000 = (pace * 6000) - fast[6000].PositionMs;
+            double gapAt8000 = (pace * 8000) - fast[8000].PositionMs;
+
+            Assert.AreEqual((pace - TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY) * 2000, gapAt8000 - gapAt6000, 1e-3,
+                "the excess has to be absorbed as POSITION error, at exactly the rate the tape is short by");
+
+            // ...and the same typist under the frequency preset IS chased, so the gap stays at the
+            // chase horizon. That difference is the whole trade, stated as an inequality.
+            var chased = trajectory(PuppeteerTuning.Frequency, PuppeteerState.AnchoredAt(0), steadyTypist(pace), 8000);
+
+            Assert.AreEqual(pace, chased[8000].Velocity, 1e-9);
+
+            Assert.Less((pace * 8000) - chased[8000].PositionMs, (pace * TypeBeatModPuppeteer.T_CHASE_MS) + 2);
+            Assert.Greater(gapAt8000, pace * TypeBeatModPuppeteer.T_CHASE_MS * 3, "...and the tempo tape really is a long way further back");
+        }
+
+        /// <summary>
+        /// THE PARK STILL PARKS. The tempo preset only slows the velocity trajectory down, so the
+        /// wind-down is the same monotonic drag to the same crawl, over a longer constant.
+        ///
+        /// <para>On the way there it descends THROUGH the band a time-stretcher sounds worst in, and
+        /// that is documented rather than fought: the descent is a transient of well under a second
+        /// of audible degradation, and the destination is near-silence, because the sub-floor split
+        /// hands the remainder to the FREQUENCY and floors the real output at 100 Hz. Fighting it
+        /// would mean switching modes mid-descent, which trades a smooth ugly moment for a click.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void TheTempoParkStillReachesTheCrawlThroughTheStretchersUglyBand()
+        {
+            const int wall_ms = 6000;
+            const double target = 1000;
+
+            var settled = trajectory(PuppeteerTuning.Tempo, PuppeteerState.AnchoredAt(0), steadyTypist(1), 6000)[6000];
+
+            var states = trajectory(PuppeteerTuning.Tempo, settled with { PositionMs = target - TypeBeatModPuppeteer.T_CHASE_MS },
+                _ => new PuppeteerArm(target, TypeBeatModPuppeteer.V_MAX), wall_ms);
+
+            for (int ms = 2; ms <= wall_ms; ms++)
+            {
+                Assert.Less(states[ms].Velocity, states[ms - 1].Velocity,
+                    $"the reel did not wind DOWN at wall ms {ms}: a tape stop must be monotonic in either mode");
+            }
+
+            Assert.AreEqual(TypeBeatModPuppeteer.V_EPSILON, states[wall_ms].Velocity, 1e-6,
+                "the crawl is the destination in both modes, and it is never zero");
+
+            double overshoot = states[wall_ms].PositionMs - target;
+
+            Assert.Greater(overshoot, -1, "the tape has to ARRIVE at the caret's target");
+
+            // IT RUNS FURTHER PAST THE CARET THAN IN FREQUENCY MODE, and that is the price of the
+            // longer ease rather than a defect: a smoothed velocity cannot be zero at the instant
+            // the gap closes, so the reel spends about one smoothing constant's worth of momentum.
+            // Measured at 239 ms here against 61 ms under the frequency preset. It is bounded by
+            // that constant, and it is inaudible as a POSITION because this mod does not judge on
+            // the distance between a press and its target at all.
+            Assert.Less(overshoot, TypeBeatModPuppeteer.SMOOTHING_TAU_TEMPO_MS,
+                "the reel's momentum must stay inside one smoothing constant of song");
+
+            Assert.Greater(overshoot, TypeBeatModPuppeteer.T_CHASE_MS,
+                "...and this really is the longer-momentum case, not the frequency preset's 61 ms");
+
+            // It really does pass through the stretcher's ugly band, and it does not stop there:
+            // about a second of the six, on the way to a destination that is near-silence.
+            int ugly = states.Count(s => s.Velocity > TypeBeatModConductor.TEMPO_FLOOR_RATE && s.Velocity < 0.6);
+
+            Assert.Greater(ugly, 0, "the descent has to cross the band, or this pin is describing something else");
+            Assert.Less(ugly, 1500, "the tape LINGERED in the stretcher's worst band instead of passing through it");
+
+            // ...and the destination is publishable: the split keeps the aggregate tempo above the
+            // 0.05 TrackBass throws under, while the product is still the command bit for bit.
+            (double tempo, double frequency) = TypeBeatModConductor.TrackAdjustmentsFor(TypeBeatModPuppeteer.V_EPSILON, false);
+
+            Assert.GreaterOrEqual(tempo, TypeBeatModConductor.TEMPO_FLOOR_RATE);
+            Assert.Less(frequency, 0.05, "...and the remainder is a frequency low enough that the park is near-silence");
+            Assert.IsTrue((tempo * frequency).Equals(TypeBeatModPuppeteer.V_EPSILON));
+        }
+
+        /// <summary>
+        /// The longer ease, measured the way the frequency one is: with the request pinned at the cap
+        /// throughout, one time constant covers exactly 1 - 1/e of the distance, so
+        /// <see cref="TypeBeatModPuppeteer.SMOOTHING_TAU_TEMPO_MS"/> is the filter's constant and not
+        /// an approximation of one. And the tempo tape is genuinely BEHIND the frequency one at every
+        /// point of the spin-up, which is what "gentler under rapid modulation" buys.
+        /// </summary>
+        [Test]
+        public void TempoModeSpinsTheReelUpOverTheLongerConstant()
+        {
+            var parked = at(0, TypeBeatModPuppeteer.V_EPSILON);
+
+            // Still and miles ahead, so nobody is typing and the cap is a flat 1.00x: only the
+            // filter moves, which is what makes the closed form exact.
+            var arm = new PuppeteerArm(100000, TypeBeatModPuppeteer.V_MAX);
+
+            int tempoTau = (int)TypeBeatModPuppeteer.SMOOTHING_TAU_TEMPO_MS;
+            int frequencyTau = (int)TypeBeatModPuppeteer.SMOOTHING_TAU_MS;
+
+            var tempo = trajectory(PuppeteerTuning.Tempo, parked, _ => arm, tempoTau);
+            var frequency = trajectory(PuppeteerTuning.Frequency, parked, _ => arm, tempoTau);
+
+            double expected = 1 + ((TypeBeatModPuppeteer.V_EPSILON - 1) * Math.Exp(-1));
+
+            Assert.AreEqual(expected, tempo[tempoTau].Velocity, 1e-9,
+                "one tempo time constant must cover exactly 1 - 1/e of the way to the cap");
+
+            Assert.AreEqual(expected, trajectory(PuppeteerTuning.Frequency, parked, _ => arm, frequencyTau)[frequencyTau].Velocity, 1e-9,
+                "...and the frequency preset's own constant still does the same, unchanged");
+
+            for (int ms = 1; ms <= tempoTau; ms++)
+            {
+                Assert.Less(tempo[ms].Velocity, frequency[ms].Velocity,
+                    $"the tempo tape was not gentler at wall ms {ms}, which is the only thing the longer constant buys");
+            }
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // The wobble deadband (backlog 258). Driver-side, so it is pinned on the pure static.
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// ORDINARY JITTER MUST NOT MODULATE THE AUDIO. The clock is never exactly on the model (a
+        /// playback buffer, the interpolating clock's quantisation, the rate-scaled platform offset),
+        /// so the correction term jitters around zero forever and a jittering rate is audible on a
+        /// held note in a way a steady one is not. Inside
+        /// <see cref="TypeBeatModPuppeteer.RATE_DEADBAND"/> of 1.00 the command is published as
+        /// EXACTLY 1.00; outside it, real drift still moves the song exactly as it always did.
+        /// </summary>
+        [Test]
+        public void TheRateDeadbandPublishesExactlyOneThroughOrdinaryJitter()
+        {
+            Assert.AreEqual(0.03, TypeBeatModPuppeteer.RATE_DEADBAND, 1e-12);
+
+            // The band is on DRIFT of RATE_DEADBAND * T_CORRECT_MS = 7.5 ms, either side.
+            foreach (double drift in new[] { 0d, 1, -1, 5, -5, 7, -7 })
+            {
+                Assert.IsTrue(TypeBeatModPuppeteer.CommandedFrequency(at(10000 + drift, 1), 10000).Equals(1d),
+                    $"{drift} ms of clock drift modulated the audio, which is the wobble this band exists to remove");
+            }
+
+            // ...and real drift still moves it, at exactly the rate it always did.
+            Assert.AreEqual(1.04, TypeBeatModPuppeteer.CommandedFrequency(at(10010, 1), 10000), 1e-12);
+            Assert.AreEqual(0.96, TypeBeatModPuppeteer.CommandedFrequency(at(9990, 1), 10000), 1e-12);
+
+            // TWO-SIDED and NARROW, which is what stops it becoming a shelf: the edges are 0.97 and
+            // 1.03, and everything outside them is published untouched.
+            Assert.IsTrue(TypeBeatModPuppeteer.CommandedFrequency(at(10000, 0.97), 10000).Equals(0.97));
+            Assert.IsTrue(TypeBeatModPuppeteer.CommandedFrequency(at(10000, 1.03), 10000).Equals(1.03));
+            Assert.IsTrue(TypeBeatModPuppeteer.CommandedFrequency(at(10000, 0.98), 10000).Equals(1d));
+            Assert.IsTrue(TypeBeatModPuppeteer.CommandedFrequency(at(10000, 1.02), 10000).Equals(1d));
+
+            // The band is applied to the CLAMPED command, so it can never resurrect a rate the audio
+            // path cannot take: the bounds still answer first.
+            Assert.AreEqual(TypeBeatModPuppeteer.V_EPSILON, TypeBeatModPuppeteer.CommandedFrequency(at(10000, 1), 100000), 1e-12);
+            Assert.AreEqual(TypeBeatModPuppeteer.V_MAX, TypeBeatModPuppeteer.CommandedFrequency(at(10000, 1), -100000), 1e-12);
+        }
+
+        /// <summary>
+        /// THE LIMIT CYCLE, which is the honest cost of the deadband and is bounded rather than
+        /// merely small. Inside the band the clock is held at exactly 1.00x while the MODEL goes on
+        /// integrating its own velocity, so the two creep apart; the creep stops being hidden the
+        /// moment the command leaves the band, which by definition is
+        /// <c>RATE_DEADBAND * T_CORRECT_MS</c> of drift, 7.5 ms. Then the real command is published,
+        /// the clock is pulled back, and it repeats. Seven and a half milliseconds of song is under a
+        /// video frame, far under the 40 ms the retired Conductor's phase deadband accepted, and
+        /// meaningless to a mod that forgives timing outright.
+        /// </summary>
+        [Test]
+        public void TheDeadbandsDriftIsBoundedAtRateDeadbandTimesTheCorrectionHorizon()
+        {
+            double bound = TypeBeatModPuppeteer.RATE_DEADBAND * TypeBeatModPuppeteer.T_CORRECT_MS;
+
+            Assert.AreEqual(7.5, bound, 1e-12);
+
+            // A model creeping half a percent fast against a clock that only moves as commanded,
+            // which is the worst case the band can hide: the drift grows while it is hidden.
+            const double velocity = 1.005;
+
+            double position = 0;
+            double clock = 0;
+            double worst = 0;
+            int held = 0;
+
+            for (int ms = 1; ms <= 20000; ms++)
+            {
+                position += velocity;
+
+                double command = TypeBeatModPuppeteer.CommandedFrequency(
+                    new PuppeteerState(position, velocity, double.PositiveInfinity, 0), clock);
+
+                if (command.Equals(1d))
+                    held++;
+
+                clock += command;
+
+                worst = Math.Max(worst, Math.Abs(position - clock));
+            }
+
+            Assert.Less(worst, bound, $"the drift the deadband hides ran to {worst:N2} ms, past its own bound of {bound}");
+
+            // Not vacuous in either direction: the cycle really does run (most of the time the audio
+            // is held at exactly 1.00x, which is the point) and the drift really does accumulate to
+            // most of the bound rather than staying at nothing.
+            Assert.Greater(held, 10000, "the band never engaged, so this is not measuring the limit cycle at all");
+            Assert.Greater(worst, bound * 0.5, "...and the drift never approached the bound, so the bound is not the binding constraint here");
+        }
+
+        /// <summary>
+        /// THE DEADBAND CANNOT HOLD A PARK AT 1.00X, which is the one way a rate deadband can go
+        /// badly wrong. The band is on the COMMAND, and the command does not drive the model: as the
+        /// player stops, the model's velocity falls toward the crawl whatever is being published, so
+        /// the command falls with it, crosses the lower edge at 0.97 and keeps falling. The crossing
+        /// is momentary because the band is narrow, which is exactly why it has to stay narrow.
+        /// </summary>
+        [Test]
+        public void TheDeadbandCannotHoldTheSongAtOneThroughAPark()
+        {
+            const int wall_ms = 6000;
+            const double target = 1000;
+
+            var settled = trajectory(PuppeteerTuning.Tempo, PuppeteerState.AnchoredAt(0), steadyTypist(1), 6000)[6000];
+
+            var states = trajectory(PuppeteerTuning.Tempo, settled with { PositionMs = target - TypeBeatModPuppeteer.T_CHASE_MS },
+                _ => new PuppeteerArm(target, TypeBeatModPuppeteer.V_MAX), wall_ms);
+
+            // The clock glued to the model, so the correction is zero and the deadband is the ONLY
+            // thing that could hold the command up.
+            double[] commands = states.Select(s => TypeBeatModPuppeteer.CommandedFrequency(s, s.PositionMs)).ToArray();
+
+            int held = commands.Count(c => c.Equals(1d));
+
+            Assert.Greater(held, 0, "a two-sided band has to be crossed on the way down, or this pin is vacuous");
+
+            Assert.AreEqual(TypeBeatModPuppeteer.V_EPSILON, commands[wall_ms], 1e-6,
+                "the park completed: the deadband delayed nothing it could hold");
+
+            Assert.Less(held, 200,
+                $"the deadband held the song at 1.00x for {held} ms, which is a shelf in the middle of the wind-down rather than a crossing (measured at 55 ms)");
+
+            // Below the band the command keeps FALLING, every millisecond, all the way to the floor.
+            int exit = Array.FindLastIndex(commands, c => c.Equals(1d));
+
+            for (int ms = exit + 2; ms <= wall_ms; ms++)
+            {
+                Assert.Less(commands[ms], commands[ms - 1],
+                    $"the command stopped falling at wall ms {ms}, so the park stalled inside the band");
+            }
+
+            Assert.Less(commands[exit + 1], 1 - TypeBeatModPuppeteer.RATE_DEADBAND,
+                "leaving the band must put the command clear below it, not on its edge");
         }
 
         // -----------------------------------------------------------------------------------------

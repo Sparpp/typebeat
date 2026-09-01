@@ -2,11 +2,13 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using osu.Framework.Audio;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Localisation;
+using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
@@ -19,8 +21,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// <summary>
     /// UNRANKED. The song STRICTLY FOLLOWS the typing. Not a servo that meets the player halfway
     /// like <see cref="TypeBeatModConductor"/>: a TAPE REEL that the caret drags. Type and the reel
-    /// spins up, hesitate and it drags to a stop, walk away and it parks. It is frequency-only, so
-    /// the pitch bends with the speed, and that is the aesthetic rather than a compromise.
+    /// spins up, hesitate and it drags to a stop, walk away and it parks.
     ///
     /// <para><b>THE DISPLAY NAME IS "Conductor" AND THE CLASS NAME IS NOT (backlog 257).</b> This is
     /// the only follower a player can pick: the older rate-follower it replaced
@@ -39,13 +40,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// (an arm read off the engine each frame, a commanded frequency out). The law, the arms and the
     /// reason the tape can never rewind are all documented there.</para>
     ///
-    /// <para><b>Why frequency only.</b> Tempo time-stretching is a fixed-window algorithm: it is
-    /// built to hold pitch across a rate that changes rarely, and a rate that changes every frame
-    /// smears it into artefacts. Resampling has no such window, so the reel sounds like a reel.
-    /// The price is the ceiling: BASS refuses an absolute frequency above 100 kHz, so a 44.1 kHz
-    /// song stops tracking at about 2.27x, and <see cref="V_MAX"/> sits under the lowest of those
-    /// sample-rate-dependent walls. Only one adjustment is published (frequency), and the tempo
-    /// aggregate stays at exactly 1.</para>
+    /// <para><b>TWO MODES, and TEMPO IS THE DEFAULT (backlog 258).</b> With
+    /// <see cref="AdjustPitch"/> off the mod publishes a TEMPO adjustment, so the reel changes speed
+    /// with the pitch held and there is no vinyl scratch. With it on it publishes FREQUENCY, which
+    /// resamples, so the pitch rides the speed. The toggle is the retired Conductor's, reused
+    /// verbatim (same label, same tooltip, same default) because it is the same question, and the
+    /// split into a (tempo, frequency) PAIR is its
+    /// <see cref="TypeBeatModConductor.TrackAdjustmentsFor"/> as well, called rather than copied:
+    /// <c>TrackBass</c> throws below an aggregate tempo of
+    /// <see cref="TypeBeatModConductor.TEMPO_FLOOR_RATE"/> (0.05) and this mod's floor is
+    /// <see cref="V_EPSILON"/> (1/512), far below it, so the sub-floor region needs both properties
+    /// at once. This mod therefore depends on the RETIRED mod's pure half, which is a deliberate
+    /// dependency and not a leftover: that function is the solved form of "publish a rate the audio
+    /// stack will actually take", and a second copy of it is a second thing to get wrong.</para>
+    ///
+    /// <para><b>Why the frequency mode is kept rather than deleted.</b> Some people want the
+    /// scratch. It is also the only mode that is CLEAN AT THE 0X PARK (a resampled crawl is silence,
+    /// while a time-stretcher's worst band is exactly the very slow one) and INSTANT ON A TRANSIENT
+    /// (there is no analysis window to answer through). Tempo mode's park descends through that ugly
+    /// band on its way to the floor, and that is accepted rather than fought: the descent is a
+    /// transient of a few hundred milliseconds, the destination is near-silence (the sub-floor split
+    /// hands the remainder to frequency, which floors the real output at 100 Hz), and the
+    /// alternative, switching modes on the way down, trades a smooth ugly second for a click.
+    /// Building that hybrid was considered and refused.</para>
+    ///
+    /// <para><b>Mode-specific tuning, because a stretcher is not a resampler.</b> It works in
+    /// windows, so it answers a rate change a window late and smears under rapid modulation, and it
+    /// is only clean in roughly 0.6x to 1.6x. So tempo mode eases the velocity over
+    /// <see cref="SMOOTHING_TAU_TEMPO_MS"/> rather than <see cref="SMOOTHING_TAU_MS"/> and caps it at
+    /// <see cref="TEMPO_MAX_VELOCITY"/> rather than at <see cref="V_MAX"/>. Those are the only two
+    /// numbers that move (see <see cref="PuppeteerTuning.For"/>): the park, the chase law, the pace
+    /// cap and the coast are one behaviour in both modes, and only the VELOCITY TRAJECTORY is
+    /// gentler. A typist faster than <see cref="TEMPO_MAX_VELOCITY"/> is not chased past it; the
+    /// excess is absorbed by POSITION error instead, which is to say the tape simply trails them a
+    /// little longer, which is the trade the owner asked for.</para>
     ///
     /// <para><b>Why timing is FORGIVEN rather than unjudged.</b> Under strict following the song
     /// meets the caret BY CONSTRUCTION, so a press's distance from its target time carries no
@@ -65,7 +93,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// drops out so the time read back is the raw 5 ms-quantised BASS position. Both show up as
     /// small errors between the model's position and the clock's, and both are swallowed by the
     /// correction term in <see cref="CommandedFrequency"/> rather than by any attempt to model the
-    /// audio stack.</para>
+    /// audio stack. That correction is also the one thing that WOBBLES audibly, which is what
+    /// <see cref="RATE_DEADBAND"/> answers.</para>
     ///
     /// <para><b>The lyric offset.</b> The arm's target is a cell TARGET TIME, which lives on the
     /// lyric clock, while the tape's position is gameplay time; a non-zero <c>LyricOffsetMs</c> is
@@ -136,6 +165,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         // replay already on disk re-derives on a tape its player never heard. If one ever has to
         // move, it needs an era of its own, exactly as the judgement rules did.
         //
+        // Since backlog 258 that contract includes WHICH PRESET, because the model tuning is a
+        // function of AdjustPitch (PuppeteerTuning.For). The toggle is therefore stored with the
+        // score when it is non-default, and PuppeteerReplayTransform reads it back off the mod
+        // instance rather than assuming a mode.
+        //
+        // Two constants below are deliberately OUTSIDE the contract, because the model never reads
+        // them: T_CORRECT_MS and RATE_DEADBAND belong to CommandedFrequency, which is the driver's
+        // half (how the real clock is glued to the model), and the transform re-derives from the
+        // model alone. They can move on taste without re-basing a stored run.
+        //
         // WINDOW_SCALE is a contract for the older, ordinary reason: the replay scorer reads it too,
         // so a stored run is re-judged on the ladder it was played on.
         // ---------------------------------------------------------------------------------------
@@ -151,11 +190,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         public const double T_CHASE_MS = 150;
 
         /// <summary>
-        /// Time constant of the velocity ease, in WALL milliseconds. The reel's inertia: the whole
-        /// difference between a tape spinning up and a rate stepping. 120 ms is inside the band a
-        /// player reads as "the song responded to me" and above the one they read as a click.
+        /// Time constant of the velocity ease in FREQUENCY mode, in WALL milliseconds. The reel's
+        /// inertia: the whole difference between a tape spinning up and a rate stepping. 120 ms is
+        /// inside the band a player reads as "the song responded to me" and above the one they read
+        /// as a click. Resampling answers a rate change on the sample it arrives at, so nothing in
+        /// the audio path asks for more than that.
         /// </summary>
         public const double SMOOTHING_TAU_MS = 120;
+
+        /// <summary>
+        /// Time constant of the velocity ease in TEMPO mode, and the first of the two numbers the
+        /// preset moves. A time-stretcher analyses in WINDOWS: it answers a rate change a window
+        /// late, and a rate that keeps moving inside one window smears rather than tracking, so the
+        /// same 120 ms that reads as responsive through a resampler reads as artefacts through a
+        /// stretcher. 300 ms is the middle of the owner's 250 to 400 band: slow enough that the
+        /// stretcher sees something close to a held rate over its own window, fast enough that a
+        /// keypress still audibly moves the song rather than the song drifting on its own schedule.
+        ///
+        /// <para>What it costs is a slower spin-up, and it is paid where it is cheapest: the tape
+        /// answers a burst of typing over about a third of a second instead of an eighth, and the
+        /// steady state is not touched at all, because that is set by
+        /// <see cref="T_CHASE_MS"/> and not by this.</para>
+        ///
+        /// <para><b>The second-order cost, which is worth knowing before anyone moves this number.</b>
+        /// The chase loop is position over velocity, so it is second order, and its damping ratio
+        /// falls as the ease lengthens: roughly 0.35 here against 0.56 at
+        /// <see cref="SMOOTHING_TAU_MS"/>. Two things follow, both measured and both accepted. An
+        /// on-pace player's velocity RINGS around 1.00x for about twice as long before settling (it
+        /// rings around the right value, and <see cref="RATE_DEADBAND"/> flattens the tail of it
+        /// outright). And a park OVERSHOOTS the caret cell further, about 240 ms of song against
+        /// 61 ms, because a smoothed velocity cannot be zero at the instant the gap closes and there
+        /// is more momentum to spend. Neither is graded: this mod does not judge the distance between
+        /// a press and its target at all. Pushing this constant to the top of the owner's band (400)
+        /// buys the stretcher a slower rate and costs more of both.</para>
+        /// </summary>
+        public const double SMOOTHING_TAU_TEMPO_MS = 300;
 
         /// <summary>
         /// The velocity floor, never zero, and a POWER OF TWO for the same reason
@@ -167,13 +236,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         public const double V_EPSILON = TypeBeatModConductor.MIN_FREQUENCY_SCALE;
 
         /// <summary>
-        /// The velocity ceiling on a typing arm. Hardware's number: this mod publishes FREQUENCY,
-        /// which resamples, and BASS refuses an absolute frequency above 100 kHz, so a 44.1 kHz song
+        /// The velocity ceiling on a typing arm in FREQUENCY mode. Hardware's number: that path
+        /// resamples, and BASS refuses an absolute frequency above 100 kHz, so a 44.1 kHz song
         /// stops tracking at about 2.27x while the gameplay clock (which reads the bindable, not the
         /// hardware) goes on accelerating. Shared with the Conductor's pitch mode, which walls at
         /// exactly the same place for exactly the same reason.
+        ///
+        /// <para>It is also the band <see cref="CommandedFrequency"/> clamps into IN BOTH MODES, and
+        /// that is not an oversight: the command is the model's velocity plus a bounded correction,
+        /// so in tempo mode it may briefly exceed <see cref="TEMPO_MAX_VELOCITY"/> while the clock is
+        /// being pulled back onto the model, and the correction needs somewhere to go. The tempo path
+        /// honours 2.0x perfectly well (BASS_FX's tempo range runs to 51x), so the excursion costs
+        /// only a moment of the stretcher's less clean band, whereas clamping the correction at 1.6
+        /// would leave a persistent position error the loop could not close.</para>
         /// </summary>
         public const double V_MAX = TypeBeatModConductor.PITCH_ABSOLUTE_MAX_RATE;
+
+        /// <summary>
+        /// The velocity ceiling on a typing arm in TEMPO mode, and the second of the two numbers the
+        /// preset moves. It is the TIME-STRETCHER's clean ceiling rather than a hardware wall: the
+        /// algorithm holds together in roughly 0.6x to 1.6x and audibly falls apart above that, so
+        /// there is nothing to gain by commanding a rate that will only sound broken.
+        ///
+        /// <para><b>What happens to a typist faster than this.</b> Nothing breaks and nothing is
+        /// refused: the chase law is a position law, so an unreachable velocity simply leaves
+        /// POSITION error on the table, and the tape trails them a little further behind their caret
+        /// than <see cref="T_CHASE_MS"/> worth. That is the owner's stated trade, and it is free
+        /// here because this mod does not judge on that distance at all (see
+        /// <see cref="WINDOW_SCALE"/>): the only thing a bigger trailing gap costs is that the vocal
+        /// is a little further behind the typing, which is exactly what a player outrunning the song
+        /// has asked for.</para>
+        /// </summary>
+        public const double TEMPO_MAX_VELOCITY = 1.6;
 
         /// <summary>
         /// The velocity while COASTING: a finished line, or no line at all. Exactly 1.00x, flat, and
@@ -234,6 +328,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// never approaches it.
         /// </summary>
         public const double T_CORRECT_MS = 250;
+
+        /// <summary>
+        /// THE WOBBLE DEADBAND (backlog 258). A commanded rate within this of exactly 1.00 is
+        /// published as EXACTLY 1.00, so a song that is meant to be playing at its own speed really
+        /// is, rather than being modulated a percent either way by the correction term chasing the
+        /// clock's own noise. Driver-side and two-sided.
+        ///
+        /// <para><b>What it is actually for.</b> An on-pace player settles the model at a velocity of
+        /// about 1, and the command is that velocity plus <c>(P - clock) / T_CORRECT_MS</c>. The
+        /// clock is never exactly on the model (a playback buffer, the interpolating clock's 5 ms
+        /// quantisation at low rates, the rate-scaled platform offset), so that second term jitters
+        /// around zero forever, and a jittering rate is audible on held vocal notes in a way a
+        /// steady one is not. Nothing about that jitter is information. Below the band it is thrown
+        /// away; above it, real drift still moves the song exactly as before.</para>
+        ///
+        /// <para><b>The limit cycle it creates, which is the honest cost.</b> Inside the band the
+        /// clock is held at exactly 1.00x while the MODEL goes on integrating its own velocity, so
+        /// the two creep apart and the correction term grows. It stops growing when the command
+        /// leaves the band, which by definition is when <c>|command - 1| >= RATE_DEADBAND</c>, so the
+        /// drift the deadband can hide is bounded by <c>RATE_DEADBAND * T_CORRECT_MS</c>: 0.03 * 250
+        /// = 7.5 ms of song. At that point the real command is published, the clock is pulled back,
+        /// and the cycle repeats. A steady 7.5 ms bound is well under the 40 ms the retired
+        /// Conductor's phase deadband accepted, well under one video frame, and far under anything a
+        /// mod that forgives timing outright could care about.</para>
+        ///
+        /// <para><b>Why it cannot hold a park at 1.00x.</b> The band is on the COMMAND, and the
+        /// command is not what drives the model: as the player stops, the model's velocity falls
+        /// toward <see cref="V_EPSILON"/> whatever is being published, so the command falls with it,
+        /// crosses the band's lower edge at 0.97 and keeps going. The descent is momentarily snapped
+        /// to 1.00x on the way through and then continues, which is why the band has to stay NARROW
+        /// and two-sided: a wide one would put an audible shelf in the middle of every wind-down.
+        /// </para>
+        /// </summary>
+        public const double RATE_DEADBAND = 0.03;
 
         /// <summary>
         /// What the mod multiplies every judgement window by, so that every press landing on the
@@ -305,17 +433,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         private const int max_ticks_per_frame = (int)MAX_REAL_FRAME_MS;
 
         /// <summary>
-        /// The frequency adjustment published to the track, and the ONLY one: the tempo aggregate
-        /// stays at exactly 1, so <c>GameplayClockExtensions.GetTrueGameplayRate</c> (sign *
-        /// AggregateFrequency * AggregateTempo) is this value alone. The aggregate it is attached to
-        /// is bound onto the real track and the gameplay clock's source IS that track, so writing
-        /// here moves the music and gameplay time together with no new clock.
+        /// Off by default, i.e. TEMPO adjustment, and the label, the tooltip and the default are the
+        /// retired Conductor's verbatim (<see cref="TypeBeatModConductor.AdjustPitch"/>) because it
+        /// is the same question about the same knob. OFF: the reel changes speed with the pitch held.
+        /// ON: the reel resamples, so the pitch rides the speed, which is the vinyl scratch backlog
+        /// 256 shipped as the only behaviour and 258 demoted to an option.
         ///
-        /// <para>Unlike the Conductor's <c>SpeedChange</c> this is not split into a pair: there is no
-        /// tempo half to split into, which is the whole of "frequency only". Its bounds are the
-        /// model's own velocity band, so a value outside what the audio path can track cannot be
-        /// published even by hand. No <c>Precision</c>: quantising a tape reel to 0.01 puts audible
-        /// steps into a rate that is meant to glide.</para>
+        /// <para>It also selects the MODEL TUNING (<see cref="PuppeteerTuning.For"/>), which makes it
+        /// the one setting on this mod that is a replay-era input: see the tuning comment above, and
+        /// <c>PuppeteerReplayTransform</c>, which reads this off the stored mod instance so a watched
+        /// run re-derives under the preset it was played on. It rides to the server and into a stored
+        /// score by the ordinary route, the mod settings payload, which carries a setting only when
+        /// it is NON-DEFAULT; a payload with no <c>adjust_pitch</c> therefore means tempo, and that
+        /// is exactly why this default can never quietly move once a build carrying it has
+        /// shipped.</para>
+        /// </summary>
+        [SettingSource("Adjust pitch", "Should pitch be adjusted with speed")]
+        public BindableBool AdjustPitch { get; } = new BindableBool();
+
+        /// <summary>
+        /// The instantaneous TOTAL rate, written once per frame and read by the HUD through
+        /// <see cref="CurrentRate"/>. Since backlog 258 it is not itself the bindable handed to the
+        /// track: it is split into a tempo and a frequency adjustment by
+        /// <see cref="TypeBeatModConductor.TrackAdjustmentsFor"/>, whose PRODUCT is this value, since
+        /// <c>GameplayClockExtensions.GetTrueGameplayRate</c> is sign * AggregateFrequency *
+        /// AggregateTempo of exactly that adjustment set. The aggregate the pair is attached to is
+        /// bound onto the real track and the gameplay clock's source IS that track, so writing here
+        /// moves the music and gameplay time together with no new clock.
+        ///
+        /// <para>Its bounds are the model's own velocity band, so a value outside what the audio path
+        /// can track cannot be published even by hand. They do NOT move with the mode, unlike the
+        /// Conductor's: there the two modes had different CEILINGS (51x against 2x), while here the
+        /// mode difference is a model cap (<see cref="TEMPO_MAX_VELOCITY"/>) and the published band
+        /// has to stay wide enough for the correction term in both modes. No <c>Precision</c>:
+        /// quantising a tape reel to 0.01 puts audible steps into a rate that is meant to
+        /// glide.</para>
         /// </summary>
         public BindableNumber<double> SpeedChange { get; } = new BindableDouble(1)
         {
@@ -370,6 +522,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// </summary>
         public double? AnchorMs => tape is null ? null : anchorPositionMs;
 
+        /// <summary>The tempo half of the pair published to the track. See <see cref="TypeBeatModConductor.TrackAdjustmentsFor"/>.</summary>
+        private readonly BindableDouble tempoAdjustment = new BindableDouble(1);
+
+        /// <summary>The frequency half of the pair published to the track.</summary>
+        private readonly BindableDouble frequencyAdjustment = new BindableDouble(1);
+
         private IAdjustableAudioComponent? track;
         private DrawableTypeBeatRuleset? drawableRuleset;
 
@@ -393,16 +551,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// <summary>Model ticks taken since the anchor. See <see cref="WallStampMs"/>.</summary>
         private long integratedTicks;
 
+        public TypeBeatModPuppeteer()
+        {
+            // Deliberately NOT RateAdjustModHelper, which binds SpeedChange straight onto one
+            // property: the sub-floor region needs both properties at once (see
+            // TypeBeatModConductor.TrackAdjustmentsFor), and this mod's floor is 1/512, two orders
+            // under the tempo floor TrackBass throws below. The swap on toggling the setting is the
+            // helper's own pattern, remove the old set and add the new one.
+            SpeedChange.BindValueChanged(_ => updateTrackAdjustments());
+
+            AdjustPitch.BindValueChanged(adjustPitch =>
+            {
+                if (track != null)
+                {
+                    removeAdjustments(track, adjustPitch.OldValue);
+                    addAdjustments(track, adjustPitch.NewValue);
+                }
+
+                updateTrackAdjustments();
+            });
+        }
+
         public void ApplyToTrack(IAdjustableAudioComponent track)
         {
             reset();
 
             this.track = track;
 
-            // Removing an adjustment a fresh track never carried is a no-op, which is what
-            // RateAdjustModHelper relies on for exactly this call too.
-            track.RemoveAdjustment(AdjustableProperty.Frequency, SpeedChange);
-            track.AddAdjustment(AdjustableProperty.Frequency, SpeedChange);
+            // Old and new are the same here, so this removes and re-adds the same pair. Removing an
+            // adjustment a fresh track never carried is a no-op, which is what RateAdjustModHelper
+            // relies on for exactly this call too.
+            AdjustPitch.TriggerChange();
         }
 
         /// <summary>
@@ -486,7 +665,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             // sampled once because that is when the engine state is readable, and the ticks are
             // canonical one millisecond steps because that is what makes the trajectory a function
             // of the schedule rather than of the frame rate. See PuppeteerClock.
-            tape = PuppeteerClock.Run(state, ArmFor(typeBeatPlayfield.Engine, time), PuppeteerTuning.Default, ticks);
+            //
+            // The PRESET is read fresh each frame off the toggle, so a mid-play change (which the
+            // mod-select overlay does not allow, but a test may) takes effect where the model can
+            // absorb it rather than being frozen at ApplyToTrack time.
+            tape = PuppeteerClock.Run(state, ArmFor(typeBeatPlayfield.Engine, time), PuppeteerTuning.For(AdjustPitch.Value), ticks);
 
             publish();
         }
@@ -558,16 +741,64 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         }
 
         /// <summary>
-        /// The frequency actually commanded, from the model's state and the clock's own reading.
+        /// The rate actually commanded, from the model's state and the clock's own reading.
         /// Feed-forward plus a bounded correction: the velocity is what the model says the song
         /// should be running at, and the position error over <see cref="T_CORRECT_MS"/> is what
         /// pulls the real clock back onto the model when the two drift (they always do, see the
-        /// class remarks on buffering and clock interpolation). Clamped into the same
-        /// <c>[V_EPSILON, V_MAX]</c> band the model itself runs in, so the command is bounded by
-        /// construction and never asks the audio path for something it cannot track.
+        /// class remarks on buffering and clock interpolation). Clamped into the
+        /// <c>[V_EPSILON, V_MAX]</c> band <see cref="SpeedChange"/> publishes in, so the command is
+        /// bounded by construction and never asks the audio path for something it cannot track.
+        ///
+        /// <para>Then DEADBANDED: a command within <see cref="RATE_DEADBAND"/> of 1.00 is published
+        /// as exactly 1.00, so ordinary jitter never modulates the audio at all. The order matters
+        /// and is this way round on purpose: the band is a statement about the number the audio path
+        /// is handed, so it is applied last, to the clamped command, rather than to a raw request the
+        /// clamp might have moved out of the band afterwards.</para>
+        ///
+        /// <para>The name is historical: with the toggle off this value reaches the track as a
+        /// (tempo, frequency) pair whose product it is, not as a frequency. What it means, and has
+        /// always meant, is the total rate.</para>
+        ///
+        /// <para>Driver-side, and NOT a replay-era contract: the transform re-derives from
+        /// <see cref="PuppeteerClock"/> alone and never calls this, because the model does not read
+        /// what was published. So both constants in here are free to move on taste.</para>
         /// </summary>
         public static double CommandedFrequency(PuppeteerState state, double clockTime)
-            => Math.Clamp(state.Velocity + ((state.PositionMs - clockTime) / T_CORRECT_MS), V_EPSILON, V_MAX);
+        {
+            double command = Math.Clamp(state.Velocity + ((state.PositionMs - clockTime) / T_CORRECT_MS), V_EPSILON, V_MAX);
+
+            return Math.Abs(command - 1) < RATE_DEADBAND ? 1 : command;
+        }
+
+        /// <summary>
+        /// The model preset a stored run was played under, read off the mod instance in
+        /// <paramref name="mods"/>. This is the whole of the replay era's mode plumbing, and it lives
+        /// here rather than in <c>PuppeteerReplayTransform</c> because the toggle belongs to the mod:
+        /// the transform asks the mod which tape it was, and does not learn what a mode is.
+        ///
+        /// <para>No mod in the list means no Puppeteer run, so the answer is the default preset. A
+        /// stored run whose mod list was lost or resolved to <c>UnknownMod</c> lands there too, which
+        /// is the honest reading: the payload carries the toggle only when it is non-default, so an
+        /// absent toggle and an absent mod say the same thing.</para>
+        /// </summary>
+        public static PuppeteerTuning TuningFor(IReadOnlyList<Mod>? mods)
+        {
+            bool adjustPitch = false;
+
+            if (mods != null)
+            {
+                foreach (var mod in mods)
+                {
+                    if (mod is TypeBeatModPuppeteer puppeteer)
+                    {
+                        adjustPitch = puppeteer.AdjustPitch.Value;
+                        break;
+                    }
+                }
+            }
+
+            return PuppeteerTuning.For(adjustPitch);
+        }
 
         /// <summary>
         /// Start the tape. The position is ROUNDED to a millisecond, and the model starts on the
@@ -599,6 +830,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
             if (drawableRuleset != null)
                 drawableRuleset.ConductorRate = 1;
+        }
+
+        private void addAdjustments(IAdjustableAudioComponent target, bool adjustPitch)
+        {
+            if (!adjustPitch)
+                target.AddAdjustment(AdjustableProperty.Tempo, tempoAdjustment);
+
+            target.AddAdjustment(AdjustableProperty.Frequency, frequencyAdjustment);
+        }
+
+        private void removeAdjustments(IAdjustableAudioComponent target, bool adjustPitch)
+        {
+            if (!adjustPitch)
+                target.RemoveAdjustment(AdjustableProperty.Tempo, tempoAdjustment);
+
+            target.RemoveAdjustment(AdjustableProperty.Frequency, frequencyAdjustment);
+        }
+
+        private void updateTrackAdjustments()
+        {
+            (double tempo, double frequency) = TypeBeatModConductor.TrackAdjustmentsFor(SpeedChange.Value, AdjustPitch.Value);
+
+            tempoAdjustment.Value = tempo;
+            frequencyAdjustment.Value = frequency;
         }
 
         private double wallElapsedMs()

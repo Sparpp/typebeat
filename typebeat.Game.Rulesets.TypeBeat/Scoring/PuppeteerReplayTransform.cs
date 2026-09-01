@@ -48,8 +48,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// time.</para>
     ///
     /// <para><b>THE CANONICAL CO-SIMULATION.</b> This is a contract, not an implementation detail:
-    /// it and the constants in <see cref="PuppeteerTuning.Default"/> are what a stored run MEANS.
-    /// One wall millisecond at a time, from the anchor, and in this order:</para>
+    /// it and the constants in the preset the run was played under (see
+    /// <see cref="PuppeteerTuning.For"/>, selected here by
+    /// <see cref="TypeBeatModPuppeteer.TuningFor"/> off the stored mod list) are what a stored run
+    /// MEANS. One wall millisecond at a time, from the anchor, and in this order:</para>
     /// <list type="number">
     /// <item><c>engine.Update(P)</c>, the scratch engine advanced to the tape's current position.</item>
     /// <item><c>arm = TypeBeatModPuppeteer.ArmFor(engine, P)</c>, read at every single tick. The
@@ -156,7 +158,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             var engine = TypeBeatReplayScorer.CreateEngine(playable, lineObjects, mods, RateWindowRule.ScaledByRate);
 
-            var tuning = PuppeteerTuning.Default;
+            // THE MODE (backlog 258). The model's tuning is a function of the mod's "Adjust pitch"
+            // toggle, so the preset has to come out of the stored mod list rather than being assumed:
+            // re-deriving a frequency-mode run under the tempo preset (or the other way round) puts
+            // the watcher on a tape the player never heard, which is the same class of failure as
+            // moving a model constant. The toggle rides into a stored score with the mod settings
+            // payload, so it is there to be read.
+            var tuning = TypeBeatModPuppeteer.TuningFor(mods);
 
             double anchor = config.AnchorMs;
             var tape = PuppeteerState.AnchoredAt(anchor);

@@ -190,11 +190,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// One derived frame per stored frame, so a caller's frame accounting means the same thing
         /// on both sides.
         /// </summary>
-        [Test]
-        public void AWallStampedRunIsDerivedBackToTrackTime()
+        [TestCase(false)]
+        [TestCase(true)]
+        public void AWallStampedRunIsDerivedBackToTrackTime(bool adjustPitch)
         {
             var map = twoLineMap();
-            var mods = new Mod[] { new TypeBeatModPuppeteer() };
+            var mods = puppeteer(adjustPitch);
 
             var run = simulateLiveRun(map, mods, defaultKeys, anchor: -2000, frameMs: 16);
 
@@ -229,11 +230,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// makes a stored Puppeteer run mean one thing rather than whatever the watching machine
         /// happened to do.
         /// </summary>
-        [Test]
-        public void TheTransformIsBitIdenticalTwice()
+        [TestCase(false)]
+        [TestCase(true)]
+        public void TheTransformIsBitIdenticalTwice(bool adjustPitch)
         {
             var map = twoLineMap();
-            var mods = new Mod[] { new TypeBeatModPuppeteer() };
+            var mods = puppeteer(adjustPitch);
 
             var stored = wallReplay(simulateLiveRun(map, mods, defaultKeys, anchor: -2000, frameMs: 16));
 
@@ -256,6 +258,61 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             for (int i = 0; i < first.Count; i++)
                 Assert.IsTrue(first[i].Time.Equals(again[i].Time), $"a second pass moved frame {i}");
+        }
+
+        /// <summary>
+        /// THE MODE IS PART OF WHAT A STORED RUN MEANS (backlog 258). The model's tuning is now a
+        /// function of the mod's "Adjust pitch" toggle, so the transform reads that toggle off the
+        /// stored mod list rather than assuming a preset: re-deriving a frequency-mode run under the
+        /// tempo preset puts the watcher on a tape the player never heard, which is the same class of
+        /// failure as moving a model constant, and the toggle rides into a stored score with the mod
+        /// settings payload precisely so that it does not have to be inferred.
+        ///
+        /// <para>The wall stamps a run stores are <c>anchor + ticks</c>, which is a function of the
+        /// key schedule and nothing else, so THE SAME STORED FRAMES can be derived under both
+        /// presets. That is what makes this pin sharp: the input is identical and only the toggle
+        /// differs, so any difference in the output is the toggle and nothing else.</para>
+        /// </summary>
+        [Test]
+        public void AStoredRunIsDerivedUnderThePresetItsToggleNames()
+        {
+            var map = twoLineMap();
+
+            var tempoMods = puppeteer(false);
+            var pitchMods = puppeteer(true);
+
+            Assert.IsTrue(PuppeteerTuning.Tempo.Equals(TypeBeatModPuppeteer.TuningFor(tempoMods)), "the default is the tempo preset");
+            Assert.IsTrue(PuppeteerTuning.Frequency.Equals(TypeBeatModPuppeteer.TuningFor(pitchMods)));
+
+            // A run whose mod list was lost, trimmed or resolved to UnknownMod reads as the default,
+            // which is the same thing an absent toggle in the payload means.
+            Assert.IsTrue(PuppeteerTuning.Tempo.Equals(TypeBeatModPuppeteer.TuningFor(Array.Empty<Mod>())));
+            Assert.IsTrue(PuppeteerTuning.Tempo.Equals(TypeBeatModPuppeteer.TuningFor(null)));
+
+            var stored = wallReplay(simulateLiveRun(map, tempoMods, defaultKeys, anchor: -2000, frameMs: 16));
+
+            var underTempo = PuppeteerReplayTransform.Derive(map, tempoMods, stored);
+            var underPitch = PuppeteerReplayTransform.Derive(map, pitchMods, stored);
+
+            Assert.AreEqual(underTempo.Count, underPitch.Count);
+
+            double worst = 0;
+
+            for (int i = 0; i < underTempo.Count; i++)
+                worst = Math.Max(worst, Math.Abs(underTempo[i].Time - underPitch[i].Time));
+
+            Assert.Greater(worst, 20,
+                $"the two presets derived the same tape from the same stamps (worst difference {worst:N1} ms), so nothing here proves the toggle was read at all");
+
+            // ...and the run really was played on the tempo tape, so THAT is the one its own derived
+            // times have to match. This is the assertion a wrong preset breaks.
+            var run = simulateLiveRun(map, tempoMods, defaultKeys, anchor: -2000, frameMs: 16);
+
+            for (int i = 1; i < underTempo.Count; i++)
+            {
+                Assert.IsTrue(underTempo[i].Time.Equals(run.TrackFrames[i].Time),
+                    $"frame {i} derived to {underTempo[i].Time:R} where the live tempo run fed it at {run.TrackFrames[i].Time:R}");
+            }
         }
 
         // -----------------------------------------------------------------------------------------
@@ -285,11 +342,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <see cref="PuppeteerReplayTransform"/>, and it is documented rather than pinned
         /// precisely because a headless harness cannot honestly reproduce it.</para>
         /// </summary>
-        [Test]
-        public void ADerivedRunReproducesTheLiveRunsAccount()
+        [TestCase(false)]
+        [TestCase(true)]
+        public void ADerivedRunReproducesTheLiveRunsAccount(bool adjustPitch)
         {
             var map = twoLineMap();
-            var mods = new Mod[] { new TypeBeatModPuppeteer() };
+            var mods = puppeteer(adjustPitch);
 
             var run = simulateLiveRun(map, mods, defaultKeys, anchor: -2000, frameMs: 16);
 
@@ -394,6 +452,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             (33000, 'd'), (34500, 'e'), (36000, 'f'),
         };
 
+        /// <summary>
+        /// The mod stack for a run in one mode. Since backlog 258 the toggle selects the model
+        /// preset, so it is an input to every harness here rather than a cosmetic setting.
+        /// </summary>
+        private static Mod[] puppeteer(bool adjustPitch)
+            => new Mod[] { new TypeBeatModPuppeteer { AdjustPitch = { Value = adjustPitch } } };
+
         private sealed class LiveRun
         {
             public required double Anchor { get; init; }
@@ -440,7 +505,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             while (next < keys.Count)
             {
                 engine.Update(tape.PositionMs);
-                tape = PuppeteerClock.Run(tape, TypeBeatModPuppeteer.ArmFor(engine, tape.PositionMs), PuppeteerTuning.Default, frameMs);
+                tape = PuppeteerClock.Run(tape, TypeBeatModPuppeteer.ArmFor(engine, tape.PositionMs), TypeBeatModPuppeteer.TuningFor(mods), frameMs);
                 ticks += frameMs;
 
                 while (next < keys.Count && keys[next].WallMs <= ticks)

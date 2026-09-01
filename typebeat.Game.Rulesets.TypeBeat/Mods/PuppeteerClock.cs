@@ -20,7 +20,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// <param name="SmoothingTauMs">
     /// Time constant of the first-order velocity filter, in WALL milliseconds. The velocity never
     /// jumps to its target: it eases, so a keypress spins the reel up and silence lets it wind
-    /// down instead of cutting.
+    /// down instead of cutting. MODE-SPECIFIC since backlog 258: see <see cref="PuppeteerTuning.For"/>.
     /// </param>
     /// <param name="MinVelocity">
     /// The velocity floor, and NEVER zero. A published frequency of exactly zero makes the
@@ -29,10 +29,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// door: the mixer flushes and the restart is audible. A floor of 1/512 crawls instead.
     /// </param>
     /// <param name="MaxVelocity">
-    /// The velocity ceiling on a TYPING arm. Hardware's number rather than a taste call: this mod
-    /// publishes frequency only, that path resamples, and BASS refuses an absolute frequency above
-    /// 100 kHz, so a 44.1 kHz song stops tracking at about 2.27x. See
-    /// <see cref="TypeBeatModConductor.PITCH_ABSOLUTE_MAX_RATE"/>, which this is.
+    /// The velocity ceiling on a TYPING arm, and MODE-SPECIFIC since backlog 258. In FREQUENCY mode
+    /// it is hardware's number rather than a taste call: that path resamples, and BASS refuses an
+    /// absolute frequency above 100 kHz, so a 44.1 kHz song stops tracking at about 2.27x (see
+    /// <see cref="TypeBeatModConductor.PITCH_ABSOLUTE_MAX_RATE"/>, which
+    /// <see cref="TypeBeatModPuppeteer.V_MAX"/> is). In TEMPO mode it is the time-stretcher's clean
+    /// ceiling instead, <see cref="TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY"/>. See
+    /// <see cref="PuppeteerTuning.For"/>.
     /// </param>
     /// <param name="PaceReleaseMsPerTick">
     /// The most caret travel ONE tick may contribute to the pace estimate, in track milliseconds.
@@ -55,8 +58,56 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         double PaceStepMaxMs,
         double PaceHeadroom)
     {
-        /// <summary>The shipping tuning. See <see cref="TypeBeatModPuppeteer"/> for the reasoning behind each number.</summary>
-        public static PuppeteerTuning Default => new PuppeteerTuning(
+        /// <summary>
+        /// THE TWO SHIPPING PRESETS, keyed off <see cref="TypeBeatModPuppeteer.AdjustPitch"/>: the
+        /// TEMPO preset when it is off (the default) and the FREQUENCY preset when it is on.
+        ///
+        /// <para>There is deliberately no <c>Default</c> to fall back on. The preset is part of what
+        /// a stored run MEANS (a Puppeteer replay re-derives its track times by re-running this
+        /// model, see <c>PuppeteerReplayTransform</c>), so every caller has to state which mode it is
+        /// re-deriving under rather than inheriting one silently. A misread toggle would put a
+        /// watcher on a tape the player never heard, and that is precisely the failure a named
+        /// fallback would hide.</para>
+        ///
+        /// <para>The two differ in exactly two numbers, and both differences are the TIME-STRETCHER's
+        /// physics rather than taste. A stretcher is windowed, so it answers a rate change a window
+        /// late and smears under rapid modulation: the tempo preset therefore eases the velocity over
+        /// <see cref="TypeBeatModPuppeteer.SMOOTHING_TAU_TEMPO_MS"/> instead of
+        /// <see cref="TypeBeatModPuppeteer.SMOOTHING_TAU_MS"/>. And it is only clean in roughly 0.6x
+        /// to 1.6x, so the tempo preset caps the velocity at
+        /// <see cref="TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY"/> instead of at the resampler's
+        /// hardware wall <see cref="TypeBeatModPuppeteer.V_MAX"/>. Everything else, the chase horizon,
+        /// the floor, the pace estimate and its headroom, is one set of numbers across both modes, so
+        /// the park, the chase law, the pace cap and the coast are one behaviour and only the
+        /// VELOCITY TRAJECTORY is gentler.</para>
+        /// </summary>
+        public static PuppeteerTuning For(bool adjustPitch) => adjustPitch ? Frequency : Tempo;
+
+        /// <summary>
+        /// The preset for TEMPO mode, which is the default. See <see cref="For"/>.
+        /// </summary>
+        public static PuppeteerTuning Tempo => new PuppeteerTuning(
+            TypeBeatModPuppeteer.T_CHASE_MS,
+            TypeBeatModPuppeteer.SMOOTHING_TAU_TEMPO_MS,
+            TypeBeatModPuppeteer.V_EPSILON,
+            TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY,
+            TypeBeatModPuppeteer.PACE_RELEASE_MS_PER_TICK,
+            TypeBeatModPuppeteer.PACE_STEP_MAX_MS,
+            TypeBeatModPuppeteer.PACE_HEADROOM);
+
+        /// <summary>
+        /// The preset for FREQUENCY mode, which is backlog 256's original tuning unchanged, to the
+        /// number.
+        ///
+        /// <para>It was also the ONLY tuning between backlog 256 and 258, and a run recorded in that
+        /// window carries no toggle at all, so it decodes at the new default and re-derives under
+        /// <see cref="Tempo"/>: a tape its player never heard. That is the exact hazard the era
+        /// warning exists for, and it is accepted here for one reason only, that the era was still
+        /// being authored and no build carrying it has been released, so the set of affected runs is
+        /// empty. Once one ships, moving this toggle's DEFAULT costs an era bit like any other
+        /// re-derivation rule.</para>
+        /// </summary>
+        public static PuppeteerTuning Frequency => new PuppeteerTuning(
             TypeBeatModPuppeteer.T_CHASE_MS,
             TypeBeatModPuppeteer.SMOOTHING_TAU_MS,
             TypeBeatModPuppeteer.V_EPSILON,
