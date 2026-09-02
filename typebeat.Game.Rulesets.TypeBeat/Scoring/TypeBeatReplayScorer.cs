@@ -391,10 +391,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// plus the engine flags the mods set through <c>ApplyToDrawableRuleset</c>.
         /// <c>AllowWrongInput</c>, <c>SpaceSkipsWord</c>, <c>SyllableTiming</c>,
         /// <c>WrongInputOnWordGaps</c>, <c>StrictSpaces</c>, <c>CharTimedStretch</c>,
-        /// <c>FlexibleLineSnap</c>, <c>BoundedRush</c>, <c>FirstCharTiming</c> and
-        /// <c>BackDatedSealBreak</c> are
+        /// <c>FlexibleLineSnap</c>, <c>BoundedRush</c>, <c>FirstCharTiming</c>,
+        /// <c>BackDatedSealBreak</c> and <c>LosslessSkipReclaim</c> are
         /// deliberately NOT set from the mods or from any config: the replay's CONFIG frame carries
-        /// what the run was judged under and overwrites all ten, which is the only thing that judges
+        /// what the run was judged under and overwrites all eleven, which is the only thing that judges
         /// a pre-Gatekeeper strict run right.
         ///
         /// <para>Public because <see cref="PuppeteerReplayTransform"/> builds its scratch engine
@@ -464,6 +464,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // that moves no keystroke: the default is the outright wipe every stored replay's seals
             // took, and the bit is set for every live stack, because when a break lands is not a
             // mod's business either.
+            //
+            // LosslessSkipReclaim (backlog 260, CONFIG frame bit 11) is the seventh, and the second
+            // that moves no keystroke: the default is the increment every stored replay's skips
+            // dropped (the rush cap charging the skipping space for the word it gave up, and the
+            // passive claim arm dropping the run it stood on), and the bit is set for every live
+            // stack, because what a skip costs is not a mod's business either.
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the three arms below compose in any order. A replay

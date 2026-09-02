@@ -679,6 +679,66 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        /// <summary>
+        /// The sibling of the test above with NOTHING of the word typed (backlog 260): a space struck
+        /// at the head of "cd" gives the WHOLE word up, and the composed collapse then has no typed
+        /// cell of that word to stop on. Its transparent step-over walks the entire abandoned run and
+        /// erases the nearest typed cell behind it, which is the gap in FRONT of the word, so an
+        /// anchor on the word's head left the caret one cell BEHIND its own selection and the first
+        /// letter of the retype landed on that already-judged gap as a fresh typo: one keystroke of
+        /// correction manufacturing a mistake of its own.
+        ///
+        /// <para>The selection is widened by one cell instead, to the gap the collapse really ends on.
+        /// That keeps the whole gesture inside the existing replay vocabulary, which BOUNDING the
+        /// backspace would not: playback feeds a recorded BACKSPACE straight into the plain call, so a
+        /// live erase that stopped short would not reproduce. The extra cell costs one keystroke and
+        /// nothing else, a judged gap retyping inert.</para>
+        /// </summary>
+        [Test]
+        public void CollapsingASelectionOverAWhollyAbandonedWordLandsOnItsAnchor()
+        {
+            var engine = started();
+            engine.SpaceSkipsWord = true;
+            engine.StrictSpaces = true;
+
+            Assert.That(engine.ProcessKey('a', 1000), Is.True);
+            Assert.That(engine.ProcessKey('b', 1500), Is.True);
+            Assert.That(engine.ProcessKey(' ', 2000), Is.True, "the first gap, typed normally");
+            Assert.That(engine.Combo, Is.EqualTo(3));
+
+            Assert.That(engine.ProcessKey(' ', 2000), Is.True, "at the head of \"cd\": the whole word goes");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(cells(engine)[3].State, Is.EqualTo(CellState.Abandoned));
+                Assert.That(cells(engine)[4].State, Is.EqualTo(CellState.Abandoned));
+                Assert.That(engine.CaretIndex, Is.EqualTo(6), "past the second gap, at the head of \"ef\"");
+                Assert.That(engine.RetypeSelectionAnchor, Is.EqualTo(2), "the gap in front of \"cd\", not the head of \"cd\" at 3");
+            });
+
+            int erases = eraseBackTo(engine, 2);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(erases, Is.EqualTo(2), "the gap the skip took, then one press over the phantom run onto the gap before it");
+                Assert.That(engine.CaretIndex, Is.EqualTo(2), "ON the anchor, never behind it");
+                Assert.That(cells(engine)[3].State, Is.EqualTo(CellState.Untyped), "and the abandoned cells were reclaimed on the way");
+                Assert.That(cells(engine)[4].State, Is.EqualTo(CellState.Untyped));
+            });
+
+            // The retype starts on the gap, which is inert, and every letter lands on the cell it is
+            // meant for. Anchored one cell later, this first press was a typo on the gap.
+            foreach (int i in new[] { 2, 3, 4, 5, 6, 7 })
+                Assert.That(engine.ProcessKey(cells(engine)[i].Expected, cells(engine)[i].TargetTime), Is.True);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(engine.Mistypes, Is.Zero, "the correction manufactured no mistake of its own");
+                Assert.That(engine.MaxCombo, Is.EqualTo(8), "eight cells, and the skip cost the corrected run nothing");
+                Assert.That(cells(engine), Has.All.Property(nameof(TypingCell.State)).EqualTo(CellState.Correct));
+            });
+        }
+
         // -----------------------------------------------------------------------------------------
         // Neither query mutates anything
         // -----------------------------------------------------------------------------------------

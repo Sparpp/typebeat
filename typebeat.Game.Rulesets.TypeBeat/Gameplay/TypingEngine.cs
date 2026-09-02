@@ -273,6 +273,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool BackDatedSealBreak { get; set; }
 
         /// <summary>
+        /// LOSSLESS SKIP RECLAIM (backlog 260): one law, in two places, saying that a word given up by
+        /// accident and then typed out in full costs the run NOTHING. A player reported finishing a
+        /// map with 0 misses, every one of its 920 cells typed, and a max combo of 919: the increment
+        /// missing was the WORD GAP the skipping space was judged on, and there are two ways that one
+        /// increment was being dropped.
+        ///
+        /// <para><b>The rush cap charged the space for the word it abandoned.</b>
+        /// <see cref="skipCurrentWord"/> moves the caret past the whole word BEFORE the same press is
+        /// judged on the gap it parked on, and <see cref="rushesPastCap"/> measures the caret
+        /// POSITIONALLY, so the abandoned tail counted against a budget the player never spent: with
+        /// the tail plus the lead over <see cref="FLETCHER_MAX_CHARS_AHEAD"/> the gap earned no combo
+        /// at all, and silently, since the skip's own break two statements earlier had already zeroed
+        /// the run (no <see cref="ComboBroken"/>, no claim discarded). The gap is then written Correct
+        /// with its <see cref="TypingCell.FirstCorrectDelta"/>, so every later retype of it is inert
+        /// and the increment can never be earned back. Under this rule the skipping space is measured
+        /// against the caret as it stood BEFORE the skip moved it, which is what makes
+        /// <see cref="rushesPastCap"/>'s own "a space spends no budget" true of the one space that
+        /// could spend a whole word of it. An ordinary press is untouched: it is measured where it
+        /// always was.</para>
+        ///
+        /// <para><b>The passive claim arm dropped the run it stood on.</b> A break that takes no more
+        /// than the claim's own credit is passive (backlog 243) and keeps the held claim, but it had
+        /// already called <see cref="breakRun"/> at its call site, so the increments that run held
+        /// were discarded with nothing to redeem them. Under this rule the passive break FOLDS its
+        /// spent run into the claim it left standing (streak and positions both, in run order), so a
+        /// full correction restores the whole of it. Reached by a double space, and by any typo
+        /// landing on the gap a skip just took.</para>
+        ///
+        /// <para>FALSE by default, and era-styled exactly like <see cref="BackDatedSealBreak"/>: set
+        /// before the first keypress and left alone afterwards. Live play sets it for EVERY mod stack
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c>), because no mod has an opinion about what a
+        /// skip costs. It travels per replay on the CONFIG frame's flags bit 11
+        /// (<see cref="Replays.TypeBeatReplayFrame.LosslessSkipReclaim"/>) and is applied in
+        /// <see cref="Replays.ReplayEngineFeed.Apply"/>, so every replay recorded before it existed
+        /// carries the bit clear and re-derives with the increment still dropped, which is the
+        /// <c>max_combo</c> and the <c>total_score</c> its player was given.</para>
+        ///
+        /// <para>Judgement relevant in the same narrow sense bit 10 is: it moves no delta, no tier,
+        /// no cell state and no keystroke's landing place. It moves only COMBO, and therefore the
+        /// combo weight of every judgement after the skip.</para>
+        /// </summary>
+        public bool LosslessSkipReclaim { get; set; }
+
+        /// <summary>
         /// Whether <see cref="AllowWrongInput"/> reaches the WORD GAP as well as the lyric
         /// characters (backlog 181). With it on, a wrong (non-space) key pressed while the caret
         /// sits on a space cell is typed THROUGH exactly like a wrong letter on a lyric cell: the
@@ -1468,17 +1512,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// lines before the active one, plus the countable cells behind the caret within it. 0 when
         /// no line is active.
         /// </summary>
-        public int CaretCountablePosition
+        public int CaretCountablePosition => countablePositionAt(caretIndex);
+
+        /// <summary>
+        /// <see cref="CaretCountablePosition"/> for an arbitrary caret index on the active line: the
+        /// countable cells of every line before it, plus the countable cells of this line behind
+        /// <paramref name="index"/>. Split out for backlog 260, where the rush cap has to measure a
+        /// skipping space against the caret as it stood BEFORE the skip moved it (see
+        /// <see cref="LosslessSkipReclaim"/>); the property is exactly this at the live caret.
+        /// </summary>
+        private int countablePositionAt(int index)
         {
-            get
-            {
-                if (activeLineIndex == -1)
-                    return 0;
+            if (activeLineIndex == -1)
+                return 0;
 
-                var prefix = countablePrefix[activeLineIndex];
+            var prefix = countablePrefix[activeLineIndex];
 
-                return countableBase[activeLineIndex] + prefix[Math.Clamp(caretIndex, 0, prefix.Length - 1)];
-            }
+            return countableBase[activeLineIndex] + prefix[Math.Clamp(index, 0, prefix.Length - 1)];
         }
 
         /// <summary>
@@ -2109,6 +2159,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // increments the combo.
             bool skipLeftAClaimOutstanding = false;
 
+            // Backlog 260: the caret as it stood BEFORE a word skip moved it, which is what the rush
+            // cap measures this press against under LosslessSkipReclaim. Negative when this press
+            // skipped nothing, which is every press but one and leaves the cap exactly where it was.
+            int caretBeforeSkip = -1;
+
             // SPACE-SKIP (see SpaceSkipsWord), evaluated BEFORE the match: a space pressed while the
             // caret sits on a lyric character abandons the rest of that word. The caret cell is
             // typeable here (autoSkipForward ran above), so "Expected is not a space" is exactly "the
@@ -2117,6 +2172,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // already turned the press into the expected char, so this is unreachable under it.
             if (SpaceSkipsWord && c == ' ' && cell.Expected != ' ')
             {
+                caretBeforeSkip = caretIndex;
                 skipLeftAClaimOutstanding = skipCurrentWord(time);
 
                 if (caretIndex >= line.Cells.Count)
@@ -2451,7 +2507,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 // Fletcher RUSH CAP, evaluated before the caret moves: does this press put the caret
                 // more than FLETCHER_MAX_CHARS_AHEAD countable chars past the playhead?
-                bool rushedPastCap = FletcherEnabled && rushesPastCap(cell, time);
+                //
+                // "Before the caret moves" is true of every press but one, and that one is the whole
+                // of backlog 260 (see LosslessSkipReclaim): a space that skipped a word is judged on
+                // the gap AFTER the skip has already walked the caret over the abandoned tail, so the
+                // measurement below has to be taken at the caret the press started from or the player
+                // is charged for characters they gave up rather than typed.
+                int caretForCap = LosslessSkipReclaim && caretBeforeSkip >= 0 ? caretBeforeSkip : caretIndex;
+
+                bool rushedPastCap = FletcherEnabled && rushesPastCap(cell, time, caretForCap);
 
                 if (basePoints > 0)
                 {
@@ -2821,6 +2885,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// on its way past: whatever the player rebuilds after this break is measured from zero, so
         /// the next break arms normally. See <see cref="SkipSpaceCredit"/> for the era arm.</para>
         ///
+        /// <para>A passive break SPENDS a run without owning it, and since backlog 260 that run is
+        /// FOLDED INTO the claim it leaves standing rather than dropped (see
+        /// <see cref="LosslessSkipReclaim"/>): the call site has already run <see cref="breakRun"/>,
+        /// so anything the claim does not take is gone for good, and the cells that earned it are
+        /// resolved, so no retype can earn it back. Folding is what makes "an accidental skip, fully
+        /// corrected, costs nothing" true of a double space as well as of a single one.</para>
+        ///
         /// <para>Under <see cref="ComboRestoreRule.Never"/> no snapshot exists at all, so the break
         /// is as final here as it is everywhere else.</para>
         /// </summary>
@@ -2843,9 +2914,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 if (brokenStreak <= passive)
                 {
-                    // The held claim keeps its OWN positions, exactly as it keeps its own streak:
-                    // this break was passive, so it took nothing and records nothing.
-                    restorable = (heldLine, heldCell, heldStreak, 0, heldPositions);
+                    if (!LosslessSkipReclaim)
+                    {
+                        // The pre-260 arm: the held claim keeps its OWN streak and positions, and the
+                        // run this break spent is dropped on the floor. The call site has already run
+                        // breakRun, so those increments are gone with nothing left to redeem them,
+                        // and the cells that earned them are Correct with a FirstCorrectDelta, so no
+                        // retype can ever earn them again. That is the second half of backlog 260's
+                        // missing increment.
+                        restorable = (heldLine, heldCell, heldStreak, 0, heldPositions);
+                        return;
+                    }
+
+                    // BACKLOG 260: a passive break took nothing the player earned, but it still SPENT
+                    // a run, so the run folds INTO the claim it left standing rather than being
+                    // dropped. Streak and positions move together (positions.Count == streak is the
+                    // ledger's invariant, see runPositions), and the broken ones append in run order
+                    // because the claim's own increments were earned before them. Redeeming the claim
+                    // then puts back the whole of what the two breaks between them cost.
+                    if (brokenStreak > 0)
+                    {
+                        var folded = new List<ComboPosition>(heldPositions.Count + brokenPositions.Count);
+
+                        folded.AddRange(heldPositions);
+                        folded.AddRange(brokenPositions);
+                        heldPositions = folded;
+                    }
+
+                    // The credit is still zeroed: the exemption is worth exactly one break (backlog
+                    // 243), and folding the run in does not re-arm it.
+                    restorable = (heldLine, heldCell, heldStreak + brokenStreak, 0, heldPositions);
                     return;
                 }
             }
@@ -2863,9 +2961,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// falling through to be judged on the word gap the skip parked the caret on. It is deliberately
         /// keyed on the press having ACTUALLY credited combo rather than on the skip having happened,
         /// so a skip whose space earned nothing (an inert retype of an already judged gap, the rush cap
-        /// refusing a caret out past its bound, or a word abandoned all the way to the end of a line,
-        /// where there is no gap for the space to land on at all) records no credit and behaves exactly
-        /// as backlog 176 left it.</para>
+        /// refusing a caret that was ALREADY out past its bound before the skip, or a word abandoned
+        /// all the way to the end of a line, where there is no gap for the space to land on at all)
+        /// records no credit and behaves exactly as backlog 176 left it. The word this press gave up
+        /// no longer counts against that bound (backlog 260, see <see cref="LosslessSkipReclaim"/>),
+        /// which is why the cap refusing here is now a statement about the player's own lead.</para>
         /// </summary>
         private void creditTheClaimsOwnPress()
         {
@@ -2918,10 +3018,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// playhead? Measured on the caret position AFTER the press, so with a cap of 5 the fifth
         /// char ahead is still fine and the sixth is not. A non-countable cell (a space) spends no
         /// budget, so pressing it can never push the caret over the line by itself.
+        ///
+        /// <para><paramref name="caretIndexForCap"/> is normally the live caret, and is the caret as
+        /// it stood BEFORE a word skip for the one press that can be judged past a caret it moved
+        /// itself (backlog 260, see <see cref="LosslessSkipReclaim"/>). Without that the abandoned
+        /// tail was spent out of the player's budget by the very press that gave it up, which is the
+        /// one way the sentence above about a space could be false.</para>
         /// </summary>
-        private bool rushesPastCap(TypingCell cell, double time)
+        private bool rushesPastCap(TypingCell cell, double time, int caretIndexForCap)
         {
-            int after = CaretCountablePosition + (cell.IsCountable ? 1 : 0);
+            int after = countablePositionAt(caretIndexForCap) + (cell.IsCountable ? 1 : 0);
 
             return after - PlayheadCountablePosition(time) > FLETCHER_MAX_CHARS_AHEAD;
         }
@@ -3346,7 +3452,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// ordinary lyric character (a typo or an abandoned cell alike) that is its WORD's first cell
         /// (walk back to the gap before it), which for a skipped word is its head: the mass backspace
         /// the caller composes reclaims the abandoned tail on its way past, exactly as a plain
-        /// backspace there does. For a WORD GAP holding a typo (possible since backlog 181, see
+        /// backspace there does. Since backlog 260 that answer is then widened by one more step when
+        /// the head itself is a cell NOBODY TYPED (a word given up whole), because the composed
+        /// backspace cannot stop on such a cell and would otherwise end up behind its own selection:
+        /// see the walk at the bottom of this getter. For a WORD GAP holding a typo (possible since backlog 181, see
         /// <see cref="WrongInputOnWordGaps"/>) the gap IS the cell to retype and it belongs to no
         /// word, so the selection starts on the gap itself; walking back from it would swallow the
         /// perfectly good word in front of it for nothing.</para>
@@ -3389,6 +3498,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 int anchor = mistake;
 
                 while (anchor > 0 && !isWordGap(cells[anchor - 1]))
+                    anchor--;
+
+                // ...and then back to a cell the mass backspace can actually LAND on (backlog 260).
+                // The collapse is a run of ordinary ProcessBackspace calls, and one of those steps
+                // TRANSPARENTLY over abandoned and auto-skipped cells to erase the nearest cell the
+                // player typed: it cannot stop on a cell nobody typed. So when the whole word was
+                // given up (a space struck at its head), the word's own first cell is not a stopping
+                // place, the run carries on to the gap in front of it, and a selection anchored on the
+                // word head was one cell short of where its own collapse ends up. The caret then sat
+                // BEHIND the anchor on a gap that had already been judged, and the next letter of the
+                // retype landed on it as a fresh typo: one keystroke of correction manufacturing a
+                // mistake of its own.
+                //
+                // Widening the SELECTION rather than bounding the backspace is what keeps this inside
+                // the input layer with no era of its own. A bounded erase would make the live run
+                // stop somewhere its own recorded BACKSPACE frames cannot, since playback feeds them
+                // through the plain call, and the replay would then diverge from the run it stores.
+                // The extra cell costs the player one keystroke and nothing else: a gap that was
+                // already judged retypes inert (see FirstCorrectDelta), so no count, no score and no
+                // combo moves, and the highlight now shows exactly the run the collapse will clear.
+                //
+                // The same walk the backspace makes, so the two cannot disagree: over the transparent
+                // states only, stopping at the line's head. A word gap is never in either state
+                // (skipCurrentWord scans strictly between the gaps), so this steps back at most out
+                // of the abandoned word and onto the gap before it.
+                while (anchor > 0 && (cells[anchor].State == CellState.Abandoned || cells[anchor].State == CellState.AutoSkipped))
                     anchor--;
 
                 return anchor;

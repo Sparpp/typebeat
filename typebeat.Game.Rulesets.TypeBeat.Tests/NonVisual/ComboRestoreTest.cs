@@ -266,7 +266,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// under: the space skips a word, a wrong letter takes a word gap, and a spoiled gap parks the
         /// caret. Only the two claim axes are left to the caller.
         /// </summary>
-        private static TypingEngine skipEngine(ComboClaimRule claim, SkipSpaceCreditRule skipCredit, LyricBeatmap? beatmap = null)
+        private static TypingEngine skipEngine(ComboClaimRule claim, SkipSpaceCreditRule skipCredit, LyricBeatmap? beatmap = null, bool lossless = false)
         {
             var engine = new TypingEngine(beatmap ?? twoWordMap())
             {
@@ -275,6 +275,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 StrictSpaces = true,
                 ComboClaim = claim,
                 SkipSpaceCredit = skipCredit,
+                LosslessSkipReclaim = lossless,
             };
 
             engine.Update(1000);
@@ -299,9 +300,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// claimed and so the press that redeems it.</item>
         /// </list>
         /// </summary>
-        private static (TypingEngine engine, List<int> restored) wordSkippedThenTypodBesideIt(ComboClaimRule claim, SkipSpaceCreditRule skipCredit)
+        private static (TypingEngine engine, List<int> restored) wordSkippedThenTypodBesideIt(ComboClaimRule claim, SkipSpaceCreditRule skipCredit, bool lossless = false)
         {
-            var engine = skipEngine(claim, skipCredit);
+            var engine = skipEngine(claim, skipCredit, lossless: lossless);
 
             var restored = new List<int>();
             engine.ComboRestored += restored.Add;
@@ -779,15 +780,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// walking back and typing the abandoned word out resumes the run the skip broke, which is
         /// what backlog 167 promised and what backlog 176 already says for the shape without the
         /// space in it.
+        ///
+        /// <para>Backlog 260 finishes the sentence. The passive typo did not merely fail to take the
+        /// claim, it SPENT a run of 1 on its way past (its call site had already broken it), and that
+        /// increment was the skip's own gap, a cell now resolved and inert on every retype, so it was
+        /// gone for good. Folded into the claim it left standing, the redemption is 4 rather than 3
+        /// and the corrected run ends on 5. The old 4 is pinned below, under the era arm.</para>
         /// </summary>
         [Test]
         public void ATypoBesideAWordSkipCannotTakeTheClaimWithTheSkipsOwnSpace()
+        {
+            (var engine, var restored) = wordSkippedThenTypodBesideIt(ComboClaimRule.StreakedBreakWins, SkipSpaceCreditRule.NotAStreakOfItsOwn, lossless: true);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(restored, Is.EqualTo(new[] { 4 }), "the deep claim survived the typo beside the skip, and swallowed the run it spent");
+                Assert.That(engine.Combo, Is.EqualTo(5), "4 restored at the 'd', then the 'd' itself");
+                Assert.That(engine.MaxCombo, Is.EqualTo(5));
+                Assert.That(engine.Mistypes, Is.EqualTo(2));
+            });
+        }
+
+        /// <summary>
+        /// The pre-260 arm of the same keystrokes, and the reproduction pin every stored row depends
+        /// on: the passive typo kept the claim (backlog 243) but dropped the gap increment it had just
+        /// broken, so the redemption is the 3 the SKIP took and no more, and the run ends one short of
+        /// where the same fingers end up today.
+        /// </summary>
+        [Test]
+        public void ThePre260RuleDropsTheRunThePassiveTypoSpent()
         {
             (var engine, var restored) = wordSkippedThenTypodBesideIt(ComboClaimRule.StreakedBreakWins, SkipSpaceCreditRule.NotAStreakOfItsOwn);
 
             Assert.Multiple(() =>
             {
-                Assert.That(restored, Is.EqualTo(new[] { 3 }), "the deep claim survived the typo beside the skip");
+                Assert.That(restored, Is.EqualTo(new[] { 3 }), "only what the skip's own break took");
                 Assert.That(engine.Combo, Is.EqualTo(4), "3 restored at the 'd', then the 'd' itself");
                 Assert.That(engine.MaxCombo, Is.EqualTo(4));
                 Assert.That(engine.Mistypes, Is.EqualTo(2));

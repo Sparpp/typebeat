@@ -83,6 +83,26 @@ looking for it. The canonical sources are the code itself:
   is written by hand first, from `LineSealResult.SurvivingCombo`, at `TypeBeatPlayfield.onLineSealed`
   and its hand-mirror in `TypeBeatReplayScorer`. HP is untouched (same misses, same drain, same
   instant) and neither `MaxCombo` nor an already-judged hit's `ComboAtJudgement` is revisited.
+  Backlog 260 adds `LosslessSkipReclaim` (a seventh ERA, CONFIG flags bit 11 = 2048, set for every
+  live stack), one law in two places: an accidentally skipped word, typed out in full, costs the run
+  NOTHING. A report of 920 cells, 0 misses and a max combo of 919 was the WORD GAP the skipping space
+  is judged on, dropped two ways. (1) `skipCurrentWord` moves the caret past the whole word BEFORE
+  the same press is judged on the gap, and `rushesPastCap` measures the caret POSITIONALLY, so the
+  abandoned tail was charged to the player's rush budget; over the cap the gap earned no combo, and
+  SILENTLY, the skip's own break having already zeroed the run. That press is now measured against
+  the caret as it stood before the skip (`caretBeforeSkip` in `ProcessKey`), which is what makes
+  `rushesPastCap`'s own "a space spends no budget" true; an ordinary press is untouched. (2) The
+  passive-claim arm of `snapshotRedeemableBreak` (backlog 243) kept the held claim and dropped its
+  own `brokenStreak`/`brokenPositions`, but the call site had already run `breakRun`, so those
+  increments died with nothing to redeem them. A passive break now FOLDS its spent run into the claim
+  (streak added, positions appended in run order, `positions.Count == streak` preserved), so a full
+  correction restores the lot. A THIRD defect from the same report is input-layer only and carries no
+  era: `RetypeSelectionAnchor` anchored a wholly abandoned word on its head, which the mass backspace
+  cannot stop on (the transparent step-over walks the whole phantom run and erases the gap in FRONT
+  of the word), so the Ctrl+A collapse ended up BEHIND its own anchor and the first retyped letter
+  landed on that judged gap as a manufactured typo. The selection is widened one step to that gap.
+  Widened rather than bounding the backspace, deliberately: playback feeds a recorded `BACKSPACE`
+  through the plain `ProcessBackspace`, so a live erase that stopped short would not reproduce.
 - **The timing schema** (per-character target times, syllable subdivision, space cells):
   `Gameplay/TypingLine.cs`, `FromLyricLine`.
 - **How a judgement becomes a stored osu result**: `Scoring/TypeBeatResultMapping.cs`, which also

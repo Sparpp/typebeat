@@ -258,6 +258,102 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return replay(frames);
         }
 
+        /// <summary>
+        /// THE SKIP-RECLAIM fixture (backlog 260): one line with a LONG word in it, so that giving
+        /// that word up walks the caret far enough forward to matter to the rush cap.
+        ///
+        /// <para>"ab cdefghijkl mn op", one unit per word: ab [1000, 1200], cdefghijkl [1200, 2200],
+        /// mn [2200, 2400], op [2400, 2600]. Nineteen cells, sixteen of them countable, and the line
+        /// runs to 60000 so nothing seals while the run is being typed.</para>
+        /// </summary>
+        private static TypeBeatBeatmap longWordMap()
+        {
+            var line = new LyricLine
+            {
+                RawText = "ab cdefghijkl mn op",
+                StartTime = 0,
+                EndTime = 60000,
+                SingEndTime = 2600,
+                Units = new[]
+                {
+                    new TimedUnit { Text = "ab", StartTime = 1000, EndTime = 1200 },
+                    new TimedUnit { Text = "cdefghijkl", StartTime = 1200, EndTime = 2200 },
+                    new TimedUnit { Text = "mn", StartTime = 2200, EndTime = 2400 },
+                    new TimedUnit { Text = "op", StartTime = 2400, EndTime = 2600 },
+                },
+            };
+
+            var map = new TypeBeatBeatmap();
+            map.HitObjects.Add(new TypeBeatHitObject { StartTime = 0, LineIndex = 0, Line = line, Granularity = TimingGranularity.Line });
+
+            foreach (var hitObject in map.HitObjects)
+                hitObject.ApplyDefaults(new ControlPointInfo(), new BeatmapDifficulty(), CancellationToken.None);
+
+            return map;
+        }
+
+        /// <summary>
+        /// The reported run backlog 260 is about, as recorded frames: "ab" and its gap typed, a stray
+        /// space at the HEAD of the long word (which gives the whole word up and is then judged on the
+        /// gap after it), the Ctrl+A collapse as the two BACKSPACE frames the gesture really emits,
+        /// and the line typed out from the anchor. <paramref name="lossless"/> is the CONFIG frame's
+        /// bit 11, taken through the LEGACY decode with the caret and space bits a live stack records,
+        /// so the era arm is the one a stored .osr really produces.
+        ///
+        /// <para><paramref name="clean"/> instead types the line straight through, which is the run
+        /// the corrected one has to match.</para>
+        /// </summary>
+        private static Replay skipReclaimRun(IBeatmap map, bool lossless, bool clean = false)
+        {
+            const int flag_allow_wrong_input = 1;
+            const int flag_space_skips_word = 2;
+            const int flag_strict_spaces = 16;
+            const int flag_flexible_lines = 32;
+            const int flag_bounded_rush = 128;
+            const int flag_lossless_skip_reclaim = 2048;
+
+            int flags = flag_allow_wrong_input | flag_space_skips_word | flag_strict_spaces | flag_flexible_lines | flag_bounded_rush
+                        | (lossless ? flag_lossless_skip_reclaim : 0);
+
+            var config = new TypeBeatReplayFrame();
+            config.FromLegacy(new LegacyReplayFrame(0, (float)TypeBeatReplayFrame.CONFIG, flags, ReplayButtonState.None), new Beatmap());
+            config.Time = 0;
+
+            var targets = targetsOf(map, 0);
+            const string text = "ab cdefghijkl mn op";
+
+            var frames = new List<TypeBeatReplayFrame> { config };
+
+            if (clean)
+            {
+                for (int i = 0; i < text.Length; i++)
+                    frames.Add(new TypeBeatReplayFrame(targets[i], text[i]));
+
+                return replay(frames);
+            }
+
+            // "ab" and its gap, on target.
+            for (int i = 0; i < 3; i++)
+                frames.Add(new TypeBeatReplayFrame(targets[i], text[i]));
+
+            // The stray space, struck where 'c' was owed: the whole of "cdefghijkl" is given up and
+            // the press lands on the gap at cell 13.
+            frames.Add(new TypeBeatReplayFrame(targets[3], ' '));
+
+            // The collapse: two erases, both stamped with the gesture's one timestamp, exactly as
+            // TypeBeatKeyHandler.eraseBackTo records them. They take the gap the skip landed on and
+            // then step over the whole abandoned run onto the gap in front of it, which is the
+            // selection's anchor.
+            frames.Add(new TypeBeatReplayFrame(targets[3], TypeBeatReplayFrame.BACKSPACE));
+            frames.Add(new TypeBeatReplayFrame(targets[3], TypeBeatReplayFrame.BACKSPACE));
+
+            // The retype, from the anchor to the end of the line.
+            for (int i = 2; i < text.Length; i++)
+                frames.Add(new TypeBeatReplayFrame(targets[i], text[i]));
+
+            return replay(frames);
+        }
+
         #endregion
 
         /// <summary>
@@ -712,6 +808,70 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // of the three cells struck after it.
                 Assert.That(stored.TotalScore, Is.EqualTo(532609));
                 Assert.That(live.TotalScore, Is.EqualTo(581491));
+
+                // Everything the axis does not reach.
+                Assert.That(live.Statistics, Is.EquivalentTo(stored.Statistics));
+                Assert.That(live.MaximumStatistics, Is.EquivalentTo(stored.MaximumStatistics));
+                Assert.That(live.Accuracy, Is.EqualTo(stored.Accuracy).Within(1e-12));
+                Assert.That(live.Completion, Is.EqualTo(stored.Completion).Within(1e-12));
+                Assert.That(live.Rank, Is.EqualTo(stored.Rank));
+                Assert.That(live.Mistypes, Is.EqualTo(stored.Mistypes));
+            });
+        }
+
+        /// <summary>
+        /// THE SKIP-RECLAIM ERA (backlog 260, CONFIG frame bit 11), through the whole submitted
+        /// account rather than through the engine's own combo. A stray space at the head of a long
+        /// word walked the caret ten countable characters forward before the SAME press was judged on
+        /// the word gap, and the rush cap, which measures the caret positionally, then refused that
+        /// press its combo for a lead the player never had. The gap resolved Correct all the same, so
+        /// the increment could never be earned back: the player finished the map with every cell typed
+        /// and a max combo one short of the clean run's, which is exactly what was reported.
+        ///
+        /// <para>The corrected run is compared against the CLEAN one, which is the law itself: an
+        /// accidental skip, fully corrected, costs nothing. Under the stored arm it costs one.</para>
+        ///
+        /// <para>It is also the statement of the axis's REACH, the same one bit 10 has:
+        /// <c>statistics</c>, accuracy, completion and rank are IDENTICAL under both arms, because no
+        /// cell resolves differently and no key moves. Only the combo a skip leaves recoverable moves,
+        /// so only <c>max_combo</c> and the combo-weighted portion of <c>total_score</c> can.</para>
+        /// </summary>
+        [Test]
+        public void TheSkipReclaimEraDecidesWhetherACorrectedSkipCostsAnything()
+        {
+            var map = longWordMap();
+
+            var clean = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), skipReclaimRun(map, lossless: true, clean: true), TypoRule.Deferred, ComboRestoreRule.OnFix);
+            var live = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), skipReclaimRun(map, lossless: true), TypoRule.Deferred, ComboRestoreRule.OnFix);
+            var stored = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), skipReclaimRun(map, lossless: false), TypoRule.Deferred, ComboRestoreRule.OnFix);
+
+            TestContext.WriteLine($"clean: max_combo {clean.MaxCombo}, total {clean.TotalScore}; live: max_combo {live.MaxCombo}, total {live.TotalScore}; stored: max_combo {stored.MaxCombo}, total {stored.TotalScore}");
+
+            Assert.Multiple(() =>
+            {
+                // The fixture has to be the shape the rule is about, or it proves nothing: nineteen
+                // cells, all of them typed, nothing missed and nothing mistyped.
+                Assert.That(count(live, HitResult.Great), Is.EqualTo(19));
+                Assert.That(count(live, HitResult.Miss), Is.Zero);
+                Assert.That(live.Mistypes, Is.Zero);
+                Assert.That(live.UnconsumedFrames, Is.Zero);
+                Assert.That(stored.UnconsumedFrames, Is.Zero);
+                Assert.That(clean.UnconsumedFrames, Is.Zero);
+
+                Assert.That(clean.MaxCombo, Is.EqualTo(19));
+                Assert.That(live.MaxCombo, Is.EqualTo(19), "the corrected run reaches the clean run's maximum");
+                Assert.That(stored.MaxCombo, Is.EqualTo(18), "the reported 919 of 920, in miniature");
+
+                // The submitted totals, hardcoded so the stored arm is a REPRODUCTION pin: bit 11
+                // clear is the account this run was given before backlog 260, and nothing may move it.
+                Assert.That(stored.TotalScore, Is.EqualTo(970636));
+                Assert.That(live.TotalScore, Is.EqualTo(991258));
+
+                // Neither reaches the clean run's million, and they are not meant to: the skip's
+                // break really happened and the combo weight of the cells typed under it is really
+                // lower. What backlog 260 restores is the max_combo and the increment, not the run.
+                Assert.That(clean.TotalScore, Is.EqualTo(1000000));
+                Assert.That(live.TotalScore, Is.GreaterThan(stored.TotalScore));
 
                 // Everything the axis does not reach.
                 Assert.That(live.Statistics, Is.EquivalentTo(stored.Statistics));

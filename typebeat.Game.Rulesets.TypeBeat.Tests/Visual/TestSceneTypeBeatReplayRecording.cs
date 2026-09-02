@@ -265,6 +265,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && frames[0].BackDatedSealBreak
                 && playfield.Engine.BackDatedSealBreak);
 
+            // Backlog 260's era bit (flags bit 11), stamped for EVERY stack on the same terms: no mod
+            // has an opinion about what a word skip costs, and a replay written before it exists
+            // carries the bit clear so its skips still drop the gap increment they were played to drop.
+            AddAssert("config frame records the lossless skip reclaim", () =>
+                frames[0].IsConfig
+                && frames[0].LosslessSkipReclaim
+                && playfield.Engine.LosslessSkipReclaim);
+
             // The recorded time IS the time the cell was judged at. Under the live rule that no
             // longer reads as "target + delta": 'z' OPENS its syllable, so since backlog 247 its
             // judged delta is the recorded time's distance from the span's start (here equal to the

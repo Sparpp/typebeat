@@ -300,6 +300,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // total_score those runs were submitted with.
                 BackDatedSealBreak = true,
 
+                // AN ACCIDENTAL WORD SKIP, FULLY CORRECTED, COSTS NOTHING SINCE BACKLOG 260,
+                // unconditional for every mod stack: the skipping space was being charged the rush
+                // budget of the word it gave up, and a passive break was dropping the run it stood
+                // on, so a player who typed every cell of a map and corrected one stray space
+                // finished a combo short of the clean run.
+                //
+                // No mod has an opinion about what a skip costs (it is not a window, an input model
+                // or a caret), so there is nothing to scope it to, and recording it unconditionally
+                // is what keeps re-derivation uniform, the same convention bit 10 follows.
+                //
+                // An ERA flag on CONFIG frame bit 11, because every replay recorded before it holds
+                // skips that dropped that increment, and the drop is in the max_combo and the
+                // total_score those runs were submitted with.
+                LosslessSkipReclaim = true,
+
                 // THE LIVE CARET SINCE BACKLOG 208, for every stack except the pinning mod's. The
                 // three freedoms that shipped as the "FT" mod (open the next line the moment you
                 // finish one, keep a line the song has left, character distance instead of a timing

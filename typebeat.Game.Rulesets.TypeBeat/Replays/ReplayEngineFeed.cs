@@ -82,6 +82,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // one the live client now keeps.
                 engine.BackDatedSealBreak = frame.BackDatedSealBreak;
 
+                // LosslessSkipReclaim (backlog 260) is the second such bit, and it moves combo in the
+                // same narrow way: with it clear the word gap a skipping space landed on earns nothing
+                // whenever the abandoned tail put the caret past the rush cap, and a passive break
+                // drops the run it stood on, both of which are increments those runs' max_combo was
+                // submitted without. Applied here like every other bit, before a keystroke is fed.
+                engine.LosslessSkipReclaim = frame.LosslessSkipReclaim;
+
                 // BoundedRush (backlog 218) is the fifth, and the sharpest of them on the caret
                 // question: with it clear a player's finished line handed them the next one however
                 // many seconds early, and the keystrokes they then typed into it LANDED. Re-derived

@@ -250,6 +250,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             FirstCharTiming = source.FirstCharTiming,
             WallClockFrames = source.WallClockFrames,
             BackDatedSealBreak = source.BackDatedSealBreak,
+            LosslessSkipReclaim = source.LosslessSkipReclaim,
         };
     }
 }

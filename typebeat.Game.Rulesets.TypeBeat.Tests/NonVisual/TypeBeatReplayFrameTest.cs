@@ -143,8 +143,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>The bits are at the positions the format names, so the encoded word is readable
         /// as a number: a replay of live play today (wrong input allowed, no word skipping, syllable
         /// judgement, gap typos typed through, strict spaces, char-timed stretches, flexible lines,
-        /// the bounded rush, first-char timing and the back-dated seal break) is exactly
-        /// 1 | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 1024 = 1533. Without bit 10 (backlog 259) that is
+        /// the bounded rush, first-char timing, the back-dated seal break and the lossless skip
+        /// reclaim) is exactly 1 | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 1024 | 2048 = 3581. Without
+        /// bit 11 (backlog 260) that is the 1533 of the day before it. Without bit 10 (backlog 259) that is
         /// the 509 a replay carried the day before it, and every bit below 512 set is 511. Take bit 8 back
         /// off and it is the 253 a replay carried the day before backlog 247; then bit 7 for the
         /// 125 of the day before backlog 218; bit 5 with it for the 93 it carried before backlog
@@ -153,8 +154,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void TheFlagsWordIsExactlyTheDocumentedBitPositions()
         {
-            // The word a live stack writes today: bit 10 (backlog 259) on top of the 509 of the day
+            // The word a live stack writes today: bit 11 (backlog 260) on top of the 1533 of the day
             // before it, and bit 9 clear, that one being the Puppeteer frame axis rather than a rule.
+            Assert.AreEqual(3581f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, spaceSkipsWord: false, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true, boundedRush: true, firstCharTiming: true, backDatedSealBreak: true, losslessSkipReclaim: true).ToLegacy(dummy_beatmap).MouseY);
+            Assert.AreEqual(4095f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, spaceSkipsWord: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true, boundedRush: true, firstCharTiming: true, wallClockFrames: true, backDatedSealBreak: true, losslessSkipReclaim: true).ToLegacy(dummy_beatmap).MouseY);
+
             Assert.AreEqual(1533f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, spaceSkipsWord: false, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true, boundedRush: true, firstCharTiming: true, backDatedSealBreak: true).ToLegacy(dummy_beatmap).MouseY);
             Assert.AreEqual(2047f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, spaceSkipsWord: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true, boundedRush: true, firstCharTiming: true, wallClockFrames: true, backDatedSealBreak: true).ToLegacy(dummy_beatmap).MouseY);
 
@@ -209,6 +213,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.AreEqual((flags & 1) != 0, stored.AllowWrongInput);
                 Assert.AreEqual((flags & 256) != 0, stored.FirstCharTiming);
                 Assert.AreEqual((flags & 512) != 0, stored.WallClockFrames);
+            }
+        }
+
+        /// <summary>
+        /// BIT 11 (backlog 260, value 2048): a word given up by accident and then typed out in full
+        /// costs the run nothing. The same legacy round trip and the same append-only statement every
+        /// era bit before it makes, and the same reason for making it: this one decides whether the
+        /// combo increment a skipping space earned on the word gap survives, which is the max_combo a
+        /// stored row was submitted with.
+        /// </summary>
+        [Test]
+        public void LosslessSkipReclaimIsBitElevenAndLeavesEveryOlderBitWhereItWas()
+        {
+            var legacy = TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: false, losslessSkipReclaim: true).ToLegacy(dummy_beatmap);
+
+            Assert.AreEqual(2048f, legacy.MouseY, "bit 11 is 2048 and nothing else may be set");
+            Assert.AreEqual(0f, legacy.MouseX, "a CONFIG frame's MouseX is still the NUL sentinel");
+
+            var decoded = new TypeBeatReplayFrame();
+            decoded.FromLegacy(legacy, dummy_beatmap);
+
+            Assert.IsTrue(decoded.LosslessSkipReclaim);
+            Assert.IsFalse(decoded.AllowWrongInput);
+            Assert.IsFalse(decoded.BackDatedSealBreak);
+            Assert.IsFalse(decoded.WallClockFrames);
+
+            // Every word a stored replay can carry: the new bit reads false and the old ones do not move.
+            foreach (int flags in new[] { 0, 1, 4, 256, 509, 511, 512, 1024, 1533, 2047 })
+            {
+                var stored = new TypeBeatReplayFrame();
+                stored.FromLegacy(new LegacyReplayFrame(0, (float)TypeBeatReplayFrame.CONFIG, flags, ReplayButtonState.None), dummy_beatmap);
+
+                Assert.IsFalse(stored.LosslessSkipReclaim, $"a stored replay with flags {flags} dropped the skip's own gap increment");
+                Assert.AreEqual((flags & 1) != 0, stored.AllowWrongInput);
+                Assert.AreEqual((flags & 256) != 0, stored.FirstCharTiming);
+                Assert.AreEqual((flags & 512) != 0, stored.WallClockFrames);
+                Assert.AreEqual((flags & 1024) != 0, stored.BackDatedSealBreak);
             }
         }
 

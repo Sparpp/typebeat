@@ -88,7 +88,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
 
                 double configTime = wallStamped ? AnchorTimeFor(puppeteer!.AnchorMs!.Value) : time;
 
-                emit(TypeBeatReplayFrame.CreateConfigFrame(configTime, engine.AllowWrongInput, engine.SpaceSkipsWord, engine.SyllableTiming, engine.WrongInputOnWordGaps, engine.StrictSpaces, engine.CharTimedStretch, flexibleLines: engine.FlexibleLineSnap, boundedRush: engine.BoundedRush, firstCharTiming: engine.FirstCharTiming, wallClockFrames: wallStamped, backDatedSealBreak: engine.BackDatedSealBreak));
+                emit(TypeBeatReplayFrame.CreateConfigFrame(configTime, engine.AllowWrongInput, engine.SpaceSkipsWord, engine.SyllableTiming, engine.WrongInputOnWordGaps, engine.StrictSpaces, engine.CharTimedStretch, flexibleLines: engine.FlexibleLineSnap, boundedRush: engine.BoundedRush, firstCharTiming: engine.FirstCharTiming, wallClockFrames: wallStamped, backDatedSealBreak: engine.BackDatedSealBreak, losslessSkipReclaim: engine.LosslessSkipReclaim));
             }
 
             emit(new TypeBeatReplayFrame(StampFor(puppeteer, wallStamped, time), character));
