@@ -224,7 +224,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
     public readonly record struct CharJudgement(int LineIndex, int CellIndex, JudgementType Type, double Delta, int PointsAwarded, int ComboAfter);
 
-    public readonly record struct LineSealResult(int LineIndex, int MissedCells, bool ComboBroken);
+    /// <summary>
+    /// One sealed line. <paramref name="ComboBroken"/> says the line ran out of time on at least one
+    /// cell nobody typed, which is the seal's one combo break;
+    /// <paramref name="SurvivingCombo"/> is the run the engine is left holding AFTER that break, i.e.
+    /// the increments earned strictly past the line's LAST such cell, which survive it
+    /// (<see cref="TypingEngine.BackDatedSealBreak"/>). It is 0 under the classic era, where the
+    /// break wipes the whole run, and 0 whenever nothing survived, so a consumer reads it only
+    /// alongside <paramref name="ComboBroken"/>. It exists on the event because the score processor
+    /// has to mirror that break by hand, exactly as it mirrors a word skip's.
+    /// </summary>
+    public readonly record struct LineSealResult(int LineIndex, int MissedCells, bool ComboBroken, int SurvivingCombo = 0);
 
     public readonly record struct SyncSample(double Time, double Delta);
 

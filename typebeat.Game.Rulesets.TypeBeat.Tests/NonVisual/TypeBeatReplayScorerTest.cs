@@ -172,6 +172,92 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        /// <summary>
+        /// The SEAL-BREAK fixture (backlog 259): two lines whose windows overlap the way a real
+        /// map's do, arranged so the player is typing line 1 while line 0 is still running out its
+        /// drag grace.
+        ///
+        /// <para>Line 0 "abc" [0, 5000), sung [0, 3000]: a = 0, b = 1000, c = 2000. Line 1 "defgh"
+        /// [5000, 40000), sung [5500, 9500]: five chars, step 800, so d = 5500 and h = 8700. Line 1's
+        /// ActivationTime is 5000 (its own start, since 5500 - 1500 falls before it), so a finished
+        /// or abandoned caret may enter it from 3500, while line 0, once abandoned, is held unsealed
+        /// to 5000 + 1500 = 6500. That leaves d and e struck BEFORE line 0's seal and f, g, h struck
+        /// after it, which is exactly the shape the back-dated break is about.</para>
+        /// </summary>
+        private static TypeBeatBeatmap sealBreakMap()
+        {
+            var first = new LyricLine
+            {
+                RawText = "abc",
+                StartTime = 0,
+                EndTime = 5000,
+                SingEndTime = 3000,
+                Units = new[] { new TimedUnit { Text = "abc", StartTime = 0, EndTime = 3000 } },
+            };
+
+            var second = new LyricLine
+            {
+                RawText = "defgh",
+                StartTime = 5000,
+                EndTime = 40000,
+                SingEndTime = 9500,
+                Units = new[] { new TimedUnit { Text = "defgh", StartTime = 5500, EndTime = 9500 } },
+            };
+
+            var map = new TypeBeatBeatmap();
+            map.HitObjects.Add(new TypeBeatHitObject { StartTime = 0, LineIndex = 0, Line = first, Granularity = TimingGranularity.Line });
+            map.HitObjects.Add(new TypeBeatHitObject { StartTime = 5000, LineIndex = 1, Line = second, Granularity = TimingGranularity.Line });
+
+            foreach (var hitObject in map.HitObjects)
+                hitObject.ApplyDefaults(new ControlPointInfo(), new BeatmapDifficulty(), CancellationToken.None);
+
+            return map;
+        }
+
+        /// <summary>The cell target times of one line, read off the engine's own flattening.</summary>
+        private static IReadOnlyList<double> targetsOf(IBeatmap map, int lineIndex)
+        {
+            var line = ((TypeBeatHitObject)map.HitObjects[lineIndex]).Line;
+            return TypingLine.FromLyricLine(line, TimingGranularity.Line, false).Cells.Select(c => c.TargetTime).ToList();
+        }
+
+        /// <summary>
+        /// The run backlog 259 is about, as recorded frames: 'a' and 'b' typed, 'c' given up with a
+        /// line skip, the caret carried on to line 1, and its five cells typed straight through. Line
+        /// 0 seals on 'c' in the middle of them. <paramref name="backDated"/> is the CONFIG frame's
+        /// bit 10, taken through the LEGACY decode with the caret bits a live stack records, so the
+        /// era arm is the one a stored .osr really produces.
+        /// </summary>
+        private static Replay sealBreakRun(IBeatmap map, bool backDated)
+        {
+            const int flag_allow_wrong_input = 1;
+            const int flag_flexible_lines = 32;
+            const int flag_bounded_rush = 128;
+            const int flag_back_dated_seal_break = 1024;
+
+            int flags = flag_allow_wrong_input | flag_flexible_lines | flag_bounded_rush | (backDated ? flag_back_dated_seal_break : 0);
+
+            var config = new TypeBeatReplayFrame();
+            config.FromLegacy(new LegacyReplayFrame(0, (float)TypeBeatReplayFrame.CONFIG, flags, ReplayButtonState.None), new Beatmap());
+            config.Time = 0;
+
+            var zero = targetsOf(map, 0);
+            var one = targetsOf(map, 1);
+
+            var frames = new List<TypeBeatReplayFrame>
+            {
+                config,
+                new TypeBeatReplayFrame(zero[0], 'a'),
+                new TypeBeatReplayFrame(zero[1], 'b'),
+                new TypeBeatReplayFrame(zero[1] + 1000, TypeBeatReplayFrame.ENTER), // 'c' given up, unjudged
+            };
+
+            for (int i = 0; i < one.Count; i++)
+                frames.Add(new TypeBeatReplayFrame(one[i], "defgh"[i]));
+
+            return replay(frames);
+        }
+
         #endregion
 
         /// <summary>
@@ -574,6 +660,66 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(clean.MaxCombo, Is.EqualTo(13));
                 Assert.That(withTypo.MaxCombo, Is.LessThan(clean.MaxCombo));
                 Assert.That(withTypo.Mistypes, Is.EqualTo(1));
+            });
+        }
+
+        /// <summary>
+        /// THE SEAL-BREAK ERA (backlog 259, CONFIG frame bit 10), through the whole submitted
+        /// account rather than through the engine's own combo. A line's misses only exist at its
+        /// seal, which under the unpinned caret lands while the player is already typing the next
+        /// line, and the break was wiping the run they had built there. Back-dated it destroys only
+        /// what was earned at or before the missed cell, so the run the player is holding survives.
+        ///
+        /// <para>The score-processor side is the load-bearing half here: the Miss the seal applies is
+        /// what carried that break into osu's incrementally-maintained combo, so the fix has to reach
+        /// the RESULT as well as the engine (the miss is applied combo-neutral, exactly as an
+        /// abandoned cell's is, and the one break is mirrored by hand before it). This asserts the
+        /// SUBMITTED <c>max_combo</c> and <c>total_score</c>, which is what a leaderboard sees.</para>
+        ///
+        /// <para>It is also the statement of the axis's REACH: <c>statistics</c>, accuracy,
+        /// completion and rank are IDENTICAL under both arms, because no cell resolves differently
+        /// and no key moves. Only the combo a seal leaves behind moves, so only <c>max_combo</c> and
+        /// the combo-weighted portion of <c>total_score</c> can.</para>
+        /// </summary>
+        [Test]
+        public void TheSealBreakEraDecidesWhetherARunBuiltPastTheMissesSurvives()
+        {
+            var map = sealBreakMap();
+
+            var live = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), sealBreakRun(map, backDated: true), TypoRule.Deferred, ComboRestoreRule.OnFix);
+            var stored = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), sealBreakRun(map, backDated: false), TypoRule.Deferred, ComboRestoreRule.OnFix);
+
+            TestContext.WriteLine($"live: max_combo {live.MaxCombo}, total {live.TotalScore}; stored: max_combo {stored.MaxCombo}, total {stored.TotalScore}");
+
+            Assert.Multiple(() =>
+            {
+                // The fixture has to be the shape the rule is about, or it proves nothing: one cell
+                // of line 0 missed, and every cell of line 1 typed.
+                Assert.That(count(live, HitResult.Miss), Is.EqualTo(1));
+                Assert.That(count(live, HitResult.Great), Is.EqualTo(7));
+                Assert.That(live.UnconsumedFrames, Is.Zero);
+                Assert.That(stored.UnconsumedFrames, Is.Zero);
+
+                // a, b, d, e is a run of 4 when line 0 seals on c. The stored era wipes it and
+                // rebuilds to 3 over f, g, h, so its maximum is the 4 it held before the seal. The
+                // live era keeps the 2 earned past the missed cell and reaches 5.
+                Assert.That(stored.MaxCombo, Is.EqualTo(4));
+                Assert.That(live.MaxCombo, Is.EqualTo(5));
+
+                // The submitted totals, hardcoded so the stored arm is a REPRODUCTION pin: bit 10
+                // clear is the account this run was given before backlog 259, and nothing may move
+                // it. The live arm is worth more because the seal no longer resets the combo weight
+                // of the three cells struck after it.
+                Assert.That(stored.TotalScore, Is.EqualTo(532609));
+                Assert.That(live.TotalScore, Is.EqualTo(581491));
+
+                // Everything the axis does not reach.
+                Assert.That(live.Statistics, Is.EquivalentTo(stored.Statistics));
+                Assert.That(live.MaximumStatistics, Is.EquivalentTo(stored.MaximumStatistics));
+                Assert.That(live.Accuracy, Is.EqualTo(stored.Accuracy).Within(1e-12));
+                Assert.That(live.Completion, Is.EqualTo(stored.Completion).Within(1e-12));
+                Assert.That(live.Rank, Is.EqualTo(stored.Rank));
+                Assert.That(live.Mistypes, Is.EqualTo(stored.Mistypes));
             });
         }
 

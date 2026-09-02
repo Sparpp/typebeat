@@ -71,6 +71,18 @@ looking for it. The canonical sources are the code itself:
   Not at `entryOpensAt`, which would pay an idle player for the head start, and nothing is
   back-dated. This is not an era bit: WPM feeds no judgement, so a stored replay re-derives the
   corrected figure. `clockRunsFrom` is the predicate and `typebeat-core.js` mirrors it.
+  Backlog 259 adds `BackDatedSealBreak` (a sixth ERA on this file's list, CONFIG flags bit 10 = 1024,
+  set for every live stack), which is about WHEN a break lands rather than what a press is worth. A
+  line's misses only exist at its SEAL, which under the unpinned caret can be 1500 ms after the song
+  left the line and long after the player moved on, so the one break it takes was wiping a run built
+  on the NEXT line. It is now back-dated to the line's LAST unforeseen missed cell in (line, cell)
+  order: increments earned at or before it die, increments earned strictly past it survive, and
+  `TypingEngine.runPositions` (one entry per unit of combo, cleared by every break, restored with a
+  redeemed claim's own positions) is the ledger that can answer which is which. The processor half
+  mirrors backlog 167's word skip exactly: every seal miss is applied COMBO-NEUTRAL and the one break
+  is written by hand first, from `LineSealResult.SurvivingCombo`, at `TypeBeatPlayfield.onLineSealed`
+  and its hand-mirror in `TypeBeatReplayScorer`. HP is untouched (same misses, same drain, same
+  instant) and neither `MaxCombo` nor an already-judged hit's `ComboAtJudgement` is revisited.
 - **The timing schema** (per-character target times, syllable subdivision, space cells):
   `Gameplay/TypingLine.cs`, `FromLyricLine`.
 - **How a judgement becomes a stored osu result**: `Scoring/TypeBeatResultMapping.cs`, which also

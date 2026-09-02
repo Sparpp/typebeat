@@ -377,6 +377,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(25.0, results.SyncPercent, 1e-9);
         }
 
+        /// <summary>
+        /// One break for the whole sealed line, however many cells it missed. Since backlog 259 that
+        /// break is also BACK-DATED (<see cref="TypingEngine.BackDatedSealBreak"/>), and this fixture
+        /// is the case where the two eras cannot come apart: every increment was earned on line 0 and
+        /// every miss is on line 1, so the whole run is at or before the last missed cell either way.
+        /// Asserted on both arms rather than on the default alone, because "the back-dating does not
+        /// reach a run built entirely before the misses" is the half of the rule that keeps every
+        /// ordinary dropped line costing exactly what it always did.
+        /// </summary>
         [Test]
         public void TypingNothingSealsWithMissesAndOneComboBreak()
         {
@@ -419,6 +428,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(1.0, results.Accuracy); // misses are not keypresses: 2 correct / 2 total
             // Sync over ALL 4 typeable cells: a q=1, b q=1, c q=0, d q=0 => 50%.
             Assert.AreEqual(50.0, results.SyncPercent, 1e-9);
+
+            // The same script under the LIVE era (backlog 259). Both increments were earned on line
+            // 0, both misses are on line 1, so the back-dated break destroys exactly the same run.
+            var live = new TypingEngine(map(TimingGranularity.Line,
+                line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000)),
+                line("cd", 3000, 5000, 4000, unit("cd", 3000, 4000)))) { BackDatedSealBreak = true };
+
+            var liveSeals = new List<LineSealResult>();
+            int liveBreaks = 0;
+            live.ComboBroken += () => liveBreaks++;
+            live.LineSealed += s => liveSeals.Add(s);
+
+            live.Update(1000);
+            live.ProcessKey('a', 1000);
+            live.ProcessKey('b', 1500);
+            live.Update(3000);
+            live.Update(5000);
+
+            Assert.AreEqual(seals, liveSeals, "nothing was typed past the misses, so the eras agree cell for cell");
+            Assert.AreEqual(comboBreaks, liveBreaks);
+            Assert.AreEqual(0, live.Combo);
+            Assert.AreEqual(2, live.MaxCombo);
         }
 
         /// <summary>

@@ -70,8 +70,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// The append-only rule: the new bit sits ABOVE every existing one and renumbers nothing, so
         /// a replay already on disk decodes bit for bit as it always did and simply reads false for
-        /// the newest bit. The full word is now at most 1023, which the encoder carries exactly as
-        /// harmlessly as the single bit it started with.
+        /// the newest bit. The ten bits below and including this one make at most 1023, which the
+        /// encoder carries exactly as harmlessly as the single bit it started with (backlog 259 has
+        /// since added bit 10 above them, which this fixture deliberately leaves clear: what it pins
+        /// is that bit 9 and everything under it did not move).
         /// </summary>
         [Test]
         public void TheNewBitLeavesEveryOlderBitExactlyWhereItWas()
@@ -80,7 +82,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 flexibleLines: true, boundedRush: true, firstCharTiming: true, wallClockFrames: true);
 
             Assert.AreEqual(1023, (int)everything.ToLegacy(new TypeBeatBeatmap()).MouseY!.Value,
-                "ten bits, all set, and no eleventh");
+                "the ten bits this fixture sets, all of them, and nothing above them");
 
             // The word every live pre-256 stack wrote, and the one every stored replay carries.
             var live = TypeBeatReplayFrame.CreateConfigFrame(0, true, true, true, true, true, true,

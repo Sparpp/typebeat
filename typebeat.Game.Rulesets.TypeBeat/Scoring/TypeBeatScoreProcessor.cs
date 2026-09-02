@@ -167,7 +167,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <para>Two results are ever marked, and both are marked at the seam that applies them (the
         /// seal), never at the keypress: <see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>, and since
         /// backlog 167 the <see cref="TypeBeatResultMapping.SEAL_MISS"/> of a cell a word skip
-        /// abandoned. That timing is what keeps a CORRECTED typo and a RECLAIMED skip working: such
+        /// abandoned. Backlog 259 widens the second one from the abandoned cells to EVERY miss a
+        /// line seals with (see <see cref="Gameplay.TypingEngine.BackDatedSealBreak"/>): under that
+        /// rule the seal's one break is back-dated to the cells it misses and mirrored by hand at the
+        /// same seam, exactly as the word skip's is, so no Miss result may carry it a second time and
+        /// wipe a run the player built past those cells. That timing is what keeps a CORRECTED typo
+        /// and a RECLAIMED skip working: such
         /// a cell is resolved by the retype's own Great/Ok/Meh, which is an ordinary combo-increasing
         /// hit and never passes through here, even though the same cell was spoiled earlier in the
         /// play.</para>

@@ -249,6 +249,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             BoundedRush = source.BoundedRush,
             FirstCharTiming = source.FirstCharTiming,
             WallClockFrames = source.WallClockFrames,
+            BackDatedSealBreak = source.BackDatedSealBreak,
         };
     }
 }

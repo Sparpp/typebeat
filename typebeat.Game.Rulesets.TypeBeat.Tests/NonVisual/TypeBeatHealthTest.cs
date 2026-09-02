@@ -326,29 +326,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// then leaves empty is priced as the miss it has become: one drain at the seal, exactly
         /// what the cell would have cost had it never been touched. Refunding only at the correction
         /// would charge that cell twice.
+        ///
+        /// <para>HEALTH is untouched by backlog 259, which is what the second arm pins: the seal's
+        /// combo break moved (it is back-dated to the cells it misses), and the drain did not move
+        /// with it. The bar reads the same number under both eras, at the same instant, and the run
+        /// takes no net combo change across the seal, because the typo's own break had already taken
+        /// everything earned at or before that cell. The stronger combo case, where there IS a run
+        /// past the miss to save, is <c>FletcherEngineTest.AnErasedTypoTakesNoSecondBreakWhenItsLineSeals</c>.</para>
         /// </summary>
         [Test]
         public void ATypoErasedAndLeftEmptyCostsOneMissAndNoMore()
         {
-            var beatmap = syntheticMap(lineCount: 2, cellsPerLine: 3);
-            var engine = new TypingEngine(beatmap);
-            var bridge = new HealthBridge(engine);
+            foreach (bool backDated in new[] { false, true })
+            {
+                var beatmap = syntheticMap(lineCount: 2, cellsPerLine: 3);
+                var engine = new TypingEngine(beatmap) { BackDatedSealBreak = backDated };
+                var bridge = new HealthBridge(engine);
 
-            engine.Update(0);
+                engine.Update(0);
 
-            double t = engine.Lines[0].Cells[0].TargetTime;
-            engine.Update(t);
-            engine.ProcessKey('z', t);
-            Assert.IsTrue(engine.ProcessBackspace());
+                double t = engine.Lines[0].Cells[0].TargetTime;
+                engine.Update(t);
+                engine.ProcessKey('z', t);
+                Assert.IsTrue(engine.ProcessBackspace());
 
-            Assert.AreEqual(1.0, bridge.Health.Health.Value, 1e-9, "the erase gave the drain back");
+                Assert.AreEqual(1.0, bridge.Health.Health.Value, 1e-9, "the erase gave the drain back");
 
-            sealFirstLine(engine, beatmap);
+                int comboBeforeTheSeal = engine.Combo;
 
-            Assert.IsFalse(engine.CellLeftWrong(0, 0), "an erased typo leaves an EMPTY cell, which is a miss");
+                sealFirstLine(engine, beatmap);
 
-            // All three cells of the line seal untyped.
-            Assert.AreEqual(1 - 3 * TypeBeatHealthProcessor.MISS_HEALTH_DRAIN, bridge.Health.Health.Value, 1e-9);
+                Assert.IsFalse(engine.CellLeftWrong(0, 0), "an erased typo leaves an EMPTY cell, which is a miss");
+
+                // All three cells of the line seal untyped.
+                Assert.AreEqual(1 - 3 * TypeBeatHealthProcessor.MISS_HEALTH_DRAIN, bridge.Health.Health.Value, 1e-9);
+
+                Assert.AreEqual(comboBeforeTheSeal, engine.Combo, "the typo's break was the whole cost; the seal adds none");
+            }
         }
 
         /// <summary>

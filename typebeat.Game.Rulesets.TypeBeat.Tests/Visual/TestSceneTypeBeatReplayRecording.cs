@@ -257,6 +257,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && frames[0].FirstCharTiming
                 && playfield.Engine.FirstCharTiming);
 
+            // Backlog 259's era bit (flags bit 10), stamped for EVERY stack: no mod has an opinion
+            // about when a line's combo break lands, and a replay written before it exists carries
+            // the bit clear so its seals still wipe the whole run they were played to wipe.
+            AddAssert("config frame records the back-dated seal break", () =>
+                frames[0].IsConfig
+                && frames[0].BackDatedSealBreak
+                && playfield.Engine.BackDatedSealBreak);
+
             // The recorded time IS the time the cell was judged at. Under the live rule that no
             // longer reads as "target + delta": 'z' OPENS its syllable, so since backlog 247 its
             // judged delta is the recorded time's distance from the span's start (here equal to the

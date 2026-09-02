@@ -221,6 +221,58 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool FirstCharTiming { get; set; }
 
         /// <summary>
+        /// THE SEAL'S COMBO BREAK IS BACK-DATED to the cells it is about to miss (backlog 259). A
+        /// line's misses only exist at its SEAL, which under the unpinned caret can land a second and
+        /// a half after the song left the line and long after the player has moved on and started
+        /// rebuilding. The break was landing on the run they hold NOW, wiping combo earned on cells
+        /// the missed ones sit nowhere near. With this set the break destroys only what was earned AT
+        /// OR BEFORE the line's LAST unforeseen missed cell in (line, cell) order; every increment
+        /// earned strictly past that position (a later cell of the same line, or any cell of a later
+        /// line) SURVIVES, and <see cref="Combo"/> is left at exactly that surviving count instead of
+        /// at zero.
+        ///
+        /// <para>The player's report is the sharpest case: a typo backspaced away and left empty
+        /// takes its break at the wrong KEYPRESS, and the empty cell it leaves behind is a miss, so
+        /// the seal took a SECOND break for the same fumble, on a run the player had rebuilt in the
+        /// meantime. Back-dated, that seal destroys nothing at all (everything at or before the cell
+        /// was already gone), which is exactly what "my combo already broke from those misses" asks
+        /// for.</para>
+        ///
+        /// <para>WHAT IT DOES NOT MOVE. Nothing already judged is re-priced: a keypress made before
+        /// the seal keeps the points and the <c>ComboAtJudgement</c> it was awarded at (the same rule
+        /// <see cref="ComboRestored"/> follows), and <see cref="MaxCombo"/> is never reduced, since it
+        /// records a run the player really did hold. HEALTH is untouched: the misses, their drain and
+        /// their timing are all exactly as they were, and only the combo the break takes moves. An
+        /// ABANDONED cell still breaks nothing here (its break was taken at the skip) and a seal with
+        /// no unforeseen miss is still a no-op, both exactly as before.</para>
+        ///
+        /// <para>The one outstanding <see cref="ComboRestored"/> claim is still discarded outright by
+        /// a seal that breaks, back-dated or not, and deliberately: the streak a claim holds was
+        /// earned EARLIER than the run this break cuts back, so redeeming it afterwards could only
+        /// put back combo the break was entitled to take. Keeping it would mean back-dating the
+        /// claim's own streak as well, which buys the player at most one already-broken run and costs
+        /// a second ledger.</para>
+        ///
+        /// <para>FALSE by default, and era-styled exactly like the flags above: set before the first
+        /// keypress and left alone afterwards. Live play sets it for EVERY mod stack
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c>), because it is not a window, an input model
+        /// or a caret, and no mod has an opinion about when a break lands. It travels per replay on
+        /// the CONFIG frame's flags bit 10
+        /// (<see cref="Replays.TypeBeatReplayFrame.BackDatedSealBreak"/>) and is applied in
+        /// <see cref="Replays.ReplayEngineFeed.Apply"/>, so every replay recorded before it existed
+        /// carries the bit clear and re-derives with the seal wiping the whole run, which is the
+        /// <c>max_combo</c> and the <c>total_score</c> its player was given.</para>
+        ///
+        /// <para>It can only ever differ from the wipe where the player was ALLOWED to be past the
+        /// missed cells before the line sealed: the unpinned caret (backlog 208/218, the live
+        /// default) puts them on the next line while the old one is still running out its drag grace,
+        /// and <see cref="AnyOrderWithinWord"/> lets them get past an untyped cell inside one word.
+        /// With a pinned caret and no Dyslexia there is no such increment to save, so the two arms
+        /// agree cell for cell.</para>
+        /// </summary>
+        public bool BackDatedSealBreak { get; set; }
+
+        /// <summary>
         /// Whether <see cref="AllowWrongInput"/> reaches the WORD GAP as well as the lyric
         /// characters (backlog 181). With it on, a wrong (non-space) key pressed while the caret
         /// sits on a space cell is typed THROUGH exactly like a wrong letter on a lyric cell: the
@@ -1109,6 +1161,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private long score;
         private int combo;
         private int maxCombo;
+
+        /// <summary>
+        /// WHERE each increment of the current run was earned, one entry per unit of
+        /// <see cref="combo"/>, in the order they were credited. The ledger
+        /// <see cref="BackDatedSealBreak"/> needs and the only thing that can answer "how much of
+        /// this run was earned past the cells this line is about to miss": combo is a single
+        /// integer, and a break that keeps part of a run has to know which part.
+        ///
+        /// <para><c>runPositions.Count == combo</c> is the invariant, and it holds by construction
+        /// because the four ways combo moves all move this with it: an increment appends
+        /// (<see cref="creditCombo"/>), a break clears (<see cref="breakRun"/>, which hands the list
+        /// to a redeemable break's snapshot), a restore puts the snapshot's own entries back, and the
+        /// back-dated seal drops exactly the entries it destroys.</para>
+        ///
+        /// <para>Bounded by the map: a run is at most one increment per cell, since a cell that has
+        /// been judged correct once is inert on every retype, so nothing here grows with the length
+        /// of the play. Not readonly, because <see cref="breakRun"/> hands the whole list over to the
+        /// snapshot rather than copying it.</para>
+        /// </summary>
+        private List<ComboPosition> runPositions = new List<ComboPosition>();
         private int totalKeypresses;
         private int correctKeypresses;
         private int errorCount;
@@ -1165,8 +1237,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// skip whose space credited nothing. A break standing on no more than that is passive, the
         /// same way a break landing at zero is, and SPENDS the credit when it does. See
         /// <see cref="SkipSpaceCredit"/>.</para>
+        ///
+        /// <para><c>positions</c> is the run the break took, cell for cell (see
+        /// <see cref="runPositions"/>), so a redemption puts back not just HOW MUCH combo the break
+        /// cost but WHERE it was earned. Without it a restored streak would have to be dated at the
+        /// cell that redeemed it, and a later seal on an earlier line would then keep increments its
+        /// misses are entitled to destroy. Its length is always the <c>streak</c> beside it.</para>
         /// </summary>
-        private (int lineIndex, int cellIndex, int streak, int ownPressCredit)? restorable;
+        private (int lineIndex, int cellIndex, int streak, int ownPressCredit, List<ComboPosition> positions)? restorable;
 
         private double windowScale = 1;
 
@@ -1298,7 +1376,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// its progress, i.e. everything set from outside after construction: the replay CONFIG bits
         /// (<see cref="AllowWrongInput"/>, <see cref="SpaceSkipsWord"/>,
         /// <see cref="SyllableTiming"/>, <see cref="WrongInputOnWordGaps"/>,
-        /// <see cref="StrictSpaces"/>), the mod flags
+        /// <see cref="StrictSpaces"/>, <see cref="BackDatedSealBreak"/>), the mod flags
         /// (<see cref="FletcherEnabled"/>, <see cref="MashingEnabled"/>, <see cref="Literate"/>,
         /// <see cref="CaseSensitive"/>), <see cref="WindowScale"/> and the era rules
         /// (<see cref="ComboRestore"/>, <see cref="ComboClaim"/>, <see cref="SkipSpaceCredit"/>,
@@ -1343,6 +1421,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             score = 0;
             combo = 0;
             maxCombo = 0;
+            runPositions.Clear();
             totalKeypresses = 0;
             correctKeypresses = 0;
             errorCount = 0;
@@ -1471,6 +1550,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // break has not been taken yet, and therefore the only one that can break combo here.
                 int unforeseen = 0;
 
+                // The LAST of them, in cell order: the position this line's break is back-dated to
+                // (see BackDatedSealBreak). Meaningless while unforeseen is 0, which is exactly when
+                // nothing reads it.
+                int lastUnforeseenCell = -1;
+
                 // Cells a word skip had abandoned and the player never came back for (backlog 167),
                 // in ascending cell order. Null while there are none, which is every seal on a run
                 // that never skipped a word.
@@ -1511,21 +1595,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     counts[JudgementType.Miss]++;
 
                     if (phantom)
+                    {
                         (abandoned ??= new List<int>()).Add(i);
+                    }
                     else
+                    {
                         unforeseen++;
+                        lastUnforeseenCell = i;
+                    }
                 }
 
                 bool broke = unforeseen >= 1;
 
+                // What the break leaves the player holding: 0 under the classic era, and under
+                // BackDatedSealBreak the increments earned strictly past the last missed cell.
+                int survivingCombo = 0;
+
                 if (broke)
                 {
                     // AT MOST ONE combo break per sealed line, no matter how many cells were missed.
-                    combo = 0;
+                    // BACK-DATED since backlog 259 (see BackDatedSealBreak): the break belongs to the
+                    // cells the line ran out of time on, so it destroys the run as it stood AT the
+                    // last of them and leaves everything earned past it standing. The classic era
+                    // takes the whole run, which is what every stored replay was scored under.
+                    if (BackDatedSealBreak)
+                        survivingCombo = backDateBreakTo(new ComboPosition(index, lastUnforeseenCell));
+                    else
+                        breakRun();
 
                     // A real break, so it owns the streak. Distinct from the line-scoped drop
                     // below: under Fletcher the caret can already be on a LATER line, holding a
                     // snapshot this break has just cost it.
+                    //
+                    // Unconditional under both eras, a partial survival included: a claim's streak
+                    // was earned EARLIER than the run this break cuts back, so redeeming it later
+                    // could only put back combo the break was entitled to take.
                     discardRestorableStreak();
                 }
 
@@ -1569,7 +1673,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 if (broke)
                     raise(ComboBroken);
 
-                raise(LineSealed, new LineSealResult(index, missed, broke));
+                raise(LineSealed, new LineSealResult(index, missed, broke, survivingCombo));
             }
 
             // (3) Activate strictly by time: the first unsealed line, while it is judgeable
@@ -1881,7 +1985,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// over when it opens otherwise. The cells left behind are NOT judged here. They stay
         /// <see cref="CellState.Untyped"/> and become misses in the seal loop, all at once, with the
         /// line's one combo break, at the line's own deadline: precisely what would have happened to
-        /// a player who stopped typing and sat there. So no judged quantity changes value or timing
+        /// a player who stopped typing and sat there. That break is still taken AT the seal since
+        /// backlog 259, and only its REACH moved: back-dated to the last of those cells, it destroys
+        /// what the player had earned by then and leaves what they have built on the line they
+        /// skipped to, which is the same "precisely what would have happened" read one step more
+        /// carefully. So no judged quantity changes value or timing
         /// against the un-skipped run, which is why the skip carries NO era bit of its own (the
         /// abandoned line's drag grace is held for it by <see cref="lineAbandoned"/>, which is the
         /// one piece of state that claim depends on).</para>
@@ -2156,7 +2264,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     // 176, see snapshotRedeemableBreak).
                     int brokenStreak = combo;
 
-                    combo = 0;
+                    var brokenPositions = breakRun();
+
                     counts[JudgementType.WrongChar]++;
 
                     cell.State = CellState.Wrong;
@@ -2181,7 +2290,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                     int wrongCellIndex = caretIndex;
 
-                    snapshotRedeemableBreak(wrongCellIndex, brokenStreak);
+                    snapshotRedeemableBreak(wrongCellIndex, brokenStreak, brokenPositions);
 
                     // PARK on a spoiled word gap under StrictSpaces (backlog 184), instead of moving
                     // on: the space is still owed, so the player pays it (which steps over the typo,
@@ -2233,7 +2342,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 totalKeypresses++;
                 errorCount++;
                 consecutiveWrongKeys++;
-                combo = 0;
+                breakRun();
 
                 // Nothing was written into a cell, so there is nothing to go back and correct: this
                 // break is final, and it ends any older cell's claim on the streak.
@@ -2372,7 +2481,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 if (offTimeBreak)
                 {
-                    combo = 0;
+                    breakRun();
                     discardRestorableStreak();
                     raise(ComboBroken);
                 }
@@ -2390,7 +2499,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     // cannot earn combo merely by also being mistimed. Under BreaksCombo the arm
                     // above has already taken the break, exactly as it did pre-199.
                     bool hadCombo = combo > 0;
-                    combo = 0;
+
+                    breakRun();
 
                     if (hadCombo)
                     {
@@ -2400,8 +2510,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 }
                 else
                 {
-                    combo++;
-                    maxCombo = Math.Max(maxCombo, combo);
+                    creditCombo(targetIndex);
 
                     // The one press that can credit combo it also broke (backlog 243): the space that
                     // skipped the word, now being judged on the gap the skip parked the caret on. The
@@ -2562,7 +2671,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             int brokenStreak = combo;
 
-            combo = 0;
+            var brokenPositions = breakRun();
 
             // The break is IMMEDIATE under both rules, and under the live one it is also the only
             // thing the skip spends. Snapshotted against the FIRST abandoned cell, so re-typing that
@@ -2575,7 +2684,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // Under the pre-167 rule nothing is left to come back to, so the skip is a plain break
             // and ends any outstanding claim outright, exactly as it did then.
             if (reclaimable)
-                snapshotRedeemableBreak(abandoned[0], brokenStreak);
+                snapshotRedeemableBreak(abandoned[0], brokenStreak, brokenPositions);
             else
                 discardRestorableStreak();
 
@@ -2615,6 +2724,80 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private void discardRestorableStreak() => restorable = null;
 
         /// <summary>
+        /// Where one combo increment was earned: the (line, cell) it was credited on, ordered
+        /// lexicographically, which is the order the map is typed in and the order a seal's
+        /// back-dating asks about (see <see cref="BackDatedSealBreak"/>).
+        /// </summary>
+        private readonly record struct ComboPosition(int LineIndex, int CellIndex)
+        {
+            /// <summary>
+            /// Whether this increment was earned AT OR BEFORE <paramref name="pivot"/>, i.e. is one
+            /// of the ones a break back-dated to that cell destroys. The complement, strictly past
+            /// the pivot, is what survives.
+            /// </summary>
+            public bool IsAtOrBefore(ComboPosition pivot)
+                => LineIndex < pivot.LineIndex || (LineIndex == pivot.LineIndex && CellIndex <= pivot.CellIndex);
+        }
+
+        /// <summary>
+        /// Credit one combo increment, earned on the cell the press landed on (not on the caret,
+        /// which is not the same thing under <see cref="AnyOrderWithinWord"/>). The one place
+        /// <see cref="combo"/> grows by a keypress, so <see cref="runPositions"/> cannot fall behind
+        /// it.
+        /// </summary>
+        private void creditCombo(int cellIndex)
+        {
+            combo++;
+            maxCombo = Math.Max(maxCombo, combo);
+            runPositions.Add(new ComboPosition(activeLineIndex, cellIndex));
+        }
+
+        /// <summary>
+        /// Zero the run and hand back the positions that composed it: a REDEEMABLE break puts them on
+        /// its snapshot (<see cref="snapshotRedeemableBreak"/>) so a redemption can restore them, and
+        /// every other break simply drops them. The one place a break empties the ledger, which is
+        /// what keeps <c>runPositions.Count == combo</c> true through all of them.
+        /// </summary>
+        private List<ComboPosition> breakRun()
+        {
+            var broken = runPositions;
+
+            runPositions = new List<ComboPosition>();
+            combo = 0;
+
+            return broken;
+        }
+
+        /// <summary>
+        /// A break dated at <paramref name="pivot"/> rather than at now (see
+        /// <see cref="BackDatedSealBreak"/>): every increment earned at or before that cell is
+        /// destroyed and every increment earned strictly past it survives, in place. Returns the
+        /// surviving run, which is also <see cref="combo"/>'s new value.
+        ///
+        /// <para>Compacts the ledger in place rather than filtering into a new list, because the
+        /// survivors are the tail of a run in the common case and this is on the seal path. Order is
+        /// preserved, which matters only for readability: nothing reads a position's index.</para>
+        /// </summary>
+        private int backDateBreakTo(ComboPosition pivot)
+        {
+            int kept = 0;
+
+            for (int i = 0; i < runPositions.Count; i++)
+            {
+                if (!runPositions[i].IsAtOrBefore(pivot))
+                    runPositions[kept++] = runPositions[i];
+            }
+
+            runPositions.RemoveRange(kept, runPositions.Count - kept);
+
+            // MaxCombo is deliberately not touched: it records a run the player really did hold, and
+            // this break is dated in the past, not a claim that the run never happened.
+            combo = kept;
+
+            return kept;
+        }
+
+        /// <summary>
         /// Take the snapshot for a REDEEMABLE break (a wrong keypress, or a word skip): the streak
         /// it cost, against the cell the player has to come back to. The one write site for
         /// <see cref="restorable"/> other than the discards, so the two breaks that can be walked
@@ -2641,7 +2824,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <para>Under <see cref="ComboRestoreRule.Never"/> no snapshot exists at all, so the break
         /// is as final here as it is everywhere else.</para>
         /// </summary>
-        private void snapshotRedeemableBreak(int cellIndex, int brokenStreak)
+        private void snapshotRedeemableBreak(int cellIndex, int brokenStreak, List<ComboPosition> brokenPositions)
         {
             if (!TypeBeatResultMapping.FixRestoresTheComboBreak(ComboRestore))
             {
@@ -2649,7 +2832,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 return;
             }
 
-            if (restorable is (int heldLine, int heldCell, int heldStreak, int ownPressCredit)
+            if (restorable is (int heldLine, int heldCell, int heldStreak, int ownPressCredit, var heldPositions)
                 && TypeBeatResultMapping.OnlyABreakWithAStreakTakesTheClaim(ComboClaim))
             {
                 // The most this break can have taken and still be passive. Zero is backlog 176's
@@ -2660,12 +2843,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 if (brokenStreak <= passive)
                 {
-                    restorable = (heldLine, heldCell, heldStreak, 0);
+                    // The held claim keeps its OWN positions, exactly as it keeps its own streak:
+                    // this break was passive, so it took nothing and records nothing.
+                    restorable = (heldLine, heldCell, heldStreak, 0, heldPositions);
                     return;
                 }
             }
 
-            restorable = (activeLineIndex, cellIndex, brokenStreak, 0);
+            restorable = (activeLineIndex, cellIndex, brokenStreak, 0, brokenPositions);
         }
 
         /// <summary>
@@ -2684,8 +2869,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private void creditTheClaimsOwnPress()
         {
-            if (restorable is (int lineIndex, int cellIndex, int streak, _))
-                restorable = (lineIndex, cellIndex, streak, 1);
+            if (restorable is (int lineIndex, int cellIndex, int streak, _, var positions))
+                restorable = (lineIndex, cellIndex, streak, 1, positions);
         }
 
         /// <summary>
@@ -2702,7 +2887,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private void resumeStreakIfThisRedeemsTheBreak(int cellIndex)
         {
-            if (restorable is not (int lineIndex, int typoCellIndex, int streak, _))
+            if (restorable is not (int lineIndex, int typoCellIndex, int streak, _, var positions))
                 return;
 
             if (lineIndex != activeLineIndex || typoCellIndex != cellIndex)
@@ -2717,6 +2902,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             combo += streak;
             maxCombo = Math.Max(maxCombo, combo);
+
+            // The restored increments go back WHERE THEY WERE EARNED, at the head of the run, not at
+            // the cell that redeemed them: a later seal on an earlier line back-dates against those
+            // positions, and dating them here would let a break's misses keep combo they are
+            // entitled to destroy (see runPositions).
+            runPositions.InsertRange(0, positions);
 
             raise(ComboRestored, streak);
         }

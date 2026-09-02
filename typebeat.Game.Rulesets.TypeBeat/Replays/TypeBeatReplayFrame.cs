@@ -38,9 +38,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <see cref="BoundedRush"/> (whether rushing onto the next line was bounded to the same
     /// 1500 ms before its cue that dragging is granted past a line's end) and bit 8
     /// <see cref="FirstCharTiming"/> (whether the first character of a syllable was judged on its
-    /// distance from the syllable's start rather than paid 0 anywhere in the span) and bit 9
+    /// distance from the syllable's start rather than paid 0 anywhere in the span), bit 9
     /// <see cref="WallClockFrames"/> (whether every frame's <see cref="ReplayFrame.Time"/> in this
-    /// run is a WALL-CLOCK stamp rather than a lyric time, which is the Puppeteer era, backlog 256).
+    /// run is a WALL-CLOCK stamp rather than a lyric time, which is the Puppeteer era, backlog 256)
+    /// and bit 10 <see cref="BackDatedSealBreak"/> (whether a sealed line's combo break destroyed
+    /// only the run earned up to its missed cells rather than the whole of it, backlog 259).
     /// Other mods
     /// (Literate/Mashing/rate) travel in the score itself and need no frames.
     ///
@@ -59,16 +61,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// MouseX = character code, MouseY = config flags (bit 0 = allow-wrong-input, bit 1 =
     /// space-skips-word, bit 2 = syllable-span timing, bit 3 = wrong-input-on-word-gaps, bit 4 =
     /// strict-spaces, bit 5 = flexible-lines, bit 6 = char-timed-stretch, bit 7 = bounded-rush,
-    /// bit 8 = first-char-timing, bit 9 = wall-clock-frames; only
+    /// bit 8 = first-char-timing, bit 9 = wall-clock-frames, bit 10 = back-dated-seal-break; only
     /// meaningful on CONFIG frames),
-    /// ButtonState = None, time = the integral frame time. A flags word of at most 1023 is as harmless
+    /// ButtonState = None, time = the integral frame time. A flags word of at most 2047 is as harmless
     /// to the encoder as the single bit was, and each new bit is appended ABOVE the existing ones,
     /// never renumbered: bits 0 to 4 keep their meaning and their positions untouched, so every
     /// replay already on disk decodes identically and simply reads false for the newer bits. All
     /// typeable characters (a-z, A-Z, 0-9, space, plus the Literate mod's punctuation, whose
     /// highest code point is ']' at 0x5D) and all three sentinels are far below the decoder's
     /// coordinate parse limits and its (256, -500) stable-header positions, so no stable fixup can
-    /// mangle them. Bits 8 and 9 push the flags word itself to 256 and then past 512, and the safety
+    /// mangle them. Bits 8, 9 and 10 push the flags word itself to 256 and then past 512 and 1024,
+    /// and the safety
     /// argument does not depend on the word's size at all: the stable-header strip matches the
     /// POSITION PAIR (256, -500) exactly, and a CONFIG frame's MouseX is 0x00 with a MouseY that is
     /// never negative, so neither coordinate can match whatever the flags word grows to. The
@@ -257,6 +260,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool WallClockFrames;
 
         /// <summary>
+        /// The engine's back-dated-seal-break setting at record time (see
+        /// <see cref="Gameplay.TypingEngine.BackDatedSealBreak"/>). Only meaningful on
+        /// <see cref="CONFIG"/> frames, and the ERA carrier for backlog 259: the live client records
+        /// it true for every stack, and every replay stored before it existed carries the bit clear,
+        /// so a line sealing on cells its player never typed still wipes the whole run they were
+        /// holding, which is the <c>max_combo</c> and the <c>total_score</c> that run was submitted
+        /// with.
+        ///
+        /// <para>Judgement relevant, though not in the caret-moving sense bits 4, 5 and 7 are: it
+        /// changes no delta, no tier, no cell state and no keystroke's landing place. What it moves
+        /// is the COMBO a seal leaves behind, and therefore the combo every judgement after that seal
+        /// is weighted by, so a stored row re-derived under the wrong arm comes back with a different
+        /// <c>total_score</c> and, wherever the surviving run outgrows the old maximum, a different
+        /// <c>max_combo</c>.</para>
+        /// </summary>
+        public bool BackDatedSealBreak;
+
+        /// <summary>
         /// The ANCHOR carried by a bit-9 CONFIG frame: the track position the tape was started at,
         /// which is also the origin of the wall axis every other frame in the run is stamped on. It
         /// is simply this frame's own <see cref="ReplayFrame.Time"/>, named here because that is a
@@ -298,11 +319,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <paramref name="flexibleLines"/> (bit 5) is appended after it rather than renumbering a
         /// positional argument out from under a call site that already passes it,
         /// <paramref name="boundedRush"/> (bit 7) is appended after both,
-        /// <paramref name="firstCharTiming"/> (bit 8) after that, and
-        /// <paramref name="wallClockFrames"/> (bit 9) after that again. Pass the newer five by
+        /// <paramref name="firstCharTiming"/> (bit 8) after that,
+        /// <paramref name="wallClockFrames"/> (bit 9) after that again, and
+        /// <paramref name="backDatedSealBreak"/> (bit 10) after that. Pass the newer six by
         /// name.</para>
         /// </summary>
-        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false, bool flexibleLines = false, bool boundedRush = false, bool firstCharTiming = false, bool wallClockFrames = false) => new TypeBeatReplayFrame(time, CONFIG)
+        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false, bool flexibleLines = false, bool boundedRush = false, bool firstCharTiming = false, bool wallClockFrames = false, bool backDatedSealBreak = false) => new TypeBeatReplayFrame(time, CONFIG)
         {
             AllowWrongInput = allowWrongInput,
             SpaceSkipsWord = spaceSkipsWord,
@@ -314,6 +336,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             BoundedRush = boundedRush,
             FirstCharTiming = firstCharTiming,
             WallClockFrames = wallClockFrames,
+            BackDatedSealBreak = backDatedSealBreak,
         };
 
         /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>
@@ -356,6 +379,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// engine.</summary>
         private const int flag_wall_clock_frames = 512;
 
+        /// <summary>Bit 10 of the CONFIG frame's flags word: a sealed line's combo break was
+        /// back-dated to the cells it missed, so a run built past them survived it (backlog
+        /// 259).</summary>
+        private const int flag_back_dated_seal_break = 1024;
+
         public void FromLegacy(LegacyReplayFrame currentFrame, IBeatmap beatmap, ReplayFrame? lastFrame = null)
         {
             Character = (char)(int)(currentFrame.MouseX ?? 0);
@@ -372,6 +400,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             BoundedRush = (flags & flag_bounded_rush) != 0;
             FirstCharTiming = (flags & flag_first_char_timing) != 0;
             WallClockFrames = (flags & flag_wall_clock_frames) != 0;
+            BackDatedSealBreak = (flags & flag_back_dated_seal_break) != 0;
         }
 
         public LegacyReplayFrame ToLegacy(IBeatmap beatmap) =>
@@ -387,7 +416,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             | (CharTimedStretch ? flag_char_timed_stretch : 0)
             | (BoundedRush ? flag_bounded_rush : 0)
             | (FirstCharTiming ? flag_first_char_timing : 0)
-            | (WallClockFrames ? flag_wall_clock_frames : 0);
+            | (WallClockFrames ? flag_wall_clock_frames : 0)
+            | (BackDatedSealBreak ? flag_back_dated_seal_break : 0);
 
         /// <summary>
         /// Never equivalent: every frame is a discrete keystroke. Two identical characters at the

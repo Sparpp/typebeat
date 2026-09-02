@@ -1379,6 +1379,211 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // 4500, the skipping one held it from 1500, the instant entry opened.
             Assert.AreEqual(new[] { (1000d, 0), (4500d, 1) }, satArrivals.ToArray());
             Assert.AreEqual(new[] { (1000d, 0), (1500d, 1) }, skippedArrivals.ToArray());
+
+            // And the parity survives backlog 259 (see TheSealsBreakDestroysTheRunUpToItsMissesAndNoMore),
+            // which is the load-bearing half of this pin now that the seal's break has a REACH as
+            // well as an instant: the two runs type the same characters, so they must lose the same
+            // combo to the same break whichever era decides how far back it reaches.
+            var satBackDated = engine(dragMap(), flexible: true);
+            var skippedBackDated = engine(dragMap(), flexible: true);
+
+            satBackDated.BackDatedSealBreak = true;
+            skippedBackDated.BackDatedSealBreak = true;
+
+            var satBackDatedSeals = new List<(double at, LineSealResult result)>();
+            var skippedBackDatedSeals = new List<(double at, LineSealResult result)>();
+
+            satBackDated.LineSealed += s => satBackDatedSeals.Add((now, s));
+            skippedBackDated.LineSealed += s => skippedBackDatedSeals.Add((now, s));
+
+            satBackDated.Update(1000);
+            Assert.IsTrue(satBackDated.ProcessKey('a', 1000));
+            skippedBackDated.Update(1000);
+            Assert.IsTrue(skippedBackDated.ProcessKey('a', 1000));
+            Assert.IsTrue(skippedBackDated.ProcessEnter(1000));
+
+            for (now = 1000; now <= 5000; now += 100)
+            {
+                satBackDated.Update(now);
+                skippedBackDated.Update(now);
+            }
+
+            Assert.AreEqual(satBackDatedSeals.ToArray(), skippedBackDatedSeals.ToArray());
+            Assert.AreEqual(satBackDated.Combo, skippedBackDated.Combo);
+            Assert.AreEqual(satBackDated.MaxCombo, skippedBackDated.MaxCombo);
+
+            // 'a' was earned on cell 0 and the miss is cell 1, so the back-dated break still takes
+            // it: this fixture types nothing PAST the miss, which is exactly why the two eras agree
+            // on it and why the pins below need a run built on the next line.
+            Assert.AreEqual(new[] { (4500d, new LineSealResult(0, 1, true, 0)) }, satBackDatedSeals.ToArray());
+            Assert.AreEqual(0, satBackDated.Combo);
+        }
+
+        /// <summary>
+        /// BACKLOG 259: THE SEAL'S COMBO BREAK IS BACK-DATED to the cells it is about to miss, so a
+        /// run built PAST them survives it. A line's misses only exist at its seal, and under the
+        /// unpinned caret that seal lands up to <c>FLETCHER_DRAG_GRACE_MS</c> after the song left the
+        /// line, by which time the player is on the next one and typing. The break was landing on
+        /// that run.
+        ///
+        /// <para>One script, two engines, differing only in the era flag. 'a' is typed on line 0 and
+        /// 'b' is given up; the caret takes line 1 at 1500 and types both its cells; line 0 seals at
+        /// 4500 on the one cell nobody typed. The increment earned on cell 0 is at or before that
+        /// miss and dies under both rules; the two earned on line 1 are past it and survive only
+        /// under the back-dated one.</para>
+        /// </summary>
+        [Test]
+        public void TheSealsBreakDestroysTheRunUpToItsMissesAndNoMore()
+        {
+            var backDated = engine(dragMap(), flexible: true);
+            var classic = engine(dragMap(), flexible: true);
+
+            backDated.BackDatedSealBreak = true;
+
+            var seals = new List<LineSealResult>();
+            int breaks = 0;
+
+            backDated.LineSealed += s => seals.Add(s);
+            backDated.ComboBroken += () => breaks++;
+
+            foreach (var typing in new[] { backDated, classic })
+            {
+                typing.Update(1000);
+                Assert.IsTrue(typing.ProcessKey('a', 1000)); // combo 1, earned at (0, 0)
+                Assert.IsTrue(typing.ProcessEnter(1000));    // 'b' (cell 1) is given up, unjudged
+
+                // The caret is handed line 1 at 1500, when its entry bound opens; line 0 is held
+                // unsealed by the grace its abandonment keeps for it.
+                for (double now = 1100; now < 3000; now += 100)
+                    typing.Update(now);
+
+                Assert.AreEqual(1, typing.ActiveLineIndex);
+
+                typing.Update(3000);
+                Assert.IsTrue(typing.ProcessKey('c', 3000)); // combo 2, earned at (1, 0)
+                typing.Update(3500);
+                Assert.IsTrue(typing.ProcessKey('d', 3500)); // combo 3, earned at (1, 1)
+
+                Assert.AreEqual(3, typing.Combo);
+                Assert.IsEmpty(seals, "line 0 is still held open by the grace its abandonment keeps for it");
+            }
+
+            for (double now = 3500; now <= 4600; now += 100)
+            {
+                backDated.Update(now);
+                classic.Update(now);
+            }
+
+            // ONE break either way, at 4500, on the one missed cell: what moved is its reach.
+            Assert.AreEqual(1, breaks);
+            Assert.AreEqual(new[] { new LineSealResult(0, 1, true, 2) }, seals.ToArray());
+
+            Assert.AreEqual(2, backDated.Combo, "the two cells typed past the miss survive it");
+            Assert.AreEqual(0, classic.Combo, "the classic seal takes the whole run");
+
+            // Neither era revisits a maximum the player really did hold.
+            Assert.AreEqual(3, backDated.MaxCombo);
+            Assert.AreEqual(3, classic.MaxCombo);
+        }
+
+        /// <summary>
+        /// THE USER'S REPORT (backlog 259): "when the HP drain from the previous line kicks in, it
+        /// breaks my current combo, even tho my combo already broke from those misses at the time."
+        /// A typo takes its break at the KEYPRESS; backspaced away and left empty, the cell it leaves
+        /// behind is a miss, and the seal was taking a SECOND break for the same fumble, a line
+        /// later, on the run the player had rebuilt in between.
+        ///
+        /// <para>Back-dated, that seal destroys NOTHING: everything at or before the erased cell was
+        /// already taken by the typo, and everything since was earned past it. So the net combo
+        /// change across the seal is zero, which is exactly what the report asks for.</para>
+        /// </summary>
+        [Test]
+        public void AnErasedTypoTakesNoSecondBreakWhenItsLineSeals()
+        {
+            var typing = engine(dragMap(), flexible: true);
+
+            typing.BackDatedSealBreak = true;
+
+            var seals = new List<LineSealResult>();
+            int breaks = 0;
+
+            typing.LineSealed += s => seals.Add(s);
+            typing.ComboBroken += () => breaks++;
+
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000)); // combo 1, earned at (0, 0)
+
+            // The typo on 'b', and the break it takes AT THE KEYPRESS.
+            Assert.IsTrue(typing.ProcessKey('x', 1100));
+            Assert.AreEqual(0, typing.Combo);
+            Assert.AreEqual(1, breaks);
+
+            // Erased and left empty, so cell 1 is a character the player did not finish.
+            Assert.IsTrue(typing.ProcessBackspace());
+            Assert.AreEqual(CellState.Untyped, typing.Lines[0].Cells[1].State);
+            Assert.IsTrue(typing.ProcessEnter(1100));
+
+            for (double now = 1100; now < 3000; now += 100)
+                typing.Update(now);
+
+            typing.Update(3000);
+            Assert.IsTrue(typing.ProcessKey('c', 3000));
+            typing.Update(3500);
+            Assert.IsTrue(typing.ProcessKey('d', 3500));
+
+            int rebuilt = typing.Combo;
+            Assert.AreEqual(2, rebuilt, "the run the player is holding when their old line runs out of time");
+
+            for (double now = 3500; now <= 4600; now += 100)
+                typing.Update(now);
+
+            Assert.AreEqual(new[] { new LineSealResult(0, 1, true, 2) }, seals.ToArray());
+            Assert.AreEqual(rebuilt, typing.Combo, "the seal is a NET ZERO on the combo: that break was already paid");
+            Assert.AreEqual(2, breaks, "and the second announcement is the seal's own, not a second cost");
+        }
+
+        /// <summary>
+        /// A RESTORED streak goes back WHERE IT WAS EARNED, not at the cell that redeemed it, which
+        /// is what makes the back-dated break correct across a combo restore (backlog 140 plus 259).
+        ///
+        /// <para>'a' is typed on line 0 and 'b' given up; on line 1 the first cell is spoiled and then
+        /// corrected, so the streak of 1 that typo broke (earned back on line 0, cell 0) resumes.
+        /// When line 0 seals on 'b', that restored increment is at or before the miss and dies with
+        /// it, while the correction's own increment, earned on line 1, survives. Dating the restored
+        /// streak at the cell that redeemed it would keep both.</para>
+        /// </summary>
+        [Test]
+        public void ARestoredStreakIsBackDatedToTheCellsItWasEarnedOn()
+        {
+            var typing = engine(dragMap(), flexible: true);
+
+            typing.BackDatedSealBreak = true;
+
+            int restored = 0;
+            typing.ComboRestored += streak => restored += streak;
+
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000)); // combo 1, earned at (0, 0)
+            Assert.IsTrue(typing.ProcessEnter(1000));    // 'b' given up, unjudged
+
+            for (double now = 1100; now < 3000; now += 100)
+                typing.Update(now);
+
+            typing.Update(3000);
+            Assert.IsTrue(typing.ProcessKey('x', 3000)); // typo on (1, 0): breaks the run of 1, snapshots it
+            Assert.AreEqual(0, typing.Combo);
+
+            Assert.IsTrue(typing.ProcessBackspace());
+            Assert.IsTrue(typing.ProcessKey('c', 3100)); // the fix: 1 restored, plus its own increment
+
+            Assert.AreEqual(1, restored);
+            Assert.AreEqual(2, typing.Combo);
+
+            for (double now = 3100; now <= 4600; now += 100)
+                typing.Update(now);
+
+            Assert.AreEqual(1, typing.Combo, "the restored increment was earned before the miss, so it dies with it");
+            Assert.AreEqual(2, typing.MaxCombo);
         }
 
         /// <summary>

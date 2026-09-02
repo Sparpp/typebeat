@@ -63,7 +63,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <item><c>LineSealed</c> resolves every still-unresolved cell of the line, in ascending cell
     /// order, through <see cref="TypeBeatResultMapping.UnresolvedCellResult"/>: a Miss for a cell
     /// nobody typed, an unfixed typo (applied combo-neutral) for one left sitting wrong. Then it
-    /// resolves the line itself scoring-inert (<c>ApplySealResults</c>).</item>
+    /// resolves the line itself scoring-inert (<c>ApplySealResults</c>). Under
+    /// <see cref="Gameplay.TypingEngine.BackDatedSealBreak"/> (backlog 259) it ALSO mirrors the
+    /// seal's one combo break by hand, before those results, and marks the Misses combo-neutral so
+    /// they cannot take it again.</item>
     /// <item><c>Mistyped</c> counts the mistype and, under <see cref="TypoRule.Deferred"/>, mirrors
     /// the combo break by hand (<c>onMistyped</c>).</item>
     /// <item>Fletcher's rush cap breaks combo on a judgement that is still a hit
@@ -294,7 +297,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // TypeBeatPlayfield.onLineSealed: the engine is the only thing that can tell a cell
             // nobody typed from one left holding a wrong character, so the decision is made here and
             // the registry only applies it.
-            void onLineSealed(LineSealResult sealResult) => cells.Seal(scoreProcessor, sealResult.LineIndex, engine, rule);
+            //
+            // Under BackDatedSealBreak (backlog 259) the seal's one break no longer rides on those
+            // Miss results at all: it is mirrored by hand here, BEFORE them, as the run the engine is
+            // left holding, and the registry marks every seal miss combo-neutral so no result can
+            // take it a second time. Exactly the shape backlog 167 gave the word skip, and written
+            // here rather than inside the registry so the order (break, then results) is visible at
+            // the seam it belongs to.
+            void onLineSealed(LineSealResult sealResult)
+            {
+                if (engine.BackDatedSealBreak && sealResult.ComboBroken)
+                    scoreProcessor.Combo.Value = Math.Min(scoreProcessor.Combo.Value, sealResult.SurvivingCombo);
+
+                cells.Seal(scoreProcessor, sealResult.LineIndex, engine, rule);
+            }
 
             void onMistyped()
             {
@@ -375,9 +391,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// plus the engine flags the mods set through <c>ApplyToDrawableRuleset</c>.
         /// <c>AllowWrongInput</c>, <c>SpaceSkipsWord</c>, <c>SyllableTiming</c>,
         /// <c>WrongInputOnWordGaps</c>, <c>StrictSpaces</c>, <c>CharTimedStretch</c>,
-        /// <c>FlexibleLineSnap</c>, <c>BoundedRush</c> and <c>FirstCharTiming</c> are
+        /// <c>FlexibleLineSnap</c>, <c>BoundedRush</c>, <c>FirstCharTiming</c> and
+        /// <c>BackDatedSealBreak</c> are
         /// deliberately NOT set from the mods or from any config: the replay's CONFIG frame carries
-        /// what the run was judged under and overwrites all nine, which is the only thing that judges
+        /// what the run was judged under and overwrites all ten, which is the only thing that judges
         /// a pre-Gatekeeper strict run right.
         ///
         /// <para>Public because <see cref="PuppeteerReplayTransform"/> builds its scratch engine
@@ -442,6 +459,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // from the syllable's start rather than paid 0 anywhere in the span. The default is
             // the whole-span rule every stored replay's first characters were scored on, and the
             // bit is set for every live stack on the same terms as bit 6.
+            //
+            // BackDatedSealBreak (backlog 259, CONFIG frame bit 10) is the sixth, and the only one
+            // that moves no keystroke: the default is the outright wipe every stored replay's seals
+            // took, and the bit is set for every live stack, because when a break lands is not a
+            // mod's business either.
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the three arms below compose in any order. A replay
@@ -613,7 +635,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
                     var result = TypeBeatResultMapping.UnresolvedCellResult(engine.CellLeftWrong(lineIndex, cellIndex), rule);
 
-                    if (result == TypeBeatResultMapping.UNFIXED_TYPO && scoreProcessor is TypeBeatScoreProcessor typeBeatProcessor)
+                    // A MISS joins the unfixed typo on the combo-neutral ledger under backlog 259's
+                    // rule, for the same reason the typo is on it: its break has already been taken
+                    // by hand, at the seal's own seam, back-dated to the cells it belongs to.
+                    bool neutral = result == TypeBeatResultMapping.UNFIXED_TYPO
+                                   || (engine.BackDatedSealBreak && result == TypeBeatResultMapping.SEAL_MISS);
+
+                    if (neutral && scoreProcessor is TypeBeatScoreProcessor typeBeatProcessor)
                         typeBeatProcessor.MarkComboNeutral(lineIndex, cellIndex);
 
                     cell.Apply(scoreProcessor, result);

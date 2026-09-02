@@ -490,9 +490,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// is exactly what it turned out to be, and its two corrections were made a moment earlier in
         /// <see cref="onAbandonSealed"/>: the HP the skip charged is refunded into this drain, and the
         /// cell is marked combo-neutral so the Miss cannot take a break the skip already took.</para>
+        ///
+        /// <para>THE BREAK MOVED OFF THE RESULTS since backlog 259
+        /// (<see cref="TypingEngine.BackDatedSealBreak"/>), which is why EVERY seal miss is marked
+        /// combo-neutral under that rule and not only the abandoned ones. A Miss carries a break to
+        /// exactly one place, the combo it finds when it lands, and the whole point of back-dating is
+        /// that the break belongs to an earlier one. So the results are made combo-neutral like the
+        /// skip's, and the one break is mirrored by hand FIRST, as an absolute write of the run the
+        /// engine is left holding (<see cref="LineSealResult.SurvivingCombo"/>): the engine is the
+        /// only thing that knows which increment was earned on which cell, and the two accounts hold
+        /// increments for the very same cells, so its surviving count IS this one's. Written before
+        /// the results rather than after so every result this seal applies, the unfixed typos
+        /// included, is weighted by the combo the break left, which is the combo the player is
+        /// actually holding.</para>
         /// </summary>
         private void onLineSealed(LineSealResult sealResult)
         {
+            bool backDated = Engine.BackDatedSealBreak;
+
+            // MIN, not an assignment: this is a BREAK, so it may only ever take combo away. The two
+            // accounts hold increments for the same cells, so the two values agree; the floor is
+            // there because a break that credited combo would be a defect in whichever of them
+            // happened to be behind, not a rule anyone wants.
+            if (backDated && sealResult.ComboBroken && scoreProcessor != null)
+                scoreProcessor.Combo.Value = Math.Min(scoreProcessor.Combo.Value, sealResult.SurvivingCombo);
+
             if (!lineDrawables.TryGetValue(sealResult.LineIndex, out var line))
                 return;
 
@@ -500,7 +522,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 var result = TypeBeatResultMapping.UnresolvedCellResult(Engine.CellLeftWrong(sealResult.LineIndex, cellIndex), TypoRule.Deferred);
 
-                if (result == TypeBeatResultMapping.UNFIXED_TYPO)
+                if (result == TypeBeatResultMapping.UNFIXED_TYPO || (backDated && result == TypeBeatResultMapping.SEAL_MISS))
                     (scoreProcessor as TypeBeatScoreProcessor)?.MarkComboNeutral(sealResult.LineIndex, cellIndex);
 
                 return result;
@@ -534,7 +556,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         ///
         /// <para>KNOWN RESIDUE: the hand-mirrored combo BREAKS are not undone, so
         /// <see cref="ScoreProcessor.Combo"/> can read low between the seek target and the first
-        /// break after it, at which point the next hand-mirrored break (an absolute write of 0) puts
+        /// break after it, at which point the next hand-mirrored break (an absolute write of 0, or
+        /// since backlog 259 a seal's write of the run it left standing) puts
         /// it back on the engine's value. It is not overwritten from the engine here on purpose: the
         /// two counters are kept equal by mirroring every move, never by one dictating to the other,
         /// and a watched replay's HUD combo is the only thing this reaches. Nothing here can mutate

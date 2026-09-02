@@ -40,7 +40,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             if (frame.IsConfig)
             {
                 // The recorded machine's judgement-relevant settings win over local config, all
-                // nine of them: a replay of a run played WITHOUT space-skip must not start skipping
+                // ten of them: a replay of a run played WITHOUT space-skip must not start skipping
                 // words because the watcher turned the setting on, and vice versa. Every replay
                 // recorded before a setting existed carries its bit clear, which decodes to false,
                 // i.e. to exactly the model those runs were played under.
@@ -73,6 +73,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // pressed late in the sung span keeps the delta of zero its whole span paid it,
                 // which is what every run stored before the hybrid was scored on.
                 engine.FirstCharTiming = frame.FirstCharTiming;
+
+                // BackDatedSealBreak (backlog 259) is the era bit that moves no keystroke at all:
+                // with it clear a line sealing on cells nobody typed wipes the whole run the player
+                // was holding, which is the combo every judgement after that seal was weighted by
+                // and the max_combo those runs were submitted with. Applied here like every other
+                // bit, so a stored row re-derives the account it was given rather than the kinder
+                // one the live client now keeps.
+                engine.BackDatedSealBreak = frame.BackDatedSealBreak;
 
                 // BoundedRush (backlog 218) is the fifth, and the sharpest of them on the caret
                 // question: with it clear a player's finished line handed them the next one however

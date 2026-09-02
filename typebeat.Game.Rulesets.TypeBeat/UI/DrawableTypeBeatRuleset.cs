@@ -286,6 +286,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // shown.
                 FirstCharTiming = true,
 
+                // THE SEAL'S BREAK IS BACK-DATED SINCE BACKLOG 259, unconditional for every mod
+                // stack: a line's misses only exist at its seal, which under the unpinned caret can
+                // land long after the player has moved on, and the break was landing on the run they
+                // had rebuilt since. It now destroys only what was earned up to the last missed cell.
+                //
+                // No mod has an opinion about WHEN a break lands (it is not a window, an input model
+                // or a caret), so there is nothing to scope it to, and recording it unconditionally
+                // is what keeps re-derivation uniform.
+                //
+                // An ERA flag on CONFIG frame bit 10, because every replay recorded before it holds
+                // seals that wiped a run outright, and that wipe is in the max_combo and the
+                // total_score those runs were submitted with.
+                BackDatedSealBreak = true,
+
                 // THE LIVE CARET SINCE BACKLOG 208, for every stack except the pinning mod's. The
                 // three freedoms that shipped as the "FT" mod (open the next line the moment you
                 // finish one, keep a line the song has left, character distance instead of a timing
