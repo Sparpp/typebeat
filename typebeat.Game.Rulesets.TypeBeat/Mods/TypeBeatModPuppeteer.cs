@@ -284,6 +284,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// the tape ON the caret cell rather than at the start of a gap. See
         /// <see cref="PACE_HEADROOM"/> for the cap that keeps that approach at the song's own speed
         /// instead of sprinting it.</para>
+        ///
+        /// <para><b>SINCE BACKLOG 261 THIS IS A FLOOR AND NOT A CEILING</b> on every coast but the
+        /// outro's. A tape running above the song's own speed when the line ran out HOLDS that speed
+        /// through the gap (<see cref="PuppeteerState.HeldCoastVelocity"/>), because a player fast
+        /// enough to earn it found the sag back to 1.00x between every pair of lines worse than the
+        /// speed itself. The number here is unchanged and still means what it always did for everyone
+        /// else: the hold is <c>max(1, velocity)</c>, so a tape at or below 1.00x, which includes
+        /// every intro (the anchor starts at velocity 1) and every player the song is not waiting on,
+        /// coasts at exactly this, and a player who has been hesitating is SPED UP to it rather than
+        /// left at their stall.</para>
         /// </summary>
         public const double COAST_MAX_VELOCITY = 1.0;
 
@@ -585,19 +595,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         }
 
         /// <summary>
-        /// Two jobs. FORGIVE THE TIMING by multiplying the window scale (see
+        /// Three jobs. FORGIVE THE TIMING by multiplying the window scale (see
         /// <see cref="WINDOW_SCALE"/>), which is done here because this is where the engine exists
-        /// and before the first keypress, exactly as Easy, Hard Rock and the rate mods do it. And
-        /// capture the drawable ruleset so the live rate can be published for the HUD readout, the
-        /// <see cref="DrawableTypeBeatRuleset.ConductorRate"/> half of the
-        /// <c>FlashlightVisibleRadius</c> pattern: the mod writes, the always-on HUD reads, and no
-        /// mod type is named inside the HUD.
+        /// and before the first keypress, exactly as Easy, Hard Rock and the rate mods do it. EXEMPT
+        /// THE RUSH CAP (<see cref="Gameplay.TypingEngine.RushCapExempt"/>, backlog 261), set at the
+        /// same seam for the same reason: it is read at every press rather than at construction, and
+        /// no replay recorder stamps it. And capture the drawable ruleset so the live rate can be
+        /// published for the HUD readout, the <see cref="DrawableTypeBeatRuleset.ConductorRate"/>
+        /// half of the <c>FlashlightVisibleRadius</c> pattern: the mod writes, the always-on HUD
+        /// reads, and no mod type is named inside the HUD.
         /// </summary>
         public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset)
         {
             var typeBeatRuleset = (DrawableTypeBeatRuleset)drawableRuleset;
 
             typeBeatRuleset.Engine.WindowScale *= WINDOW_SCALE;
+
+            // THE RUSH CAP CANNOT MEASURE A TAPE (backlog 261). The playhead here is the tape the
+            // player is dragging, and it is walled at the preset's ceiling, so a player faster than
+            // that opens a lead with no bound: the cap broke their combo on a press it was still
+            // judging Great, and could not re-arm while the sprint continued. The flag's own doc has
+            // the whole argument, including why no finite cap value fixes it.
+            typeBeatRuleset.Engine.RushCapExempt = true;
 
             this.drawableRuleset = typeBeatRuleset;
 
@@ -729,6 +748,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// what keeps a caret PARKED ON A SPOILED WORD GAP under <c>StrictSpaces</c> on the typing
         /// arm: that caret is mid-line and on a typeable cell, so the song correctly waits at the
         /// gap for the fix rather than coasting away from the player.</para>
+        ///
+        /// <para><b>THE COAST SPLITS IN TWO IN BACKLOG 261</b>, and this is the only place that knows
+        /// the difference. A coast now HOLDS the speed the tape arrived at
+        /// (<see cref="PuppeteerClock.HoldFor"/>), which is the whole feature: a player who outruns
+        /// the song is not dropped back to 1.00x for every instrumental. The hold is given back the
+        /// moment a line takes the caret again, so every mid-map stretch has an end. PAST THE LAST
+        /// LINE it has none, so the outro takes <see cref="PuppeteerArm.ReleasedCoast"/> and eases
+        /// down to the song's own speed instead of playing the ending fast forever.</para>
+        ///
+        /// <para>That is ONE MORE ENGINE READ than backlog 257 left here,
+        /// <see cref="TypingEngine.IsFinished"/>, and it is the honest way to ask the question: "is
+        /// another line coming" is a fact about the line lifecycle, and the lifecycle is the engine's.
+        /// It is nothing like the index arithmetic 257 deleted (a finished line has not SEALED, so
+        /// the next-unsealed index is still itself): <c>IsFinished</c> is set in one place, when every
+        /// line has sealed, so it cannot be off by a line. The model stays ignorant of all of it and
+        /// reads one bool off the arm.</para>
         /// </summary>
         public static PuppeteerArm ArmFor(TypingEngine engine, double time)
         {
@@ -737,7 +772,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             if (engine.CurrentLeadLag(time) is double leadLag)
                 return new PuppeteerArm(time - leadLag, V_MAX);
 
-            return PuppeteerArm.Coast;
+            return engine.IsFinished ? PuppeteerArm.ReleasedCoast : PuppeteerArm.Coast;
         }
 
         /// <summary>

@@ -495,8 +495,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // steady-state lag re-read as the player being early. It ships for the first time in this
             // release, so no stored row can carry the acronym and there is no era in which the arm
             // should be off.
+            //
+            // Since backlog 261 the same arm also exempts the RUSH CAP, on the same terms and for a
+            // reason of the same shape: under strict following the playhead is the TAPE, which is
+            // walled at the preset's ceiling, so a player faster than the wall opens an unbounded
+            // character lead and the cap breaks a combo on presses it is still judging Great. It is a
+            // MOD flag and not an era (see TypingEngine.RushCapExempt), so it belongs here in the mod
+            // list rather than in a CONFIG bit, and it has to be here as well as at the live seam or
+            // a rescore would report a lower max combo than the run the player finished.
+            //
+            // PuppeteerReplayTransform's scratch engine is built by THIS method, so its co-simulation
+            // picks both arms up with no line of its own: the engine it reads arms off is the engine
+            // that judges the derived frames, which is exactly why it calls this rather than copying
+            // it.
             if (mods.Any(m => m is TypeBeatModPuppeteer))
+            {
                 engine.WindowScale *= TypeBeatModPuppeteer.WINDOW_SCALE;
+                engine.RushCapExempt = true;
+            }
 
             // The rate mods scale the windows by the CLOCK RATE so the real-time tolerance is
             // constant (backlog 150). Matched on ModRateAdjust, the base the ruleset's three rate

@@ -544,6 +544,59 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// ...and it can be EXEMPTED outright (backlog 261,
+        /// <see cref="TypingEngine.RushCapExempt"/>), which is the one thing the Puppeteer mod asks
+        /// of this engine. Under strict following the playhead IS the tape the player is dragging,
+        /// and the tape is walled at the mod's own ceiling, so a player faster than the wall opens a
+        /// character lead with no bound: the cap then breaks a combo on a press it is still judging
+        /// Great, and cannot re-arm while the sprint continues. No cap VALUE fixes that, so the mod
+        /// takes the cap out of the question instead.
+        ///
+        /// <para>Off by default, because it belongs to that one mod: every ordinary play, pinned or
+        /// unpinned, is measured exactly as it was. And it reaches the cap and nothing else, so the
+        /// roll, the drag, the snap and the seal grace are all untouched: the identical burst that
+        /// <see cref="SixthCharAheadBreaksComboOnceAndReArms"/> takes two breaks over keeps every
+        /// increment here, and the caret is in the same place either way.</para>
+        /// </summary>
+        [Test]
+        public void AnExemptRushCapKeepsTheComboItWouldHaveBroken()
+        {
+            Assert.IsFalse(new TypingEngine(denseMap()).RushCapExempt,
+                "the cap applies to every ordinary play; only a mod may lift it");
+
+            Assert.IsFalse(engine(denseMap(), flexible: true).RushCapExempt,
+                "...the shipped stack included");
+
+            var typing = engine(denseMap(), flexible: true);
+            typing.RushCapExempt = true;
+
+            int comboBreaks = 0;
+            typing.ComboBroken += () => comboBreaks++;
+
+            typing.Update(1000);
+
+            // Twelve presses at t = 1000, which walks the caret from 0 to 12 while the playhead has
+            // reached exactly one countable char: a lead of eleven, more than twice the cap of five.
+            // Every delta is inside the Line-granularity Meh window (the twelfth is -1100 against a
+            // 1200 early bound), so each press is an ordinary scoring hit and the ONLY thing that
+            // could touch the combo is the cap.
+            for (int i = 0; i < 12; i++)
+                Assert.IsTrue(typing.ProcessKey(dense_chars[i], 1000));
+
+            Assert.AreEqual(11, typing.CharsAheadOfPlayhead(1000), "the burst has to actually leave the cap behind");
+
+            Assert.AreEqual(12, typing.Combo, "every press credits combo, however far ahead of the playhead it lands");
+            Assert.AreEqual(12, typing.MaxCombo);
+            Assert.AreEqual(0, comboBreaks);
+
+            // The caret and the cells are where the unexempted run leaves them: this lifts a COMBO
+            // penalty, it does not change what lands or what it is worth.
+            Assert.AreEqual(12, typing.CaretIndex);
+            Assert.AreEqual(CellState.Correct, typing.Lines[0].Cells[11].State);
+            Assert.AreEqual(-1100, typing.Lines[0].Cells[11].JudgedDelta);
+        }
+
+        /// <summary>
         /// A space spends no budget (it is not a COUNTABLE char, the same rule the Flashlight window
         /// uses), so pressing one can never be the press that crosses the cap.
         /// </summary>

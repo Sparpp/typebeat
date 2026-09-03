@@ -20,6 +20,7 @@ using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
+using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Rulesets.UI;
 using typebeat.Game.Utils;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
@@ -573,6 +574,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// what the flat cap here replaces. Parking in front of an untyped vocal is still done, by
         /// the ACTIVE arm, from the line's cue: see
         /// <see cref="AnUntypedApproachRunsAtTheSongsOwnSpeedAndParksOnTheCaretCell"/>.</para>
+        ///
+        /// <para>BACKLOG 261 NARROWS THIS TO A COLD TAPE, which is the case above and every case a
+        /// player who is not outrunning the song ever sees: the intro (the anchor starts at velocity
+        /// 1), an on-pace player, and a hesitating one, whose tape is dragged BELOW 1.00x and is sped
+        /// back UP to it. A tape that was running FASTER than the song when the line ran out now
+        /// holds that speed instead of easing down, which is the tail of this test and the whole of
+        /// the held-coast region below.</para>
         /// </summary>
         [Test]
         public void ACoastingTapePlaysTheSongAtExactlyItsOwnSpeedAndNeverParks()
@@ -603,19 +611,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // away the next line happens to be.
             Assert.AreEqual(30000, states[30000].PositionMs, 1e-6);
 
-            // ...and a tape that was still sprinting when the line ended EASES down to 1.00x rather
-            // than snapping to it: the cap bounds where the velocity is going, and the smoothing
-            // constant is still what decides how fast it gets there.
+            // A tape BELOW the song's own speed (a player who was hesitating, so the reel had dragged
+            // toward the crawl) is brought back UP to exactly 1.00x, and never further: the hold's
+            // floor is what says a coast may never be slower than the song, and its value is what
+            // says it may never be faster than the tape already was.
+            var cold = trajectory(at(0, TypeBeatModPuppeteer.V_EPSILON), _ => arm, 4000);
+
+            for (int ms = 1; ms <= 4000; ms++)
+            {
+                Assert.GreaterOrEqual(cold[ms].Velocity, cold[ms - 1].Velocity - 1e-12,
+                    $"a coast out of a park has to spin UP, and it slowed at wall ms {ms}");
+
+                Assert.LessOrEqual(cold[ms].Velocity, 1 + 1e-12,
+                    $"a coast out of a park overshot the song's own speed at wall ms {ms} ({cold[ms].Velocity:R})");
+            }
+
+            Assert.AreEqual(TypeBeatModPuppeteer.COAST_MAX_VELOCITY, cold[4000].Velocity, 1e-6);
+
+            // ...and a tape that was still sprinting when the line ended HOLDS that speed since
+            // backlog 261, rather than easing back down to 1.00x. This used to be the ease-down pin,
+            // and it is re-expected here rather than deleted because it is the exact trajectory the
+            // owner asked to change: see TheCoastHoldsTheSpeedTheTapeArrivedAt below for the law and
+            // TheOutroReleasesTheHoldWhileAMidMapGapKeepsIt for the one coast that still eases.
             var hot = trajectory(at(0, TypeBeatModPuppeteer.V_MAX), _ => arm, 2000);
 
             for (int ms = 1; ms <= 2000; ms++)
             {
-                Assert.LessOrEqual(hot[ms].Velocity, hot[ms - 1].Velocity + 1e-12,
-                    $"a coasting tape sped back up at wall ms {ms}");
+                Assert.AreEqual(TypeBeatModPuppeteer.V_MAX, hot[ms].Velocity, 1e-12,
+                    $"the held coast was not flat at wall ms {ms}: it ran at {hot[ms].Velocity:R}");
             }
 
-            Assert.AreEqual(TypeBeatModPuppeteer.COAST_MAX_VELOCITY, hot[2000].Velocity, 1e-6);
-            Assert.Greater(hot[1].Velocity, 1.9, "and it eases rather than snapping");
+            Assert.AreEqual(TypeBeatModPuppeteer.V_MAX * 2000, hot[2000].PositionMs, 1e-6,
+                "two wall seconds of held coast are two seconds of song at the held speed");
         }
 
         /// <summary>
@@ -662,6 +689,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             double fastest = first.Max(s => s.Velocity);
 
             Assert.Greater(fastest - slowest, 0.5, $"the scripted play barely moved the tape ({slowest:R} to {fastest:R})");
+
+            // ...and since backlog 261 it carries a HELD COAST through its tail, so everything above
+            // is a determinism pin on a trajectory that has one in it. The scripted typist is running
+            // the tape above 1.00x when the line runs out at wall ms 6500, and the hold is that
+            // velocity, captured once and then flat for the remaining two and a half seconds.
+            Assert.AreEqual(PuppeteerClock.NO_HELD_COAST, first[6499].HeldCoastVelocity, 1e-12,
+                "the typing arm holds nothing");
+
+            double hold = first[6500].HeldCoastVelocity;
+
+            Assert.Greater(hold, 1.2, $"the scripted typist was only running the tape at {hold:R}, so the coast tail holds nothing worth pinning");
+
+            for (int ms = 6500; ms <= wall_ms; ms++)
+            {
+                Assert.AreEqual(hold, first[ms].HeldCoastVelocity, 1e-12, $"the hold moved at wall ms {ms}");
+                Assert.AreEqual(hold, first[ms].Velocity, 1e-12, $"the held coast was not flat at wall ms {ms}");
+            }
         }
 
         /// <summary>
@@ -754,6 +798,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// yet, so the next-unsealed index is still that same line and its first vocal is already
         /// behind the tape. Backlog 257 deleted the question along with the target: the engine's line
         /// lifecycle is not consulted by the arm at all any more, only its caret.</para>
+        ///
+        /// <para>Backlog 261 puts ONE lifecycle read back, and it is worth being precise about which:
+        /// <see cref="TypingEngine.IsFinished"/>, to tell the outro from every other off-line stretch
+        /// (see <see cref="PastTheLastLineTheTapeSimplyPlaysOutAtTheSongsOwnSpeed"/>). Not an index,
+        /// so the trap above cannot come back. Both cases below are mid-map and both are therefore
+        /// still <see cref="PuppeteerArm.Coast"/> exactly, which is what these value-equality
+        /// assertions say: the arm grew a field and the pre-roll and the finished-line coasts did not
+        /// move.</para>
         /// </summary>
         [Test]
         public void ArmsFollowTheEnginesOwnLineLifecycle()
@@ -796,9 +848,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The outro: past the last line the song plays itself out at its own speed, which is the
-        /// same coast arm as every other off-line stretch. An infinite target is not a NaN generator,
-        /// it simply pins the request at the cap.
+        /// The outro: past the last line the song plays itself out at its own speed, which is
+        /// almost the same coast arm as every other off-line stretch. An infinite target is not a
+        /// NaN generator, it simply pins the request at the cap.
+        ///
+        /// <para>ALMOST, since backlog 261: this is the one coast that RELEASES a hold rather than
+        /// carrying it (<see cref="PuppeteerArm.ReleasedCoast"/>). Everywhere else the held speed
+        /// ends when the next line takes the caret; here there is no next line, so a hold would
+        /// simply play the rest of the song fast forever. A COLD tape cannot tell the two arms apart,
+        /// which is why the original body below still stands word for word, and a HOT one is the
+        /// whole difference.</para>
         /// </summary>
         [Test]
         public void PastTheLastLineTheTapeSimplyPlaysOutAtTheSongsOwnSpeed()
@@ -818,16 +877,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             engine.Update(60000);
 
             Assert.AreEqual(-1, engine.NextUnsealedLineIndex, "every line has sealed");
+            Assert.IsTrue(engine.IsFinished, "...which is the one engine fact the outro arm reads");
 
             var outro = TypeBeatModPuppeteer.ArmFor(engine, 60000);
 
             Assert.AreEqual(double.PositiveInfinity, outro.DesiredPositionMs);
             Assert.AreEqual(TypeBeatModPuppeteer.COAST_MAX_VELOCITY, outro.VelocityCap, 1e-12);
+            Assert.IsTrue(outro.ReleasesHold, "the map is over, so there is no next line to give the held speed back at");
 
             var states = trajectory(at(60000, 1), _ => outro, 2000);
 
             Assert.AreEqual(1.0, states[2000].Velocity, 1e-9);
             Assert.AreEqual(62000, states[2000].PositionMs, 1e-6);
+
+            // ...and a HOT tape, the player having sprinted the last line, eases back down to the
+            // song's own speed rather than holding: the ending is heard as it was written.
+            var hot = trajectory(at(60000, TypeBeatModPuppeteer.V_MAX), _ => outro, 2000);
+
+            for (int ms = 1; ms <= 2000; ms++)
+            {
+                Assert.LessOrEqual(hot[ms].Velocity, hot[ms - 1].Velocity + 1e-12,
+                    $"the outro sped back up at wall ms {ms}");
+            }
+
+            Assert.AreEqual(TypeBeatModPuppeteer.COAST_MAX_VELOCITY, hot[2000].Velocity, 1e-6);
+            Assert.Greater(hot[1].Velocity, 1.9, "and it eases rather than snapping");
+
+            Assert.AreEqual(PuppeteerClock.NO_HELD_COAST, hot[2000].HeldCoastVelocity, 1e-12,
+                "a released coast must carry no hold at all, or the ease would be undone the next tick");
         }
 
         /// <summary>
@@ -836,6 +913,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// step, as <c>trajectory</c> does.
         /// </summary>
         private static PuppeteerState[] against(TypingEngine engine, PuppeteerState start, int wallMs)
+            => against(engine, start, wallMs, null);
+
+        /// <summary>
+        /// The same, with keystrokes delivered at chosen WALL milliseconds and fed at the tape's own
+        /// position, which is the order the live driver runs in: the engine is advanced to the tape,
+        /// the frame's keys are judged there, and the arm read afterwards sees the caret they moved.
+        /// </summary>
+        private static PuppeteerState[] against(TypingEngine engine, PuppeteerState start, int wallMs, IReadOnlyDictionary<int, char>? keys)
         {
             var states = new PuppeteerState[wallMs + 1];
             states[0] = start;
@@ -845,6 +930,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 double position = states[ms - 1].PositionMs;
 
                 engine.Update(position);
+
+                if (keys != null && keys.TryGetValue(ms, out char character))
+                    Assert.IsTrue(engine.ProcessKey(character, position), $"'{character}' was refused at wall ms {ms}");
 
                 states[ms] = PuppeteerClock.Step(states[ms - 1], TypeBeatModPuppeteer.ArmFor(engine, position), tuning());
 
@@ -1003,6 +1091,323 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Greater(resumed[2000].PositionMs, states[wall].PositionMs + 500,
                 "one keypress on the parked tape has to lift it");
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // THE HELD COAST (backlog 261): a coast keeps the speed the tape arrived at.
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// THE LAW. When the arm goes from a finite target to a coast, the tape keeps running at
+        /// <c>max(1, velocity)</c>, flat, until a line takes the caret again. It replaces the flat
+        /// 1.00x coast for one case only, a tape running FASTER than the song, which is the owner's
+        /// rule verbatim: "hold the current speed upon user gameplay typing reaching line end, and
+        /// keep constant until next line begins, floor for this should be 1.0x". Everyone else is
+        /// exactly where they were.
+        ///
+        /// <para>The value is the SMOOTHED TAPE VELOCITY, which is the speed the player is actually
+        /// hearing, and not the typing pace, which is a different number they never hear. It is
+        /// captured once, so nothing about the coast can move it afterwards.</para>
+        /// </summary>
+        [Test]
+        public void TheCoastHoldsTheSpeedTheTapeArrivedAt()
+        {
+            const int wall_ms = 20000;
+
+            foreach (double arrival in new[] { 1.25, 1.6, TypeBeatModPuppeteer.V_MAX })
+            {
+                var states = trajectory(at(0, arrival), _ => PuppeteerArm.Coast, wall_ms);
+
+                Assert.AreEqual(arrival, states[1].HeldCoastVelocity, 1e-12,
+                    $"the hold is the velocity the coast began at, and it read {states[1].HeldCoastVelocity:R} instead of {arrival:R}");
+
+                for (int ms = 1; ms <= wall_ms; ms++)
+                {
+                    Assert.AreEqual(arrival, states[ms].HeldCoastVelocity, 1e-12, $"the hold moved at wall ms {ms}");
+
+                    Assert.AreEqual(arrival, states[ms].Velocity, 1e-12,
+                        $"the held coast was not flat at wall ms {ms}: it ran at {states[ms].Velocity:R}");
+                }
+
+                // Twenty seconds of wall time is twenty seconds of song at the held speed, to the
+                // millisecond: the position term is still absent, so nothing shapes this but the cap.
+                Assert.AreEqual(arrival * wall_ms, states[wall_ms].PositionMs, 1e-6);
+            }
+
+            // FLOORED AT 1.00x, which is the half of the rule that protects everyone the feature is
+            // not for. A tape dragged toward the crawl by a player who hesitated does not hold the
+            // stall, it is brought back up to the song's own speed.
+            foreach (double arrival in new[] { TypeBeatModPuppeteer.V_EPSILON, 0.4, 1.0 })
+            {
+                var states = trajectory(at(0, arrival), _ => PuppeteerArm.Coast, 6000);
+
+                Assert.AreEqual(TypeBeatModPuppeteer.COAST_MAX_VELOCITY, states[1].HeldCoastVelocity, 1e-12,
+                    $"a tape at {arrival:R} held its own stall instead of the song's own speed");
+
+                Assert.AreEqual(1.0, states[6000].Velocity, 1e-6);
+            }
+
+            // The floor and the coast cap are ONE number, so neither can drift from the other.
+            Assert.AreEqual(1.0, TypeBeatModPuppeteer.COAST_MAX_VELOCITY, 1e-12);
+
+            // CEILED BY THE PRESET, which needs no clamp in practice (the velocity can never exceed
+            // it) and has one anyway, so a hand-built state cannot command a rate the audio path
+            // would refuse. Under the tempo preset a tape handed 2.00x eases DOWN to the stretcher's
+            // 1.6 rather than holding a rate that would only sound broken.
+            var overCeiling = trajectory(PuppeteerTuning.Tempo, at(0, TypeBeatModPuppeteer.V_MAX), _ => PuppeteerArm.Coast, 6000);
+
+            Assert.AreEqual(TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY, overCeiling[6000].Velocity, 1e-6,
+                "the ease is asymptotic, so this is measured twenty smoothing constants in");
+
+            Assert.Greater(overCeiling[6000].Velocity, TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY - 1e-12,
+                "...and it approaches the stretcher's ceiling from ABOVE, never dipping under it");
+
+            // ...and a FINITE target clears the hold outright, which is what makes "the first tick of
+            // a coast" readable off the state alone rather than needing edge detection.
+            var typing = PuppeteerClock.Step(at(0, 1.6) with { HeldCoastVelocity = 1.6 },
+                new PuppeteerArm(100000, TypeBeatModPuppeteer.V_MAX), tuning());
+
+            Assert.AreEqual(PuppeteerClock.NO_HELD_COAST, typing.HeldCoastVelocity, 1e-12);
+
+            Assert.AreEqual(PuppeteerClock.NO_HELD_COAST, PuppeteerClock.HoldFor(at(0, 1.6), new PuppeteerArm(100000, TypeBeatModPuppeteer.V_MAX)), 1e-12);
+            Assert.AreEqual(1.6, PuppeteerClock.HoldFor(at(0, 1.6), PuppeteerArm.Coast), 1e-12);
+            Assert.AreEqual(PuppeteerClock.NO_HELD_COAST, PuppeteerClock.HoldFor(at(0, 1.6), PuppeteerArm.ReleasedCoast), 1e-12);
+        }
+
+        /// <summary>
+        /// THE HOLD OUTLIVES THE PACE ESTIMATE, and this is the pin that says why the coast branch
+        /// bypasses <see cref="PuppeteerClock.TypingSustainedCap"/> rather than routing the hold
+        /// through it.
+        ///
+        /// <para><see cref="PuppeteerClock.StepPace"/> decays the pace toward zero across a coast, on
+        /// purpose: it is what makes a line hand-over read as a blip and not as a burst of typing
+        /// nobody performed. So within about three time constants the sustained cap is back at
+        /// <c>max(1, 0)</c>, and a hold that had to pass through it would be quietly undone a third of
+        /// a second into every instrumental. The decay stays and the hold reads past it.</para>
+        /// </summary>
+        [Test]
+        public void TheHoldOutlivesTheFadingPaceEstimate()
+        {
+            var settled = trajectory(PuppeteerState.AnchoredAt(0), steadyTypist(1.6), 6000)[6000];
+
+            Assert.AreEqual(1.6, settled.Velocity, 1e-6, "the fixture has to actually be a tape running above the song");
+            Assert.AreEqual(1.6, settled.PaceVelocity, 1e-6);
+
+            var coasting = trajectory(settled, _ => PuppeteerArm.Coast, 3000);
+
+            // Three seconds is twenty five smoothing constants: the pace estimate is gone.
+            Assert.Less(coasting[3000].PaceVelocity, 1e-9,
+                "the pace has to have decayed, or this test is not measuring the bypass at all");
+
+            Assert.AreEqual(1.0, PuppeteerClock.TypingSustainedCap(coasting[3000].PaceVelocity, tuning()), 1e-12,
+                "...and the cap it feeds is back at 1.00x, which is what would have undone the hold");
+
+            for (int ms = 1; ms <= 3000; ms++)
+            {
+                Assert.AreEqual(settled.Velocity, coasting[ms].Velocity, 1e-12,
+                    $"the hold decayed with the pace at wall ms {ms} ({coasting[ms].Velocity:R})");
+            }
+        }
+
+        /// <summary>
+        /// THE WHOLE FEATURE, end to end against a real engine: sprint a line, finish it, hold that
+        /// speed across a long instrumental gap, and be handed the next line at its own cue, where
+        /// the ordinary approach and park take over unchanged.
+        ///
+        /// <para><b>The gap is crossed in less WALL time and the line still arrives at its own
+        /// POSITION</b>, which is the whole reason no overshoot machinery is needed. The tape's target
+        /// is a position, so a held 1.6x turns a twenty second gap into twelve and a half seconds of
+        /// waiting rather than moving the line: the fast player simply reaches the next line's cue
+        /// sooner in wall time, which is what they asked for.</para>
+        ///
+        /// <para>The hand-over itself is UNCHANGED (backlog 257's behaviour, pinned by
+        /// <see cref="FinishingALineIsWaitingNotStopping"/>): the pace has decayed to nothing by then,
+        /// so the approach eases to the song's own speed across the cue lead and parks on the untyped
+        /// cell. The only difference is that it eases DOWN into it from the held speed instead of
+        /// already being there.</para>
+        /// </summary>
+        [Test]
+        public void AFastPlayerHoldsTheirSpeedAcrossTheGapAndIsHandedTheNextLineAtItsOwnCue()
+        {
+            var engine = sprintEngine();
+
+            var line = engine.Lines[0];
+            double firstVocal = line.FirstVocalTime;
+            double nextActivation = engine.Lines[1].ActivationTime;
+            double nextVocal = engine.Lines[1].FirstVocalTime;
+
+            // Eight cells 750 ms apart, struck every 250 wall ms: three times the song's own pace,
+            // which is what puts the tape on the ceiling rather than merely above 1.00x.
+            Assert.AreEqual(750, line.Cells[1].TargetTime - line.Cells[0].TargetTime, 1e-9);
+
+            var keys = new Dictionary<int, char>();
+
+            for (int i = 0; i < 8; i++)
+                keys[1 + (250 * i)] = "abcdefgh"[i];
+
+            const int wall_ms = 22000;
+
+            var states = against(engine, PuppeteerState.AnchoredAt(firstVocal), wall_ms, keys);
+
+            // 1. THE SPRINT, and THE FLIP on the very tick the last key runs the caret off the end of
+            //    the line: the key is fed and the arm is read after it, exactly as the live driver
+            //    does within one frame.
+            int finished = 1 + (250 * 7);
+
+            Assert.AreEqual(PuppeteerClock.NO_HELD_COAST, states[finished - 1].HeldCoastVelocity, 1e-12,
+                "the tick before the last press is still on the typing arm");
+
+            Assert.Greater(states[finished - 1].Velocity, 1.5,
+                $"the scripted sprint only got the tape to {states[finished - 1].Velocity:R}, so there is no speed to hold");
+
+            double hold = states[finished].HeldCoastVelocity;
+
+            Assert.AreEqual(Math.Max(1, states[finished - 1].Velocity), hold, 1e-12,
+                "the hold is max(1, the velocity the player was hearing) at the tick the arm flipped");
+
+            // 2. THE HOLD, flat for the whole gap, which is far more than the 1500 ms a hand-over
+            //    could be confused with.
+            int handover = Array.FindIndex(states, finished + 1, s => s.HeldCoastVelocity.Equals(PuppeteerClock.NO_HELD_COAST));
+
+            Assert.Greater(handover - finished, 1500, "the fixture's gap has to be a real instrumental stretch");
+
+            for (int ms = finished; ms < handover; ms++)
+            {
+                Assert.AreEqual(hold, states[ms].Velocity, 1e-12,
+                    $"the coast did not hold at wall ms {ms}: it ran at {states[ms].Velocity:R}");
+            }
+
+            // 3. THE LINE ARRIVES AT ITS OWN POSITION, and SOONER IN WALL TIME. The tape reaches the
+            //    next line's activation, to the tick, and it took the gap divided by the hold rather
+            //    than the gap itself: the hold buys the player wall time, never song position.
+            Assert.AreEqual(nextActivation, states[handover - 1].PositionMs, hold + 1e-6,
+                "the arm flips when the TAPE reaches the cue, which is a position and not a wall instant");
+
+            double gap = nextActivation - states[finished].PositionMs;
+
+            Assert.AreEqual(gap / hold, handover - finished, 2,
+                $"a {gap:N0} ms gap held at {hold:R}x has to be {gap / hold:N0} ms of waiting, not {handover - finished}");
+
+            Assert.Less(handover - finished, gap - 1000, "...and that really is less wall time than the unheld coast would have taken");
+
+            // 4. THE HAND-OVER IS UNCHANGED: the pace has decayed, so the cap is back at the song's
+            //    own speed and the tape eases down into the approach rather than sprinting the cue
+            //    lead, exactly as it always did.
+            Assert.AreEqual(1.0, PuppeteerClock.TypingSustainedCap(states[handover].PaceVelocity, tuning()), 1e-12);
+
+            for (int ms = handover; ms < wall_ms; ms++)
+            {
+                Assert.LessOrEqual(states[ms + 1].Velocity, states[ms].Velocity + 1e-12,
+                    $"the tape sped up during the approach at wall ms {ms}, which the cue lead may never do");
+            }
+
+            // The ease is asymptotic, so it approaches the song's own speed from above rather than
+            // reaching it: four smoothing constants in it is within a percent and a half (measured
+            // 1.014), and it is under 1.00x outright once the cue lead is spent and the position term
+            // takes over into the park.
+            Assert.Less(states[handover + 500].Velocity, 1.02,
+                "the approach was still sprinting half a second after the hand-over");
+
+            Assert.LessOrEqual(states[handover + 2000].Velocity, 1,
+                "the cue lead is 1500 ms of song, so the tape is parking rather than approaching by now");
+
+            // 5. THE PARK, on the next line's first cell, inside the same bound a cold approach parks
+            //    within (measured at 59 ms of song past the cell, against the cold path's 61). The
+            //    held speed is spent easing down across the cue lead rather than carried into the
+            //    park, which is why arriving hot costs the park nothing.
+            Assert.AreEqual(nextVocal, states[wall_ms].PositionMs, TypeBeatModPuppeteer.T_CHASE_MS / 2,
+                "the tape must park on the next line's first cell");
+
+            Assert.Less(states[wall_ms].Velocity, 0.01, "...and park, rather than running on through an untyped line");
+
+            // 6. NEVER STUCK. The player arrives and types, and the song goes again.
+            Assert.IsTrue(engine.ProcessKey('a', states[wall_ms].PositionMs));
+
+            var resumed = against(engine, states[wall_ms], 2000);
+
+            Assert.Greater(resumed[2000].PositionMs, states[wall_ms].PositionMs + 500,
+                "one keypress on the parked tape has to lift it");
+        }
+
+        /// <summary>
+        /// THE ONE COAST THAT DOES NOT HOLD, contrasted with the one that does on a single engine.
+        /// A mid-map instrumental gap holds, because the hold has an end (the next line's cue). The
+        /// OUTRO has none, so it releases and eases back to the song's own speed: past the last line
+        /// there is no "until the next line begins", and an ending sped up forever is not what was
+        /// asked for. See <see cref="PastTheLastLineTheTapeSimplyPlaysOutAtTheSongsOwnSpeed"/> for the
+        /// trajectory; this is the arm split.
+        /// </summary>
+        [Test]
+        public void TheOutroReleasesTheHoldWhileAMidMapGapKeepsIt()
+        {
+            var engine = twoLineEngine();
+
+            double firstVocal = engine.Lines[0].FirstVocalTime;
+
+            engine.Update(firstVocal);
+
+            foreach (char c in "abc")
+                Assert.IsTrue(engine.ProcessKey(c, firstVocal), $"'{c}' was refused by the engine");
+
+            engine.Update(firstVocal + 10);
+
+            Assert.IsFalse(engine.IsFinished, "there is a second line to come, so this is a mid-map gap");
+
+            var gap = TypeBeatModPuppeteer.ArmFor(engine, firstVocal + 10);
+
+            Assert.IsFalse(gap.ReleasesHold, "an instrumental gap between two lines is exactly what the hold is for");
+            Assert.IsTrue(PuppeteerArm.Coast.Equals(gap));
+
+            // Type the second line out and let every line seal: now the map is over.
+            engine.Update(engine.Lines[1].FirstVocalTime);
+
+            foreach (char c in "abc")
+                Assert.IsTrue(engine.ProcessKey(c, engine.Lines[1].FirstVocalTime), $"'{c}' was refused by the engine");
+
+            engine.Update(60000);
+
+            Assert.IsTrue(engine.IsFinished);
+
+            var outro = TypeBeatModPuppeteer.ArmFor(engine, 60000);
+
+            Assert.IsTrue(outro.ReleasesHold);
+            Assert.IsTrue(PuppeteerArm.ReleasedCoast.Equals(outro));
+
+            // The two arms differ in that field and in NOTHING else: same unreachable target, same
+            // cap, so the outro is still "the song simply plays" and not a second behaviour.
+            Assert.IsTrue(PuppeteerArm.Coast.Equals(PuppeteerArm.ReleasedCoast with { ReleasesHold = false }));
+
+            // ...and the same hot tape really does end up in two different places.
+            var held = trajectory(at(0, TypeBeatModPuppeteer.V_MAX), _ => gap, 3000);
+            var released = trajectory(at(0, TypeBeatModPuppeteer.V_MAX), _ => outro, 3000);
+
+            Assert.Greater(held[3000].PositionMs - released[3000].PositionMs, 1000,
+                "the two coasts landed the tape in the same place, so nothing here is being proved");
+        }
+
+        /// <summary>
+        /// TWO PLACES A HOLD MUST NOT COME FROM. The INTRO, because
+        /// <see cref="PuppeteerState.AnchoredAt"/> starts at the song's own speed, so the hold is
+        /// 1.00x and a player hears exactly what they always heard before their first line. And a
+        /// SEEK, because both re-anchors go through that same factory: a speed earned on a stretch of
+        /// song that is no longer being played is not one to carry across a discontinuity, and the
+        /// velocity was already reset there before any of this existed.
+        /// </summary>
+        [Test]
+        public void AnIntroCarriesNoHoldAndASeekDropsOne()
+        {
+            Assert.AreEqual(PuppeteerClock.NO_HELD_COAST, PuppeteerState.AnchoredAt(0).HeldCoastVelocity, 1e-12);
+
+            var intro = trajectory(PuppeteerState.AnchoredAt(0), _ => PuppeteerArm.Coast, 30000);
+
+            Assert.AreEqual(TypeBeatModPuppeteer.COAST_MAX_VELOCITY, intro[1].HeldCoastVelocity, 1e-12);
+            Assert.AreEqual(30000, intro[30000].PositionMs, 1e-6, "thirty seconds of intro is thirty seconds of song, exactly as it always was");
+
+            Assert.AreEqual(PuppeteerClock.NO_HELD_COAST, TypeBeatModPuppeteer.SeekReanchor(1000, 3000)!.Value.HeldCoastVelocity, 1e-12,
+                "a forward skip lands where the music is meant to be playing, at the song's own speed");
+
+            Assert.AreEqual(PuppeteerClock.NO_HELD_COAST, TypeBeatModPuppeteer.SeekReanchor(1000, -3000)!.Value.HeldCoastVelocity, 1e-12,
+                "a rewind restarts the reel from still, and a hold would spin it straight back up");
         }
 
         /// <summary>
@@ -1468,7 +1873,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 position += velocity;
 
                 double command = TypeBeatModPuppeteer.CommandedFrequency(
-                    new PuppeteerState(position, velocity, double.PositiveInfinity, 0), clock);
+                    new PuppeteerState(position, velocity, double.PositiveInfinity, 0, PuppeteerClock.NO_HELD_COAST), clock);
 
                 if (command.Equals(1d))
                     held++;
@@ -1640,6 +2045,176 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         // -----------------------------------------------------------------------------------------
+        // The RUSH CAP is exempt (backlog 261): the bug a sprinting player hit, and the two seams.
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// THE BUG, as a field report: "typing too far ahead in conductor breaks combo but keeps 100%
+        /// acc". Both halves of that sentence are the same press. The mod forgives timing outright
+        /// (<see cref="TypeBeatModPuppeteer.WINDOW_SCALE"/>), so a press on the right character is a
+        /// Great whatever the clock says, and accuracy stays perfect; but the PLAYHEAD under this mod
+        /// is the tape the player is dragging, and the tape is walled at the preset's ceiling, so a
+        /// player typing faster than the wall opens a CHARACTER lead that grows without bound. The
+        /// unpinned caret's rush cap then broke the combo on a press it was still paying in full, and
+        /// could not re-arm while the sprint continued.
+        ///
+        /// <para>The worked case below is the report's: cells 150 ms apart typed every 60 ms, which
+        /// is about 200 words a minute, so the lead grows by 0.6 characters per character and is past
+        /// the cap of five within ten presses. That is an ordinary fast player rather than a
+        /// pathological one, which is why no larger cap VALUE is the fix: the lead has no bound to
+        /// pick a number against.</para>
+        ///
+        /// <para>Pinned through the LIVE stack, built exactly as gameplay builds it, so this is also
+        /// the proof that the flag is actually set rather than merely settable.</para>
+        /// </summary>
+        [Test]
+        public void ASprinterUnderPuppeteerKeepsEveryIncrementOfTheirCombo()
+        {
+            var judgements = new List<CharJudgement>();
+
+            var engine = liveEngine(sprintMap(), new TypeBeatModPuppeteer());
+            engine.CharJudged += judgements.Add;
+
+            Assert.IsTrue(engine.FletcherEnabled, "the shipped caret is unpinned, which is what has a rush cap at all");
+            Assert.IsTrue(engine.RushCapExempt, "...and the mod is what lifts it");
+
+            int comboBreaks = 0;
+            engine.ComboBroken += () => comboBreaks++;
+
+            for (int i = 0; i < sprint_chars.Length; i++)
+            {
+                double time = 1000 + (60 * i);
+
+                engine.Update(time);
+                Assert.IsTrue(engine.ProcessKey(sprint_chars[i], time), $"'{sprint_chars[i]}' was refused at {time}");
+            }
+
+            double last = 1000 + (60 * (sprint_chars.Length - 1));
+
+            // The lead really is unbounded in the only sense that matters here: it grew every press
+            // and finished miles past the cap of five.
+            Assert.Greater(engine.CharsAheadOfPlayhead(last), TypingEngine.FLETCHER_MAX_CHARS_AHEAD * 2,
+                "the burst has to leave the cap far behind, or this is not the reported case");
+
+            Assert.AreEqual(sprint_chars.Length, engine.Combo, "the sprint kept its whole run");
+            Assert.AreEqual(sprint_chars.Length, engine.MaxCombo);
+            Assert.AreEqual(0, comboBreaks);
+
+            // ...and the other half of the report: every one of those presses was a Great, which is
+            // what made the break read as arbitrary. Accuracy was never the thing that was wrong.
+            Assert.AreEqual(sprint_chars.Length, judgements.Count);
+            Assert.IsTrue(judgements.TrueForAll(j => j.Type == JudgementType.Great),
+                "every press on the right character judges Great under this mod, which is the whole freeplay decision");
+
+            // NON-VACUOUS, and the exact shape of the bug: the identical burst on the identical
+            // engine with only the exemption taken away breaks, once, and never re-arms.
+            var capped = liveEngine(sprintMap(), new TypeBeatModPuppeteer());
+            capped.RushCapExempt = false;
+
+            int cappedBreaks = 0;
+            capped.ComboBroken += () => cappedBreaks++;
+
+            for (int i = 0; i < sprint_chars.Length; i++)
+            {
+                double time = 1000 + (60 * i);
+
+                capped.Update(time);
+                Assert.IsTrue(capped.ProcessKey(sprint_chars[i], time));
+            }
+
+            Assert.AreEqual(1, cappedBreaks, "one break per excursion, and the excursion never ends");
+            Assert.AreEqual(0, capped.Combo, "...so the run is dead for the rest of the sprint");
+            Assert.Less(capped.MaxCombo, sprint_chars.Length);
+        }
+
+        /// <summary>
+        /// THE EXEMPTION IS SET AT BOTH SEAMS, which is the same pairing the window scale has and for
+        /// the same reason: a live run that kept its combo and a rescore that took it away would be
+        /// two accounts of one set of fingers, and the rescore is what a stored score's max_combo is
+        /// checked against.
+        ///
+        /// <para>The third consumer needs no line of its own and is pinned here as an identity:
+        /// <c>PuppeteerReplayTransform</c>'s co-simulation builds its scratch engine through
+        /// <see cref="TypeBeatReplayScorer.CreateEngine"/>, so the engine it reads its arms off is the
+        /// engine that judges the derived frames.</para>
+        ///
+        /// <para>A MOD FLAG AND NOT AN ERA (see <see cref="TypingEngine.RushCapExempt"/>): the mod
+        /// list is the whole mechanism, so an engine built without the mod is untouched.</para>
+        /// </summary>
+        [Test]
+        public void TheRushCapExemptionReachesBothTheLiveEngineAndTheRescore()
+        {
+            Assert.IsTrue(liveEngine(sprintMap(), new TypeBeatModPuppeteer()).RushCapExempt);
+            Assert.IsFalse(liveEngine(sprintMap()).RushCapExempt, "an ordinary play is measured exactly as it was");
+
+            Assert.IsTrue(scorerEngine(new TypeBeatModPuppeteer()).RushCapExempt);
+            Assert.IsFalse(scorerEngine().RushCapExempt);
+
+            // No CONFIG bit carries it, so the engine default has to be the cap applying: a replay
+            // with no mod list re-derives under the rule every ordinary run was played on.
+            Assert.IsFalse(new TypingEngine(new LyricBeatmap
+            {
+                Metadata = new LyricBeatmapMetadata { Artist = "a", Title = "bare", FolderPath = string.Empty, AudioFileName = "a.mp3" },
+                Lines = new List<LyricLine>(),
+                Granularity = TimingGranularity.Line,
+            }).RushCapExempt);
+        }
+
+        /// <summary>
+        /// A dense line for the sprint: twenty characters 150 ms apart, over
+        /// <c>[1000, 4000]</c>. Dense enough that a 200 wpm burst (one character every 60 ms) leaves
+        /// the cap of five behind within ten presses while every press is still on the right
+        /// character, which is exactly the reported case.
+        /// </summary>
+        private const string sprint_chars = "abcdefghijklmnopqrst";
+
+        private static TypeBeatBeatmap sprintMap()
+        {
+            var line = new LyricLine
+            {
+                RawText = sprint_chars,
+                StartTime = 0,
+                EndTime = 60000,
+                SingEndTime = 4000,
+                Units = new[] { new TimedUnit { Text = sprint_chars, StartTime = 1000, EndTime = 4000 } },
+            };
+
+            var map = new TypeBeatBeatmap();
+            map.HitObjects.Add(new TypeBeatHitObject { StartTime = 0, LineIndex = 0, Line = line, Granularity = TimingGranularity.Line });
+
+            foreach (var hitObject in map.HitObjects)
+                hitObject.ApplyDefaults(new ControlPointInfo(), new BeatmapDifficulty(), CancellationToken.None);
+
+            return map;
+        }
+
+        /// <summary>
+        /// The engine gameplay really builds: <c>DrawableTypeBeatRuleset</c> over the beatmap and the
+        /// mod list, then handed the mods the framework's <c>applyRulesetMods</c> would hand it. It is
+        /// never loaded into a hierarchy and does not need to be (the engine is a lazy property off
+        /// the constructor's arguments), which is the same harness
+        /// <c>TypeBeatModHardRockTest.liveEngine</c> uses.
+        /// </summary>
+        private static TypingEngine liveEngine(TypeBeatBeatmap map, params Mod[] mods)
+        {
+            var drawable = new DrawableTypeBeatRuleset(new TypeBeatRuleset(), map, mods);
+
+            foreach (var mod in mods.OfType<IApplicableToDrawableRuleset<TypeBeatHitObject>>())
+                mod.ApplyToDrawableRuleset(drawable);
+
+            return drawable.Engine;
+        }
+
+        /// <summary>The engine a RESCORE builds over the same map and mods, which is also the one the replay transform co-simulates against.</summary>
+        private static TypingEngine scorerEngine(params Mod[] mods)
+        {
+            var map = sprintMap();
+            var lineObjects = map.HitObjects.OfType<TypeBeatHitObject>().OrderBy(h => h.LineIndex).ToList();
+
+            return TypeBeatReplayScorer.CreateEngine(map, lineObjects, mods, RateWindowRule.ScaledByRate);
+        }
+
+        // -----------------------------------------------------------------------------------------
 
         /// <summary>Two three-character lines, sung four seconds apart, with a gap between them.</summary>
         private static TypingEngine twoLineEngine()
@@ -1667,6 +2242,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return new TypingEngine(new LyricBeatmap
             {
                 Metadata = new LyricBeatmapMetadata { Artist = "a", Title = "puppeteer", FolderPath = string.Empty, AudioFileName = "a.mp3" },
+                Lines = lines,
+                Granularity = TimingGranularity.Line,
+            });
+        }
+
+        /// <summary>
+        /// A line long enough to be SPRINTED, and a long instrumental gap after it (backlog 261).
+        ///
+        /// <para>L0 "abcdefgh" sung over [4000, 10000]: eight cells 750 ms apart, so a player striking
+        /// one every 250 wall ms is running at three times the song's own pace and the tape pins at
+        /// its ceiling rather than merely creeping over 1.00x. L1's vocals do not arrive until 40000,
+        /// so its cue is 38500 and the gap is thirty seconds of instrumental: far more than the 1500
+        /// ms a hand-over borrows, which is what makes "the coast held" and "the hand-over blipped"
+        /// two distinguishable claims.</para>
+        /// </summary>
+        private static TypingEngine sprintEngine()
+        {
+            var lines = new List<LyricLine>
+            {
+                new LyricLine
+                {
+                    RawText = "abcdefgh",
+                    StartTime = 2000,
+                    EndTime = 12000,
+                    SingEndTime = 10000,
+                    Units = new[] { new TimedUnit { Text = "abcdefgh", StartTime = 4000, EndTime = 10000 } },
+                },
+                new LyricLine
+                {
+                    RawText = "abc",
+                    StartTime = 12000,
+                    EndTime = 60000,
+                    SingEndTime = 58000,
+                    Units = new[] { new TimedUnit { Text = "abc", StartTime = 40000, EndTime = 46000 } },
+                },
+            };
+
+            return new TypingEngine(new LyricBeatmap
+            {
+                Metadata = new LyricBeatmapMetadata { Artist = "a", Title = "sprint", FolderPath = string.Empty, AudioFileName = "a.mp3" },
                 Lines = lines,
                 Granularity = TimingGranularity.Line,
             });

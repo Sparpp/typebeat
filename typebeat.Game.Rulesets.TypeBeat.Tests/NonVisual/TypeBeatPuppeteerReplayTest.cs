@@ -400,6 +400,65 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// ...AND WITH A HELD COAST IN THE TRAJECTORY (backlog 261). The hold lives on
+        /// <see cref="PuppeteerState"/> rather than on the mod precisely so that this works with no
+        /// edit to the transform at all: it threads a state through
+        /// <see cref="PuppeteerClock.Step"/> and never builds the driver, so a hold parked on the
+        /// driver would have been invisible to every stored run and a watcher would see a tape the
+        /// player never heard.
+        ///
+        /// <para>The fixture sprints a line so the tape is well above the song's own speed when the
+        /// caret runs off the end of it, then holds that speed across a thirty second instrumental
+        /// gap. The account has to survive it and the derivation has to be bit identical twice, which
+        /// is the same pair of claims the ordinary fixture makes, on a trajectory that exercises the
+        /// new state field.</para>
+        ///
+        /// <para>The exact per-frame time equality of
+        /// <see cref="ADerivedRunReproducesTheLiveRunsAccount"/> is deliberately NOT asserted here:
+        /// this run crosses a line boundary while the tape is MOVING, which is the case those remarks
+        /// name as the one that separates the live driver's per-frame arm cadence from the transform's
+        /// per-millisecond one. The account is what has to survive that, and does.</para>
+        /// </summary>
+        [TestCase(false)]
+        [TestCase(true)]
+        public void ADerivedRunReproducesAHeldCoast(bool adjustPitch)
+        {
+            var map = sprintMap();
+            var mods = puppeteer(adjustPitch);
+
+            var run = simulateLiveRun(map, mods, sprintKeys, anchor: -2000, frameMs: 16);
+
+            Assert.Greater(run.PeakHeldCoast, 1.2,
+                $"the scripted sprint only held {run.PeakHeldCoast:R}, so this is not a held-coast fixture at all");
+
+            var live = account(map, mods, trackReplay(run.TrackFrames));
+            var rederived = account(map, mods, wallReplay(run));
+
+            Assert.AreEqual(live.MaxCombo, rederived.MaxCombo, "max combo moved under re-derivation");
+            Assert.AreEqual(live.Accuracy, rederived.Accuracy, 1e-12);
+            Assert.AreEqual(live.Completion, rederived.Completion, 1e-12);
+            Assert.AreEqual(live.TotalScore, rederived.TotalScore);
+            Assert.AreEqual(0, rederived.UnconsumedFrames);
+
+            foreach (var (result, count) in live.Statistics)
+                Assert.AreEqual(count, rederived.Statistics.GetValueOrDefault(result), $"{result} count moved under re-derivation");
+
+            // Not vacuous: every character of both lines was typed, paid and credited, so the two
+            // accounts being equal is a statement about a run that actually happened.
+            Assert.AreEqual(sprintKeys.Count, live.Statistics.GetValueOrDefault(HitResult.Great));
+            Assert.AreEqual(sprintKeys.Count, live.MaxCombo);
+
+            // ...and the derivation is bit identical twice, on this trajectory as on the other.
+            var stored = wallReplay(run);
+
+            var first = PuppeteerReplayTransform.Derive(map, mods, stored);
+            var second = PuppeteerReplayTransform.Derive(map, mods, stored);
+
+            for (int i = 0; i < first.Count; i++)
+                Assert.IsTrue(first[i].Time.Equals(second[i].Time), $"frame {i} derived to {first[i].Time:R} and then to {second[i].Time:R}");
+        }
+
+        /// <summary>
         /// ...and the SCORER runs the transform itself, so a caller that knows nothing about the era
         /// still gets the right account out of a stored wall-stamped run. Scoring the raw stamps as
         /// though they were lyric times is the failure this prevents, and it is not subtle: the
@@ -470,6 +529,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             /// <summary>What the live engine was actually fed: the same events at track times.</summary>
             public required List<TypeBeatReplayFrame> TrackFrames { get; init; }
+
+            /// <summary>
+            /// The largest held coast the run's tape ever carried (backlog 261), or
+            /// <see cref="PuppeteerClock.NO_HELD_COAST"/> if it never held anything. Recorded so a
+            /// co-simulation pin can say that the trajectory it re-derived actually had a hold in it.
+            /// </summary>
+            public required double PeakHeldCoast { get; init; }
         }
 
         /// <summary>
@@ -503,12 +569,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             long ticks = 0;
             int next = 0;
+            double peakHeld = PuppeteerClock.NO_HELD_COAST;
 
             while (next < keys.Count)
             {
                 engine.Update(tape.PositionMs);
                 tape = PuppeteerClock.Run(tape, TypeBeatModPuppeteer.ArmFor(engine, tape.PositionMs), TypeBeatModPuppeteer.TuningFor(mods), frameMs);
                 ticks += frameMs;
+
+                peakHeld = Math.Max(peakHeld, tape.HeldCoastVelocity);
 
                 while (next < keys.Count && keys[next].WallMs <= ticks)
                 {
@@ -523,7 +592,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 }
             }
 
-            return new LiveRun { Anchor = anchor, WallFrames = wallFrames, TrackFrames = trackFrames };
+            return new LiveRun { Anchor = anchor, WallFrames = wallFrames, TrackFrames = trackFrames, PeakHeldCoast = peakHeld };
         }
 
         private static Replay wallReplay(LiveRun run) => trackReplay(run.WallFrames);
@@ -567,31 +636,66 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// A SPRINT and a long instrumental gap (backlog 261). Eight cells 750 ms apart struck every
+        /// 250 wall ms, which is three times the song's own pace, so the tape is pinned at the
+        /// preset's ceiling when the caret runs off the end of the line and the coast has a real speed
+        /// to hold. The second line's vocals do not arrive until 40000, so the held coast runs for
+        /// thirty seconds of song before the hand-over.
+        ///
+        /// <para>The last three keys are placed where the tape is parked on line 1's first cell under
+        /// EITHER preset (the tempo tape crosses the gap slower, so it arrives later), which is what
+        /// lets one schedule serve both.</para>
+        /// </summary>
+        private static readonly IReadOnlyList<(int WallMs, char Character)> sprintKeys = new[]
+        {
+            (4500, 'a'), (4750, 'b'), (5000, 'c'), (5250, 'd'),
+            (5500, 'e'), (5750, 'f'), (6000, 'g'), (6250, 'h'),
+            (30000, 'x'), (30500, 'y'), (31000, 'z'),
+        };
+
+        private static TypeBeatBeatmap sprintMap() => beatmap(
+            new LyricLine
+            {
+                RawText = "abcdefgh",
+                StartTime = 0,
+                EndTime = 12000,
+                SingEndTime = 10000,
+                Units = new[] { new TimedUnit { Text = "abcdefgh", StartTime = 2000, EndTime = 8000 } },
+            },
+            new LyricLine
+            {
+                RawText = "xyz",
+                StartTime = 12000,
+                EndTime = 60000,
+                SingEndTime = 58000,
+                Units = new[] { new TimedUnit { Text = "xyz", StartTime = 40000, EndTime = 46000 } },
+            });
+
+        /// <summary>
         /// Two three-character lines with an instrumental stretch between them, so the tape has a
         /// pre-roll to coast through, a line to chase, a gap to coast again and a second line.
         /// </summary>
-        private static TypeBeatBeatmap twoLineMap()
-        {
-            var lines = new[]
+        private static TypeBeatBeatmap twoLineMap() => beatmap(
+            new LyricLine
             {
-                new LyricLine
-                {
-                    RawText = "abc",
-                    StartTime = 0,
-                    EndTime = 12000,
-                    SingEndTime = 10000,
-                    Units = new[] { new TimedUnit { Text = "abc", StartTime = 2000, EndTime = 8000 } },
-                },
-                new LyricLine
-                {
-                    RawText = "def",
-                    StartTime = 12000,
-                    EndTime = 30000,
-                    SingEndTime = 28000,
-                    Units = new[] { new TimedUnit { Text = "def", StartTime = 20000, EndTime = 26000 } },
-                },
-            };
+                RawText = "abc",
+                StartTime = 0,
+                EndTime = 12000,
+                SingEndTime = 10000,
+                Units = new[] { new TimedUnit { Text = "abc", StartTime = 2000, EndTime = 8000 } },
+            },
+            new LyricLine
+            {
+                RawText = "def",
+                StartTime = 12000,
+                EndTime = 30000,
+                SingEndTime = 28000,
+                Units = new[] { new TimedUnit { Text = "def", StartTime = 20000, EndTime = 26000 } },
+            });
 
+        /// <summary>The lines as a playable beatmap, with the line indices the engine reads position off.</summary>
+        private static TypeBeatBeatmap beatmap(params LyricLine[] lines)
+        {
             var map = new TypeBeatBeatmap();
 
             for (int i = 0; i < lines.Length; i++)

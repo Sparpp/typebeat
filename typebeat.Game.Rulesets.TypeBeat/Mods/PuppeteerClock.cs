@@ -139,9 +139,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// <see cref="PuppeteerTuning.MaxVelocity"/> while the player is typing (chase them as fast as
     /// the audio path can honour, subject to the typing-sustained cap the model applies on top) and
     /// <see cref="TypeBeatModPuppeteer.COAST_MAX_VELOCITY"/> (1.00x) while coasting, where an
-    /// unreachable target makes the cap the WHOLE arm and the song plays at exactly its own speed.
+    /// unreachable target makes the cap the WHOLE arm and the song plays at its own speed, or at the
+    /// HELD speed when there is one (see <see cref="PuppeteerState.HeldCoastVelocity"/>).
     /// </param>
-    public readonly record struct PuppeteerArm(double DesiredPositionMs, double VelocityCap)
+    /// <param name="ReleasesHold">
+    /// Whether a coast on this arm gives the held velocity back rather than carrying it (backlog
+    /// 261). FALSE on every ordinary coast, which is what makes an instrumental gap keep the speed
+    /// the player earned, and it is the DEFAULT so that any arm built with the two-argument
+    /// constructor behaves exactly like <see cref="Coast"/>. TRUE on one arm only,
+    /// <see cref="ReleasedCoast"/>, which is the OUTRO: see there for why the map's end is the one
+    /// off-line stretch with nothing to hold the speed for.
+    ///
+    /// <para>Meaningless on a typing arm (a finite target clears the hold outright), and it is left
+    /// on the arm rather than made a second static so the two coasts stay one shape and the field
+    /// reads as what it is: a property of the stretch of song, which is the only thing that knows
+    /// whether another line is coming.</para>
+    /// </param>
+    public readonly record struct PuppeteerArm(double DesiredPositionMs, double VelocityCap, bool ReleasesHold = false)
     {
         /// <summary>
         /// THE COAST ARM: no line, or a line the caret has finished. An unreachable target and a cap
@@ -156,8 +170,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// genuinely subtle bug in this file used to live (a finished line has not SEALED, so the
         /// next-unsealed index is still itself). Parking before an untyped vocal is now the ACTIVE
         /// arm's job, and it does it from the line's cue rather than from the gap.</para>
+        ///
+        /// <para>SINCE BACKLOG 261 the 1.00x here is a FLOOR rather than the whole story: a tape
+        /// that was running faster than the song when the line ran out HOLDS that speed across the
+        /// coast instead of easing back down to 1.00x. The cap above is still what a cold coast gets
+        /// (the hold is <c>max(1, velocity)</c>, so a tape at or below the song's own speed holds
+        /// exactly 1.00x and this arm is byte-identical to what it always was). See
+        /// <see cref="PuppeteerState.HeldCoastVelocity"/> for the whole of it.</para>
         /// </summary>
         public static PuppeteerArm Coast => new PuppeteerArm(double.PositiveInfinity, TypeBeatModPuppeteer.COAST_MAX_VELOCITY);
+
+        /// <summary>
+        /// THE OUTRO ARM (backlog 261): the same coast, except that it gives the held velocity back
+        /// and eases the tape down to the song's own speed.
+        ///
+        /// <para>The hold exists because a fast player found it jarring for the song to sag back to
+        /// 1.00x between lines, and the speed is given back the moment the next line takes the caret.
+        /// PAST THE LAST LINE there is no next line to give it back to, so a held outro would play
+        /// the end of the song fast forever, which is not what was asked for and has no instant at
+        /// which it would end. This arm is the one place that difference lives, and it is chosen by
+        /// the DRIVER (<see cref="TypeBeatModPuppeteer.ArmFor"/>), which is the half that may read
+        /// the engine's line lifecycle; the model still knows nothing about lines.</para>
+        /// </summary>
+        public static PuppeteerArm ReleasedCoast => new PuppeteerArm(double.PositiveInfinity, TypeBeatModPuppeteer.COAST_MAX_VELOCITY, true);
     }
 
     /// <summary>
@@ -178,14 +213,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// same time constant as the tape's own velocity. 0 while nobody is typing, which is what makes
     /// an untyped approach happen at the song's own speed.
     /// </param>
-    public readonly record struct PuppeteerState(double PositionMs, double Velocity, double PaceCursorMs, double PaceVelocity)
+    /// <param name="HeldCoastVelocity">
+    /// THE HELD COAST (backlog 261): the velocity this coast is being run at, or
+    /// <see cref="PuppeteerClock.NO_HELD_COAST"/> while there is no hold.
+    ///
+    /// <para><b>What it is for.</b> A player faster than the song settles the tape above 1.00x, and
+    /// before this the moment they finished a line the coast dropped them back to 1.00x for the
+    /// whole instrumental and then the next line started them climbing again. That sag is what the
+    /// hold removes: when the arm goes from a finite target to a coast, the tape KEEPS the speed the
+    /// player was already hearing, and keeps it flat until a line takes the caret again.</para>
+    ///
+    /// <para><b>The value is <c>max(1, Velocity)</c> at the tick the coast begins</b>, and both
+    /// halves matter. It is the SMOOTHED TAPE VELOCITY, which is the speed the player is actually
+    /// hearing, rather than their typing pace, which is a different number they never hear. And it
+    /// is FLOORED AT 1.00x, so a slow player, or one whose tape was still parked on a cell they
+    /// hesitated over, gets the song back at its own speed rather than being made to sit through an
+    /// instrumental at a crawl: this is a feature for people who outrun the song and it may never
+    /// slow one down. The ceiling needs no clamp of its own, since the velocity can never exceed the
+    /// preset's <see cref="PuppeteerTuning.MaxVelocity"/>, but <see cref="PuppeteerClock.Step"/>
+    /// applies one anyway so a hand-built state cannot command a rate the audio path would refuse.
+    /// </para>
+    ///
+    /// <para><b>Why it is MODEL state and not the driver's.</b> A Puppeteer replay re-derives its
+    /// track times by re-running this model over the run's wall stamps
+    /// (<c>PuppeteerReplayTransform</c>), and the transform threads a
+    /// <see cref="PuppeteerState"/> through <see cref="PuppeteerClock.Step"/> and nothing else: it
+    /// never builds the mod. A hold parked on the driver would therefore be invisible to every
+    /// stored run, and a watcher would see a tape the player never heard. Here it re-derives for
+    /// free, with no change to the transform at all.</para>
+    ///
+    /// <para><b>It is dropped by a re-anchor</b>, because <see cref="AnchoredAt"/> starts with no
+    /// hold and both seek arms go through it. A seek is a discontinuity: the velocity already reset
+    /// to 1 there before this existed, and a speed earned on a stretch of song that is no longer
+    /// being played is not one to carry across.</para>
+    /// </param>
+    public readonly record struct PuppeteerState(double PositionMs, double Velocity, double PaceCursorMs, double PaceVelocity, double HeldCoastVelocity)
     {
         /// <summary>
         /// A tape anchored at <paramref name="positionMs"/>, running at the song's own speed, with no
-        /// typing behind it yet. Used for the first frame of a play and for both seek re-anchors, and
-        /// it is the state a replay's re-derivation starts from, so it has to be one expression.
+        /// typing behind it yet and no held coast. Used for the first frame of a play and for both
+        /// seek re-anchors, and it is the state a replay's re-derivation starts from, so it has to be
+        /// one expression.
         /// </summary>
-        public static PuppeteerState AnchoredAt(double positionMs) => new PuppeteerState(positionMs, 1, double.PositiveInfinity, 0);
+        public static PuppeteerState AnchoredAt(double positionMs)
+            => new PuppeteerState(positionMs, 1, double.PositiveInfinity, 0, PuppeteerClock.NO_HELD_COAST);
     }
 
     /// <summary>
@@ -231,11 +302,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// the playhead, and the position is monotonic non-decreasing over every possible arm schedule.
     /// That is a design fact, not an accident of the arithmetic, and it is why there is no
     /// "handle backspace" branch anywhere in this file.</para>
+    ///
+    /// <para><b>THE COAST HOLDS THE SPEED IT ARRIVED AT (backlog 261).</b> A coast used to be a flat
+    /// 1.00x, which meant a player running the song above its own speed was dropped back to 1.00x for
+    /// every instrumental stretch and had to climb again on the next line. The coast now carries the
+    /// velocity the tape had when the arm went unreachable, floored at 1.00x and held FLAT until a
+    /// finite target takes over (see <see cref="PuppeteerState.HeldCoastVelocity"/>). It is one extra
+    /// number of state and one branch in the cap, and it changes nothing at all for a tape that was
+    /// at or below the song's own speed when the line ran out.</para>
     /// </summary>
     public static class PuppeteerClock
     {
         /// <summary>The fixed integration step, in WALL milliseconds. See the class remarks: this is a contract, not a tuning knob.</summary>
         public const double TICK_MS = 1;
+
+        /// <summary>
+        /// The <see cref="PuppeteerState.HeldCoastVelocity"/> value meaning "no hold", i.e. either a
+        /// typing arm or a coast that has given the hold back. Zero, and unambiguous by construction:
+        /// a real hold is <c>max(1, velocity)</c>, so it is never under 1.00x.
+        ///
+        /// <para>A CONTRACT like every other constant the model reads (see the tuning comment on
+        /// <see cref="TypeBeatModPuppeteer"/>): a stored Puppeteer run re-derives its track times by
+        /// re-running this model, so the sentinel is part of what such a run means. Puppeteer is
+        /// unshipped as of backlog 261, so introducing the hold at all needed no replay era; the next
+        /// time one of these numbers moves, it will.</para>
+        /// </summary>
+        public const double NO_HELD_COAST = 0;
 
         /// <summary>
         /// Advance the model by exactly one <see cref="TICK_MS"/> wall tick under one arm.
@@ -256,8 +348,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             // caret) asks for the floor rather than for a rewind. See the class remarks.
             double gap = arm.DesiredPositionMs - state.PositionMs;
 
-            double cap = Math.Max(tuning.MinVelocity,
-                Math.Min(Math.Min(arm.VelocityCap, tuning.MaxVelocity), TypingSustainedCap(pace, tuning)));
+            double held = HoldFor(state, arm);
+
+            // THE CAP, and the coast arm now takes a branch of its own (backlog 261).
+            //
+            // A HELD COAST is capped at the hold and at nothing else (bar the preset's ceiling): not
+            // at the arm's own 1.00x, which is the flat coast the hold exists to replace, and NOT at
+            // TypingSustainedCap. That bypass is the load-bearing half. StepPace decays the pace
+            // toward 0 across a coast, deliberately (it is what makes a line hand-over read as a blip
+            // rather than as a burst of typing), so within about three time constants the sustained
+            // cap is back at max(1, 0) = 1.00x and would quietly undo every hold. The decay stays and
+            // the coast reads past it instead.
+            //
+            // Everything else, every arm with a finite target, takes the chain exactly as it was, to
+            // the bit: the hold is NO_HELD_COAST there by construction.
+            double cap = held > NO_HELD_COAST
+                ? Math.Max(tuning.MinVelocity, Math.Min(held, tuning.MaxVelocity))
+                : Math.Max(tuning.MinVelocity,
+                    Math.Min(Math.Min(arm.VelocityCap, tuning.MaxVelocity), TypingSustainedCap(pace, tuning)));
 
             double requested = tuning.ChaseMs > 0 ? gap / tuning.ChaseMs : cap;
 
@@ -265,7 +373,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
             double velocity = state.Velocity + ((targetVelocity - state.Velocity) * alpha);
 
-            return new PuppeteerState(state.PositionMs + (velocity * TICK_MS), velocity, paceCursor, pace);
+            return new PuppeteerState(state.PositionMs + (velocity * TICK_MS), velocity, paceCursor, pace, held);
+        }
+
+        /// <summary>
+        /// The hold this tick runs under: <see cref="NO_HELD_COAST"/> on any arm with a finite target
+        /// and on <see cref="PuppeteerArm.ReleasedCoast"/>, the state's existing hold once a coast is
+        /// under way, and <c>max(1, Velocity)</c> on the FIRST tick of a coast, which is where the
+        /// speed the player was hearing is captured.
+        ///
+        /// <para>"First tick of a coast" is read off the state rather than off any edge detection: a
+        /// coast arm with no hold recorded IS the first tick of one, because a finite target clears
+        /// the hold on every tick it is in effect. So the whole rule is a function of (state, arm),
+        /// which is what keeps <see cref="Step"/> a pure map and lets a replay's co-simulation
+        /// reproduce a hold it was never told about.</para>
+        ///
+        /// <para>The floor is 1.00x, the same 1 <see cref="TypingSustainedCap"/> floors at and the
+        /// same number as <see cref="TypeBeatModPuppeteer.COAST_MAX_VELOCITY"/> (pinned by test): the
+        /// song is always allowed to simply play, so a hesitating player whose tape had dragged down
+        /// toward the crawl gets the instrumental back at its own speed rather than at their stall.
+        /// </para>
+        /// </summary>
+        public static double HoldFor(PuppeteerState state, PuppeteerArm arm)
+        {
+            if (double.IsFinite(arm.DesiredPositionMs) || arm.ReleasesHold)
+                return NO_HELD_COAST;
+
+            return state.HeldCoastVelocity > NO_HELD_COAST ? state.HeldCoastVelocity : Math.Max(1, state.Velocity);
         }
 
         /// <summary>

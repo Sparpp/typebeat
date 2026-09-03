@@ -919,6 +919,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool BoundedRush { get; set; }
 
         /// <summary>
+        /// THE RUSH CAP DOES NOT APPLY (backlog 261). With this set, <see cref="rushesPastCap"/> is
+        /// never consulted: a press that puts the caret more than
+        /// <see cref="FLETCHER_MAX_CHARS_AHEAD"/> countable chars past the playhead credits combo like
+        /// any other. Nothing else about the unpinned caret moves, and
+        /// <see cref="FletcherEnabled"/> itself is untouched, so the roll, the drag, the snap and the
+        /// seal grace all behave exactly as they do for everyone else.
+        ///
+        /// <para><b>Set by the Puppeteer mod, and by nothing else</b>
+        /// (<see cref="Mods.TypeBeatModPuppeteer.ApplyToDrawableRuleset"/> live, and the same mod's
+        /// arm in <see cref="Scoring.TypeBeatReplayScorer"/> for a rescore, which is what keeps the
+        /// two accounts of one run equal). Under that mod THE PLAYHEAD IS THE TAPE, and the tape is
+        /// walled at the preset's <c>MaxVelocity</c>, so a player typing faster than the tape can run
+        /// opens a lead that grows without bound: the cap then breaks their combo on a press it is
+        /// still judging Great, and cannot re-arm while the sprint continues. Every mod-shaped
+        /// alternative is worse. A bigger constant only moves the wall. The cap cannot measure TIME
+        /// here (a press's distance from its target is exactly what this mod has declared meaningless,
+        /// see <c>WINDOW_SCALE</c>). And the cap's purpose, stopping a player typing the whole map at
+        /// the top of the song, is already served by the tape itself, which will not play a line the
+        /// player has not reached.</para>
+        ///
+        /// <para><b>A MOD FLAG AND NOT AN ERA</b>, the precedent being
+        /// <see cref="AnyOrderWithinWord"/> exactly: no stored run can predate a mod that did not
+        /// exist when it was recorded, so there is nothing for a CONFIG bit to disambiguate and the
+        /// score's MOD LIST is the whole mechanism. That is only true because Puppeteer is UNSHIPPED,
+        /// and it is worth saying plainly: had one released build carried it, this would have needed
+        /// an era bit like any judgement change, because it moves max_combo on runs already
+        /// submitted. It reaches the live engine from <c>ApplyToDrawableRuleset</c> rather than from
+        /// <c>DrawableTypeBeatRuleset.createEngine</c> (where the era flags are decided) for the same
+        /// reason the window scale does: it is re-read at every press rather than at construction, so
+        /// there is no window in which it can be momentarily wrong, and no replay recorder stamps
+        /// it.</para>
+        ///
+        /// <para>A side effect worth knowing, on the replay side: the cap is the one judgement input
+        /// that reads the PLAYHEAD rather than the keystroke, so a press near a countable boundary
+        /// could re-derive on the far side of the cap threshold and give a Puppeteer replay a
+        /// different combo than the run it stores (<c>PuppeteerReplayTransform</c> judges at the
+        /// model's position, the live run judged at the clock's). With the cap inert under that mod,
+        /// that whole divergence class is gone.</para>
+        /// </summary>
+        public bool RushCapExempt { get; set; }
+
+        /// <summary>
         /// Whether the flexible caret was asked for by a MOD rather than by the era bit, which is
         /// the one thing a CONFIG frame cannot say for itself. The retired "FT" mod is the only
         /// pre-208 way a run was flexible, and it recorded flags bit 5 CLEAR (the bit did not
@@ -2515,7 +2557,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // is charged for characters they gave up rather than typed.
                 int caretForCap = LosslessSkipReclaim && caretBeforeSkip >= 0 ? caretBeforeSkip : caretIndex;
 
-                bool rushedPastCap = FletcherEnabled && rushesPastCap(cell, time, caretForCap);
+                // ...and RushCapExempt (backlog 261) takes the cap out of the question entirely, for
+                // the one mod whose playhead IS the tape the player is dragging: see the flag.
+                bool rushedPastCap = FletcherEnabled && !RushCapExempt && rushesPastCap(cell, time, caretForCap);
 
                 if (basePoints > 0)
                 {
