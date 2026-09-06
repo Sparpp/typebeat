@@ -28,6 +28,22 @@
 #   3. Redeploy typebeat-web (its CI, or ./deploy/up.sh up -d app) so the container picks up the env.
 #      The Velopack update feed (releases.linux.json + *.nupkg under /data/downloads/releases/) is
 #      served by the existing /releases/{file} route and needs no config.
+#
+# ---------------------------------------------------------------------------------------------
+# RETENTION (the "Prune release feed" step at the bottom)
+#   /data/downloads/releases used to keep EVERY version ever shipped. On 2026-09-04 that was 235
+#   packages and 46G against a live feed referencing 5 assets, the box's disk hit 100%, Postgres
+#   went read-only and the whole site 500'd. So after a successful upload this workflow deletes
+#   the packages nothing can reach: it keeps every asset the three PUBLIC feed manifests
+#   reference, plus the 3 newest versions per channel, plus every manifest and every file it
+#   cannot positively classify as a package, and deletes the rest. It prunes ALL THREE channels
+#   (win/linux/osx), so whichever platform ships last tidies the whole directory, and it prints
+#   the keep summary and the exact delete list before deleting anything.
+#   Sibling: the Windows ship path never runs this workflow, so its own copy of this retention
+#   lives in ship-client.ps1 (the superrepo). The step here is byte-identical to
+#   build-macos.yml's, deliberately: it runs entirely on the deploy box, so the runner's
+#   BSD/GNU differences never reach it.
+#   Set the workflow_dispatch input `prune` to false to skip it for one run.
 # ---------------------------------------------------------------------------------------------
 
 name: Build & Deploy (Linux)
@@ -39,6 +55,11 @@ on:
         description: "Release version (yyyy.Mdd.r, e.g. 2026.722.0)"
         required: true
         type: string
+      prune:
+        description: "Prune old packages from the release feed after uploading (see RETENTION)"
+        required: false
+        default: true
+        type: boolean
 
 concurrency: production-linux-deploy
 
@@ -200,3 +221,198 @@ jobs:
 
           $SSH "rm -rf ${REMOTE_TMP}"
           echo "Linux release ${{ inputs.version }} deployed."
+
+      # RETENTION. /data/downloads/releases accumulated EVERY version ever shipped and filled the
+      # box's disk on 2026-09-04: 235 packages, 46G, while the live feeds referenced 5 assets.
+      # Postgres went read-only and every page 500'd, so this is not housekeeping. Every ship now
+      # prunes, and prunes ALL THREE channels, so whichever platform ships last tidies the whole
+      # directory. Delete-list-first: the keep summary and the exact delete list are printed to this
+      # log BEFORE anything is removed, and only *.nupkg names the script can fully parse are ever
+      # handed to rm. continue-on-error because the release is already live by the time this runs:
+      # a prune that cannot run must be loud, not red. Opt out with the workflow's `prune` input:
+      # the guard reads `inputs.prune` (typed) and NOT `github.event.inputs.prune`, which is always
+      # a string, where the opt-out value "false" would be truthy and the step would run anyway.
+      - name: Prune release feed
+        if: ${{ inputs.prune }}
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          SSH="ssh -i ~/.ssh/deploy_key ${DEPLOY_USER}@${DEPLOY_HOST}"
+          FEED_BASE="https://typebeat.mingda.sh/releases"
+
+          # The keep-set's first half comes from the PUBLIC manifests, which is what an installed
+          # client actually resolves, rather than from anything on the box. curl runs here on the
+          # runner: the box reaching its own public hostname is a hairpin question nobody needs to
+          # answer. An HTTP error is a channel that has never shipped, and contributes nothing. Any
+          # OTHER curl failure is not evidence of an empty feed, so it disarms the prune entirely.
+          FEED_LIST=""
+          FEED_OK=1
+          for ch in win linux osx; do
+            rc=0
+            # `|| rc=$?` rather than a bare call: the runner's default shell is `bash -e`, where a
+            # non-zero curl inside an assignment would abort the step before it could be handled.
+            body=$(curl -fsSL --max-time 60 "${FEED_BASE}/releases.${ch}.json") || rc=$?
+            if [ "$rc" -ne 0 ]; then
+              if [ "$rc" -eq 22 ]; then
+                echo "feed releases.${ch}.json: HTTP error, treating the channel as empty"
+              else
+                echo "::warning::feed releases.${ch}.json: curl exit ${rc}"
+                FEED_OK=0
+              fi
+              continue
+            fi
+            names=$(printf '%s' "$body" | grep -o '"FileName"[[:space:]]*:[[:space:]]*"[^"]*"' \
+              | sed -e 's/.*"FileName"[[:space:]]*:[[:space:]]*"//' -e 's/"$//') || names=""
+            echo "feed releases.${ch}.json references: $(printf '%s' "$names" | tr '\n' ' ')"
+            FEED_LIST="${FEED_LIST}${names}"$'\n'
+          done
+          if [ "$FEED_OK" -ne 1 ]; then
+            echo "::warning::the release feed could not be read in full, SKIPPING the prune. Nothing was deleted."
+            exit 0
+          fi
+          FEED_B64=$(printf '%s' "${FEED_LIST}" | base64 | tr -d '\n')
+
+          # Everything below runs ON THE BOX (GNU coreutils, so sort -V and xargs -d behave the same
+          # for both platforms' runners) and is byte-identical in build-linux.yml and build-macos.yml.
+          $SSH "APP_CONTAINER='${APP_CONTAINER}' FEED_B64='${FEED_B64}' KEEP_VERSIONS=3 bash -s" <<'PRUNE'
+          set -u
+          REL="${REL:-/data/downloads/releases}"
+          KEEP_N="${KEEP_VERSIONS:-3}"
+          # The releases dir lives INSIDE the app container (named volume), so every list and every
+          # delete goes through docker exec. DEX is the seam that makes this logic runnable against a
+          # plain local fixture directory: unset in CI, set to empty when testing.
+          DEX="${DEX-docker exec ${APP_CONTAINER}}"
+          NL=$'\n'
+          echo "== prune release feed =="
+          echo "dir: ${REL}   policy: keep feed-referenced + the ${KEEP_N} newest versions per channel"
+
+          # Half one of the keep-set: the names the runner read off the PUBLIC manifests, handed down
+          # base64'd on a single line so it crosses the ssh command string without quoting games.
+          feed=$(printf '%s' "${FEED_B64:-}" | base64 -d 2>/dev/null | sed '/^$/d')
+          if [ -z "${feed}" ]; then
+            echo "::warning::no feed-referenced assets resolved, refusing to prune (a fetch failure must never look like an empty feed)"
+            exit 0
+          fi
+
+          # -A so a half-landed .incoming-* upload from an aborted deploy is visible in this log as
+          # something the prune saw and kept, instead of being invisible to it.
+          listing=$(${DEX} ls -1A "${REL}" 2>/dev/null | tr -d '\r' | sed '/^$/d')
+          if [ -z "${listing}" ]; then
+            echo "::warning::could not list ${REL}, nothing pruned"
+            exit 0
+          fi
+
+          # Newline-delimited membership test. No arrays, no subshells, no dependence on IFS.
+          in_list() {
+            case "${NL}$2${NL}" in *"${NL}$1${NL}"*) return 0 ;; esac
+            return 1
+          }
+
+          # Velopack names packages <packId>-<version>[-<channel>]-{full,delta}.nupkg, and THE CHANNEL
+          # SEGMENT IS ABSENT ON WIN: the live feed serves typebeat-2026.903.0-full.nupkg for Windows but
+          # typebeat-2026.903.0-linux-full.nupkg / -osx-full.nupkg for the other two (checked against the
+          # three public manifests). So an unsuffixed name is win. Do not "fix" that without re-reading
+          # the manifests. Anything this cannot fully parse is not a package as far as the prune is
+          # concerned: it is kept and listed.
+          classify() {
+            CH=""; VER=""
+            case "$1" in .*) return 1 ;; esac
+            case "$1" in *.nupkg) ;; *) return 1 ;; esac
+            stem=${1%.nupkg}
+            case "${stem}" in
+              typebeat-*-full)  stem=${stem%-full} ;;
+              typebeat-*-delta) stem=${stem%-delta} ;;
+              *) return 1 ;;
+            esac
+            rest=${stem#typebeat-}
+            case "${rest}" in
+              *-win)   CH=win;   VER=${rest%-win} ;;
+              *-linux) CH=linux; VER=${rest%-linux} ;;
+              *-osx)   CH=osx;   VER=${rest%-osx} ;;
+              *)       CH=win;   VER=${rest} ;;
+            esac
+            case "${VER}" in ""|*[!0-9.]*) return 1 ;; esac
+            return 0
+          }
+
+          # Pass 1: bucket every package by channel, and collect what cannot be classified.
+          vers_win=""; vers_linux=""; vers_osx=""; unclassified=""
+          while IFS= read -r f; do
+            if classify "${f}"; then
+              case "${CH}" in
+                win)   vers_win="${vers_win}${VER}${NL}" ;;
+                linux) vers_linux="${vers_linux}${VER}${NL}" ;;
+                osx)   vers_osx="${vers_osx}${VER}${NL}" ;;
+              esac
+            else
+              unclassified="${unclassified}${f}${NL}"
+            fi
+          done <<LISTING
+          ${listing}
+          LISTING
+
+          # Half two of the keep-set. N is a JUDGEMENT CALL, not a code-derived constant: 3 is what the
+          # 2026-09-04 disk recovery kept by hand, and it covers the delta chain a recent client walks.
+          # A client older than the window is not broken by a prune, it falls back to the newest Full
+          # package (always feed-referenced, so always kept) and takes a full download instead of a delta.
+          newest() { printf '%s' "$1" | sed '/^$/d' | sort -u | sort -V | tail -n "${KEEP_N}"; }
+          keep_win=$(newest "${vers_win}")
+          keep_linux=$(newest "${vers_linux}")
+          keep_osx=$(newest "${vers_osx}")
+
+          # Pass 2: sort every file into keep-with-a-reason or delete. Nothing is deleted in this pass.
+          keep_feed=""; keep_recent=""; to_delete=""
+          while IFS= read -r f; do
+            if in_list "${f}" "${feed}"; then
+              keep_feed="${keep_feed}${f}${NL}"
+            elif ! classify "${f}"; then
+              :
+            else
+              case "${CH}" in
+                win)   keepset="${keep_win}" ;;
+                linux) keepset="${keep_linux}" ;;
+                osx)   keepset="${keep_osx}" ;;
+              esac
+              if in_list "${VER}" "${keepset}"; then
+                keep_recent="${keep_recent}${f}${NL}"
+              else
+                to_delete="${to_delete}${f}${NL}"
+              fi
+            fi
+          done <<LISTING
+          ${listing}
+          LISTING
+
+          count() { printf '%s' "$1" | sed '/^$/d' | wc -l | tr -d ' '; }
+          echo
+          echo "-- KEEP, referenced by a live feed manifest ($(count "${keep_feed}")):"
+          printf '%s' "${keep_feed}" | sed 's/^/   /'
+          echo "-- KEEP, within the ${KEEP_N} newest versions of its channel ($(count "${keep_recent}")):"
+          printf '%s' "${keep_recent}" | sed 's/^/   /'
+          echo "   win:   $(printf '%s' "${keep_win}" | tr '\n' ' ')"
+          echo "   linux: $(printf '%s' "${keep_linux}" | tr '\n' ' ')"
+          echo "   osx:   $(printf '%s' "${keep_osx}" | tr '\n' ' ')"
+          echo "-- KEEP, manifests and anything not classifiable as a package ($(count "${unclassified}")):"
+          printf '%s' "${unclassified}" | sed 's/^/   /'
+          echo "-- DELETE, unreferenced packages older than the window ($(count "${to_delete}")):"
+          printf '%s' "${to_delete}" | sed 's/^/   /'
+          echo
+          if [ -z "${to_delete}" ]; then
+            echo "nothing to prune."
+            exit 0
+          fi
+          ${DEX} du -sh "${REL}" 2>/dev/null || true
+
+          # The one irreversible line in this workflow. The safe pattern is re-asserted here rather than
+          # trusted from the pass above, so this block can be read on its own: a plain *.nupkg name, no
+          # dotfile, no path separator, or it is refused and reported.
+          printf '%s\n' "${to_delete}" | sed '/^$/d' | while IFS= read -r f; do
+            case "${f}" in
+              .*|*/*)  echo "::warning::refusing to delete '${f}' (not a plain package name)"; continue ;;
+              *.nupkg) printf '%s\n' "${REL}/${f}" ;;
+              *)       echo "::warning::refusing to delete '${f}' (not a .nupkg)"; continue ;;
+            esac
+          done | xargs -r -d '\n' -n 50 ${DEX} rm -f --
+          echo "pruned $(count "${to_delete}") package(s)."
+          ${DEX} du -sh "${REL}" 2>/dev/null || true
+          PRUNE
