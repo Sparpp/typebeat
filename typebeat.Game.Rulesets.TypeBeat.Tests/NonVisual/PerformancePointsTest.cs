@@ -42,7 +42,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>A clean-ish reference play: 4 stars, 500 notes, no misses, 90% acc, full combo.</summary>
-        private const double reference_pp = 161.174292; // pp[f.compute(4, 500, 0, 0.9, 500)]
+        private const double reference_pp = 198.674292; // pp[f.compute(4, 500, 0, 0.9, 500)]
 
         [Test]
         public void Compute_MatchesAnIndependentlyEvaluatedReferencePlay()
@@ -95,12 +95,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // 1000 notes on a 4-star map, 900 of them missed: exactly the shape the miss term exists
             // to kill. It must not merely be "smaller", it must be negligible next to a clean play.
+            //
+            // SINCE BACKLOG 270 IT IS NOT EXACTLY ZERO. The miss term still clamps (900^1.2 is 3506
+            // against 1000 notes), so the PRODUCT half is exactly 0, but the combo bonus is ADDED to
+            // that product rather than multiplied into it, and a run of 10 on a 4-star map collects
+            // 10/1000 of 12.5 * (4 - 1) = 0.375 pp. That is the shape working as intended rather
+            // than a leak: the bonus is what a run is worth, and this play held one, briefly.
             double giveUp = PerformancePoints.Compute(4, notes: 1000, misses: 900, accuracy: 0.1, maxCombo: 10, no_mods);
+            double runOfTen = 10.0 / 1000.0 * fullComboBonus(4);
 
             Assert.Multiple(() =>
             {
-                Assert.That(giveUp, Is.GreaterThanOrEqualTo(0));
-                Assert.That(giveUp, Is.LessThan(0.001));
+                Assert.That(giveUp, Is.EqualTo(runOfTen), "the product half is an exact zero, so the bonus is the whole of it");
+                Assert.That(giveUp, Is.EqualTo(0.375).Within(1e-12));
+                Assert.That(giveUp, Is.LessThan(reference_pp / 100));
             });
         }
 
@@ -131,8 +139,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // reason: backlog 227 put a soft knee at 80% on the accuracy term, which multiplies a
             // 60% play by 0.00034. The comparison would then be decided by the KNEE (the sloppy play
             // prices at 0.03) and would say nothing whatever about the miss exponent. At 0.85 both
-            // plays sit above the knee, where it costs 12% and 0.5% respectively, and the sloppy one
-            // lands at ~130 against ~44.
+            // plays sit above the knee, where it costs 12% and 0.5% respectively.
+            //
+            // BACKLOG 270 NARROWS THE GAP WITHOUT CLOSING IT, which is the point of the change and
+            // is why the case is restated rather than deleted. Under v20 the missy play was ALSO
+            // charged a combo multiplier for its broken run (0.70 of the map, worth 0.716 of the
+            // term) and landed at ~44 against ~130. Combo is now an additive bonus, so the missy
+            // play keeps its core pp and collects 0.7 of the 37.5 a full combo is worth: ~90
+            // against ~168. The miss term is still what decides it, which is the claim.
             double sloppyButClean = PerformancePoints.Compute(4, 500, misses: 0, accuracy: 0.85, maxCombo: 500, no_mods);
             double accurateButMissy = PerformancePoints.Compute(4, 500, misses: 25, accuracy: 0.93, maxCombo: 350, no_mods);
 
@@ -151,15 +165,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // exactly 1.0, and 1/(1 + 1) is exactly 0.5. A play sitting ON the knee is therefore
             // priced at exactly half of what the exponent alone would give it, whatever the width is
             // set to, which is the accuracy term's version of "an FC is exactly 1.0 at every
-            // combo_log_shape". Asserted bit-exactly rather than with a tolerance, and grouped the
+            // combo_bonus_slope". Asserted bit-exactly rather than with a tolerance, and grouped the
             // way Compute groups it (the exponent times the knee) because double multiplication is
             // not associative.
             foreach (int notes in new[] { 1, 100, 500, 2137 })
             {
                 double onTheKnee = PerformancePoints.Compute(4, notes, 0, 0.80, notes, no_mods, typos: 0); // pp:const acc_knee=0.80
                 double halfTheExponentAlone = 12.4 * Math.Pow(4, 2.00) * (Math.Pow(0.80, 1.80) * 0.5); // pp:const scale=12.4 sr_exponent=2.00 acc_knee=0.80 accuracy_exponent=1.80
+                // A full combo, so the additive bonus (backlog 270) is the whole of what a full
+                // combo is worth at 4 stars. It is spelled out rather than cancelled because it
+                // does NOT cancel: it is ADDED to the product, so an identity about the product has
+                // to carry it explicitly.
+                double bonus = fullComboBonus(4);
 
-                Assert.That(onTheKnee, Is.EqualTo(halfTheExponentAlone), $"notes={notes}");
+                Assert.That(onTheKnee, Is.EqualTo(halfTheExponentAlone + bonus), $"notes={notes}");
             }
         }
 
@@ -168,17 +187,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // The knee RESPREADS the accuracy axis and never permutes it: the logistic is strictly
             // increasing in the accuracy and so is acc^1.80, so their product is too. Swept across
-            // the whole range at 0.005, straddling the knee, on a play that is neither spotless nor
-            // an FC so every other factor is a fixed positive number and only the timing term moves.
+            // the whole range at 0.005, straddling the knee, on a play that is not spotless so
+            // every other factor of the product is a fixed positive number and only the timing
+            // term moves.
+            //
+            // SWEPT AT NO COMBO (backlog 270), and not to dodge anything: the combo bonus is
+            // ADDED and is accuracy-independent, so it cannot reorder two plays on this axis by
+            // construction. What it CAN do is hide them from each other in double: at the bottom
+            // of the range the product runs to about 1e-16, and adding a constant 32 pp to that
+            // makes several consecutive steps equal, so a STRICT claim would be about float
+            // spacing rather than about the knee. The bonus arm is asserted separately below, as
+            // the non-decreasing statement that is honest there.
             double previous = -1;
+
+            for (int step = 0; step <= 200; step++)
+            {
+                double accuracy = step / 200.0;
+                double pp = PerformancePoints.Compute(4.2, 500, 25, accuracy, maxCombo: 0, no_mods, typos: 12);
+
+                Assert.That(pp, Is.GreaterThan(previous), $"accuracy={accuracy}");
+                previous = pp;
+            }
+
+            double previousWithRun = -1;
 
             for (int step = 0; step <= 200; step++)
             {
                 double accuracy = step / 200.0;
                 double pp = PerformancePoints.Compute(4.2, 500, 25, accuracy, 400, no_mods, typos: 12);
 
-                Assert.That(pp, Is.GreaterThan(previous), $"accuracy={accuracy}");
-                previous = pp;
+                Assert.That(pp, Is.GreaterThanOrEqualTo(previousWithRun), $"accuracy={accuracy} with a run");
+                previousWithRun = pp;
             }
         }
 
@@ -204,13 +243,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // A perfect play is not FREE of the knee, merely barely touched by it (1/(1 + e^-8),
             // i.e. 0.9997), which is the point of putting the cliff at 80% instead of raising the
             // exponent: the top of the range keeps what it had.
+            //
+            // THE CLAIM IS ABOUT THE PRODUCT, so the additive combo bonus is taken back off first
+            // (backlog 270). This play is a full combo on a 4-star map, so it collects the whole of
+            // 12.5 * (4 - 1) on top of a product that is by construction just UNDER 12.4 * 4^2;
+            // left in, the total would sit above that ceiling and the comparison would say nothing
+            // about the knee at all.
             double perfect = PerformancePoints.Compute(4, 500, 0, 1.0, 500, no_mods, typos: 0);
             double exponentAlone = 12.4 * Math.Pow(4, 2.00); // pp:const scale=12.4 sr_exponent=2.00
+            double product = perfect - fullComboBonus(4);
 
             Assert.Multiple(() =>
             {
-                Assert.That(perfect, Is.LessThan(exponentAlone));
-                Assert.That(perfect, Is.GreaterThan(exponentAlone * 0.999));
+                Assert.That(product, Is.LessThan(exponentAlone));
+                Assert.That(product, Is.GreaterThan(exponentAlone * 0.999));
             });
         }
 
@@ -256,13 +302,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // 500-note reference play at 90%. That inversion is deliberate and is not reachable: pp
             // is a pure function over primitives and this feeds it a rating no one-cell map could
             // ever carry, since the star rating is what knows how long a map is (LyricDifficulty's
-            // own length bonus is zero below 100 cells, and a one-cell map's strain aggregate is
-            // nowhere near 5 stars).
+            // own length bonus is zero below 100 cells, and a one-cell map has no window the feats
+            // model can score at all).
             double pp = PerformancePoints.Compute(5, notes: 1, misses: 0, accuracy: 1, maxCombo: 1, no_mods);
 
             Assert.Multiple(() =>
             {
-                Assert.That(pp, Is.EqualTo(309.896041).Within(1e-5)); // pp[f.compute(5, 1, 0, 1, 1)]
+                Assert.That(pp, Is.EqualTo(359.896041).Within(1e-5)); // pp[f.compute(5, 1, 0, 1, 1)]
                 Assert.That(pp, Is.GreaterThan(reference_pp));
             });
         }
@@ -410,19 +456,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // The reason CountNotes has to exclude it. Line containers are one ignore_hit per LINE,
             // so a 400-note map with 60 lines would read as 460 "notes". The note count sits under
-            // both penalty terms, the combo ratio and Flashlight's bonus, and the most visible
-            // casualty is the combo term: a genuine full combo would stop reading as one. On a
-            // spotless play (this one) the penalty terms are exactly 1.0 either way, so the combo
-            // ratio is the whole of what moves here now that backlog 152 has removed the length
-            // factor that used to move with it.
+            // both penalty terms, the combo RATIO and Flashlight's bonus, and the most visible
+            // casualty is the combo: a genuine full combo would stop reading as one. On a spotless
+            // play (this one) the penalty terms are exactly 1.0 either way, so the combo ratio is
+            // the whole of what moves here now that backlog 152 has removed the length factor that
+            // used to move with it.
+            //
+            // THE BOUND IS RESTATED AT 2% RATHER THAN 3% (backlog 270), honestly and not to make a
+            // failing test pass. Combo used to be a FACTOR of the whole play, so a ratio of 400/460
+            // cost 13.0% of the pp under v20's log-bent term and 29.5% under the plain ratio before
+            // it. As an ADDITIVE bonus it can only ever cost the bonus' own share: the product half
+            // is identical at both note counts, so the whole difference is 60/460 of what a full
+            // combo is worth at 4 stars, i.e. 4.89 pp against a play worth 167.9, which is 2.9%.
+            // Still several times any plausible rounding, and still an answer the inflation would
+            // change.
             double fullCombo = PerformancePoints.Compute(4, 400, 0, 0.85, 400, no_mods);
             double inflated = PerformancePoints.Compute(4, 460, 0, 0.85, 400, no_mods);
 
             Assert.Multiple(() =>
             {
                 Assert.That(inflated, Is.LessThan(fullCombo));
-                Assert.That((fullCombo - inflated) / fullCombo, Is.GreaterThan(0.03),
+                Assert.That((fullCombo - inflated) / fullCombo, Is.GreaterThan(0.02),
                     "counting the line containers would cost a full combo several percent of its pp");
+
+                // And it is EXACTLY the bonus that moved, which is the sharper statement the
+                // additive shape makes available: nothing else in this play reads the note count.
+                Assert.That(fullCombo - inflated,
+                    Is.EqualTo((1 - 400.0 / 460.0) * fullComboBonus(4)).Within(1e-9));
             });
         }
 
@@ -438,10 +498,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// </summary>
         private static double penaltyFactor(int notes, int misses, int typos)
         {
-            double spotless = PerformancePoints.Compute(4, notes, 0, 0.9, notes, no_mods, typos: 0);
+            double spotless = PerformancePoints.Compute(4, notes, 0, 0.9, maxCombo: 0, no_mods, typos: 0);
 
-            return PerformancePoints.Compute(4, notes, misses, 0.9, notes, no_mods, typos) / spotless;
+            return PerformancePoints.Compute(4, notes, misses, 0.9, maxCombo: 0, no_mods, typos) / spotless;
         }
+
+        /// <summary>What a FULL combo adds to a play at this rating (backlog 270).</summary>
+        private static double fullComboBonus(double starRating)
+            => 12.5 * (starRating - 1.0); // pp:const combo_bonus_slope=12.5 combo_bonus_zero=1.0
 
         [Test]
         public void Compute_ReproducesTheDecidedRebalanceWorkedExamples()
@@ -513,7 +577,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 double knee = 1.0 / (1.0 + Math.Exp(-(0.9 - 0.80) / 0.025)); // pp:const acc_knee=0.80 acc_knee_width=0.025
                 double withoutEitherPenaltyTerm = 12.4 * Math.Pow(4, 2.00) * (Math.Pow(0.9, 1.80) * knee); // pp:const scale=12.4 sr_exponent=2.00 accuracy_exponent=1.80
 
-                Assert.That(spotless, Is.EqualTo(withoutEitherPenaltyTerm), $"notes={notes}");
+                // A FULL COMBO, so the additive bonus (backlog 270) is on top of that product and
+                // has to be carried explicitly: it does not cancel, and it is the same number at
+                // every note count because the ratio is exactly 1.0.
+                Assert.That(spotless, Is.EqualTo(withoutEitherPenaltyTerm + fullComboBonus(4)), $"notes={notes}");
             }
         }
 
@@ -676,23 +743,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void Compute_APlayPastEitherCliffEarnsExactlyZeroPp()
         {
-            // Not merely a small factor: the whole play is worth nothing, whatever its difficulty,
-            // accuracy or combo. That is a deliberate consequence of the shape and not a rounding
-            // artefact, so it is asserted on Compute itself rather than on the penalty factor.
+            // Not merely a small factor: the PRODUCT half of the play is worth nothing, whatever
+            // its difficulty or accuracy. That is a deliberate consequence of the shape and not a
+            // rounding artefact, so it is asserted on Compute itself rather than on the penalty
+            // factor.
+            //
+            // SINCE BACKLOG 270 "EXACTLY ZERO" NEEDS A ZERO COMBO TOO, and that is the change
+            // rather than a dodge: the bonus is ADDED to the clamped product, so a play past the
+            // cliff that still held a run is worth exactly that run's bonus and nothing else. Both
+            // facts are pinned, the second immediately below.
             const int missCliff = 178; // pp[math.ceil(f.miss_cliff(500))]
             const int typoCliff = 249; // pp[math.ceil(f.typo_cliff(500))]
 
             Assert.Multiple(() =>
             {
-                Assert.That(PerformancePoints.Compute(6, 500, missCliff, 0.95, 500 - missCliff, no_mods), Is.Zero,
+                Assert.That(PerformancePoints.Compute(6, 500, missCliff, 0.95, maxCombo: 0, no_mods), Is.Zero,
                     "the miss cliff");
-                Assert.That(PerformancePoints.Compute(6, 500, 0, 0.95, 500, no_mods, typoCliff), Is.Zero,
+                Assert.That(PerformancePoints.Compute(6, 500, 0, 0.95, maxCombo: 0, no_mods, typoCliff), Is.Zero,
                     "the typo cliff");
+
+                // With a run, the same two plays are worth exactly the bonus that run earns, which
+                // is a strictly stronger claim than "zero" was: it also says nothing of the clamped
+                // product leaked through.
+                double run = (500.0 - missCliff) / 500.0 * fullComboBonus(6);
+
+                Assert.That(PerformancePoints.Compute(6, 500, missCliff, 0.95, 500 - missCliff, no_mods),
+                    Is.EqualTo(run), "the miss cliff, with a run");
+                Assert.That(PerformancePoints.Compute(6, 500, 0, 0.95, 500, no_mods, typoCliff),
+                    Is.EqualTo(fullComboBonus(6)), "the typo cliff, with a full combo");
 
                 // One below each, the same play is positive, so the zeros above are the clamp and
                 // not some unrelated guard swallowing the play.
-                Assert.That(PerformancePoints.Compute(6, 500, missCliff - 1, 0.95, 501 - missCliff, no_mods), Is.GreaterThan(0));
-                Assert.That(PerformancePoints.Compute(6, 500, 0, 0.95, 500, no_mods, typoCliff - 1), Is.GreaterThan(0));
+                Assert.That(PerformancePoints.Compute(6, 500, missCliff - 1, 0.95, maxCombo: 0, no_mods), Is.GreaterThan(0));
+                Assert.That(PerformancePoints.Compute(6, 500, 0, 0.95, maxCombo: 0, no_mods, typoCliff - 1), Is.GreaterThan(0));
             });
         }
 
@@ -710,11 +793,47 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // name to the mod that pins the caret instead), and its price is still charged,
                 // because stored rows carry the acronym and pp is keyed on the acronym string.
                 Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModLegacyFletcher()), 300), Is.EqualTo(0.90).Within(1e-12)); // pp[f.fletcher_multiplier]
-                // The mod named Fletcher TODAY ("FC") is unlisted, i.e. neutral, like any acronym
-                // this table has not learned.
-                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModFletcher()), 300), Is.EqualTo(1.0).Within(1e-12));
                 Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModFlashlight()), 300),
                     Is.EqualTo(PerformancePoints.FlashlightMultiplier(300)).Within(1e-12));
+            });
+        }
+
+        /// <summary>
+        /// Recite (<c>RE</c>) and the mod named Fletcher TODAY (<c>FC</c>) join the pp table at
+        /// backlog 270; both were unpriced before it, which is why this test is an INVERSION of the
+        /// "FC is neutral" line that used to sit above. Neither converts the map (Recite hides the
+        /// lyric until it is sung, Fletcher pins the caret back to the line the song is on), so
+        /// neither has a rating of its own to be priced through and each takes a flat term, exactly
+        /// as Easy and Hard Rock do.
+        ///
+        /// <para>THE VALUES EQUALLING THEIR SCORE MULTIPLIERS IS A COINCIDENCE, not a derivation
+        /// rule: the user chose 1.07 and 1.02 here and
+        /// <see cref="TypeBeatScoreMultiplierCalculator"/> happens to carry the same two numbers.
+        /// Easy is 0.75 here against 0.5x score, Hard Rock 1.25 against 1.10x, No Fail 0.90 against
+        /// 0.5x and Flashlight length-scaled against a flat 1.12x, so the two tables agree on
+        /// nothing else and must never be read off each other.</para>
+        ///
+        /// <para><c>FC</c> is NOT <c>FT</c>: the retired acronym means the OPPOSITE thing (an
+        /// unpinned caret, back when that was the mod rather than the default) and keeps its own
+        /// 0.90, pinned above.</para>
+        /// </summary>
+        [Test]
+        public void ModMultiplier_ReciteAndFletcherAreEachPricedFlat()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModRecite()), 300), Is.EqualTo(1.07).Within(1e-12)); // pp[f.recite_multiplier]
+                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModFletcher()), 300), Is.EqualTo(1.02).Within(1e-12)); // pp[f.fletcher_strict_multiplier]
+
+                // Stacked, because the multiplier is a product and a missing arm hides inside a
+                // single-mod test whenever the neutral answer happens to be right.
+                Assert.That(PerformancePoints.ModMultiplier(mods(new TypeBeatModRecite(), new TypeBeatModFletcher()), 300),
+                    Is.EqualTo(1.0914).Within(1e-12)); // pp[f.mod_multiplier(["RE", "FC"], 300)]
+
+                // The acronyms these arms key on, read off the mods themselves rather than retyped:
+                // the pp table is keyed on the STRING, so a renamed acronym silently unprices the mod.
+                Assert.That(new TypeBeatModRecite().Acronym, Is.EqualTo("RE"));
+                Assert.That(new TypeBeatModFletcher().Acronym, Is.EqualTo("FC"));
             });
         }
 
@@ -757,35 +876,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// Rhythmic (backlog 135) PAID 10%, and backlog 147 removed the mod from the client without
-        /// removing that price. THIS IS THE PRODUCTION-SAFETY TEST, not a leftover: RH shipped, so
-        /// rows carrying it exist, and pp is recomputed from a stored row's mods on every
-        /// <c>PpBackfill</c> sweep and every recalc. Deleting the arm would silently reprice every
-        /// one of those rows 10% down, and its server-side twin
-        /// (<c>ModMultiplier.TotalScoreCeiling</c>) would then put each row's own stored total above
-        /// its ceiling and store it UNRANKED.
+        /// Rhythmic (backlog 135) PAID 10% until backlog 270, which deleted the entry. This test is
+        /// therefore an INVERSION of the production-safety pin that used to stand here, and the
+        /// reason it survives inverted is the same one: RH shipped, so a stored row carries it, and
+        /// pp is recomputed from that row's mods on every <c>PpBackfill</c> sweep and every recalc.
+        /// One row reprices 10% down at v21, which is what a VERSION bump is for, and the deletion
+        /// has to land on BOTH sides of the mirror or the in-game counter and the stored value
+        /// diverge by that 10% for ever.
         ///
-        /// <para>It costs nothing to keep: no mod in <c>TypeBeatRuleset.GetModsFor</c> answers RH,
-        /// so no play made under today's rules can reach the arm at all. This is still the marked
-        /// site, so a retune through <c>pp.py set --rhythmic-multiplier</c> lands here.</para>
+        /// <para>The old note's other argument was <c>ModMultiplier.TotalScoreCeiling</c>, which is
+        /// the SERVER'S SCORE-SIDE TABLE in a different file entirely: it still prices <c>"RH"</c>
+        /// at 1.10 and is untouched, so the row's own stored total stays under its ceiling and
+        /// stays ranked. This file's table and that one were never the same thing.</para>
         /// </summary>
         [Test]
-        public void ModMultiplier_StillPricesAStoredRhythmicAtTenPercent()
+        public void ModMultiplier_NoLongerPricesAStoredRhythmic()
         {
             Assert.Multiple(() =>
             {
-                Assert.That(PerformancePoints.ModMultiplier(mods(new RetiredRhythmicMod()), 300), Is.EqualTo(1.10).Within(1e-12)); // pp[f.rhythmic_multiplier]
-                // Literate rides along contributing exactly nothing since backlog 144 (see the
-                // Literate test above), so this pair is worth what Rhythmic alone is.
-                Assert.That(PerformancePoints.ModMultiplier(mods(new RetiredRhythmicMod(), new TypeBeatModLiterate()), 300),
-                    Is.EqualTo(1.100).Within(1e-12)); // pp[f.mod_multiplier(["RH", "LT"], 300)]
+                Assert.That(PerformancePoints.ModMultiplier(mods(new RetiredRhythmicMod()), 300), Is.EqualTo(1.0).Within(1e-12));
+                // Priced exactly as an acronym this table has never heard of, which is what it now
+                // is, and stacked with a mod that IS priced only that mod's value survives.
+                Assert.That(PerformancePoints.ModMultiplier(mods(new RetiredRhythmicMod(), new TypeBeatModNoFail()), 300),
+                    Is.EqualTo(PerformancePoints.ModMultiplier(mods(new TypeBeatModNoFail()), 300)).Within(1e-12));
             });
         }
 
         /// <summary>
-        /// The other half of the same fact: the ruleset no longer OFFERS Rhythmic, so no new play
-        /// can earn the multiplier the test above keeps alive. Asserted on the acronym rather than
-        /// on the type, because the type is gone.
+        /// The other half of the same fact: the ruleset no longer OFFERS Rhythmic, so the only
+        /// thing the acronym can ever reach is a stored row. Asserted on the acronym rather than on
+        /// the type, because the type is gone.
         /// </summary>
         [Test]
         public void ModMultiplier_NoModTheRulesetOffersCarriesTheRhythmicAcronym()
@@ -836,10 +956,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        /// <summary>
+        /// THE MOD MULTIPLIER SCALES THE PRODUCT AND NOT THE COMBO BONUS (backlog 270). It used to
+        /// distribute over the whole of pp, because pp WAS a product; combo is an additive bonus
+        /// now and sits outside every factor, the mod multiplier included, so a modded play is
+        /// <c>product * modMult + bonus</c> and not <c>(product + bonus) * modMult</c>.
+        ///
+        /// <para>That is the one placement mistake the shape invites, so the bonus is subtracted
+        /// out explicitly here rather than being allowed to cancel: putting it inside the product
+        /// would leave every full-combo pin in this file green and only this assertion and the
+        /// WireCompat parity pin red.</para>
+        /// </summary>
         [Test]
-        public void Compute_AppliesTheModMultiplierToTheWholeFormula()
+        public void Compute_AppliesTheModMultiplierToTheProductAndNotToTheComboBonus()
         {
             double bare = PerformancePoints.Compute(3, 300, 5, 0.8, 250, no_mods);
+            // Grouped exactly as Compute groups it: the ratio, then the clamped slope times the
+            // rating above the zero point. A run of 250 on a 300-note 3-star map.
+            double comboBonus = 250.0 / 300.0 * fullComboBonus(3);
+            double bareProduct = bare - comboBonus;
 
             Assert.Multiple(() =>
             {
@@ -848,17 +983,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // typos, so its typo term is exactly 1.0 whatever the power, and the whole
                 // change is max(0, 1 - 5^1.2/300)^10 = 0.97700^10 replacing 0.91667^10. Five misses
                 // is far under the 116-miss cliff on a 300-note map, so this prices comfortably.
-                Assert.That(bare, Is.EqualTo(24.642832).Within(1e-5)); // pp[f.compute(3, 300, 5, 0.8, 250)]
+                Assert.That(bare, Is.EqualTo(50.424483).Within(1e-5)); // pp[f.compute(3, 300, 5, 0.8, 250)]
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModNoFail())),
-                    Is.EqualTo(bare * 0.90).Within(1e-9)); // pp:const no_fail_multiplier=0.90
+                    Is.EqualTo(bareProduct * 0.90 + comboBonus).Within(1e-9)); // pp:const no_fail_multiplier=0.90
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModLegacyFletcher())),
-                    Is.EqualTo(bare * 0.90).Within(1e-9)); // pp:const fletcher_multiplier=0.90
+                    Is.EqualTo(bareProduct * 0.90 + comboBonus).Within(1e-9)); // pp:const fletcher_multiplier=0.90
                 // Literate does not reach this function at all any more: it moves the star rating
                 // that was passed IN, not the multiplier applied here (backlog 144).
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModLiterate())),
                     Is.EqualTo(bare).Within(1e-9));
                 Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModFlashlight())),
-                    Is.EqualTo(bare * PerformancePoints.FlashlightMultiplier(300)).Within(1e-9));
+                    Is.EqualTo(bareProduct * PerformancePoints.FlashlightMultiplier(300) + comboBonus).Within(1e-9));
+
+                // And the mistake stated as its own assertion: distributing the multiplier over the
+                // BONUS as well would land 10% of the bonus lower here, which is 2.08 pp and far
+                // outside the tolerance above.
+                Assert.That(PerformancePoints.Compute(3, 300, 5, 0.8, 250, mods(new TypeBeatModNoFail())),
+                    Is.Not.EqualTo(bare * 0.90).Within(1e-9)); // pp:const no_fail_multiplier=0.90
             });
         }
 
@@ -954,7 +1095,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // docs/pp.md move with it. v20 = the backlog-265 removal of the Half Time mirror
             // multiplier: no constant and no term moves, a whole FACTOR leaves the product, so every
             // stored base-rate Half Time row is repriced upwards and nothing else moves at all.
-            Assert.That(PerformancePoints.VERSION, Is.EqualTo(20)); // pp:version
+            Assert.That(PerformancePoints.VERSION, Is.EqualTo(21)); // pp:version
         }
 
         #endregion

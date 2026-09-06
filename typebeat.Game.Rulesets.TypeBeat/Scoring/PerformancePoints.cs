@@ -16,11 +16,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     ///
     /// <code>
     /// pp = 12.4 · SR_eff^2.00
-    ///      · max(0, 1 − miss^1.2/notes)^10                   cleanliness
-    ///      · max(0, 1 − typos^1.2/(notes+typos))^4           typos
-    ///      · acc^1.80 · 1/(1 + e^(−(acc − 0.80)/0.025))      timing quality
-    ///      · (ln(1 + 9.0·maxcombo/notes)/ln(1 + 9.0))^2.50   combo
+    ///      · max(0, 1 − miss^1.2/notes)^10                  cleanliness
+    ///      · max(0, 1 − typos^1.2/(notes+typos))^4          typos
+    ///      · acc^1.80 · 1/(1 + e^(−(acc − 0.80)/0.025))     timing quality
     ///      · modMult
+    ///      + maxcombo/notes · max(0, 12.5·(SR_eff − 1.0))   combo bonus
     /// </code>
     ///
     /// <para>
@@ -132,6 +132,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// </para>
     ///
     /// <para>
+    /// COMBO IS AN ADDITIVE BONUS AND NOT A FACTOR OF THE PRODUCT (backlog 270). Every generation
+    /// from v1 to v20 multiplied the whole play by a combo term, so a broken run scaled the core
+    /// pp DOWN; from v12 that term was a log-bent ratio raised to 2.50, tuned so the loss read as
+    /// roughly the combo's face value. It is now <c>maxcombo/notes · max(0, combo_bonus_slope ·
+    /// (SR_eff − combo_bonus_zero))</c>, ADDED to the finished product (see
+    /// <see cref="combo_bonus_slope"/>): a play keeps its core pp whatever its longest run was,
+    /// and a full combo collects the whole of a bonus that is worth 25 pp at 3 stars, 50 at 5 and
+    /// 75 at 7.
+    /// </para>
+    ///
+    /// <para>
     /// SR_eff is the map's star rating AT THE PLAY'S CLOCK RATE AND ON THE MAP ITS CONVERSION MODS
     /// PRODUCED, never a base rating with a flat bonus bolted on: anything that moves the difficulty
     /// is priced exclusively through the recomputed star rating, so nothing double-counts. Only the
@@ -159,7 +170,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// place in this file where a rate was priced by anything but the rating, it made one rate a
     /// function of all three of a map's ratings (so the server could not price an HT play until
     /// <c>sr_dt</c> was stored), and a degenerate <c>sr_dt</c> zeroed an otherwise honest play. If
-    /// Half Time ever reads as underpriced again the fix belongs in the strain model behind the
+    /// Half Time ever reads as underpriced again the fix belongs in the feats model behind the
     /// 0.75x rating, never in a second multiplier here. So the claim docs/pp.md has made since task
     /// 61, that a rate is priced EXCLUSIVELY through SR_eff, is now literally true of both rates.
     /// </para>
@@ -348,9 +359,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// moves at all. On the server it also RELAXES a data dependency: an HT play needed both
         /// <c>sr_ht</c> and <c>sr_dt</c> and now needs only <c>sr_ht</c>. A Literate HT play
         /// follows without a branch of its own.</item>
+        /// <item>v21 = the backlog-270 combo rewrite and mod-table edit. COMBO STOPS BEING A FACTOR: the
+        /// log-bent multiplier (combo_log_shape 9.0, combo_exponent 2.50) is deleted and a BONUS of
+        /// maxcombo/notes * max(0, 12.5 * (SR_eff - 1.0)) is ADDED to the finished product, outside
+        /// every factor including modMult. A non-FC play therefore keeps its core pp instead of
+        /// being crushed by a term that had already been charged for by the miss and typo terms,
+        /// and a full combo earns 25 pp at 3 stars, 50 at 5 and 75 at 7. The bonus is deliberately
+        /// NOT gated by accuracy: combo does not break on an off-time press, so a full-combo run at
+        /// 69 percent collects all of it, and gating it would move top-20 totals by only 1 to 4
+        /// percent. MOD TABLE: the dead RH entry (rhythmic_multiplier 1.10) is deleted, which
+        /// reprices the one stored Rhythmic row 10 percent down; recite_multiplier 1.07 (RE) and
+        /// fletcher_strict_multiplier 1.02 (FC) are added, both mods whose gameplay change no star
+        /// rating can see. Every stored row except a zero-combo one is repriced, which is what
+        /// forces the bump.</item>
         /// </list>
         /// </summary>
-        public const int VERSION = 20;
+        public const int VERSION = 21;
 
         // ---- formula constants (docs/pp.md) ----
 
@@ -378,7 +402,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         private const double count_power = 1.2;
 
         private const double accuracy_exponent = 1.80;
-        private const double combo_exponent = 2.50;
 
         /// <summary>
         /// WHERE THE ACCURACY CLIFF SITS (backlog 227). The timing term is
@@ -397,8 +420,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <para>THE KNEE IS EXACTLY 0.5 AT <c>acc == acc_knee</c> AT EVERY WIDTH, since the argument
         /// to the exponential is then exactly 0 and <c>1/(1 + exp(0))</c> is <c>1/2</c>. So a play
         /// sitting on the knee is priced identically across any retune of the width, and the width
-        /// repositions only what sits either side of it, exactly as <see cref="combo_log_shape"/>
-        /// leaves a full combo alone.</para>
+        /// repositions only what sits either side of it, exactly as
+        /// <see cref="combo_bonus_slope"/> leaves a play with no combo at all alone.</para>
         ///
         /// <para>IT CANNOT REORDER TWO PLAYS. The logistic is strictly increasing in accuracy and so
         /// is <c>acc^accuracy_exponent</c>, so their product is too: the knee RESPREADS the accuracy
@@ -419,31 +442,51 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// generation behind declares neither constant and prices exactly that, which is what
         /// <c>tools/pp.py</c> reads an absent declaration as. It is a real branch in
         /// <see cref="AccuracyKnee"/> rather than a limit of the formula, which is where it differs
-        /// from <see cref="combo_log_shape"/>'s 0: a logistic has no limit that returns 1.0 (a width
+        /// from <see cref="combo_bonus_slope"/>'s 0: a slope of 0 really does make the bonus
+        /// exactly 0 for every play, where a logistic has no width that returns 1.0 (a width
         /// tending to 0 gives a STEP, and 0/0 at the knee itself is NaN), so only the branch makes
         /// the sentinel true of the arithmetic as well as of the tool.</para>
         /// </summary>
         private const double acc_knee_width = 0.025;
 
         /// <summary>
-        /// The CURVATURE of the combo base (backlog 131). The term is
-        /// <c>(ln(1 + combo_log_shape·r)/ln(1 + combo_log_shape))^combo_exponent</c> over
-        /// <c>r = maxcombo/notes</c>: the ratio is bent through a log BEFORE the exponent reaches
-        /// it, where every generation through v11 raised the plain ratio.
+        /// WHAT A FULL COMBO IS WORTH, PER STAR (backlog 270). The combo bonus is
+        /// <c>maxcombo/notes · max(0, combo_bonus_slope · (SR_eff − combo_bonus_zero))</c>, ADDED
+        /// to the finished product rather than multiplied into it, so this constant is a number of
+        /// pp per star rather than a fraction of anything: at 12.5 a full combo is worth 25 pp at
+        /// 3 stars, 50 at 5 and 75 at 7, and a play with half the map's combo collects half of
+        /// that.
         ///
-        /// <para>A FULL COMBO IS EXACTLY 1.0 AT EVERY VALUE OF THIS CONSTANT, since
-        /// <c>ln(1 + k)/ln(1 + k)</c> is 1 and 1 raised to anything is 1. So an FC is priced
-        /// bit-identically across any retune of it and the constant repositions only what sits
-        /// BELOW a full combo, exactly as the v10 and v11 combo retunes did.</para>
+        /// <para>WHY ADDITIVE. Through v20 combo was a FACTOR, so a broken run scaled the whole
+        /// play down and stacked on top of the two penalty terms that had already charged for the
+        /// flubs that broke it. Non-FC plays were crushed: a real 69% run that never held a long
+        /// streak priced at almost nothing however hard the map was. As a bonus, the core pp of a
+        /// play is whatever its difficulty, cleanliness, typos and accuracy say it is, and a long
+        /// run adds to it.</para>
         ///
-        /// <para>THE BEND RUNS OPPOSITE TO THE EXPONENT, which is why it is worth having: the log
-        /// base is CONCAVE (it lifts every ratio under 1) where <c>^2.50</c> is convex. At 9 the two
-        /// very nearly cancel over the range real plays live in, so the term reads as roughly LINEAR
-        /// in the combo ratio down to about 0.7 (0.90 gives 0.9007, 0.80 gives 0.7983, 0.75 gives
-        /// 0.7458). A broken combo therefore costs roughly its FACE VALUE, where under
-        /// <c>^2.50</c> alone losing 10% of a combo cost 23% of the term.</para>
+        /// <para>THE BONUS IS DELIBERATELY NOT GATED BY ACCURACY, and the consequence was measured
+        /// rather than overlooked: combo does not break on an off-time press, so a full-combo run
+        /// at 69% accuracy collects the whole bonus. Gating it by
+        /// <c>acc^accuracy_exponent · AccuracyKnee(acc)</c> was tried in the sandbox and moves
+        /// top-20 totals by 1 to 4%, which is not worth making the bonus a second accuracy term;
+        /// the spec is a naive fraction of a naive bonus.</para>
+        ///
+        /// <para>A SLOPE OF ZERO MEANS THERE IS NO BONUS, exactly, for every play and every
+        /// rating, which is what <c>tools/pp.py</c> reads an absent declaration of either constant
+        /// as. That needs no branch here: <c>0 · (SR_eff − z)</c> is 0 and <c>max(0, 0)</c> is 0,
+        /// so the sentinel is a value of the arithmetic and not merely a reading of it.</para>
         /// </summary>
-        private const double combo_log_shape = 9.0;
+        private const double combo_bonus_slope = 12.5;
+
+        /// <summary>
+        /// THE RATING BELOW WHICH A FULL COMBO IS WORTH NOTHING (backlog 270): the bonus is
+        /// <c>max(0, combo_bonus_slope · (SR_eff − combo_bonus_zero))</c>, so it opens at
+        /// <c>SR_eff = combo_bonus_zero</c> and grows linearly above it. The <c>Math.Max</c> is
+        /// load-bearing and not defensive: a real map can rate below 1.0 (the feats model gives a
+        /// map with no window long enough to score its length term alone), and without the clamp
+        /// such a play would be handed a NEGATIVE bonus that a long run made worse.
+        /// </summary>
+        private const double combo_bonus_zero = 1.0;
 
         /// <summary>
         /// The pivot of <see cref="FlashlightMultiplier"/>'s log bonus: 100 notes is where it is
@@ -455,21 +498,42 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         // ---- mod multipliers (docs/pp.md) ----
 
+        // THE NUMBERS IN THIS BLOCK ARE CHOSEN, NOT DERIVED FROM THE SCORE MULTIPLIERS. Two of
+        // them (recite_multiplier and fletcher_strict_multiplier) happen to equal the mod's score
+        // multiplier because the user picked the same number twice, and that is a coincidence
+        // rather than a rule: Easy is 0.75 here against 0.5x score, Hard Rock 1.25 against 1.10x,
+        // No Fail 0.90 against 0.5x and Flashlight a length-scaled bonus against a flat 1.12x.
+        // Never read one table off the other.
+        //
+        // Rhythmic (RH) had an entry here from backlog 135 until backlog 270, at 1.10. The mod
+        // itself went in backlog 147, so no client can send the acronym and exactly one stored row
+        // still carries it; that row reprices 10% down at v21, which is a VERSION bump doing what
+        // a VERSION bump is for. The XMLDoc that argued against this deletion cited
+        // ModMultiplier.TotalScoreCeiling, which is a DIFFERENT FILE (the server's
+        // Scoring/ModMultiplier.cs, the score-side table): that table still prices "RH" at 1.10
+        // and is untouched here, so the row's stored total stays under its ceiling and stays
+        // ranked.
+
         /// <summary>
-        /// Rhythmic (backlog 135): the play was judged on the millisecond ladder rather than on the
-        /// character distance from the playhead, which was the tighter pair on any map slower than
-        /// 10 characters per second, so it was paid as the difficulty increase it was.
-        ///
-        /// <para>THE MOD IS GONE (backlog 147 made the millisecond ladder the default again and
-        /// removed it from the client), and this constant deliberately is not. RH shipped, so rows
-        /// carrying it exist, and pp is recomputed from a stored row's mods every time
-        /// <c>PpBackfill</c> or the recalc tool runs. Delete the constant and every one of those
-        /// rows silently reprices 10% down, and, worse on the server side, its
-        /// <c>ModMultiplier.TotalScoreCeiling</c> twin would put the row's own stored total above
-        /// its ceiling and store it UNRANKED. Pricing an acronym no client can send costs nothing:
-        /// no new play can reach this arm.</para>
+        /// Recite (backlog 236): the lyric text is hidden until the line is sung, so the play is
+        /// typed from listening rather than from reading ahead. Nothing about the map changes, so
+        /// there is no converted rating to price it through and it takes a flat term, exactly as
+        /// Easy and Hard Rock do.
         /// </summary>
-        private const double rhythmic_multiplier = 1.10;
+        private const double recite_multiplier = 1.07;
+
+        /// <summary>
+        /// Fletcher (backlog 208): the caret is PINNED back to the line the song is on, which is
+        /// the reverse of the mod's original meaning and the harder half of it, since the unpinned
+        /// caret became the default for every play. The cells, their target times and the map's
+        /// pace are identical, so like Easy and Hard Rock it is priced flat here.
+        ///
+        /// <para>DISTINCT FROM <see cref="fletcher_multiplier"/>, which is the retired <c>FT</c>
+        /// acronym at 0.90: <c>FT</c> is a <see cref="ModType.System"/> mod nobody can select,
+        /// kept resolvable so its stored rows keep their price, and it means the OPPOSITE thing
+        /// (an unpinned caret, back when that was the mod rather than the default).</para>
+        /// </summary>
+        private const double fletcher_strict_multiplier = 1.02;
 
         /// <summary>
         /// Easy (backlog 149): the play was judged on DOUBLED windows, so every character was twice
@@ -806,8 +870,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                         multiplier *= hard_rock_multiplier;
                         break;
 
-                    case "RH":
-                        multiplier *= rhythmic_multiplier;
+                    case "RE":
+                        multiplier *= recite_multiplier;
+                        break;
+
+                    case "FC":
+                        multiplier *= fletcher_strict_multiplier;
                         break;
 
                     case "FT":
@@ -922,17 +990,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // exactly 0.5 at accuracy == acc_knee and strictly increasing everywhere, so it can
             // respread this axis but never reorder two plays on it.
             double timing = Math.Pow(accuracy, accuracy_exponent) * AccuracyKnee(accuracy);
-            // The longest run as a fraction of the map, bent through a log before the exponent
-            // reaches it (see combo_log_shape). NO CLAMP IS NEEDED HERE and none would bite:
-            // maxCombo is already clamped into [0, notes] above, so comboRatio is in [0, 1], the
-            // log's argument in [1, 1 + combo_log_shape] and the base in [0, 1]. A FULL COMBO IS
-            // EXACTLY 1.0, since the numerator and denominator are then the same Math.Log call on
-            // the same value, so an FC is priced bit-identically across any retune of the shape.
-            double comboRatio = (double)maxCombo / notes;
-            double comboBase = Math.Log(1.0 + combo_log_shape * comboRatio) / Math.Log(1.0 + combo_log_shape);
-            double combo = Math.Pow(comboBase, combo_exponent);
 
-            double pp = scale * difficulty * cleanliness * typoPenalty * timing * combo * ModMultiplier(mods, notes);
+            // The longest run as a fraction of the map, times what a full combo is worth at this
+            // rating. NO CLAMP IS NEEDED ON THE RATIO and none would bite: maxCombo is already
+            // clamped into [0, notes] above, so comboRatio is in [0, 1]. The Math.Max IS
+            // load-bearing, on the other side: a rating below combo_bonus_zero would otherwise pay
+            // a NEGATIVE bonus that a longer run made worse (see combo_bonus_zero). At a slope of
+            // 0 this is exactly 0 for every play, which is the no-bonus sentinel tools/pp.py reads
+            // an absent declaration as.
+            double comboRatio = (double)maxCombo / notes;
+            double comboBonus = comboRatio * Math.Max(0.0, combo_bonus_slope * (starRating - combo_bonus_zero));
+
+            // THE BONUS SITS OUTSIDE THE WHOLE PRODUCT, ModMultiplier INCLUDED (backlog 270). It
+            // is not a factor and it is not scaled by one: a mod stack moves the core pp of the
+            // play and leaves what the run itself is worth alone. Putting it inside the product,
+            // or before the mod multiplier, is the one placement mistake this shape invites, and
+            // it is what PerformancePointsParityTest's lossy non-FC pin exists to catch.
+            double pp = scale * difficulty * cleanliness * typoPenalty * timing * ModMultiplier(mods, notes)
+                        + comboBonus;
 
             return double.IsFinite(pp) && pp > 0 ? pp : 0;
         }
