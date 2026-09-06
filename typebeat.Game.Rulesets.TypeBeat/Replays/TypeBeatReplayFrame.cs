@@ -46,7 +46,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// bit 11 <see cref="LosslessSkipReclaim"/> (whether a word given up by accident and then typed
     /// out in full cost the run nothing, backlog 260) and bit 12
     /// <see cref="FoldsDisplacedClaim"/> (whether a break taking the claim off an older break folded
-    /// that claim into its own rather than discarding it, backlog 262).
+    /// that claim into its own rather than discarding it, backlog 262) and bit 13
+    /// <see cref="UnhalvedHardRockWindows"/> (whether this run's Hard Rock left the judgement
+    /// windows at their normal width instead of halving them, backlog 264).
     /// Other mods
     /// (Literate/Mashing/rate) travel in the score itself and need no frames.
     ///
@@ -66,9 +68,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// space-skips-word, bit 2 = syllable-span timing, bit 3 = wrong-input-on-word-gaps, bit 4 =
     /// strict-spaces, bit 5 = flexible-lines, bit 6 = char-timed-stretch, bit 7 = bounded-rush,
     /// bit 8 = first-char-timing, bit 9 = wall-clock-frames, bit 10 = back-dated-seal-break,
-    /// bit 11 = lossless-skip-reclaim, bit 12 = displaced-claim-fold; only
+    /// bit 11 = lossless-skip-reclaim, bit 12 = displaced-claim-fold,
+    /// bit 13 = unhalved-hard-rock-windows; only
     /// meaningful on CONFIG frames),
-    /// ButtonState = None, time = the integral frame time. A flags word of at most 8191 is as harmless
+    /// ButtonState = None, time = the integral frame time. A flags word of at most 16383 is as harmless
     /// to the encoder as the single bit was, and each new bit is appended ABOVE the existing ones,
     /// never renumbered: bits 0 to 4 keep their meaning and their positions untouched, so every
     /// replay already on disk decodes identically and simply reads false for the newer bits. All
@@ -81,10 +84,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// POSITION PAIR (256, -500) exactly, and a CONFIG frame's MouseX is 0x00 with a MouseY that is
     /// never negative, so neither coordinate can match whatever the flags word grows to. The
     /// sentinels sit at 0x00, 0x08 and 0x0A, below every printable mark, so nothing
-    /// collides. Bit 12 pushes the word to 4096 and the ceiling to 8191, and changes nothing about
-    /// that argument, which never depended on the word's size: the strip matches the POSITION PAIR
-    /// (256, -500) exactly, and a CONFIG frame's MouseX is 0x00 with a MouseY that is never
-    /// negative.</para>
+    /// collides. Bit 12 pushed the word to 4096 and the ceiling to 8191, and bit 13 pushes them to
+    /// 8192 and 16383; neither changes anything about that argument, which never depended on the
+    /// word's size: the strip matches the POSITION PAIR (256, -500) exactly, and a CONFIG frame's
+    /// MouseX is 0x00 with a MouseY that is never negative.</para>
     ///
     /// <para><b>The WALL-CLOCK axis (bit 9, backlog 256).</b> Ordinarily a frame's time is a lyric
     /// time and can be fed to the engine as it stands. Under the Puppeteer mod the song's position
@@ -320,6 +323,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool FoldsDisplacedClaim;
 
         /// <summary>
+        /// The engine's Hard Rock window era at record time (see
+        /// <see cref="Gameplay.TypingEngine.UnhalvedHardRockWindows"/>). Only meaningful on
+        /// <see cref="CONFIG"/> frames, and the ERA carrier for backlog 264: the live client records
+        /// it true for every stack, and every replay stored before it existed carries the bit clear,
+        /// so a Hard Rock run its player made against HALVED judgement windows (backlog 150) is still
+        /// re-derived against them, which is the accuracy, the <c>total_score</c> and the rank that
+        /// run was submitted with.
+        ///
+        /// <para>Inert without Hard Rock on the score, the way bits 6 and 8 are inert under it: the
+        /// mod fact travels on the score rather than in the frames, so
+        /// <c>ReplayEngineFeed.Apply</c> pairs this bit with
+        /// <see cref="Gameplay.TypingEngine.HardRockFromMod"/>, the same two-source shape bit 5 has.
+        /// It is recorded SET for every live stack regardless, the uniform convention every era bit
+        /// since bit 3 follows, so no reader has to work out which stacks stamped it.</para>
+        ///
+        /// <para>Judgement relevant in the window sense, which no bit since bit 8 has been: it moves
+        /// no caret, no cell state and no keystroke's landing place, but it decides the TIER every
+        /// press in the run is classified as, so a stored row re-derived under the wrong arm comes
+        /// back with a different accuracy, a different <c>total_score</c> and possibly a different
+        /// rank.</para>
+        /// </summary>
+        public bool UnhalvedHardRockWindows;
+
+        /// <summary>
         /// The ANCHOR carried by a bit-9 CONFIG frame: the track position the tape was started at,
         /// which is also the origin of the wall axis every other frame in the run is stamped on. It
         /// is simply this frame's own <see cref="ReplayFrame.Time"/>, named here because that is a
@@ -352,8 +379,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// older call sites keep meaning what they always did (bit clear = no word skipping, classic
         /// point-target judgement, a wrong key on a word gap rejected, a gap typo carrying the caret
         /// forward, a mid-word space rejected, a mashed stretch paid across its whole syllable span,
-        /// a caret pinned to the playhead, an unbounded rush onto the next line and a syllable's
-        /// first character paid anywhere in its span), which is also
+        /// a caret pinned to the playhead, an unbounded rush onto the next line, a syllable's
+        /// first character paid anywhere in its span and a Hard Rock run judged against halved
+        /// windows), which is also
         /// exactly how a replay recorded before each setting existed decodes.
         ///
         /// <para>The PARAMETER order is append-only and therefore does NOT track bit order:
@@ -364,11 +392,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <paramref name="firstCharTiming"/> (bit 8) after that,
         /// <paramref name="wallClockFrames"/> (bit 9) after that again, and
         /// <paramref name="backDatedSealBreak"/> (bit 10) after that,
-        /// <paramref name="losslessSkipReclaim"/> (bit 11) after that again, and
-        /// <paramref name="foldsDisplacedClaim"/> (bit 12) last. Pass the newer eight by
+        /// <paramref name="losslessSkipReclaim"/> (bit 11) after that again,
+        /// <paramref name="foldsDisplacedClaim"/> (bit 12) after that, and
+        /// <paramref name="unhalvedHardRockWindows"/> (bit 13) last. Pass the newer nine by
         /// name.</para>
         /// </summary>
-        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false, bool flexibleLines = false, bool boundedRush = false, bool firstCharTiming = false, bool wallClockFrames = false, bool backDatedSealBreak = false, bool losslessSkipReclaim = false, bool foldsDisplacedClaim = false) => new TypeBeatReplayFrame(time, CONFIG)
+        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false, bool flexibleLines = false, bool boundedRush = false, bool firstCharTiming = false, bool wallClockFrames = false, bool backDatedSealBreak = false, bool losslessSkipReclaim = false, bool foldsDisplacedClaim = false, bool unhalvedHardRockWindows = false) => new TypeBeatReplayFrame(time, CONFIG)
         {
             AllowWrongInput = allowWrongInput,
             SpaceSkipsWord = spaceSkipsWord,
@@ -383,6 +412,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             BackDatedSealBreak = backDatedSealBreak,
             LosslessSkipReclaim = losslessSkipReclaim,
             FoldsDisplacedClaim = foldsDisplacedClaim,
+            UnhalvedHardRockWindows = unhalvedHardRockWindows,
         };
 
         /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>
@@ -439,6 +469,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// in full cost the run nothing (backlog 262).</summary>
         private const int flag_displaced_claim_fold = 4096;
 
+        /// <summary>Bit 13 of the CONFIG frame's flags word: this run's Hard Rock left the judgement
+        /// windows at their normal width instead of halving them (backlog 264).</summary>
+        private const int flag_unhalved_hard_rock_windows = 8192;
+
         public void FromLegacy(LegacyReplayFrame currentFrame, IBeatmap beatmap, ReplayFrame? lastFrame = null)
         {
             Character = (char)(int)(currentFrame.MouseX ?? 0);
@@ -458,6 +492,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             BackDatedSealBreak = (flags & flag_back_dated_seal_break) != 0;
             LosslessSkipReclaim = (flags & flag_lossless_skip_reclaim) != 0;
             FoldsDisplacedClaim = (flags & flag_displaced_claim_fold) != 0;
+            UnhalvedHardRockWindows = (flags & flag_unhalved_hard_rock_windows) != 0;
         }
 
         public LegacyReplayFrame ToLegacy(IBeatmap beatmap) =>
@@ -476,7 +511,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             | (WallClockFrames ? flag_wall_clock_frames : 0)
             | (BackDatedSealBreak ? flag_back_dated_seal_break : 0)
             | (LosslessSkipReclaim ? flag_lossless_skip_reclaim : 0)
-            | (FoldsDisplacedClaim ? flag_displaced_claim_fold : 0);
+            | (FoldsDisplacedClaim ? flag_displaced_claim_fold : 0)
+            | (UnhalvedHardRockWindows ? flag_unhalved_hard_rock_windows : 0);
 
         /// <summary>
         /// Never equivalent: every frame is a discrete keystroke. Two identical characters at the

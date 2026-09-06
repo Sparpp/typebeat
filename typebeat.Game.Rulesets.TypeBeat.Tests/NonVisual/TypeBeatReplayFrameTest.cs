@@ -143,10 +143,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>The bits are at the positions the format names, so the encoded word is readable
         /// as a number: a replay of live play today (wrong input allowed, no word skipping, syllable
         /// judgement, gap typos typed through, strict spaces, char-timed stretches, flexible lines,
-        /// the bounded rush, first-char timing, the back-dated seal break, the lossless skip reclaim
-        /// and the displaced-claim fold) is exactly
-        /// 1 | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 1024 | 2048 | 4096 = 7677. Without bit 12 (backlog
-        /// 262) that is the 3581 of the day before it, and without
+        /// the bounded rush, first-char timing, the back-dated seal break, the lossless skip reclaim,
+        /// the displaced-claim fold and the unhalved Hard Rock windows) is exactly
+        /// 1 | 4 | 8 | 16 | 32 | 64 | 128 | 256 | 1024 | 2048 | 4096 | 8192 = 15869. Without bit 13
+        /// (backlog 264) that is the 7677 of the day before it. Without bit 12 (backlog
+        /// 262) that is the 3581 of the day before THAT, and without
         /// bit 11 (backlog 260) the 1533 of the day before THAT. Without bit 10 (backlog 259) that is
         /// the 509 a replay carried the day before it, and every bit below 512 set is 511. Take bit 8 back
         /// off and it is the 253 a replay carried the day before backlog 247; then bit 7 for the
@@ -156,8 +157,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void TheFlagsWordIsExactlyTheDocumentedBitPositions()
         {
-            // The word a live stack writes today: bit 12 (backlog 262) on top of the 3581 of the day
+            // The word a live stack writes today: bit 13 (backlog 264) on top of the 7677 of the day
             // before it, and bit 9 clear, that one being the Puppeteer frame axis rather than a rule.
+            Assert.AreEqual(15869f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, spaceSkipsWord: false, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true, boundedRush: true, firstCharTiming: true, backDatedSealBreak: true, losslessSkipReclaim: true, foldsDisplacedClaim: true, unhalvedHardRockWindows: true).ToLegacy(dummy_beatmap).MouseY);
+            Assert.AreEqual(16383f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, spaceSkipsWord: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true, boundedRush: true, firstCharTiming: true, wallClockFrames: true, backDatedSealBreak: true, losslessSkipReclaim: true, foldsDisplacedClaim: true, unhalvedHardRockWindows: true).ToLegacy(dummy_beatmap).MouseY);
+
             Assert.AreEqual(7677f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, spaceSkipsWord: false, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true, boundedRush: true, firstCharTiming: true, backDatedSealBreak: true, losslessSkipReclaim: true, foldsDisplacedClaim: true).ToLegacy(dummy_beatmap).MouseY);
             Assert.AreEqual(8191f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, spaceSkipsWord: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true, boundedRush: true, firstCharTiming: true, wallClockFrames: true, backDatedSealBreak: true, losslessSkipReclaim: true, foldsDisplacedClaim: true).ToLegacy(dummy_beatmap).MouseY);
 
@@ -293,6 +297,47 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.AreEqual((flags & 512) != 0, stored.WallClockFrames);
                 Assert.AreEqual((flags & 1024) != 0, stored.BackDatedSealBreak);
                 Assert.AreEqual((flags & 2048) != 0, stored.LosslessSkipReclaim);
+            }
+        }
+
+        /// <summary>
+        /// BIT 13 (backlog 264, value 8192): this run's Hard Rock left the judgement windows at their
+        /// normal width. The same legacy round trip and the same append-only statement every era bit
+        /// before it makes, and the sharpest reason yet for making it: every Hard Rock row already on
+        /// the leaderboards was played against HALVED windows, and re-deriving one at the live width
+        /// would hand its player an accuracy, a total and possibly a rank they never earned.
+        /// </summary>
+        [Test]
+        public void UnhalvedHardRockWindowsIsBitThirteenAndLeavesEveryOlderBitWhereItWas()
+        {
+            var legacy = TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: false, unhalvedHardRockWindows: true).ToLegacy(dummy_beatmap);
+
+            Assert.AreEqual(8192f, legacy.MouseY, "bit 13 is 8192 and nothing else may be set");
+            Assert.AreEqual(0f, legacy.MouseX, "a CONFIG frame's MouseX is still the NUL sentinel");
+
+            var decoded = new TypeBeatReplayFrame();
+            decoded.FromLegacy(legacy, dummy_beatmap);
+
+            Assert.IsTrue(decoded.UnhalvedHardRockWindows);
+            Assert.IsFalse(decoded.AllowWrongInput);
+            Assert.IsFalse(decoded.FoldsDisplacedClaim);
+            Assert.IsFalse(decoded.LosslessSkipReclaim);
+            Assert.IsFalse(decoded.BackDatedSealBreak);
+            Assert.IsFalse(decoded.WallClockFrames);
+
+            // Every word a stored replay can carry: the new bit reads false and the old ones do not move.
+            foreach (int flags in new[] { 0, 1, 4, 256, 509, 511, 512, 1024, 1533, 2047, 2048, 3581, 4095, 4096, 7677, 8191 })
+            {
+                var stored = new TypeBeatReplayFrame();
+                stored.FromLegacy(new LegacyReplayFrame(0, (float)TypeBeatReplayFrame.CONFIG, flags, ReplayButtonState.None), dummy_beatmap);
+
+                Assert.IsFalse(stored.UnhalvedHardRockWindows, $"a stored replay with flags {flags} was played against halved Hard Rock windows");
+                Assert.AreEqual((flags & 1) != 0, stored.AllowWrongInput);
+                Assert.AreEqual((flags & 256) != 0, stored.FirstCharTiming);
+                Assert.AreEqual((flags & 512) != 0, stored.WallClockFrames);
+                Assert.AreEqual((flags & 1024) != 0, stored.BackDatedSealBreak);
+                Assert.AreEqual((flags & 2048) != 0, stored.LosslessSkipReclaim);
+                Assert.AreEqual((flags & 4096) != 0, stored.FoldsDisplacedClaim);
             }
         }
 

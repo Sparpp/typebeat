@@ -1189,10 +1189,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// The classic arm, which is what Hard Rock plays under since backlog 180: the era flag off
-        /// keeps the point-target presses byte for byte, and a classic engine at HR's halved
-        /// windows still judges every one of them Great on a delta of zero (bar the integral
-        /// rounding of a fractional target). Autoplay must be perfect in BOTH eras, not just the
-        /// one it was last taught.
+        /// keeps the point-target presses byte for byte, and a classic engine at the HALVED windows
+        /// every stored Hard Rock row was graded against still judges every one of them Great on a
+        /// delta of zero (bar the integral rounding of a fractional target). Autoplay must be perfect
+        /// in BOTH eras, not just the one it was last taught.
+        ///
+        /// <para>The halved scale is the tighter of the two ladders a Hard Rock run can be judged on
+        /// (backlog 264 left the live one at 1.0), so proving autoplay perfect there proves it
+        /// perfect at normal windows too: the scale is passed explicitly rather than taken from a mod
+        /// because this fixture is about the GENERATOR's era, not about which ladder ships.</para>
         /// </summary>
         [Test]
         public void HardRockEraKeepsTheTargetPressesAndStillPerfects()

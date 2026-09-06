@@ -476,6 +476,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// presses under a ladder they were never graded on. Both application sites do it while the
         /// engine is being built (<c>DrawableTypeBeatRuleset.createEngine</c> for a live play,
         /// <c>TypeBeatReplayScorer.createEngine</c> for a re-judged replay).</para>
+        ///
+        /// <para>NOT the whole of the scale the ladder is built at. Hard Rock's halving (backlog
+        /// 150, retired live by backlog 264 and kept for the runs stored under it) is a SECOND,
+        /// era-gated factor that this property deliberately does not carry: see
+        /// <see cref="UnhalvedHardRockWindows"/> for why it cannot be a multiply here, and
+        /// <c>applyWindowScale</c> for the product the two make.</para>
         /// </summary>
         public double WindowScale
         {
@@ -1015,6 +1021,65 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool FlexibleCaretFromMod { get; set; }
 
+        /// <summary>
+        /// Whether HARD ROCK is on this run's score. The mod fact, and the one thing a CONFIG frame
+        /// cannot say for itself, exactly like <see cref="FlexibleCaretFromMod"/>: a stored run's
+        /// mods travel on the score, not in the frames. Set by BOTH engine factories
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c> and
+        /// <see cref="Scoring.TypeBeatReplayScorer"/>) from the mod list, and read only together
+        /// with <see cref="UnhalvedHardRockWindows"/>, which supplies the era half of the same
+        /// question.
+        ///
+        /// <para>Setting it rebuilds the ladders, so it composes with <see cref="WindowScale"/> in
+        /// either order and needs no ordering rule of its own.</para>
+        /// </summary>
+        public bool HardRockFromMod
+        {
+            get => hardRockFromMod;
+            set
+            {
+                hardRockFromMod = value;
+                applyWindowScale();
+            }
+        }
+
+        /// <summary>
+        /// THE HARD ROCK WINDOW ERA (backlog 264, CONFIG frame bit 13): whether this run's Hard Rock
+        /// left the judgement windows at their NORMAL width. Backlog 150 shipped HR as a halving of
+        /// every window and backlog 180 gave it a second half, the revert to per-character point
+        /// targets (<see cref="SyllableTiming"/> off); stacked, the two made the mod unplayable for
+        /// nearly everyone, so backlog 264 dropped the halving and kept the revert. The rows already
+        /// on the leaderboards were played under BOTH, and this bit is what tells the two apart.
+        ///
+        /// <para>FALSE by default, which is the stored era: every HR row on disk carries the bit
+        /// clear and re-derives on the halved ladder its player was actually graded on. Live play
+        /// sets it TRUE for every stack (<c>DrawableTypeBeatRuleset.createEngine</c>), the uniform
+        /// convention bits 3, 4, 6, 8 and 10 to 12 follow, and it is inert without
+        /// <see cref="HardRockFromMod"/> the way bits 6 and 8 are inert under HR.</para>
+        ///
+        /// <para>WHY AN ASSIGNMENT AND NOT A <c>WindowScale *= 0.5</c>. The CONFIG frame is re-fed on
+        /// every backwards seek (<see cref="Rebuild"/> keeps everything set from outside and
+        /// replays the frames), so a multiply reachable from <c>ReplayEngineFeed.Apply</c> would
+        /// compound: two rewinds and the ladder is a quarter of what the run was played on. Both this
+        /// setter and <see cref="HardRockFromMod"/>'s instead re-run <c>applyWindowScale</c>, which
+        /// multiplies the ladder by an EFFECTIVE scale computed from scratch each time, so feeding
+        /// the same header a hundred times lands on the same ladder as feeding it once.</para>
+        ///
+        /// <para>Judgement relevant in the strongest sense a window bit can be: it decides the TIER
+        /// every press on the run is classified as, and therefore the accuracy, the score and the
+        /// rank. It moves no caret and no cell state, so a re-derivation under the wrong arm is a
+        /// differently valued account of the same fingers rather than a desynchronised one.</para>
+        /// </summary>
+        public bool UnhalvedHardRockWindows
+        {
+            get => unhalvedHardRockWindows;
+            set
+            {
+                unhalvedHardRockWindows = value;
+                applyWindowScale();
+            }
+        }
+
         public event Action<CharJudgement>? CharJudged;
         public event Action<int>? LineActivated;
         public event Action<LineSealResult>? LineSealed;
@@ -1377,6 +1442,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         private double windowScale = 1;
 
+        private bool hardRockFromMod;
+
+        private bool unhalvedHardRockWindows;
+
         private SpaceTimingRule spaceTiming = SpaceTimingRule.Untimed;
 
         /// <summary>
@@ -1505,9 +1574,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// its progress, i.e. everything set from outside after construction: the replay CONFIG bits
         /// (<see cref="AllowWrongInput"/>, <see cref="SpaceSkipsWord"/>,
         /// <see cref="SyllableTiming"/>, <see cref="WrongInputOnWordGaps"/>,
-        /// <see cref="StrictSpaces"/>, <see cref="BackDatedSealBreak"/>), the mod flags
+        /// <see cref="StrictSpaces"/>, <see cref="BackDatedSealBreak"/>,
+        /// <see cref="UnhalvedHardRockWindows"/>), the mod flags
         /// (<see cref="FletcherEnabled"/>, <see cref="MashingEnabled"/>, <see cref="Literate"/>,
-        /// <see cref="CaseSensitive"/>), <see cref="WindowScale"/> and the era rules
+        /// <see cref="CaseSensitive"/>, <see cref="HardRockFromMod"/>),
+        /// <see cref="WindowScale"/> and the era rules
         /// (<see cref="ComboRestore"/>, <see cref="ComboClaim"/>, <see cref="SkipSpaceCredit"/>,
         /// <see cref="SpaceTiming"/>, <see cref="WordSkip"/>, <see cref="OffTime"/>,
         /// <see cref="CorrectionCredit"/>). A rebuild re-judges the same run, not a different one. The CONFIG frame is re-fed anyway, being the
@@ -3260,13 +3331,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             return time - line.Cells[cellIndex].TargetTime;
         }
 
-        /// <summary>Rebuild the per-granularity ladders (and <see cref="Windows"/>) at the current scale.</summary>
+        /// <summary>
+        /// Rebuild the per-granularity ladders (and <see cref="Windows"/>) at the current EFFECTIVE
+        /// scale, which is <see cref="WindowScale"/> times Hard Rock's halving on the runs that were
+        /// played under it (<see cref="HardRockFromMod"/> and <see cref="UnhalvedHardRockWindows"/>).
+        ///
+        /// <para>Recomputed from scratch on every call rather than folded into
+        /// <see cref="WindowScale"/> once, which is the whole point: all three inputs are settable
+        /// after construction and the replay CONFIG frame is re-fed on every backwards seek, so a
+        /// scale that accumulated would compound with each rewind. Here the answer depends only on
+        /// the three current values, so any number of re-feeds is one re-feed.</para>
+        /// </summary>
         private void applyWindowScale()
         {
-            foreach (var granularity in Enum.GetValues<TimingGranularity>())
-                windowsByGranularity[(int)granularity] = SyncWindows.For(granularity).Scaled(windowScale);
+            // Naming the mod costs nothing at runtime: WINDOW_SCALE is a const, so the compiler
+            // inlines the 0.5 and this file keeps its zero-dependency shape. It is named rather than
+            // duplicated so the era constant has exactly one definition.
+            double scale = windowScale * (hardRockFromMod && !unhalvedHardRockWindows ? Mods.TypeBeatModHardRock.WINDOW_SCALE : 1);
 
-            Windows = SyncWindows.For(Beatmap.Granularity).Scaled(windowScale);
+            foreach (var granularity in Enum.GetValues<TimingGranularity>())
+                windowsByGranularity[(int)granularity] = SyncWindows.For(granularity).Scaled(scale);
+
+            Windows = SyncWindows.For(Beatmap.Granularity).Scaled(scale);
         }
 
         /// <summary>

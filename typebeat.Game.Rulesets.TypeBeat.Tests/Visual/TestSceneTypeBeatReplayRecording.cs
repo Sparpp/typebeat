@@ -165,6 +165,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         /// future re-derivation of it grades the run the way the player's fingers were graded. The
         /// mod list is the only difference from
         /// <see cref="TestBackspaceIsRecordedWhenWrongInputIsAllowed"/>.
+        ///
+        /// <para>Backlog 264 end to end as well: the windows are NOT halved any more, so the live
+        /// engine's scale is the plain 1.0 and the frame records bit 13 SET to say which era this run
+        /// belongs to. The mod fact reaches the engine all the same, because the halved era still has
+        /// to be re-derivable for the rows stored under it.</para>
         /// </summary>
         [Test]
         public void TestHardRockRecordsAndReproducesTheClassicEra()
@@ -176,8 +181,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("Hard Rock is live", () => Player.GameplayState.Mods.OfType<TypeBeatModHardRock>().Any());
             AddAssert("the engine judges on point targets", () => !playfield.Engine.SyllableTiming);
-            AddAssert("the halved ladder is applied too", () =>
-                playfield.Engine.WindowScale == TypeBeatModHardRock.WINDOW_SCALE);
+            AddAssert("the windows are no longer halved", () =>
+                playfield.Engine.WindowScale == 1
+                && playfield.Engine.HardRockFromMod
+                && playfield.Engine.UnhalvedHardRockWindows);
 
             AddStep("allow wrong input", () => playfield.Engine.AllowWrongInput = true);
 
@@ -281,6 +288,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && frames[0].FoldsDisplacedClaim
                 && playfield.Engine.FoldsDisplacedClaim);
 
+            // Backlog 264's era bit (flags bit 13), stamped for EVERY stack on the same terms even
+            // though only Hard Rock reads it: a replay written before it exists carries the bit clear
+            // so a stored Hard Rock run is still graded against the halved windows it was played on.
+            AddAssert("config frame records the unhalved Hard Rock windows", () =>
+                frames[0].IsConfig
+                && frames[0].UnhalvedHardRockWindows
+                && playfield.Engine.UnhalvedHardRockWindows);
+
             // The recorded time IS the time the cell was judged at. Under the live rule that no
             // longer reads as "target + delta": 'z' OPENS its syllable, so since backlog 247 its
             // judged delta is the recorded time's distance from the span's start (here equal to the
@@ -322,16 +337,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                     Granularity = TimingGranularity.Word,
                 });
 
-                // The ladder comes from the score's mods, exactly as the headless scorer takes it,
-                // and it is not carried by any frame: only the ERA is.
-                if (!syllableEra)
-                    replayed.WindowScale *= TypeBeatModHardRock.WINDOW_SCALE;
+                // Which MODS the score holds comes from the score, exactly as the headless scorer
+                // takes it, and is not carried by any frame; the window ERA is (bit 13, backlog
+                // 264), and the two together decide the ladder. Under a live Hard Rock run that
+                // means the plain ladder, since the halving is retired, but the pair still has to be
+                // wired or a stored run would re-derive on the wrong one.
+                replayed.HardRockFromMod = !syllableEra;
 
                 foreach (var frame in frames)
                 {
                     if (frame.IsConfig)
                     {
                         replayed.AllowWrongInput = frame.AllowWrongInput;
+                        // Backlog 264: the WINDOW era travels in the same header (bit 13). A fresh
+                        // engine defaults to the halved ladder every stored Hard Rock row was graded
+                        // against, so without this a run recorded today would replay a tier lower.
+                        replayed.UnhalvedHardRockWindows = frame.UnhalvedHardRockWindows;
                         // Backlog 179: the judgement ERA travels in the same header. A fresh engine
                         // defaults to the classic point-target rule, so without this the replayed
                         // deltas would be the ones this run was NOT judged under, which is exactly

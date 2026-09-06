@@ -252,6 +252,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             BackDatedSealBreak = source.BackDatedSealBreak,
             LosslessSkipReclaim = source.LosslessSkipReclaim,
             FoldsDisplacedClaim = source.FoldsDisplacedClaim,
+            UnhalvedHardRockWindows = source.UnhalvedHardRockWindows,
         };
     }
 }

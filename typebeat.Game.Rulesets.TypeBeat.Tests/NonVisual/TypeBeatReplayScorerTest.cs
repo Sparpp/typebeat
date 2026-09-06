@@ -1469,5 +1469,113 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         #endregion
+
+        #region Backlog 264: Hard Rock's halved windows are an era, not a mod arm
+
+        /// <summary>
+        /// A Hard Rock run on the "cake" fixture, as recorded frames. Four presses, every one inside
+        /// the sung span [1000, 3000] and every one off its own point target (1000/1500/2000/2500),
+        /// so the point deltas are 300, 600, 900 and 450. <paramref name="unhalved"/> is the CONFIG
+        /// frame's bit 13, taken through the LEGACY decode with the caret, space and gap-typo bits a
+        /// live stack records, so the era arm is the one a stored .osr really produces.
+        ///
+        /// <para>Bit 2 is CLEAR under both arms, because that is what an HR run has recorded since
+        /// backlog 180: the mod judges on point targets, which is the half backlog 264 kept.</para>
+        /// </summary>
+        private static Replay hardRockRun(bool unhalved)
+        {
+            const int flag_allow_wrong_input = 1;
+            const int flag_wrong_input_on_word_gaps = 8;
+            const int flag_strict_spaces = 16;
+            const int flag_flexible_lines = 32;
+            const int flag_bounded_rush = 128;
+            const int flag_unhalved_hard_rock_windows = 8192;
+
+            int flags = flag_allow_wrong_input | flag_wrong_input_on_word_gaps | flag_strict_spaces
+                        | flag_flexible_lines | flag_bounded_rush
+                        | (unhalved ? flag_unhalved_hard_rock_windows : 0);
+
+            var config = new TypeBeatReplayFrame();
+            config.FromLegacy(new LegacyReplayFrame(0, (float)TypeBeatReplayFrame.CONFIG, flags, ReplayButtonState.None), new Beatmap());
+            config.Time = 0;
+
+            return replay(new List<TypeBeatReplayFrame>
+            {
+                config,
+                new TypeBeatReplayFrame(1300, 'c'), // target 1000: 300 late
+                new TypeBeatReplayFrame(2100, 'a'), // target 1500: 600 late
+                new TypeBeatReplayFrame(2900, 'k'), // target 2000: 900 late
+                new TypeBeatReplayFrame(2950, 'e'), // target 2500: 450 late
+            });
+        }
+
+        /// <summary>
+        /// THE ERA ITSELF, through the scorer, on the same keystrokes and the same mod list. Backlog
+        /// 150 halved every window under Hard Rock and backlog 264 retired that live, so the ladder a
+        /// re-derivation gets cannot come from the acronym: it comes from the run's own header.
+        ///
+        /// <para>Stored (bit 13 clear, the halved ladder: Great [-125, 200], Ok [-300, 500],
+        /// Meh [-600, 1000]): 300 is an Ok, 600 and 900 are Mehs, 450 is an Ok. Live (bit 13 set, the
+        /// normal ladder: Great [-250, 400], Ok [-600, 1000]): 300 is a Great and the other three are
+        /// Oks. Two accounts of the same four presses, and the frame is the only thing that tells
+        /// them apart.</para>
+        /// </summary>
+        [Test]
+        public void AStoredHardRockRunKeepsItsHalvedLadderAndALiveOneJudgesAtNormalWindows()
+        {
+            Mod[] hardRock = { new TypeBeatModHardRock() };
+
+            var stored = score(cake(), hardRockRun(unhalved: false), TypoRule.Deferred, hardRock);
+            var live = score(cake(), hardRockRun(unhalved: true), TypoRule.Deferred, hardRock);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(count(stored, HitResult.Great), Is.Zero);
+                Assert.That(count(stored, HitResult.Ok), Is.EqualTo(2));
+                Assert.That(count(stored, HitResult.Meh), Is.EqualTo(2));
+                Assert.That(count(stored, HitResult.Miss), Is.Zero);
+                // 100 + 100 + 50 + 50 out of 4 * 300, the osu weights the four results carry.
+                Assert.That(stored.Accuracy, Is.EqualTo(300 / 1200.0).Within(1e-9));
+
+                Assert.That(count(live, HitResult.Great), Is.EqualTo(1));
+                Assert.That(count(live, HitResult.Ok), Is.EqualTo(3));
+                Assert.That(count(live, HitResult.Meh), Is.Zero);
+                Assert.That(count(live, HitResult.Miss), Is.Zero);
+                // 300 + 100 + 100 + 100 out of 4 * 300.
+                Assert.That(live.Accuracy, Is.EqualTo(600 / 1200.0).Within(1e-9));
+
+                // Neither arm loses a keystroke or a cell: the bit moves what a press is WORTH, and
+                // nothing about where it landed.
+                Assert.That(stored.MaxCombo, Is.EqualTo(4));
+                Assert.That(live.MaxCombo, Is.EqualTo(4));
+                Assert.That(stored.UnconsumedFrames, Is.Zero);
+                Assert.That(live.UnconsumedFrames, Is.Zero);
+
+                Assert.That(stored.TotalScore, Is.LessThan(live.TotalScore));
+            });
+        }
+
+        /// <summary>
+        /// The other half of the seam, and the reason a bit was needed rather than a rule enum: the
+        /// era is inert without the MOD, which travels on the score and not in the frames. The same
+        /// two headers scored with an empty mod list produce one account, because nothing is halving
+        /// anything either way.
+        /// </summary>
+        [Test]
+        public void TheWindowEraIsInertWithoutHardRockOnTheScore()
+        {
+            var stored = score(cake(), hardRockRun(unhalved: false), TypoRule.Deferred);
+            var live = score(cake(), hardRockRun(unhalved: true), TypoRule.Deferred);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(stored.Statistics, Is.EquivalentTo(live.Statistics));
+                Assert.That(stored.TotalScore, Is.EqualTo(live.TotalScore));
+                Assert.That(stored.Accuracy, Is.EqualTo(live.Accuracy));
+                Assert.That(stored.MaxCombo, Is.EqualTo(live.MaxCombo));
+            });
+        }
+
+        #endregion
     }
 }

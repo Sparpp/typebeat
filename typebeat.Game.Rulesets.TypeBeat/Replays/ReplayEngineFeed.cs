@@ -96,6 +96,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // other bit, before a keystroke is fed.
                 engine.FoldsDisplacedClaim = frame.FoldsDisplacedClaim;
 
+                // UnhalvedHardRockWindows (backlog 264) is a WINDOW era, the first since bit 8, and
+                // it has the two-source shape bit 5 has: the bit says "this run's Hard Rock did not
+                // halve the ladder", which is the live rule since 264, and the MOD half cannot be in
+                // the frame at all, since a score's mods travel on the score. So the engine pairs it
+                // with TypingEngine.HardRockFromMod, set by the two engine factories, and the pair
+                // decides the ladder. Clear (every stored HR row) means the halved ladder those runs
+                // were really graded on; clear without HR on the score means nothing at all.
+                engine.UnhalvedHardRockWindows = frame.UnhalvedHardRockWindows;
+
                 // BoundedRush (backlog 218) is the fifth, and the sharpest of them on the caret
                 // question: with it clear a player's finished line handed them the next one however
                 // many seconds early, and the keystrokes they then typed into it LANDED. Re-derived

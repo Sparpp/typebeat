@@ -304,11 +304,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// function of time, which one scale set before the first keypress cannot express.
         ///
         /// <para>This is the RATE half of the seam, and it is not the whole of it. The scorer also
-        /// carries a fixed-scale arm per window-scaling mod that is not a rate mod at all (Easy,
-        /// Hard Rock, and since backlog 256 Puppeteer), and the same both-ends rule applies to each:
-        /// every mod that scales the windows live must have an arm there. The walk below is over
-        /// EVERY mod the ruleset offers, so a new window-scaling mod cannot be added on one side
-        /// only without this failing.</para>
+        /// carries a fixed-scale arm per window-scaling mod that is not a rate mod at all (Easy, and
+        /// since backlog 256 Puppeteer), and the same both-ends rule applies to each: every mod that
+        /// scales the windows live must have an arm there. The walk below is over EVERY mod the
+        /// ruleset offers, so a new window-scaling mod cannot be added on one side only without this
+        /// failing.</para>
+        ///
+        /// <para>HARD ROCK LEFT THIS LIST IN BACKLOG 264, which retired its halving: it scales
+        /// nothing live any more, so it has no <see cref="IApplicableToDrawableRuleset{T}"/> seam and
+        /// the scorer has no fixed-scale arm for it. Its stored rows still re-derive on the halved
+        /// ladder, but through the replay's own CONFIG frame (bit 13) rather than through either
+        /// seam, which is exactly why it is out of a test about seams. See
+        /// <c>TypeBeatModHardRockTest</c> for that era.</para>
         /// </summary>
         [Test]
         public void EveryRateModCarriesTheLiveWindowScaleSeam()
@@ -334,16 +341,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // a replay arm (or the other way round) fails here rather than silently re-judging
             // stored runs on a ladder nobody played on.
             var windowScalers = ruleset.AllMods
-                                       .Where(m => m is TypeBeatModEasy or TypeBeatModHardRock or TypeBeatModPuppeteer)
+                                       .Where(m => m is TypeBeatModEasy or TypeBeatModPuppeteer)
                                        .ToList();
 
-            Assert.AreEqual(3, windowScalers.Count, "Easy, Hard Rock and Puppeteer");
+            Assert.AreEqual(2, windowScalers.Count, "Easy and Puppeteer");
 
             foreach (var mod in windowScalers)
             {
                 Assert.IsInstanceOf<IApplicableToDrawableRuleset<TypeBeatHitObject>>(mod,
                     $"{mod.Acronym} would scale a replay's windows but not a live play's");
             }
+
+            // And the mod that LEFT the list is out of it on both sides, which is the seam rule
+            // holding rather than being waived: Hard Rock scales no windows live since backlog 264,
+            // so it carries no drawable-ruleset seam either.
+            Assert.IsNotInstanceOf<IApplicableToDrawableRuleset<TypeBeatHitObject>>(new TypeBeatModHardRock());
         }
 
         /// <summary>
@@ -493,8 +505,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// Every window-scaling mod multiplies its factor in, so a rate and Easy compose:
-        /// 0.75x x 2 is the same 1.5x ladder Double Time's default produces on its own, and Hard
-        /// Rock's 0.5 puts a 1.50x play back on the unscaled one.
+        /// 0.75x x 2 is the same 1.5x ladder Double Time's default produces on its own, and a STORED
+        /// Hard Rock run's 0.5 puts a 1.50x play back on the unscaled one.
+        ///
+        /// <para>The Hard Rock half is a STORED-era statement since backlog 264, and the fixture
+        /// supplies that era without a word: <see cref="scoreThreeLatePresses"/> writes a bare CONFIG
+        /// frame, so bit 13 is clear and the run is re-derived on the halved ladder its player was
+        /// really graded against. A run recorded today carries the bit set and composes as 1.50 alone
+        /// (see <c>TypeBeatModHardRockTest</c>).</para>
         /// </summary>
         [Test]
         public void RateComposesWithTheOtherWindowScalingMods()

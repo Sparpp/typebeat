@@ -719,13 +719,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// Easy and Hard Rock have no era switch, and this is the statement of why rather than an
-        /// oversight: both ship for the first time in the release that also carries backlog 148 and
-        /// 150, so no stored row can carry either acronym and there is no era in which their window
-        /// scales should be off. Their arms therefore hold under BOTH era settings.
+        /// Easy has no era switch, and this is the statement of why rather than an oversight: it
+        /// ships for the first time in the release that also carries backlog 148, so no stored row
+        /// can carry the acronym and there is no era in which its window scale should be off. Its arm
+        /// therefore holds under BOTH era settings on this file's axes.
+        ///
+        /// <para>HARD ROCK USED TO BE ASSERTED HERE ON THE SAME TERMS, and backlog 264 made that
+        /// false: retiring the live halving left the rows already on the leaderboards playable only
+        /// under the old ladder, so HR now has an era of its own, and it is not one of this file's
+        /// scorer-argument rules. It rides the replay's own CONFIG frame (bit 13), which is where
+        /// <c>TypeBeatModHardRockTest</c> and <c>TypeBeatReplayScorerTest</c> pin it. Easy is
+        /// untouched by any of that: its 2.0 was never derived from HR's 0.5.</para>
         /// </summary>
         [Test]
-        public void TheNewDifficultyModsAreNotEraDependent()
+        public void EasyIsNotEraDependent()
         {
             var map = plainMap();
             var r = replay((500, 'a'), (4500, 'b'), (8500, 'c'));

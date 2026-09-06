@@ -392,10 +392,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <c>AllowWrongInput</c>, <c>SpaceSkipsWord</c>, <c>SyllableTiming</c>,
         /// <c>WrongInputOnWordGaps</c>, <c>StrictSpaces</c>, <c>CharTimedStretch</c>,
         /// <c>FlexibleLineSnap</c>, <c>BoundedRush</c>, <c>FirstCharTiming</c>,
-        /// <c>BackDatedSealBreak</c>, <c>LosslessSkipReclaim</c> and <c>FoldsDisplacedClaim</c> are
+        /// <c>BackDatedSealBreak</c>, <c>LosslessSkipReclaim</c>, <c>FoldsDisplacedClaim</c> and
+        /// <c>UnhalvedHardRockWindows</c> are
         /// deliberately NOT set from the mods or from any config: the replay's CONFIG frame carries
-        /// what the run was judged under and overwrites all twelve, which is the only thing that judges
-        /// a pre-Gatekeeper strict run right.
+        /// what the run was judged under and overwrites all thirteen, which is the only thing that judges
+        /// a pre-Gatekeeper strict run right. The one flag the frame cannot carry is which MODS the
+        /// score holds, so <c>HardRockFromMod</c> (like <c>FlexibleCaretFromMod</c>) IS set here, and
+        /// the engine pairs it with the frame's era bit.
         ///
         /// <para>Public because <see cref="PuppeteerReplayTransform"/> builds its scratch engine
         /// here too (backlog 256). That engine exists to produce the tape's ARMS rather than
@@ -434,7 +437,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // re-derives on syllable spans, which is what it was played on.
             //
             // A HARD ROCK replay is the one live run that carries the bit CLEAR (backlog 180: HR
-            // reverts the judgement rule, because span judgement undercuts its halved windows). It
+            // reverts the judgement rule, so a press is graded on its own character target). It
             // still needs no arm here, and deliberately: the frame already says so, and adding a
             // mod check would give the same run two answers that could disagree.
             //
@@ -475,21 +478,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // that moves no keystroke: the default is the outright discard every stored replay's
             // displacing break took, and the bit is set for every live stack, because what a second
             // accident costs is not a mod's business either.
+            //
+            // UnhalvedHardRockWindows (backlog 264, CONFIG frame bit 13) is the ninth, and the first
+            // since bit 8 that is about WINDOWS: the default is the halved ladder every stored Hard
+            // Rock row was graded against, and the bit is set for every live stack, inert wherever
+            // Hard Rock is not on the score. It is the one era bit that IS a mod's business, which is
+            // why it takes a second source below rather than standing on the frame alone.
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
-            // TypingEngine.WindowScale), so the three arms below compose in any order. A replay
-            // carries KEYSTROKES and is re-judged from scratch, so missing any one of them would
-            // re-grade a stored run on a ladder it was never played on.
+            // TypingEngine.WindowScale), so the arms below compose in any order. A replay carries
+            // KEYSTROKES and is re-judged from scratch, so missing any one of them would re-grade a
+            // stored run on a ladder it was never played on.
             //
-            // EASY AND HARD ROCK ARE NOT ERA-DEPENDENT, and deliberately have no switch. Both ship
-            // for the first time in this release (backlog 149 and 150), so no stored row can carry
-            // either acronym: there is no era in which their arms should be off, and adding a switch
-            // would be a dead one that a later reader would have to prove dead all over again.
+            // EASY IS NOT ERA-DEPENDENT, and deliberately has no switch. It shipped in this release
+            // (backlog 149), so no stored row predates it: there is no era in which its arm should
+            // be off, and adding a switch would be a dead one that a later reader would have to
+            // prove dead all over again.
             if (mods.Any(m => m is TypeBeatModEasy))
                 engine.WindowScale *= TypeBeatModEasy.WINDOW_SCALE;
 
-            if (mods.Any(m => m is TypeBeatModHardRock))
-                engine.WindowScale *= TypeBeatModHardRock.WINDOW_SCALE;
+            // HARD ROCK IS THE EXCEPTION, and since backlog 264 it is not a window arm here at all.
+            // The halving backlog 150 shipped was retired live (the mod is now the judgement revert
+            // alone, at normal windows), but the rows already on the leaderboards were played under
+            // it, so the ladder a re-derivation gets depends on WHEN the run was recorded. That era
+            // cannot be read off the mod list, so it travels in the replay itself, on CONFIG frame
+            // bit 13, and ReplayEngineFeed.Apply sets TypingEngine.UnhalvedHardRockWindows from it
+            // before a keystroke is judged. All this arm can say is the half the frame cannot: that
+            // HR was on the score. The engine multiplies the two together.
+            //
+            // Assignment and not a multiply, deliberately: the CONFIG frame is re-fed on every
+            // backwards seek, so a WindowScale *= reachable from the feed would compound (see
+            // TypingEngine.UnhalvedHardRockWindows). The engine's default is the HALVED era, which
+            // is what every stored HR row means and what a replay with no CONFIG frame at all must
+            // re-derive under.
+            engine.HardRockFromMod = mods.Any(m => m is TypeBeatModHardRock);
 
             // PUPPETEER (backlog 256) is a third fixed-scale arm on the same terms as the two above,
             // and NOT part of the ModRateAdjust loop below: its rate is a function of how the player

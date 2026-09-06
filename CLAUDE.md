@@ -14,7 +14,8 @@ looking for it. The canonical sources are the code itself:
   space, a stylised token) is graded on distance from its own point target. The point rule survives
   as the ERA a stored replay re-derives under, selected by its CONFIG frame's flags bit 2, and since
   backlog 180 as the LIVE rule under Hard Rock, which reverts to point targets because span
-  judgement undercuts its halved windows (so an HR replay records bit 2 clear). Backlog 133
+  judgement means most presses never reach the ladder at all (so an HR replay records bit 2 clear).
+  Since backlog 264 that revert is the WHOLE of Hard Rock: see bit 13 below. Backlog 133
   replaced that with a four-tier character-distance ladder and backlog 147 reverted the whole arc, so
   a note dated between the two describing a character axis, a `SyncMeasure`, a fourth `Perfect` tier
   or a Rhythmic mod is describing code that no longer exists. What backlog 133 left behind on
@@ -26,7 +27,8 @@ looking for it. The canonical sources are the code itself:
   typo now takes the gap, renders as the typed char in error red (`LyricLineDisplay.CellGlyph`) and
   is backspaceable. That is a second ERA, CONFIG flags bit 3, because a stored replay's rejected
   gap keystroke must stay rejected or its caret desynchronises; unlike bit 2 it is set for EVERY
-  live stack, Hard Rock included, since HR halves windows and not the input model. Backlog 184 adds
+  live stack, Hard Rock included, since HR moves what a press is graded AGAINST and not the input
+  model. Backlog 184 adds
   `StrictSpaces` (a third ERA, CONFIG flags bit 4, set for every live stack, not a user setting),
   which makes the spacebar the WORD BOUNDARY: with `SpaceSkipsWord` ON a gap typo PARKS the caret on
   the gap (space steps over it, backspace clears it in place) instead of carrying the caret into the
@@ -121,6 +123,26 @@ looking for it. The canonical sources are the code itself:
   unconditional claim discard is untouched. Note the fold is not conditioned on the older cell being
   fixed: a cell left WRONG is not a miss at seal (backlog 124), so the clawback that actually fires is
   the untyped-cell one.
+  Backlog 264 adds `UnhalvedHardRockWindows` (a ninth ERA, CONFIG flags bit 13 = 8192, set for every
+  live stack), which is a WINDOW era, the first since bit 8. Backlog 150 shipped Hard Rock as a
+  HALVING of every judgement window and backlog 180 then stacked the point-target revert on top of
+  it; together they made the mod unplayable for nearly everyone, so the user's decision was to drop
+  the halving and keep the revert alone at NORMAL windows. `TypeBeatModHardRock` therefore no longer
+  implements `IApplicableToDrawableRuleset` and writes nothing; `WINDOW_SCALE` = 0.5 survives purely
+  as the era constant, and 1.10x, pp 1.25 and the Easy incompatibility are all unchanged. Easy's own
+  `WINDOW_SCALE` = 2.0 is fully independent and untouched. The rows already on the leaderboards were
+  played against the halved ladder, so the era travels in the replay: the bit is the run's half, and
+  the score's MOD LIST is the other half, exactly as bit 5 pairs with `FlexibleCaretFromMod`. Both
+  engine factories set `TypingEngine.HardRockFromMod` and `ReplayEngineFeed.Apply` sets
+  `UnhalvedHardRockWindows` from the frame; the ladder is then
+  `WindowScale * (HardRockFromMod && !UnhalvedHardRockWindows ? 0.5 : 1)`, recomputed by
+  `applyWindowScale` on every write. Note the shape: it is an ASSIGNMENT and never a
+  `WindowScale *= 0.5`, because `reset()` preserves `WindowScale` and the CONFIG frame is re-fed on
+  every backwards seek, so a multiply on that path would compound with each rewind. It is not a rule
+  enum for the reason the enum only reaches `TypeBeatReplayScorer.Score`: in-game replay WATCHING
+  applies mods through `DrawableTypeBeatRuleset`, so an enum would leave watching wrong and would
+  double the recalc tool's era search space for nothing. `PerformancePoints.VERSION` is untouched:
+  pp keys off the acronym, and every stored row carries bit 13 clear and re-derives identically.
 - **The timing schema** (per-character target times, syllable subdivision, space cells):
   `Gameplay/TypingLine.cs`, `FromLyricLine`.
 - **How a judgement becomes a stored osu result**: `Scoring/TypeBeatResultMapping.cs`, which also
