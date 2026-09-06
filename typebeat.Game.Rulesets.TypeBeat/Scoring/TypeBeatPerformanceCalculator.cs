@@ -43,12 +43,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// </para>
     ///
     /// <para>
-    /// HALF TIME needs a second number out of the attributes, and it is the reason
-    /// <see cref="TypeBeatDifficultyAttributes"/> exists: backlog 90 prices a base-rate HT play by
-    /// <see cref="PerformancePoints.HalfTimeMultiplier"/> as well as by its rating, and that is a
-    /// function of the map at three rates while this method is handed exactly one. Left unapplied,
-    /// this calculator would over-pay every HT play and the score panel would print a bigger number
-    /// than the results table right beside it.
+    /// HALF TIME NEEDS NOTHING EXTRA out of the attributes since backlog 265. From backlog 90 until
+    /// then a base-rate HT play was also priced by a mirror multiplier, a function of the map at
+    /// three rates where this method is handed exactly one, so the rating travelled in a
+    /// <c>TypeBeatDifficultyAttributes</c> subclass that carried the multiplier beside it. That
+    /// term is gone and so is the subclass: the rating IS the price, and the score panel and the
+    /// results table cannot disagree about a number neither of them applies.
     /// </para>
     /// </summary>
     public class TypeBeatPerformanceCalculator : PerformanceCalculator
@@ -62,15 +62,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         {
             double stars = PerformancePoints.EligibleRate(score.Mods) == null ? 0 : attributes.StarRating;
 
-            // The Half Time multiplier (backlog 90) needs the map's rating at three rates, and this
-            // method is handed one number. TypeBeatDifficultyCalculator therefore ships it inside
-            // the attributes; anything else is 1, which is right for every rate but base-rate HT and
-            // is why an attributes object from some other source still prices every other play.
-            double rateMultiplier = attributes is TypeBeatDifficultyAttributes typeBeat ? typeBeat.RateMultiplier : 1;
-
             return new PerformanceAttributes
             {
-                Total = PerformancePoints.ForPlay(stars, PerformancePoints.CountNotes(score), score.Accuracy, score.MaxCombo, score.Mods, rateMultiplier),
+                Total = PerformancePoints.ForPlay(stars, PerformancePoints.CountNotes(score), score.Accuracy, score.MaxCombo, score.Mods),
             };
         }
     }

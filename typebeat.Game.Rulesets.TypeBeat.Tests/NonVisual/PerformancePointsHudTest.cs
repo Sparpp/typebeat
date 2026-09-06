@@ -191,77 +191,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The Half Time mirror is computed entirely WITHIN one stream. Its claim is that Half
-        /// Time's total factor is the reciprocal of Double Time's on the map the play was on, so
-        /// mixing a converted rating with an unconverted one would make its D and H ratios of
-        /// different maps.
+        /// Backlog 265: THERE IS NO RATE MULTIPLIER. Three tests stood here, pinning the mirror
+        /// penalty a base-rate Half Time play used to take on top of its rating, the one rate whose
+        /// price was not its rating. The whole surface is gone (there is no
+        /// <c>RateMultiplierFor</c>, and <c>PerformancePoints.ForPlay</c> takes no multiplier), so
+        /// what is left to pin is the rating itself: an HT play prices at the map's 0.75x rating
+        /// and a LITERATE HT play at the CONVERTED map's, which is the half of the old mirror test
+        /// worth keeping.
         /// </summary>
         [Test]
-        public void RateMultiplier_ForLiterateHalfTimeMirrorsTheConvertedMapsOwnThreeRatings()
+        public void HalfTimeIsPricedByItsRatingAloneAndLiterateHalfTimeByTheConvertedMapsOwn()
         {
             var beatmap = playable(punctuatedLines());
             var source = beatmap.HitObjects.Select(h => h.Line).ToList();
 
-            double expected = PerformancePoints.HalfTimeMultiplier(
-                LyricDifficulty.Compute(source, 1, literate: true),
-                LyricDifficulty.Compute(source, 1.50, literate: true),
-                LyricDifficulty.Compute(source, 0.75, literate: true));
+            var halfTime = mods(new TypeBeatModHalfTime());
+            var literateHalfTime = mods(new TypeBeatModLiterate(), new TypeBeatModHalfTime());
 
-            double actual = PerformancePointsDisplay.RateMultiplierFor(beatmap, mods(new TypeBeatModLiterate(), new TypeBeatModHalfTime()));
-
-            Assert.Multiple(() =>
-            {
-                Assert.That(actual, Is.EqualTo(expected).Within(1e-12));
-                Assert.That(actual, Is.Not.EqualTo(PerformancePointsDisplay.RateMultiplierFor(beatmap, mods(new TypeBeatModHalfTime()))),
-                    "and it is genuinely the converted map's mirror, not the plain one's");
-            });
-        }
-
-        [Test]
-        public void RateMultiplier_IsExactlyOneForEveryRateButBaseRateHalfTime()
-        {
-            // Backlog 90 prices only base-rate Half Time by anything other than its rating. A
-            // multiplier that was not exactly 1.0 anywhere else would silently reprice every other
-            // play in the game.
-            var beatmap = playable();
+            double? plain = PerformancePointsDisplay.StarRatingFor(beatmap, halfTime);
+            double? converted = PerformancePointsDisplay.StarRatingFor(beatmap, literateHalfTime);
 
             Assert.Multiple(() =>
             {
-                Assert.That(PerformancePointsDisplay.RateMultiplierFor(beatmap, null), Is.EqualTo(1.0), "no mods");
-                Assert.That(PerformancePointsDisplay.RateMultiplierFor(beatmap, mods()), Is.EqualTo(1.0), "an empty stack");
-                Assert.That(PerformancePointsDisplay.RateMultiplierFor(beatmap, mods(new TypeBeatModLiterate(), new TypeBeatModNoFail())),
-                    Is.EqualTo(1.0), "non-rate mods");
-                Assert.That(PerformancePointsDisplay.RateMultiplierFor(beatmap, mods(new TypeBeatModDoubleTime())), Is.EqualTo(1.0), "Double Time");
-                Assert.That(PerformancePointsDisplay.RateMultiplierFor(beatmap, mods(new TypeBeatModNightcore())), Is.EqualTo(1.0), "Nightcore");
+                Assert.That(plain, Is.EqualTo(LyricDifficulty.Compute(source, 0.75)).Within(1e-12));
+                Assert.That(converted, Is.EqualTo(LyricDifficulty.Compute(source, 0.75, literate: true)).Within(1e-12));
 
-                // A custom rate never reaches a price at all, so 1.0 is simply the neutral answer.
-                var custom = new TypeBeatModHalfTime();
-                custom.SpeedChange.Value = 0.62;
-                Assert.That(PerformancePointsDisplay.RateMultiplierFor(beatmap, mods(custom)), Is.EqualTo(1.0), "a custom Half Time rate");
+                // Genuinely the converted map's rating and not the plain one's, or the fixture would
+                // pin nothing about Literate at all.
+                Assert.That(converted, Is.Not.EqualTo(plain));
 
-                Assert.That(PerformancePointsDisplay.RateMultiplierFor(null, mods(new TypeBeatModHalfTime())), Is.EqualTo(1.0), "no beatmap");
-            });
-        }
+                // And the rating IS the price: nothing is applied on top of it any more, so the
+                // number a surface shows is Compute at that rating and no other factor.
+                var counts = new PerformancePoints.NoteCounts(500, 12, 15);
 
-        [Test]
-        public void RateMultiplier_ForHalfTimeIsTheMirrorOfTheMapsOwnThreeRatings()
-        {
-            // The client computes the same three ratings the server stores, so it reaches the same
-            // multiplier without fetching anything.
-            var beatmap = playable();
-            var source = beatmap.HitObjects.Select(h => h.Line).ToList();
-
-            double expected = PerformancePoints.HalfTimeMultiplier(
-                LyricDifficulty.Compute(source),
-                LyricDifficulty.Compute(source, 1.50),
-                LyricDifficulty.Compute(source, 0.75));
-
-            double actual = PerformancePointsDisplay.RateMultiplierFor(beatmap, mods(new TypeBeatModHalfTime()));
-
-            Assert.Multiple(() =>
-            {
-                Assert.That(actual, Is.EqualTo(expected).Within(1e-12));
-                Assert.That(actual, Is.GreaterThan(0).And.LessThanOrEqualTo(1.0), "it is a penalty, never a bonus");
+                Assert.That(PerformancePoints.ForPlay(plain!.Value, counts, 0.93, 480, halfTime),
+                    Is.EqualTo(PerformancePoints.Compute(LyricDifficulty.Compute(source, 0.75), 500, 12, 0.93, 480, halfTime, 15)).Within(1e-12));
             });
         }
 

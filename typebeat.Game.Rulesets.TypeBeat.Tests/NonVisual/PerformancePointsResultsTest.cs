@@ -189,18 +189,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// The attributes BeatmapDifficultyCache hands the panel, built exactly as
         /// <see cref="TypeBeatDifficultyCalculator"/> builds them: the map rated at the play's own
-        /// clock rate, plus the pp rate multiplier the calculator cannot derive from a rating alone
-        /// (backlog 90).
+        /// clock rate, and nothing else. A TypeBeat subclass carried a pp rate multiplier alongside
+        /// until backlog 265 removed the term it existed for.
         /// </summary>
         private static DifficultyAttributes cachedAttributes(Beatmap<TypeBeatHitObject> beatmap, IReadOnlyList<Mod> withMods)
-        {
-            var lines = beatmap.HitObjects.Select(h => h.Line).ToList();
-
-            return new TypeBeatDifficultyAttributes(
-                withMods.ToArray(),
-                rateAdjustedStars(beatmap, withMods),
-                PerformancePoints.RateMultiplier(lines, withMods));
-        }
+            => new DifficultyAttributes(withMods.ToArray(), rateAdjustedStars(beatmap, withMods));
 
         /// <summary>The star rating TypeBeatDifficultyCalculator produces for a play, rate and all.</summary>
         private static double rateAdjustedStars(Beatmap<TypeBeatHitObject> beatmap, IReadOnlyList<Mod> withMods)
@@ -570,13 +563,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void TheScorePanelAndTheResultsRowPriceAHalfTimePlayIdentically()
+        public void TheScorePanelAndTheResultsRowPriceAHalfTimePlayOffSrHtAlone()
         {
-            // Backlog 90: the panel prices through TypeBeatPerformanceCalculator, which is handed
-            // difficulty attributes and no beatmap, while the row prices through
-            // PerformancePointsDisplay, which has the map. The Half Time multiplier needs the map's
-            // rating at three rates, so without it travelling in the attributes these two readings
-            // on ONE screen would disagree, the panel showing the bigger number.
+            // The panel prices through TypeBeatPerformanceCalculator, which is handed difficulty
+            // attributes and no beatmap; the row prices through PerformancePointsDisplay, which has
+            // the map. From backlog 90 to backlog 265 a Half Time play also took a mirror penalty
+            // that needed the map's rating at three rates, so the two could only agree by shipping
+            // it inside the attributes. There is no such term now, so the two agree on the plain
+            // rating, and the price is EXACTLY what sr_ht pays rather than strictly less than it.
             var beatmap = playable();
             var withMods = mods(new TypeBeatModHalfTime());
             var (score, _) = play(beatmap, withMods);
@@ -584,13 +578,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(score.PP, Is.Null, "the premise: nothing stored, so both sides compute");
 
             double stars = PerformancePointsDisplay.StarRatingFor(beatmap, score.Mods)!.Value;
-            double unpenalised = PerformancePoints.ForPlay(stars, PerformancePoints.CountNotes(score), score.Accuracy, score.MaxCombo, score.Mods);
+            double offItsRatingAlone = PerformancePoints.ForPlay(stars, PerformancePoints.CountNotes(score), score.Accuracy, score.MaxCombo, score.Mods);
 
             Assert.Multiple(() =>
             {
                 Assert.That(ppRow(score, beatmap), Is.EqualTo(panelValue(score, beatmap)));
                 Assert.That(ppRow(score, beatmap), Is.GreaterThan(0), "the fixture play must be worth something");
-                Assert.That(ppRow(score, beatmap), Is.LessThan(unpenalised), "and strictly less than sr_ht alone would pay");
+                Assert.That(ppRow(score, beatmap), Is.EqualTo(offItsRatingAlone), "and it is sr_ht's price exactly, with nothing on top");
             });
         }
 

@@ -336,11 +336,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // over the five real reference maps, sr_dt hit the old 10 on three of them while no
             // base rating and no sr_ht came near it, and the hardest ranked difficulty published
             // reads 7.81, so every truncation the ceiling ever performed was on a number it was
-            // not chosen for. On two of those three the truncated ratio also pushed
-            // HalfTimeMultiplier's mirror past 1.0 and dropped it onto its flat fallback: Siames
-            // "The Wolf" rates sr_dt 16.33 rather than 10.00, which is Double Time's factor 2.85
-            // rather than 1.07, and an HT mirror of 0.762 rather than the flat 0.70. Bounding a
-            // star READOUT is a presentation decision and belongs at the surface that draws one.
+            // not chosen for. On two of those three the truncated ratio also pushed the Half Time
+            // mirror multiplier (backlog 90, retired by backlog 265) past 1.0 and dropped it onto
+            // its flat fallback: Siames "The Wolf" rates sr_dt 16.33 rather than 10.00, which is
+            // Double Time's factor 2.85 rather than 1.07, and an HT mirror of 0.762 rather than
+            // the flat 0.70. Bounding a star READOUT is a presentation decision and belongs at the
+            // surface that draws one.
             //
             // The FLOOR stays. A negative rating describes no map, and callers divide by this.
             return Math.Max(stars, 0);

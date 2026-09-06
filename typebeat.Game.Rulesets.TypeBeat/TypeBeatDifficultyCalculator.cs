@@ -41,7 +41,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
             var objects = beatmap.HitObjects.OfType<TypeBeatHitObject>().ToList();
 
             if (objects.Count == 0)
-                return new TypeBeatDifficultyAttributes(mods, 0, 1);
+                return new DifficultyAttributes(mods, 0);
 
             // Combined clock rate of any rate-adjusting mods (DT 1.5x, HT 0.75x, ...); 1 with none.
             double rate = 1;
@@ -51,10 +51,11 @@ namespace typebeat.Game.Rulesets.TypeBeat
 
             var lines = objects.Select(h => h.Line).ToList();
 
-            // The pp rate multiplier travels with the attributes because the performance calculator
-            // gets no beatmap of its own (see TypeBeatDifficultyAttributes). It is exactly 1 for
-            // everything but a base-rate Half Time stack, and only that branch costs extra passes.
-            return new TypeBeatDifficultyAttributes(mods, LyricDifficulty.Compute(lines, rate, PerformancePoints.IsLiterate(mods)), PerformancePoints.RateMultiplier(lines, mods));
+            // The rating is the whole of what these attributes have to carry. A TypeBeat subclass
+            // existed until backlog 265 purely to ship the pp RATE multiplier alongside, because
+            // the performance calculator gets no beatmap of its own and could not compute a term
+            // that took the map's rating at three rates. There is no such term any more.
+            return new DifficultyAttributes(mods, LyricDifficulty.Compute(lines, rate, PerformancePoints.IsLiterate(mods)));
         }
 
         protected override IEnumerable<DifficultyHitObject> CreateDifficultyHitObjects(IBeatmap beatmap, Mod[] mods) => Enumerable.Empty<DifficultyHitObject>();

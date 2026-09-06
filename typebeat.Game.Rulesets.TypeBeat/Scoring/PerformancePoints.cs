@@ -152,15 +152,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// </para>
     ///
     /// <para>
-    /// HALF TIME carries ONE extra term on top of that, and it is the only place in this file where
-    /// a rate is priced by anything but the rating: <see cref="HalfTimeMultiplier"/>, the reciprocal
-    /// of whatever Double Time is worth on the SAME map. Slowing a map down already lowers SR_eff,
-    /// but on most maps it lowers it by far less than speeding it up raises it, so HT was the cheap
-    /// way to keep a hard map's difficulty term while typing at a comfortable pace. Making the
-    /// down-rate factor exactly 1/(up-rate factor) prices the two symmetrically, per map, rather
-    /// than by a flat guess. It is applied by <see cref="Compute"/>'s <c>rateMultiplier</c>, NOT by
-    /// <see cref="ModMultiplier"/>, which still carries no rate term at all (it sees only the mods
-    /// and a note count, and could not compute this if it wanted to).
+    /// HALF TIME IS PRICED BY ITS RATING AND NOTHING ELSE, exactly as Double Time is (backlog 265).
+    /// From v3 to v19 it carried one extra term, a MIRROR multiplier that made the down-rate factor
+    /// the reciprocal of the up-rate one on the same map, on the reading that slowing a map down
+    /// lowers SR_eff by far less than speeding it up raises it. That term is gone. It was the only
+    /// place in this file where a rate was priced by anything but the rating, it made one rate a
+    /// function of all three of a map's ratings (so the server could not price an HT play until
+    /// <c>sr_dt</c> was stored), and a degenerate <c>sr_dt</c> zeroed an otherwise honest play. If
+    /// Half Time ever reads as underpriced again the fix belongs in the strain model behind the
+    /// 0.75x rating, never in a second multiplier here. So the claim docs/pp.md has made since task
+    /// 61, that a rate is priced EXCLUSIVELY through SR_eff, is now literally true of both rates.
     /// </para>
     ///
     /// <para>
@@ -198,10 +199,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <item>v2 = the backlog-89 rebalance: the miss exponent rises 7.5 to 8.5, and mistypes
         /// leave the cleanliness fraction for a term of their own at exponent 3.5. This one HAD to
         /// bump: the steeper miss exponent reprices every stored row carrying even ONE miss.</item>
-        /// <item>v3 = the backlog-90 Half Time penalty: a base-rate HT play is multiplied by
-        /// <see cref="HalfTimeMultiplier"/> on top of its 0.75x rating, which makes the down-rate
-        /// factor the reciprocal of the up-rate one on the same map (or a flat 0.70 cut where that
-        /// reciprocal would be a BUFF). Reprices every stored HT row and nothing else.</item>
+        /// <item>v3 = the backlog-90 Half Time penalty: a base-rate HT play is multiplied by a
+        /// MIRROR multiplier on top of its 0.75x rating, which makes the down-rate factor the
+        /// reciprocal of the up-rate one on the same map (or a flat 0.70 cut where that reciprocal
+        /// would be a BUFF). Reprices every stored HT row and nothing else. Removed again at
+        /// v20.</item>
         /// <item>v4 = the backlog-95 penalty rebalance: the miss exponent rises 8.5 to 10 and the
         /// mistype exponent 3.5 to 6. Both terms are exactly 1.0 at a count of zero whatever the
         /// exponent, so a spotless play is priced bit-identically; every stored row carrying even
@@ -337,9 +339,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// [-8, +32]. A width of 0 or less MEANS no knee, a real branch in both mirrors that prices
         /// exactly as v18 did. Every stored row under a full accuracy is repriced, downwards and
         /// hardest at the bottom, which is what forces the bump; nothing outside pp moves.</item>
+        /// <item>v20 = the backlog-265 removal of the Half Time MIRROR multiplier. v3's extra term
+        /// and its 0.70 buff clamp are deleted, so Half Time is priced through its 0.75x rating
+        /// alone, exactly as Double Time is priced through its 1.50x one. No constant moves and
+        /// neither does the SHAPE: what goes is a whole factor of the product, so every stored
+        /// base-rate HT row is repriced UPWARDS by exactly the reciprocal of the multiplier it used
+        /// to carry (up to 1/0.70, i.e. +43%, on a row that was taking the clamp), and no other row
+        /// moves at all. On the server it also RELAXES a data dependency: an HT play needed both
+        /// <c>sr_ht</c> and <c>sr_dt</c> and now needs only <c>sr_ht</c>. A Literate HT play
+        /// follows without a branch of its own.</item>
         /// </list>
         /// </summary>
-        public const int VERSION = 19;
+        public const int VERSION = 20;
 
         // ---- formula constants (docs/pp.md) ----
 
@@ -441,13 +452,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// moving into the mod block because it is a property of the note count, not of the mod.
         /// </summary>
         private const double reference_notes = 100.0;
-
-        /// <summary>
-        /// The flat cut a Half Time play takes when the mirror multiplier would be a BUFF, i.e. a
-        /// 30% reduction. See <see cref="HalfTimeMultiplier"/> for when that happens and why the
-        /// guard is not a <c>Math.Min</c>.
-        /// </summary>
-        private const double half_time_buff_clamp = 0.70;
 
         // ---- mod multipliers (docs/pp.md) ----
 
@@ -739,98 +743,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             => EligibleRate(mods) is double rate ? LyricDifficulty.Compute(lines, rate, IsLiterate(mods)) : (double?)null;
 
         /// <summary>
-        /// The play's RATE multiplier, the second half of what <see cref="StarsFor"/> starts:
-        /// exactly 1.0 for a no-mod play, a Double Time / Nightcore play and a rate-ineligible one,
-        /// and <see cref="HalfTimeMultiplier"/> for a base-rate Half Time play.
-        ///
-        /// <para>Only the Half Time branch pays for the extra <see cref="LyricDifficulty"/> passes,
-        /// and it needs two of them (the map at 1.00x and at 1.50x) on top of the 0.75x rating
-        /// <see cref="StarsFor"/> already computes. Those are the same three numbers the server
-        /// stores as <c>difficulty_rating</c> / <c>sr_dt</c> / <c>sr_ht</c>, which is why the two
-        /// halves reach the same multiplier without the client fetching anything.</para>
-        ///
-        /// <para>ALL THREE PASSES RUN ON THE SAME STREAM, Literate or plain (backlog 144), matching
-        /// the server, which reads its mirror out of one triple of columns and never across the
-        /// two. The mirror's whole claim is that Half Time's total factor is the reciprocal of
-        /// Double Time's ON THIS MAP; mixing a converted rating with an unconverted one would make
-        /// D and H ratios of different maps and quietly break that.</para>
-        /// </summary>
-        public static double RateMultiplier(IEnumerable<LyricLine> lines, IReadOnlyList<Mod>? mods)
-        {
-            // EligibleRate returns the base-rate CONSTANT itself for an eligible rate mod, so this
-            // is an exact comparison against the same double, not a tolerance question.
-            if (EligibleRate(mods) != HALF_TIME_BASE_RATE)
-                return 1;
-
-            bool literate = IsLiterate(mods);
-
-            return HalfTimeMultiplier(
-                LyricDifficulty.Compute(lines, 1, literate),
-                LyricDifficulty.Compute(lines, DOUBLE_TIME_BASE_RATE, literate),
-                LyricDifficulty.Compute(lines, HALF_TIME_BASE_RATE, literate));
-        }
-
-        /// <summary>
-        /// The extra multiplier a base-rate HALF TIME play is priced by, on top of its 0.75x
-        /// rating. 1.0 is NOT a possible answer here; every other rate's multiplier is 1.0 and never
-        /// reaches this function.
-        ///
-        /// <para>Write <c>D = (sr_dt/sr_base)^2.00</c> and <c>H = (sr_ht/sr_base)^2.00</c>, the
-        /// exponent being <c>sr_exponent</c> in both cases. Those are what the two base rates are
-        /// ALREADY worth on this map, purely through <c>SR^2.00</c>, with no term of their own
-        /// anywhere: D is Double Time's emergent bonus and H is Half Time's emergent discount, and
-        /// both move with any retune of the exponent. The mirror multiplier is <c>1/(D·H)</c>, which
-        /// makes Half Time's TOTAL rate factor <c>H · 1/(D·H) = 1/D</c>, exactly the reciprocal of
-        /// Double Time's, per map. Speeding a map up and slowing it down are then equal and
-        /// opposite by construction rather than by a flat guess, which is the whole point: HT used
-        /// to be the cheap way to keep a hard map's difficulty term while typing at a comfortable
-        /// pace, because slowing down costs far less than speeding up pays.</para>
-        ///
-        /// <para>THE GUARD IS LOAD-BEARING, NOT DEFENSIVE. The mirror is a BUFF exactly when
-        /// <c>1/D &gt; H</c>, i.e. <c>D·H &lt; 1</c>, i.e. <c>sr_dt · sr_ht &lt; sr_base²</c>: a map
-        /// whose SR curve is concave in log-rate, so slowing it down helps far more than speeding
-        /// it up hurts. That is precisely the map an unguarded mirror would REWARD for using Half
-        /// Time. Worked example: base 4.2, dt 4.5, ht 2.0 gives D = 1.148 and H = 0.227, so the
-        /// mirror would make HT's total factor 0.871 against today's 0.227, a nearly four-fold buff.
-        /// Clamped, it is <c>0.70 · 0.227 = 0.159</c>, still a nerf.</para>
-        ///
-        /// <para>IT IS NOT A <c>Math.Min</c>. A mirror multiplier of, say, 0.90 is a mild nerf and
-        /// must be used AS IS. <c>Math.Min(mirror, 0.70)</c> would deepen every mild nerf into a
-        /// flat 30% cut and quietly throw away the per-map symmetry this term exists for. The clamp
-        /// applies only on the wrong side of 1.0.</para>
-        ///
-        /// <para>Hostile input yields 0, in keeping with the rest of this file: a non-finite or
-        /// non-positive rating describes no map, and returning 0 makes the play price to 0 rather
-        /// than to NaN. <see cref="Compute"/> would already return 0 for a non-positive
-        /// <c>starRating</c>, but this is reached down a different path and a NaN here would
-        /// survive that guard and poison the product.</para>
-        /// </summary>
-        /// <param name="baseStars">The map's rate-1.0 rating (the server's <c>difficulty_rating</c>).</param>
-        /// <param name="starsDoubleTime">Its rating at 1.50x (the server's <c>sr_dt</c>).</param>
-        /// <param name="starsHalfTime">Its rating at 0.75x (the server's <c>sr_ht</c>).</param>
-        public static double HalfTimeMultiplier(double baseStars, double starsDoubleTime, double starsHalfTime)
-        {
-            if (!isRateableRating(baseStars) || !isRateableRating(starsDoubleTime) || !isRateableRating(starsHalfTime))
-                return 0;
-
-            double doubleTimeFactor = Math.Pow(starsDoubleTime / baseStars, sr_exponent);
-            double halfTimeFactor = Math.Pow(starsHalfTime / baseStars, sr_exponent);
-
-            double mirror = 1.0 / (doubleTimeFactor * halfTimeFactor);
-
-            if (!double.IsFinite(mirror) || mirror <= 0)
-                return 0;
-
-            // Strictly above 1.0 the mirror would PAY for playing slower; that, and only that,
-            // takes the flat cut. Anything at or below 1.0 is already a nerf and is used exactly as
-            // computed.
-            return mirror > 1 ? half_time_buff_clamp : mirror;
-        }
-
-        /// <summary>A star rating that can be divided by or raised to a power without producing nonsense.</summary>
-        private static bool isRateableRating(double stars) => double.IsFinite(stars) && stars > 0;
-
-        /// <summary>
         /// The mod multiplier for a play. There is NO rate term here on purpose: DT / HT are priced
         /// entirely through the star rating (<see cref="StarsFor"/>).
         ///
@@ -947,14 +859,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// (they have no upper bound: a player can press as many wrong keys as they like) and
         /// accuracy into <c>[0, 1]</c>. The result is guaranteed finite and non-negative.</para>
         ///
-        /// <para><paramref name="rateMultiplier"/> is the play's RATE multiplier, which is 1.0 for
-        /// every play except a base-rate Half Time one; <see cref="ForPlay"/> takes it from
-        /// <see cref="RateMultiplier"/>. It is a parameter rather than something computed here
-        /// because it takes all three of the map's star ratings and this function is handed only
-        /// the one it prices with. A caller that omits it prices the play WITHOUT the Half Time
-        /// penalty, so every path that can see an HT play must pass it; the WireCompat parity test
-        /// is what pins that. Non-finite or negative values fall out as 0 through the guard at the
-        /// end, exactly like every other hostile input.</para>
+        /// <para>THERE IS NO RATE ARGUMENT (backlog 265). A rate is priced entirely by the
+        /// <paramref name="starRating"/> it is handed, so a caller holding the effective rating
+        /// holds the whole price. From v3 to v19 a base-rate Half Time play took an extra
+        /// multiplier here, which every surface that could see one had to remember to pass; nothing
+        /// does now, and the forgetting-to-pass-it failure mode is gone with it.</para>
         /// </summary>
         public static double Compute(
             double starRating,
@@ -963,8 +872,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             double accuracy,
             int maxCombo,
             IReadOnlyList<Mod>? mods,
-            int typos = 0,
-            double rateMultiplier = 1)
+            int typos = 0)
         {
             // No notes describes no play; a zero or non-finite rating prices nothing.
             if (notes <= 0 || !double.IsFinite(starRating) || starRating <= 0)
@@ -1024,7 +932,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             double comboBase = Math.Log(1.0 + combo_log_shape * comboRatio) / Math.Log(1.0 + combo_log_shape);
             double combo = Math.Pow(comboBase, combo_exponent);
 
-            double pp = scale * difficulty * cleanliness * typoPenalty * timing * combo * ModMultiplier(mods, notes) * rateMultiplier;
+            double pp = scale * difficulty * cleanliness * typoPenalty * timing * combo * ModMultiplier(mods, notes);
 
             return double.IsFinite(pp) && pp > 0 ? pp : 0;
         }
@@ -1035,12 +943,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// argument order. Mirrors the server's <c>ForScore</c> minus its storage concerns (the
         /// ranked flag, the settled/pending distinction), which have no client-side meaning.
         ///
-        /// <para><paramref name="rateMultiplier"/> defaults to 1.0, which is correct for every play
-        /// but a base-rate Half Time one. A caller that can see an HT play must pass
-        /// <see cref="RateMultiplier"/>; <see cref="PerformancePointsDisplay"/> is where the client
-        /// surfaces get both halves from one place.</para>
+        /// <para>The rating is the WHOLE price of a rate since backlog 265, so a caller holding
+        /// <see cref="StarsFor"/>'s answer needs nothing else; there is no second half to fetch,
+        /// and no surface can under- or over-pay a Half Time play by forgetting one.</para>
         /// </summary>
-        public static double ForPlay(double starRating, NoteCounts counts, double accuracy, int maxCombo, IReadOnlyList<Mod>? mods, double rateMultiplier = 1)
-            => Compute(starRating, counts.Notes, counts.Misses, accuracy, maxCombo, mods, counts.Typos, rateMultiplier);
+        public static double ForPlay(double starRating, NoteCounts counts, double accuracy, int maxCombo, IReadOnlyList<Mod>? mods)
+            => Compute(starRating, counts.Notes, counts.Misses, accuracy, maxCombo, mods, counts.Typos);
     }
 }
