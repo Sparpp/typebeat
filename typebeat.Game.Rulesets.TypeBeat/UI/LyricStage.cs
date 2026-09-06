@@ -80,6 +80,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private Caret sungCaret = null!;
         private Box approachBar = null!;   // first-word cue (50% opaque)
         private Box boundaryBar = null!;   // line-boundary cue (solid), drawn on top
+        private Box pushBar = null!;       // the push warning (solid red, right-aligned)
         private Container wrongKeyLayer = null!;
 
         private int wrongKeyPopupDirection = 1;
@@ -287,11 +288,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 Alpha = 0f,
             };
 
+            // THE PUSH WARNING (backlog 263): the same depleting cue bar, in the opposite corner and
+            // in the palette's one red, counting down the drag cutoff that is about to take the line
+            // away (TypingEngine.DragCutoffAt). TopRight origin is what makes it read as the mirror of
+            // the cue: the cues grow out of the start of the line the player is about to gain, this one
+            // shrinks back into the end of the line the player is about to lose.
+            pushBar = new Box
+            {
+                Anchor = Anchor.TopLeft,
+                Origin = Anchor.TopRight,
+                Colour = TypeBeatStyle.ErrorChar,
+                Height = approach_bar_height,
+                Alpha = 0f,
+            };
+
             wrongKeyLayer = new Container { RelativeSizeAxes = Axes.Both };
 
             // boundaryBar after approachBar → the solid boundary cue draws on top of the
             // translucent first-word cue where they overlap.
-            InternalChildren = new Drawable[] { lineContainer, approachBar, boundaryBar, sungCaret, playerCaret, wrongKeyLayer };
+            InternalChildren = new Drawable[] { lineContainer, approachBar, boundaryBar, pushBar, sungCaret, playerCaret, wrongKeyLayer };
         }
 
         /// <summary>
@@ -536,6 +551,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
 
             updateApproachCue();
+            updatePushWarning();
             updateFlashlight();
             updateRecite();
         }
@@ -714,6 +730,56 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
+        /// THE PUSH WARNING (backlog 263): "you are about to be pushed to the next line". A player
+        /// lagging behind on a line the song has already left keeps it only until the drag cutoff,
+        /// where the engine force-seals it and lands the caret on the next line
+        /// (<see cref="TypingEngine.DragCutoffAt"/>). That used to arrive with no notice at all, so the
+        /// same depleting bar the cues use counts it down, RIGHT-ALIGNED at the end of the line and in
+        /// the palette's one red: the opposite corner and the opposite colour from a cue, because it is
+        /// the opposite message, a line about to be taken rather than a line about to be given.
+        ///
+        /// <para>It sits in the same band under the ACTIVE line (the one the player is on and about to
+        /// lose), driven through the shared <see cref="updateCueBar"/> at full opacity, so with a
+        /// <see cref="Anchor.TopRight"/> origin the width depletes leftward out of the line's right
+        /// edge while the alpha ramps up.</para>
+        ///
+        /// <para>Its window lines up with the punishment exactly. The bar covers the final
+        /// <see cref="approach_lead_ms"/> (CUE_LEAD_MS, 1500) before the cutoff, and the cutoff is
+        /// EndTime + SealGraceMs + FLETCHER_DRAG_GRACE_MS with the two constants both 1500, so the
+        /// first frame it draws is the instant the song leaves the line's own grace: the moment the
+        /// seal becomes permitted but for drag protection, and the whole of the borrowed time is what
+        /// the player watches drain.</para>
+        ///
+        /// <para>Display only. It reads a nullable engine readout and nothing else, so every path where
+        /// no push is coming (a pinned caret, the caret rolled on ahead of an abandoned line, the line
+        /// typed out, the run finished) falls through to the same hide below.</para>
+        /// </summary>
+        private void updatePushWarning()
+        {
+            int active = engine.ActiveLineIndex;
+
+            if (engine.DragCutoffAt is double cutoff && active >= 0 && active < displays.Length)
+            {
+                var d = displays[active];
+
+                // PositionOfCell(Cells.Count) is the documented end of the line, so the bar hangs off
+                // the last character rather than off the caret, which is somewhere mid-line by
+                // definition while the player is dragging.
+                Vector2 end = d.ToSpaceOfOtherDrawable(d.PositionOfCell(d.Line.Cells.Count), this);
+                var barPos = new Vector2(end.X, end.Y + d.LineHeight + 6);
+
+                if (updateCueBar(pushBar, barPos, cutoff - Time.Current, 1f))
+                {
+                    pushWarningTargetLine = active;
+                    return;
+                }
+            }
+
+            pushBar.Alpha = 0f;
+            pushWarningTargetLine = -1;
+        }
+
+        /// <summary>
         /// Renders one depleting cue bar: width shrinks 1 -> 0 over the final
         /// <see cref="approach_lead_ms"/> before <paramref name="remaining"/> reaches 0,
         /// brightening as it lands. <paramref name="opacityScale"/> scales the alpha (1 = the
@@ -737,6 +803,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // Which line the approach bar is currently rendered for; -1 while hidden. Test support:
         // alpha alone cannot distinguish "cued the right line" from a bar under a later line.
         private int approachCueTargetLine = -1;
+
+        // The same, for the push warning: which line it is warning about losing; -1 while hidden.
+        private int pushWarningTargetLine = -1;
 
         private static int firstTypeableIndex(TypingLine line)
         {
@@ -1093,6 +1162,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>The line index the approach cue is currently shown for; -1 while hidden.</summary>
         public int ApproachCueTargetLine => approachCueTargetLine;
+
+        /// <summary>Whether the red push warning (backlog 263) is currently drawn.</summary>
+        public bool PushWarningVisible => pushBar.IsNotNull() && pushBar.Alpha > 0.1f;
+
+        /// <summary>The line index the push warning is currently shown for; -1 while hidden.</summary>
+        public int PushWarningTargetLine => pushWarningTargetLine;
+
+        /// <summary>
+        /// Screen-space edges of the push warning bar as it is actually DRAWN, so a test can pin the
+        /// right alignment rather than the field it is configured from: the bar is anchored by its
+        /// TopRight, so its right edge pins to the end of the line and the width depletes leftward out
+        /// of it. Read together, since either edge alone is satisfied by the wrong origin.
+        /// </summary>
+        public Vector2 PushWarningScreenLeftEdge => pushBar.IsNotNull() ? pushBar.ScreenSpaceDrawQuad.TopLeft : Vector2.Zero;
+
+        public Vector2 PushWarningScreenRightEdge => pushBar.IsNotNull() ? pushBar.ScreenSpaceDrawQuad.TopRight : Vector2.Zero;
 
         public LyricLineDisplay? DisplayAt(int index) => index >= 0 && index < displays.Length ? displays[index] : null;
 

@@ -1256,6 +1256,130 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
+        #region The push warning readout (backlog 263)
+
+        /// <summary>
+        /// <see cref="TypingEngine.DragCutoffAt"/> is the display-only readout the stage draws its red
+        /// "you are about to be pushed to the next line" bar from, and this is the half of it that says
+        /// nothing: there is no push coming when the caret is PINNED (the Fletcher mod snatches the line
+        /// at its boundary instead, so there is no borrowed time to count down) and none before a line
+        /// is active at all.
+        /// </summary>
+        [Test]
+        public void ThePushReadoutIsSilentWhenNoPushCanHappen()
+        {
+            var pinned = engine(dragMap(), flexible: false);
+
+            Assert.IsNull(pinned.DragCutoffAt, "nothing is active yet");
+
+            pinned.Update(1000);
+            Assert.IsTrue(pinned.ProcessKey('a', 1000));
+            pinned.Update(2999);
+
+            Assert.AreEqual(0, pinned.ActiveLineIndex);
+            Assert.AreEqual(1, pinned.CaretIndex, "a character is still owed, so this is the dragging shape");
+            Assert.IsNull(pinned.DragCutoffAt, "but a pinned caret is snatched, not pushed");
+
+            var flexible = engine(dragMap(), flexible: true);
+            Assert.IsNull(flexible.DragCutoffAt, "and the unpinned engine is equally silent before its first line activates");
+        }
+
+        /// <summary>
+        /// The readout names the exact instant the seal's own drag test compares against, so the warning can never disagree with the punishment it warns about: line 0's
+        /// deadline of 3000 plus its zero seal grace plus FLETCHER_DRAG_GRACE_MS = 4500, the same 4500
+        /// <see cref="DragCutoffForceSealsAndHandsOverWithoutCascading"/> pins the force-seal at. After
+        /// the push lands it moves to the line the player was handed, and it goes quiet when the run is
+        /// over.
+        /// </summary>
+        [Test]
+        public void ThePushReadoutNamesTheCutoffAndFollowsTheCaretThroughIt()
+        {
+            var typing = engine(dragMap(), flexible: true);
+
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000));
+
+            Assert.AreEqual(0, typing.Lines[0].SealGraceMs, "the fixture's lines carry no seal grace");
+            Assert.AreEqual(4500, typing.DragCutoffAt, "3000 + 0 + FLETCHER_DRAG_GRACE_MS");
+
+            // Unchanged as the song leaves the line: the deadline is a property of the line, not of how
+            // far past it the clock has got. It is the STAGE that only draws the final 1500 ms of it.
+            typing.Update(3000);
+            Assert.AreEqual(4500, typing.DragCutoffAt);
+            typing.Update(4499);
+            Assert.AreEqual(4500, typing.DragCutoffAt);
+
+            // The push lands. The caret is now on line 1, which is the next unsealed line and still owes
+            // both its characters, so the readout is line 1's own cutoff: 5000 + 0 + 1500.
+            typing.Update(4500);
+            Assert.AreEqual(1, typing.ActiveLineIndex);
+            Assert.AreEqual(1, typing.NextUnsealedLineIndex);
+            Assert.AreEqual(6500, typing.DragCutoffAt);
+
+            // Line 1's own cutoff finishes the run, and a finished run is warned about nothing.
+            typing.Update(6500);
+            Assert.IsTrue(typing.IsFinished);
+            Assert.IsNull(typing.DragCutoffAt);
+        }
+
+        /// <summary>
+        /// FINISHING CANCELS THE PUNISHMENT, and this arm isolates that from the other two: the caret is
+        /// still on line 0 and line 0 is still the next line due to seal, so the only thing that changed
+        /// is that the line no longer owes a character. <see cref="lateSecondLineMap"/> is what holds
+        /// the other two conditions still, because its second line is not due for another six seconds,
+        /// so the rush bound parks the finished caret on line 0 rather than rolling it off.
+        /// </summary>
+        [Test]
+        public void TypingTheLineOutCancelsThePushWhereTheCaretStands()
+        {
+            var typing = engine(lateSecondLineMap(), flexible: true);
+
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000));
+            Assert.AreEqual(4500, typing.DragCutoffAt, "line 0 is the same 1000-3000 line as the drag fixture's");
+
+            Assert.IsTrue(typing.ProcessKey('b', 2000));
+
+            // Entry into line 1 opens at 8500 - 1500 = 7000, so the roll is refused and the caret parks
+            // past the end of line 0: same line, same seal cursor, nothing left untyped.
+            Assert.AreEqual(0, typing.ActiveLineIndex);
+            Assert.AreEqual(0, typing.NextUnsealedLineIndex);
+            Assert.IsTrue(typing.IsLineComplete);
+            Assert.IsNull(typing.DragCutoffAt, "a line with nothing owed seals on its own deadline, with nobody pushed");
+        }
+
+        /// <summary>
+        /// A line the player WALKED OUT OF with a line skip keeps its drag grace (it must reach its
+        /// misses at the instant it would have with the player sitting there), but nobody is standing on
+        /// it to be pushed: the seal loop's hand-over arm only fires for the line the caret is actually
+        /// on. So the stale line warns nobody, and the warning appears only once the seal cursor catches
+        /// up to the line the player really is on.
+        /// </summary>
+        [Test]
+        public void AnAbandonedLineWarnsNobodyBecauseNobodyIsStandingOnIt()
+        {
+            var typing = engine(dragMap(), flexible: true);
+
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000));
+            Assert.AreEqual(4500, typing.DragCutoffAt);
+
+            // Entry into line 1 opens at 3000 - 1500 = 1500, so the skip rolls the caret straight on.
+            Assert.IsTrue(typing.ProcessEnter(2000));
+            Assert.AreEqual(1, typing.ActiveLineIndex, "the caret has left line 0");
+            Assert.AreEqual(0, typing.NextUnsealedLineIndex, "while line 0 is still held open for its misses");
+            Assert.IsNull(typing.DragCutoffAt);
+
+            // Line 0 reaches its own deadline and seals, WITHOUT touching the caret. Only now is the
+            // player's line the next one due to seal, and only now is a push coming for them.
+            typing.Update(4500);
+            Assert.AreEqual(1, typing.ActiveLineIndex);
+            Assert.AreEqual(1, typing.NextUnsealedLineIndex);
+            Assert.AreEqual(6500, typing.DragCutoffAt);
+        }
+
+        #endregion
+
         #region The line skip (backlog 241)
 
         /// <summary>

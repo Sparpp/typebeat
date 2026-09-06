@@ -3596,6 +3596,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             return time - cell.TargetTime;
         }
 
+        /// <summary>
+        /// THE PUSH (backlog 263), read out for display only: the instant the caret's own line will be
+        /// force-sealed out from under it and the caret landed on the next line, or null when no such
+        /// push is coming. Nothing here decides anything, it only reports the deadline
+        /// <see cref="sealPermitted"/> already compares against, so the stage can warn the player
+        /// before it arrives.
+        ///
+        /// <para>Non-null under exactly the three conditions the drag cutoff needs. The caret must be
+        /// UNPINNED (<see cref="FletcherEnabled"/>), or the line was never held open for the player in
+        /// the first place. The caret's line must also be the next line due to seal, or the seal loop
+        /// reaches it with the caret elsewhere and the cutoff's hand-over arm does not run: a line the
+        /// player walked out of with a line skip is still held open by <see cref="lineAbandoned"/>,
+        /// but nobody is standing on it to be pushed. And the line must still owe a character
+        /// (<see cref="hasUntypedTypeable"/>, the same scan the seal asks), because a line with
+        /// nothing left untyped seals on its ordinary deadline with no drag to protect and no
+        /// punishment to warn about: typing the last cell out cancels the push there and then.</para>
+        ///
+        /// <para>The value is <see cref="TypingLine.EndTime"/> + <see cref="TypingLine.SealGraceMs"/> +
+        /// <see cref="FLETCHER_DRAG_GRACE_MS"/>, exactly what <see cref="sealPermitted"/> tests, so the
+        /// warning can never disagree with the moment it warns about.</para>
+        /// </summary>
+        public double? DragCutoffAt
+        {
+            get
+            {
+                if (isFinished || !FletcherEnabled || activeLineIndex == -1 || activeLineIndex != nextSealIndex)
+                    return null;
+
+                var line = lines[activeLineIndex];
+
+                if (!hasUntypedTypeable(line))
+                    return null;
+
+                return line.EndTime + line.SealGraceMs + FLETCHER_DRAG_GRACE_MS;
+            }
+        }
+
         public ResultsSummary BuildResults()
         {
             // SyncPercent over every TIMED cell: finally-Correct cells contribute SyncQuality(final
