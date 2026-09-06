@@ -354,6 +354,68 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return replay(frames);
         }
 
+        /// <summary>
+        /// The reported run backlog 262 is about, as recorded frames, on the same fixture: the line
+        /// typed clean as far as the gap in front of "mn", a wrong key on the 'm', the 'n' typed
+        /// correctly (which rebuilds the run to 1, so the next break owns a streak and is NOT
+        /// passive), a wrong key on the gap after it, then the three backspaces and the retype the
+        /// player really made. <paramref name="fold"/> is the CONFIG frame's bit 12, taken through the
+        /// LEGACY decode with the caret, space and gap-typo bits a live stack records.
+        ///
+        /// <para><paramref name="clean"/> instead types the line straight through, which is the run
+        /// the corrected one has to match.</para>
+        /// </summary>
+        private static Replay displacedClaimRun(IBeatmap map, bool fold, bool clean = false)
+        {
+            const int flag_allow_wrong_input = 1;
+            const int flag_space_skips_word = 2;
+            const int flag_wrong_input_on_word_gaps = 8;
+            const int flag_strict_spaces = 16;
+            const int flag_flexible_lines = 32;
+            const int flag_bounded_rush = 128;
+            const int flag_lossless_skip_reclaim = 2048;
+            const int flag_displaced_claim_fold = 4096;
+
+            int flags = flag_allow_wrong_input | flag_space_skips_word | flag_wrong_input_on_word_gaps | flag_strict_spaces
+                        | flag_flexible_lines | flag_bounded_rush | flag_lossless_skip_reclaim
+                        | (fold ? flag_displaced_claim_fold : 0);
+
+            var config = new TypeBeatReplayFrame();
+            config.FromLegacy(new LegacyReplayFrame(0, (float)TypeBeatReplayFrame.CONFIG, flags, ReplayButtonState.None), new Beatmap());
+            config.Time = 0;
+
+            var targets = targetsOf(map, 0);
+            const string text = "ab cdefghijkl mn op";
+
+            var frames = new List<TypeBeatReplayFrame> { config };
+
+            if (clean)
+            {
+                for (int i = 0; i < text.Length; i++)
+                    frames.Add(new TypeBeatReplayFrame(targets[i], text[i]));
+
+                return replay(frames);
+            }
+
+            // Clean as far as the gap in front of "mn": fourteen cells, which is the report's 477.
+            for (int i = 0; i < 14; i++)
+                frames.Add(new TypeBeatReplayFrame(targets[i], text[i]));
+
+            frames.Add(new TypeBeatReplayFrame(targets[14], 'z'));      // the wrong key on 'm'
+            frames.Add(new TypeBeatReplayFrame(targets[15], text[15])); // 'n', correct: a run of 1
+            frames.Add(new TypeBeatReplayFrame(targets[16], 'z'));      // the wrong key on the gap: the displacing break
+
+            // Three backspaces: the gap typo cleared in place, then 'n', then the spoiled 'm'.
+            for (int i = 0; i < 3; i++)
+                frames.Add(new TypeBeatReplayFrame(targets[16], TypeBeatReplayFrame.BACKSPACE));
+
+            // The retype, from the spoiled cell to the end of the line.
+            for (int i = 14; i < text.Length; i++)
+                frames.Add(new TypeBeatReplayFrame(targets[i], text[i]));
+
+            return replay(frames);
+        }
+
         #endregion
 
         /// <summary>
@@ -870,6 +932,71 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // Neither reaches the clean run's million, and they are not meant to: the skip's
                 // break really happened and the combo weight of the cells typed under it is really
                 // lower. What backlog 260 restores is the max_combo and the increment, not the run.
+                Assert.That(clean.TotalScore, Is.EqualTo(1000000));
+                Assert.That(live.TotalScore, Is.GreaterThan(stored.TotalScore));
+
+                // Everything the axis does not reach.
+                Assert.That(live.Statistics, Is.EquivalentTo(stored.Statistics));
+                Assert.That(live.MaximumStatistics, Is.EquivalentTo(stored.MaximumStatistics));
+                Assert.That(live.Accuracy, Is.EqualTo(stored.Accuracy).Within(1e-12));
+                Assert.That(live.Completion, Is.EqualTo(stored.Completion).Within(1e-12));
+                Assert.That(live.Rank, Is.EqualTo(stored.Rank));
+                Assert.That(live.Mistypes, Is.EqualTo(stored.Mistypes));
+            });
+        }
+
+        /// <summary>
+        /// THE DISPLACED-CLAIM ERA (backlog 262, CONFIG frame bit 12), through the whole submitted
+        /// account rather than through the engine's own combo. A wrong key on the head of a word took
+        /// a claim on the run behind it; the word's second letter was then typed correctly, so the
+        /// wrong key that followed on the word gap owned a streak of its own and took that claim away,
+        /// and the run it displaced was thrown on the floor. Three backspaces and a perfect retype
+        /// gave back 1, which is the max combo of 477 out of 894 that was reported.
+        ///
+        /// <para>The corrected run is compared against the CLEAN one, which is the law itself: two
+        /// accidents, both fully corrected, cost nothing. Under the stored arm the second one costs
+        /// the whole of the first's run.</para>
+        ///
+        /// <para>It is also the statement of the axis's REACH, the same one bits 10 and 11 have:
+        /// <c>statistics</c>, accuracy, completion and rank are IDENTICAL under both arms, because no
+        /// cell resolves differently and no key moves. Only the combo a displaced claim leaves
+        /// recoverable moves, so only <c>max_combo</c> and the combo-weighted portion of
+        /// <c>total_score</c> can.</para>
+        /// </summary>
+        [Test]
+        public void TheDisplacedClaimEraDecidesWhetherTheOlderBreaksRunComesBack()
+        {
+            var map = longWordMap();
+
+            var clean = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), displacedClaimRun(map, fold: true, clean: true), TypoRule.Deferred, ComboRestoreRule.OnFix);
+            var live = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), displacedClaimRun(map, fold: true), TypoRule.Deferred, ComboRestoreRule.OnFix);
+            var stored = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), displacedClaimRun(map, fold: false), TypoRule.Deferred, ComboRestoreRule.OnFix);
+
+            TestContext.WriteLine($"clean: max_combo {clean.MaxCombo}, total {clean.TotalScore}; live: max_combo {live.MaxCombo}, total {live.TotalScore}; stored: max_combo {stored.MaxCombo}, total {stored.TotalScore}");
+
+            Assert.Multiple(() =>
+            {
+                // The fixture has to be the shape the rule is about, or it proves nothing: nineteen
+                // cells, all of them typed, nothing missed, and the two wrong keypresses spent.
+                Assert.That(count(live, HitResult.Miss), Is.Zero);
+                Assert.That(live.Mistypes, Is.EqualTo(2));
+                Assert.That(live.UnconsumedFrames, Is.Zero);
+                Assert.That(stored.UnconsumedFrames, Is.Zero);
+                Assert.That(clean.UnconsumedFrames, Is.Zero);
+
+                Assert.That(clean.MaxCombo, Is.EqualTo(19));
+                Assert.That(live.MaxCombo, Is.EqualTo(19), "the corrected run reaches the clean run's maximum");
+                Assert.That(stored.MaxCombo, Is.EqualTo(14), "the reported 477 of 894, in miniature: the run the first break held");
+
+                // The submitted totals, hardcoded so the stored arm is a REPRODUCTION pin: bit 12
+                // clear is the account this run was given before backlog 262, and nothing may move it.
+                Assert.That(stored.TotalScore, Is.EqualTo(709767));
+                Assert.That(live.TotalScore, Is.EqualTo(764689));
+
+                // Neither reaches the clean run's million, and they are not meant to: the two breaks
+                // really happened and the combo weight of the cells typed under them is really lower.
+                // What backlog 262 restores is the max_combo and the older break's run, not the score
+                // those cells were struck at.
                 Assert.That(clean.TotalScore, Is.EqualTo(1000000));
                 Assert.That(live.TotalScore, Is.GreaterThan(stored.TotalScore));
 

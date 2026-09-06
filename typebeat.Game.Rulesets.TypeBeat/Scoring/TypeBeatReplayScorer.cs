@@ -392,9 +392,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <c>AllowWrongInput</c>, <c>SpaceSkipsWord</c>, <c>SyllableTiming</c>,
         /// <c>WrongInputOnWordGaps</c>, <c>StrictSpaces</c>, <c>CharTimedStretch</c>,
         /// <c>FlexibleLineSnap</c>, <c>BoundedRush</c>, <c>FirstCharTiming</c>,
-        /// <c>BackDatedSealBreak</c> and <c>LosslessSkipReclaim</c> are
+        /// <c>BackDatedSealBreak</c>, <c>LosslessSkipReclaim</c> and <c>FoldsDisplacedClaim</c> are
         /// deliberately NOT set from the mods or from any config: the replay's CONFIG frame carries
-        /// what the run was judged under and overwrites all eleven, which is the only thing that judges
+        /// what the run was judged under and overwrites all twelve, which is the only thing that judges
         /// a pre-Gatekeeper strict run right.
         ///
         /// <para>Public because <see cref="PuppeteerReplayTransform"/> builds its scratch engine
@@ -470,6 +470,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // dropped (the rush cap charging the skipping space for the word it gave up, and the
             // passive claim arm dropping the run it stood on), and the bit is set for every live
             // stack, because what a skip costs is not a mod's business either.
+            //
+            // FoldsDisplacedClaim (backlog 262, CONFIG frame bit 12) is the eighth, and the third
+            // that moves no keystroke: the default is the outright discard every stored replay's
+            // displacing break took, and the bit is set for every live stack, because what a second
+            // accident costs is not a mod's business either.
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the three arms below compose in any order. A replay

@@ -315,6 +315,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // total_score those runs were submitted with.
                 LosslessSkipReclaim = true,
 
+                // TWO ACCIDENTS, BOTH FULLY CORRECTED, ALSO COST NOTHING SINCE BACKLOG 262,
+                // unconditional for every mod stack: a break that took the claim off an older break
+                // was discarding it, so a player 477 combo deep who typo'd a letter, typed the next
+                // one correctly and then typo'd the word gap got back 1 for a perfect retype of both.
+                // The displaced claim now folds into the new one and the chain redeems together.
+                //
+                // No mod has an opinion about what a second accident costs, so there is nothing to
+                // scope it to, and recording it unconditionally is what keeps re-derivation uniform,
+                // the same convention bits 10 and 11 follow.
+                //
+                // An ERA flag on CONFIG frame bit 12, because every replay recorded before it holds
+                // breaks that dropped the older claim, and the drop is in the max_combo and the
+                // total_score those runs were submitted with.
+                FoldsDisplacedClaim = true,
+
                 // THE LIVE CARET SINCE BACKLOG 208, for every stack except the pinning mod's. The
                 // three freedoms that shipped as the "FT" mod (open the next line the moment you
                 // finish one, keep a line the song has left, character distance instead of a timing

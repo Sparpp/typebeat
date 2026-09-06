@@ -34,6 +34,14 @@
 // its OWN press credited: a break taking no more than that is as passive as one landing at zero, and
 // spends the credit as it goes. A correct character in between puts the run at 2 and the next break
 // takes the claim exactly as it always did, which is the counter-case pinned below.
+//
+// BACKLOG 262 answers that counter-case rather than moving it. A break with a streak of its own
+// still TAKES the claim, and the cell that redeems is still its own, but the claim it displaces is
+// FOLDED IN rather than dropped: a third report (score 13383, 477 combo deep, a typo on a letter, the
+// next letter typed correctly, a typo on the word gap after it, then three backspaces and a perfect
+// retype) got 1 back for two accidents it had corrected in full. The pairs below are written the way
+// 176, 243 and 260's are: the live arm, and the arm every stored row was played under
+// (TypingEngine.FoldsDisplacedClaim, CONFIG frame bit 12).
 
 using System.Collections.Generic;
 using NUnit.Framework;
@@ -79,9 +87,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Granularity = TimingGranularity.Line,
         };
 
-        private static TypingEngine started()
+        /// <summary>
+        /// <paramref name="folds"/> selects backlog 262's arm: with it set a break that takes the
+        /// claim off an older break folds that claim into its own instead of discarding it. FALSE by
+        /// default, which is the engine default and the arm every stored replay was played under.
+        /// </summary>
+        private static TypingEngine started(bool folds = false)
         {
-            var engine = new TypingEngine(map());
+            var engine = new TypingEngine(map()) { FoldsDisplacedClaim = folds };
             engine.Update(1000);
             return engine;
         }
@@ -266,7 +279,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// under: the space skips a word, a wrong letter takes a word gap, and a spoiled gap parks the
         /// caret. Only the two claim axes are left to the caller.
         /// </summary>
-        private static TypingEngine skipEngine(ComboClaimRule claim, SkipSpaceCreditRule skipCredit, LyricBeatmap? beatmap = null, bool lossless = false)
+        private static TypingEngine skipEngine(ComboClaimRule claim, SkipSpaceCreditRule skipCredit, LyricBeatmap? beatmap = null, bool lossless = false, bool folds = false)
         {
             var engine = new TypingEngine(beatmap ?? twoWordMap())
             {
@@ -276,6 +289,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 ComboClaim = claim,
                 SkipSpaceCredit = skipCredit,
                 LosslessSkipReclaim = lossless,
+                FoldsDisplacedClaim = folds,
             };
 
             engine.Update(1000);
@@ -340,14 +354,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// BACKLOG 243's counter-case, and the one the report itself demanded: the same skip, but with
         /// a CORRECT character typed between it and the typo. The run is genuinely 2 when the typo
         /// lands (the skip's own space, plus a character the player really typed), so the typo has a
-        /// streak of its own to take the claim with and the skip's claim is gone for good. Walking
-        /// back to the abandoned 'd' then restores nothing, and it is the TYPO's cell that carries the
-        /// live claim.
+        /// streak of its own to take the claim with. Walking back to the abandoned 'd' then restores
+        /// nothing, and it is the TYPO's cell that carries the live claim.
+        ///
+        /// <para><paramref name="folds"/> is backlog 262: the displaced claim is not thrown away, it
+        /// is folded into the typo's, so the one live claim on the typo's cell is worth both breaks.
+        /// WHICH cell redeems is the same under both arms, which is why this fixture serves them
+        /// both.</para>
         /// </summary>
         private static (TypingEngine engine, List<int> restored, int restoredAtTheAbandonedCell) wordSkippedThenACharacterThenATypo(
-            ComboClaimRule claim, SkipSpaceCreditRule skipCredit)
+            ComboClaimRule claim, SkipSpaceCreditRule skipCredit, bool folds = false)
         {
-            var engine = skipEngine(claim, skipCredit);
+            var engine = skipEngine(claim, skipCredit, folds: folds);
 
             var restored = new List<int>();
             engine.ComboRestored += restored.Add;
@@ -480,16 +498,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The bound on the rule. An intervening break OWNS the streak: the run the player was on
-        /// when they typed the first wrong char has been lost to something else since, and going
-        /// back to fix the older cell cannot un-lose it. Only the newest wrong cell holds a claim,
-        /// so fixing them in the order they happened restores nothing for the first and everything
-        /// for the second.
+        /// Two wrong keys with a run REBUILT between them, so the second break really does cost
+        /// something of its own and really does take the claim, then both cells fixed in the order
+        /// they happened. <paramref name="folds"/> selects backlog 262's arm.
         /// </summary>
-        [Test]
-        public void AnInterveningBreakOwnsTheStreakSoTheOlderFixRestoresNothing()
+        private static (TypingEngine engine, List<int> restored, int restoredAtTheOlderCell) twoTyposWithARunBetweenThemBothFixed(bool folds)
         {
-            var engine = started();
+            var engine = started(folds);
 
             var restored = new List<int>();
             engine.ComboRestored += restored.Add;
@@ -497,28 +512,68 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             typeCorrectly(engine, 0, 3);
             typo(engine, 3);          // snapshots 3
             typeCorrectly(engine, 4, 6);
-            typo(engine, 6);          // the intervening break: snapshots 2, and drops cell 3's claim
+            typo(engine, 6);          // the displacing break: a streak of 2 of its own
 
             Assert.That(engine.Combo, Is.Zero);
 
             fix(engine, 3);
 
-            Assert.Multiple(() =>
-            {
-                Assert.That(restored, Is.Empty, "cell 3's streak died with the second wrong key");
-                Assert.That(engine.Combo, Is.EqualTo(1), "the fix earns its own cell and nothing more");
-            });
+            int atTheOlderCell = restored.Count;
 
-            // Cell 6 is the one still holding a claim, and it is redeemed normally. The caret is on
+            // Cell 6 is the one holding the claim, and it is redeemed normally. The caret is on
             // cell 4 after the fix above, so cells 4 and 5 are inert retypes on the way back out
             // (already judged correct, so no combo of their own) and cell 6 is the fix.
             typeCorrectly(engine, 4, 6);
             fix(engine, 6);
 
+            return (engine, restored, atTheOlderCell);
+        }
+
+        /// <summary>
+        /// The bound on the rule, and since backlog 262 the bound only on WHICH CELL redeems. An
+        /// intervening break with a streak of its own OWNS the claim, so going back to fix the older
+        /// cell restores nothing: the claim is on the newer cell. What that claim is WORTH is the new
+        /// axis, and folding is what makes this shape obey the law backlogs 243 and 260 wrote for the
+        /// skip (two accidents, both fully corrected, cost the run nothing): the older break's streak
+        /// of 3 was earned, its cells are resolved and inert on every retype, and discarding it lost
+        /// it for good even though the player came back and typed everything out.
+        ///
+        /// <para>The corrected run therefore ends on 7, which is exactly the seven cells 0 to 6 a
+        /// clean run holds at the same point. <see cref="ThePre262RuleDropsTheDisplacedClaim"/> is the
+        /// same keystrokes under the stored arm, three lower.</para>
+        /// </summary>
+        [Test]
+        public void AnInterveningBreakOwnsTheStreakSoTheOlderFixRestoresNothing()
+        {
+            (var engine, var restored, int atTheOlderCell) = twoTyposWithARunBetweenThemBothFixed(folds: true);
+
             Assert.Multiple(() =>
             {
-                Assert.That(restored, Is.EqualTo(new[] { 2 }), "the newer cell's snapshot survived");
+                Assert.That(atTheOlderCell, Is.Zero, "cell 3's claim was taken by the second wrong key");
+                Assert.That(restored, Is.EqualTo(new[] { 5 }), "the newer cell's claim, carrying the older one folded into it");
+                Assert.That(engine.Combo, Is.EqualTo(7), "5 restored + the 1 the older fix earned + this fix");
+                Assert.That(engine.MaxCombo, Is.EqualTo(7), "which is the seven cells a clean run holds here, and no more");
+                Assert.That(engine.Mistypes, Is.EqualTo(2), "the two wrong keypresses are still spent");
+            });
+        }
+
+        /// <summary>
+        /// The pre-262 arm of the same keystrokes, and the reproduction pin every stored row depends
+        /// on: the displacing break threw the older claim away, so the redemption is the 2 that break
+        /// took and no more, and the run ends three short of where the same fingers end up today.
+        /// </summary>
+        [Test]
+        public void ThePre262RuleDropsTheDisplacedClaim()
+        {
+            (var engine, var restored, int atTheOlderCell) = twoTyposWithARunBetweenThemBothFixed(folds: false);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(atTheOlderCell, Is.Zero, "cell 3's streak died with the second wrong key");
+                Assert.That(restored, Is.EqualTo(new[] { 2 }), "only what the second wrong key itself took");
                 Assert.That(engine.Combo, Is.EqualTo(4), "2 restored + the 1 the older fix earned + this fix");
+                Assert.That(engine.MaxCombo, Is.EqualTo(4));
+                Assert.That(engine.Mistypes, Is.EqualTo(2));
             });
         }
 
@@ -846,12 +901,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// The counter-case the report required, and the boundary of the rule: ONE correct character
         /// between the skip and the typo is enough. The run is really 2 by then, so the typo has a
         /// streak of its own, takes the claim exactly as any break with something to own does, and
-        /// coming back to the abandoned cell restores nothing. Pinned under BOTH arms of the new axis
-        /// with the same numbers, which is the statement that backlog 243 moved only the case where
-        /// the streak was the break's own press.
+        /// coming back to the abandoned cell restores nothing. Pinned under BOTH arms of the credit
+        /// axis with the same numbers, which is the statement that backlog 243 moved only the case
+        /// where the streak was the break's own press.
+        ///
+        /// <para>Since backlog 262 the claim the typo takes carries the skip's folded into it, so the
+        /// one redemption on the typo's cell is worth both breaks and the fully corrected run reaches
+        /// the seven cells a clean run holds at the same point.
+        /// <see cref="ThePre262RuleDropsTheClaimTheTypoBesideTheSkipDisplaced"/> is the stored arm.</para>
         /// </summary>
         [Test]
         public void ACharacterBetweenTheSkipAndTheTypoStillLetsTheTypoTakeTheClaim(
+            [Values(SkipSpaceCreditRule.NotAStreakOfItsOwn, SkipSpaceCreditRule.AStreakLikeAnyOther)] SkipSpaceCreditRule skipCredit)
+        {
+            (var engine, var restored, int atTheAbandonedCell) = wordSkippedThenACharacterThenATypo(ComboClaimRule.StreakedBreakWins, skipCredit, folds: true);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(atTheAbandonedCell, Is.Zero, "the abandoned cell no longer holds the claim: the typo took it");
+                Assert.That(restored, Is.EqualTo(new[] { 5 }), "the typo's claim, with the skip's 3 folded into its own 2");
+                Assert.That(engine.Combo, Is.EqualTo(7), "the retyped 'd', 5 restored at the 'f', then the 'f' itself");
+                Assert.That(engine.MaxCombo, Is.EqualTo(7), "the seven cells a clean run holds at the same point");
+                Assert.That(engine.Mistypes, Is.EqualTo(1));
+            });
+        }
+
+        /// <summary>
+        /// The pre-262 arm of that shape: the typo's claim replaced the skip's outright, so the
+        /// redemption is the 2 the typo itself broke and the corrected run ends three short. The
+        /// reproduction pin for every row stored before the fold, under both arms of the credit axis
+        /// exactly as the live pin above is.
+        /// </summary>
+        [Test]
+        public void ThePre262RuleDropsTheClaimTheTypoBesideTheSkipDisplaced(
             [Values(SkipSpaceCreditRule.NotAStreakOfItsOwn, SkipSpaceCreditRule.AStreakLikeAnyOther)] SkipSpaceCreditRule skipCredit)
         {
             (var engine, var restored, int atTheAbandonedCell) = wordSkippedThenACharacterThenATypo(ComboClaimRule.StreakedBreakWins, skipCredit);

@@ -44,7 +44,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// and bit 10 <see cref="BackDatedSealBreak"/> (whether a sealed line's combo break destroyed
     /// only the run earned up to its missed cells rather than the whole of it, backlog 259) and
     /// bit 11 <see cref="LosslessSkipReclaim"/> (whether a word given up by accident and then typed
-    /// out in full cost the run nothing, backlog 260).
+    /// out in full cost the run nothing, backlog 260) and bit 12
+    /// <see cref="FoldsDisplacedClaim"/> (whether a break taking the claim off an older break folded
+    /// that claim into its own rather than discarding it, backlog 262).
     /// Other mods
     /// (Literate/Mashing/rate) travel in the score itself and need no frames.
     ///
@@ -64,9 +66,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// space-skips-word, bit 2 = syllable-span timing, bit 3 = wrong-input-on-word-gaps, bit 4 =
     /// strict-spaces, bit 5 = flexible-lines, bit 6 = char-timed-stretch, bit 7 = bounded-rush,
     /// bit 8 = first-char-timing, bit 9 = wall-clock-frames, bit 10 = back-dated-seal-break,
-    /// bit 11 = lossless-skip-reclaim; only
+    /// bit 11 = lossless-skip-reclaim, bit 12 = displaced-claim-fold; only
     /// meaningful on CONFIG frames),
-    /// ButtonState = None, time = the integral frame time. A flags word of at most 4095 is as harmless
+    /// ButtonState = None, time = the integral frame time. A flags word of at most 8191 is as harmless
     /// to the encoder as the single bit was, and each new bit is appended ABOVE the existing ones,
     /// never renumbered: bits 0 to 4 keep their meaning and their positions untouched, so every
     /// replay already on disk decodes identically and simply reads false for the newer bits. All
@@ -79,7 +81,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// POSITION PAIR (256, -500) exactly, and a CONFIG frame's MouseX is 0x00 with a MouseY that is
     /// never negative, so neither coordinate can match whatever the flags word grows to. The
     /// sentinels sit at 0x00, 0x08 and 0x0A, below every printable mark, so nothing
-    /// collides. Bit 11 pushes the word to 2048 and the ceiling to 4095, and changes nothing about
+    /// collides. Bit 12 pushes the word to 4096 and the ceiling to 8191, and changes nothing about
     /// that argument, which never depended on the word's size: the strip matches the POSITION PAIR
     /// (256, -500) exactly, and a CONFIG frame's MouseX is 0x00 with a MouseY that is never
     /// negative.</para>
@@ -301,6 +303,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool LosslessSkipReclaim;
 
         /// <summary>
+        /// The engine's displaced-claim-fold setting at record time (see
+        /// <see cref="Gameplay.TypingEngine.FoldsDisplacedClaim"/>). Only meaningful on
+        /// <see cref="CONFIG"/> frames, and the ERA carrier for backlog 262: the live client records
+        /// it true for every stack, and every replay stored before it existed carries the bit clear,
+        /// so a second accident, fully corrected like the first, still throws away the whole run the
+        /// first one was holding, which is the <c>max_combo</c> and the <c>total_score</c> the run
+        /// was submitted with.
+        ///
+        /// <para>Judgement relevant in exactly the narrow sense bits 10 and 11 are, and no wider: it
+        /// changes no delta, no tier, no cell state and no keystroke's landing place. What it moves is
+        /// the COMBO a displaced claim leaves recoverable, so a stored row re-derived under the wrong
+        /// arm comes back with a different <c>total_score</c> and, wherever the recovered run outgrows
+        /// the old maximum, a different <c>max_combo</c>.</para>
+        /// </summary>
+        public bool FoldsDisplacedClaim;
+
+        /// <summary>
         /// The ANCHOR carried by a bit-9 CONFIG frame: the track position the tape was started at,
         /// which is also the origin of the wall axis every other frame in the run is stamped on. It
         /// is simply this frame's own <see cref="ReplayFrame.Time"/>, named here because that is a
@@ -344,11 +363,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <paramref name="boundedRush"/> (bit 7) is appended after both,
         /// <paramref name="firstCharTiming"/> (bit 8) after that,
         /// <paramref name="wallClockFrames"/> (bit 9) after that again, and
-        /// <paramref name="backDatedSealBreak"/> (bit 10) after that, and
-        /// <paramref name="losslessSkipReclaim"/> (bit 11) after that again. Pass the newer seven by
+        /// <paramref name="backDatedSealBreak"/> (bit 10) after that,
+        /// <paramref name="losslessSkipReclaim"/> (bit 11) after that again, and
+        /// <paramref name="foldsDisplacedClaim"/> (bit 12) last. Pass the newer eight by
         /// name.</para>
         /// </summary>
-        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false, bool flexibleLines = false, bool boundedRush = false, bool firstCharTiming = false, bool wallClockFrames = false, bool backDatedSealBreak = false, bool losslessSkipReclaim = false) => new TypeBeatReplayFrame(time, CONFIG)
+        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false, bool flexibleLines = false, bool boundedRush = false, bool firstCharTiming = false, bool wallClockFrames = false, bool backDatedSealBreak = false, bool losslessSkipReclaim = false, bool foldsDisplacedClaim = false) => new TypeBeatReplayFrame(time, CONFIG)
         {
             AllowWrongInput = allowWrongInput,
             SpaceSkipsWord = spaceSkipsWord,
@@ -362,6 +382,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             WallClockFrames = wallClockFrames,
             BackDatedSealBreak = backDatedSealBreak,
             LosslessSkipReclaim = losslessSkipReclaim,
+            FoldsDisplacedClaim = foldsDisplacedClaim,
         };
 
         /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>
@@ -413,6 +434,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// typed out in full cost the run nothing (backlog 260).</summary>
         private const int flag_lossless_skip_reclaim = 2048;
 
+        /// <summary>Bit 12 of the CONFIG frame's flags word: a break taking the claim off an older
+        /// break folded that claim into its own rather than discarding it, so two accidents corrected
+        /// in full cost the run nothing (backlog 262).</summary>
+        private const int flag_displaced_claim_fold = 4096;
+
         public void FromLegacy(LegacyReplayFrame currentFrame, IBeatmap beatmap, ReplayFrame? lastFrame = null)
         {
             Character = (char)(int)(currentFrame.MouseX ?? 0);
@@ -431,6 +457,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             WallClockFrames = (flags & flag_wall_clock_frames) != 0;
             BackDatedSealBreak = (flags & flag_back_dated_seal_break) != 0;
             LosslessSkipReclaim = (flags & flag_lossless_skip_reclaim) != 0;
+            FoldsDisplacedClaim = (flags & flag_displaced_claim_fold) != 0;
         }
 
         public LegacyReplayFrame ToLegacy(IBeatmap beatmap) =>
@@ -448,7 +475,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             | (FirstCharTiming ? flag_first_char_timing : 0)
             | (WallClockFrames ? flag_wall_clock_frames : 0)
             | (BackDatedSealBreak ? flag_back_dated_seal_break : 0)
-            | (LosslessSkipReclaim ? flag_lossless_skip_reclaim : 0);
+            | (LosslessSkipReclaim ? flag_lossless_skip_reclaim : 0)
+            | (FoldsDisplacedClaim ? flag_displaced_claim_fold : 0);
 
         /// <summary>
         /// Never equivalent: every frame is a discrete keystroke. Two identical characters at the

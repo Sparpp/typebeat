@@ -273,6 +273,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && frames[0].LosslessSkipReclaim
                 && playfield.Engine.LosslessSkipReclaim);
 
+            // Backlog 262's era bit (flags bit 12), stamped for EVERY stack on the same terms: no mod
+            // has an opinion about what a second accident costs, and a replay written before it exists
+            // carries the bit clear so its breaks still throw away the claim they displaced.
+            AddAssert("config frame records the displaced-claim fold", () =>
+                frames[0].IsConfig
+                && frames[0].FoldsDisplacedClaim
+                && playfield.Engine.FoldsDisplacedClaim);
+
             // The recorded time IS the time the cell was judged at. Under the live rule that no
             // longer reads as "target + delta": 'z' OPENS its syllable, so since backlog 247 its
             // judged delta is the recorded time's distance from the span's start (here equal to the

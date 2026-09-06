@@ -251,6 +251,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             WallClockFrames = source.WallClockFrames,
             BackDatedSealBreak = source.BackDatedSealBreak,
             LosslessSkipReclaim = source.LosslessSkipReclaim,
+            FoldsDisplacedClaim = source.FoldsDisplacedClaim,
         };
     }
 }

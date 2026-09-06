@@ -89,6 +89,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // submitted without. Applied here like every other bit, before a keystroke is fed.
                 engine.LosslessSkipReclaim = frame.LosslessSkipReclaim;
 
+                // FoldsDisplacedClaim (backlog 262) is the third of them, and the narrowest yet: with
+                // it clear a break that takes the claim off an older break throws that claim away, so
+                // a player who typo'd twice and corrected both got back only what the SECOND break
+                // cost, which is the max_combo those runs were submitted with. Applied here like every
+                // other bit, before a keystroke is fed.
+                engine.FoldsDisplacedClaim = frame.FoldsDisplacedClaim;
+
                 // BoundedRush (backlog 218) is the fifth, and the sharpest of them on the caret
                 // question: with it clear a player's finished line handed them the next one however
                 // many seconds early, and the keystrokes they then typed into it LANDED. Re-derived

@@ -103,6 +103,24 @@ looking for it. The canonical sources are the code itself:
   landed on that judged gap as a manufactured typo. The selection is widened one step to that gap.
   Widened rather than bounding the backspace, deliberately: playback feeds a recorded `BACKSPACE`
   through the plain `ProcessBackspace`, so a live erase that stopped short would not reproduce.
+  Backlog 262 adds `FoldsDisplacedClaim` (an eighth ERA, CONFIG flags bit 12 = 4096, set for every
+  live stack), which finishes that law for the TYPO the way 243 and 260 finished it for the skip: two
+  accidents, both fully corrected, cost the run NOTHING. A report of 894 cells, 0 misses, 100%
+  completion and a max combo of 477 was a player who typo'd the head of a word 477 deep, typed the
+  word's second letter correctly (a run of 1 they really earned, so the next break was NOT passive
+  under 243) and then typo'd the word gap after it. That second break took the claim and the overwrite
+  arm of `snapshotRedeemableBreak` DISCARDED the 477; three backspaces and a perfect retype restored
+  1. The displacing break now FOLDS the claim it displaces into its own (`displacedStreak +
+  brokenStreak` against its own cell, the displaced positions in front of its own in run order,
+  `positions.Count == streak` preserved, `ownPressCredit` still starting at 0 so 243's one-break
+  exemption is not re-armed), so the NEWEST of the broken cells redeems the whole chain, transitively
+  through a third break and a fourth. It serves both redeemable breaks, the word skip included, since
+  they share the one snapshot site. What keeps it honest is `BackDatedSealBreak`: a restored increment
+  goes back WHERE IT WAS EARNED, so a line sealing on cells nobody typed still destroys every
+  increment at or before its last unforeseen miss, folded ones included, and the seal's own
+  unconditional claim discard is untouched. Note the fold is not conditioned on the older cell being
+  fixed: a cell left WRONG is not a miss at seal (backlog 124), so the clawback that actually fires is
+  the untyped-cell one.
 - **The timing schema** (per-character target times, syllable subdivision, space cells):
   `Gameplay/TypingLine.cs`, `FromLyricLine`.
 - **How a judgement becomes a stored osu result**: `Scoring/TypeBeatResultMapping.cs`, which also

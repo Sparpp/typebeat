@@ -317,6 +317,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool LosslessSkipReclaim { get; set; }
 
         /// <summary>
+        /// DISPLACED CLAIM FOLD (backlog 262): a break that takes the claim off an older break FOLDS
+        /// that claim into its own instead of discarding it, so the chain is redeemed by coming back
+        /// to the NEWEST of the cells rather than lost the moment a second accident happens.
+        ///
+        /// <para>A player 477 combo deep typo'd the first letter of a word, typed the second letter
+        /// correctly (which rebuilt the run to 1), then typo'd the word gap after it. That second
+        /// break stood on a streak of 1 it had really earned, so it was not passive (backlog 243) and
+        /// took the claim, and the overwrite arm of <see cref="snapshotRedeemableBreak"/> threw the
+        /// 477 away. Three backspaces and a perfect retype then restored 1. The run was ended by two
+        /// accidents that were both fully corrected, which the repo's law (backlogs 243 and 260) says
+        /// costs nothing: the player finished with 0 misses, 100% completion and a max combo of 477
+        /// out of 894.</para>
+        ///
+        /// <para>Under this rule the displacing break's claim is <c>displacedStreak + brokenStreak</c>
+        /// against its own cell, with the displaced claim's positions in front of its own (run order,
+        /// oldest first, because <see cref="resumeStreakIfThisRedeemsTheBreak"/> puts them back at the
+        /// HEAD of the ledger). <c>positions.Count == streak</c> is preserved, and the new claim's
+        /// <c>ownPressCredit</c> starts at 0 exactly as it did before, so backlog 243's one-break
+        /// exemption is neither granted nor extended by folding. Chains transitively: a third break
+        /// folds the pair, and so on.</para>
+        ///
+        /// <para>What keeps it honest is backlog 259's <see cref="BackDatedSealBreak"/>. The fold
+        /// restores increments earned before the older break without that break's own cell having
+        /// been fixed, but the restored positions go back WHERE THEY WERE EARNED, so a line sealing
+        /// on cells nobody typed back-dates its break against them and destroys every increment at or
+        /// before its last unforeseen miss, folded ones included.</para>
+        ///
+        /// <para>FALSE by default, and era-styled exactly like <see cref="LosslessSkipReclaim"/>: set
+        /// before the first keypress and left alone afterwards. Live play sets it for EVERY mod stack
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c>), because no mod has an opinion about what a
+        /// second accident costs. It travels per replay on the CONFIG frame's flags bit 12
+        /// (<see cref="Replays.TypeBeatReplayFrame.FoldsDisplacedClaim"/>) and is applied in
+        /// <see cref="Replays.ReplayEngineFeed.Apply"/>, so every replay recorded before it existed
+        /// carries the bit clear and re-derives with the displaced claim discarded, which is the
+        /// <c>max_combo</c> and the <c>total_score</c> its player was given.</para>
+        ///
+        /// <para>Judgement relevant in the same narrow sense bits 10 and 11 are: it moves no delta,
+        /// no tier, no cell state and no keystroke's landing place. It moves only COMBO, and
+        /// therefore the combo weight of every judgement after the redemption.</para>
+        /// </summary>
+        public bool FoldsDisplacedClaim { get; set; }
+
+        /// <summary>
         /// Whether <see cref="AllowWrongInput"/> reaches the WORD GAP as well as the lyric
         /// characters (backlog 181). With it on, a wrong (non-space) key pressed while the caret
         /// sits on a space cell is typed THROUGH exactly like a wrong letter on a lyric cell: the
@@ -2936,6 +2979,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// resolved, so no retype can earn it back. Folding is what makes "an accidental skip, fully
         /// corrected, costs nothing" true of a double space as well as of a single one.</para>
         ///
+        /// <para>A break that DOES own its streak takes the claim, and since backlog 262 it takes the
+        /// displaced claim's streak WITH it (see <see cref="FoldsDisplacedClaim"/>) rather than
+        /// dropping it: the older break's increments are just as unreachable as a passive break's, and
+        /// a player who corrects both accidents in full is entitled to both. The chain is then
+        /// redeemed at the NEWEST of the broken cells, and the seal's back-dated break (backlog 259)
+        /// is what still takes back anything the line never really earned.</para>
+        ///
         /// <para>Under <see cref="ComboRestoreRule.Never"/> no snapshot exists at all, so the break
         /// is as final here as it is everywhere else.</para>
         /// </summary>
@@ -2990,6 +3040,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     restorable = (heldLine, heldCell, heldStreak + brokenStreak, 0, heldPositions);
                     return;
                 }
+            }
+
+            // BACKLOG 262: this break OWNS the streak it broke, so it takes the claim, but the claim
+            // it displaces is not therefore worthless: the increments behind it were earned and the
+            // cells that earned them are resolved, so discarding it loses them for good even though
+            // the player can still go back and correct both accidents. The displaced claim FOLDS into
+            // this one instead (see FoldsDisplacedClaim), which makes the newest of the broken cells
+            // the one that redeems the whole chain, and chains transitively through a third break and
+            // a fourth. Positions go in front of this break's own, oldest first, because a redemption
+            // puts them back at the head of the ledger; the count still equals the streak; and the
+            // credit still starts at zero, so backlog 243's exemption is not re-armed by folding.
+            if (FoldsDisplacedClaim && restorable is (_, _, int displacedStreak, _, var displacedPositions) && displacedStreak > 0)
+            {
+                var folded = new List<ComboPosition>(displacedPositions.Count + brokenPositions.Count);
+
+                folded.AddRange(displacedPositions);
+                folded.AddRange(brokenPositions);
+
+                restorable = (activeLineIndex, cellIndex, displacedStreak + brokenStreak, 0, folded);
+                return;
             }
 
             restorable = (activeLineIndex, cellIndex, brokenStreak, 0, brokenPositions);
