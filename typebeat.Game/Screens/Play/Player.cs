@@ -1097,19 +1097,33 @@ namespace typebeat.Game.Screens.Play
         public bool IsResuming { get; private set; }
 
         /// <summary>
-        /// The amount of gameplay time after which a second pause is allowed.
+        /// The amount of REAL time after which a second pause is allowed.
         /// </summary>
         protected virtual double PauseCooldownDuration => 1000;
 
         protected PauseOverlay PauseOverlay { get; private set; }
 
-        private double? lastPauseActionTime;
+        /// <summary>
+        /// The wall-clock time (this screen's own <c>Time.Current</c>, i.e. the game-wide framed clock,
+        /// NOT the gameplay clock) at which the last pause was taken.
+        /// </summary>
+        /// <remarks>
+        /// type!beat divergence from upstream, backlog 267: keep this on the real-time axis through any rebase.
+        /// Upstream measures the anti-spam cooldown in GAMEPLAY time, which is fine at rate 1.0 but not here.
+        /// Under the Conductor (<c>TypeBeatModPuppeteer</c>) the gameplay rate parks at its floor
+        /// <c>V_EPSILON</c> (1/512, never exactly zero by construction), so a gameplay-timed cooldown of one
+        /// second takes 512 real seconds to expire and every pause, quit and escape silently no-ops until then.
+        /// The cooldown gates a human hand, so it belongs on the clock the hand lives on. This screen is the
+        /// PARENT of <see cref="GameplayClockContainer"/>, so its own <c>Time.Current</c> is unaffected
+        /// by <c>AdjustmentsFromMods</c>; <see cref="RESULTS_DISPLAY_DELAY"/> is scheduled off the same clock.
+        /// </remarks>
+        private double? lastPauseActionRealTime;
 
         private HotkeyRetryOverlay retryOverlay;
         private HotkeyExitOverlay exitOverlay;
 
         protected bool PauseCooldownActive =>
-            PlayingState.Value == LocalUserPlayingState.Playing && lastPauseActionTime.HasValue && GameplayClockContainer.CurrentTime < lastPauseActionTime + PauseCooldownDuration;
+            PlayingState.Value == LocalUserPlayingState.Playing && lastPauseActionRealTime.HasValue && Time.Current < lastPauseActionRealTime + PauseCooldownDuration;
 
         /// <summary>
         /// A set of conditionals which defines whether the current game state and configuration allows for
@@ -1147,7 +1161,7 @@ namespace typebeat.Game.Screens.Play
 
             GameplayClockContainer.Stop();
             PauseOverlay.Show();
-            lastPauseActionTime = GameplayClockContainer.CurrentTime;
+            lastPauseActionRealTime = Time.Current;
             return true;
         }
 
