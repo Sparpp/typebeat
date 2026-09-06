@@ -16,8 +16,10 @@ using typebeat.Game.Rulesets.TypeBeat.Scoring;
 namespace typebeat.Game.Rulesets.TypeBeat
 {
     /// <summary>
-    /// Star rating from <see cref="LyricDifficulty"/>: a duration-weighted soft maximum over
-    /// per-word typing strain (see sr-formula-v1.md). Rate-adjusting mods (DoubleTime/Nightcore/
+    /// Star rating from <see cref="LyricDifficulty"/>: the map's pace over sliding windows measured
+    /// against human typing capability, summed over greedy non-overlapping FEATS (backlog 269).
+    /// That class' own summary is the model description, and the prototype it is a literal port of
+    /// is docs/sr-feats-model.js in the parent superrepo. Rate-adjusting mods (DoubleTime/Nightcore/
     /// HalfTime) feed their combined clock rate in, so a faster clock raises the rating, and the
     /// LITERATE mod feeds in the cell stream it converts the map to, so its extra punctuation cells
     /// move the rating as well (backlog 144).
