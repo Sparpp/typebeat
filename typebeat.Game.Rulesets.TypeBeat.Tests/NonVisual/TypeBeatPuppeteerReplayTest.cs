@@ -400,18 +400,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// ...AND WITH A HELD COAST IN THE TRAJECTORY (backlog 261). The hold lives on
+        /// ...AND WITH A GAP FLOOR IN THE TRAJECTORY (backlog 261, backlog 266). The floor lives on
         /// <see cref="PuppeteerState"/> rather than on the mod precisely so that this works with no
         /// edit to the transform at all: it threads a state through
-        /// <see cref="PuppeteerClock.Step"/> and never builds the driver, so a hold parked on the
+        /// <see cref="PuppeteerClock.Step"/> and never builds the driver, so a floor parked on the
         /// driver would have been invisible to every stored run and a watcher would see a tape the
-        /// player never heard.
+        /// player never heard. Backlog 266 changed what the field MEANS (a floor the chase still sits
+        /// on top of, released when the tape catches the caret, rather than a frozen rate released at
+        /// the cue) and needed no edit to the transform either, for the same reason.
         ///
         /// <para>The fixture sprints a line so the tape is well above the song's own speed when the
-        /// caret runs off the end of it, then holds that speed across a thirty second instrumental
-        /// gap. The account has to survive it and the derivation has to be bit identical twice, which
-        /// is the same pair of claims the ordinary fixture makes, on a trajectory that exercises the
-        /// new state field.</para>
+        /// caret runs off the end of it, then runs a thirty second instrumental gap at no less than
+        /// that speed. The account has to survive it and the derivation has to be bit identical twice,
+        /// which is the same pair of claims the ordinary fixture makes, on a trajectory that
+        /// exercises the state field.</para>
         ///
         /// <para>The exact per-frame time equality of
         /// <see cref="ADerivedRunReproducesTheLiveRunsAccount"/> is deliberately NOT asserted here:
@@ -421,15 +423,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// </summary>
         [TestCase(false)]
         [TestCase(true)]
-        public void ADerivedRunReproducesAHeldCoast(bool adjustPitch)
+        public void ADerivedRunReproducesAGapFloor(bool adjustPitch)
         {
             var map = sprintMap();
             var mods = puppeteer(adjustPitch);
 
             var run = simulateLiveRun(map, mods, sprintKeys, anchor: -2000, frameMs: 16);
 
-            Assert.Greater(run.PeakHeldCoast, 1.2,
-                $"the scripted sprint only held {run.PeakHeldCoast:R}, so this is not a held-coast fixture at all");
+            Assert.Greater(run.PeakHeldFloor, 1.2,
+                $"the scripted sprint's gap only floored at {run.PeakHeldFloor:R}, so this is not a gap-floor fixture at all");
 
             var live = account(map, mods, trackReplay(run.TrackFrames));
             var rederived = account(map, mods, wallReplay(run));
@@ -531,11 +533,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             public required List<TypeBeatReplayFrame> TrackFrames { get; init; }
 
             /// <summary>
-            /// The largest held coast the run's tape ever carried (backlog 261), or
-            /// <see cref="PuppeteerClock.NO_HELD_COAST"/> if it never held anything. Recorded so a
-            /// co-simulation pin can say that the trajectory it re-derived actually had a hold in it.
+            /// The largest gap floor the run's tape ever carried (backlog 261, backlog 266), or
+            /// <see cref="PuppeteerClock.NO_HELD_FLOOR"/> if it never carried one. Recorded so a
+            /// co-simulation pin can say that the trajectory it re-derived actually had a floor in
+            /// it. Since backlog 266 the floor outlives the next line's cue, so this peak is now
+            /// carried across the cue as well as through the coast, which is a wider claim about the
+            /// same number rather than a different one.
             /// </summary>
-            public required double PeakHeldCoast { get; init; }
+            public required double PeakHeldFloor { get; init; }
         }
 
         /// <summary>
@@ -569,7 +574,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             long ticks = 0;
             int next = 0;
-            double peakHeld = PuppeteerClock.NO_HELD_COAST;
+            double peakHeld = PuppeteerClock.NO_HELD_FLOOR;
 
             while (next < keys.Count)
             {
@@ -577,7 +582,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 tape = PuppeteerClock.Run(tape, TypeBeatModPuppeteer.ArmFor(engine, tape.PositionMs), TypeBeatModPuppeteer.TuningFor(mods), frameMs);
                 ticks += frameMs;
 
-                peakHeld = Math.Max(peakHeld, tape.HeldCoastVelocity);
+                peakHeld = Math.Max(peakHeld, tape.HeldFloorVelocity);
 
                 while (next < keys.Count && keys[next].WallMs <= ticks)
                 {
@@ -592,7 +597,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 }
             }
 
-            return new LiveRun { Anchor = anchor, WallFrames = wallFrames, TrackFrames = trackFrames, PeakHeldCoast = peakHeld };
+            return new LiveRun { Anchor = anchor, WallFrames = wallFrames, TrackFrames = trackFrames, PeakHeldFloor = peakHeld };
         }
 
         private static Replay wallReplay(LiveRun run) => trackReplay(run.WallFrames);
@@ -639,7 +644,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// A SPRINT and a long instrumental gap (backlog 261). Eight cells 750 ms apart struck every
         /// 250 wall ms, which is three times the song's own pace, so the tape is pinned at the
         /// preset's ceiling when the caret runs off the end of the line and the coast has a real speed
-        /// to hold. The second line's vocals do not arrive until 40000, so the held coast runs for
+        /// to keep. The second line's vocals do not arrive until 40000, so the floored gap runs for
         /// thirty seconds of song before the hand-over.
         ///
         /// <para>The last three keys are placed where the tape is parked on line 1's first cell under

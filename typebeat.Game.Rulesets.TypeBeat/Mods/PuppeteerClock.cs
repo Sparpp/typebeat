@@ -29,13 +29,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// door: the mixer flushes and the restart is audible. A floor of 1/512 crawls instead.
     /// </param>
     /// <param name="MaxVelocity">
-    /// The velocity ceiling on a TYPING arm, and MODE-SPECIFIC since backlog 258. In FREQUENCY mode
-    /// it is hardware's number rather than a taste call: that path resamples, and BASS refuses an
-    /// absolute frequency above 100 kHz, so a 44.1 kHz song stops tracking at about 2.27x (see
+    /// The velocity ceiling on a TYPING arm, which since backlog 266 is also the ceiling the GAP
+    /// FLOOR and its catch-up are held under (see <see cref="PuppeteerState.HeldFloorVelocity"/>).
+    /// It is per-preset machinery (see <see cref="PuppeteerTuning.For"/>) that both shipping presets
+    /// now set to the SAME number. In FREQUENCY mode that number is hardware's rather than a taste
+    /// call: the path resamples, and BASS refuses an absolute frequency above 100 kHz, so a 44.1 kHz
+    /// song stops tracking somewhere above 2x (see
     /// <see cref="TypeBeatModConductor.PITCH_ABSOLUTE_MAX_RATE"/>, which
-    /// <see cref="TypeBeatModPuppeteer.V_MAX"/> is). In TEMPO mode it is the time-stretcher's clean
-    /// ceiling instead, <see cref="TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY"/>. See
-    /// <see cref="PuppeteerTuning.For"/>.
+    /// <see cref="TypeBeatModPuppeteer.V_MAX"/> is). In TEMPO mode it is
+    /// <see cref="TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY"/>, which backlog 266 raised to meet it:
+    /// see there for the stretcher tradeoff that buys, which is a stated trade and not a physics
+    /// claim.
     /// </param>
     /// <param name="PaceReleaseMsPerTick">
     /// The most caret travel ONE tick may contribute to the pace estimate, in track milliseconds.
@@ -69,17 +73,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// watcher on a tape the player never heard, and that is precisely the failure a named
         /// fallback would hide.</para>
         ///
-        /// <para>The two differ in exactly two numbers, and both differences are the TIME-STRETCHER's
-        /// physics rather than taste. A stretcher is windowed, so it answers a rate change a window
-        /// late and smears under rapid modulation: the tempo preset therefore eases the velocity over
+        /// <para>SINCE BACKLOG 266 THE TWO DIFFER IN EXACTLY ONE NUMBER, the velocity ease, and that
+        /// one is the TIME-STRETCHER's physics rather than taste. A stretcher is windowed, so it
+        /// answers a rate change a window late and smears under rapid modulation: the tempo preset
+        /// therefore eases the velocity over
         /// <see cref="TypeBeatModPuppeteer.SMOOTHING_TAU_TEMPO_MS"/> instead of
-        /// <see cref="TypeBeatModPuppeteer.SMOOTHING_TAU_MS"/>. And it is only clean in roughly 0.6x
-        /// to 1.6x, so the tempo preset caps the velocity at
-        /// <see cref="TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY"/> instead of at the resampler's
-        /// hardware wall <see cref="TypeBeatModPuppeteer.V_MAX"/>. Everything else, the chase horizon,
-        /// the floor, the pace estimate and its headroom, is one set of numbers across both modes, so
-        /// the park, the chase law, the pace cap and the coast are one behaviour and only the
-        /// VELOCITY TRAJECTORY is gentler.</para>
+        /// <see cref="TypeBeatModPuppeteer.SMOOTHING_TAU_MS"/>.</para>
+        ///
+        /// <para>The CEILING used to be the second difference, and it is not a physics claim any
+        /// more. The stretcher is cleanest in roughly 0.6x to 1.6x and the tempo preset used to stop
+        /// there; the owner has since asked for a higher catch-up ceiling on the between-line gap
+        /// (backlog 266) and accepted the stretcher's artefacts above 1.6x as its price, so
+        /// <see cref="TypeBeatModPuppeteer.TEMPO_MAX_VELOCITY"/> is now the same number as the
+        /// resampler's wall <see cref="TypeBeatModPuppeteer.V_MAX"/>. The field stays per-preset
+        /// because the presets are the place a mode difference would go, not because there is one
+        /// today. Everything else, the chase horizon, the velocity floor, the pace estimate and its
+        /// headroom, was already one set of numbers across both modes, so the park, the chase law,
+        /// the pace cap and the gap floor are one behaviour and only the VELOCITY TRAJECTORY is
+        /// gentler.</para>
         /// </summary>
         public static PuppeteerTuning For(bool adjustPitch) => adjustPitch ? Frequency : Tempo;
 
@@ -102,10 +113,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// <para>It was also the ONLY tuning between backlog 256 and 258, and a run recorded in that
         /// window carries no toggle at all, so it decodes at the new default and re-derives under
         /// <see cref="Tempo"/>: a tape its player never heard. That is the exact hazard the era
-        /// warning exists for, and it is accepted here for one reason only, that the era was still
-        /// being authored and no build carrying it has been released, so the set of affected runs is
-        /// empty. Once one ships, moving this toggle's DEFAULT costs an era bit like any other
-        /// re-derivation rule.</para>
+        /// warning exists for, and it was accepted at the time on the grounds that the era was still
+        /// being authored, backlog 256 and 258 having landed a day apart. Do not read that as a
+        /// standing exemption for the next change: the honest statement is that Conductor runs are
+        /// UNRANKED, so a re-derived tape costs a watcher's fidelity and never a leaderboard row, and
+        /// that is the trade backlog 266 also took (see
+        /// <see cref="PuppeteerClock.NO_HELD_FLOOR"/>). A change that could move an ACCOUNT still
+        /// costs an era bit like any other re-derivation rule.</para>
         /// </summary>
         public static PuppeteerTuning Frequency => new PuppeteerTuning(
             TypeBeatModPuppeteer.T_CHASE_MS,
@@ -140,20 +154,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// the audio path can honour, subject to the typing-sustained cap the model applies on top) and
     /// <see cref="TypeBeatModPuppeteer.COAST_MAX_VELOCITY"/> (1.00x) while coasting, where an
     /// unreachable target makes the cap the WHOLE arm and the song plays at its own speed, or at the
-    /// HELD speed when there is one (see <see cref="PuppeteerState.HeldCoastVelocity"/>).
+    /// GAP FLOOR when there is one (see <see cref="PuppeteerState.HeldFloorVelocity"/>).
     /// </param>
     /// <param name="ReleasesHold">
-    /// Whether a coast on this arm gives the held velocity back rather than carrying it (backlog
-    /// 261). FALSE on every ordinary coast, which is what makes an instrumental gap keep the speed
-    /// the player earned, and it is the DEFAULT so that any arm built with the two-argument
-    /// constructor behaves exactly like <see cref="Coast"/>. TRUE on one arm only,
-    /// <see cref="ReleasedCoast"/>, which is the OUTRO: see there for why the map's end is the one
-    /// off-line stretch with nothing to hold the speed for.
+    /// Whether a coast on this arm gives the GAP FLOOR back rather than carrying it (backlog 261,
+    /// re-read as a floor rather than a frozen rate in backlog 266). FALSE on every ordinary coast,
+    /// which is what makes an instrumental gap keep the speed the player earned, and it is the
+    /// DEFAULT so that any arm built with the two-argument constructor behaves exactly like
+    /// <see cref="Coast"/>. TRUE on one arm only, <see cref="ReleasedCoast"/>, which is the OUTRO:
+    /// see there for why the map's end is the one off-line stretch with nothing to hold the speed
+    /// for.
     ///
-    /// <para>Meaningless on a typing arm (a finite target clears the hold outright), and it is left
-    /// on the arm rather than made a second static so the two coasts stay one shape and the field
-    /// reads as what it is: a property of the stretch of song, which is the only thing that knows
-    /// whether another line is coming.</para>
+    /// <para>No typing arm ever ARMS a floor, and since backlog 266 a typing arm no longer clears
+    /// one on sight either: it carries the floor across the next line's cue and the model releases
+    /// it where the chase law itself asks for less (see <see cref="PuppeteerClock.HoldFor"/>). So
+    /// this flag is still meaningful on coasts alone, and it is left on the arm rather than made a
+    /// second static so the two coasts stay one shape and the field reads as what it is: a property
+    /// of the stretch of song, which is the only thing that knows whether another line is
+    /// coming.</para>
     /// </param>
     public readonly record struct PuppeteerArm(double DesiredPositionMs, double VelocityCap, bool ReleasesHold = false)
     {
@@ -171,22 +189,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// next-unsealed index is still itself). Parking before an untyped vocal is now the ACTIVE
         /// arm's job, and it does it from the line's cue rather than from the gap.</para>
         ///
-        /// <para>SINCE BACKLOG 261 the 1.00x here is a FLOOR rather than the whole story: a tape
-        /// that was running faster than the song when the line ran out HOLDS that speed across the
-        /// coast instead of easing back down to 1.00x. The cap above is still what a cold coast gets
-        /// (the hold is <c>max(1, velocity)</c>, so a tape at or below the song's own speed holds
-        /// exactly 1.00x and this arm is byte-identical to what it always was). See
-        /// <see cref="PuppeteerState.HeldCoastVelocity"/> for the whole of it.</para>
+        /// <para>SINCE BACKLOG 261 the 1.00x here is a FLOOR rather than the whole story, and since
+        /// BACKLOG 266 it is a floor in the full sense of the word: a tape that was running faster
+        /// than the song when the line ran out keeps AT LEAST that speed for the whole gap, and the
+        /// position term stays live ON TOP of it, so a player who starts typing the next line early
+        /// is chased above it rather than being dropped to a frozen rate. The cap above is still
+        /// exactly what a cold coast gets (the floor is <c>max(1, velocity)</c>, so a tape at or
+        /// below the song's own speed floors at exactly 1.00x and this arm is byte-identical to what
+        /// it always was). See <see cref="PuppeteerState.HeldFloorVelocity"/> for the whole of
+        /// it.</para>
         /// </summary>
         public static PuppeteerArm Coast => new PuppeteerArm(double.PositiveInfinity, TypeBeatModPuppeteer.COAST_MAX_VELOCITY);
 
         /// <summary>
-        /// THE OUTRO ARM (backlog 261): the same coast, except that it gives the held velocity back
-        /// and eases the tape down to the song's own speed.
+        /// THE OUTRO ARM (backlog 261): the same coast, except that it gives the GAP FLOOR back and
+        /// eases the tape down to the song's own speed.
         ///
-        /// <para>The hold exists because a fast player found it jarring for the song to sag back to
-        /// 1.00x between lines, and the speed is given back the moment the next line takes the caret.
-        /// PAST THE LAST LINE there is no next line to give it back to, so a held outro would play
+        /// <para>The floor exists because a fast player found it jarring for the song to sag back to
+        /// 1.00x between lines, and it is given back once the tape has caught the caret on the next
+        /// line. PAST THE LAST LINE there is no next line to catch, so a floored outro would play
         /// the end of the song fast forever, which is not what was asked for and has no instant at
         /// which it would end. This arm is the one place that difference lives, and it is chosen by
         /// the DRIVER (<see cref="TypeBeatModPuppeteer.ArmFor"/>), which is the half that may read
@@ -213,15 +234,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// same time constant as the tape's own velocity. 0 while nobody is typing, which is what makes
     /// an untyped approach happen at the song's own speed.
     /// </param>
-    /// <param name="HeldCoastVelocity">
-    /// THE HELD COAST (backlog 261): the velocity this coast is being run at, or
-    /// <see cref="PuppeteerClock.NO_HELD_COAST"/> while there is no hold.
+    /// <param name="HeldFloorVelocity">
+    /// THE GAP FLOOR (backlog 261, made a true floor in backlog 266): the LEAST the tape may run at
+    /// for the rest of this between-line gap, or <see cref="PuppeteerClock.NO_HELD_FLOOR"/> while
+    /// there is none.
     ///
     /// <para><b>What it is for.</b> A player faster than the song settles the tape above 1.00x, and
-    /// before this the moment they finished a line the coast dropped them back to 1.00x for the
-    /// whole instrumental and then the next line started them climbing again. That sag is what the
-    /// hold removes: when the arm goes from a finite target to a coast, the tape KEEPS the speed the
-    /// player was already hearing, and keeps it flat until a line takes the caret again.</para>
+    /// before backlog 261 the moment they finished a line the coast dropped them back to 1.00x for
+    /// the whole instrumental and then the next line started them climbing again. Backlog 261
+    /// removed that sag by FREEZING the end-of-line rate for the gap, and the freeze had two felt
+    /// defects of its own: the frozen value could be a DECELERATING one (the player had caught up,
+    /// the rate was easing back toward 1.00x, and the song then kept that sag for the whole
+    /// instrumental), and it was given back at the CUE, the instant the next line took the caret,
+    /// where the typing-sustained cap is <c>max(1, 0)</c> and the rate slid down while the player
+    /// was still parked ahead of the song. Backlog 266 answers both: the value is a FLOOR under the
+    /// ordinary law rather than a replacement for it, and it lasts until the tape has CAUGHT the
+    /// caret rather than until the caret changed hands.</para>
     ///
     /// <para><b>The value is <c>max(1, Velocity)</c> at the tick the coast begins</b>, and both
     /// halves matter. It is the SMOOTHED TAPE VELOCITY, which is the speed the player is actually
@@ -229,34 +257,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// is FLOORED AT 1.00x, so a slow player, or one whose tape was still parked on a cell they
     /// hesitated over, gets the song back at its own speed rather than being made to sit through an
     /// instrumental at a crawl: this is a feature for people who outrun the song and it may never
-    /// slow one down. The ceiling needs no clamp of its own, since the velocity can never exceed the
+    /// slow one down. The ceiling needs no clamp at capture, since the velocity can never exceed the
     /// preset's <see cref="PuppeteerTuning.MaxVelocity"/>, but <see cref="PuppeteerClock.Step"/>
     /// applies one anyway so a hand-built state cannot command a rate the audio path would refuse.
+    /// </para>
+    ///
+    /// <para><b>What CARRIES it and what ENDS it.</b> It is captured on the first tick of a coast,
+    /// carried by every later coast tick, and carried ACROSS the next line's cue by the typing arm
+    /// that follows: a finite target no longer clears it on sight. It ends where the chase law
+    /// itself asks for less than it, <c>(D - P) / ChaseMs &lt;= floor</c>, which is the model's own
+    /// definition of having arrived (the steady-state lag at that speed). At a floor of exactly
+    /// 1.00x, which is every player this feature is not for, that release rule is arithmetically
+    /// identical to clearing the floor at the cue, because <c>clamp(r, 1, 1)</c> and
+    /// <c>min(r, 1)</c> agree for every <c>r &gt;= 1</c>. See <see cref="PuppeteerClock.HoldFor"/>.
     /// </para>
     ///
     /// <para><b>Why it is MODEL state and not the driver's.</b> A Puppeteer replay re-derives its
     /// track times by re-running this model over the run's wall stamps
     /// (<c>PuppeteerReplayTransform</c>), and the transform threads a
     /// <see cref="PuppeteerState"/> through <see cref="PuppeteerClock.Step"/> and nothing else: it
-    /// never builds the mod. A hold parked on the driver would therefore be invisible to every
+    /// never builds the mod. A floor parked on the driver would therefore be invisible to every
     /// stored run, and a watcher would see a tape the player never heard. Here it re-derives for
     /// free, with no change to the transform at all.</para>
     ///
     /// <para><b>It is dropped by a re-anchor</b>, because <see cref="AnchoredAt"/> starts with no
-    /// hold and both seek arms go through it. A seek is a discontinuity: the velocity already reset
+    /// floor and both seek arms go through it. A seek is a discontinuity: the velocity already reset
     /// to 1 there before this existed, and a speed earned on a stretch of song that is no longer
     /// being played is not one to carry across.</para>
     /// </param>
-    public readonly record struct PuppeteerState(double PositionMs, double Velocity, double PaceCursorMs, double PaceVelocity, double HeldCoastVelocity)
+    public readonly record struct PuppeteerState(double PositionMs, double Velocity, double PaceCursorMs, double PaceVelocity, double HeldFloorVelocity)
     {
         /// <summary>
         /// A tape anchored at <paramref name="positionMs"/>, running at the song's own speed, with no
-        /// typing behind it yet and no held coast. Used for the first frame of a play and for both
+        /// typing behind it yet and no gap floor. Used for the first frame of a play and for both
         /// seek re-anchors, and it is the state a replay's re-derivation starts from, so it has to be
         /// one expression.
         /// </summary>
         public static PuppeteerState AnchoredAt(double positionMs)
-            => new PuppeteerState(positionMs, 1, double.PositiveInfinity, 0, PuppeteerClock.NO_HELD_COAST);
+            => new PuppeteerState(positionMs, 1, double.PositiveInfinity, 0, PuppeteerClock.NO_HELD_FLOOR);
     }
 
     /// <summary>
@@ -301,15 +339,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// <c>MinVelocity</c>. So the tape parks and crawls until the caret has been retyped back past
     /// the playhead, and the position is monotonic non-decreasing over every possible arm schedule.
     /// That is a design fact, not an accident of the arithmetic, and it is why there is no
-    /// "handle backspace" branch anywhere in this file.</para>
+    /// "handle backspace" branch anywhere in this file. A GAP FLOOR raises that lower bound while it
+    /// is held, which cannot break the monotonicity (a higher lower bound is still positive) and
+    /// cannot outlast a backspace either: a negative request is under the floor, so the floor is
+    /// released on the same tick.</para>
     ///
-    /// <para><b>THE COAST HOLDS THE SPEED IT ARRIVED AT (backlog 261).</b> A coast used to be a flat
-    /// 1.00x, which meant a player running the song above its own speed was dropped back to 1.00x for
-    /// every instrumental stretch and had to climb again on the next line. The coast now carries the
-    /// velocity the tape had when the arm went unreachable, floored at 1.00x and held FLAT until a
-    /// finite target takes over (see <see cref="PuppeteerState.HeldCoastVelocity"/>). It is one extra
-    /// number of state and one branch in the cap, and it changes nothing at all for a tape that was
-    /// at or below the song's own speed when the line ran out.</para>
+    /// <para><b>A GAP KEEPS THE SPEED IT ARRIVED AT AS A FLOOR (backlog 261, backlog 266).</b> A
+    /// coast used to be a flat 1.00x, which meant a player running the song above its own speed was
+    /// dropped back to 1.00x for every instrumental stretch and had to climb again on the next line.
+    /// The model now captures the velocity the tape had when the arm went unreachable, floors it at
+    /// 1.00x, and carries it as the LOWER BOUND of the clamp above (see
+    /// <see cref="PuppeteerState.HeldFloorVelocity"/>): the chase term still sits on top of it, so
+    /// the first keypress of the next line lifts the rate ABOVE the floor to close the distance, and
+    /// the floor is given back only once the chase law asks for less than it, i.e. once the tape has
+    /// caught the caret. A player who does not type ahead simply gets the floor. It is one extra
+    /// number of state and one floor in the clamp, and it changes NOTHING at all, to the bit, for a
+    /// tape that was at or below the song's own speed when the line ran out, because a floor of 1.00x
+    /// and the old <c>min(r, 1)</c> are the same arithmetic.</para>
     /// </summary>
     public static class PuppeteerClock
     {
@@ -317,17 +363,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         public const double TICK_MS = 1;
 
         /// <summary>
-        /// The <see cref="PuppeteerState.HeldCoastVelocity"/> value meaning "no hold", i.e. either a
-        /// typing arm or a coast that has given the hold back. Zero, and unambiguous by construction:
-        /// a real hold is <c>max(1, velocity)</c>, so it is never under 1.00x.
+        /// The <see cref="PuppeteerState.HeldFloorVelocity"/> value meaning "no floor", i.e. an
+        /// off-line stretch with nothing to carry (the outro), a typing arm that never had one, or
+        /// one whose floor has been released because the tape caught the caret. Zero, and unambiguous
+        /// by construction: a real floor is <c>max(1, velocity)</c>, so it is never under 1.00x.
         ///
         /// <para>A CONTRACT like every other constant the model reads (see the tuning comment on
         /// <see cref="TypeBeatModPuppeteer"/>): a stored Puppeteer run re-derives its track times by
-        /// re-running this model, so the sentinel is part of what such a run means. Puppeteer is
-        /// unshipped as of backlog 261, so introducing the hold at all needed no replay era; the next
-        /// time one of these numbers moves, it will.</para>
+        /// re-running this model, so the sentinel and the release rule are part of what such a run
+        /// means. BACKLOG 266 CHANGED THAT LAW AND DELIBERATELY TOOK NO REPLAY ERA FOR IT, and that
+        /// is a stated decision rather than something inherited: the Conductor is unranked, so no
+        /// leaderboard row is re-priced, and the owner asked for the new gap feel outright. What it
+        /// costs is that a Puppeteer run recorded before this re-derives with the new gap behaviour
+        /// in it, which is audible to a watcher and invisible to the account. Do not read this
+        /// paragraph as a standing exemption: price the same question again the next time one of
+        /// these numbers moves.</para>
         /// </summary>
-        public const double NO_HELD_COAST = 0;
+        public const double NO_HELD_FLOOR = 0;
 
         /// <summary>
         /// Advance the model by exactly one <see cref="TICK_MS"/> wall tick under one arm.
@@ -344,62 +396,122 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
             (double paceCursor, double pace) = StepPace(state, arm, tuning, alpha);
 
-            // The floor is the LOWER bound of the clamp, so a target behind the tape (a backspaced
-            // caret) asks for the floor rather than for a rewind. See the class remarks.
+            // The clamp's LOWER bound is a velocity and never the requested one, so a target behind
+            // the tape (a backspaced caret) asks for the velocity floor rather than for a rewind.
+            // See the class remarks.
             double gap = arm.DesiredPositionMs - state.PositionMs;
 
-            double held = HoldFor(state, arm);
+            double floor = HoldFor(state, arm, tuning);
 
-            // THE CAP, and the coast arm now takes a branch of its own (backlog 261).
-            //
-            // A HELD COAST is capped at the hold and at nothing else (bar the preset's ceiling): not
-            // at the arm's own 1.00x, which is the flat coast the hold exists to replace, and NOT at
-            // TypingSustainedCap. That bypass is the load-bearing half. StepPace decays the pace
-            // toward 0 across a coast, deliberately (it is what makes a line hand-over read as a blip
-            // rather than as a burst of typing), so within about three time constants the sustained
-            // cap is back at max(1, 0) = 1.00x and would quietly undo every hold. The decay stays and
-            // the coast reads past it instead.
-            //
-            // Everything else, every arm with a finite target, takes the chain exactly as it was, to
-            // the bit: the hold is NO_HELD_COAST there by construction.
-            double cap = held > NO_HELD_COAST
-                ? Math.Max(tuning.MinVelocity, Math.Min(held, tuning.MaxVelocity))
-                : Math.Max(tuning.MinVelocity,
-                    Math.Min(Math.Min(arm.VelocityCap, tuning.MaxVelocity), TypingSustainedCap(pace, tuning)));
+            // THE CAP, unchanged, and then THE GAP FLOOR LAID UNDER IT (backlog 266). Backlog 261
+            // wrote this as an either/or, a held coast being capped at the hold INSTEAD of at the
+            // ordinary chain; it is now a floor and a ceiling on one clamp, which is what keeps the
+            // chase term live through the gap.
+            double cap = Math.Max(tuning.MinVelocity,
+                Math.Min(Math.Min(arm.VelocityCap, tuning.MaxVelocity), TypingSustainedCap(pace, tuning)));
+
+            double lower = tuning.MinVelocity;
+
+            if (floor > NO_HELD_FLOOR)
+            {
+                // Ceiled HERE rather than at capture, so a hand-built state cannot command a rate
+                // the audio path would refuse.
+                double runnable = Math.Min(floor, tuning.MaxVelocity);
+
+                // Raising the CAP is what bypasses TypingSustainedCap, and that bypass is
+                // load-bearing. StepPace decays the pace toward 0 across a coast, deliberately (it
+                // is what makes a line hand-over read as a blip rather than as a burst of typing
+                // nobody performed), so within about three time constants the sustained cap is back
+                // at max(1, 0) = 1.00x and would quietly undo every floor. The decay stays and the
+                // floor reads past it. Raising the LOWER bound is the floor itself.
+                cap = Math.Max(cap, runnable);
+                lower = Math.Max(lower, runnable);
+            }
 
             double requested = tuning.ChaseMs > 0 ? gap / tuning.ChaseMs : cap;
 
-            double targetVelocity = Math.Clamp(requested, tuning.MinVelocity, cap);
+            // TWO IDENTITIES WORTH KNOWING, both provable off the lines above.
+            //
+            // (1) ON A PURE COAST the target is the floor exactly, so this is byte-identical to
+            //     backlog 261's held coast. The arm's target is unreachable, so `requested` is
+            //     positive infinity; the arm's own cap is COAST_MAX_VELOCITY (1.00x) and
+            //     TypingSustainedCap is never under 1, so `cap` before the floor is exactly 1.00x
+            //     and `max(1, runnable)` is `runnable`. clamp(inf, runnable, runnable) = runnable.
+            //
+            // (2) ACROSS THE ARM FLIP the velocity is BIT-EXACTLY continuous, which is what makes
+            //     "the cue is not a rate event" a fact rather than a feel. On the flip tick the arm
+            //     is finite and far away, so `requested` is enormous; nobody has typed on the new
+            //     line, so pace is ~0 and `cap` before the floor is again 1.00x; the floor is
+            //     unchanged, so the clamp collapses to `runnable` exactly as it did on the previous
+            //     coast tick. Same target, same previous velocity, same alpha, same result.
+            double targetVelocity = Math.Clamp(requested, lower, cap);
 
             double velocity = state.Velocity + ((targetVelocity - state.Velocity) * alpha);
 
-            return new PuppeteerState(state.PositionMs + (velocity * TICK_MS), velocity, paceCursor, pace, held);
+            return new PuppeteerState(state.PositionMs + (velocity * TICK_MS), velocity, paceCursor, pace, floor);
         }
 
         /// <summary>
-        /// The hold this tick runs under: <see cref="NO_HELD_COAST"/> on any arm with a finite target
-        /// and on <see cref="PuppeteerArm.ReleasedCoast"/>, the state's existing hold once a coast is
-        /// under way, and <c>max(1, Velocity)</c> on the FIRST tick of a coast, which is where the
-        /// speed the player was hearing is captured.
+        /// The GAP FLOOR this tick runs under, in four cases.
         ///
-        /// <para>"First tick of a coast" is read off the state rather than off any edge detection: a
-        /// coast arm with no hold recorded IS the first tick of one, because a finite target clears
-        /// the hold on every tick it is in effect. So the whole rule is a function of (state, arm),
-        /// which is what keeps <see cref="Step"/> a pure map and lets a replay's co-simulation
-        /// reproduce a hold it was never told about.</para>
+        /// <para>THE OUTRO (<see cref="PuppeteerArm.ReleasedCoast"/>) is <see cref="NO_HELD_FLOOR"/>,
+        /// always: past the last line there is no caret for the tape to catch, so a floor would have
+        /// no instant at which it ended.</para>
         ///
-        /// <para>The floor is 1.00x, the same 1 <see cref="TypingSustainedCap"/> floors at and the
-        /// same number as <see cref="TypeBeatModPuppeteer.COAST_MAX_VELOCITY"/> (pinned by test): the
-        /// song is always allowed to simply play, so a hesitating player whose tape had dragged down
-        /// toward the crawl gets the instrumental back at its own speed rather than at their stall.
-        /// </para>
+        /// <para>A COAST captures <c>max(1, Velocity)</c> on its FIRST tick, which is where the speed
+        /// the player was hearing is recorded, and carries the state's existing floor on every tick
+        /// after. "First tick of a coast" is read off the state rather than off any edge detection: a
+        /// coast arm with no floor recorded IS the first tick of one. So the whole rule is a function
+        /// of (state, arm, tuning), which is what keeps <see cref="Step"/> a pure map and lets a
+        /// replay's co-simulation reproduce a floor it was never told about.</para>
+        ///
+        /// <para>A FINITE TARGET with no floor held (an ordinary typing arm, the whole of a line
+        /// anyone is typing) is <see cref="NO_HELD_FLOOR"/>: a floor is only ever ARMED by a
+        /// coast.</para>
+        ///
+        /// <para>A FINITE TARGET WITH A FLOOR HELD is the one backlog 266 changed, and it no longer
+        /// clears the floor on sight. It KEEPS it while the chase law is still asking for more than
+        /// it, <c>(D - P) / ChaseMs &gt; floor</c>, and releases it the moment that request drops to
+        /// the floor or below. That instant is the model's OWN definition of having arrived: the
+        /// steady state at velocity <c>v</c> is the tape sitting <c>v * ChaseMs</c> behind the
+        /// caret, so <c>requested &lt;= floor</c> says the tape has caught the caret at the floor's
+        /// own speed. The alternative reading, "release when the gap is zero", was rejected: it would
+        /// hold full speed right up to the cell and then stop dead, overshooting by roughly
+        /// <c>floor * SmoothingTau</c> (300 ms of song in tempo mode) and moving the park for players
+        /// this feature does not otherwise touch.</para>
+        ///
+        /// <para>AT A FLOOR OF EXACTLY 1.00x, which is every player who is not outrunning the song,
+        /// this is arithmetically identical to backlog 261's "a finite target clears it": the clamp
+        /// becomes <c>clamp(r, 1, 1)</c> while the floor is held, which equals the old
+        /// <c>min(r, 1)</c> for every <c>r &gt;= 1</c>, and the floor is released exactly where
+        /// <c>r</c> falls to 1 and the two expressions would part company. That is what keeps every
+        /// cold-tape park and approach pin green to the bit.</para>
+        ///
+        /// <para>The capture's own floor is 1.00x, the same 1 <see cref="TypingSustainedCap"/> floors
+        /// at and the same number as <see cref="TypeBeatModPuppeteer.COAST_MAX_VELOCITY"/> (pinned by
+        /// test): the song is always allowed to simply play, so a hesitating player whose tape had
+        /// dragged down toward the crawl gets the instrumental back at its own speed rather than at
+        /// their stall.</para>
         /// </summary>
-        public static double HoldFor(PuppeteerState state, PuppeteerArm arm)
+        public static double HoldFor(PuppeteerState state, PuppeteerArm arm, PuppeteerTuning tuning)
         {
-            if (double.IsFinite(arm.DesiredPositionMs) || arm.ReleasesHold)
-                return NO_HELD_COAST;
+            if (arm.ReleasesHold)
+                return NO_HELD_FLOOR;
 
-            return state.HeldCoastVelocity > NO_HELD_COAST ? state.HeldCoastVelocity : Math.Max(1, state.Velocity);
+            if (!double.IsFinite(arm.DesiredPositionMs))
+                return state.HeldFloorVelocity > NO_HELD_FLOOR ? state.HeldFloorVelocity : Math.Max(1, state.Velocity);
+
+            if (!(state.HeldFloorVelocity > NO_HELD_FLOOR))
+                return NO_HELD_FLOOR;
+
+            // A degenerate chase horizon means "close the gap this tick", i.e. the law is asking for
+            // everything it can have, which is never less than the floor. Same reading Step takes
+            // when it pins the request at the cap.
+            double requested = tuning.ChaseMs > 0
+                ? (arm.DesiredPositionMs - state.PositionMs) / tuning.ChaseMs
+                : double.PositiveInfinity;
+
+            return requested > state.HeldFloorVelocity ? state.HeldFloorVelocity : NO_HELD_FLOOR;
         }
 
         /// <summary>

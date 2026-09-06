@@ -65,15 +65,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// Building that hybrid was considered and refused.</para>
     ///
     /// <para><b>Mode-specific tuning, because a stretcher is not a resampler.</b> It works in
-    /// windows, so it answers a rate change a window late and smears under rapid modulation, and it
-    /// is only clean in roughly 0.6x to 1.6x. So tempo mode eases the velocity over
-    /// <see cref="SMOOTHING_TAU_TEMPO_MS"/> rather than <see cref="SMOOTHING_TAU_MS"/> and caps it at
-    /// <see cref="TEMPO_MAX_VELOCITY"/> rather than at <see cref="V_MAX"/>. Those are the only two
-    /// numbers that move (see <see cref="PuppeteerTuning.For"/>): the park, the chase law, the pace
-    /// cap and the coast are one behaviour in both modes, and only the VELOCITY TRAJECTORY is
-    /// gentler. A typist faster than <see cref="TEMPO_MAX_VELOCITY"/> is not chased past it; the
-    /// excess is absorbed by POSITION error instead, which is to say the tape simply trails them a
-    /// little longer, which is the trade the owner asked for.</para>
+    /// windows, so it answers a rate change a window late and smears under rapid modulation, so tempo
+    /// mode eases the velocity over <see cref="SMOOTHING_TAU_TEMPO_MS"/> rather than
+    /// <see cref="SMOOTHING_TAU_MS"/>. Since backlog 266 that is the ONLY number the preset moves
+    /// (see <see cref="PuppeteerTuning.For"/>): the park, the chase law, the pace cap, the ceiling
+    /// and the gap floor are one behaviour in both modes, and only the VELOCITY TRAJECTORY is
+    /// gentler. The CEILING used to move too, capping tempo mode at the 1.6x a stretcher is cleanest
+    /// up to; the owner has since asked for a higher catch-up ceiling on the between-line gap and
+    /// accepted the stretcher's artefacts above 1.6x as its price, so <see cref="TEMPO_MAX_VELOCITY"/>
+    /// is now <see cref="V_MAX"/>. A typist faster than the ceiling is still not chased past it in
+    /// either mode; the excess is absorbed by POSITION error instead, which is to say the tape simply
+    /// trails them a little longer, which is the trade the owner asked for.</para>
     ///
     /// <para><b>Why timing is FORGIVEN rather than unjudged.</b> Under strict following the song
     /// meets the caret BY CONSTRUCTION, so a press's distance from its target time carries no
@@ -243,20 +245,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// exactly the same place for exactly the same reason.
         ///
         /// <para>It is also the band <see cref="CommandedFrequency"/> clamps into IN BOTH MODES, and
-        /// that is not an oversight: the command is the model's velocity plus a bounded correction,
-        /// so in tempo mode it may briefly exceed <see cref="TEMPO_MAX_VELOCITY"/> while the clock is
-        /// being pulled back onto the model, and the correction needs somewhere to go. The tempo path
-        /// honours 2.0x perfectly well (BASS_FX's tempo range runs to 51x), so the excursion costs
-        /// only a moment of the stretcher's less clean band, whereas clamping the correction at 1.6
-        /// would leave a persistent position error the loop could not close.</para>
+        /// since backlog 266 that band and the tempo preset's model ceiling are the same number:
+        /// <see cref="TEMPO_MAX_VELOCITY"/> was raised to meet this. The command is the model's
+        /// velocity plus a bounded correction, so what the shared band buys is that the correction
+        /// always has somewhere to go while the clock is being pulled back onto the model. The tempo
+        /// path honours 2.0x perfectly well (BASS_FX's tempo range runs to 51x), so nothing here is
+        /// refused; what it costs is the stretcher's less clean band above 1.6x, which is the
+        /// tradeoff the owner accepted rather than a physics claim.</para>
         /// </summary>
         public const double V_MAX = TypeBeatModConductor.PITCH_ABSOLUTE_MAX_RATE;
 
         /// <summary>
-        /// The velocity ceiling on a typing arm in TEMPO mode, and the second of the two numbers the
-        /// preset moves. It is the TIME-STRETCHER's clean ceiling rather than a hardware wall: the
-        /// algorithm holds together in roughly 0.6x to 1.6x and audibly falls apart above that, so
-        /// there is nothing to gain by commanding a rate that will only sound broken.
+        /// The velocity ceiling on a typing arm in TEMPO mode, and since backlog 266 it is the same
+        /// number as <see cref="V_MAX"/>, so the two presets no longer differ in it at all (see
+        /// <see cref="PuppeteerTuning.For"/>).
+        ///
+        /// <para><b>IT IS A STATED TRADEOFF AND NO LONGER A PHYSICS CLAIM, which is the whole of what
+        /// backlog 266 changed here.</b> It used to be 1.6, the top of the band a time-stretcher holds
+        /// together in (roughly 0.6x to 1.6x); above that the algorithm audibly smears, and the
+        /// argument was that there is nothing to gain by commanding a rate that will only sound
+        /// broken. The physics is unchanged and the artefacts are real. What changed is the owner's
+        /// answer to them: backlog 266 makes the between-line gap a FLOOR with the position chase
+        /// still live on top of it, so a player who starts the next line early is chased to close the
+        /// distance, and a ceiling of 1.6 is too low for that catch-up to feel like anything. The
+        /// owner chose the higher ceiling knowing what it costs, and the cost is bounded in time: a
+        /// catch-up is a transient of a second or two on a stretch of song with no vocal in it, not a
+        /// rate the mod settles at.</para>
         ///
         /// <para><b>What happens to a typist faster than this.</b> Nothing breaks and nothing is
         /// refused: the chase law is a position law, so an unreachable velocity simply leaves
@@ -265,9 +279,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// here because this mod does not judge on that distance at all (see
         /// <see cref="WINDOW_SCALE"/>): the only thing a bigger trailing gap costs is that the vocal
         /// is a little further behind the typing, which is exactly what a player outrunning the song
-        /// has asked for.</para>
+        /// has asked for. The number moved, so the typist it starts happening to is a faster one; the
+        /// behaviour did not.</para>
+        ///
+        /// <para>Written as its own literal rather than as <see cref="V_MAX"/>, deliberately. The two
+        /// answer different questions (a hardware wall against a taste call about a stretcher) and
+        /// only happen to agree today, so aliasing them would let a future move of the resampler's
+        /// wall drag the stretcher's ceiling along silently. Their equality is pinned by test
+        /// instead.</para>
         /// </summary>
-        public const double TEMPO_MAX_VELOCITY = 1.6;
+        public const double TEMPO_MAX_VELOCITY = 2.0;
 
         /// <summary>
         /// The velocity while COASTING: a finished line, or no line at all. Exactly 1.00x, flat, and
@@ -286,12 +307,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// instead of sprinting it.</para>
         ///
         /// <para><b>SINCE BACKLOG 261 THIS IS A FLOOR AND NOT A CEILING</b> on every coast but the
-        /// outro's. A tape running above the song's own speed when the line ran out HOLDS that speed
-        /// through the gap (<see cref="PuppeteerState.HeldCoastVelocity"/>), because a player fast
-        /// enough to earn it found the sag back to 1.00x between every pair of lines worse than the
-        /// speed itself. The number here is unchanged and still means what it always did for everyone
-        /// else: the hold is <c>max(1, velocity)</c>, so a tape at or below 1.00x, which includes
-        /// every intro (the anchor starts at velocity 1) and every player the song is not waiting on,
+        /// outro's, and since backlog 266 it is one in the full sense. A tape running above the song's
+        /// own speed when the line ran out keeps AT LEAST that speed for the whole gap
+        /// (<see cref="PuppeteerState.HeldFloorVelocity"/>), because a player fast enough to earn it
+        /// found the sag back to 1.00x between every pair of lines worse than the speed itself, and
+        /// the position chase stays live ABOVE that floor, so typing the next line early is still
+        /// chased. The number here is unchanged and still means what it always did for everyone else:
+        /// the floor is <c>max(1, velocity)</c>, so a tape at or below 1.00x, which includes every
+        /// intro (the anchor starts at velocity 1) and every player the song is not waiting on,
         /// coasts at exactly this, and a player who has been hesitating is SPED UP to it rather than
         /// left at their stall.</para>
         /// </summary>
@@ -750,12 +773,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// gap for the fix rather than coasting away from the player.</para>
         ///
         /// <para><b>THE COAST SPLITS IN TWO IN BACKLOG 261</b>, and this is the only place that knows
-        /// the difference. A coast now HOLDS the speed the tape arrived at
+        /// the difference. A coast makes the speed the tape arrived at a FLOOR for the gap
         /// (<see cref="PuppeteerClock.HoldFor"/>), which is the whole feature: a player who outruns
-        /// the song is not dropped back to 1.00x for every instrumental. The hold is given back the
-        /// moment a line takes the caret again, so every mid-map stretch has an end. PAST THE LAST
-        /// LINE it has none, so the outro takes <see cref="PuppeteerArm.ReleasedCoast"/> and eases
-        /// down to the song's own speed instead of playing the ending fast forever.</para>
+        /// the song is not dropped back to 1.00x for every instrumental. Since backlog 266 the floor
+        /// is given back once the TAPE HAS CAUGHT THE CARET, not at the cue where the caret changes
+        /// hands, so every mid-map stretch still has an end and the arm flip is not a rate event.
+        /// PAST THE LAST LINE there is no caret to catch, so the outro takes
+        /// <see cref="PuppeteerArm.ReleasedCoast"/> and eases down to the song's own speed instead of
+        /// playing the ending fast forever.</para>
+        ///
+        /// <para>THE ARM ITSELF IS UNCHANGED BY 266, which is worth saying explicitly: the release
+        /// moved from the arm flip into the model's own clamp, so this function still answers only
+        /// "is there a caret, and is another line coming". The driver learned nothing new.</para>
         ///
         /// <para>That is ONE MORE ENGINE READ than backlog 257 left here,
         /// <see cref="TypingEngine.IsFinished"/>, and it is the honest way to ask the question: "is
