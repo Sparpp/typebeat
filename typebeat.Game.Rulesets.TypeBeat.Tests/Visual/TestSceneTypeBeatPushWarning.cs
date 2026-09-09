@@ -44,7 +44,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private TypingEngine engine => playfield.Engine;
         private LyricStage stage => Player.ChildrenOfType<LyricStage>().Single();
 
-        private double currentTime => Player.GameplayClockContainer.CurrentTime;
+        /// <summary>
+        /// The clock the STAGE draws on, which is the frame-stable gameplay clock and the one
+        /// <see cref="LyricStage"/> compares the cutoff against. Sampling this rather than the
+        /// container's own <c>GameplayClockContainer.CurrentTime</c> is what makes an
+        /// assertion about the bar and the time it was read at describe the SAME frame: the
+        /// container's clock runs ahead and the frame-stable one catches up to it in 60 fps steps, so
+        /// the two disagree exactly when the catch-up is mid-flight.
+        /// </summary>
+        private double gameplayTime => stage.Clock.CurrentTime;
 
         protected override IBeatmap CreateBeatmap(RulesetInfo ruleset)
         {
@@ -92,7 +100,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
             AddAssert("the default stack is unpinned, so a push is possible at all", () => engine.FletcherEnabled);
 
-            AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0 && currentTime > 0);
+            AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0 && gameplayTime > 0);
 
             // One character of two, so the player is dragging on line 0 rather than finishing it.
             AddStep("press A only", () => InputManager.Key(Key.A));
@@ -103,28 +111,51 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // drag) but it is more than a cue-lead away, so the stage must draw nothing: the warning is
             // a countdown, not a status light.
             AddAssert("the cutoff is known from the first frame of the drag", () =>
-                engine.DragCutoffAt == 7500 && !stage.PushWarningVisible && currentTime < 5800);
+                engine.DragCutoffAt == 7500 && !stage.PushWarningVisible && gameplayTime < 6000);
 
-            // ...and it stays dark for all of it. Checked EVERY frame rather than sampled once, because
-            // the opening edge is the claim: the bar covers the final CUE_LEAD_MS (1500) of a cutoff at
-            // EndTime + SealGraceMs + FLETCHER_DRAG_GRACE_MS, and with those two constants both 1500 that
-            // is EndTime + SealGraceMs = 6000 exactly, the instant the song leaves the line's own grace
-            // and the seal becomes permitted but for drag protection. Widen the window and this goes red.
-            AddUntilStep("dark until the borrowed time is what is left", () =>
+            double lastDark = -1;
+            double firstLit = -1;
+
+            // The opening EDGE, checked every frame. The bar covers the final CUE_LEAD_MS (1500) of a
+            // cutoff at EndTime + SealGraceMs + FLETCHER_DRAG_GRACE_MS, and with those two constants both
+            // 1500 that is EndTime + SealGraceMs = 6000 exactly, the instant the song leaves the line's
+            // own grace and the seal becomes permitted but for drag protection.
+            //
+            // The assertion is a function of the time the frame LANDED ON rather than of the frame count,
+            // which is what keeps it honest on a loaded machine. A sweep that asserted "dark" flatly and
+            // then checked "are we at 5900 yet" asserts the wrong half whenever a frame straddles 6000,
+            // and it straddles constantly: gameplay time advances ~200 ms per frame here, so the frames
+            // that would satisfy it occupy 94 ms of every 200 (that is how this test went from a load
+            // flake to a hard 20-of-20 failure, the phase having simply stopped being lucky). Stated per
+            // frame, "the bar is up exactly when the sampled time is inside [6000, 7500)" needs no frame
+            // to land anywhere in particular and pins the edge with no tolerance at all: the last dark
+            // frame and the first lit one are adjacent, so it cannot pass if the bar opened a frame early
+            // or a frame late.
+            AddUntilStep("dark below 6000 and red from 6000, on every frame", () =>
             {
-                Assert.That(stage.PushWarningVisible, Is.False, "the warning must not open before the line's grace runs out at 6000");
-                return currentTime >= 5900;
+                double t = gameplayTime;
+                bool visible = stage.PushWarningVisible;
+
+                Assert.That(t, Is.LessThan(7500),
+                    "a single frame skipped the whole 1500 ms window, so the opening edge was never sampled");
+
+                if (visible)
+                {
+                    firstLit = t;
+                    Assert.That(stage.PushWarningTargetLine, Is.EqualTo(0), $"at {t:F0} ms the bar warned about the wrong line");
+                    Assert.That(engine.ActiveLineIndex, Is.EqualTo(0), $"at {t:F0} ms the player was no longer on the line being counted down");
+                }
+                else
+                    lastDark = t;
+
+                Assert.That(visible, Is.EqualTo(t >= 6000),
+                    $"at {t:F0} ms the warning was {(visible ? "up before" : "still dark after")} the line's grace ran out at 6000");
+
+                return visible;
             });
 
-            // The bar, bounded before the cutoff so it cannot be satisfied by a later state. Target line
-            // as well as visibility: alpha alone cannot tell "warned about the right line" from a bar
-            // hanging off some other row.
-            AddUntilStep("red bar shown for line 0 inside the last 1500 ms", () =>
-                stage.PushWarningVisible
-                && stage.PushWarningTargetLine == 0
-                && engine.ActiveLineIndex == 0
-                && currentTime >= 6000
-                && currentTime < 7500);
+            AddAssert("it opened on the frame that crossed the grace end, and not one frame either side", () =>
+                lastDark < 6000 && firstLit >= 6000 && firstLit < 7500);
 
             // And it is gone the moment the thing it warned about has happened: the line force-sealed,
             // the caret was landed on line 1, and line 1's own cutoff (30000 + 1500) is nowhere near.
@@ -149,16 +180,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("load player with no mods", () => LoadPlayer(Array.Empty<Mod>()));
             AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
 
-            AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0 && currentTime > 0);
+            AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0 && gameplayTime > 0);
 
             AddStep("press A only", () => InputManager.Key(Key.A));
 
+            // Stops on the FIRST frame the bar is up, which is a frame no sweep can miss, and leaves the
+            // whole of the countdown ahead of the keypress below. Bounding it with "and the clock is
+            // under 7500" instead would let it be satisfied on a frame 10 ms short of the cutoff, where
+            // the force-seal beats the key and the line is pushed rather than finished.
             AddUntilStep("red bar shown for line 0", () =>
-                stage.PushWarningVisible && stage.PushWarningTargetLine == 0 && currentTime < 7500);
+                stage.PushWarningVisible && stage.PushWarningTargetLine == 0);
 
             // Late, so it is judged late, which is the honest penalty for dragging. It is still the
             // character the line was owed, and paying it is what calls the push off.
-            AddStep("press B", () => InputManager.Key(Key.B));
+            AddStep("press B", () =>
+            {
+                Assert.That(gameplayTime, Is.LessThan(7500), "the frame ran past the cutoff before the key could be pressed");
+                InputManager.Key(Key.B);
+            });
             AddAssert("line 0 is finished rather than force-sealed", () =>
                 engine.Lines[0].Cells[1].State == CellState.Correct);
 
@@ -182,15 +221,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("load player with no mods", () => LoadPlayer(Array.Empty<Mod>()));
             AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
 
-            AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0 && currentTime > 0);
+            AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0 && gameplayTime > 0);
             AddStep("press A only", () => InputManager.Key(Key.A));
 
-            // Bounded well short of the 7500 cutoff so the assertion below still has the bar to look at.
+            // The first frame the bar is up, so the whole 1500 ms window is still ahead of the assertion
+            // below and it is certain to have a bar to look at.
             AddUntilStep("red bar shown for line 0", () =>
-                stage.PushWarningVisible && stage.PushWarningTargetLine == 0 && currentTime < 7000);
+                stage.PushWarningVisible && stage.PushWarningTargetLine == 0);
 
             AddAssert("its right edge is the end of the line and it runs leftward from there", () =>
             {
+                Assert.That(gameplayTime, Is.LessThan(7500), "the frame ran past the cutoff before the bar could be measured");
+
                 var d = stage.DisplayAt(0)!;
                 float lineEnd = d.ToScreenSpace(d.PositionOfCell(d.Line.Cells.Count)).X;
 
