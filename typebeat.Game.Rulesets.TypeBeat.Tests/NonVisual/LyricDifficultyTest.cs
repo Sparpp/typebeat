@@ -56,7 +56,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// (docs/sr-envelope-model.js in the parent superrepo, run over the same four words as
         /// <c>W</c> rows), and the two agree to the last bit rather than to a tolerance. The web
         /// port's LyricPaceTest pins the same number, so the three implementations are held
-        /// together here.
+        /// together here. The digit string moved once, when the anchor went 10.6 to 12.0: the model
+        /// is LINEAR in the anchor, so this is the prototype's own value times 12 / 10.6 and the
+        /// prototype's <c>anchor</c> has to be moved with it for the two to keep agreeing bit for
+        /// bit.
         ///
         /// <para>Four words over 4.6 seconds, which is deliberately more than the 1.36 second
         /// smallest window: see <see cref="AMapShorterThanTheSmallestWindowRatesExactlyZero"/>
@@ -68,7 +71,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             line(2600, 5200, ("world", 2600, 3400), ("again", 3600, 4600)),
         };
 
-        private const double anchor_stars = 1.7655467154568292;
+        private const double anchor_stars = 1.9987321307058443;
 
         [Test]
         public void MatchesTheReferenceModel()
@@ -106,7 +109,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(LyricDifficulty.Compute(tooShort), Is.Zero, "0.8 s of singing fits no window at all");
-                Assert.That(LyricDifficulty.Compute(longEnough), Is.EqualTo(0.59008922280815823), "3 s of the same two words does");
+                Assert.That(LyricDifficulty.Compute(longEnough), Is.EqualTo(0.6680255352545187), "3 s of the same two words does");
             });
         }
 
@@ -130,8 +133,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(LyricDifficulty.Compute(oneLine), Is.EqualTo(0.81136105825844707), "7 cells: aaa + space + bbb");
-                Assert.That(LyricDifficulty.Compute(twoLines), Is.EqualTo(0.66361622701245537), "6 cells: no space over a line break");
+                Assert.That(LyricDifficulty.Compute(oneLine), Is.EqualTo(0.9185219527454119), "7 cells: aaa + space + bbb");
+                Assert.That(LyricDifficulty.Compute(twoLines), Is.EqualTo(0.7512636532216476), "6 cells: no space over a line break");
             });
         }
 
@@ -163,9 +166,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(LyricDifficulty.Compute(map, 0.75), Is.EqualTo(5.5302448525596901), "sr_ht");
-                Assert.That(LyricDifficulty.Compute(map), Is.EqualTo(7.2117679129006653), "difficulty_rating");
-                Assert.That(LyricDifficulty.Compute(map, 1.50), Is.EqualTo(10.390624255205919), "sr_dt");
+                Assert.That(LyricDifficulty.Compute(map, 0.75), Is.EqualTo(6.260654550067575), "sr_ht");
+                Assert.That(LyricDifficulty.Compute(map), Is.EqualTo(8.16426556177434), "difficulty_rating");
+                Assert.That(LyricDifficulty.Compute(map, 1.50), Is.EqualTo(11.762970854950098), "sr_dt");
             });
         }
 
@@ -185,8 +188,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             double noMod = LyricDifficulty.Compute(map);
             double doubleTime = LyricDifficulty.Compute(map, 1.50);
 
-            Assert.That(noMod, Is.EqualTo(7.8694115501647195).Within(1e-9));
-            Assert.That(doubleTime, Is.EqualTo(11.64725037699524).Within(1e-9), "under the old ceiling this read exactly 10.00");
+            Assert.That(noMod, Is.EqualTo(8.908767792639306).Within(1e-9));
+            Assert.That(doubleTime, Is.EqualTo(13.185566464522914).Within(1e-9), "under the old ceiling this read exactly 10.00");
         }
 
         [Test]
@@ -238,8 +241,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(LyricDifficulty.Compute(gapped), Is.EqualTo(6.3708736689178123));
-                Assert.That(LyricDifficulty.Compute(gapped, 1.50), Is.EqualTo(9.0626585432309295), "sr_dt");
+                Assert.That(LyricDifficulty.Compute(gapped), Is.EqualTo(7.212309813869222));
+                Assert.That(LyricDifficulty.Compute(gapped, 1.50), Is.EqualTo(10.259613445167089), "sr_dt");
 
                 // The 45 seconds of silence cost nothing and the easy tail after it earns a little,
                 // which together is the claim that the gap is not averaged into the rating.
@@ -283,7 +286,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// future change reorder them inside it.</para>
         ///
         /// <para>NOTE HOW LITTLE THE EASY TAIL IS WORTH under the envelope (backlog 273): about
-        /// 0.014 of a star, where the feats model paid it 0.55. That is the model working as
+        /// 0.016 of a star, where the feats model paid it 0.55. That is the model working as
         /// designed, not a weakened claim. Those bins sit far below the chorus, so their d^8 weight
         /// is nearly nothing, and "there is more of it" is deliberately a soft signal now that the
         /// flat length term is gone. The DENSE tail, whose characters really are near the peak, is
@@ -308,9 +311,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(cutSr, Is.EqualTo(5.335528444501997));
-                Assert.That(easySr, Is.EqualTo(5.3498160824364929));
-                Assert.That(hardSr, Is.EqualTo(6.7320347476547653));
+                Assert.That(cutSr, Is.EqualTo(6.040220880568299));
+                Assert.That(easySr, Is.EqualTo(6.056395565022444));
+                Assert.That(hardSr, Is.EqualTo(7.621171412439358));
 
                 // The two claims the numbers above encode, restated so a failure says which broke.
                 Assert.That(easySr, Is.GreaterThan(cutSr), "the cut cannot outrate what it was cut from");
@@ -382,7 +385,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// arithmetic moved or the claim broke. The numbers are this port's own measurement, not the
         /// backlog item's: the item quotes 7.771 / 7.758 / 6.701 / 5.944 from the SR sandbox over
         /// its own per-word extract, and the fixtures here are built from the capability curve
-        /// directly, which lands them a few hundredths away with the ordering intact.</para>
+        /// directly, which lands them a few hundredths away with the ordering intact. Those quoted
+        /// figures are at the ORIGINAL 10.6 anchor; at the 12.0 anchor pinned below they read
+        /// 8.797 / 8.782 / 7.586 / 6.729, since the model is linear in the anchor.</para>
         /// </summary>
         [Test]
         public void ASustainedStretchBeatsTheSameDifficultyChoppedIntoBursts()
@@ -409,10 +414,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(sustainSr, Is.EqualTo(7.7723583011937176));
-                Assert.That(fourSr, Is.EqualTo(7.7555391677007943));
-                Assert.That(eightSr, Is.EqualTo(6.6498157259684607));
-                Assert.That(oneSr, Is.EqualTo(5.8757494392441805));
+                Assert.That(sustainSr, Is.EqualTo(8.798896190030623));
+                Assert.That(fourSr, Is.EqualTo(8.779855661548071));
+                Assert.That(eightSr, Is.EqualTo(7.528093274681277));
+                Assert.That(oneSr, Is.EqualTo(6.65179181801228));
 
                 Assert.That(sustainSr, Is.GreaterThan(fourSr), "a sustain beats the same pace split into four");
                 Assert.That(fourSr, Is.GreaterThan(eightSr), "which beats the same pace split into eight bursts");
@@ -452,8 +457,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(bare, Is.EqualTo(7.8989113255041952));
-                Assert.That(withPadding, Is.EqualTo(7.9056707572188216));
+                Assert.That(bare, Is.EqualTo(8.942163764721732));
+                Assert.That(withPadding, Is.EqualTo(8.949815951568478));
 
                 Assert.That(withPadding, Is.GreaterThan(bare), "easy padding is worth a little, never nothing");
                 Assert.That(withPadding / bare - 1, Is.EqualTo(0.000856).Within(5e-6), "and a little means under a tenth of a percent");
@@ -618,16 +623,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(LyricDifficulty.Compute(anchor), Is.EqualTo(anchor_stars), "the shared reference anchor");
-                Assert.That(LyricDifficulty.Compute(big), Is.EqualTo(17.397824361464231));
-                Assert.That(LyricDifficulty.Compute(big, 1.50), Is.EqualTo(25.222014739747042));
-                Assert.That(LyricDifficulty.Compute(realistic), Is.EqualTo(4.324959355137155));
-                Assert.That(LyricDifficulty.Compute(mid, 0.75), Is.EqualTo(5.5302448525596901));
-                Assert.That(LyricDifficulty.Compute(mid), Is.EqualTo(7.2117679129006653));
-                Assert.That(LyricDifficulty.Compute(mid, 1.50), Is.EqualTo(10.390624255205919));
-                Assert.That(LyricDifficulty.Compute(mid, 1, literate: true), Is.EqualTo(7.2117679129006653));
-                Assert.That(LyricDifficulty.Compute(punctuated), Is.EqualTo(2.806662860318895));
-                Assert.That(LyricDifficulty.Compute(punctuated, 1, literate: true), Is.EqualTo(3.1465072722912346));
-                Assert.That(LyricDifficulty.Compute(punctuated, 1.50, literate: true), Is.EqualTo(4.0489842813781358));
+                Assert.That(LyricDifficulty.Compute(big), Is.EqualTo(19.695650220525547));
+                Assert.That(LyricDifficulty.Compute(big, 1.50), Is.EqualTo(28.553224233675905));
+                Assert.That(LyricDifficulty.Compute(realistic), Is.EqualTo(4.896180402042062));
+                Assert.That(LyricDifficulty.Compute(mid, 0.75), Is.EqualTo(6.260654550067575));
+                Assert.That(LyricDifficulty.Compute(mid), Is.EqualTo(8.16426556177434));
+                Assert.That(LyricDifficulty.Compute(mid, 1.50), Is.EqualTo(11.762970854950098));
+                Assert.That(LyricDifficulty.Compute(mid, 1, literate: true), Is.EqualTo(8.16426556177434));
+                Assert.That(LyricDifficulty.Compute(punctuated), Is.EqualTo(3.177354181493089));
+                Assert.That(LyricDifficulty.Compute(punctuated, 1, literate: true), Is.EqualTo(3.5620837044806435));
+                Assert.That(LyricDifficulty.Compute(punctuated, 1.50, literate: true), Is.EqualTo(4.583755790239398));
             });
         }
 
@@ -709,7 +714,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var free = uniformMap(tokens(60, i => letters(i, 1) + new string(marker, 4) + ","), wordsPerLine: 6, stepMs: 400, spanMs: 350);
 
-            Assert.That(LyricDifficulty.Compute(free), Is.EqualTo(2.4259348900522322));
+            Assert.That(LyricDifficulty.Compute(free), Is.EqualTo(2.7463413849647913));
         }
 
         /// <summary>

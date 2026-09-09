@@ -97,20 +97,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private const double capability_exponent = 0.35; // how fast the burst premium decays with t
 
         // What a map that types at the record pace THROUGHOUT WITH ITS RANGE FILLED is worth.
-        // Chosen 2026-09-06 against the live ranked catalogue and kept by backlog 273: the hardest
-        // thing published lands just above 10, so the pool reads inside a single star decade without
-        // anything being cut to fit. Stars are LINEAR in this constant, so moving it alone is a pure
-        // rescale and cannot reorder anything. (12.0 would hold the pre-273 catalogue MEAN, since
-        // most maps fill about half their range; that one-constant alternative was considered and
-        // deliberately not taken, because the anchor's MEANING is worth more than the mean.)
-        private const double stars_at_human_peak = 10.6;
+        // Chosen 2026-09-09 to HOLD THE CATALOGUE'S PRE-ENVELOPE MEAN. The envelope model shipped at
+        // 10.6 and read a mean 0.59 star BELOW the strain ratings the pool had been showing, because
+        // most maps fill only about half their range and so land near the floor of it rather than
+        // near this anchor. 12.0 is the anchor that puts that mean back. Stars are LINEAR in this
+        // constant, so moving it alone is a pure rescale and cannot reorder anything: every rating
+        // published at 10.6 simply multiplies by 12 / 10.6, about x1.132.
+        private const double stars_at_human_peak = 12.0;
 
         /// <summary>
         /// How much the map can add ON TOP of its hardest window, as a fraction of that floor: a map
         /// whose range is completely filled rates <c>1 + envelope_range</c> times what its peak
         /// alone is worth, and <c>stars_at_human_peak</c> is divided by the same factor so that a
         /// filled record-pace map rates exactly <c>stars_at_human_peak</c> and the hardest window
-        /// alone rates 7.95.
+        /// alone rates 9.0.
         ///
         /// <para>THE LITERAL IS THE PROTOTYPE'S. The decision (backlog 273) was "a third", and
         /// docs/sr-envelope-model.js writes that third as <c>envCap: 0.3333</c>. The reference
