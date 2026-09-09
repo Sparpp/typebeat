@@ -113,21 +113,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // A rate mod changes when the words arrive, not how many there are, so the word count
             // carries no RateAdjusted. Nor does the average word LENGTH, for the same reason. The
-            // two rate statistics between them must still carry one.
+            // two rate statistics between them must still carry one, and Target WPM is one of them:
+            // a rate scales the rolling windows' pace exactly as it scales the map average.
             Assert.IsNull(statistics.Single(s => s.Name.ToString() == "Words").RateAdjusted);
             Assert.IsNotNull(statistics.Single(s => s.Name.ToString() == "Average WPM").RateAdjusted);
-            Assert.IsNotNull(statistics.Single(s => s.Name.ToString() == "Average CPM").RateAdjusted);
+            Assert.IsNotNull(statistics.Single(s => s.Name.ToString() == "Target WPM").RateAdjusted);
             Assert.IsNull(statistics.Single(s => s.Name.ToString() == "Chars/word").RateAdjusted);
         }
 
         [Test]
-        public void CharsPerWordSitsRightOfAverageCpmAndRendersOneDecimal()
+        public void TargetWpmIsTheCurvesPercentileOnTheWpmBarScale()
         {
-            // Order is the wedge's left-to-right order, and this one belongs immediately right of
-            // Average CPM: it is the number that converts CPM into the WPM two places left of it.
+            // The statistic that replaced Average CPM. Two things are pinned: it is
+            // LyricWpmCurve.TargetWpm rendered, never a second derivation, and its bar is
+            // normalised against the SAME 150 WPM cap as Average WPM (the departing CPM used
+            // 150 * 5, and carrying that cap over would have drawn a full-length bar on every map).
+            var lines = mixedFixture();
+            var curve = LyricWpmCurve.Compute(lines);
+            var stat = makeBeatmap(lines).GetStatistics().Single(s => s.Name.ToString() == "Target WPM");
+
+            Assert.IsFalse(curve.IsEmpty, "the fixture has to be long enough to sweep");
+            Assert.AreEqual(curve.TargetWpm.ToString("0"), stat.Content);
+            Assert.AreEqual((float)Math.Min(1, curve.TargetWpm / 150), stat.BarDisplayLength);
+
+            // And the rate scales it linearly, like the average beside it.
+            Assert.AreEqual((curve.TargetWpm * 1.5).ToString("0"), stat.RateAdjusted!(1.5).Item1);
+        }
+
+        [Test]
+        public void CharsPerWordSitsRightOfTargetWpmAndRendersOneDecimal()
+        {
+            // Order is the wedge's left-to-right order: the two rates in one unit, then the word
+            // length that says how far this map's words sit from the 5 that unit assumes. Average
+            // CPM used to sit third and was retired for saying nothing its neighbour did not: a CPM
+            // is its WPM times five exactly.
             var statistics = makeBeatmap(mixedFixture()).GetStatistics().ToList();
 
-            Assert.AreEqual(new[] { "Words", "Average WPM", "Average CPM", "Chars/word" }, statistics.Select(s => s.Name.ToString()).ToArray());
+            Assert.AreEqual(new[] { "Words", "Average WPM", "Target WPM", "Chars/word" }, statistics.Select(s => s.Name.ToString()).ToArray());
 
             // The fixture types as "the bad cat sat" (15 cells, 4 words), "hey   you" (9 cells,
             // 2 words) and "oh oh oh" (8 cells, 3 words): 32 cells over 9 words = 3.555..., which

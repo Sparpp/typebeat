@@ -23,18 +23,19 @@ namespace typebeat.Game.Screens.Select
     public partial class BeatmapMetadataWedge
     {
         /// <summary>
-        /// The map's typing pace: a WPM curve over its length, with the peak and average WPM/CPM
-        /// spelled out beside it. Unlike the rest of this wedge the data is LOCAL, computed from the
-        /// selected beatmap's own lyric lines, so it needs no online lookup.
+        /// The map's typing pace: a WPM curve over its length, with the peak, target and average
+        /// WPM spelled out beside it. Unlike the rest of this wedge the data is LOCAL, computed from
+        /// the selected beatmap's own lyric lines, so it needs no online lookup.
         /// </summary>
         public partial class TypingPaceDisplay : CompositeDrawable
         {
             private readonly GraphDrawable wpmGraph;
             private readonly PaceRow peakRow;
+            private readonly PaceRow targetRow;
             private readonly PaceRow averageRow;
 
-            /// <summary>Width reserved to the right of the graph for the peak/average readouts.</summary>
-            private const float readout_width = 150f;
+            /// <summary>Width reserved to the right of the graph for the pace readouts.</summary>
+            private const float readout_width = 110f;
 
             /// <summary>
             /// Null leaves the last values standing: the wedge hides the whole section for a map
@@ -54,8 +55,10 @@ namespace typebeat.Game.Screens.Select
 
                     wpmGraph.Data = value.WpmCurve.Select(v => peak <= 0 ? 0 : (float)(v / peak)).ToArray();
 
-                    peakRow.SetValues(value.PeakWpm, value.PeakCpm);
-                    averageRow.SetValues(value.AverageWpm, value.AverageCpm);
+                    // Peak, target, average: one unit, three readings, hardest first.
+                    peakRow.SetValue(value.PeakWpm);
+                    targetRow.SetValue(value.TargetWpm);
+                    averageRow.SetValue(value.AverageWpm);
                 }
             }
 
@@ -101,6 +104,7 @@ namespace typebeat.Game.Screens.Select
                                     Children = new[]
                                     {
                                         peakRow = new PaceRow(@"Peak"),
+                                        targetRow = new PaceRow(@"Target"),
                                         averageRow = new PaceRow(@"Average"),
                                     },
                                 },
@@ -116,14 +120,16 @@ namespace typebeat.Game.Screens.Select
                 wpmGraph.Colour = colours.Blue1;
             }
 
-            /// <summary>One labelled "&lt;label&gt; &lt;n&gt; WPM &lt;n&gt; CPM" line of the readout.</summary>
+            /// <summary>
+            /// One labelled "&lt;label&gt; &lt;n&gt; WPM" line of the readout. It used to print a
+            /// CPM beside the WPM; that column is gone, because a CPM here is its WPM times five
+            /// exactly and the space it took is what makes room for the third row.
+            /// </summary>
             private partial class PaceRow : CompositeDrawable
             {
                 private const float label_width = 52f;
-                private const float value_width = 52f;
 
                 private readonly OsuSpriteText wpmText;
-                private readonly OsuSpriteText cpmText;
 
                 public PaceRow(LocalisableString label)
                 {
@@ -147,28 +153,17 @@ namespace typebeat.Game.Screens.Select
                                     Font = OsuFont.Style.Caption1.With(weight: FontWeight.SemiBold),
                                 },
                             },
-                            new Container
-                            {
-                                Width = value_width,
-                                AutoSizeAxes = Axes.Y,
-                                Child = wpmText = new OsuSpriteText { Font = OsuFont.Style.Caption1 },
-                            },
-                            cpmText = new OsuSpriteText { Font = OsuFont.Style.Caption1 },
+                            wpmText = new OsuSpriteText { Font = OsuFont.Style.Caption1 },
                         },
                     };
                 }
 
-                public void SetValues(double wpm, double cpm)
-                {
-                    wpmText.Text = $@"{wpm:0} WPM";
-                    cpmText.Text = $@"{cpm:0} CPM";
-                }
+                public void SetValue(double wpm) => wpmText.Text = $@"{wpm:0} WPM";
 
                 [BackgroundDependencyLoader]
                 private void load(OverlayColourProvider colourProvider)
                 {
                     wpmText.Colour = colourProvider.Content2;
-                    cpmText.Colour = colourProvider.Content2;
                 }
             }
 

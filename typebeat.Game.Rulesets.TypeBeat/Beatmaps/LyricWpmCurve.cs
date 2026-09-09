@@ -11,8 +11,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// Typing pace ACROSS a lyric map, as a perfect player would experience it: every typeable cell
     /// of the map is laid out on the beatmap timeline in typing order, a rolling window of
     /// <see cref="WINDOW_CELLS"/> consecutive cells is swept over that sequence, and each window
-    /// yields one WPM and one CPM. What comes out is the peak of each (independently) plus a
-    /// downsampled curve of the WPM over map time, which song select draws as a bar graph.
+    /// yields one WPM and one CPM. What comes out is the peak of each (independently), the
+    /// <see cref="TargetWpm"/> percentile of the WPM readings, and a downsampled curve of the WPM
+    /// over map time, which song select draws as a bar graph.
     ///
     /// Kept byte-for-byte in step with the website's port
     /// (typebeat-web: Typebeat.Web.Packages.Lyrics.LyricWpmCurve) so the in-game and the on-site
@@ -43,6 +44,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         public const double CHARS_PER_WORD = 5.0;
 
+        /// <summary>
+        /// Which percentile of the window readings <see cref="TargetWpm"/> reports. 0.80 is chosen
+        /// so the figure describes the pace a player has to hold for the DEMANDING part of the map
+        /// rather than for its hardest single window (the peak) or for its quiet stretches (the
+        /// average): four keystrokes in five are typed at or below it.
+        /// </summary>
+        private const double target_percentile = 0.80;
+
         private readonly double[]? curve;
 
         /// <summary>
@@ -65,6 +74,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         public double PeakCpm { get; }
 
+        /// <summary>
+        /// The pace to SUSTAIN: the <see cref="target_percentile"/> percentile of the map's window
+        /// readings, so 80 percent of the map's keystrokes are typed at or below it and only the
+        /// demanding fifth asks for more. Between <see cref="PeakWpm"/> (one window, possibly a
+        /// single burst nobody experiences as the map's speed) and the per-line average (dragged
+        /// down by everything quiet), which is why it is the one figure worth aiming at.
+        ///
+        /// <para>There is one sample per window START, not per unit of map time, so the percentile
+        /// is KEYSTROKE weighted: a stretch that takes twice as many presses contributes twice as
+        /// many samples. That also disposes of instrumental gaps with no special casing at all. A
+        /// window straddling a gap reads very low (its 29 presses are spread over the silence), so
+        /// gap-straddling windows sit in the bottom tail, which a percentile at 0.80 ignores by
+        /// construction; no <c>MIN_GAP_MS</c> rule is needed or wanted here.</para>
+        ///
+        /// <para>0 for a degenerate map, alongside the empty curve.</para>
+        /// </summary>
+        public double TargetWpm { get; }
+
         /// <summary>Target time of the first typeable cell of the map; 0 when empty.</summary>
         public double StartTime { get; }
 
@@ -82,18 +109,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>True when the map carried too little to measure (see <see cref="Compute"/>).</summary>
         public bool IsEmpty => curve == null || curve.Length == 0;
 
-        private LyricWpmCurve(double[]? curve, double peakWpm, double peakCpm, double startTime, double endTime)
+        private LyricWpmCurve(double[]? curve, double peakWpm, double peakCpm, double targetWpm, double startTime, double endTime)
         {
             this.curve = curve;
             PeakWpm = peakWpm;
             PeakCpm = peakCpm;
+            TargetWpm = targetWpm;
             StartTime = startTime;
             EndTime = endTime;
         }
 
         /// <summary>
-        /// Sweeps the rolling window over <paramref name="lines"/> and returns the peaks plus a
-        /// <paramref name="points"/>-point WPM curve.
+        /// Sweeps the rolling window over <paramref name="lines"/> and returns the peaks, the
+        /// target pace and a <paramref name="points"/>-point WPM curve.
         ///
         /// <para>Degenerate input (no lines, fewer than <see cref="WINDOW_CELLS"/> cells in total, a
         /// zero-length map span, a non-positive <paramref name="points"/>) returns an empty, all-zero
@@ -180,18 +208,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             int cellCount = targets.Count;
 
             if (points <= 0 || cellCount < WINDOW_CELLS)
-                return new LyricWpmCurve(null, 0, 0, 0, 0);
+                return new LyricWpmCurve(null, 0, 0, 0, 0, 0);
 
             double first = targets[0];
             double last = targets[cellCount - 1];
             double mapSpanMs = last - first;
 
             if (mapSpanMs <= 0)
-                return new LyricWpmCurve(null, 0, 0, 0, 0);
+                return new LyricWpmCurve(null, 0, 0, 0, 0, 0);
 
             double[] result = new double[points];
             double peakWpm = 0;
             double peakCpm = 0;
+
+            // Every window's reading, kept so TargetWpm can take a percentile of them. One entry per
+            // window START (a window whose span collapsed to nothing is skipped below and
+            // contributes none), which is what makes the percentile keystroke weighted rather than
+            // time weighted; see TargetWpm.
+            var samples = new List<double>(cellCount - WINDOW_CELLS + 1);
 
             for (int i = 0; i + WINDOW_CELLS <= cellCount; i++)
             {
@@ -219,6 +253,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 if (cpm > peakCpm)
                     peakCpm = cpm;
 
+                samples.Add(wpm);
+
                 int bucket = (int)((targets[i] - first) / mapSpanMs * points);
 
                 if (bucket < 0)
@@ -231,7 +267,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     result[bucket] = wpm;
             }
 
-            return new LyricWpmCurve(result, peakWpm, peakCpm, first, last);
+            // NEAREST RANK on the sorted readings: index round(p * (n - 1)), which is the sample at
+            // the p-th position of the list and never an interpolation between two of them (the
+            // figure has to be a pace some window of the map really asks for).
+            //
+            // Math.Floor(x + 0.5) rather than Math.Round, which is BANKER'S rounding in .NET, the
+            // same guard LyricDifficulty's window schedule carries. At p = 0.80 no half ever comes
+            // up (p * (n - 1) lands on a fifth, never on a half, for every integer n), so the two
+            // agree today; written this way so that retuning p cannot silently start rounding half
+            // the boundaries the other way.
+            double targetWpm = 0;
+
+            if (samples.Count > 0)
+            {
+                samples.Sort();
+                targetWpm = samples[(int)Math.Floor(target_percentile * (samples.Count - 1) + 0.5)];
+            }
+
+            return new LyricWpmCurve(result, peakWpm, peakCpm, targetWpm, first, last);
         }
     }
 }

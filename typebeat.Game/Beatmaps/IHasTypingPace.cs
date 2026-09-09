@@ -21,10 +21,12 @@ namespace typebeat.Game.Beatmaps
     }
 
     /// <summary>
-    /// Peak and average typing pace for a beatmap, plus a WPM curve over its length. WPM is in the
-    /// typing-test unit of 5 characters to the word, the same unit the in-game counter and the
-    /// results screen use, so every WPM the game ever shows a player means one thing. Peak and
-    /// average are therefore comparable both with each other and with any other typing test.
+    /// Peak, target and average typing pace for a beatmap, plus a WPM curve over its length. All
+    /// three are WPM, in the typing-test unit of 5 characters to the word, the same unit the
+    /// in-game counter and the results screen use, so every WPM the game ever shows a player means
+    /// one thing and the three read as a ladder. The CPM twins they used to carry alongside are
+    /// gone: since the typing-test redefinition a CPM is its WPM times five exactly, so it said
+    /// nothing its own row did not.
     /// </summary>
     public sealed class TypingPaceProfile
     {
@@ -34,13 +36,14 @@ namespace typebeat.Game.Beatmaps
         /// <summary>Highest WPM over any rolling window of the map.</summary>
         public required double PeakWpm { get; init; }
 
-        /// <summary>Highest characters-per-minute over any rolling window; <see cref="PeakWpm"/> times 5.</summary>
-        public required double PeakCpm { get; init; }
+        /// <summary>
+        /// The pace to sustain: the 80th percentile of the map's rolling-window WPM readings, so
+        /// 80 percent of its keystrokes are typed at or below this
+        /// (<c>LyricWpmCurve.TargetWpm</c>).
+        /// </summary>
+        public required double TargetWpm { get; init; }
 
         /// <summary>Mean per-line WPM across the map.</summary>
         public required double AverageWpm { get; init; }
-
-        /// <summary>Mean per-line CPM across the map.</summary>
-        public required double AverageCpm { get; init; }
     }
 }

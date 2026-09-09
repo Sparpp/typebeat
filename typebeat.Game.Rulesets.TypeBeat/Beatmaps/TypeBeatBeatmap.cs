@@ -60,9 +60,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             {
                 WpmCurve = curve.Curve,
                 PeakWpm = curve.PeakWpm,
-                PeakCpm = curve.PeakCpm,
+                TargetWpm = curve.TargetWpm,
                 AverageWpm = pace.AverageWpm,
-                AverageCpm = pace.AverageCpm,
             };
         }
 
@@ -71,7 +70,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (HitObjects.Count == 0)
                 yield break;
 
-            var pace = LyricPaceStatistics.Compute(HitObjects.Select(h => h.Line));
+            // ONE materialised pass over the lines feeding both computes, as GetTypingPace above
+            // does: the strip needs the rolling-window sweep now (Target WPM comes off the curve),
+            // and enumerating the hit objects twice for it would buy nothing.
+            var lines = HitObjects.Select(h => h.Line).ToList();
+            var pace = LyricPaceStatistics.Compute(lines);
+            var curve = LyricWpmCurve.Compute(lines);
 
             // How much typing the map is, in the unit the player thinks in. The total comes from the
             // same pass that produces Average WPM below, so the two can never disagree: a word is a
@@ -89,13 +93,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 BarDisplayLength = Math.Min(1, pace.WordCount / max_display_words),
             };
 
-            // A faster clock (DoubleTime/Nightcore) means more words/characters per real minute, so
-            // WPM and CPM scale linearly with the mod rate; song select re-renders these live as the
+            // A faster clock (DoubleTime/Nightcore) means more words per real minute, so both pace
+            // figures scale linearly with the mod rate; song select re-renders these live as the
             // selected rate mods change (see BeatmapStatistic.RateAdjusted). The word count above is
             // unaffected (a rate mod changes when the words arrive, not how many there are), exactly
             // as the line count it replaced was, so it deliberately carries no RateAdjusted.
             double baseWpm = pace.AverageWpm;
-            double baseCpm = pace.AverageCpm;
+
+            // The pace to SUSTAIN: the 80th percentile of the map's rolling windows, so four
+            // keystrokes in five land at or below it (LyricWpmCurve.TargetWpm). It replaced Average
+            // CPM here, which since the typing-test redefinition was Average WPM times five and so
+            // carried no information the row above it did not. 0 on a map too short to sweep, which
+            // is the same nothing the wedge's graph reports for it.
+            double baseTargetWpm = curve.TargetWpm;
 
             yield return new BeatmapStatistic
             {
@@ -108,17 +118,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             yield return new BeatmapStatistic
             {
-                Name = "Average CPM",
-                Content = baseCpm.ToString("0"),
-                CreateIcon = () => new SpriteIcon { Icon = FontAwesome.Solid.Font },
-                BarDisplayLength = (float)Math.Min(1, baseCpm / (max_display_wpm * 5)),
-                RateAdjusted = rate => ((baseCpm * rate).ToString("0"), (float?)Math.Min(1, baseCpm * rate / (max_display_wpm * 5))),
+                Name = "Target WPM",
+                Content = baseTargetWpm.ToString("0"),
+                CreateIcon = () => new SpriteIcon { Icon = FontAwesome.Solid.Bullseye },
+                BarDisplayLength = (float)Math.Min(1, baseTargetWpm / max_display_wpm),
+                RateAdjusted = rate => ((baseTargetWpm * rate).ToString("0"), (float?)Math.Min(1, baseTargetWpm * rate / max_display_wpm)),
             };
 
-            // Sits immediately right of Average CPM because it is what turns that number into the
-            // one left of it: WPM is CPM/5 flat, so this says how far the map's own words are from
-            // the 5 the unit assumes. It is the ratio the old real-word WPM used to encode
-            // implicitly (CPM:WPM), now printed rather than left to be divided out.
+            // Still here, and still worth a column, now that the CPM it used to explain has left the
+            // strip: both rates to its left are cells/5 flat, so this says how far the map's own
+            // words are from the 5 the unit assumes. It is the ratio the old real-word WPM used to
+            // encode implicitly (CPM:WPM), now printed rather than left to be divided out.
             //
             // One decimal is not decoration: the five shipped maps measure 4.13, 4.31, 4.57, 4.11
             // and 4.47 cells per word, so rounding to whole characters would print "4" for every
