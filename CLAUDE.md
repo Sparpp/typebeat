@@ -249,6 +249,11 @@ select and STORED on the server's beatmap row for the set page's WPM tab, delibe
 the wire, so the mirror is the only thing keeping the in-game and on-site figures equal. A change
 here also needs the server's `LyricPace.VERSION` bumped so its stored columns recompute.
 
+`Beatmaps/LyricPaceStatistics.cs` is the same kind of pair (its mirror is the pace half of
+`src/Typebeat.Web/Packages/Lyrics/LyricPace.cs`) and carries the PER-LINE figures, average WPM and,
+since backlog 272, `TargetWpm`, the average WPM across the fastest fifth of the map's lines, which
+the server stores as `beatmaps.target_wpm`: same rule, a change here needs a `LyricPace.VERSION` bump.
+
 `docs/pp.md` in `typebeat-web` is the canonical pp spec: every constant in `PerformancePoints.cs` is
 pinned there and must not drift from it.
 

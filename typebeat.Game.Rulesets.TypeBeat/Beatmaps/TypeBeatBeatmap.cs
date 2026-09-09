@@ -38,9 +38,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private const float max_display_chars_per_word = 10;
 
         /// <summary>
-        /// Peak (rolling-window) and average (per-line) pace for song select's metadata wedge, both
-        /// derived from ONE materialised pass over the lyric lines: the curve sweep and the pace
-        /// averages read the same list rather than enumerating the hit objects twice.
+        /// Peak (rolling-window) and target/average (per-line) pace for song select's metadata
+        /// wedge, all derived from ONE materialised pass over the lyric lines: the curve sweep and
+        /// the pace statistics read the same list rather than enumerating the hit objects twice.
         /// </summary>
         public TypingPaceProfile? GetTypingPace()
         {
@@ -60,7 +60,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             {
                 WpmCurve = curve.Curve,
                 PeakWpm = curve.PeakWpm,
-                TargetWpm = curve.TargetWpm,
+                TargetWpm = pace.TargetWpm,
                 AverageWpm = pace.AverageWpm,
             };
         }
@@ -70,12 +70,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (HitObjects.Count == 0)
                 yield break;
 
-            // ONE materialised pass over the lines feeding both computes, as GetTypingPace above
-            // does: the strip needs the rolling-window sweep now (Target WPM comes off the curve),
-            // and enumerating the hit objects twice for it would buy nothing.
-            var lines = HitObjects.Select(h => h.Line).ToList();
-            var pace = LyricPaceStatistics.Compute(lines);
-            var curve = LyricWpmCurve.Compute(lines);
+            var pace = LyricPaceStatistics.Compute(HitObjects.Select(h => h.Line));
 
             // How much typing the map is, in the unit the player thinks in. The total comes from the
             // same pass that produces Average WPM below, so the two can never disagree: a word is a
@@ -100,12 +95,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // as the line count it replaced was, so it deliberately carries no RateAdjusted.
             double baseWpm = pace.AverageWpm;
 
-            // The pace to SUSTAIN: the 80th percentile of the map's rolling windows, so four
-            // keystrokes in five land at or below it (LyricWpmCurve.TargetWpm). It replaced Average
-            // CPM here, which since the typing-test redefinition was Average WPM times five and so
-            // carried no information the row above it did not. 0 on a map too short to sweep, which
-            // is the same nothing the wedge's graph reports for it.
-            double baseTargetWpm = curve.TargetWpm;
+            // The pace to SUSTAIN: the average WPM across the fastest fifth of the map's lyric
+            // lines (LyricPaceStatistics.TargetWpm). The same estimator as the row above it, over
+            // the demanding lines rather than all of them, so it is never below it and the pair
+            // reads as "what the map asks on the whole" against "what its hard stretches ask". It
+            // replaced Average CPM here, which since the typing-test redefinition was Average WPM
+            // times five and so carried no information the row above it did not.
+            double baseTargetWpm = pace.TargetWpm;
 
             yield return new BeatmapStatistic
             {

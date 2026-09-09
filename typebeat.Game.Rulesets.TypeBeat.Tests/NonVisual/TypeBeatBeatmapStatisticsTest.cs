@@ -114,7 +114,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // A rate mod changes when the words arrive, not how many there are, so the word count
             // carries no RateAdjusted. Nor does the average word LENGTH, for the same reason. The
             // two rate statistics between them must still carry one, and Target WPM is one of them:
-            // a rate scales the rolling windows' pace exactly as it scales the map average.
+            // a rate divides every line's boundary window, so it scales the fastest fifth's mean
+            // exactly as it scales the mean over all of them.
             Assert.IsNull(statistics.Single(s => s.Name.ToString() == "Words").RateAdjusted);
             Assert.IsNotNull(statistics.Single(s => s.Name.ToString() == "Average WPM").RateAdjusted);
             Assert.IsNotNull(statistics.Single(s => s.Name.ToString() == "Target WPM").RateAdjusted);
@@ -122,22 +123,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void TargetWpmIsTheCurvesPercentileOnTheWpmBarScale()
+        public void TargetWpmIsTheFastestFifthsPaceOnTheWpmBarScale()
         {
             // The statistic that replaced Average CPM. Two things are pinned: it is
-            // LyricWpmCurve.TargetWpm rendered, never a second derivation, and its bar is
+            // LyricPaceStatistics.TargetWpm rendered, never a second derivation, and its bar is
             // normalised against the SAME 150 WPM cap as Average WPM (the departing CPM used
             // 150 * 5, and carrying that cap over would have drawn a full-length bar on every map).
             var lines = mixedFixture();
-            var curve = LyricWpmCurve.Compute(lines);
+            var pace = LyricPaceStatistics.Compute(lines);
             var stat = makeBeatmap(lines).GetStatistics().Single(s => s.Name.ToString() == "Target WPM");
 
-            Assert.IsFalse(curve.IsEmpty, "the fixture has to be long enough to sweep");
-            Assert.AreEqual(curve.TargetWpm.ToString("0"), stat.Content);
-            Assert.AreEqual((float)Math.Min(1, curve.TargetWpm / 150), stat.BarDisplayLength);
+            // The fixture's three lines run 15 cells / 3000 ms = 300 CPM, 9 / 3000 = 180 and
+            // 8 / 3000 = 160, so the average is 640/3 = 213.33 CPM = 42.67 WPM and the target is
+            // the fastest ceil(0.20 * 3) = 1 of them, 300 CPM = 60 WPM. Two different numbers, so a
+            // strip that rendered the average twice would fail here.
+            Assert.AreEqual(60.0, pace.TargetWpm, 1e-9);
+            Assert.AreNotEqual(pace.TargetWpm, pace.AverageWpm);
+
+            Assert.AreEqual(pace.TargetWpm.ToString("0"), stat.Content);
+            Assert.AreEqual((float)Math.Min(1, pace.TargetWpm / 150), stat.BarDisplayLength);
 
             // And the rate scales it linearly, like the average beside it.
-            Assert.AreEqual((curve.TargetWpm * 1.5).ToString("0"), stat.RateAdjusted!(1.5).Item1);
+            Assert.AreEqual((pace.TargetWpm * 1.5).ToString("0"), stat.RateAdjusted!(1.5).Item1);
         }
 
         [Test]

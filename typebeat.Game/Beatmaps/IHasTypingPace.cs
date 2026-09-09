@@ -37,9 +37,9 @@ namespace typebeat.Game.Beatmaps
         public required double PeakWpm { get; init; }
 
         /// <summary>
-        /// The pace to sustain: the 80th percentile of the map's rolling-window WPM readings, so
-        /// 80 percent of its keystrokes are typed at or below this
-        /// (<c>LyricWpmCurve.TargetWpm</c>).
+        /// The pace to sustain: the average WPM across the fastest fifth of the map's lyric lines
+        /// (<c>LyricPaceStatistics.TargetWpm</c>). The same per-line mean <see cref="AverageWpm"/>
+        /// is, over the demanding lines alone, so it never reads below it.
         /// </summary>
         public required double TargetWpm { get; init; }
 
