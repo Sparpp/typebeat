@@ -123,11 +123,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// THERE IS NO LENGTH FACTOR HERE, AND ADDING ONE BACK WOULD DOUBLE COUNT (backlog 152).
     /// Through v15 this file carried <c>max(0.1, 1 + 0.50·log10(notes/100))</c>, worth up to 1.70x,
     /// while the star rating priced length barely at all. Length now lives entirely in
-    /// <see cref="Beatmaps.LyricDifficulty"/>, as an ADDITIVE <c>0.12·max(0, log10(cells/100))</c>
-    /// star bonus, so pp still sees a long map, but only as <c>((SR + bonus)/SR)^2.00</c>, a few
-    /// percent rather than up to 70. That deflates long-map plays hardest (roughly 18% at 340
-    /// cells, 28% at 800, 38% at 2300), which is the intended reordering: length stops buying pp it
-    /// no longer earns. <c>notes</c> itself stays, and is still load-bearing for both penalty
+    /// <see cref="Beatmaps.LyricDifficulty"/>, which since backlog 273 has no separate length term
+    /// of its own: length counts only through the characters it adds to the envelope's difficulty
+    /// sum, so pp still sees a long map, but only a few percent through SR_eff rather than up to
+    /// 70. That is the intended reordering: length stops buying pp it no longer earns.
+    /// <c>notes</c> itself stays, and is still load-bearing for both penalty
     /// terms, the combo ratio and <see cref="FlashlightMultiplier"/>.
     /// </para>
     ///
@@ -170,7 +170,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// place in this file where a rate was priced by anything but the rating, it made one rate a
     /// function of all three of a map's ratings (so the server could not price an HT play until
     /// <c>sr_dt</c> was stored), and a degenerate <c>sr_dt</c> zeroed an otherwise honest play. If
-    /// Half Time ever reads as underpriced again the fix belongs in the feats model behind the
+    /// Half Time ever reads as underpriced again the fix belongs in the SR model behind the
     /// 0.75x rating, never in a second multiplier here. So the claim docs/pp.md has made since task
     /// 61, that a rate is priced EXCLUSIVELY through SR_eff, is now literally true of both rates.
     /// </para>
@@ -482,8 +482,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// THE RATING BELOW WHICH A FULL COMBO IS WORTH NOTHING (backlog 270): the bonus is
         /// <c>max(0, combo_bonus_slope · (SR_eff − combo_bonus_zero))</c>, so it opens at
         /// <c>SR_eff = combo_bonus_zero</c> and grows linearly above it. The <c>Math.Max</c> is
-        /// load-bearing and not defensive: a real map can rate below 1.0 (the feats model gives a
-        /// map with no window long enough to score its length term alone), and without the clamp
+        /// load-bearing and not defensive: a real map can rate below 1.0 (a map with no window long
+        /// enough to fit the smallest scheduled duration rates EXACTLY 0 under the envelope model,
+        /// there being no length term left to give it anything else), and without the clamp
         /// such a play would be handed a NEGATIVE bonus that a long run made worse.
         /// </summary>
         private const double combo_bonus_zero = 1.0;
