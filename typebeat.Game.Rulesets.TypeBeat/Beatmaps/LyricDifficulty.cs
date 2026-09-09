@@ -10,7 +10,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
     /// Star rating for a lyric map: how fast the map asks you to type, measured against how fast
-    /// the fastest humans can type, over sliding windows of many durations (backlog 269).
+    /// the fastest humans can type, over sliding windows of many durations (backlog 269, remodelled
+    /// by backlog 273).
     ///
     /// <para>THE TIMELINE. Every typeable word is a block running from its onset to the end of its
     /// sung span, in REAL seconds (beatmap time divided by the clock <c>rate</c>, span floored at
@@ -28,30 +29,52 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// DURATION, which is what makes a 1.4 second burst and a 60 second verse comparable numbers.
     /// Windows are drawn from a fixed schedule (see <see cref="windowSchedule"/>).</para>
     ///
-    /// <para>THE FEATS. Greedily take the highest-ratio window at ANY scheduled duration whose bins
-    /// are all still unconsumed, record it, consume its bins, repeat. Feats come out in
-    /// non-increasing ratio order and no second of the map is counted twice: a two-word burst is
-    /// found as a 1.4 second window, a sustained verse as a 60 second one, and the two do not
-    /// double count each other. Stars are the weighted sum
-    /// <c>stars_at_human_peak * (1 - feat_decay) * sum_k feat_decay^k * ratio_k</c> plus the length
-    /// bonus, so record pace for the whole map rates <c>stars_at_human_peak</c> and one lone
-    /// record-pace feat rates 0.75 of it. Every feat is scored against HUMAN ABILITY rather than
-    /// against the map's own peak, which is what makes a cut version unable to outrate the full
-    /// version it was cut from.</para>
+    /// <para>THE PEAK sets the RANGE. <c>ratio_0</c> is the best ratio at any scheduled duration
+    /// anywhere on the map, and <c>stars_at_human_peak / (1 + envelope_range) * ratio_0</c> is the
+    /// FLOOR of the map's range: what the hardest window alone is worth. Nothing about that figure
+    /// looks at the rest of the map, and it is measured against HUMAN ABILITY rather than against
+    /// the map's own peak, which is what stops a cut version outrating the full version it was cut
+    /// from.</para>
     ///
-    /// <para>A MAP SHORTER THAN THE SMALLEST WINDOW rates the length term alone, i.e. very close to
-    /// zero. <c>window_min_s</c> of bins do not fit on its timeline, so no scheduled window fits,
-    /// no feat is found and the feats sum is 0. Windows are deliberately NOT clamped down to the
-    /// map: the ratio only means anything against <c>S(t)</c> at the window's own duration, and a
-    /// map with under a second and a half of singing in it is not a difficulty. Every synthetic
-    /// fixture in the test suites is built long enough to clear that.</para>
+    /// <para>THE ENVELOPE decides where inside that range the map lands. Every bin takes
+    /// <c>env[i]</c>, the best ratio of any scheduled window CONTAINING it (a sliding-window maximum
+    /// per duration, so the characters inside a sustained stretch are as hard as the stretch and a
+    /// burst's characters are as hard as the burst), and <c>d = min(1, env[i] / ratio_0)</c> is how
+    /// hard that bin is as a fraction of the peak. The map's DIFFICULT CHARACTERS are
+    /// <c>N = sum_i cells(i) * d^envelope_power</c>, with no cutoff, so a character at 90% of the
+    /// peak weighs 43%, at 70% weighs 6%, at half weighs 0.4%, and easy padding adds a little rather
+    /// than exactly nothing. The range fills as <c>1 - exp(-N / envelope_chars)</c>, giving
+    /// <c>stars = stars_at_human_peak / (1 + envelope_range) * ratio_0 *
+    /// (1 + envelope_range * fill)</c>: record pace with the range filled rates
+    /// <c>stars_at_human_peak</c>.</para>
+    ///
+    /// <para>WHY NOT THE OLD FEATS (backlog 269, replaced here). Stars used to be a decaying sum
+    /// over greedy non-overlapping windows, so the tail credit depended on how many windows a map's
+    /// difficulty happened to split into: eight two-second bursts filled eight slots while two
+    /// sixty-second sections filled two, burst-built maps read about 7% too high, a map that was one
+    /// long feat had nothing to add, and a cut sharing its full version's hardest part could tie it.
+    /// The envelope counts CHARACTERS near the peak instead of counting windows, so how the same
+    /// difficulty is chopped up cannot move the rating.</para>
+    ///
+    /// <para>THERE IS NO LENGTH TERM (the additive <c>0.12 * log10(cells/100)</c> of backlog 152 was
+    /// deleted here by 273). Length counts only through the characters it adds: padding a map with
+    /// easy singing raises N a little, so the rating rises a little, and padding it with hard
+    /// singing raises it more. Two length terms would double count that.</para>
+    ///
+    /// <para>A MAP SHORTER THAN THE SMALLEST WINDOW rates EXACTLY ZERO. <c>window_min_s</c> of bins
+    /// do not fit on its timeline, so no scheduled window fits, <c>ratio_0</c> is 0 and so is the
+    /// range it scales. Windows are deliberately NOT clamped down to the map: the ratio only means
+    /// anything against <c>S(t)</c> at the window's own duration, and a map with under a second and
+    /// a half of singing in it is not a difficulty. Every synthetic fixture in the test suites is
+    /// built long enough to clear that.</para>
     ///
     /// <para>Kept byte-for-byte in step with the website's port
     /// (typebeat-web: Typebeat.Web.Packages.Lyrics.LyricDifficulty) so the in-game star rating and
     /// the stored beatmaps.difficulty_rating always agree. Any change here must be mirrored there,
     /// and its LyricPace.VERSION bumped so existing rows recompute. The model itself is
-    /// docs/sr-feats-model.js in the parent superrepo, a pure function of (map, rate, constants)
-    /// that this file is a literal port of.</para>
+    /// docs/sr-envelope-model.js in the parent superrepo, a pure function of (map, rate, constants)
+    /// that this file is a literal port of (its 'feats' branch is the v17 model this replaced, kept
+    /// as the record).</para>
     ///
     /// <para>Rate-adjusting mods (DoubleTime/Nightcore/HalfTime) divide every beatmap-time interval
     /// by <c>rate</c> while the window schedule stays in REAL seconds: a faster clock packs the same
@@ -73,65 +96,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private const double capability_ref_seconds = 1.35; // the burst record's own duration
         private const double capability_exponent = 0.35; // how fast the burst premium decays with t
 
-        // What a map that types at the record pace THROUGHOUT is worth. Chosen 2026-09-06 against
-        // the live ranked catalogue: the hardest thing published lands just above 10, so the pool
-        // reads inside a single star decade without anything being cut to fit. Stars are LINEAR in
-        // this constant, so moving it alone is a pure rescale and cannot reorder anything.
+        // What a map that types at the record pace THROUGHOUT WITH ITS RANGE FILLED is worth.
+        // Chosen 2026-09-06 against the live ranked catalogue and kept by backlog 273: the hardest
+        // thing published lands just above 10, so the pool reads inside a single star decade without
+        // anything being cut to fit. Stars are LINEAR in this constant, so moving it alone is a pure
+        // rescale and cannot reorder anything. (12.0 would hold the pre-273 catalogue MEAN, since
+        // most maps fill about half their range; that one-constant alternative was considered and
+        // deliberately not taken, because the anchor's MEANING is worth more than the mean.)
         private const double stars_at_human_peak = 10.6;
 
-        // The feats: geometric weight per rank, so the hardest feat is (1 - feat_decay) of a
-        // saturated map and each subsequent one is a quarter of the last. The sum is normalised by
-        // (1 - feat_decay) so an infinite run of record-pace feats converges on stars_at_human_peak.
-        private const double feat_decay = 0.25;
-        private const int feat_max = 8; // hard cap on feats, before the weight epsilon below bites
-        private const double feat_floor = 0.05; // a window under 5% of record pace is not a feat
-        private const double feat_min_seconds = 0; // secondary feats must span at least this long (0 = any window)
+        /// <summary>
+        /// How much the map can add ON TOP of its hardest window, as a fraction of that floor: a map
+        /// whose range is completely filled rates <c>1 + envelope_range</c> times what its peak
+        /// alone is worth, and <c>stars_at_human_peak</c> is divided by the same factor so that a
+        /// filled record-pace map rates exactly <c>stars_at_human_peak</c> and the hardest window
+        /// alone rates 7.95.
+        ///
+        /// <para>THE LITERAL IS THE PROTOTYPE'S. The decision (backlog 273) was "a third", and
+        /// docs/sr-envelope-model.js writes that third as <c>envCap: 0.3333</c>. The reference
+        /// values the whole port is checked against were produced with THAT literal, and this file
+        /// has to reproduce the prototype to the last bit rather than merely agree with its
+        /// intent, so 0.3333 is what is written here. The difference against 1.0/3 is 2e-4 of a
+        /// star at the floor and exactly nothing at a full range.</para>
+        /// </summary>
+        private const double envelope_range = 0.3333;
+
+        // How sharply a character's weight falls away from the peak: weight is (env/ratio_0)^this,
+        // so 90% of the peak weighs 43%, 70% weighs 6% and half weighs 0.4%. There is deliberately
+        // NO CUTOFF under it, which is what makes easy padding worth a little rather than nothing.
+        private const double envelope_power = 8;
+
+        // The difficult characters that fill 63% (1 - 1/e) of the range. 500 is about two minutes of
+        // singing at the peak, so a map has to hold its hardest pace for a long time to saturate.
+        private const double envelope_chars = 500;
 
         private const double timeline_bin_ms = 50; // timeline resolution
         private const double window_min_s = 1.36; // the smallest scheduled window: the 51-char burst record
 
-        // Stop taking feats once feat_decay^k drops below this. At feat_decay 0.25 that is five
-        // feats, well inside feat_max; the rule is kept because it is the prototype's, and the port
-        // has to reproduce the prototype rather than merely resemble it.
-        private const double feat_weight_epsilon = 1e-3;
-
         // Guards the uniform spread below against a zero-width block. A span is floored at
         // min_span_ms before the rate divide, so this can only be reached by an absurd rate.
         private const double density_epsilon = 1e-9;
-
-        /// <summary>
-        /// The map's LENGTH, priced here and nowhere else (backlog 152). Stars gain
-        /// <c>length_stars · max(0, log10(cells/reference_cells))</c> on top of the feats sum, so
-        /// a decade more typing is worth 0.12 of a star.
-        ///
-        /// <para>ADDITIVE, NOT A MULTIPLIER, and that is the whole design. Length is a SOFT signal:
-        /// "there is simply more of it" is worth the same on a 2 star map and on an 8 star one,
-        /// where a multiplier would move the hardest maps the most, which is exactly the wrong
-        /// shape. Pace against human capability stays the HARD signal, through the feats above.</para>
-        ///
-        /// <para>pp used to carry this instead, as <c>max(0.1, 1 + 0.50·log10(notes/100))</c>, worth
-        /// up to 1.70x. It was deleted in the same change: two length terms would double count, and
-        /// a length term inside pp paid a long map far more than the difficulty it actually adds.
-        /// pp now sees length only through this rating, i.e. as
-        /// <c>((SR + bonus)/SR)^sr_exponent</c>.</para>
-        ///
-        /// <para>THE CELLS ARE THE SAME CELLS THE FEATS ARE MEASURED ON, which since backlog 269
-        /// means they INCLUDE the inter-word SPACES (one per word whose successor is on the same
-        /// line) as well as the quarter each freestyle slot is worth. One definition of "how much
-        /// typing is in this map", so a map cannot be long for the length bonus while being short
-        /// for the pace model.</para>
-        ///
-        /// <para>THE max(0, ·) CLAMP is not decorative: it gives a sub-100-cell map exactly nothing.
-        /// Without it a 10-cell fixture would lose 0.12 of a star.</para>
-        ///
-        /// <para>Note the bonus is INDEPENDENT OF RATE (a clock change does not add or remove cells)
-        /// and DEPENDENT ON LITERATE (its punctuation marks are real cells). So a rate ratio such as
-        /// <c>sr_dt/difficulty_rating</c> compresses slightly, both sides having gained the same
-        /// constant, which is accepted and uncompensated.</para>
-        /// </summary>
-        private const double length_stars = 0.12;
-
-        private const double reference_cells = 100; // the length bonus' pivot: 100 cells is the zero point
 
         /// <summary>
         /// What one FREESTYLE slot is worth, as a fraction of an ordinary cell (backlog 211).
@@ -143,8 +147,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// that never saw it. A quarter is the price of the deadline without the letter.</para>
         ///
         /// <para>The weight enters through <see cref="Word.Weight"/> alone, i.e. as a cell COUNT
-        /// rather than as a character of the stream, and that count reaches both places cells are
-        /// read: the density spread over the timeline bins, and the length bonus' accumulator. It
+        /// rather than as a character of the stream, and that count reaches the one place cells are
+        /// read: the density spread over the timeline bins, which is what both the window ratios and
+        /// the envelope's difficult-character sum are measured on. It
         /// deliberately does NOT enter the cell stream TEXT: a marker carries no glyph, and putting
         /// one into that string would make it a character the Literate stream had to have an opinion
         /// about.</para>
@@ -269,14 +274,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // accumulation below sums in a fixed order on both ports.
             var ordered = blocks.OrderBy(b => b.StartMs).ToList();
 
-            double cells = 0;
             double t0 = ordered[0].StartMs;
             double t1 = double.NegativeInfinity;
 
             foreach (var b in ordered)
             {
-                cells += b.Cells;
-
                 double end = b.StartMs + b.SpanMs;
 
                 if (end > t1)
@@ -319,6 +321,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             var schedule = windowSchedule((t1 - t0) / 1000.0);
             int[] windowBins = new int[schedule.Count];
+            double[] windowCapabilities = new double[schedule.Count];
             double[] windowDenominators = new double[schedule.Count];
 
             for (int i = 0; i < schedule.Count; i++)
@@ -328,72 +331,115 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // Math.Floor(x + 0.5) rather than Math.Round, which is BANKER'S rounding in .NET and
                 // would disagree with the prototype on a half.
                 windowBins[i] = Math.Max(1, (int)Math.Floor(t * 1000 / timeline_bin_ms + 0.5));
+                windowCapabilities[i] = capability(t);
                 // cells / this = the window's WPM as a fraction of the record pace for its duration.
-                windowDenominators[i] = 5 * (t / 60) * capability(t);
+                windowDenominators[i] = 5 * (t / 60) * windowCapabilities[i];
             }
 
-            // The greedy feats. consumed marks the bins already spent by a feat, cpre is its prefix
-            // sum so "is this whole window still free" is one subtraction.
-            byte[] consumed = new byte[nb];
-            int[] cpre = new int[nb + 1];
-            double featSum = 0;
+            // THE PEAK, ratio_0: the best window at any scheduled duration anywhere on the map. It
+            // sets the whole range, so it is found on its own rather than as a by-product.
+            //
+            // Note the ARITHMETIC, which is the prototype's and not a simplification of it: the best
+            // window's CELLS become a WPM (cells / 5 / minutes) and the WPM is then divided by
+            // S(t), where the envelope below divides the cells by the pre-multiplied denominator in
+            // one step. The two agree to within a bit or two and not always exactly, which is
+            // precisely why d is clamped at 1 below: at the peak bin env/ratio_0 can land a hair
+            // over 1.
+            double peakRatio = 0;
 
-            for (int k = 0; k < feat_max; k++)
+            for (int w = 0; w < schedule.Count; w++)
             {
-                double weight = Math.Pow(feat_decay, k);
+                int wb = windowBins[w];
 
-                if (weight < feat_weight_epsilon)
-                    break;
+                // A window longer than the map fits nowhere.
+                if (wb > nb)
+                    continue;
 
-                for (int i = 0; i < nb; i++)
-                    cpre[i + 1] = cpre[i] + consumed[i];
+                double best = 0;
 
-                double bestRatio = 0;
-                int bestBin = 0;
-                int bestWb = 0;
-
-                for (int s = 0; s < schedule.Count; s++)
+                for (int i = 0; i + wb <= nb; i++)
                 {
-                    int wb = windowBins[s];
+                    double chars = pre[i + wb] - pre[i];
 
-                    // A window longer than the map fits nowhere.
-                    if (wb > nb)
-                        continue;
-
-                    // A SECONDARY feat can be required to span a minimum duration, so that a
-                    // two-word burst cannot be a feat of its own. At 0 nothing is excluded.
-                    if (k > 0 && schedule[s] < feat_min_seconds)
-                        continue;
-
-                    double denominator = windowDenominators[s];
-
-                    for (int i = 0; i + wb <= nb; i++)
-                    {
-                        if (cpre[i + wb] - cpre[i] > 0)
-                            continue;
-
-                        double ratio = (pre[i + wb] - pre[i]) / denominator;
-
-                        if (ratio > bestRatio)
-                        {
-                            bestRatio = ratio;
-                            bestBin = i;
-                            bestWb = wb;
-                        }
-                    }
+                    if (chars > best)
+                        best = chars;
                 }
 
-                if (bestRatio < feat_floor)
-                    break;
+                double ratio = best / 5 / (schedule[w] / 60) / windowCapabilities[w];
 
-                featSum += weight * bestRatio;
-
-                for (int i = bestBin; i < bestBin + bestWb; i++)
-                    consumed[i] = 1;
+                if (ratio > peakRatio)
+                    peakRatio = ratio;
             }
 
-            double length = length_stars * Math.Max(0, Math.Log10(cells / reference_cells));
-            double stars = stars_at_human_peak * (1 - feat_decay) * featSum + length;
+            // THE ENVELOPE. env[i] is the best ratio of any scheduled window CONTAINING bin i, i.e.
+            // a sliding-window maximum per duration, maxed over durations. The windows of length wb
+            // containing bin i are the ones starting at i - wb + 1 through i, so a MONOTONIC DEQUE
+            // over the window ratios answers every bin in amortised constant time: starts are pushed
+            // in order, any tail the newcomer matches or beats is dropped (it can never be the
+            // maximum again), and the head is evicted once it no longer reaches i.
+            double[] env = new double[nb];
+
+            for (int w = 0; w < schedule.Count; w++)
+            {
+                int wb = windowBins[w];
+
+                if (wb > nb)
+                    continue;
+
+                double denominator = windowDenominators[w];
+                int ns = nb - wb + 1;
+                double[] r = new double[ns];
+
+                for (int st = 0; st < ns; st++)
+                    r[st] = (pre[st + wb] - pre[st]) / denominator;
+
+                int[] dq = new int[ns];
+                int head = 0;
+                int tail = 0;
+                int next = 0;
+
+                for (int i = 0; i < nb; i++)
+                {
+                    while (next <= i && next < ns)
+                    {
+                        while (tail > head && r[dq[tail - 1]] <= r[next])
+                            tail--;
+
+                        dq[tail++] = next;
+                        next++;
+                    }
+
+                    while (tail > head && dq[head] < i - wb + 1)
+                        head++;
+
+                    if (tail > head && r[dq[head]] > env[i])
+                        env[i] = r[dq[head]];
+                }
+            }
+
+            // N, THE DIFFICULT CHARACTERS. Every cell is weighted by how close its own bin sits to
+            // the peak, raised to envelope_power, with no cutoff: a slow verse contributes a little
+            // rather than nothing, and a sustained stretch contributes nearly all of itself. The
+            // peakRatio > 0 guard is the prototype's and is what a map too short for any window
+            // takes: no window, no peak, no envelope and no rating.
+            double n = 0;
+
+            if (peakRatio > 0)
+            {
+                for (int i = 0; i < nb; i++)
+                {
+                    if (dens[i] <= 0)
+                        continue;
+
+                    double d = Math.Min(1, env[i] / peakRatio);
+
+                    n += dens[i] * Math.Pow(d, envelope_power);
+                }
+            }
+
+            // How much of the range those characters fill, and the rating that lands inside it.
+            double fill = 1 - Math.Exp(-n / envelope_chars);
+            double stars = stars_at_human_peak / (1 + envelope_range) * peakRatio * (1 + envelope_range * fill);
 
             // THERE IS NO CEILING HERE, deliberately (backlog 118). One used to live on this line,
             // a flat 10 chosen to keep a star BADGE sane, and it truncated far more than a badge:
