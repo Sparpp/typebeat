@@ -61,7 +61,7 @@ namespace typebeat.Game.Screens.Edit.Compose.Components
 
         protected override IReadOnlyDependencyContainer CreateChildDependencies(IReadOnlyDependencyContainer parent)
         {
-            return dependencies = new DependencyContainer(parent);
+            return dependencies = new DependencyContainer(base.CreateChildDependencies(parent));
         }
 
         [BackgroundDependencyLoader]
