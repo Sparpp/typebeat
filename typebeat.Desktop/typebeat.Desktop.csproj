@@ -11,6 +11,7 @@
     <ApplicationIcon>lazer.ico</ApplicationIcon>
     <Version>0.0.0</Version>
     <FileVersion>0.0.0</FileVersion>
+    <StartupHookSupport>false</StartupHookSupport>
   </PropertyGroup>
   <PropertyGroup>
     <StartupObject>typebeat.Desktop.Program</StartupObject>
