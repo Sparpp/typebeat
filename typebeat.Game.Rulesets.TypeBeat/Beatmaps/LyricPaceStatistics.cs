@@ -12,8 +12,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// leniently or strictly the map is bounded, not the perfect-play playhead. Per-line rates
     /// are averaged unweighted across lines, so instrumental gaps between lines never dilute
     /// the pace. <see cref="TargetWpm"/> is the same unweighted mean taken over the FASTEST
-    /// fifth of those lines rather than all of them, which is why both figures live here: they
-    /// are one estimator over two selections of the same pool.
+    /// fifth of those lines that hold at least three words, rather than over all of them, which
+    /// is why both figures live here: they are one estimator over two selections of the same
+    /// pool.
     ///
     /// <para>THE WORD CONVENTION IS THE TYPING-TEST ONE: a word is <see cref="CHARS_PER_WORD"/>
     /// typeable cells, so WPM is exactly CPM/5. This file used to do the opposite, count real
@@ -52,18 +53,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         public double AverageCpm { get; init; }
 
         /// <summary>
-        /// The pace to SUSTAIN: the average WPM across the FASTEST fifth of the map's lyric lines
-        /// (<see cref="target_line_fraction"/> of them, rounded up, at least one). Exactly the
+        /// The pace to SUSTAIN: the average WPM across the FASTEST fifth of the map's lyric lines of
+        /// at least <see cref="target_line_min_words"/> words
+        /// (<see cref="target_line_fraction"/> of those, rounded up, at least one). Exactly the
         /// estimator <see cref="AverageWpm"/> is, restricted to the demanding lines, so the two are
         /// read as a pair: the average is what the map asks on the whole and the target is what its
         /// hard stretches ask.
         ///
-        /// <para>A mean over the top fifth can never sit below the mean over all of them, so
-        /// <see cref="AverageWpm"/> &lt;= this ALWAYS, with equality exactly when every counted line
-        /// runs at the same rate. Selection is by LINE, not by keystroke and not by time, so a long
-        /// instrumental gap between lines cannot dilute it and a burst inside one line cannot
-        /// inflate it: a line is one vote whatever it holds, which is the same convention
-        /// <see cref="AverageCpm"/> already uses.</para>
+        /// <para>Since the eligibility floor (backlog 274) the pool is a SUBSET of the lines the
+        /// average is taken over, so <see cref="AverageWpm"/> &lt;= this is NO LONGER GUARANTEED: a
+        /// two-word interjection can raise the average without being able to raise the target. It
+        /// still holds wherever the map's fastest lines clear the floor, which is the common case,
+        /// and equality is still exactly the map on which every counted line runs at the same rate.
+        /// Selection is by LINE, not by keystroke and not by time, so a long instrumental gap between
+        /// lines cannot dilute it and a burst inside one line cannot inflate it: a line is one vote
+        /// whatever it holds, which is the same convention <see cref="AverageCpm"/> already
+        /// uses.</para>
         ///
         /// <para>0 for a map with no counted line, alongside every other figure here.</para>
         /// </summary>
@@ -92,12 +97,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private const double min_line_window_ms = 500;
 
         /// <summary>
-        /// How much of the map <see cref="TargetWpm"/> averages: the fastest 0.20 of its counted
+        /// How much of the map <see cref="TargetWpm"/> averages: the fastest 0.20 of its ELIGIBLE
         /// lines, rounded UP so every map has at least one line in the selection however short it
         /// is. A fifth is the user's own definition of the statistic, and rounding up rather than
         /// to nearest is what keeps a five-line map from selecting nothing.
         /// </summary>
         private const double target_line_fraction = 0.20;
+
+        /// <summary>
+        /// The ELIGIBILITY FLOOR for that selection (backlog 274): a line enters the pool only if it
+        /// holds at least three WORDS, counted exactly as <see cref="WordCount"/> counts them (a
+        /// token holding at least one typeable cell, on the same default stream). A two-word
+        /// interjection is over almost as soon as it begins, so its boundary window is short enough
+        /// to read as an enormous rate, and without the floor one such line could define the whole
+        /// map's target.
+        ///
+        /// <para>FALLBACK: on a map where NO line clears the floor (every line one or two words) the
+        /// pool is ALL of the counted lines instead, which is exactly the pre-274 behaviour.
+        /// Filtering to nothing would leave such a map with no target at all, and a map built out of
+        /// two-word lines still has a hardest stretch worth naming. It also keeps the rule for a 0
+        /// (and therefore for the server's NULL <c>target_wpm</c>) where it was: a map with no
+        /// COUNTED line, never a map with no eligible one.</para>
+        /// </summary>
+        private const int target_line_min_words = 3;
 
         public static LyricPaceStatistics Compute(IEnumerable<LyricLine> lines)
         {
@@ -107,10 +129,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double cpmSum = 0;
 
             // Every counted line's own rate, kept so TargetWpm can average the fastest fifth of
-            // them. One entry per line, in the same order cpmSum accumulates, so the selection pool
-            // is EXACTLY the set of lines the map average is taken over: a line skipped for holding
-            // no cell is skipped by both or by neither.
+            // them. One entry per line, in the same order cpmSum accumulates, so a line skipped for
+            // holding no cell is skipped by the average and by the target alike.
             var lineCpms = new List<double>();
+
+            // And the same rates again for the lines that clear target_line_min_words, which is the
+            // pool the target actually selects from. Filled on the same pass rather than filtered
+            // out of lineCpms afterwards, because the WORD COUNT that decides eligibility is the
+            // loop's own count and is not recoverable from a rate.
+            var eligibleCpms = new List<double>();
 
             foreach (var line in lines)
             {
@@ -155,6 +182,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 cpmSum += lineCpm;
                 lineCpms.Add(lineCpm);
+
+                if (words >= target_line_min_words)
+                    eligibleCpms.Add(lineCpm);
+
                 totalCells += cells;
                 totalWords += words;
                 lineCount++;
@@ -163,18 +194,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (lineCount == 0)
                 return default;
 
-            // The fastest fifth, by line: sort the per-line rates DESCENDING and take the head of
-            // the list. The count rounds up, so a map of four lines still selects its one hardest
-            // line rather than an empty slice, and Math.Max is belt and braces around a retune of
-            // target_line_fraction (at 0.20 the ceiling is already at least 1 for every lineCount
-            // this line is reachable with).
-            lineCpms.Sort((a, b) => b.CompareTo(a));
+            // The fastest fifth, by line: sort the ELIGIBLE per-line rates DESCENDING and take the
+            // head of the list. The count rounds up, so a pool of four lines still selects its one
+            // hardest line rather than an empty slice, and Math.Max is belt and braces around a
+            // retune of target_line_fraction (at 0.20 the ceiling is already at least 1 for every
+            // non-empty pool).
+            //
+            // The fraction is taken over the POOL and not over lineCount, so widening the map with
+            // lines that cannot be selected cannot widen the selection either.
+            var targetPool = eligibleCpms.Count > 0 ? eligibleCpms : lineCpms;
 
-            int targetLines = Math.Max(1, (int)Math.Ceiling(target_line_fraction * lineCount));
+            targetPool.Sort((a, b) => b.CompareTo(a));
+
+            int targetLines = Math.Max(1, (int)Math.Ceiling(target_line_fraction * targetPool.Count));
             double targetCpmSum = 0;
 
             for (int i = 0; i < targetLines; i++)
-                targetCpmSum += lineCpms[i];
+                targetCpmSum += targetPool[i];
 
             return new LyricPaceStatistics
             {

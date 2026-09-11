@@ -37,9 +37,11 @@ namespace typebeat.Game.Beatmaps
         public required double PeakWpm { get; init; }
 
         /// <summary>
-        /// The pace to sustain: the average WPM across the fastest fifth of the map's lyric lines
-        /// (<c>LyricPaceStatistics.TargetWpm</c>). The same per-line mean <see cref="AverageWpm"/>
-        /// is, over the demanding lines alone, so it never reads below it.
+        /// The pace to sustain: the average WPM across the fastest fifth of the map's lyric lines of
+        /// at least three words (<c>LyricPaceStatistics.TargetWpm</c>). The same per-line mean
+        /// <see cref="AverageWpm"/> is, over the demanding lines alone, so it sits above it wherever
+        /// the map's fastest lines clear that floor, which is the common case but no longer a
+        /// guarantee.
         /// </summary>
         public required double TargetWpm { get; init; }
 

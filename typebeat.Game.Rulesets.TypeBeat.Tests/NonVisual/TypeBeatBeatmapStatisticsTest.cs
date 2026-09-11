@@ -134,9 +134,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var stat = makeBeatmap(lines).GetStatistics().Single(s => s.Name.ToString() == "Target WPM");
 
             // The fixture's three lines run 15 cells / 3000 ms = 300 CPM, 9 / 3000 = 180 and
-            // 8 / 3000 = 160, so the average is 640/3 = 213.33 CPM = 42.67 WPM and the target is
-            // the fastest ceil(0.20 * 3) = 1 of them, 300 CPM = 60 WPM. Two different numbers, so a
-            // strip that rendered the average twice would fail here.
+            // 8 / 3000 = 160, so the average is 640/3 = 213.33 CPM = 42.67 WPM. The middle line
+            // types as "hey   you", TWO words, so backlog 274's floor refuses it and the pool is the
+            // other two; the target is the fastest ceil(0.20 * 2) = 1 of THOSE, 300 CPM = 60 WPM,
+            // which is the number it read before the floor as well (the fastest line was always
+            // eligible here). Two different numbers, so a strip that rendered the average twice
+            // would fail here.
             Assert.AreEqual(60.0, pace.TargetWpm, 1e-9);
             Assert.AreNotEqual(pace.TargetWpm, pace.AverageWpm);
 
