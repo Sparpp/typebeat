@@ -12,6 +12,7 @@
     <Version>0.0.0</Version>
     <FileVersion>0.0.0</FileVersion>
     <StartupHookSupport>false</StartupHookSupport>
+    <CETCompat>false</CETCompat>
   </PropertyGroup>
   <PropertyGroup>
     <StartupObject>typebeat.Desktop.Program</StartupObject>
