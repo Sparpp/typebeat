@@ -6,7 +6,6 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Linq;
 using Humanizer;
-using Humanizer.Localisation;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
@@ -18,14 +17,14 @@ using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Graphics.UserInterfaceV2;
+using typebeat.Game.Localisation;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests.Responses;
 using typebeat.Game.Online.Rooms;
 using typebeat.Game.Overlays;
+using typebeat.Game.Rulesets;
 using typebeat.Game.Screens.OnlinePlay.Match.Components;
 using osuTK;
-using typebeat.Game.Localisation;
-using typebeat.Game.Rulesets;
 using Container = osu.Framework.Graphics.Containers.Container;
 
 namespace typebeat.Game.Screens.OnlinePlay.Playlists

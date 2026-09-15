@@ -51,7 +51,7 @@ namespace typebeat.Game.Beatmaps
         /// <summary>
         /// Lock to be held when operating on <see cref="trackedBindables"/> or <see cref="linkedCancellationSources"/>.
         /// </summary>
-        private readonly object bindableUpdateLock = new object();
+        private readonly Lock bindableUpdateLock = new Lock();
 
         private CancellationTokenSource trackedUpdateCancellationSource = new CancellationTokenSource();
 

@@ -13,7 +13,7 @@ namespace typebeat.Game.Utils
     /// </summary>
     public class TaskChain
     {
-        private readonly object taskLock = new object();
+        private readonly Lock taskLock = new Lock();
 
         private Task lastTaskInChain = Task.CompletedTask;
 

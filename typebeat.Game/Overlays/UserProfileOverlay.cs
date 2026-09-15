@@ -105,8 +105,7 @@ namespace typebeat.Game.Overlays
             if (sameUser && ruleset?.MatchesOnlineID(Header.User.Value?.Ruleset) == true)
                 return;
 
-            if (sectionsContainer != null)
-                sectionsContainer.ExpandableHeader = null;
+            sectionsContainer?.ExpandableHeader = null;
 
             userReq?.Cancel();
             lastSection = null;
