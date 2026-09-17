@@ -2,11 +2,13 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using osu.Framework.Allocation;
+using osu.Framework.Extensions.LocalisationExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Localisation;
 using typebeat.Game.Configuration;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Localisation;
+using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Overlays.Settings.Sections.Online
 {
@@ -34,6 +36,14 @@ namespace typebeat.Game.Overlays.Settings.Sections.Online
                     Caption = OnlineSettingsStrings.NotifyOnFriendPresenceChange,
                     HintText = OnlineSettingsStrings.NotifyOnFriendPresenceChangeTooltip,
                     Current = config.GetBindable<bool>(OsuSetting.NotifyOnFriendPresenceChange),
+                }),
+                new SettingsItemV2(new FormCheckBox
+                {
+                    Caption = AccountsStrings.PrivacyFriendsOnly.ToSentence(),
+                    // TODO: replace with below string once osu-resources has it available
+                    // HintText = AccountsStrings.PrivacyFriendsOnlyInfo.ToSentence(),
+                    HintText = "This block also applies to osu!lazer multiplayer invites and ranked play duel requests",
+                    Current = config.GetBindable<bool>(OsuSetting.PMFriendsOnly),
                 }),
             };
         }
