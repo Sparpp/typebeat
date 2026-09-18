@@ -103,7 +103,7 @@ namespace typebeat.Game.Utils
             if (string.IsNullOrEmpty(executablePath) || string.IsNullOrEmpty(expectedExecutableName))
                 return RelaunchMethod.None;
 
-            if (!string.Equals(Path.GetFileNameWithoutExtension(executablePath), expectedExecutableName, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(executableStem(executablePath), expectedExecutableName, StringComparison.OrdinalIgnoreCase))
                 return RelaunchMethod.None;
 
             if (!(executableExists ?? File.Exists)(executablePath))
@@ -111,6 +111,28 @@ namespace typebeat.Game.Utils
 
             return RelaunchMethod.OwnExecutable;
         }
+
+        /// <summary>
+        /// The file name of <paramref name="path"/> minus its extension, read with WINDOWS rules
+        /// whichever host is running the decision.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="Path"/> alone is not enough here. The decision is a pure function of (platform,
+        /// path) and it is reasoned about - and tested - for Windows paths from POSIX hosts, where a
+        /// backslash is an ordinary character: <c>Path.GetFileNameWithoutExtension</c> would hand back
+        /// the whole string there and refuse a restart that must be allowed.
+        /// </remarks>
+        private static string executableStem(string path)
+        {
+            int separator = path.LastIndexOfAny(separators);
+            string name = separator >= 0 ? path.Substring(separator + 1) : path;
+            int extension = name.LastIndexOf('.');
+
+            return extension > 0 ? name.Substring(0, extension) : name;
+        }
+
+        /// <summary>The directory separators either platform may have written a path with.</summary>
+        private static readonly char[] separators = { '/', '\\' };
 
         /// <summary>
         /// The argument telling a freshly started game to wait for <paramref name="processId"/> to exit.

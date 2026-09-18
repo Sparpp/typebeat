@@ -245,20 +245,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// <summary>Removes path-invalid chars, collapses whitespace, trims trailing dots/spaces.</summary>
         public static string SanitizeFolderName(string name)
         {
-            char[] invalid = Path.GetInvalidFileNameChars();
             var sb = new StringBuilder(name.Length);
 
             foreach (char c in name)
-                sb.Append(invalid.Contains(c) ? ' ' : c);
+                sb.Append(isInvalidInFolderName(c) ? ' ' : c);
 
             string cleaned = string.Join(' ', sb.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries)).TrimEnd('.', ' ');
             return cleaned.Length == 0 ? "Imported Map" : cleaned;
         }
 
+        /// <summary>
+        /// Whether a character has to be replaced before a name becomes a folder this game can make.
+        /// </summary>
+        /// <remarks>
+        /// A FIXED set rather than <see cref="Path.GetInvalidFileNameChars"/>. That answers for the
+        /// HOST, and a map folder is not host-local: an .osz packed on macOS is extracted on Windows,
+        /// where <c>&lt; &gt; : " | ? *</c> are all illegal and the folder would simply fail to
+        /// create. Control characters go too, for the same reason.
+        /// </remarks>
+        private static bool isInvalidInFolderName(char c)
+            => c < ' ' || c == '\0' || invalid_folder_chars.IndexOf(c) >= 0;
+
+        private const string invalid_folder_chars = "<>:\"/\\|?*";
+
         /// <summary>Prefill guess from an "Artist - Title.mp3" style filename.</summary>
         public static (string Artist, string Title) GuessArtistTitle(string audioPath)
         {
-            string stem = Path.GetFileNameWithoutExtension(audioPath).Trim();
+            string stem = fileStem(audioPath).Trim();
             int sep = stem.IndexOf(" - ", StringComparison.Ordinal);
 
             if (sep < 0)
@@ -267,6 +280,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             string artist = stem.Substring(0, sep).Trim();
             string title = stem.Substring(sep + 3).Trim();
             return (artist.Length == 0 ? "Unknown" : artist, title.Length == 0 ? stem : title);
+        }
+
+        /// <summary>
+        /// The file name of <paramref name="audioPath"/> minus its extension, reading either
+        /// platform's separators. An importer is handed whatever the user browsed to, and a path
+        /// copied from a Windows machine carries backslashes that <see cref="Path"/> does not treat
+        /// as separators on macOS or Linux.
+        /// </summary>
+        private static string fileStem(string audioPath)
+        {
+            int separator = audioPath.LastIndexOfAny(new[] { '/', '\\' });
+            string name = separator >= 0 ? audioPath.Substring(separator + 1) : audioPath;
+            int extension = name.LastIndexOf('.');
+
+            return extension > 0 ? name.Substring(0, extension) : name;
         }
 
         /// <summary>
