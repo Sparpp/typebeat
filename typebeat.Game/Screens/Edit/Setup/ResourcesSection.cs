@@ -32,7 +32,6 @@ namespace typebeat.Game.Screens.Edit.Setup
         public const string VIDEO_OFFSET_CAPTION = "Video offset (ms)";
 
         private FormBeatmapFileSelector audioTrackChooser = null!;
-        private FormSliderBar<double> audioGainBar = null!;
         private AudioClippingIndicator clippingIndicator = null!;
         private FormBeatmapFileSelector backgroundChooser = null!;
         private FormBeatmapFileSelector videoChooser = null!;
@@ -133,7 +132,7 @@ namespace typebeat.Game.Screens.Edit.Setup
                 // stack's volume stops at 100%: a quietly mastered song has nothing left to give there
                 // (see BeatmapMetadata.AudioGain and Audio.Effects.AudioGain), so this is the only
                 // control that can actually make one louder. 100% is the song as imported.
-                audioGainBar = new FormSliderBar<double>
+                new FormSliderBar<double>
                 {
                     Caption = "Audio gain",
                     HintText = "Loudness of the song itself, for everyone who plays the map: 100% is the file as imported, above that amplifies it. Use it to lift a quietly mastered track; boost too far and a loud song clips.",
@@ -194,14 +193,13 @@ namespace typebeat.Game.Screens.Edit.Setup
             videoOffsetBox.OnCommit += (_, _) => commitVideoOffset();
             updateVideoOffsetDisplay();
 
-            // The gain goes in as the bar is released rather than on a commit key, which is the same
-            // "pick it, then it is applied" shape the language dropdown uses rather than the shared
-            // Ctrl+S rule the sections' text boxes follow: there is no text to type, and unlike the
-            // video offset above there is nothing expensive about applying it - one mixer write. State
-            // is saved with it, so the change is undoable and Ctrl+S has nothing left to do.
-            audioGain.Value = currentWorkingBeatmap.Value.Metadata.AudioGain;
+            // The gain goes in as the bar is COMMITTED (released, or its text box committed) rather than
+            // on every pixel of a drag: `TransferValueOnCommit` above is what holds the intermediate
+            // values back, and this binding is downstream of it, so one adjustment is one application.
+            // That matters here in a way it does not for a mixer write, because applying a gain rebuilds
+            // the track and re-saves every difficulty of the set (see `applyAudioGain`).
+            audioGain.Value = Beatmap.Metadata.AudioGain;
             audioGain.BindValueChanged(gain => applyAudioGain(gain.NewValue));
-            audioGainBar.Current.BindValueChanged(_ => Beatmap.SaveState());
             setupScreen.MetadataChanged += reloadAudioGain;
 
             analyseTrackPeaks();
@@ -295,7 +293,7 @@ namespace typebeat.Game.Screens.Edit.Setup
         /// </summary>
         private void reloadAudioGain()
         {
-            audioGain.Value = currentWorkingBeatmap.Value.Metadata.AudioGain;
+            audioGain.Value = Beatmap.Metadata.AudioGain;
 
             // A swapped audio file has its own peaks, so the clipping reading goes with it rather than
             // being kept from the song it replaced.
@@ -303,49 +301,66 @@ namespace typebeat.Game.Screens.Edit.Setup
         }
 
         /// <summary>
-        /// Writes the bar's value onto the beatmap and lets the music controller re-read it, which is
-        /// what makes a gain change audible in the editor the moment the bar moves instead of on the
-        /// next load of the map.
+        /// Writes the bar's value onto the map, rebuilds the track from it so the change is audible now,
+        /// and persists the whole set. Called once per COMMIT of the bar, never per pixel of a drag.
         /// </summary>
         /// <remarks>
-        /// THE GAIN BELONGS TO THE SONG, NOT TO THE DIFFICULTY, so it is written to every other
-        /// difficulty of the set in the same breath (the reasoning <c>MetadataSection</c> already
-        /// applies to the language, and the same shape): one audio file is shared by the whole set, and
-        /// a set whose difficulties disagreed about how loud it is would sound different depending on
-        /// which difficulty a player picked. There is deliberately no "apply to all" checkbox to opt
-        /// out of - a gain can only be right once for the file it scales.
+        /// <para>THE GAIN BELONGS TO THE SONG, NOT TO THE DIFFICULTY, so it is written to every
+        /// difficulty of the set in the same breath (the reasoning <c>MetadataSection</c> already applies
+        /// to the language, and the same shape): one audio file is shared by the whole set, and a set
+        /// whose difficulties disagreed about how loud it is would sound different depending on which
+        /// difficulty a player picked. There is deliberately no "apply to all" checkbox to opt out of - a
+        /// gain can only be right once for the file it scales.</para>
+        ///
+        /// <para>AND THE WHOLE SET IS PERSISTED, including the difficulty that is open. The open one goes
+        /// through <c>editor.Save()</c> like every other resource edit here (see
+        /// <see cref="changeResource"/>): saving the OTHERS while leaving the open one on an unsaved edit
+        /// left a set that disagreed with itself the moment the mapper discarded. Not undoable, by the
+        /// same deliberate convention the rest of this section follows.</para>
+        ///
+        /// <para>Every write goes to a DETACHED beatmap - the set graph the editor's own working beatmap
+        /// carries, whose entry for the open difficulty is that working beatmap's own
+        /// <c>BeatmapInfo</c> - because a realm-managed object written outside a write transaction
+        /// throws.</para>
         /// </remarks>
         private void applyAudioGain(double gain)
         {
-            if (currentWorkingBeatmap.Value.Metadata.AudioGain == gain)
+            var working = currentWorkingBeatmap.Value;
+
+            if (Beatmap.Metadata.AudioGain == gain)
                 return;
 
-            currentWorkingBeatmap.Value.Metadata.AudioGain = gain;
-            music.RefreshBeatmapGain();
+            Beatmap.Metadata.AudioGain = gain;
             clippingIndicator.Gain = gain;
 
             // AND HEARD NOW, not on the next load: the gain is applied to the AUDIO itself (see
-            // ScaledAudio), so the only way a moving slider can be audible is to rebuild the track from
+            // ScaledAudio), so the only way a released slider can be audible is to rebuild the track from
             // the newly scaled audio. That is the same reload a swapped audio file uses, and it carries
             // the playhead over, so the take restarts a few hundred milliseconds later at the same
             // moment it was at - quiet enough to compare a gain by ear, which is the whole point of a
             // slider.
             music.ReloadCurrentTrack();
 
-            var working = currentWorkingBeatmap.Value;
-
             foreach (var difficulty in working.BeatmapSetInfo.Beatmaps)
             {
-                if (difficulty.Equals(working.BeatmapInfo))
+                if (difficulty.Equals(Beatmap.BeatmapInfo))
                     continue;
 
                 difficulty.Metadata.AudioGain = gain;
 
-                // Persisted now rather than left for the mapper's next save: these are OTHER files, and
-                // the editor's save only ever writes the one it has open.
+                // Persisted here rather than left for the mapper's next save: these are OTHER files, and
+                // the editor's save below only ever writes the one it has open. Note that this triggers a
+                // full save flow per difficulty, including a difficulty calculation, which is why nothing
+                // upstream of here may fire per slider value.
                 try
                 {
                     var target = beatmaps.GetWorkingBeatmap(difficulty);
+
+                    // The cached working beatmap may carry its own detached copy of the difficulty, and
+                    // that copy is the one a difficulty switch would build a track from. Both, or the two
+                    // disagree about how loud the song is until something invalidates the cache.
+                    target.Metadata.AudioGain = gain;
+
                     beatmaps.Save(difficulty, target.GetPlayableBeatmap(difficulty.Ruleset), target.GetSkin(), target.Storyboard);
                 }
                 catch (Exception e)
@@ -353,6 +368,8 @@ namespace typebeat.Game.Screens.Edit.Setup
                     Logger.Error(e, $@"Failed to sync the audio gain to {difficulty.GetDisplayTitle()}");
                 }
             }
+
+            editor?.Save();
         }
 
         public bool ChangeBackgroundImage(FileInfo source, bool applyToAllDifficulties)

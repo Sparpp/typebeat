@@ -11,19 +11,20 @@ namespace typebeat.Game.Audio
     /// <summary>
     /// A map's gain, BAKED INTO THE BYTES ITS TRACK PLAYS.
     ///
-    /// <para>This is the route that works. The three that do not are recorded on
+    /// <para>This is the route that works, and the three that do not are recorded on
     /// <see cref="Effects.AudioGain"/>: the volume path is clamped to its own level, the framework's
     /// mixers are not in the audio path on this platform, and a BASS DSP on the track's channel crashes
     /// the client when the framework recycles that channel. What is left is to hand the framework
-    /// different audio: this decodes the song, scales every sample, clamps anything that would pass full
-    /// scale, and writes the result as a 16-bit PCM WAV for the track to play.</para>
+    /// different audio: the song is decoded, every sample scaled, anything that would pass full scale
+    /// clamped, and the result presented as a 16-bit PCM WAV for the track to play.</para>
     ///
     /// <para>WHAT IT COSTS, exactly, since that was the question: NOTHING ON DISK. The file a mapper
     /// imported is untouched - no re-encode, no quality loss, no second copy, no size change - and the
-    /// scaled audio exists only in memory for as long as the map's track does, at about 10 MB per minute
-    /// of stereo audio (the same 16-bit rate the game plays). Encoding a scaled file back out would
-    /// need an encoder this client does not ship, and a lossless one would be several times the size of
-    /// the mp3 it came from; this needs neither.</para>
+    /// scaled audio is produced ON DEMAND, as the framework's own background reader pulls it (see
+    /// <see cref="ScaledAudioStream"/>). Nothing about the song is decoded on the thread that asked for
+    /// the track, and the only whole-song buffer in play is the one the framework allocates for ANY
+    /// track. Encoding a scaled file back out would need an encoder this client does not ship, and a
+    /// lossless one would be several times the size of the mp3 it came from; this needs neither.</para>
     ///
     /// <para>Clamping rather than wrapping is the contract: a gain cannot create headroom, so a sample
     /// pushed past full scale is cut off, which is what the editor's clipping indicator warns about
@@ -31,42 +32,31 @@ namespace typebeat.Game.Audio
     /// </summary>
     internal static class ScaledAudio
     {
-        /// <summary>Samples decoded per pass: big enough to be cheap, small enough to stay off the heap.</summary>
-        private const int block_samples = 16384;
-
         /// <summary>
-        /// Decodes <paramref name="source"/> and returns it as a WAV with every sample multiplied by
-        /// <paramref name="gain"/>, or null when the audio could not be decoded (in which case the caller
-        /// should play the file as it is rather than fail the map).
+        /// Opens <paramref name="source"/> as the audio a track should play with <paramref name="gain"/>
+        /// applied to it, or null when the audio could not be decoded (in which case the caller should
+        /// play the file as it is rather than fail the map).
+        ///
+        /// <para>Only the container is read here: the encoded bytes are pulled into memory and handed to
+        /// BASS as a DECODE channel, which costs a file read and a prescan rather than a decode. Every
+        /// sample of the song is produced later, by whoever reads the returned stream.</para>
         /// </summary>
         /// <param name="source">The audio file's bytes, as stored in the beatmap set.</param>
         /// <param name="gain">The linear multiplier to apply; 1 is a no-op and never reaches here.</param>
-        /// <param name="sourcePeak">The loudest sample in the file, for the caller's log.</param>
-        /// <param name="scaledPeak">The loudest sample after the gain, before clamping bites.</param>
-        public static byte[]? Apply(Stream source, double gain, out double sourcePeak, out double scaledPeak)
+        public static ScaledAudioStream? Open(Stream source, double gain)
         {
-            sourcePeak = 0;
-            scaledPeak = 0;
+            ArgumentNullException.ThrowIfNull(source);
 
-            byte[] encoded = new byte[source.Length];
+            byte[]? encoded = readAll(source);
 
-            int read = 0;
-
-            while (read < encoded.Length)
-            {
-                int justRead = source.Read(encoded, read, encoded.Length - read);
-
-                if (justRead <= 0)
-                    break;
-
-                read += justRead;
-            }
-
-            if (read == 0)
+            if (encoded == null)
                 return null;
 
-            // Decoded, not played: no device, no callbacks, nothing that can race the framework.
-            int decode = Bass.CreateStream(encoded, 0, read, BassFlags.Decode | BassFlags.Float);
+            // Decoded, not played: no device, no callbacks, nothing that can race the framework. Prescan
+            // is what makes ChannelGetLength EXACT rather than an estimate on a VBR mp3, which the stream
+            // below depends on (the framework sizes its read buffer from the length we declare); it is
+            // the same flag the framework's own track stream is created with.
+            int decode = Bass.CreateStream(encoded, 0, encoded.Length, BassFlags.Decode | BassFlags.Float | BassFlags.Prescan);
 
             if (decode == 0)
             {
@@ -74,103 +64,33 @@ namespace typebeat.Game.Audio
                 return null;
             }
 
-            try
+            long length = Bass.ChannelGetLength(decode);
+
+            if (length <= 0)
             {
-                ChannelInfo info = Bass.ChannelGetInfo(decode);
-                int channels = Math.Max(1, info.Channels);
-                int rate = info.Frequency > 0 ? info.Frequency : 44100;
-
-                using var output = new MemoryStream();
-
-                // The header is patched at the end, when the real length is known.
-                output.Write(new byte[44], 0, 44);
-
-                var block = new float[block_samples];
-                var pcm = new byte[block_samples * sizeof(short)];
-                long dataBytes = 0;
-
-                while (true)
-                {
-                    int bytes = Bass.ChannelGetData(decode, block, block.Length * sizeof(float));
-
-                    if (bytes <= 0)
-                        break;
-
-                    int samples = bytes / sizeof(float);
-
-                    for (int i = 0; i < samples; i++)
-                    {
-                        double sample = block[i];
-                        sourcePeak = Math.Max(sourcePeak, Math.Abs(sample));
-
-                        double scaled = sample * gain;
-                        scaledPeak = Math.Max(scaledPeak, Math.Abs(scaled));
-
-                        short value = (short)Math.Round(Math.Clamp(scaled, -1, 1) * short.MaxValue);
-                        pcm[i * 2] = (byte)(value & 0xff);
-                        pcm[i * 2 + 1] = (byte)((value >> 8) & 0xff);
-                    }
-
-                    output.Write(pcm, 0, samples * sizeof(short));
-                    dataBytes += samples * sizeof(short);
-                }
-
-                writeHeader(output, channels, rate, dataBytes);
-                return output.ToArray();
-            }
-            finally
-            {
+                Logger.Log($@"The map's audio reported no length, so its gain cannot be applied (bass error {Bass.LastError}). It will play at its own level.", level: LogLevel.Error);
                 Bass.StreamFree(decode);
+                return null;
             }
+
+            var info = Bass.ChannelGetInfo(decode);
+
+            return new ScaledAudioStream(decode, gain, info.Channels, info.Frequency, length);
         }
 
         /// <summary>
-        /// Writes the 44-byte canonical PCM WAV header over the placeholder at the start of
-        /// <paramref name="stream"/>, which the decoder - and BASS's own WAV reader on the other side -
-        /// both expect in full.
+        /// Reads <paramref name="source"/> in full, or null when it is empty (an audio file that is not
+        /// there, which is the caller's cue to fall back rather than to fail).
         /// </summary>
-        private static void writeHeader(MemoryStream stream, int channels, int rate, long dataBytes)
+        private static byte[]? readAll(Stream source)
         {
-            int blockAlign = channels * sizeof(short);
-            int byteRate = rate * blockAlign;
+            if (source.CanSeek && source.Length == 0)
+                return null;
 
-            stream.Position = 0;
+            using var buffer = new MemoryStream();
+            source.CopyTo(buffer);
 
-            void ascii(string text)
-            {
-                foreach (char c in text)
-                    stream.WriteByte((byte)c);
-            }
-
-            void int32(int value)
-            {
-                stream.WriteByte((byte)(value & 0xff));
-                stream.WriteByte((byte)((value >> 8) & 0xff));
-                stream.WriteByte((byte)((value >> 16) & 0xff));
-                stream.WriteByte((byte)((value >> 24) & 0xff));
-            }
-
-            void int16(int value)
-            {
-                stream.WriteByte((byte)(value & 0xff));
-                stream.WriteByte((byte)((value >> 8) & 0xff));
-            }
-
-            ascii("RIFF");
-            int32((int)Math.Min(int.MaxValue, 36 + dataBytes));
-            ascii("WAVE");
-            ascii("fmt ");
-            int32(16);
-            int16(1);
-            int16(channels);
-            int32(rate);
-            int32(byteRate);
-            int16(blockAlign);
-            int16(sizeof(short) * 8);
-            ascii("data");
-            int32((int)Math.Min(int.MaxValue, dataBytes));
-
-            stream.Position = stream.Length;
+            return buffer.Length == 0 ? null : buffer.ToArray();
         }
     }
 }

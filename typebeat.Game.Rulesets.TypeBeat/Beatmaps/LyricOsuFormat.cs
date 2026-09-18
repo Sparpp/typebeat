@@ -191,10 +191,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // The map's own track gain, as a linear multiplier (see BeatmapMetadata.AudioGain).
             // Emitted ONLY when a mapper has moved it off 1, on the same terms as the language line
             // above: an untouched map has to encode byte for byte as it did, or every installed map
-            // would re-hash on its next save. Written with the round-trippable "R" format so a
-            // hundredth on the bar is a hundredth in the file.
-            if (audioGain != 1)
-                sb.AppendLine($"AudioGain:{audioGain.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+            // would re-hash on its next save. The VALUE goes through BeatmapMetadata.EncodeAudioGain,
+            // which the legacy .osu encoder behind the .osz export shares, so a map that leaves through
+            // one and returns through the other returns at the gain it left with.
+            if (audioGain != typebeat.Game.Beatmaps.BeatmapMetadata.DEFAULT_AUDIO_GAIN)
+                sb.AppendLine($"AudioGain:{typebeat.Game.Beatmaps.BeatmapMetadata.EncodeAudioGain(audioGain)}");
 
             // Online IDs are stamped on submission; the server validates the embedded IDs
             // against the set being uploaded, and the inherited legacy [Metadata] parsing
