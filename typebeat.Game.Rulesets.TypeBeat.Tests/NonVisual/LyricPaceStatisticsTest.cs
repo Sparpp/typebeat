@@ -342,20 +342,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(3, pace.WordCount);
             Assert.AreEqual(8 / 3.0, pace.AverageCharsPerWord, 1e-9);
         }
-
-        /// <summary>
-        /// <paramref name="windowsMs"/> lines of "a b c", one per boundary window given. The line
-        /// holds exactly 5 cells (three tokens, three chars, two inter-word spaces), so its rate is
-        /// 5 * 60000 / window CPM and the whole distribution is hand-computable. Line times are laid
-        /// out end to end with a 500 ms rest between them, which nothing here reads: a per-line mean
-        /// cannot see the gaps.
-        ///
-        /// <para>THREE tokens rather than the single "abcde" this used to write, so the fixture reads
-        /// as ordinary lyric text; cell for cell it is the same 5, so every pinned CPM and WPM below
-        /// is the number it was before the token count changed. Five cells is well under the peak
-        /// character floor the target needs, which is why these lines exercise the two AVERAGES and
-        /// are paired with <see cref="denseLine"/> wherever a target is wanted.</para>
-        /// </summary>
         [Test]
         public void AnInvertedLineWindowChargesNothingRatherThanThrowing()
         {
@@ -374,6 +360,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(stats.AverageCpm, Is.GreaterThan(0), "and the well-formed line is what it measures");
         }
 
+        /// <summary>
+        /// <paramref name="windowsMs"/> lines of "a b c", one per boundary window given. The line
+        /// holds exactly 5 cells (three tokens, three chars, two inter-word spaces), so its rate is
+        /// 5 * 60000 / window CPM and the whole distribution is hand-computable. Line times are laid
+        /// out end to end with a 500 ms rest between them, which nothing here reads: a per-line mean
+        /// cannot see the gaps.
+        ///
+        /// <para>THREE tokens rather than the single "abcde" this used to write, so the fixture reads
+        /// as ordinary lyric text; cell for cell it is the same 5, so every pinned CPM and WPM below
+        /// is the number it was before the token count changed. Five cells is well under the peak
+        /// character floor the target needs, which is why these lines exercise the two AVERAGES and
+        /// are paired with <see cref="denseLine"/> wherever a target is wanted.</para>
+        /// </summary>
         private static LyricLine[] linesAtWindows(params double[] windowsMs) => linesAtWindowsOf("a b c", windowsMs);
 
         /// <summary><see cref="linesAtWindows"/> with the line text chosen.</summary>
