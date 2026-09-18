@@ -41,9 +41,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return dir!.FullName;
         }
 
-        private static string predictorTablePath() => Path.Combine(repoRoot(), "The-Typability-Index-main", "output", "processed_data", "all_dhakal_sentences_with_predictors.txt");
+        private static string predictorTablePath()
+            => SandboxFixtures.RequireTypabilityIndex(Path.Combine(repoRoot(), "The-Typability-Index-main"),
+                "output", "processed_data", "all_dhakal_sentences_with_predictors.txt");
 
-        private static string catalogueScoresPath() => Path.Combine(repoRoot(), "tools", "star-rating-sandbox", "typability.json");
+        private static string catalogueScoresPath()
+            => SandboxFixtures.RequireSandbox(Path.Combine(repoRoot(), "tools", "star-rating-sandbox"), "typability.json");
 
         /// <summary>
         /// The authors' own predictor table, as (header, row) tab-separated pairs. The file is UTF-8

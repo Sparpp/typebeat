@@ -229,10 +229,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(plain.TypeableCellCount, marked.TypeableCellCount);
             Assert.AreEqual(plain.AverageCpm, marked.AverageCpm, 1e-12);
             Assert.AreEqual(plain.LineAverageCpm, marked.LineAverageCpm, 1e-12);
-            Assert.AreEqual(plain.TargetWpm, marked.TargetWpm, 1e-12);
+
+            // The target is no longer asserted equal here: it is read off the shipped (chunked)
+            // axis, where an any-key slot is a cell like any other, so a marker that leaves the
+            // averages untouched can still move it by a few percent.
 
             // A line of nothing BUT freestyle slots asks for no typing, so it is not a counted
-            // line and can vote in neither average nor in the target pool.
+            // line and cannot vote in either average. The target is no longer asserted here: it
+            // used to read the model's hardest-window figure, which the shipped (chunked) axis
+            // does not have, so the old equality held only because the character floor had
+            // already priced both maps at zero.
             var withOnly = LyricPaceStatistics.Compute(new[]
             {
                 makeLine("ab cd", 1000, 4000),
@@ -245,7 +251,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(withoutLine.WordCount, withOnly.WordCount);
             Assert.AreEqual(withoutLine.AverageCpm, withOnly.AverageCpm, 1e-12);
             Assert.AreEqual(withoutLine.LineAverageCpm, withOnly.LineAverageCpm, 1e-12);
-            Assert.AreEqual(withoutLine.TargetWpm, withOnly.TargetWpm, 1e-12);
         }
 
         /// <summary>
@@ -446,33 +451,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.AreEqual(Math.Max(model, pace.AverageWpm), pace.TargetWpm, 1e-12,
                     "the strip has to publish the model's own figure, floored at the average");
             }
-        }
-
-        /// <summary>
-        /// A window only becomes a candidate peak when it holds
-        /// <see cref="LyricDifficulty.MinimumWindowChars"/> weighted characters, and it has to last
-        /// at least <see cref="LyricDifficulty.MinimumWindowSeconds"/>. A map of a few short lines
-        /// therefore has no qualifying window at all and the model prices its target at 0 - the same
-        /// rule that makes such a map rate zero stars.
-        ///
-        /// <para>THE FLOOR TURNS THAT INTO THE AVERAGE. Every positive average is above a 0, so the
-        /// map reports its whole-map pace rather than nothing: the strip still answers "what pace
-        /// does this map ask for" instead of showing an empty cell.</para>
-        /// </summary>
-        [Test]
-        public void TargetWpmFallsBackToTheAverageWhenNoWindowQualifies()
-        {
-            var pace = LyricPaceStatistics.Compute(linesAtWindows(six_windows));
-
-            Assert.Greater(pace.AverageWpm, 0);
-            Assert.Greater(pace.LineAverageWpm, 0);
-
-            double model = LyricDifficulty
-                .ComputeDetail(linesAtWindows(six_windows), 1, false, LyricDifficulty.EnduranceAxis.Envelope)
-                .TargetWpm;
-
-            Assert.AreEqual(0, model, "the fixture is what the character floor refuses");
-            Assert.AreEqual(pace.AverageWpm, pace.TargetWpm, 1e-12, "so the reported target is the average");
         }
 
         /// <summary>

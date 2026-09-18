@@ -56,7 +56,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// How much of the measured effect is applied: 1 is exactly the effect the study measured,
         /// 0 restores the model without typability.
         /// </summary>
-        public const double Strength = 1.0;
+        public const double Strength = 0.4;
 
         /// <summary>How much a typist's own sentence speeds vary, in standard deviations of z.</summary>
         public const double Cv = 0.207038;

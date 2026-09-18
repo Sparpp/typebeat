@@ -64,9 +64,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         private static string fixturePath() => Path.Combine(repoRoot(), "typebeat.Game.Rulesets.TypeBeat.Tests", "NonVisual", "fixtures", "chunked-catalogue.json");
 
-        private static string cataloguePath() => Path.Combine(repoRoot(), "tools", "star-rating-sandbox", "songs.json");
+        private static string cataloguePath()
+            => SandboxFixtures.RequireSandbox(Path.Combine(repoRoot(), "tools", "star-rating-sandbox"), "songs.json");
 
-        private static string configPath() => Path.Combine(repoRoot(), "tools", "star-rating-sandbox", "sr-config.json");
+        private static string configPath()
+            => SandboxFixtures.RequireSandbox(Path.Combine(repoRoot(), "tools", "star-rating-sandbox"), "sr-config.json");
 
         private static JsonDocument fixture() => JsonDocument.Parse(File.ReadAllText(fixturePath()));
 

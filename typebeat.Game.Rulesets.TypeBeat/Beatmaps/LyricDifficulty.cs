@@ -37,10 +37,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// the player never has to hold.</para>
     ///
     /// <para>THE EXACT PEAK. The duration schedule and the 50 ms bin grid both quantise the
-    /// reported peak, so the peak is REFINED onto the map's own character boundaries. See
-    /// <see cref="RefinePeakWindow"/> for why the boundary set is the whole answer rather than a
-    /// hill climb, and <see cref="DensityIndex"/> for the exact mass arithmetic that makes
-    /// enumerating it cheap.</para>
+    /// reported peak, and the sandbox carries a fork experiment that REFINES it further onto the
+    /// map's own character boundaries (see <see cref="RefinePeakWindow"/> for why the boundary set
+    /// is the whole answer rather than a hill climb, and <see cref="DensityIndex"/> for the exact
+    /// mass arithmetic that makes enumerating it cheap). The sandbox documents OFF as the shipped
+    /// model, and <see cref="exact_peak"/> holds the game there, so no rating depends on the
+    /// experiment unless it is switched on deliberately.</para>
     ///
     /// <para>THE ENVELOPE decides where inside that range the map lands. Every bin takes
     /// <c>env[i]</c>, the best ratio of any window CONTAINING it, and
@@ -83,32 +85,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// the anchor every other rating is read against. Stars are LINEAR in it, so moving it alone
         /// is a pure rescale that cannot reorder anything.
         /// </summary>
-        private const double stars_at_human_peak = 11.5;
+        private const double stars_at_human_peak = 12.0;
 
         /// <summary>
         /// How much the map can add ON TOP of its hardest window, as a fraction of that floor: a map
         /// whose range is completely filled rates <c>1 + envelope_range</c> times what its peak
         /// alone is worth.
         /// </summary>
-        private const double envelope_range = 0;
+        private const double envelope_range = 0.3333;
 
         // How sharply a character's weight falls away from the peak: weight is (env/ratio_0)^this.
         private const double envelope_power = 8;
 
         // The difficult characters that fill 63% (1 - 1/e) of the range.
-        private const double envelope_chars = 10;
+        private const double envelope_chars = 500;
 
         private const double timeline_bin_ms = 50; // timeline resolution
 
+        /// <summary>
+        /// Whether the peak window is refined off the duration schedule and onto the map's own
+        /// character boundaries. This is the sandbox's <c>exactPeak</c> fork experiment; its own
+        /// comment calls OFF "the shipped model", and every fixture in the suite pins that reading.
+        /// </summary>
+        private const bool exact_peak = false;
+
         /// <summary>The shortest window the model will rate a map from, in seconds.</summary>
-        public const double MinimumWindowSeconds = 1.35;
+        public const double MinimumWindowSeconds = 1.36;
 
         /// <summary>
         /// The hardest window must carry at least this many weighted characters. The shortest
         /// interval holding them raises the minimum duration above
-        /// <see cref="MinimumWindowSeconds"/> when it is longer; it can never lower it.
+        /// <see cref="MinimumWindowSeconds"/> when it is longer; it can never lower it. Zero
+        /// disables the cutoff, which is the sandbox's own default.
         /// </summary>
-        public const double MinimumWindowChars = 33;
+        public const double MinimumWindowChars = 0;
 
         /// <summary>
         /// The duration every map's peak is re-expressed at for the Target WPM readout (see
@@ -122,7 +132,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         private const double freestyle_cost_weight = 0.25;
 
-        private const double min_span_ms = 30; // floor a word's sung span, in beatmap time, before the rate divide
+        private const double min_span_ms = 50; // floor a word's sung span, in beatmap time, before the rate divide
         private const double density_epsilon = 1e-9;
 
         /// <summary>Maps longer than this (at the selected rate) are refused rather than rated.</summary>
@@ -245,9 +255,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         /// <summary>
         /// Which reading of a map the rating is taken from. This is the sandbox's own
-        /// <c>enduranceAxis</c> setting; the game ships <see cref="Envelope"/>, and the chunked axis
-        /// is present so the two can be compared against one fixture before it reaches the scoring
-        /// path.
+        /// <c>enduranceAxis</c> setting, and the game ships the CHUNKED one (see <see cref="Live"/>):
+        /// the difficulty calculator, the pp formula and the pace figures all rate a map the way the
+        /// sandbox's live configuration does. <see cref="Envelope"/> is the model this class
+        /// documents, kept and still selectable by name as the sandbox's baseline.
         /// </summary>
         public enum EnduranceAxis
         {
@@ -355,6 +366,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// catch-up machinery and carries its own star scale.</para>
         /// </summary>
         public static ModelResult ComputeDetail(IEnumerable<LyricLine> lines, double rate = 1, bool literate = false, EnduranceAxis enduranceAxis = Live, JudgementArm judgementArm = JudgementArm.None)
+            => ComputeDetail(lines, rate, literate, enduranceAxis, judgementArm, ShippedScores);
+
+        /// <summary>
+        /// As above, with the per-line SCORE SOURCE chosen by the caller. The shipped source is
+        /// <see cref="ShippedScores"/>; a fixture that has to agree with a reference reading taken
+        /// before typability existed passes <see cref="NoScores"/>, exactly as the chunked axis's
+        /// own fixture does through <see cref="RateChunked"/>.
+        /// </summary>
+        internal static ModelResult ComputeDetail(IEnumerable<LyricLine> lines, double rate, bool literate, EnduranceAxis enduranceAxis, JudgementArm judgementArm, LyricScoreSource scores)
         {
             var lineList = lines as IReadOnlyList<LyricLine> ?? lines.ToList();
 
@@ -372,7 +392,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     },
                 };
 
-                return ComputeChunked(lineList, rate, literate, ShippedScores, armSettings);
+                return ComputeChunked(lineList, rate, literate, scores, armSettings);
             }
 
             var empty = new ModelResult
@@ -399,7 +419,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (lineList.Count == 0 || rate <= 0)
                 return empty;
 
-            var words = BuildWords(lineList, rate, literate);
+            var words = BuildWords(lineList, rate, literate, scores, min_span_ms);
 
             if (words.Count == 0)
                 return empty;
@@ -575,7 +595,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // boundaries and off the schedule's fixed durations.
             var seed = windows.Where(w => w.Eligible).OrderByDescending(w => w.Ratio).FirstOrDefault();
 
-            if (seed.Ratio > 0)
+            if (exact_peak && seed.Ratio > 0)
             {
                 DensityIndex index = DensityIndex.Build(words);
 

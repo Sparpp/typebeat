@@ -222,7 +222,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 // And the rating IS the price: nothing is applied on top of it any more, so the
                 // number a surface shows is Compute at that rating and no other factor.
-                var counts = new PerformancePoints.NoteCounts(500, 12, 15);
+                var counts = new PerformancePoints.NoteCounts(500, 12, 15) { DifficultCharacters = 500 };
 
                 Assert.That(PerformancePoints.ForPlay(plain!.Value, counts, 0.93, 480, halfTime),
                     Is.EqualTo(PerformancePoints.Compute(LyricDifficulty.Compute(source, 0.75), 500, difficultCharacters: 500, 12, 0.93, 480, halfTime, 15)).Within(1e-12));
@@ -287,10 +287,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// One pp reading taken exactly as <c>TypeBeatHudOverlay.updatePerformancePoints</c> takes
         /// it: from the LIVE score-processor state, nothing else.
         /// </summary>
-        private static double liveReading(ScoreProcessor processor, double stars, IReadOnlyList<Mod>? withMods)
+        private static double liveReading(ScoreProcessor processor, double stars, IReadOnlyList<Mod>? withMods, IBeatmap beatmap)
             => PerformancePoints.ForPlay(
                 stars,
-                PerformancePoints.CountNotes(processor.Statistics),
+                PerformancePoints.CountNotes(processor.Statistics) with
+                {
+                    // Exactly what TypeBeatHudOverlay.updatePerformancePoints carries: the map's own
+                    // difficult characters. Without them a live play with one miss reads 0.
+                    DifficultCharacters = PerformancePoints.DifficultCharactersFor(beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), withMods),
+                },
                 processor.Accuracy.Value,
                 processor.HighestCombo.Value,
                 withMods);
@@ -323,12 +328,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 applied.Add(result);
             }
 
-            double atFullLine = liveReading(processor, stars, null);
+            double atFullLine = liveReading(processor, stars, null, beatmap);
 
             for (int i = applied.Count - 1; i >= applied.Count / 2; i--)
                 processor.RevertResult(applied[i]);
 
-            double afterRewind = liveReading(processor, stars, null);
+            double afterRewind = liveReading(processor, stars, null, beatmap);
 
             Assert.Multiple(() =>
             {

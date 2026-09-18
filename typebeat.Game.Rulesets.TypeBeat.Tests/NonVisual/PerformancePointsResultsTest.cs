@@ -193,7 +193,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// until backlog 265 removed the term it existed for.
         /// </summary>
         private static DifficultyAttributes cachedAttributes(Beatmap<TypeBeatHitObject> beatmap, IReadOnlyList<Mod> withMods)
-            => new DifficultyAttributes(withMods.ToArray(), rateAdjustedStars(beatmap, withMods));
+            => new TypeBeatDifficultyAttributes(
+                withMods.ToArray(),
+                rateAdjustedStars(beatmap, withMods),
+                PerformancePoints.DifficultCharactersFor(beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), withMods));
 
         /// <summary>The star rating TypeBeatDifficultyCalculator produces for a play, rate and all.</summary>
         private static double rateAdjustedStars(Beatmap<TypeBeatHitObject> beatmap, IReadOnlyList<Mod> withMods)
@@ -257,7 +260,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(score.PP, Is.Null, "the premise: this play never reached a server");
 
             double stars = PerformancePointsDisplay.StarRatingFor(beatmap, score.Mods)!.Value;
-            double expected = PerformancePoints.ForPlay(stars, PerformancePoints.CountNotes(score), score.Accuracy, score.MaxCombo, score.Mods);
+
+            // The map's own difficult characters have to travel with the counts. CountNotes(score)
+            // cannot know them, and a play that carries a miss prices to exactly zero without them.
+            var counts = PerformancePoints.CountNotes(score) with
+            {
+                DifficultCharacters = PerformancePoints.DifficultCharactersFor(beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), score.Mods),
+            };
+
+            double expected = PerformancePoints.ForPlay(stars, counts, score.Accuracy, score.MaxCombo, score.Mods);
 
             Assert.Multiple(() =>
             {
@@ -578,7 +589,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(score.PP, Is.Null, "the premise: nothing stored, so both sides compute");
 
             double stars = PerformancePointsDisplay.StarRatingFor(beatmap, score.Mods)!.Value;
-            double offItsRatingAlone = PerformancePoints.ForPlay(stars, PerformancePoints.CountNotes(score), score.Accuracy, score.MaxCombo, score.Mods);
+
+            var counts = PerformancePoints.CountNotes(score) with
+            {
+                DifficultCharacters = PerformancePoints.DifficultCharactersFor(beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), score.Mods),
+            };
+
+            double offItsRatingAlone = PerformancePoints.ForPlay(stars, counts, score.Accuracy, score.MaxCombo, score.Mods);
 
             Assert.Multiple(() =>
             {
@@ -679,9 +696,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             double stars = TypeBeatHudOverlay.StarRatingFor(beatmap, withMods)!.Value;
 
+            var liveCounts = PerformancePoints.CountNotes(processor.Statistics) with
+            {
+                DifficultCharacters = PerformancePoints.DifficultCharactersFor(beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), withMods),
+            };
+
             double liveReading = PerformancePoints.ForPlay(
                 stars,
-                PerformancePoints.CountNotes(processor.Statistics),
+                liveCounts,
                 processor.Accuracy.Value,
                 processor.HighestCombo.Value,
                 withMods);
