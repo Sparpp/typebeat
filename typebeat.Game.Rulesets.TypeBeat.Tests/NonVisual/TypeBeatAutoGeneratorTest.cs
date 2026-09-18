@@ -109,7 +109,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // is not a cell at all, so there is no frame for it.
             Assert.AreEqual("ab cd" + "ef 9", string.Concat(frames.Select(f => f.Character)));
 
-            var engineLines = map.HitObjects.Select(h => TypingLine.FromLyricLine(h.Line, TimingGranularity.Word)).ToList();
+            var engineLines = map.HitObjects.Select(h => TypingLine.FromLyricLine(h.Line)).ToList();
 
             double[] expectedTargets = engineLines
                                        .SelectMany(l => l.Cells)
@@ -224,7 +224,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static double[] targetPresses(TypeBeatBeatmap map)
             => map.HitObjects.OfType<TypeBeatHitObject>()
                   .OrderBy(h => h.LineIndex)
-                  .SelectMany(h => TypingLine.FromLyricLine(h.Line, h.Granularity).Cells)
+                  .SelectMany(h => TypingLine.FromLyricLine(h.Line).Cells)
                   .Where(c => c.IsTypeable)
                   .Select(c => Math.Round(c.TargetTime))
                   .ToArray();
@@ -266,7 +266,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void SyllableEraClampsEachGroupedPressIntoItsSpan()
         {
             var map = createSubtimedMap();
-            var typingLine = TypingLine.FromLyricLine(map.HitObjects.OfType<TypeBeatHitObject>().Single().Line, TimingGranularity.Word);
+            var typingLine = TypingLine.FromLyricLine(map.HitObjects.OfType<TypeBeatHitObject>().Single().Line);
 
             var expected = new List<double>();
 
@@ -310,13 +310,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             double[] span = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: true, charTimedStretch: true, firstCharTiming: true).Generate());
             double[] classic = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: false).Generate());
             double[] literateSpan = frameTimes(new TypeBeatAutoGenerator(map, literate: true, syllableTiming: true, charTimedStretch: true, firstCharTiming: true).Generate());
+            double[] easySpan = frameTimes(new TypeBeatAutoGenerator(map, syllableTiming: true, charTimedStretch: true, firstCharTiming: true, wordShelter: true).Generate());
 
             Assert.That(span, Is.Not.EqualTo(classic), "the fixture must distinguish the two eras");
+            // Easy's shelter is the third arm, and the fixture distinguishes it too: this map's
+            // subtimed words have cells whose flat-ramp targets sit outside their own syllable, so
+            // clamping into the WORD moves presses the syllable clamp did not.
+            Assert.That(easySpan, Is.Not.EqualTo(span), "the fixture must distinguish the shelter too");
 
             var mod = new TypeBeatModAutoplay();
 
             Assert.That(frameTimes(mod.CreateReplayData(map, Array.Empty<Mod>()).Replay), Is.EqualTo(span), "no mods");
-            Assert.That(frameTimes(mod.CreateReplayData(map, new Mod[] { new TypeBeatModEasy() }).Replay), Is.EqualTo(span), "a mod that is not Hard Rock");
+            Assert.That(frameTimes(mod.CreateReplayData(map, new Mod[] { new TypeBeatModEasy() }).Replay), Is.EqualTo(easySpan), "Easy carries its word shelter through");
             Assert.That(frameTimes(mod.CreateReplayData(map, new Mod[] { new TypeBeatModHardRock() }).Replay), Is.EqualTo(classic), "Hard Rock reverts to point targets");
             Assert.That(frameTimes(mod.CreateReplayData(map, new Mod[] { new TypeBeatModLiterate() }).Replay), Is.EqualTo(literateSpan), "Literate is still carried through");
         }

@@ -7,10 +7,13 @@ There is **no `DESIGN.md`** in this repo, despite what older notes say. Two sepa
 looking for it. The canonical sources are the code itself:
 
 - **Judgement policy and the window ladder**: `Gameplay/Judgement.cs`, which says in its own header
-  that it is the single tuning point. A keypress is graded on MILLISECONDS, in three tiers
-  (250/400, 600/1000, 1200/2000 at Line granularity). WHICH milliseconds is decided by
+  that it is the single tuning point. A keypress is graded on MILLISECONDS on ONE symmetric ladder,
+  Great 150, Ok 300, Meh 600 (the three-tier Line/Word/Syllable ladder this replaced is gone, and
+  with it the estimated/low-confidence fallback that widened unreliable words). WHICH milliseconds is decided by
   `TypingEngine.judgedDeltaFor`: since backlog 179 a cell inside a syllable group is graded on
-  distance from that syllable's SUNG SPAN (0 anywhere inside it), and only a cell in no group (a
+  distance from that syllable's SUNG SPAN (0 anywhere inside it), that span is the WORD's under
+  Easy (`TypingEngine.WordShelter`, drawn from `TypingLine.Words`, with the same
+  FirstCharTiming/CharTimedStretch narrowings), and only a cell in no group (a
   space, a stylised token) is graded on distance from its own point target. The point rule survives
   as the ERA a stored replay re-derives under, selected by its CONFIG frame's flags bit 2, and since
   backlog 180 as the LIVE rule under Hard Rock, which reverts to point targets because span
@@ -142,7 +145,13 @@ looking for it. The canonical sources are the code itself:
   enum for the reason the enum only reaches `TypeBeatReplayScorer.Score`: in-game replay WATCHING
   applies mods through `DrawableTypeBeatRuleset`, so an enum would leave watching wrong and would
   double the recalc tool's era search space for nothing. `PerformancePoints.VERSION` is untouched:
-  pp keys off the acronym, and every stored row carries bit 13 clear and re-derives identically.
+  pp keys off the acronym, and every stored row carries bit 13 clear and re-derives at the halving.
+  The bit is an era for the HALVING, not for the constants under it: the ladder is one tuning point,
+  and the retune that replaced the three-tier Line/Word/Syllable ladder with one symmetric ladder
+  (Great 150 / Ok 300 / Meh 600) moves every arm of it, so a stored row re-derives on today's
+  windows. That is the one place the era apparatus does not buy bit-for-bit reproduction, and it is
+  a deliberate property of a retune rather than an oversight: nothing on the ladder is stored with a
+  row, and no era bit records which ladder a run was graded on.
 - **The timing schema** (per-character target times, syllable subdivision, space cells):
   `Gameplay/TypingLine.cs`, `FromLyricLine`.
 - **How a judgement becomes a stored osu result**: `Scoring/TypeBeatResultMapping.cs`, which also
@@ -250,9 +259,17 @@ the wire, so the mirror is the only thing keeping the in-game and on-site figure
 here also needs the server's `LyricPace.VERSION` bumped so its stored columns recompute.
 
 `Beatmaps/LyricPaceStatistics.cs` is the same kind of pair (its mirror is the pace half of
-`src/Typebeat.Web/Packages/Lyrics/LyricPace.cs`) and carries the PER-LINE figures, average WPM and,
-since backlog 272, `TargetWpm`, the average WPM across the fastest fifth of the map's lines, which
-the server stores as `beatmaps.target_wpm`: same rule, a change here needs a `LyricPace.VERSION` bump.
+`src/Typebeat.Web/Packages/Lyrics/LyricPace.cs`). It carries FOUR figures now: `AverageWpm`, the
+WHOLE-MAP rate (all cells over the time actually sung, walked word span by word span so a pause
+counts up to `break_min_ms` = 1000 ms and is dropped WHOLE beyond it — a breath between words stays
+in the denominator, an instrumental does not), `LineAverageWpm`, the unweighted per-line mean it
+replaced, `TargetWpm`, the per-line mean across the fastest fifth of the map's lines (which the
+server stores as `beatmaps.target_wpm`), and the cell/word counts. WHAT IS A CELL is narrower than
+the engine's here: the typeable chars and the inter-word spaces, but NOT freestyle slots, so a `&`
+slot carries no pace (the player's own live and results WPM do count the press; that divergence is
+deliberate and is stated in the file). `TargetWpm`'s definition is unchanged, but BOTH averages now
+depend on `break_min_ms` and on that cell rule, so a change to either moves published numbers and the
+server's mirror — with whatever version stamp guards its stored pace columns — has to move with it.
 
 `docs/pp.md` in `typebeat-web` is the canonical pp spec: every constant in `PerformancePoints.cs` is
 pinned there and must not drift from it.

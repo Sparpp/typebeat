@@ -90,6 +90,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // before the next line's cue), distinct from the active encoding so the moment line k
         // activates, the layout re-runs to undim it.
         private int laidOutFocus = int.MinValue;
+
+        /// <summary>
+        /// The line whose dim currently reflects <see cref="TypingEngine.AwaitingEntry"/>, and
+        /// whether it was applied. The dim itself is the same 0.4 an upcoming line carries, so a line
+        /// handed to the player before its window opens reads as "not yet yours" rather than looking
+        /// live and swallowing keys.
+        /// </summary>
+        private int awaitingDimLine = int.MinValue;
+
+        private bool awaitingDimApplied;
         private bool pendingSnap;
         private bool playerCaretVisible;
         private bool sungCaretVisible;
@@ -447,6 +457,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     pendingSnap = true;
                 }
 
+                // GREY WHILE THE WINDOW IS SHUT (see TypingEngine.AwaitingEntry): a line the player
+                // has been handed but may not type on yet is dimmed to the upcoming-line grey, and
+                // undimmed the moment its window opens. Applied only on a change of line or of the
+                // flag, so a settled line is not re-faded every frame.
+                bool awaiting = engine.AwaitingEntry;
+
+                if (awaitingDimLine != active || awaitingDimApplied != awaiting)
+                {
+                    awaitingDimLine = active;
+                    awaitingDimApplied = awaiting;
+                    displays[active].SetLineDim(awaiting ? 0.4f : 0f);
+                }
+
                 var d = displays[active];
 
                 // Player caret follows the typing caret index.
@@ -751,8 +774,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// the player watches drain.</para>
         ///
         /// <para>Display only. It reads a nullable engine readout and nothing else, so every path where
-        /// no push is coming (a pinned caret, the caret rolled on ahead of an abandoned line, the line
-        /// typed out, the run finished) falls through to the same hide below.</para>
+        /// no push is coming (a pinned caret, the caret rolled on ahead of an abandoned line, the run
+        /// finished) falls through to the same hide below. A line the player has TYPED OUT warns as
+        /// well when the manual-newline setting has parked them on it: the engine holds that line to
+        /// its cutoff and hands the caret over there, so the bar counts down to a push that really is
+        /// coming.</para>
         /// </summary>
         private void updatePushWarning()
         {
@@ -953,7 +979,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <c>canSeal</c> uses, so while the playhead is inside the first unsealed line's window the
         /// loop does not run at all and the answer is the seal cursor's, exactly as before. It also
         /// cannot fire on an ordinary hand-over: a line with nothing left untyped seals on its own
-        /// EndTime and is never drag-deferred, so the cursor has already moved before this could.
+        /// EndTime and is never drag-deferred, so the cursor has already moved before this could. The
+        /// one line that can sit unsealed with nothing owed beneath the cursor is one a ManualNewlines
+        /// caret is parked on, held to its cutoff - and that line's own window has closed long before
+        /// the cutoff, so the walk steps over it exactly as it steps over a dragging player's line.
         /// </para>
         ///
         /// <para>Reading the cursor alone (what this did before backlog 223) can never report the row

@@ -110,13 +110,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             return delta < 0 ? span.StartTime + delta : span.EndTime + delta;
         }
 
-        /// <summary>A late offset worth exactly half sync quality at whatever tier the cell is judged
-        /// at: q = 1 - OkLate/MehLate, and the two scale together, so this is 0.5 on every tier.</summary>
-        private double halfQualityLateDelta(int index) => SyncWindows.For(cell(index).JudgeGranularity).OkLate;
+        /// <summary>A late offset worth exactly half sync quality: q = 1 - OkLate/MehLate, and the
+        /// one ladder's Ok and Meh bounds are in that 1:2 ratio on both sides.</summary>
+        private double halfQualityLateDelta(int index) => SyncWindows.Default.OkLate;
 
         /// <summary>Far enough past the Meh window that sync quality is pinned at 0: the case that
         /// would render as the untyped grey if the ramp had no floor.</summary>
-        private double hopelesslyLateDelta(int index) => SyncWindows.For(cell(index).JudgeGranularity).MehLate * 3;
+        private double hopelesslyLateDelta(int index) => SyncWindows.Default.MehLate * 3;
 
         // The same cached-per-ShortName manager the gameplay bindings read, so setting a value here
         // drives the live stage exactly as ticking the settings checkbox would.
@@ -223,7 +223,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("char repainted", () => cell(0).State == CellState.Correct && !same(colour(0), TypeBeatStyle.SungChar));
 
             AddAssert("it judged Lagging, not a miss", () =>
-                SyncWindows.For(cell(0).JudgeGranularity).Classify(cell(0).JudgedDelta!.Value) == JudgementType.Lagging);
+                SyncWindows.Default.Classify(cell(0).JudgedDelta!.Value) == JudgementType.Lagging);
 
             // The floor is the whole reason this test exists: quality is pinned at 0 here, so an
             // unfloored ramp would paint a char the player DID type in precisely the untyped grey.

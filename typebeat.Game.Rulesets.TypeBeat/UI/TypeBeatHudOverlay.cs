@@ -12,6 +12,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
@@ -22,6 +23,7 @@ using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 
 namespace typebeat.Game.Rulesets.TypeBeat.UI
@@ -115,6 +117,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         private double? starRating;
 
+        /// <summary>
+        /// The map's DIFFICULT CHARACTERS at the played rate and stream, read once at load because
+        /// the miss penalty is measured against it (see <see cref="PerformancePoints"/>). A property
+        /// of the map, not of the play, so it is constant for the run.
+        /// </summary>
+        private double difficultCharacters;
+
         private IReadOnlyList<Mod>? mods;
 
         // Last state the readout was computed from, so a frame that judged nothing does no work.
@@ -158,6 +167,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             showSync.BindValueChanged(e => syncStat.Alpha = e.NewValue ? 1 : 0, true);
 
             mods = gameplayMods;
+            difficultCharacters = playableBeatmap == null
+                ? 0
+                : PerformancePoints.DifficultCharactersFor(playableBeatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), gameplayMods);
             starRating = StarRatingFor(playableBeatmap, gameplayMods);
             ppValue.Text = PerformancePointsDisplay.Format(starRating == null ? null : 0d);
         }
@@ -277,7 +289,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             if (scoreProcessor == null || starRating is not double stars)
                 return;
 
-            var counts = PerformancePoints.CountNotes(scoreProcessor.Statistics);
+            var counts = PerformancePoints.CountNotes(scoreProcessor.Statistics) with { DifficultCharacters = difficultCharacters };
             int maxCombo = scoreProcessor.HighestCombo.Value;
 
             if (counts == lastCounts && maxCombo == lastMaxCombo)

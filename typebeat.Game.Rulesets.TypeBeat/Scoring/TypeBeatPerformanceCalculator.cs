@@ -62,9 +62,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         {
             double stars = PerformancePoints.EligibleRate(score.Mods) == null ? 0 : attributes.StarRating;
 
+            // The difficult-character count rides on the attributes because only the difficulty pass
+            // can see the map's lyric lines; a stack that is not the ruleset's own (a test harness
+            // handing base attributes in) has none, and 0 prices every miss as a wiped cleanliness
+            // term rather than silently measuring against the cell count.
+            var counts = PerformancePoints.CountNotes(score)
+                with { DifficultCharacters = attributes is TypeBeatDifficultyAttributes typed ? typed.DifficultCharacters : 0 };
+
             return new PerformanceAttributes
             {
-                Total = PerformancePoints.ForPlay(stars, PerformancePoints.CountNotes(score), score.Accuracy, score.MaxCombo, score.Mods),
+                Total = PerformancePoints.ForPlay(stars, counts, score.Accuracy, score.MaxCombo, score.Mods),
             };
         }
     }

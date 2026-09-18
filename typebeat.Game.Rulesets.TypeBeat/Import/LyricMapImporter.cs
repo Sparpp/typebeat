@@ -372,6 +372,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// and only the LRC line-stamp path is used (instant, line granularity). Never triggers the
         /// ~2 GB local bootstrap. The lyrics text is written to a temp file for the aligner and
         /// cleaned up.
+        ///
+        /// <para>A TTML (<see cref="TtmlParser.LooksLikeTtml"/>) short-circuits the whole ladder:
+        /// the file is already word-timed, so it is converted directly and neither the aligner nor
+        /// the audio is consulted. See <see cref="SynthesizeTimingJsonFromTtml"/>.</para>
         /// </summary>
         public static async Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
@@ -388,6 +392,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 return (LyricImportResult.Fail(
                     "the lyrics are empty, add the song's words (ideally with [mm:ss.xx] line "
                     + "timestamps) before importing."), null);
+
+            // A TTML is already word- (often syllable-) timed by its own producer, so it needs no
+            // aligner, no audio and no line stamps: it is converted and used as it stands. Checked
+            // FIRST because a TTML is an XML document that would otherwise be handed to the aligner
+            // as if it were a lyrics file, which is exactly the mistake this replaces.
+            if (TtmlParser.LooksLikeTtml(lyricsContent))
+            {
+                string? ttmlTiming = SynthesizeTimingJsonFromTtml(lyricsContent);
+
+                if (ttmlTiming == null)
+                    return (LyricImportResult.Fail("the .ttml produced no usable lyric lines."), null);
+
+                progress("using the TTML's own word timing");
+                return (LyricImportResult.Ok(string.Empty), ttmlTiming);
+            }
 
             // Automatic alignment (the aligner, local or server) is opt-in: off by default so an
             // import uses the user's own line stamps without a slow round-trip. When off, jump
@@ -581,93 +600,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             if (lines.Count == 0)
                 return null;
 
-            var payload = new
-            {
-                version = TimingJsonLoader.SUPPORTED_VERSION,
-                song_end_ms = lines[^1].EndTime,
-                lines = lines.Select(lrcLineJson).ToArray()
-            };
-
-            return JsonSerializer.Serialize(payload);
+            return SynthesizedTimingJson.Write(lines, wordTiming: false, songEndMs: lines[^1].EndTime);
         }
 
-        /// <summary>One synthesized line object; see <see cref="SynthesizeTimingJsonFromLrc"/>.</summary>
-        private static object lrcLineJson(LyricLine line)
+        /// <summary>
+        /// Builds a version-2 timing.json from an Apple Music TTML, through the same serializer the
+        /// LRC path uses, so a converted .ttml lands in the map as the very document the aligner
+        /// would have produced. Returns null when the TTML yields no usable lines.
+        ///
+        /// <para>UNLIKE the LRC path this always writes <c>words[]</c>: a TTML is word-timed by
+        /// construction, so the whole map comes out at Word granularity (Syllable where a word's
+        /// pieces subdivide it) rather than collapsing to line stamps. The lines' own timings are
+        /// the song's; the document's <c>leadingSilence</c>/<c>lyricOffset</c> are reported by
+        /// <see cref="TtmlParser"/> and are NOT applied here (see its remarks), and
+        /// <paramref name="offsetMs"/> is the caller's own correction for a rip that needs one.</para>
+        /// </summary>
+        public static string? SynthesizeTimingJsonFromTtml(string ttmlContent, double offsetMs = 0)
         {
-            bool freestyle = line.RawText.IndexOf(Typeability.FREESTYLE_MARKER) >= 0;
-            bool subdivided = line.Units.Any(u => u.SyllableBoundaries.Count > 0);
-
-            if (!freestyle && !subdivided)
+            // The RAW reading, deliberately: this document is the map's stored provenance, and a
+            // word that overruns its line boundary has to survive into it so the decode can derive
+            // the line's seal grace (exactly as it does for an aligner document).
+            if (!TtmlParser.TryParseRaw(ttmlContent, out IReadOnlyList<LyricLine> lines, out TtmlParser.TtmlMetadata metadata, offsetMs)
+                || lines.Count == 0)
             {
-                // The shape every pipe-free, ampersand-free import has always had.
-                return new
-                {
-                    text = line.RawText,
-                    start_ms = line.StartTime,
-                    end_ms = line.SingEndTime,
-                };
+                return null;
             }
 
-            var json = new JsonObject
-            {
-                ["text"] = line.RawText,
-                ["start_ms"] = line.StartTime,
-                ["end_ms"] = line.SingEndTime,
-            };
-
-            if (freestyle)
-                json["freestyle"] = true;
-
-            if (subdivided)
-            {
-                var words = new JsonArray();
-
-                foreach (var unit in line.Units)
-                {
-                    var word = new JsonObject
-                    {
-                        ["text"] = unit.Text,
-                        ["start_ms"] = unit.StartTime,
-                        ["end_ms"] = unit.EndTime,
-                    };
-
-                    if (unit.SyllableBoundaries.Count > 0)
-                    {
-                        var edges = new List<double> { unit.StartTime };
-                        edges.AddRange(unit.SyllableBoundaries);
-                        edges.Add(unit.EndTime);
-
-                        var segmentTexts = SyllableSegments.SegmentTexts(unit.Text, SyllableSegments.SplitsFor(unit));
-                        var syllables = new JsonArray();
-
-                        for (int i = 0; i < edges.Count - 1; i++)
-                        {
-                            syllables.Add(new JsonObject
-                            {
-                                ["text"] = i < segmentTexts.Count ? segmentTexts[i] : string.Empty,
-                                ["start_ms"] = edges[i],
-                                ["end_ms"] = edges[i + 1],
-                            });
-                        }
-
-                        word["syllables"] = syllables;
-
-                        var splitChars = new JsonArray();
-
-                        foreach (int split in unit.SyllableSplits)
-                            splitChars.Add(split);
-
-                        if (splitChars.Count > 0)
-                            word["split_chars"] = splitChars;
-                    }
-
-                    words.Add(word);
-                }
-
-                json["words"] = words;
-            }
-
-            return json;
+            return SynthesizedTimingJson.Write(lines, wordTiming: true, songEndMs: metadata.SongEndMs ?? lines[^1].SingEndTime);
         }
 
         /// <summary>

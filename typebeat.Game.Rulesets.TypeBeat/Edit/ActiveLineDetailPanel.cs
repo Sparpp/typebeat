@@ -386,8 +386,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 return;
 
             // Every selected word gets a subdivision (the primary alone when nothing is multi-selected),
-            // as one undo. Each press bisects the widest remaining segment, so pressing again keeps
-            // splitting. The draggable dotted lines appear in the timeline.
+            // as one undo. A word the caret is currently inside is cut AT the caret; every other word
+            // (and a caret that is outside the active words) bisects its widest remaining segment, so
+            // pressing again keeps splitting. The draggable dotted lines appear in the timeline.
             int[] targets = selectedWords(line);
 
             if (targets.Length == 0)
@@ -396,7 +397,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             editorBeatmap.BeginChange();
 
             foreach (int i in targets)
-                TypeBeatEditorOperations.AddSyllableBoundary(editorBeatmap, line, i);
+                TypeBeatEditorOperations.AddSyllableBoundary(editorBeatmap, line, i, editorClock.CurrentTime);
 
             editorBeatmap.EndChange();
         }

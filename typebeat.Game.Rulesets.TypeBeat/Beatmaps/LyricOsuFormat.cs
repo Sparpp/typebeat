@@ -98,13 +98,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// which is what keeps every pre-task-58 map's encoding byte-identical, so adding this field
         /// cannot demote a ranked map to locally-modified. Flows to the website's
         /// beatmapsets.language on submission.</param>
+        /// <param name="audioGain">The map's own track gain as a linear multiplier
+        /// (<see cref="typebeat.Game.Beatmaps.BeatmapMetadata.AudioGain"/>): 1 (the default) writes NO
+        /// AudioGain line at all, for exactly the reason the language line above is conditional. Above
+        /// 1 the song is amplified, below it attenuated, and the value is applied by the client's track
+        /// mixer rather than by the server.</param>
         /// <exception cref="ArgumentException">When the timing.json is not a supported v2 document.</exception>
         public static string GenerateOsu(string artist, string title, string audioFilename, string creator, string timingJsonText,
                                          double previewTime = -1, double audioLeadIn = 0, double? beatdropMs = null,
                                          string? backgroundFilename = null, string? videoFilename = null, int videoOffsetMs = 0,
                                          int beatmapId = -1, int beatmapSetId = -1, string difficultyName = "type!beat",
                                          string tags = "", string? titleUnicode = null, string? artistUnicode = null,
-                                         string? language = null)
+                                         string? language = null, double audioGain = 1)
         {
             using var doc = JsonDocument.Parse(timingJsonText);
             JsonElement root = doc.RootElement;
@@ -182,6 +187,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // an unconditional line would re-hash every map in every install).
             if (!string.IsNullOrWhiteSpace(language))
                 sb.AppendLine($"Language:{language.Trim()}");
+
+            // The map's own track gain, as a linear multiplier (see BeatmapMetadata.AudioGain).
+            // Emitted ONLY when a mapper has moved it off 1, on the same terms as the language line
+            // above: an untouched map has to encode byte for byte as it did, or every installed map
+            // would re-hash on its next save. Written with the round-trippable "R" format so a
+            // hundredth on the bar is a hundredth in the file.
+            if (audioGain != 1)
+                sb.AppendLine($"AudioGain:{audioGain.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
 
             // Online IDs are stamped on submission; the server validates the embedded IDs
             // against the set being uploaded, and the inherited legacy [Metadata] parsing

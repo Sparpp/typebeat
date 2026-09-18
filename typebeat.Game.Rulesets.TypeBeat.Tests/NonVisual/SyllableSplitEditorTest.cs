@@ -522,6 +522,98 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(line.Line.Units[1].SyllableSplits, Is.Empty);
         }
 
+        #region The caret decides where a fresh subdivision lands
+
+        [Test]
+        public void SubdivideLandsOnTheCaretWhenItIsInsideTheWord()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 0); // "orange" is [1500, 2600]
+
+            // Without a caret this word bisects (2050). With one inside it, the divider goes exactly
+            // where the mapper is pointing instead.
+            Assert.That(TypeBeatEditorOperations.AddSyllableBoundary(beatmap, line, 1, 2100), Is.EqualTo(2100));
+            Assert.That(line.Line.Units[1].SyllableBoundaries, Is.EqualTo(new[] { 2100d }));
+
+            // And again on the next press, wherever the song has moved to by then: a mapper cutting
+            // as they listen never has to drag the line afterwards.
+            Assert.That(TypeBeatEditorOperations.AddSyllableBoundary(beatmap, line, 1, 2400), Is.EqualTo(2400));
+            Assert.That(line.Line.Units[1].SyllableBoundaries, Is.EqualTo(new[] { 2100d, 2400 }));
+        }
+
+        [Test]
+        public void SubdivideBisectsWhenTheCaretIsOutsideTheWord()
+        {
+            // Before the word, after it, and nowhere near the map at all: every one of them is
+            // "not inside the word", so the widest segment is bisected exactly as it always was.
+            foreach (double caret in new[] { 900d, 1499d, 2601d, 9999d })
+            {
+                var beatmap = createBeatmap();
+                var line = lineAt(beatmap, 0);
+
+                Assert.That(TypeBeatEditorOperations.AddSyllableBoundary(beatmap, line, 1, caret), Is.EqualTo(2050),
+                    $"a caret at {caret} is outside \"orange\" [1500, 2600]");
+            }
+
+            // A caller with no caret to offer (the three-argument call, and anything without a clock)
+            // behaves the same way.
+            var noCaret = createBeatmap();
+            Assert.That(TypeBeatEditorOperations.AddSyllableBoundary(noCaret, lineAt(noCaret, 0), 1), Is.EqualTo(2050));
+
+            var nullCaret = createBeatmap();
+            Assert.That(TypeBeatEditorOperations.AddSyllableBoundary(nullCaret, lineAt(nullCaret, 0), 1, null), Is.EqualTo(2050));
+        }
+
+        [Test]
+        public void SubdivideBisectsWhenTheCaretCannotCutALegalSegment()
+        {
+            // Inside the word but within MIN_SYLLABLE_MS of one of its edges: two legal segments do
+            // not fit, so the press falls back rather than refusing.
+            foreach (double caret in new[] { 1500d, 1519d, 2581d, 2600d })
+            {
+                var beatmap = createBeatmap();
+
+                Assert.That(TypeBeatEditorOperations.AddSyllableBoundary(beatmap, lineAt(beatmap, 0), 1, caret), Is.EqualTo(2050),
+                    $"a caret at {caret} sits too close to an edge of \"orange\" [1500, 2600]");
+            }
+
+            // A caret exactly ON an existing boundary is inside no segment at all ("apple" carries
+            // one at 1300), so that press bisects the widest one as before.
+            var onBoundary = createBeatmap();
+            Assert.That(TypeBeatEditorOperations.AddSyllableBoundary(onBoundary, lineAt(onBoundary, 0), 0, 1300), Is.EqualTo(1150));
+        }
+
+        [Test]
+        public void SubdivideOnTheCaretCutsTheSegmentTheCaretLandedIn()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 0); // "apple" [1000, 1400], divided once at 1300
+
+            TypeBeatEditorOperations.SetSyllableSplit(beatmap, line, 0, 0, 3); // "app|le"
+
+            // A caret in the SECOND segment ("le", characters 3..5) cuts there: "app|l|e". The old
+            // bisect cuts the WIDEST segment instead, which is segment 0 here ("a|pp|le"), so the
+            // characters follow the caret just as the time does.
+            Assert.That(TypeBeatEditorOperations.AddSyllableBoundary(beatmap, line, 0, 1320), Is.EqualTo(1320));
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 1300d, 1320 }));
+            Assert.That(line.Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 3, 4 }));
+            Assert.That(segmentTexts(line.Line.Units[0]), Is.EqualTo(new[] { "app", "l", "e" }));
+        }
+
+        [Test]
+        public void OnlyTheWordUnderTheCaretTakesTheCaret()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 0); // "apple" [1000, 1400] (divided at 1300), "orange" [1500, 2600]
+
+            // A multi-selection runs the op word by word with ONE caret, so the words the caret is
+            // not over keep their old behaviour: "apple" bisects, "orange" takes the caret.
+            Assert.That(TypeBeatEditorOperations.AddSyllableBoundary(beatmap, line, 0, 2100), Is.EqualTo(1150));
+            Assert.That(TypeBeatEditorOperations.AddSyllableBoundary(beatmap, line, 1, 2100), Is.EqualTo(2100));
+        }
+
+        #endregion
+
         [Test]
         public void UnsubdivideIsANoOpOnAWordWithNoSubdivision()
         {
@@ -653,6 +745,144 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         #endregion
 
         #region The op sweep: everything that can invalidate a char index
+
+        [Test]
+        public void SplitWordDividesTheWordAtItsSubdivision()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 1); // "banana" [3000, 3600], boundaries 3200 / 3400
+
+            // The cut is the FIRST subdivision: the characters left of it become "ba" and the rest
+            // "nana", each owning the old word's span on its own side of the boundary.
+            Assert.That(TypeBeatEditorOperations.SplitWord(beatmap, line, 0, 0), Is.True);
+
+            Assert.That(line.Line.RawText, Is.EqualTo("ba nana"), "a space at the cut is what makes two tokens");
+            Assert.That(line.Line.Units.Count, Is.EqualTo(2));
+            Assert.That(line.Line.Units[0].Text, Is.EqualTo("ba"));
+            Assert.That(line.Line.Units[0].StartTime, Is.EqualTo(3000));
+            Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(3200));
+            Assert.That(line.Line.Units[1].Text, Is.EqualTo("nana"));
+            Assert.That(line.Line.Units[1].StartTime, Is.EqualTo(3200));
+            Assert.That(line.Line.Units[1].EndTime, Is.EqualTo(3600));
+
+            // The cut subdivision is CONSUMED (it is the gap between the two words now), while the
+            // word's other one rides into the half that owns it, rebased onto the shorter token.
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.Empty);
+            Assert.That(line.Line.Units[1].SyllableBoundaries, Is.EqualTo(new[] { 3400d }));
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(line.Line), Is.EqualTo("ba na|na"));
+        }
+
+        [Test]
+        public void SplitWordAtTheLastSubdivisionLeavesTheFirstHalfItsOwn()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 1); // "banana", boundaries 3200 / 3400
+
+            Assert.That(TypeBeatEditorOperations.SplitWord(beatmap, line, 0, 1), Is.True);
+
+            Assert.That(line.Line.RawText, Is.EqualTo("bana na"));
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3200d }));
+            Assert.That(line.Line.Units[1].SyllableBoundaries, Is.Empty);
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(line.Line), Is.EqualTo("ba|na na"));
+        }
+
+        [Test]
+        public void SplitWordKeepsAnAuthoredSplitOnBothSides()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 1); // "banana", boundaries 3200 / 3400
+
+            // "ban|a|na" authored (NOT the syllabifier's answer, which is "ba|na|na"), then cut at
+            // the FIRST boundary: the first word keeps nothing, and the second keeps its cut rebased
+            // onto the shorter token it now is.
+            TypeBeatEditorOperations.SetSyllableSplit(beatmap, line, 0, 0, 3);
+            TypeBeatEditorOperations.SetSyllableSplit(beatmap, line, 0, 1, 4);
+            Assert.That(line.Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 3, 4 }));
+
+            Assert.That(TypeBeatEditorOperations.SplitWord(beatmap, line, 0, 0), Is.True);
+
+            Assert.That(line.Line.RawText, Is.EqualTo("ban ana"));
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.Empty, "the first half has no subdivision left");
+            Assert.That(line.Line.Units[1].SyllableBoundaries, Is.EqualTo(new[] { 3400d }));
+            Assert.That(segmentTexts(line.Line.Units[1]), Is.EqualTo(new[] { "a", "na" }),
+                "the surviving cut is rebased onto \"ana\": still after its first character");
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(line.Line), Is.EqualTo("ban a|na"));
+        }
+
+        [Test]
+        public void SplitWordRefusesWhatItCannotExpress()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 0); // "apple" [1000, 1400] (boundary 1300), "orange" [1500, 2600]
+            var before = line.Line;
+
+            Assert.That(TypeBeatEditorOperations.SplitWord(beatmap, line, 0, -1), Is.False, "no such subdivision");
+            Assert.That(TypeBeatEditorOperations.SplitWord(beatmap, line, 0, 1), Is.False, "the word has one boundary");
+            Assert.That(TypeBeatEditorOperations.SplitWord(beatmap, line, 9, 0), Is.False, "no such word");
+            Assert.That(TypeBeatEditorOperations.SplitWord(beatmap, line, 1, 0), Is.False, "\"orange\" is not subdivided at all");
+            Assert.That(line.Line, Is.SameAs(before), "a refused split changes nothing");
+
+            // A word the syllabifier cannot name a character cut for (an over-forced short word) has
+            // no place to put a word break either.
+            var overForced = createBeatmap();
+            var stub = lineAt(overForced, 0);
+            stub.Line = new LyricLine
+            {
+                RawText = "ab orange",
+                StartTime = stub.Line.StartTime,
+                EndTime = stub.Line.EndTime,
+                SingEndTime = stub.Line.SingEndTime,
+                Units = new[]
+                {
+                    // Three boundaries cannot fit in two letters: the syllabifier answers with fewer
+                    // cuts than segments, so one of them has no character to live between.
+                    newUnit("ab", 1000, 1400, 1100, 1150, 1200),
+                    newUnit("orange", 1500, 2600),
+                },
+            };
+
+            Assert.That(stub.Line.Units[0].SyllableBoundaries.Count, Is.EqualTo(3));
+            Assert.That(SyllableSegments.SplitsFor(stub.Line.Units[0]).Count, Is.LessThan(3), "the fixture must be over-forced");
+            Assert.That(TypeBeatEditorOperations.SplitWord(overForced, stub, 0, 2), Is.False,
+                "a cut the syllabifier cannot place between two characters cannot become a word break");
+        }
+
+        /// <summary>
+        /// The granularity follows the data down: a word whose LAST subdivision is consumed by the
+        /// split leaves the line with no subdivisions at all, and the line drops from Syllable to Word
+        /// (it never falls to Line, since both halves are hand timing now).
+        /// </summary>
+        [Test]
+        public void SplitWordDemotesGranularityWhenTheLastSubdivisionGoes()
+        {
+            var beatmap = createBeatmap();
+
+            // The map's only subdivision is "apple"'s, so consuming it is what the granularity has to
+            // follow: "banana" is left plain here for exactly that reason.
+            var plain = lineAt(beatmap, 1);
+            plain.Line = new LyricLine
+            {
+                RawText = plain.Line.RawText,
+                StartTime = plain.Line.StartTime,
+                EndTime = plain.Line.EndTime,
+                SingEndTime = plain.Line.SingEndTime,
+                Units = new[] { newUnit("banana", 3000, 3600) },
+            };
+
+            var line = lineAt(beatmap, 0); // "apple" [1000, 1400] with one boundary at 1300
+            var unit = line.Line.Units[0];
+            int cut = SyllableSegments.SplitsFor(unit)[0];
+
+            Assert.That(cut, Is.GreaterThan(0).And.LessThan(unit.Text.Length), "the fixture must have a real cut");
+            Assert.That(TypeBeatEditorOperations.SplitWord(beatmap, line, 0, 0), Is.True);
+
+            Assert.That(line.Line.RawText,
+                Is.EqualTo(unit.Text.Substring(0, cut) + " " + unit.Text.Substring(cut) + " orange"),
+                "the cut word becomes two tokens; the line's other word is untouched");
+            Assert.That(line.Line.Units.All(u => u.SyllableBoundaries.Count == 0), Is.True);
+            Assert.That(line.Line.Units.All(u => u.Source == TimingSource.Explicit), Is.True, "both halves are hand timing now");
+            Assert.That(line.Granularity, Is.EqualTo(TimingGranularity.Word), "no boundary is left, but the hand timing is");
+        }
 
         [Test]
         public void DraggingABoundaryKeepsTheSplit()

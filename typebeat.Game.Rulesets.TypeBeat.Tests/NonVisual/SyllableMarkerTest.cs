@@ -74,8 +74,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void AWordWithNoBoundariesIsNeverMarked()
         {
             var line = TypingLine.FromLyricLine(
-                lineOf("banana", 1000, 2000, unit("banana", 1000, 1600, Array.Empty<int>())),
-                TimingGranularity.Syllable);
+                lineOf("banana", 1000, 2000, unit("banana", 1000, 1600, Array.Empty<int>())));
 
             Assert.That(Syllabifier.IsSyllabifiable("banana"), Is.True, "the syllabifier would split it");
             Assert.That(line.Syllables.Count, Is.GreaterThan(1), "and the engine does group it");
@@ -92,8 +91,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var line = TypingLine.FromLyricLine(
                 lineOf("banana orange", 1000, 2200,
                     unit("banana", 1000, 1600, Array.Empty<int>(), 1200, 1400),
-                    unit("orange", 1700, 2100, Array.Empty<int>())),
-                TimingGranularity.Syllable);
+                    unit("orange", 1700, 2100, Array.Empty<int>())));
 
             Assert.That(line.DisplayText, Is.EqualTo("banana orange"));
             Assert.That(line.SyllableMarkerCells, Is.EqualTo(new[] { 2, 4 }), "nothing past the space cell at 6");
@@ -111,8 +109,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(Syllabifier.IsSyllabifiable("heyyyyy"), Is.False, "the fixture must be stylised");
 
             var plain = TypingLine.FromLyricLine(
-                lineOf("heyyyyy", 1000, 2000, unit("heyyyyy", 1000, 1600, Array.Empty<int>())),
-                TimingGranularity.Syllable);
+                lineOf("heyyyyy", 1000, 2000, unit("heyyyyy", 1000, 1600, Array.Empty<int>())));
 
             Assert.That(plain.Syllables, Is.Empty, "ungrouped, so there is nothing to mark");
             Assert.That(plain.SyllableMarkerCells, Is.Empty);
@@ -149,7 +146,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var single = subtimedLine("a", 1000, 1600, Array.Empty<int>(), 1300);
 
             Assert.That(single.SyllableMarkerCells, Is.Empty, "a one-letter word cannot be split");
-            Assert.That(TypingLine.FromLyricLine(lineOf("", 1000, 2000), TimingGranularity.Syllable).SyllableMarkerCells, Is.Empty);
+            Assert.That(TypingLine.FromLyricLine(lineOf("", 1000, 2000)).SyllableMarkerCells, Is.Empty);
         }
 
         /// <summary>
@@ -185,8 +182,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var source = lineOf("don't", 1000, 2000, unit("don't", 1000, 1600, new[] { 4 }, 1400));
 
-            var normal = TypingLine.FromLyricLine(source, TimingGranularity.Syllable);
-            var literate = TypingLine.FromLyricLine(source, TimingGranularity.Syllable, literate: true);
+            var normal = TypingLine.FromLyricLine(source);
+            var literate = TypingLine.FromLyricLine(source, literate: true);
 
             Assert.That(normal.DisplayText, Is.EqualTo("dont"));
             Assert.That(literate.DisplayText, Is.EqualTo("don't"));
@@ -207,37 +204,94 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// stream turns the hyphen into a typed SPACE cell, so "well-known song" is two units but
         /// three space-separated runs of cells: a renderer counting gaps to find word 0 would mark
         /// the wrong word from here on. The mark lands inside the one subtimed unit regardless.
+        ///
+        /// <para>The cut here is "we|ll-known", deliberately NOT against the hyphen: a subdivision
+        /// that sits on or beside the space the hyphen became is suppressed outright (see the two
+        /// fixtures below), which is a rule about the SPACE and not about which unit owns the mark.
+        /// This fixture is the unit-attribution half, so it keeps a cut the space cannot touch.</para>
         /// </summary>
         [Test]
         public void AHyphenatedWordIsStillOneUnitWithOneMark()
         {
             var line = TypingLine.FromLyricLine(
                 lineOf("well-known song", 1000, 2400,
-                    unit("well-known", 1000, 1800, new[] { 5 }, 1400),
-                    unit("song", 1900, 2300, Array.Empty<int>())),
-                TimingGranularity.Syllable);
+                    unit("well-known", 1000, 1800, new[] { 2 }, 1400),
+                    unit("song", 1900, 2300, Array.Empty<int>())));
 
             Assert.That(line.DisplayText, Is.EqualTo("well known song"), "the hyphen is typed as a space");
-            Assert.That(line.SyllableMarkerCells, Is.EqualTo(new[] { 5 }), "the 'k' of known, inside unit 0");
-            Assert.That(line.Cells[5].Expected, Is.EqualTo('k'));
+            Assert.That(line.SyllableMarkerCells, Is.EqualTo(new[] { 2 }), "the second 'l' of well, inside unit 0");
+            Assert.That(line.Cells[2].Expected, Is.EqualTo('l'));
             assertMarksSitOnGroupEdges(line);
         }
 
         /// <summary>
+        /// NO MARK ON A SPACE THE HYPHEN BECAME, and no mark beside it either. With Literate off,
+        /// "well-known" is typed "well known", so a subdivision that lands on the hyphen draws its
+        /// triangle over that space - and one that lands just after it draws it right beside the
+        /// space, which says nothing the space does not already say. Both are suppressed: a word gap
+        /// is already a break in the line, so a mark there can only decorate it.
+        ///
+        /// <para>This is the one place the marks are made stream-dependent, and it is deliberately
+        /// narrow: the suppressed cell is only ever a cell that a dash (or another special character)
+        /// was CONVERTED into, since the cell before a mark is always inside the mark's own token.</para>
+        /// </summary>
+        [Test]
+        public void ASubdivisionAgainstAHyphenConvertedSpaceIsNotMarked()
+        {
+            // "well|-known": the second segment OPENS on the space the hyphen became.
+            var onTheSpace = TypingLine.FromLyricLine(
+                lineOf("well-known", 1000, 2000, unit("well-known", 1000, 1600, new[] { 4 }, 1400)));
+
+            Assert.That(onTheSpace.Cells[4].Expected, Is.EqualTo(' '), "the fixture must have the hyphen as a typed space");
+            Assert.That(onTheSpace.SyllableMarkerCells, Is.Empty, "the mark would sit on the space itself");
+
+            // "well-|known": the second segment opens just AFTER it.
+            var afterTheSpace = TypingLine.FromLyricLine(
+                lineOf("well-known", 1000, 2000, unit("well-known", 1000, 1600, new[] { 5 }, 1400)));
+
+            Assert.That(afterTheSpace.Cells[5].Expected, Is.EqualTo('k'));
+            Assert.That(afterTheSpace.SyllableMarkerCells, Is.Empty, "the mark would sit immediately after the space");
+        }
+
+        /// <summary>
+        /// THE SAME HYPHEN UNDER LITERATE KEEPS ITS MARK, which is the other half of "on nomod": the
+        /// mod makes the dash a character the player types, so the cut beside it is a real cut between
+        /// two characters and there is no word gap for the mark to hide behind.
+        /// </summary>
+        [Test]
+        public void TheSameHyphenKeepsItsMarkUnderLiterate()
+        {
+            var source = lineOf("well-known", 1000, 2000, unit("well-known", 1000, 1600, new[] { 5 }, 1400));
+
+            var literate = TypingLine.FromLyricLine(source, literate: true);
+
+            Assert.That(literate.DisplayText, Is.EqualTo("well-known"), "the dash is a cell of its own under Literate");
+            Assert.That(literate.Cells[5].Expected, Is.EqualTo('k'));
+            Assert.That(literate.SyllableMarkerCells, Is.EqualTo(new[] { 5 }));
+            assertMarksSitOnGroupEdges(literate);
+        }
+
+        /// <summary>
         /// A syllable that owns NO cell is dropped by compaction (here the middle segment of
-        /// "a|-|b", whose only character the default stream turns into an untyped-through space),
-        /// and the mark that would have opened it goes with it. The syllable AFTER the hole keeps
-        /// its mark, because what a mark needs is something of the same word rendered to its left,
-        /// not specifically the syllable immediately before it.
+        /// "a|'|b", whose only character the default stream DELETES), and the mark that would have
+        /// opened it goes with it. The syllable AFTER the hole keeps its mark, because what a mark
+        /// needs is something of the same word rendered to its left, not specifically the syllable
+        /// immediately before it.
+        ///
+        /// <para>The hole is a dropped character rather than a dash on purpose: a dash becomes a
+        /// typed SPACE, and a cut against one is suppressed outright by the word-gap rule
+        /// (<see cref="ASubdivisionAgainstAHyphenConvertedSpaceIsNotMarked"/>). The property this
+        /// fixture is about - a mark surviving the loss of an earlier syllable - needs a hole that
+        /// leaves no space behind.</para>
         /// </summary>
         [Test]
         public void ASyllableOwningNoCellIsSkippedWithoutLosingTheOnesAroundIt()
         {
-            var line = subtimedLine("a-b", 1000, 1600, new[] { 1, 2 }, 1200, 1400);
+            var line = subtimedLine("a'b", 1000, 1600, new[] { 1, 2 }, 1200, 1400);
 
-            Assert.That(line.DisplayText, Is.EqualTo("a b"));
-            Assert.That(line.Syllables.Count, Is.EqualTo(2), "the lone-hyphen syllable owns no cell");
-            Assert.That(line.SyllableMarkerCells, Is.EqualTo(new[] { 2 }), "one mark, at the 'b'");
+            Assert.That(line.DisplayText, Is.EqualTo("ab"), "the lone apostrophe is dropped, not spaced");
+            Assert.That(line.Syllables.Count, Is.EqualTo(2), "the lone-punctuation syllable owns no cell");
+            Assert.That(line.SyllableMarkerCells, Is.EqualTo(new[] { 1 }), "one mark, at the 'b'");
             assertMarksSitOnGroupEdges(line);
         }
 
@@ -346,20 +400,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             yield return subtimedLine("a-b", 1000, 1600, new[] { 1, 2 }, 1200, 1400);
 
             var punctuated = lineOf("don't", 1000, 2000, unit("don't", 1000, 1600, new[] { 4 }, 1400));
-            yield return TypingLine.FromLyricLine(punctuated, TimingGranularity.Syllable);
-            yield return TypingLine.FromLyricLine(punctuated, TimingGranularity.Syllable, literate: true);
+            yield return TypingLine.FromLyricLine(punctuated);
+            yield return TypingLine.FromLyricLine(punctuated, literate: true);
 
             yield return TypingLine.FromLyricLine(
                 lineOf("well-known song", 1000, 2400,
                     unit("well-known", 1000, 1800, new[] { 5 }, 1400),
-                    unit("song", 1900, 2300, Array.Empty<int>())),
-                TimingGranularity.Syllable);
+                    unit("song", 1900, 2300, Array.Empty<int>())));
 
             yield return TypingLine.FromLyricLine(
                 lineOf("banana orange", 1000, 2200,
                     unit("banana", 1000, 1600, Array.Empty<int>(), 1200, 1400),
-                    unit("orange", 1700, 2100, Array.Empty<int>())),
-                TimingGranularity.Syllable);
+                    unit("orange", 1700, 2100, Array.Empty<int>())));
         }
 
         private static TimedUnit unit(string text, double start, double end, IReadOnlyList<int> splits, params double[] boundaries)
@@ -384,7 +436,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             };
 
         private static TypingLine subtimedLine(string word, double start, double end, IReadOnlyList<int> splits, params double[] boundaries)
-            => TypingLine.FromLyricLine(lineOf(word, start, end + 400, unit(word, start, end, splits, boundaries)), TimingGranularity.Syllable);
+            => TypingLine.FromLyricLine(lineOf(word, start, end + 400, unit(word, start, end, splits, boundaries)));
 
         #endregion
     }

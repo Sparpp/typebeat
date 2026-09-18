@@ -1227,7 +1227,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // for a Correct cell with no delta, which is exactly the pre-tint painting. The delta is
             // untouched either way; only whether it is read is.
             double? syncQuality = syncTintEnabled && source.JudgedDelta is double delta
-                ? SyncWindows.For(source.JudgeGranularity).SyncQuality(delta)
+                ? SyncWindows.Default.SyncQuality(delta)
                 : null;
 
             bool inSungSyllable = sungSyllable >= 0 && Line.SyllableIndexOf(cellIndex) == sungSyllable;

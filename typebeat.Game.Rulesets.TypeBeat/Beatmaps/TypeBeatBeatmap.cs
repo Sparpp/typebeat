@@ -93,17 +93,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // selected rate mods change (see BeatmapStatistic.RateAdjusted). The word count above is
             // unaffected (a rate mod changes when the words arrive, not how many there are), exactly
             // as the line count it replaced was, so it deliberately carries no RateAdjusted.
+            //
+            // THE WHOLE MAP, with the song's breaks taken out: every cell the map makes the player
+            // TYPE (freestyle slots are not one) over the total time it is sung, where a pause counts
+            // up to the break threshold and is dropped whole beyond it — so an instrumental between
+            // two lines is not charged to the player and a long line weighs more than a short one. It
+            // replaced an unweighted mean of per-line rates, which gave every line one vote and put
+            // the pause after each line inside that line's own window. LyricPaceStatistics keeps both.
             double baseWpm = pace.AverageWpm;
 
-            // The pace to SUSTAIN: the average WPM across the fastest fifth of the map's lyric
-            // lines OF AT LEAST THREE WORDS (LyricPaceStatistics.TargetWpm, and the floor is
-            // backlog 274: a two-word interjection cannot define the target it is too short to
-            // represent). The same estimator as the row above it, over the demanding lines rather
-            // than all of them, so the pair reads as "what the map asks on the whole" against "what
-            // its hard stretches ask"; it sits above the row above wherever the map's fastest lines
-            // clear the floor, which is the common case but is no longer guaranteed. It replaced
-            // Average CPM here, which since the typing-test redefinition was Average WPM times five
-            // and so carried no information the row above it did not.
+            // The pace to SUSTAIN: the map's hardest window BY RAW SPEED, re-expressed at a fixed
+            // duration (LyricPaceStatistics.TargetWpm). Typability and the rhythm bonus are left out
+            // of both the window choice and the conversion, so a slower-to-type or rhythmically
+            // forced stretch can win the rating while a plainly faster one still asks for more speed;
+            // it is therefore not always the rating's own peak window. It is the figure the Star
+            // Rating Sandbox prints beside every map, and it reads 0 when no window clears the
+            // model's own duration and character floors.
             double baseTargetWpm = pace.TargetWpm;
 
             yield return new BeatmapStatistic

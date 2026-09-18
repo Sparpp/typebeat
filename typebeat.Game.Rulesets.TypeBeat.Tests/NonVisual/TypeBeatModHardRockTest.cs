@@ -236,19 +236,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// THE STORED ERA'S LADDER, which every Hard Rock row on the leaderboards was graded on
         /// (backlog 150 to 264): a press 201 ms late is comfortably Great on the unscaled ladder
-        /// (GreatLate 400) and an Ok on the halved one (200), and a press 1001 ms late is a paid Meh
-        /// unscaled (MehLate 2000) but falls off the halved ladder entirely (1000) and scores nothing
+        /// (Great edge 150) and an Ok on the halved one (75), and a press 500 ms late is a paid Meh
+        /// unscaled (Meh edge 600) but falls off the halved ladder entirely (300) and scores nothing
         /// at all. That is a lot of grade to move, which is why the era has to travel per replay
         /// rather than be inferred from the acronym.
         /// </summary>
         [Test]
         public void TheStoredHalvedLadderDecidesWhatAPressIsClassifiedAs()
         {
-            Assert.AreEqual(JudgementType.Great, judgeFirstCell(1, 1201).Type);
-            Assert.AreEqual(JudgementType.Ok, judgeFirstCell(TypeBeatModHardRock.WINDOW_SCALE, 1201).Type);
+            // delta +100: Great on the one ladder, Ok on the halved one (Great edge 75).
+            Assert.AreEqual(JudgementType.Great, judgeFirstCell(1, 1100).Type);
+            Assert.AreEqual(JudgementType.Ok, judgeFirstCell(TypeBeatModHardRock.WINDOW_SCALE, 1100).Type);
 
-            var plainLate = judgeFirstCell(1, 2001);
-            var hardLate = judgeFirstCell(TypeBeatModHardRock.WINDOW_SCALE, 2001);
+            // delta +500: a paid Meh on the one ladder (Meh edge 600), off the halved one (300).
+            var plainLate = judgeFirstCell(1, 1500);
+            var hardLate = judgeFirstCell(TypeBeatModHardRock.WINDOW_SCALE, 1500);
 
             Assert.AreEqual(JudgementType.Meh, plainLate.Type);
             Assert.AreEqual(50, plainLate.PointsAwarded); // Meh base 50, combo 0 before the press
@@ -284,8 +286,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// The era through the SCORER, which is the path a stored row is re-derived on. Three cells
-        /// struck 300 ms late, judged on point targets under both arms: a Great apiece at normal
-        /// windows (GreatLate 400) and an Ok apiece on the halved ladder (GreatLate 200, OkLate 500).
+        /// struck 100 ms late, judged on point targets under both arms: a Great apiece at normal
+        /// windows (Great edge 150) and an Ok apiece on the halved ladder (Great edge 75).
         /// A stored HR run carries bit 13 CLEAR and gets the second; a run recorded by today's client
         /// carries it SET and gets the first, off the SAME keystrokes and the SAME mod list.
         /// </summary>
@@ -301,7 +303,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 replay.Frames.Add(TypeBeatReplayFrame.CreateConfigFrame(0, true, unhalvedHardRockWindows: unhalved));
 
                 for (int i = 0; i < 3; i++)
-                    replay.Frames.Add(new TypeBeatReplayFrame(i * 4000 + 300, "abc"[i]));
+                    replay.Frames.Add(new TypeBeatReplayFrame(i * 4000 + 100, "abc"[i]));
 
                 return replay;
             }
@@ -371,16 +373,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// pp: Hard Rock is a flat 1.25, applied once however many times it appears, and orthogonal
-        /// to everything else in the table (1.25 * 0.90 for a No Fail stack). Separate from the 1.10x
-        /// SCORE multiplier, exactly as Easy's 0.75 is separate from its 0.5x.
+        /// pp: Hard Rock is NEUTRAL at the PP Sandbox's live dials - its tighter windows are already
+        /// what the rhythm arm reads, so a flat term would charge for the same change twice - applied
+        /// once however many times it appears, and orthogonal to everything else in the table
+        /// (1.0 * 0.90 for a No Fail stack). Separate from the 1.10x SCORE multiplier, exactly as
+        /// Easy's flat term is separate from its 0.5x.
         /// </summary>
         [Test]
-        public void PerformancePointsPriceHardRockAtFiveQuarters()
+        public void PerformancePointsPriceHardRockNeutral()
         {
-            Assert.AreEqual(1.25, PerformancePoints.ModMultiplier(new Mod[] { new TypeBeatModHardRock() }, 500), 1e-9);
-            Assert.AreEqual(1.125, PerformancePoints.ModMultiplier(new Mod[] { new TypeBeatModHardRock(), new TypeBeatModNoFail() }, 500), 1e-9);
-            Assert.AreEqual(1.25, PerformancePoints.ModMultiplier(new Mod[] { new TypeBeatModHardRock(), new TypeBeatModHardRock() }, 500), 1e-9);
+            Assert.AreEqual(1.0, PerformancePoints.ModMultiplier(new Mod[] { new TypeBeatModHardRock() }, 500), 1e-9);
+            Assert.AreEqual(0.9, PerformancePoints.ModMultiplier(new Mod[] { new TypeBeatModHardRock(), new TypeBeatModNoFail() }, 500), 1e-9);
+            Assert.AreEqual(1.0, PerformancePoints.ModMultiplier(new Mod[] { new TypeBeatModHardRock(), new TypeBeatModHardRock() }, 500), 1e-9);
         }
 
         /// <summary>
@@ -461,7 +465,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// The rule where it can be seen: 'a' pressed at 2000 is INSIDE the span "cake" is sung
         /// over ([1000, 3000]) and 500 ms past its own point target (1500). Under every other stack
         /// that is delta 0 and a Great; under Hard Rock it is delta 500, which the NORMAL ladder
-        /// prices as an Ok (its Great window ends 400 ms late, its Ok window 1000). One press, two
+        /// prices as a Meh (Great ends 150, Ok 300, Meh 600). One press, two
         /// rules, and the mod is the only difference between the two engines.
         ///
         /// <para>500 rather than backlog 180's 300: at the halved windows the mod used to carry, 300
@@ -501,7 +505,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var plainJudgement = press(plain, 'a', press_time);
 
             Assert.AreEqual(500, hardJudgement.Delta, 1e-9, "Hard Rock judges the distance to the point target");
-            Assert.AreEqual(JudgementType.Ok, hardJudgement.Type);
+            Assert.AreEqual(JudgementType.Meh, hardJudgement.Type);
 
             Assert.AreEqual(0, plainJudgement.Delta, 1e-9, "every other stack judges the distance to the sung span");
             Assert.AreEqual(JudgementType.Great, plainJudgement.Type);
@@ -532,10 +536,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Four presses, every one of them inside the span "cake" is sung over ([1000, 3000]) and
             // every one off its own point target (1000/1500/2000/2500) by a different amount, so the
             // two judgement eras cannot agree about any of them. Deltas +300, +600, +900, +450.
-            // Cross-checks against the LIVE ladder (Great [-250, 400], Ok [-600, 1000]): Great, Ok,
-            // Ok, Ok. Against the STORED halved one (Great [-125, 200], Ok [-300, 500],
-            // Meh [-600, 1000]): Ok, Meh, Meh, Ok, which is strictly worse, and what the last arm
-            // below re-derives.
+            // Cross-checks against the LIVE ladder (Great +/-150, Ok +/-300, Meh +/-600): Ok, Meh,
+            // Lagging, Meh. Against the STORED halved one (Great 75, Ok 150, Meh 300): Meh, Lagging,
+            // Lagging, Lagging, which is strictly worse, and what the last arm below re-derives.
             (double time, char character)[] presses = { (1300, 'c'), (2100, 'a'), (2900, 'k'), (2950, 'e') };
 
             // Exactly what TypeBeatReplayRecorder writes: one CONFIG header off the live engine's

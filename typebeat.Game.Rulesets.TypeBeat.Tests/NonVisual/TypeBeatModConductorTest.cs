@@ -414,7 +414,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 EndTime = 20000,
                 SingEndTime = 12000,
                 Units = new[] { new TimedUnit { Text = "abc", StartTime = 0, EndTime = 12000 } },
-            }, TimingGranularity.Line, false);
+            });
 
             Assert.AreEqual(0.25, TypeBeatModConductor.DemandFor(line), 1e-9);
         }
@@ -429,7 +429,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 EndTime = 4000,
                 SingEndTime = 2000,
                 Units = new[] { new TimedUnit { Text = "a", StartTime = 0, EndTime = 2000 } },
-            }, TimingGranularity.Line, false);
+            });
 
             // One character spans no gaps, so there is no density to read; the feed-forward term
             // drops out and the phase term does the whole job.

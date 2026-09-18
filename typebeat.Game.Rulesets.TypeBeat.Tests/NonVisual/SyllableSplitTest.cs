@@ -193,7 +193,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             foreach (bool literate in new[] { false, true })
             {
-                var typing = TypingLine.FromLyricLine(line, TimingGranularity.Syllable, literate);
+                var typing = TypingLine.FromLyricLine(line, literate);
                 Assert.That(outsideOwnSyllable(typing), Is.Empty, literate ? "literate" : "default");
             }
         }
@@ -330,7 +330,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             };
 
         private static TypingLine subtimedLine(string word, double start, double end, IReadOnlyList<int> splits, params double[] boundaries)
-            => TypingLine.FromLyricLine(LyricLineOf(word, start, end + 400, unit(word, start, end, splits, boundaries)), TimingGranularity.Syllable);
+            => TypingLine.FromLyricLine(LyricLineOf(word, start, end + 400, unit(word, start, end, splits, boundaries)));
 
         private static double[] targetsOf(TypingLine line) => line.Cells.Select(c => c.TargetTime).ToArray();
 

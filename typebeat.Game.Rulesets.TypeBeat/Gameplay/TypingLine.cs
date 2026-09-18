@@ -62,12 +62,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         public double TargetTime { get; }
 
-        /// <summary>
-        /// Window tier this cell is judged at: the beatmap granularity normally, widened to
-        /// Line for estimated lines and low-confidence words (unreliable timing gets tolerance).
-        /// </summary>
-        public TimingGranularity JudgeGranularity { get; }
-
         public CellState State { get; internal set; }
 
         public char? TypedChar { get; internal set; }
@@ -110,13 +104,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         internal bool HeldWrongBeforeJudged { get; set; }
 
-        internal TypingCell(char expected, bool isTypeable, double targetTime, TimingGranularity judgeGranularity)
+        internal TypingCell(char expected, bool isTypeable, double targetTime)
         {
             Expected = expected;
             IsTypeable = isTypeable;
             IsFreestyle = isTypeable && Typeability.IsFreestyle(expected);
             TargetTime = targetTime;
-            JudgeGranularity = judgeGranularity;
             State = CellState.Untyped;
         }
     }
@@ -134,6 +127,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// always-built list.</para>
     /// </summary>
     public readonly record struct SyllableGroup(int StartCell, int EndCellExclusive, double StartTime, double EndTime);
+
+    /// <summary>
+    /// One sung WORD of a <see cref="TypingLine"/>: the half-open cell range
+    /// [<see cref="StartCell"/>, <see cref="EndCellExclusive"/>) it owns and the time span
+    /// [<see cref="StartTime"/>, <see cref="EndTime"/>] the word is sung over. The unit the EASY
+    /// mod's shelter is drawn around (see <see cref="TypingEngine.WordShelter"/>): a cell inside
+    /// the word is judged dead-on ANYWHERE in that span, the same bargain a
+    /// <see cref="SyllableGroup"/> offers over one syllable, and therefore a strictly wider one
+    /// wherever the word carries subdivisions.
+    ///
+    /// <para>A word is a whitespace token and its span is that token's <see cref="TimedUnit"/>, so
+    /// this is coarser than <see cref="Syllables"/> and coarser than the per-char targets in ONE
+    /// direction only: the span is the word's own authored bounds, never an interpolation. The
+    /// inter-word SPACE cell belongs to no word (it sits between them), exactly as it belongs to no
+    /// syllable, and a token the default stream deleted entirely leaves no word.</para>
+    ///
+    /// <para>Built ALWAYS, cheap and pure, like <see cref="Syllables"/>: nothing here moves a
+    /// target, a span or a group, so a play that never asks for the word shelter flattens
+    /// byte-identically.</para>
+    /// </summary>
+    public readonly record struct WordGroup(int StartCell, int EndCellExclusive, double StartTime, double EndTime);
 
     public sealed class TypingLine
     {
@@ -255,8 +269,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public IReadOnlyList<int> SyllableMarkerCells { get; }
 
+        /// <summary>
+        /// The line's WORDS (one per whitespace token that owns at least one cell), in token order,
+        /// with the sung span of each. Read only by the Easy mod's shelter rule
+        /// (<see cref="TypingEngine.WordShelter"/>); every other consumer of the timing uses
+        /// <see cref="Syllables"/> and the per-cell targets. See <see cref="WordGroup"/>.
+        /// </summary>
+        public IReadOnlyList<WordGroup> Words { get; }
+
         /// <summary>Per display cell, the index into <see cref="Syllables"/> or -1 (space cells; punctuation-only groups the default stream deleted).</summary>
         private readonly int[] cellSyllable;
+
+        /// <summary>Per display cell, the index into <see cref="Words"/> or -1 (space cells, and cells of a token the default stream deleted).</summary>
+        private readonly int[] cellWord;
+
+        /// <summary>
+        /// Index into <see cref="Words"/> of the word that owns cell <paramref name="cellIndex"/>, or
+        /// -1 when the cell is in no word (space cells, and any out-of-range index). The word-level
+        /// twin of <see cref="SyllableIndexOf"/>, and read through a method for the same reason: a
+        /// hyphen-turned-space is one unit but two cell runs, so word membership cannot be recomputed
+        /// downstream by counting.
+        /// </summary>
+        public int WordIndexOf(int cellIndex)
+            => cellIndex >= 0 && cellIndex < cellWord.Length ? cellWord[cellIndex] : -1;
 
         /// <summary>
         /// Index into <see cref="Syllables"/> of the group that judges cell
@@ -305,12 +340,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private readonly List<(double time, double index)> sungPoints;
 
-        private TypingLine(LyricLine source, IReadOnlyList<TypingCell> cells, double sealGraceMs, SyllableGroup[] syllables, int[] cellSyllable, int[] syllableMarkerCells, double lastUnitEnd)
+        private TypingLine(LyricLine source, IReadOnlyList<TypingCell> cells, double sealGraceMs, SyllableGroup[] syllables, int[] cellSyllable, int[] syllableMarkerCells, WordGroup[] words, int[] cellWord, double lastUnitEnd)
         {
             Source = source;
             Syllables = syllables;
             SyllableMarkerCells = syllableMarkerCells;
             this.cellSyllable = cellSyllable;
+            Words = words;
+            this.cellWord = cellWord;
             charTimedStretch = buildCharTimedStretch(cells, cellSyllable);
 
             var display = new System.Text.StringBuilder(cells.Count);
@@ -422,7 +459,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// only <see cref="Typeability.IsCell"/> chars (never punctuation), so turning the mod on
         /// adds cells without moving any of the existing ones.</para>
         /// </summary>
-        public static TypingLine FromLyricLine(LyricLine line, TimingGranularity granularity = TimingGranularity.Line, bool literate = false)
+        public static TypingLine FromLyricLine(LyricLine line, bool literate = false)
         {
             string text = line.RawText;
             var units = line.Units;
@@ -431,10 +468,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             char[] expected = new char[n];
             bool[] isTypeable = new bool[n];
             double?[] targets = new double?[n];
-            var judgeGrans = new TimingGranularity[n];
-
-            for (int i = 0; i < n; i++)
-                judgeGrans[i] = granularity;
 
             // First pass: walk the raw text token by token (spaces delimit tokens; token m maps to Units[m]).
             string[] tokens = text.Split(' ');
@@ -457,12 +490,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 double unitEnd = unit?.EndTime ?? line.SingEndTime;
 
                 lastUnitEnd = unitEnd;
-
-                // Unreliable timing gets the widest windows: estimated lines and
-                // low-confidence words are judged at the Line tier.
-                TimingGranularity judgeGran = line.Estimated || (unit?.Confidence ?? 1) < SyncWindows.LOW_CONFIDENCE_SCORE
-                    ? TimingGranularity.Line
-                    : granularity;
 
                 // k = number of typeable cells in this token (freestyle slots included: the player
                 // presses a key for them, so they take a share of the word's time like any letter).
@@ -496,7 +523,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 foreach (char ch in token)
                 {
                     expected[pos] = ch;
-                    judgeGrans[pos] = judgeGran;
 
                     if (Typeability.IsCell(ch))
                     {
@@ -517,7 +543,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     expected[pos] = ' ';
                     isTypeable[pos] = true;
                     targets[pos] = unitEnd;
-                    judgeGrans[pos] = judgeGran;
                     pos++;
                 }
             }
@@ -576,7 +601,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 cells = new TypingCell[n];
 
                 for (int i = 0; i < n; i++)
-                    cells[i] = new TypingCell(expected[i], isTypeable[i] || Typeability.IsPunctuation(expected[i]), targets[i]!.Value, judgeGrans[i]);
+                    cells[i] = new TypingCell(expected[i], isTypeable[i] || Typeability.IsPunctuation(expected[i]), targets[i]!.Value);
             }
             else
             {
@@ -593,7 +618,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 for (int i = 0; i < sources.Count; i++)
                 {
                     int src = sources[i];
-                    cells[i] = new TypingCell(sb[i], Typeability.IsCell(sb[i]), targets[src]!.Value, judgeGrans[src]);
+                    cells[i] = new TypingCell(sb[i], Typeability.IsCell(sb[i]), targets[src]!.Value);
                 }
             }
 
@@ -613,8 +638,107 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             var (syllables, cellSyllable, markerCells) = buildSyllables(line, tokens, cells, defaultSources);
+            var (words, cellWord) = buildWords(line, tokens, cells, defaultSources);
 
-            return new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), syllables, cellSyllable, markerCells, lastUnitEnd);
+            return new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), syllables, cellSyllable, markerCells, words, cellWord, lastUnitEnd);
+        }
+
+        /// <summary>
+        /// Groups the line's cells into WORDS: one entry per whitespace token that owns at least
+        /// one cell, carrying the token's unit span. Pure derivation, exactly like
+        /// <see cref="buildSyllables"/> and feeding nothing: the Easy mod's shelter reads it
+        /// (<see cref="WordGroup"/>), and a play that does not ask for that shelter reads the
+        /// syllable groups and the per-char targets instead, byte-identically.
+        ///
+        /// <para>The span is the token's OWN <see cref="TimedUnit"/> bounds, taken through the same
+        /// malformed-data clamp the target walk uses (a line with fewer units than tokens repeats
+        /// its last, and a line with none falls back to the line's own start and sung end), so the
+        /// word a cell is sheltered by is the same unit its targets were spread across. Spans are
+        /// clamped monotonic non-decreasing across the line like the syllable spans, so the rule
+        /// can never hand a later word an earlier span. A SPACE cell is in no word, and a token
+        /// whose every character the default stream deleted leaves no entry.</para>
+        /// </summary>
+        private static (WordGroup[] words, int[] cellWord) buildWords(LyricLine line, string[] tokens, TypingCell[] cells, List<int>? defaultSources)
+        {
+            var units = line.Units;
+            int[] rawWord = new int[line.RawText.Length];
+            Array.Fill(rawWord, -1);
+
+            var starts = new List<double>();
+            var ends = new List<double>();
+            int tokStart = 0;
+
+            for (int m = 0; m < tokens.Length; m++)
+            {
+                string token = tokens[m];
+
+                TimedUnit? unit = units.Count > 0 ? units[Math.Min(m, units.Count - 1)] : null;
+
+                starts.Add(unit?.StartTime ?? line.StartTime);
+                ends.Add(unit?.EndTime ?? line.SingEndTime);
+
+                for (int t = 0; t < token.Length; t++)
+                    rawWord[tokStart + t] = m;
+
+                tokStart += token.Length + 1; // the inter-word space raw char stays in no word
+            }
+
+            // Map raw-index words onto cells through the same projection that assigned the targets.
+            // A SPACE cell is in no word whatever raw char produced it (hyphens too).
+            int[] cellWord = new int[cells.Length];
+            Array.Fill(cellWord, -1);
+
+            for (int i = 0; i < cells.Length; i++)
+            {
+                if (!cells[i].IsTypeable || cells[i].Expected == ' ')
+                    continue;
+
+                int src = defaultSources?[i] ?? i;
+                cellWord[i] = rawWord[src];
+            }
+
+            int[] firstCell = new int[starts.Count];
+            int[] lastCell = new int[starts.Count];
+            Array.Fill(firstCell, -1);
+
+            for (int i = 0; i < cellWord.Length; i++)
+            {
+                int w = cellWord[i];
+
+                if (w < 0)
+                    continue;
+
+                if (firstCell[w] < 0)
+                    firstCell[w] = i;
+
+                lastCell[w] = i;
+            }
+
+            // Compact to the words that own at least one cell, clamping spans monotonic.
+            var words = new List<WordGroup>(starts.Count);
+            int[] remap = new int[starts.Count];
+            Array.Fill(remap, -1);
+            double clock = double.NegativeInfinity;
+
+            for (int w = 0; w < starts.Count; w++)
+            {
+                if (firstCell[w] < 0)
+                    continue;
+
+                double start = Math.Max(starts[w], clock);
+                double end = Math.Max(ends[w], start);
+                clock = end;
+                remap[w] = words.Count;
+                words.Add(new WordGroup(firstCell[w], lastCell[w] + 1, start, end));
+            }
+
+            for (int i = 0; i < cellWord.Length; i++)
+            {
+                if (cellWord[i] >= 0)
+                    cellWord[i] = remap[cellWord[i]];
+            }
+
+            return (words.ToArray(), cellWord);
         }
 
         /// <summary>
@@ -844,7 +968,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 }
 
                 if (subtimedInterior[g] && remap[g] >= 0 && lastSurvivor >= 0)
-                    markerCells.Add(groups[remap[g]].StartCell);
+                {
+                    int startCell = groups[remap[g]].StartCell;
+
+                    // A mark names a cut between CHARACTERS, so a cut that lands on a WORD GAP is
+                    // not one: with Literate off a dash (or any other special character) becomes a
+                    // SPACE cell, and a subdivision opening on one - or immediately after one - would
+                    // hang its triangle over a space the player already reads as a break. Suppressed
+                    // rather than moved, and only ever on such a converted cell: the preceding cell
+                    // is inside the same token here (a mark needs a surviving earlier group of it),
+                    // so a genuine word-separating space can never reach this test, and under
+                    // Literate the same dash IS a cell and keeps its mark. See SyllableMarkerCells.
+                    if (!isWordGapCell(cells, startCell) && !isWordGapCell(cells, startCell - 1))
+                        markerCells.Add(startCell);
+                }
 
                 if (remap[g] >= 0)
                     lastSurvivor = g;
@@ -852,6 +989,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             return (groups.ToArray(), cellSyllable, markerCells.ToArray());
         }
+
+        /// <summary>
+        /// Whether the display cell at <paramref name="index"/> is a SPACE the player types (false
+        /// for an index off either end of the line). Used by the syllable-marker derivation above to
+        /// keep a mark off a word gap: a space cell reached from a dash is where the default stream
+        /// already breaks the word, so a subdivision mark there says nothing the space does not.
+        /// </summary>
+        private static bool isWordGapCell(TypingCell[] cells, int index)
+            => index >= 0 && index < cells.Length && cells[index].Expected == ' ';
 
         /// <summary>
         /// The <see cref="IsCharTimedStretch"/> flags, derived once from the cells and their group

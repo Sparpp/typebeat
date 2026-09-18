@@ -1,0 +1,13 @@
+# no-keystrokes, from tools/typability-app/data/model-no-keystrokes.rds
+# fitted 2026-09-12 15:28:35 over 1194 sentences; R2 0.627199; residual SD 0.265462
+cv	0.207038
+residualSd	0.26546184382552063
+term	coefficient
+(Intercept)	-4.0319748122883619
+highFreqWordProp	0.83886949370375907
+lowercasePropNonSpace	3.954200581553879
+meanSyllsPerWord	-0.50115442857417036
+symbolsPropNonSpace	-1.069443265874956
+biFreqMean	7.0031566927542226e-08
+propCharsNonDictWords	-1.8279964811228504
+propRightHand	0.52602288012368958

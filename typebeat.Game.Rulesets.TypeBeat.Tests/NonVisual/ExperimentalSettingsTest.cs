@@ -13,7 +13,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// Pins the contents of Settings &gt; Experimental. The section itself holds nothing: it loops the
     /// available rulesets asking each for <c>CreateExperimentalSettings()</c>, so a ruleset that stops
     /// answering leaves an empty section on screen rather than failing anywhere. These assertions are
-    /// what makes that silent, and dropping one of the three controls, loud.
+    /// what makes that silent, and dropping one of the controls, loud.
     ///
     /// The controls are built through <c>BuildControls</c> rather than by loading the subsection: the
     /// dependency loader needs a game host, and all this needs to know is which controls exist.
@@ -31,12 +31,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// Everything on trial in the section, in source order: the three settings backlog 221 moved
-        /// out of the type!beat section, plus the syllable markers backlog 225 opened here rather
-        /// than in the settled set and the sync metric backlog 251 put behind a switch. Pinned by
-        /// their labels because that is the only thing a player sees: the bindables behind them
-        /// deliberately did not move (Realm keys stored rows by enum member name), so nothing else
-        /// here would notice a control quietly going missing.
+        /// Everything still on trial in the section, in source order: the sync metric (backlog 251 put
+        /// it behind a switch) and the local auto-aligner. Pinned by their labels because that is the
+        /// only thing a player sees: the bindables behind them deliberately did not move (Realm keys
+        /// stored rows by enum member name), so nothing else here would notice a control quietly going
+        /// missing.
+        ///
+        /// <para>The four typing behaviours that used to be listed here - space to skip a word, manual
+        /// newlines, the space error dot and the syllable markers - have settled and their controls
+        /// now live in the type!beat section, pinned by
+        /// <c>TypeBeatSettingsTest.TheSettledSettingsAreAllPresent</c>. What this test is left guarding
+        /// is that they do not quietly come back here or go missing altogether.</para>
         ///
         /// <para>The sync one matters more than the others do: it is the ONLY way back to a display
         /// the game used to ship on, so losing the checkbox would not degrade a feature, it would
@@ -54,9 +59,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 Assert.That(controls.OfType<SettingsCheckbox>().Select(c => c.LabelText.ToString()), Is.EqualTo(new[]
                 {
-                    "Space to skip current word",
-                    "Use space error dot",
-                    "Show syllable markers",
                     "Show sync metric",
                     "Use local auto-aligner",
                 }));

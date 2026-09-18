@@ -24,11 +24,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
         /// <summary>The normalized display char this cell expects.</summary>
         public char Expected { get; set; }
 
-        /// <summary>Window tier the engine judges this cell at (widened for unreliable timing).</summary>
-        public TimingGranularity JudgeGranularity { get; set; }
-
         public override Rulesets.Judgements.Judgement CreateJudgement() => new TypeBeatCharJudgement();
 
-        protected override HitWindows CreateHitWindows() => new TypeBeatHitWindows(JudgeGranularity);
+        protected override HitWindows CreateHitWindows() => new TypeBeatHitWindows();
     }
 }

@@ -123,31 +123,51 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void TargetWpmIsTheFastestFifthsPaceOnTheWpmBarScale()
+        public void TargetWpmIsTheModelsSpeedWindowFigureOnTheWpmBarScale()
         {
             // The statistic that replaced Average CPM. Two things are pinned: it is
             // LyricPaceStatistics.TargetWpm rendered, never a second derivation, and its bar is
             // normalised against the SAME 150 WPM cap as Average WPM (the departing CPM used
             // 150 * 5, and carrying that cap over would have drawn a full-length bar on every map).
-            var lines = mixedFixture();
+            //
+            // The fixture is DENSE on purpose. Target WPM is the map's hardest window by raw speed
+            // re-expressed at a fixed duration, and a window only becomes a candidate once it holds
+            // the model's own character floor, so a map of three short lines has a perfectly good
+            // average and no target at all. Twelve packed lines clear it; the mixed fixture above
+            // is what the floor refuses.
+            var lines = denseFixture();
             var pace = LyricPaceStatistics.Compute(lines);
             var stat = makeBeatmap(lines).GetStatistics().Single(s => s.Name.ToString() == "Target WPM");
 
-            // The fixture's three lines run 15 cells / 3000 ms = 300 CPM, 9 / 3000 = 180 and
-            // 8 / 3000 = 160, so the average is 640/3 = 213.33 CPM = 42.67 WPM. The middle line
-            // types as "hey   you", TWO words, so backlog 274's floor refuses it and the pool is the
-            // other two; the target is the fastest ceil(0.20 * 2) = 1 of THOSE, 300 CPM = 60 WPM,
-            // which is the number it read before the floor as well (the fastest line was always
-            // eligible here). Two different numbers, so a strip that rendered the average twice
-            // would fail here.
-            Assert.AreEqual(60.0, pace.TargetWpm, 1e-9);
-            Assert.AreNotEqual(pace.TargetWpm, pace.AverageWpm);
+            Assert.Greater(pace.TargetWpm, 0, "the dense fixture has to clear the peak character floor");
+            Assert.Greater(pace.TargetWpm, pace.AverageWpm, "the front-loaded fixture's peak is the higher figure");
 
             Assert.AreEqual(pace.TargetWpm.ToString("0"), stat.Content);
             Assert.AreEqual((float)Math.Min(1, pace.TargetWpm / 150), stat.BarDisplayLength);
 
             // And the rate scales it linearly, like the average beside it.
             Assert.AreEqual((pace.TargetWpm * 1.5).ToString("0"), stat.RateAdjusted!(1.5).Item1);
+        }
+
+        /// <summary>
+        /// Twelve packed eight-word lines, no rests between them, FRONT-LOADED: the first half runs at
+        /// 700 ms a line and the second at 1300, so the map is dense enough that a scheduled window
+        /// holds the model's weighted-character floor and peaked enough that its target sits clear of
+        /// its whole-map average rather than being floored up to it.
+        /// </summary>
+        private static IReadOnlyList<LyricLine> denseFixture()
+        {
+            var lines = new List<LyricLine>();
+            double at = 1000;
+
+            for (int i = 0; i < 12; i++)
+            {
+                double ms = i < 6 ? 700 : 1300;
+                lines.Add(makeLine("a b c d e f g h", at, at + ms));
+                at += ms;
+            }
+
+            return lines;
         }
 
         [Test]

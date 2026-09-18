@@ -34,6 +34,33 @@ your IDE.
 | `typebeat.Desktop` | Desktop entry point and packaging |
 | `lyriclab/` | Standalone Python tool that auto-aligns lyrics to audio into word/syllable timing |
 
+## Star Rating Sandbox
+
+Experiment with the difficulty formula and compare map ratings live in the
+[local Star Rating Sandbox](tools/star-rating-sandbox/README.md).
+
+```sh
+tools/run-labs.sh
+```
+
+That starts both local labs: the Star Rating Sandbox on http://127.0.0.1:8614 and
+the [Typability Lab](tools/typability-app/README.md) on http://127.0.0.1:8615.
+The sandbox scores each map's lyrics with The Typability Index and lets you dial
+how much that measured typing difficulty moves the rating. Scores come from a
+keystroke-free variant of the index — the authors' regression refit without its
+`minStrokes` term — so lyrics are not charged for keystrokes the envelope model
+already counts. Import type!beat `.osu` or lyriclab timing JSON maps as usual.
+It also carries an experimental **Rhythmic Complexity** bonus: an independent
+slider that adds stars when keeping perfect timing means changing typing pace,
+measured against the engine's real judgement intervals and weighted toward the
+map's demanding sections.
+
+To serve just the sandbox (bundled typability scores, no live R service):
+
+```sh
+python3 -m http.server 8614 --bind 127.0.0.1 --directory tools/star-rating-sandbox
+```
+
 ## Licence
 
 type!beat is MIT-licensed; see [LICENCE](LICENCE). It is a derivative work of

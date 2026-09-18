@@ -13,6 +13,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     [TestFixture]
     public class LyricDifficultyTest
     {
+        /// <summary>
+        /// The game ships the CHUNKED axis (see <see cref="LyricDifficulty.Live"/>), so every fixture
+        /// in this file asks for the ENVELOPE axis by name: this file documents that model, and its
+        /// numbers only mean anything on it.
+        /// </summary>
+        private static double Envelope(IEnumerable<LyricLine> lines, double rate = 1, bool literate = false)
+            => LyricDifficulty.Compute(lines, rate, literate, LyricDifficulty.EnduranceAxis.Envelope);
+
+        /// <summary>As <see cref="Envelope"/>, for the fixtures that read more than the stars.</summary>
+        private static LyricDifficulty.ModelResult EnvelopeDetail(IEnumerable<LyricLine> lines, double rate = 1, bool literate = false)
+            => LyricDifficulty.ComputeDetail(lines, rate, literate, LyricDifficulty.EnduranceAxis.Envelope);
+
+        /// <summary>
+        /// The LIVE axis (the chunked one) with typability switched off, which is what a fixture about
+        /// the CELL WEIGHT has to read. Typability is a property of a map's SPELLING, and the game now
+        /// scores a lyric line's spelling in-client, so two maps that differ only in how a word is
+        /// written rate differently on purpose; the freestyle weight is a count of cells, which no
+        /// spelling can move, so these fixtures take the rating with every line read as unscored.
+        /// </summary>
+        private static double WithoutTypability(IEnumerable<LyricLine> lines, bool literate = false)
+            => LyricDifficulty.RateChunked(lines.ToList(), 1, literate, LyricDifficulty.NoScores, ChunkedEndurance.Live).Report.Stars;
+
+        /// <summary>
+        /// The map's weighted CELL MASS as the model builds it: every typeable character, every
+        /// inter-word space, and every freestyle slot at its quarter. This is the reading a fixture
+        /// about the SLOT WEIGHT has to pin - the model's own cell currency - because on the live
+        /// (chunked) axis two maps whose cells weigh the same can still rate differently: the axis
+        /// prices how many of those cells are TYPEABLE and how finely they are subdivided, and a
+        /// freestyle slot is a keypress with no key to find. Both arms build the same word list, so
+        /// this figure is the same on either.
+        /// </summary>
+        private static double CellMass(IEnumerable<LyricLine> lines)
+            => LyricDifficulty.ComputeDetail(lines.ToList(), 1, false, LyricDifficulty.EnduranceAxis.Envelope).Cells;
+
         private static LyricLine line(double start, double end, params (string text, double s, double e)[] units) => new LyricLine
         {
             RawText = string.Join(" ", units.Select(u => u.text)),
@@ -76,13 +110,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void MatchesTheReferenceModel()
         {
-            Assert.That(LyricDifficulty.Compute(anchorMap()), Is.EqualTo(anchor_stars));
+            Assert.That(Envelope(anchorMap()), Is.EqualTo(anchor_stars));
         }
 
         [Test]
         public void EmptyMapIsZero()
         {
-            Assert.AreEqual(0, LyricDifficulty.Compute(Array.Empty<LyricLine>()));
+            Assert.AreEqual(0, Envelope(Array.Empty<LyricLine>()));
         }
 
         /// <summary>
@@ -108,8 +142,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(LyricDifficulty.Compute(tooShort), Is.Zero, "0.8 s of singing fits no window at all");
-                Assert.That(LyricDifficulty.Compute(longEnough), Is.EqualTo(0.6680255352545187), "3 s of the same two words does");
+                Assert.That(Envelope(tooShort), Is.Zero, "0.8 s of singing fits no window at all");
+                Assert.That(Envelope(longEnough), Is.EqualTo(0.6680255352545187), "3 s of the same two words does");
             });
         }
 
@@ -133,8 +167,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(LyricDifficulty.Compute(oneLine), Is.EqualTo(0.9185219527454119), "7 cells: aaa + space + bbb");
-                Assert.That(LyricDifficulty.Compute(twoLines), Is.EqualTo(0.7512636532216476), "6 cells: no space over a line break");
+                Assert.That(Envelope(oneLine), Is.EqualTo(0.9185219527454119), "7 cells: aaa + space + bbb");
+                Assert.That(Envelope(twoLines), Is.EqualTo(0.7512636532216476), "6 cells: no space over a line break");
             });
         }
 
@@ -143,9 +177,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var map = buildMap(lineCount: 12, wordsPerLine: 4, lineMs: 2400);
 
-            double halfTime = LyricDifficulty.Compute(map, 0.75);
-            double noMod = LyricDifficulty.Compute(map, 1.0);
-            double doubleTime = LyricDifficulty.Compute(map, 1.5);
+            double halfTime = Envelope(map, 0.75);
+            double noMod = Envelope(map, 1.0);
+            double doubleTime = Envelope(map, 1.5);
 
             // Faster clock -> the same cells inside a shorter window -> a higher ratio against the
             // same S(t); slower clock -> lower.
@@ -166,9 +200,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(LyricDifficulty.Compute(map, 0.75), Is.EqualTo(6.260654550067575), "sr_ht");
-                Assert.That(LyricDifficulty.Compute(map), Is.EqualTo(8.16426556177434), "difficulty_rating");
-                Assert.That(LyricDifficulty.Compute(map, 1.50), Is.EqualTo(11.762970854950098), "sr_dt");
+                Assert.That(Envelope(map, 0.75), Is.EqualTo(6.260654550067575), "sr_ht");
+                Assert.That(Envelope(map), Is.EqualTo(8.16426556177434), "difficulty_rating");
+                Assert.That(Envelope(map, 1.50), Is.EqualTo(11.762970854950098), "sr_dt");
             });
         }
 
@@ -185,8 +219,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // sr_dt passes it routinely).
             var map = buildMap(lineCount: 40, wordsPerLine: 6, lineMs: 2000);
 
-            double noMod = LyricDifficulty.Compute(map);
-            double doubleTime = LyricDifficulty.Compute(map, 1.50);
+            double noMod = Envelope(map);
+            double doubleTime = Envelope(map, 1.50);
 
             Assert.That(noMod, Is.EqualTo(8.908767792639306).Within(1e-9));
             Assert.That(doubleTime, Is.EqualTo(13.185566464522914).Within(1e-9), "under the old ceiling this read exactly 10.00");
@@ -199,8 +233,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Same-pace continuation appended contiguously after the base map.
             var extended = baseMap.Concat(buildMap(lineCount: 8, wordsPerLine: 4, lineMs: 2400, startAt: 8 * 2400)).ToArray();
 
-            double baseSr = LyricDifficulty.Compute(baseMap);
-            double extendedSr = LyricDifficulty.Compute(extended);
+            double baseSr = Envelope(baseMap);
+            double extendedSr = Envelope(extended);
 
             // The defining property, and under the envelope (backlog 273) it is structural rather
             // than incidental: N is a sum of non-negative per-bin terms and the peak is a maximum,
@@ -241,12 +275,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(LyricDifficulty.Compute(gapped), Is.EqualTo(7.212309813869222));
-                Assert.That(LyricDifficulty.Compute(gapped, 1.50), Is.EqualTo(10.259613445167089), "sr_dt");
+                Assert.That(Envelope(gapped), Is.EqualTo(7.212309813869222));
+                Assert.That(Envelope(gapped, 1.50), Is.EqualTo(10.259613445167089), "sr_dt");
 
                 // The 45 seconds of silence cost nothing and the easy tail after it earns a little,
                 // which together is the claim that the gap is not averaged into the rating.
-                Assert.That(LyricDifficulty.Compute(gapped), Is.GreaterThan(LyricDifficulty.Compute(denseHalf)));
+                Assert.That(Envelope(gapped), Is.GreaterThan(Envelope(denseHalf)));
             });
         }
 
@@ -257,7 +291,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var spike = buildMap(lineCount: 6, wordsPerLine: 6, lineMs: 1200); // ~fast
             var filler = buildMap(lineCount: 24, wordsPerLine: 3, lineMs: 3000); // long, easy
 
-            Assert.Greater(LyricDifficulty.Compute(spike), LyricDifficulty.Compute(filler));
+            Assert.Greater(Envelope(spike), Envelope(filler));
         }
 
         [Test]
@@ -266,7 +300,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // ~4 words / 2.4 s line, 40 lines: about 230 CPM sustained for a minute and a half,
             // which is fast but not superhuman, so it has to land in the middle of the scale.
             var map = buildMap(lineCount: 40, wordsPerLine: 4, lineMs: 2400);
-            double sr = LyricDifficulty.Compute(map);
+            double sr = Envelope(map);
 
             TestContext.WriteLine($"40-line map -> {sr:0.00} stars");
             Assert.That(sr, Is.InRange(2.0, 6.5));
@@ -303,9 +337,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var easyTail = peakChorus.Concat(buildMap(lineCount: 10, wordsPerLine: 2, lineMs: 2400, startAt: peakEndMs)).ToArray();
             var hardTail = peakChorus.Concat(buildMap(lineCount: 10, wordsPerLine: 4, lineMs: 1200, startAt: peakEndMs)).ToArray();
 
-            double cutSr = LyricDifficulty.Compute(cut);
-            double easySr = LyricDifficulty.Compute(easyTail);
-            double hardSr = LyricDifficulty.Compute(hardTail);
+            double cutSr = Envelope(cut);
+            double easySr = Envelope(easyTail);
+            double hardSr = Envelope(hardTail);
 
             TestContext.WriteLine($"cut {cutSr:0.000}; full with an easy tail {easySr:0.000}; full with a dense tail {hardSr:0.000}");
 
@@ -405,10 +439,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 t += 15;
             }
 
-            double sustainSr = LyricDifficulty.Compute(sustain);
-            double fourSr = LyricDifficulty.Compute(fourSections.ToArray());
-            double eightSr = LyricDifficulty.Compute(burstMap(8));
-            double oneSr = LyricDifficulty.Compute(burstMap(1));
+            double sustainSr = Envelope(sustain);
+            double fourSr = Envelope(fourSections.ToArray());
+            double eightSr = Envelope(burstMap(8));
+            double oneSr = Envelope(burstMap(1));
 
             TestContext.WriteLine($"sustain {sustainSr:0.000}; four 15 s sections {fourSr:0.000}; eight bursts {eightSr:0.000}; one burst {oneSr:0.000}");
 
@@ -450,8 +484,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var sustain = section(0, 123, wordsFor(123, 0.75));
             var padded = new[] { sustain, easySection(123000, 60) };
 
-            double bare = LyricDifficulty.Compute(new[] { sustain });
-            double withPadding = LyricDifficulty.Compute(padded);
+            double bare = Envelope(new[] { sustain });
+            double withPadding = Envelope(padded);
 
             TestContext.WriteLine($"123 s sustain {bare:0.000000}; padded with 60 s at 60 WPM {withPadding:0.000000} ({(withPadding / bare - 1) * 100:0.0000}%)");
 
@@ -483,12 +517,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 line(2200, 5000, ("Typing", 2200, 3000), ("is", 3000, 3400), ("a", 3400, 3700), ("rhythm;", 3700, 4300), ("not", 4300, 4700), ("a", 4700, 4850), ("race.", 4850, 5000)),
             };
 
-            double plain = LyricDifficulty.Compute(map);
-            double literate = LyricDifficulty.Compute(map, 1, literate: true);
+            double plain = Envelope(map);
+            double literate = Envelope(map, 1, literate: true);
 
             TestContext.WriteLine($"plain -> {plain:0.0000}; literate -> {literate:0.0000}");
 
             Assert.That(literate, Is.Not.EqualTo(plain).Within(1e-9));
+        }
+
+        /// <summary>
+        /// TYPABILITY IS READ ON THE TEXT THE LINE IS TYPED AS, so the mod changes which score
+        /// applies and not only how many cells there are. The index charges capitals for Shift and
+        /// marks as keystrokes of their own, so the authored line and its default stream are
+        /// different sentences to it with different z; scoring the authored text while charging
+        /// the cells of the stripped one, which is what this model used to do, prices a line
+        /// nobody types. The fixture is a line of the bundled catalogue and both of its forms are
+        /// in the shipped table.
+        /// </summary>
+        [Test]
+        public void TypabilityReadsTheTypedStream()
+        {
+            const string authored = "Now I'm Mister Charisma, fucking Pablo Escobar";
+            string played = Typeability.ToDefaultStream(authored);
+
+            Assert.That(played, Is.EqualTo("now im mister charisma fucking pablo escobar"));
+            Assert.That(TypabilityIndex.TryScore(authored, out TypabilityIndex.Score authoredScore), Is.True, "the authored form has to be in the table");
+            Assert.That(TypabilityIndex.TryScore(played, out TypabilityIndex.Score playedScore), Is.True, "and so does the played form");
+            Assert.That(Math.Abs(authoredScore.Z - playedScore.Z), Is.GreaterThan(.2), "the fixture has to score the two forms apart");
+
+            var map = new[]
+            {
+                line(0, 4100, ("Now", 0, 460), ("I'm", 460, 900), ("Mister", 900, 1500), ("Charisma,", 1500, 2100),
+                    ("fucking", 2100, 2700), ("Pablo", 2700, 3300), ("Escobar", 3300, 4100)),
+            };
+
+            var plain = EnvelopeDetail(map);
+            var literate = EnvelopeDetail(map, 1, literate: true);
+
+            TestContext.WriteLine($"plain z {plain.TypabilityMeanZ:0.0000} (played {playedScore.Z:0.0000}); " +
+                                  $"literate z {literate.TypabilityMeanZ:0.0000} (authored {authoredScore.Z:0.0000})");
+
+            Assert.That(plain.TypabilityMeanZ, Is.EqualTo(playedScore.Z).Within(1e-9),
+                "without the mod the line is scored as the stripped stream");
+            Assert.That(literate.TypabilityMeanZ, Is.EqualTo(authoredScore.Z).Within(1e-9),
+                "and with it as the authored text");
         }
 
         /// <summary>
@@ -507,8 +579,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 foreach (double rate in new[] { 0.75, 1.00, 1.50 })
                 {
-                    Assert.That(LyricDifficulty.Compute(map, rate, literate: true),
-                        Is.EqualTo(LyricDifficulty.Compute(map, rate)), $"rate {rate}");
+                    Assert.That(Envelope(map, rate, literate: true),
+                        Is.EqualTo(Envelope(map, rate)), $"rate {rate}");
                 }
             });
         }
@@ -534,10 +606,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 line(2200, 5000, ("Typing", 2200, 3000), ("is", 3000, 3400), ("a", 3400, 3700), ("rhythm;", 3700, 4300), ("not", 4300, 4700), ("a", 4700, 4850), ("race.", 4850, 5000)),
             };
 
-            double plainBase = LyricDifficulty.Compute(map);
-            double plainDt = LyricDifficulty.Compute(map, 1.50);
-            double literateBase = LyricDifficulty.Compute(map, 1, literate: true);
-            double literateDt = LyricDifficulty.Compute(map, 1.50, literate: true);
+            double plainBase = Envelope(map);
+            double plainDt = Envelope(map, 1.50);
+            double literateBase = Envelope(map, 1, literate: true);
+            double literateDt = Envelope(map, 1.50, literate: true);
 
             double predicted = literateBase * (plainDt / plainBase);
 
@@ -622,17 +694,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(LyricDifficulty.Compute(anchor), Is.EqualTo(anchor_stars), "the shared reference anchor");
-                Assert.That(LyricDifficulty.Compute(big), Is.EqualTo(19.695650220525547));
-                Assert.That(LyricDifficulty.Compute(big, 1.50), Is.EqualTo(28.553224233675905));
-                Assert.That(LyricDifficulty.Compute(realistic), Is.EqualTo(4.896180402042062));
-                Assert.That(LyricDifficulty.Compute(mid, 0.75), Is.EqualTo(6.260654550067575));
-                Assert.That(LyricDifficulty.Compute(mid), Is.EqualTo(8.16426556177434));
-                Assert.That(LyricDifficulty.Compute(mid, 1.50), Is.EqualTo(11.762970854950098));
-                Assert.That(LyricDifficulty.Compute(mid, 1, literate: true), Is.EqualTo(8.16426556177434));
-                Assert.That(LyricDifficulty.Compute(punctuated), Is.EqualTo(3.177354181493089));
-                Assert.That(LyricDifficulty.Compute(punctuated, 1, literate: true), Is.EqualTo(3.5620837044806435));
-                Assert.That(LyricDifficulty.Compute(punctuated, 1.50, literate: true), Is.EqualTo(4.583755790239398));
+                Assert.That(Envelope(anchor), Is.EqualTo(anchor_stars), "the shared reference anchor");
+                Assert.That(Envelope(big), Is.EqualTo(19.695650220525547));
+                Assert.That(Envelope(big, 1.50), Is.EqualTo(28.553224233675905));
+                Assert.That(Envelope(realistic), Is.EqualTo(4.896180402042062));
+                Assert.That(Envelope(mid, 0.75), Is.EqualTo(6.260654550067575));
+                Assert.That(Envelope(mid), Is.EqualTo(8.16426556177434));
+                Assert.That(Envelope(mid, 1.50), Is.EqualTo(11.762970854950098));
+                Assert.That(Envelope(mid, 1, literate: true), Is.EqualTo(8.16426556177434));
+                Assert.That(Envelope(punctuated), Is.EqualTo(3.177354181493089));
+                Assert.That(Envelope(punctuated, 1, literate: true), Is.EqualTo(3.5620837044806435));
+                Assert.That(Envelope(punctuated, 1.50, literate: true), Is.EqualTo(4.583755790239398));
             });
         }
 
@@ -664,12 +736,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // "ab," : the same weight written entirely in fixed keys.
             var full = uniformMap(tokens(60, i => letters(i, 2) + ","), wordsPerLine: 6, stepMs, spanMs);
 
-            double freeSr = LyricDifficulty.Compute(free, 1, literate);
-            double fullSr = LyricDifficulty.Compute(full, 1, literate);
+            double freeCells = CellMass(free);
+            double fullCells = CellMass(full);
 
-            TestContext.WriteLine($"step {stepMs} literate {literate}: freestyle {freeSr:0.000000}, all-fixed twin {fullSr:0.000000}");
+            TestContext.WriteLine($"step {stepMs} literate {literate}: freestyle {freeCells:0.000000} cells, all-fixed twin {fullCells:0.000000}");
 
-            Assert.That(freeSr, Is.EqualTo(fullSr));
+            Assert.That(freeCells, Is.EqualTo(fullCells), "four quarter-cells have to weigh exactly one whole one");
         }
 
         /// <summary>
@@ -688,9 +760,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var freestyle = uniformMap(tokens(60, i => letters(i, 1) + new string(marker, 4) + ","), wordsPerLine: 6, stepMs: 400, spanMs: 350);
             var fixedKeys = uniformMap(tokens(60, i => letters(i, 5) + ","), wordsPerLine: 6, stepMs: 400, spanMs: 350);
 
-            double excludedSr = LyricDifficulty.Compute(excluded, 1, literate);
-            double freestyleSr = LyricDifficulty.Compute(freestyle, 1, literate);
-            double fixedSr = LyricDifficulty.Compute(fixedKeys, 1, literate);
+            double excludedSr = Envelope(excluded, 1, literate);
+            double freestyleSr = Envelope(freestyle, 1, literate);
+            double fixedSr = Envelope(fixedKeys, 1, literate);
 
             TestContext.WriteLine($"literate {literate}: excluded (pre-211) {excludedSr:0.000}, quartered {freestyleSr:0.000}, all fixed keys {fixedSr:0.000}");
 
@@ -714,7 +786,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var free = uniformMap(tokens(60, i => letters(i, 1) + new string(marker, 4) + ","), wordsPerLine: 6, stepMs: 400, spanMs: 350);
 
-            Assert.That(LyricDifficulty.Compute(free), Is.EqualTo(2.7463413849647913));
+            Assert.That(Envelope(free), Is.EqualTo(2.7463413849647913));
         }
 
         /// <summary>
@@ -731,8 +803,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(LyricDifficulty.Compute(interleaved), Is.EqualTo(LyricDifficulty.Compute(trailing)));
-                Assert.That(LyricDifficulty.Compute(leading), Is.EqualTo(LyricDifficulty.Compute(trailing)));
+                Assert.That(WithoutTypability(interleaved), Is.EqualTo(WithoutTypability(trailing)));
+                Assert.That(WithoutTypability(leading), Is.EqualTo(WithoutTypability(trailing)));
             });
         }
 
@@ -748,14 +820,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var mashed = uniformMap(tokens(60, _ => new string(marker, 4)), wordsPerLine: 6, stepMs: 400, spanMs: 350);
             var oneKeyWords = uniformMap(tokens(60, _ => "a"), wordsPerLine: 6, stepMs: 400, spanMs: 350);
 
-            double mashedSr = LyricDifficulty.Compute(mashed);
+            double mashedCells = CellMass(mashed);
 
-            TestContext.WriteLine($"all-freestyle map -> {mashedSr:0.000} (it rated exactly 0.00 before backlog 211)");
+            TestContext.WriteLine($"all-freestyle map -> {mashedCells:0.000} cells (it had none at all before backlog 211)");
 
             Assert.Multiple(() =>
             {
-                Assert.That(mashedSr, Is.GreaterThan(0), "before 211 this map had no words in it at all");
-                Assert.That(mashedSr, Is.EqualTo(LyricDifficulty.Compute(oneKeyWords)));
+                Assert.That(mashedCells, Is.GreaterThan(0), "before 211 this map had no words in it at all");
+                Assert.That(mashedCells, Is.EqualTo(CellMass(oneKeyWords)), "a mashable word weighs what the same run of fixed keys weighs");
             });
         }
 

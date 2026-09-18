@@ -104,8 +104,11 @@ namespace typebeat.Game.Database
         /// 52   2026-07-15    type!beat ruleset claimed online ruleset ID 0 (ILegacyRuleset); update rows cached with OnlineID -1.
         /// 53   2026-07-27    Added IntroPoolInclusion to BeatmapUserSettings (song select's "Use on game intro" toggle).
         /// 54   2026-07-31    Added Language to BeatmapMetadata (mapper-declared song language, required for submission).
+        /// 55   2026-09-18    Added AudioGain to BeatmapMetadata (the map's own track gain), filled in
+        ///                    as "no gain change" on every existing row: the column's realm default
+        ///                    (0) would otherwise read as silence for every map already installed.
         /// </summary>
-        private const int schema_version = 54;
+        private const int schema_version = 55;
 
         /// <summary>
         /// Lock object which is held during <see cref="BlockAllOperations"/> sections, blocking realm retrieval during blocking periods.
@@ -1301,6 +1304,18 @@ namespace typebeat.Game.Database
                     // fills with 0 on existing rows, and BeatmapLanguage.Unspecified is 0 by
                     // construction (see BeatmapLanguage.cs), so every pre-existing beatmap already
                     // reads as "language not chosen", which is exactly right. No fix-up needed.
+                    break;
+
+                case 55:
+                    // BeatmapMetadata gained a stored TRACK GAIN (the editor's audio gain bar). Also
+                    // purely additive, and this is the case the language column above does NOT cover:
+                    // a new double column fills with 0, and 0 in this field means SILENCE, so without
+                    // this fix-up every map in the install would come back muted the first time the
+                    // player opened it. The field's own default - no gain change - is what a row that
+                    // predates the column has to read as.
+                    foreach (var metadata in migration.NewRealm.All<BeatmapMetadata>())
+                        metadata.AudioGain = BeatmapMetadata.DEFAULT_AUDIO_GAIN;
+
                     break;
             }
 

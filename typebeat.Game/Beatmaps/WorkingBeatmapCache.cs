@@ -19,6 +19,7 @@ using osu.Framework.Lists;
 using osu.Framework.Logging;
 using osu.Framework.Platform;
 using osu.Framework.Statistics;
+using typebeat.Game.Audio;
 using typebeat.Game.Beatmaps.Formats;
 using typebeat.Game.Database;
 using typebeat.Game.Extensions;
@@ -233,7 +234,9 @@ namespace typebeat.Game.Beatmaps
                 try
                 {
                     string fileStorePath = BeatmapSetInfo.GetPathForFile(Metadata.AudioFile);
-                    var track = resources.Tracks.Get(fileStorePath);
+                    var track = Metadata.AudioGain == BeatmapMetadata.DEFAULT_AUDIO_GAIN
+                        ? resources.Tracks.Get(fileStorePath)
+                        : getGainedTrack(fileStorePath, Metadata.AudioGain);
 
                     if (track == null)
                     {
@@ -247,6 +250,44 @@ namespace typebeat.Game.Beatmaps
                 {
                     Logger.Error(e, "Track failed to load");
                     return null;
+                }
+            }
+
+            /// <summary>
+            /// The map's audio with its own track gain baked in (see
+            /// <see cref="BeatmapMetadata.AudioGain"/>): the song decoded, every sample scaled, anything
+            /// past full scale clamped, and the result handed to the framework as the audio this track
+            /// plays. The file on disk is never touched - the scaling lives in memory for as long as the
+            /// track does (see <see cref="ScaledAudio"/> for what that costs and for why the three
+            /// live-audio routes are not options).
+            ///
+            /// <para>Anything that goes wrong here falls back to the file as imported rather than failing
+            /// the map: a gain is a nice thing to apply, and never a reason to lose a beatmap.</para>
+            /// </summary>
+            private Track? getGainedTrack(string fileStorePath, double gain)
+            {
+                var stopwatch = Stopwatch.StartNew();
+
+                try
+                {
+                    using var audio = GetStream(fileStorePath);
+
+                    if (audio == null)
+                        return resources.Tracks.Get(fileStorePath);
+
+                    byte[]? scaled = ScaledAudio.Apply(audio, gain, out double sourcePeak, out double scaledPeak);
+
+                    if (scaled == null)
+                        return resources.Tracks.Get(fileStorePath);
+
+                    Logger.Log($@"Audio gain {gain:0.##}x applied: peaks {sourcePeak * 100:0}% -> {scaledPeak * 100:0}%, {audio.Length / 1024} KiB -> {scaled.Length / 1024} KiB in memory, decoded in {stopwatch.ElapsedMilliseconds} ms{ (scaledPeak > 1 ? " (clipped)" : string.Empty) }.");
+
+                    return resources.AudioManager!.GetTrackStore(new ScaledAudioStore(scaled, fileStorePath)).Get(fileStorePath);
+                }
+                catch (Exception e)
+                {
+                    Logger.Error(e, $@"Failed to apply the map's audio gain of {gain:0.##}x; playing the file as imported.");
+                    return resources.Tracks.Get(fileStorePath);
                 }
             }
 

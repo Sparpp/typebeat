@@ -888,8 +888,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>
         /// A draggable DOTTED line inside a word block marking one syllable subdivision. Dragging it
-        /// re-times that boundary (clamped inside the word); double-clicking removes it. Added by the
-        /// "subdivide word" action, one per boundary. Sits in the handle layer above the word blocks.
+        /// re-times that boundary (clamped inside the word); double-clicking removes it; ALT/OPTION
+        /// clicking splits the WORD in two at it, consuming the subdivision as the gap between the two
+        /// new words (see <see cref="TypeBeatEditorOperations.SplitWord"/>). Added by the "subdivide
+        /// word" action, one per boundary. Sits in the handle layer above the word blocks.
         /// </summary>
         private partial class SyllableHandle : CompositeDrawable
         {
@@ -1002,6 +1004,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnClick(ClickEvent e)
             {
+                // ALT/OPTION+CLICK turns this subdivision into a WORD BREAK: the characters either
+                // side of it become two words, and the dotted line itself becomes the space between
+                // them. Offered here because the gesture belongs to the handle the mapper is pointing
+                // at, and it is the natural promotion of "this syllable boundary is really a word
+                // boundary". Alt is free on this surface: the compose screen uses it only to SUPPRESS
+                // its typing hotkeys, and no other timeline gesture claims it.
+                if (e.AltPressed && TypeBeatEditorOperations.SplitWord(editorBeatmap, hitObject, unitIndex, boundaryIndex))
+                    return true;
+
                 // Pull selection to this word so the detail panel / subdivide button target it.
                 if (state.ActiveLine.Value != hitObject)
                     state.SelectedLine.Value = hitObject;

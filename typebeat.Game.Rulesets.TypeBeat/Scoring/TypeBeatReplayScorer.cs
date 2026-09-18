@@ -480,10 +480,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // accident costs is not a mod's business either.
             //
             // UnhalvedHardRockWindows (backlog 264, CONFIG frame bit 13) is the ninth, and the first
-            // since bit 8 that is about WINDOWS: the default is the halved ladder every stored Hard
-            // Rock row was graded against, and the bit is set for every live stack, inert wherever
-            // Hard Rock is not on the score. It is the one era bit that IS a mod's business, which is
-            // why it takes a second source below rather than standing on the frame alone.
+            // since bit 8 that is about WINDOWS: the default is the HALVED ladder, the bit is set for
+            // every live stack, and it is inert wherever Hard Rock is not on the score. It is the one
+            // era bit that IS a mod's business, which is why it takes a second source below rather
+            // than standing on the frame alone. What it halves is the ladder as it ships TODAY: this
+            // bit is an era for the halving and not for the constants under it, so a retune of the
+            // single ladder moves both arms together.
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the arms below compose in any order. A replay carries
@@ -493,9 +495,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // EASY IS NOT ERA-DEPENDENT, and deliberately has no switch. It shipped in this release
             // (backlog 149), so no stored row predates it: there is no era in which its arm should
             // be off, and adding a switch would be a dead one that a later reader would have to
-            // prove dead all over again.
+            // prove dead all over again. Both halves of the arm travel together and always have:
+            // the doubled window scale AND the word-level shelter it draws the span rule around
+            // (TypingEngine.WordShelter), so a re-derivation measures each press against the same
+            // span the live run did.
             if (mods.Any(m => m is TypeBeatModEasy))
+            {
                 engine.WindowScale *= TypeBeatModEasy.WINDOW_SCALE;
+                engine.WordShelter = true;
+            }
 
             // HARD ROCK IS THE EXCEPTION, and since backlog 264 it is not a window arm here at all.
             // The halving backlog 150 shipped was retired live (the mod is now the judgement revert

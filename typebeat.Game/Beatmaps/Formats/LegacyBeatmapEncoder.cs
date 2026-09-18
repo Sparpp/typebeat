@@ -147,6 +147,9 @@ namespace typebeat.Game.Beatmaps.Formats
             // type!beat addition (task 58). Written only when the mapper has actually chosen one:
             // an unspecified map emits no line, so every existing beatmap's encoding is unchanged.
             if (beatmap.Metadata.Language != BeatmapLanguage.Unspecified) writer.WriteLine(FormattableString.Invariant($"Language: {beatmap.Metadata.Language.ToCanonicalName()}"));
+            // type!beat addition: the map's own track gain, and only when a mapper has moved the bar
+            // off its default, for the same map-hash reason as the language line above.
+            if (beatmap.Metadata.AudioGain != BeatmapMetadata.DEFAULT_AUDIO_GAIN) writer.WriteLine(FormattableString.Invariant($"AudioGain: {beatmap.Metadata.AudioGain:0.####}"));
             if (beatmap.BeatmapInfo.OnlineID > 0) writer.WriteLine(FormattableString.Invariant($"BeatmapID: {beatmap.BeatmapInfo.OnlineID}"));
             if (beatmap.BeatmapInfo.BeatmapSet?.OnlineID > 0) writer.WriteLine(FormattableString.Invariant($"BeatmapSetID: {beatmap.BeatmapInfo.BeatmapSet.OnlineID}"));
         }

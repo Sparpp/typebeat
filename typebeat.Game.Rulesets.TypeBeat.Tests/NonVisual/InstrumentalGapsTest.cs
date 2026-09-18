@@ -31,7 +31,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>Runs the production decode resolution (BuildLines) then the engine flattening.</summary>
         private static IReadOnlyList<TypingLine> lines(double? songEndMs, params TimingJsonLoader.RawLine[] raws)
             => TimingJsonLoader.BuildLines(raws, songEndMs)
-                               .Select(l => TypingLine.FromLyricLine(l, TimingGranularity.Word))
+                               .Select(l => TypingLine.FromLyricLine(l))
                                .ToList();
 
         [Test]
@@ -203,7 +203,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsNotNull(timing);
             Assert.IsTrue(TimingJsonLoader.TryParse(timing!, out var decoded));
 
-            return decoded.Select(l => TypingLine.FromLyricLine(l, TimingGranularity.Line)).ToList();
+            return decoded.Select(l => TypingLine.FromLyricLine(l)).ToList();
         }
 
         [Test]

@@ -80,52 +80,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     {
         public const double LEAD_IN_MS = 2000;
 
-        /// <summary>
-        /// Aligner word confidence below this judges the word's cells at Line-granularity
-        /// windows: the least reliable timing gets the widest tolerance, never the tightest.
-        /// </summary>
-        public const double LOW_CONFIDENCE_SCORE = 0.15;
-
-        // Base (Line-granularity) window constants: the one tuning point. MILLISECONDS between the
-        // keypress and the cell's TargetTime, late-biased 1.6x on every tier.
+        // ONE LADDER FOR EVERY CELL: the one tuning point. MILLISECONDS between the keypress and the
+        // cell's TargetTime, SYMMETRIC around the target.
         //
-        // Backlog 133 replaced this ladder with a CHARACTER-DISTANCE one in four tiers, and backlog
-        // 147 put it back exactly as it was, three tiers on these six constants. The character axis
-        // measured how far the press was from the character the playhead was on, which capped how
-        // far AHEAD a player could press at a fixed number of characters however slow the map, and
-        // it valued the top tier at 200 where this ladder values it at 300. Both had to go together:
-        // a four-tier millisecond ladder would still have valued every stored row's top tier at 200
-        // where it was submitted at 300.
-        private const double base_great_early = 250;
-        private const double base_great_late = 400;
-        private const double base_ok_early = 600;
-        private const double base_ok_late = 1000;
-        private const double base_meh_early = 1200;
-        private const double base_meh_late = 2000;
-
-        private static readonly SyncWindows line_windows = new SyncWindows(1.0);
-        private static readonly SyncWindows word_windows = new SyncWindows(0.6);
-        private static readonly SyncWindows syllable_windows = new SyncWindows(0.45);
+        // This replaced a three-tier ladder (Line 250/400, Word 150/240, Syllable 112.5/180, all
+        // late-biased 1.6x) that scaled the same six numbers by 1.0 / 0.6 / 0.45 and chose a tier
+        // per cell from the beatmap's granularity, falling back to the widest tier for estimated
+        // lines and low-confidence words. That is gone: the timing data a map carries still varies
+        // (a line may have whole-word spans or author subdivisions), but the JUDGEMENT no longer
+        // does, so unreliable timing buys no extra tolerance and a well-subdivided map is not
+        // judged more tightly than a coarse one. The windows are now symmetric, which retires the
+        // 0.625 early:late ratio the ladder used to share across its tiers.
+        //
+        // A retune of these three numbers is NOT an era: no CONFIG bit records which ladder a run
+        // was graded on, so a stored replay re-derives on the ladder that ships today, exactly as a
+        // scoring change to any other tuning point would. The era bits around it (bit 13's halving,
+        // bit 8's FirstCharTiming) are rules that survive a retune and multiply or narrow whatever
+        // ladder is here.
+        private const double great_window_ms = 150;
+        private const double ok_window_ms = 300;
+        private const double meh_window_ms = 600;
 
         /// <summary>
-        /// The BASE ladder for a granularity: three cached instances, one per tier, and the only
-        /// ones this class keeps. A mod that widens or tightens the windows does NOT get a cache of
-        /// its own here (see <see cref="Scaled"/>).
+        /// The ladder, and the only one: every cell of every map is judged on it, whatever timing
+        /// granularity the map was authored at. A mod that widens or tightens the windows does NOT
+        /// get a cache of its own here (see <see cref="Scaled"/>).
         /// </summary>
-        public static SyncWindows For(TimingGranularity granularity)
-        {
-            switch (granularity)
-            {
-                case TimingGranularity.Word:
-                    return word_windows;
-
-                case TimingGranularity.Syllable:
-                    return syllable_windows;
-
-                default:
-                    return line_windows;
-            }
-        }
+        public static SyncWindows Default { get; } = new SyncWindows(1.0);
 
         public double Scale { get; }
 
@@ -139,12 +120,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private SyncWindows(double scale)
         {
             Scale = scale;
-            GreatEarly = base_great_early * scale;
-            GreatLate = base_great_late * scale;
-            OkEarly = base_ok_early * scale;
-            OkLate = base_ok_late * scale;
-            MehEarly = base_meh_early * scale;
-            MehLate = base_meh_late * scale;
+            GreatEarly = great_window_ms * scale;
+            GreatLate = great_window_ms * scale;
+            OkEarly = ok_window_ms * scale;
+            OkLate = ok_window_ms * scale;
+            MehEarly = meh_window_ms * scale;
+            MehLate = meh_window_ms * scale;
         }
 
         /// <summary>
@@ -154,11 +135,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// mod scaling them by the clock rate, say) multiplies its own factor in on top, so two of
         /// them compose by multiplication instead of one overwriting the other.
         ///
-        /// <para>Every bound is <c>base_constant * Scale</c>, so scaling the ladder is exactly
-        /// constructing it at <c>Scale * factor</c>. That is why there is no second cache keyed by
-        /// granularity AND factor: <see cref="For"/>'s three instances are the LADDER, and a scale
-        /// is a number the ENGINE holds (<c>TypingEngine.WindowScale</c>), applied once when it is
-        /// set rather than per keypress.</para>
+        /// <para>Every bound is <c>window * Scale</c>, so scaling the ladder is exactly constructing
+        /// it at <c>Scale * factor</c>. That is why there is no second cache: <see cref="Default"/>
+        /// is the LADDER, and a scale is a number the ENGINE holds (<c>TypingEngine.WindowScale</c>),
+        /// applied once when it is set rather than per keypress.</para>
         ///
         /// <para>A factor of exactly 1 returns this same instance, so the unmodded path allocates
         /// nothing and keeps grading against the very objects it graded against before the scale
@@ -174,7 +154,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>
         /// Classify a correct keypress's delta (keypress time - cell target time; negative = early).
-        /// Nested asymmetric ranges, tested Great -&gt; Ok -&gt; Meh; outside Meh the sign decides
+        /// Nested ranges, tested Great -&gt; Ok -&gt; Meh; outside Meh the sign decides
         /// Premature (too early) vs Lagging (too late).
         ///
         /// <para>A SPACE never arrives here with a real delta: backlog 148 took the spacebar out of
@@ -198,7 +178,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>
-        /// Asymmetric sync quality in [0, 1]: q = clamp(1 - (delta &lt; 0 ? -delta/MehEarly : delta/MehLate), 0, 1).
+        /// Sync quality in [0, 1]: q = clamp(1 - (delta &lt; 0 ? -delta/MehEarly : delta/MehLate), 0, 1).
+        /// Symmetric with the windows themselves, so the two edges read the same for anyone who
+        /// measures the readout by hand.
         /// </summary>
         public double SyncQuality(double delta)
             => Math.Clamp(1 - (delta < 0 ? -delta / MehEarly : delta / MehLate), 0, 1);

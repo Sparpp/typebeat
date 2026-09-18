@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using osu.Framework.Extensions;
@@ -393,6 +394,16 @@ namespace typebeat.Game.Beatmaps.Formats
                     // newer client can never fail to load here. Absent (every file written before
                     // this key existed) leaves the metadata's own Unspecified default in place.
                     metadata.Language = BeatmapLanguageExtensions.FromCanonicalName(pair.Value);
+                    break;
+
+                case @"AudioGain":
+                    // type!beat addition: the map's own track gain, a linear multiplier. Total like the
+                    // language line above: absent (every file written before this key existed) or
+                    // unparseable leaves the default in place rather than failing the load, and a
+                    // hand-edited value is clamped to what the mixer's amplifier will accept.
+                    if (double.TryParse(pair.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double audioGain))
+                        metadata.AudioGain = Math.Clamp(audioGain, 0, BeatmapMetadata.MAX_AUDIO_GAIN);
+
                     break;
 
                 case @"BeatmapID":

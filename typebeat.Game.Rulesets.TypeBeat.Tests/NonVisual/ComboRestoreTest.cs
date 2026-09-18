@@ -675,10 +675,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// A streak of 3, a typo on cell 3 (snapshotting it), then cell 4 struck 2100 ms late, which
-        /// is off the Line-granularity ladder (MehLate 2000) and so Premature/Lagging, then cell 5
-        /// struck 1700 late, which is still inside it and therefore an ordinary Meh, then the fix.
-        /// The point of the pair is that only cell 4 changes meaning between the two arms.
+        /// A streak of 3, a typo on cell 3 (snapshotting it), then cell 4 struck 700 ms late, which
+        /// is off the one ladder (MehLate 600) and so Lagging, then cell 5 struck 300 late, which is
+        /// still inside it (the Ok edge) and therefore an ordinary Ok, then the fix. The point of
+        /// the pair is that only cell 4 changes meaning between the two arms.
         /// </summary>
         private static (TypingEngine engine, List<int> restored) typoThenAnOffTimePressThenTheFix(OffTimeRule offTime)
         {
@@ -694,8 +694,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             typo(engine, 3); // snapshots the 3 against cell 3
             Assert.That(engine.Combo, Is.Zero);
 
-            Assert.That(engine.ProcessKey(word[4], target(4) + 2100), Is.True); // off the ladder
-            Assert.That(engine.ProcessKey(word[5], target(5) + 1700), Is.True); // still on it: a Meh
+            Assert.That(engine.ProcessKey(word[4], target(4) + 700), Is.True); // off the ladder
+            Assert.That(engine.ProcessKey(word[5], target(5) + 300), Is.True); // still on it: an Ok
 
             fix(engine, 3);
 

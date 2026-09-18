@@ -726,7 +726,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(hitObjects[1].Line.RawText, Is.EqualTo("&&&"));
             Assert.That(hitObjects[1].StartTime, Is.EqualTo(3000));
 
-            var typingLine = Gameplay.TypingLine.FromLyricLine(hitObjects[1].Line, TimingGranularity.Line);
+            var typingLine = Gameplay.TypingLine.FromLyricLine(hitObjects[1].Line);
             Assert.That(typingLine.Cells.Count(c => c.IsFreestyle), Is.EqualTo(3));
         }
 

@@ -35,6 +35,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         private readonly bool syllableTiming;
         private readonly bool charTimedStretch;
         private readonly bool firstCharTiming;
+        private readonly bool wordShelter;
 
         /// <param name="beatmap">The map to perfect.</param>
         /// <param name="literate">
@@ -62,13 +63,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <paramref name="syllableTiming"/> is set, for the same reason
         /// <paramref name="charTimedStretch"/> is.
         /// </param>
-        public TypeBeatAutoGenerator(IBeatmap beatmap, bool literate = false, bool syllableTiming = false, bool charTimedStretch = false, bool firstCharTiming = false)
+        /// <param name="wordShelter">
+        /// Whether the grading engine draws the span rule around the whole WORD rather than the
+        /// syllable (the Easy mod's arm, <see cref="Gameplay.TypingEngine.WordShelter"/>),
+        /// era-styled like the two narrowings and defaulting to OFF. Inert unless
+        /// <paramref name="syllableTiming"/> is set, because a classic engine already presses and
+        /// judges every cell on its point target.
+        /// </param>
+        public TypeBeatAutoGenerator(IBeatmap beatmap, bool literate = false, bool syllableTiming = false, bool charTimedStretch = false, bool firstCharTiming = false, bool wordShelter = false)
             : base(beatmap)
         {
             this.literate = literate;
             this.syllableTiming = syllableTiming;
             this.charTimedStretch = charTimedStretch;
             this.firstCharTiming = firstCharTiming;
+            this.wordShelter = wordShelter;
         }
 
         protected override void GenerateFrames()
@@ -79,13 +88,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             if (lineObjects.Count == 0)
                 return;
 
-            TimingGranularity granularity = lineObjects[0].Granularity;
-
             double lastTime = double.NegativeInfinity;
 
             foreach (var lineObject in lineObjects)
             {
-                var line = TypingLine.FromLyricLine(lineObject.Line, granularity, literate);
+                var line = TypingLine.FromLyricLine(lineObject.Line, literate);
 
                 // The line is typeable in [ActivationTime, EndTime + SealGraceMs); keep a margin
                 // before the deadline so a boundary-pinned target is still pressed while typeable.
@@ -146,6 +153,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// gap was always small enough to stay Great; on a real map it reached the Ok window and
         /// autoplay scored 99.23%.</para>
         ///
+        /// <para>Under <see cref="wordShelter"/> that group is the whole WORD
+        /// (<see cref="WordGroup"/>, the Easy mod's arm) rather than the syllable, so the clamp is
+        /// taken against the word's own span: a press anywhere inside the word judges 0, which is
+        /// what makes a subtimed word's off-syllable target a legal press rather than a Meh.</para>
+        ///
         /// <para>A cell in NO group keeps its point target under both eras, because that is exactly
         /// what the engine keeps judging it on: space cells, lines with no groups, and every cell
         /// of a stylised token the syllabifier refuses (backlog 178). Under
@@ -159,8 +171,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// by up to half a millisecond, which is left alone deliberately: rounding into the span
         /// instead is not always possible (a span shorter than a millisecond, or one whose edges
         /// round to the same integer, has no integral instant inside it at all), and half a
-        /// millisecond against the tightest Great window in the game (112.5 ms, Syllable
-        /// granularity) is not a judgement anyone can lose.</para>
+        /// millisecond against the game's Great window (150 ms, one ladder for every cell) is not
+        /// a judgement anyone can lose.</para>
         /// </summary>
         private double perfectTimeFor(TypingLine line, int cellIndex)
         {
@@ -169,15 +181,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             if (!syllableTiming)
                 return target;
 
-            int syllable = line.SyllableIndexOf(cellIndex);
-
-            if (syllable < 0)
-                return target;
-
             if (charTimedStretch && line.IsCharTimedStretch(cellIndex))
                 return target;
 
-            var group = line.Syllables[syllable];
+            // Same span the engine measures against: the word under Easy's shelter, the syllable
+            // otherwise. Both are read the same way below.
+            int startCell;
+            double startTime, endTime;
+
+            if (wordShelter)
+            {
+                int word = line.WordIndexOf(cellIndex);
+
+                if (word < 0)
+                    return target;
+
+                WordGroup group = line.Words[word];
+                startCell = group.StartCell;
+                startTime = group.StartTime;
+                endTime = group.EndTime;
+            }
+            else
+            {
+                int syllable = line.SyllableIndexOf(cellIndex);
+
+                if (syllable < 0)
+                    return target;
+
+                SyllableGroup group = line.Syllables[syllable];
+                startCell = group.StartCell;
+                startTime = group.StartTime;
+                endTime = group.EndTime;
+            }
 
             // The hybrid era (backlog 247): the group's first cell is judged on distance from the
             // span's start, so the only press that grades 0 is the start itself. The stretch arm
@@ -186,10 +221,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             // off-target press the narrowing prices. Span starts are monotonic across the line
             // (TypingLine clamps them so at construction) and every later cell of the group is
             // clamped to at least this same start, so the generated press times stay monotonic.
-            if (firstCharTiming && cellIndex == group.StartCell)
-                return group.StartTime;
+            if (firstCharTiming && cellIndex == startCell)
+                return startTime;
 
-            return Math.Clamp(target, group.StartTime, group.EndTime);
+            return Math.Clamp(target, startTime, endTime);
         }
     }
 }

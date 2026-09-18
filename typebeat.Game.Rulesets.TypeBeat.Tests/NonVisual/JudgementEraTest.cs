@@ -384,7 +384,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void ThePreScalingEraLeavesARateRunOnTheUnscaledLadder()
         {
             var map = plainMap();
-            var r = replay((500, 'a'), (4500, 'b'), (8500, 'c'));
+            var r = replay((200, 'a'), (4200, 'b'), (8200, 'c'));
             Mod[] doubleTime = { new TypeBeatModDoubleTime { SpeedChange = { Value = 1.5 } } };
 
             var live = TypeBeatReplayScorer.Score(map, doubleTime, r, TypoRule.Deferred, ComboRestoreRule.OnFix);
@@ -396,7 +396,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(count(live, HitResult.Great), Is.EqualTo(3), "1.50x stretches GreatLate to 600");
+                Assert.That(count(live, HitResult.Great), Is.EqualTo(3), "1.50x stretches the Great edge to 225");
                 Assert.That(count(stored, HitResult.Ok), Is.EqualTo(3), "a pre-150 client graded on the base ladder");
                 Assert.That(count(stored, HitResult.Great), Is.Zero);
 
@@ -415,7 +415,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void TheRateEraChangesNothingWithoutARateMod()
         {
             var map = plainMap();
-            var r = replay((500, 'a'), (4500, 'b'), (8500, 'c'));
+            var r = replay((200, 'a'), (4200, 'b'), (8200, 'c'));
 
             var scaled = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
                 SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate);
@@ -735,7 +735,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void EasyIsNotEraDependent()
         {
             var map = plainMap();
-            var r = replay((500, 'a'), (4500, 'b'), (8500, 'c'));
+            var r = replay((200, 'a'), (4200, 'b'), (8200, 'c'));
             Mod[] easy = { new TypeBeatModEasy() };
 
             var live = TypeBeatReplayScorer.Score(map, easy, r, TypoRule.Deferred, ComboRestoreRule.OnFix);
@@ -744,7 +744,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                // Easy doubles the windows, so GreatLate is 800 and 500 late is a Great, era or no era.
+                // Easy doubles the windows, so the Great edge is 300 and 200 late is a Great, era
+                // or no era; WITHOUT the mod the same 200 is outside the 150 edge and reads Ok.
                 Assert.That(count(live, HitResult.Great), Is.EqualTo(3));
                 Assert.That(stored.Statistics, Is.EquivalentTo(live.Statistics));
             });

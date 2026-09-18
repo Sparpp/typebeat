@@ -114,6 +114,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // FletcherEnabled gates every roll it bounds.
                 engine.BoundedRush = frame.BoundedRush;
 
+                // ManualNewlines (bit 14) is the same caret question one step further: with it set a
+                // finished line is NOT handed on by the two time-driven arms, so it waits for the
+                // player's own space or Enter. Re-derived with the bit clear, the keystrokes a player
+                // made AFTER pressing their newline - and the lines they never reached at all - would
+                // land on different cells, so this is applied before a keystroke is fed like every
+                // other era flag here. Inert under a pinned caret, which FletcherEnabled gates.
+                engine.ManualNewlines = frame.ManualNewlines;
+
                 // FlexibleLines (backlog 208) is the one bit here that needs a word more than an
                 // assignment, because the axis it selects has TWO sources. The bit says
                 // "this run was played with the caret unpinned AND snapped forward at each line

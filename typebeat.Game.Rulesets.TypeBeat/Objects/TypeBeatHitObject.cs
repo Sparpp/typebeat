@@ -56,8 +56,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
             base.CreateNestedHitObjects(cancellationToken);
 
             // The engine's flattening (TypingLine.FromLyricLine) is the single source of truth for
-            // per-cell target times and judge tiers; the nested objects mirror its typeable cells.
-            var typingLine = TypingLine.FromLyricLine(Line, Granularity, Literate);
+            // per-cell target times; the nested objects mirror its typeable cells.
+            var typingLine = TypingLine.FromLyricLine(Line, Literate);
 
             for (int i = 0; i < typingLine.Cells.Count; i++)
             {
@@ -74,7 +74,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
                     LineIndex = LineIndex,
                     CellIndex = i,
                     Expected = cell.Expected,
-                    JudgeGranularity = cell.JudgeGranularity,
                 });
             }
         }

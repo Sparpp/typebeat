@@ -90,7 +90,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static IReadOnlyList<double> lineZeroTargets(IBeatmap map)
         {
             var line = ((TypeBeatHitObject)map.HitObjects[0]).Line;
-            return TypingLine.FromLyricLine(line, TimingGranularity.Line, false).Cells.Select(c => c.TargetTime).ToList();
+            return TypingLine.FromLyricLine(line).Cells.Select(c => c.TargetTime).ToList();
         }
 
         private static Replay replay(IEnumerable<TypeBeatReplayFrame> frames)
@@ -151,10 +151,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// The four presses that spell "cake" in one flurry near the top of the syllable: on the
-        /// beat, then 300, 550 and 900 milliseconds AHEAD of each following cell's point target,
-        /// and all four inside the sung span. <paramref name="flags"/> is the CONFIG frame's flags
-        /// word, taken through the LEGACY DECODE so the era arm is the one a stored .osr really
-        /// produces rather than one the test constructs.
+        /// beat, then 300, 450 and 300 milliseconds AHEAD of each following cell's point target,
+        /// and all four inside the sung span. Every delta is inside the one ladder's Meh edge (600
+        /// on either side), so every press resolves and the MIX is what the legacy arm is read from:
+        /// 0 is a Great, 300 early is an Ok (the Great edge is 150) and 450 early is a Meh (the Ok
+        /// edge is 300). <paramref name="flags"/> is the CONFIG frame's flags word, taken through the
+        /// LEGACY DECODE so the era arm is the one a stored .osr really produces rather than one the
+        /// test constructs.
         /// </summary>
         private static Replay cakeRun(int flags)
         {
@@ -166,9 +169,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 config,
                 new TypeBeatReplayFrame(1000, 'c'), // target 1000: delta 0 under either rule
-                new TypeBeatReplayFrame(1200, 'a'), // target 1500: 300 early
-                new TypeBeatReplayFrame(1450, 'k'), // target 2000: 550 early
-                new TypeBeatReplayFrame(1600, 'e'), // target 2500: 900 early
+                new TypeBeatReplayFrame(1200, 'a'), // target 1500: 300 early, the Ok edge
+                new TypeBeatReplayFrame(1550, 'k'), // target 2000: 450 early, a Meh
+                new TypeBeatReplayFrame(2200, 'e'), // target 2500: 300 early, an Ok
             });
         }
 
@@ -218,7 +221,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private static IReadOnlyList<double> targetsOf(IBeatmap map, int lineIndex)
         {
             var line = ((TypeBeatHitObject)map.HitObjects[lineIndex]).Line;
-            return TypingLine.FromLyricLine(line, TimingGranularity.Line, false).Cells.Select(c => c.TargetTime).ToList();
+            return TypingLine.FromLyricLine(line).Cells.Select(c => c.TargetTime).ToList();
         }
 
         /// <summary>
@@ -1395,19 +1398,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The other side of the same seam, and the reason stored rows are safe: the SAME four
-        /// keystrokes, re-derived from a replay whose flags word is one of the four that existed
-        /// before backlog 179, are classified by point deltas exactly as they always were. 0 is a
-        /// Great, 300 and 550 early are Oks (the Line tier's Great window is 250 early), 900 early
-        /// is a Meh (its Ok window is 600 early), so the run is worth less than an SS and its
-        /// accuracy is below 1. Bit 2 is absent from every one of those words, and absent means
-        /// classic.
+        /// The other side of the same seam: the SAME four keystrokes, re-derived from a replay whose
+        /// flags word is one of the four that existed before backlog 179, are classified by POINT
+        /// deltas -- each against its own cell's target -- rather than against the sung span, which
+        /// is what bit 2 clear means and what a row stored before that backlog was graded on. Read
+        /// against the CELL's own point target it is worth less than an SS and its accuracy is below
+        /// 1: 0 is a Great, 300 and 300 early are Oks (the Ok edge), 450 early is a Meh.
+        ///
+        /// <para>The MIX is what this pins, and deliberately not the ladder's constants: the window
+        /// ladder is one tuning point that a retune moves for every arm at once (the three-tier
+        /// Line/Word/Syllable ladder this fixture was first written against is gone), so the numbers
+        /// below track the shipped ladder while the point-vs-span split stays the era's.</para>
         /// </summary>
         [TestCase(0)]
         [TestCase(1)]
         [TestCase(2)]
         [TestCase(3)]
-        public void ALegacyFlagsWordReDerivesOnPointDeltasExactlyAsBefore(int storedFlags)
+        public void ALegacyFlagsWordReDerivesOnPointDeltas(int storedFlags)
         {
             var account = score(cake(), cakeRun(storedFlags), TypoRule.Deferred);
 
@@ -1474,10 +1481,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// A Hard Rock run on the "cake" fixture, as recorded frames. Four presses, every one inside
-        /// the sung span [1000, 3000] and every one off its own point target (1000/1500/2000/2500),
-        /// so the point deltas are 300, 600, 900 and 450. <paramref name="unhalved"/> is the CONFIG
-        /// frame's bit 13, taken through the LEGACY decode with the caret, space and gap-typo bits a
-        /// live stack records, so the era arm is the one a stored .osr really produces.
+        /// the sung span [1000, 3000] and every one a fixed distance LATE of its own point target
+        /// (1000/1500/2000/2500), so the point deltas are 100, 200, 250 and 290 -- all inside the
+        /// HALVED ladder's Meh edge (300), which is what lets the same four presses read differently
+        /// under the two ladders instead of falling off the shorter one.
+        /// <paramref name="unhalved"/> is the CONFIG frame's bit 13, taken through the LEGACY decode
+        /// with the caret, space and gap-typo bits a live stack records, so the era arm is the one a
+        /// stored .osr really produces.
         ///
         /// <para>Bit 2 is CLEAR under both arms, because that is what an HR run has recorded since
         /// backlog 180: the mod judges on point targets, which is the half backlog 264 kept.</para>
@@ -1502,10 +1512,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return replay(new List<TypeBeatReplayFrame>
             {
                 config,
-                new TypeBeatReplayFrame(1300, 'c'), // target 1000: 300 late
-                new TypeBeatReplayFrame(2100, 'a'), // target 1500: 600 late
-                new TypeBeatReplayFrame(2900, 'k'), // target 2000: 900 late
-                new TypeBeatReplayFrame(2950, 'e'), // target 2500: 450 late
+                new TypeBeatReplayFrame(1100, 'c'), // target 1000: 100 late
+                new TypeBeatReplayFrame(1700, 'a'), // target 1500: 200 late
+                new TypeBeatReplayFrame(2250, 'k'), // target 2000: 250 late
+                new TypeBeatReplayFrame(2790, 'e'), // target 2500: 290 late
             });
         }
 
@@ -1514,14 +1524,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// 150 halved every window under Hard Rock and backlog 264 retired that live, so the ladder a
         /// re-derivation gets cannot come from the acronym: it comes from the run's own header.
         ///
-        /// <para>Stored (bit 13 clear, the halved ladder: Great [-125, 200], Ok [-300, 500],
-        /// Meh [-600, 1000]): 300 is an Ok, 600 and 900 are Mehs, 450 is an Ok. Live (bit 13 set, the
-        /// normal ladder: Great [-250, 400], Ok [-600, 1000]): 300 is a Great and the other three are
-        /// Oks. Two accounts of the same four presses, and the frame is the only thing that tells
-        /// them apart.</para>
+        /// <para>Stored (bit 13 clear, the halved ladder: Great +/-75, Ok +/-150, Meh +/-300): 100
+        /// is an Ok and the other three are Mehs. Live (bit 13 set, the normal ladder: Great +/-150,
+        /// Ok +/-300, Meh +/-600): 100 is a Great and the other three are Oks. Two accounts of the
+        /// same four presses, and the frame is the only thing that tells them apart.</para>
+        ///
+        /// <para>The era is the HALVING, not the six constants it multiplies: the ladder itself is
+        /// one tuning point, so a retune moves both arms together and a stored row re-derives on the
+        /// shipped windows halved rather than on the constants that happened to ship with it.</para>
         /// </summary>
         [Test]
-        public void AStoredHardRockRunKeepsItsHalvedLadderAndALiveOneJudgesAtNormalWindows()
+        public void AStoredHardRockRunIsJudgedOnTheHalvedLadderAndALiveOneAtNormalWindows()
         {
             Mod[] hardRock = { new TypeBeatModHardRock() };
 
@@ -1531,11 +1544,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(count(stored, HitResult.Great), Is.Zero);
-                Assert.That(count(stored, HitResult.Ok), Is.EqualTo(2));
-                Assert.That(count(stored, HitResult.Meh), Is.EqualTo(2));
+                Assert.That(count(stored, HitResult.Ok), Is.EqualTo(1));
+                Assert.That(count(stored, HitResult.Meh), Is.EqualTo(3));
                 Assert.That(count(stored, HitResult.Miss), Is.Zero);
-                // 100 + 100 + 50 + 50 out of 4 * 300, the osu weights the four results carry.
-                Assert.That(stored.Accuracy, Is.EqualTo(300 / 1200.0).Within(1e-9));
+                // 100 + 50 + 50 + 50 out of 4 * 300, the osu weights the four results carry.
+                Assert.That(stored.Accuracy, Is.EqualTo(250 / 1200.0).Within(1e-9));
 
                 Assert.That(count(live, HitResult.Great), Is.EqualTo(1));
                 Assert.That(count(live, HitResult.Ok), Is.EqualTo(3));

@@ -301,6 +301,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// BIT 14 (value 16384): a finished line was handed over by the player's own space or Enter
+        /// rather than automatically. The same legacy round trip and the same append-only statement
+        /// every era bit before it makes, and it makes the caret one exactly like bits 5 and 7 do:
+        /// re-derived under the wrong arm, every keystroke after a finished line lands on a different
+        /// cell, so a stored run has to say which arm it was played with.
+        /// </summary>
+        [Test]
+        public void ManualNewlinesIsBitFourteenAndLeavesEveryOlderBitWhereItWas()
+        {
+            var legacy = TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: false, manualNewlines: true).ToLegacy(dummy_beatmap);
+
+            Assert.AreEqual(16384f, legacy.MouseY, "bit 14 is 16384 and nothing else may be set");
+            Assert.AreEqual(0f, legacy.MouseX, "a CONFIG frame's MouseX is still the NUL sentinel");
+
+            var decoded = new TypeBeatReplayFrame();
+            decoded.FromLegacy(legacy, dummy_beatmap);
+
+            Assert.IsTrue(decoded.ManualNewlines);
+            Assert.IsFalse(decoded.AllowWrongInput);
+            Assert.IsFalse(decoded.BoundedRush);
+            Assert.IsFalse(decoded.UnhalvedHardRockWindows);
+            Assert.IsFalse(decoded.FoldsDisplacedClaim);
+
+            // Every word a stored replay can carry: the new bit reads false and no older bit moves.
+            foreach (int flags in new[] { 0, 1, 4, 256, 509, 511, 512, 1024, 1533, 2047, 2048, 3581, 4095, 4096, 7677, 8191, 15869, 16383 })
+            {
+                var stored = new TypeBeatReplayFrame();
+                stored.FromLegacy(new LegacyReplayFrame(0, (float)TypeBeatReplayFrame.CONFIG, flags, ReplayButtonState.None), dummy_beatmap);
+
+                Assert.IsFalse(stored.ManualNewlines, $"a stored replay with flags {flags} was played with the automatic hand-over");
+                Assert.AreEqual((flags & 1) != 0, stored.AllowWrongInput);
+                Assert.AreEqual((flags & 8192) != 0, stored.UnhalvedHardRockWindows);
+                Assert.AreEqual((flags & 128) != 0, stored.BoundedRush);
+            }
+
+            // The two live-era bits together: the word a stack with the setting ON writes today.
+            Assert.AreEqual(16384f + 15869f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true, boundedRush: true, firstCharTiming: true, backDatedSealBreak: true, losslessSkipReclaim: true, foldsDisplacedClaim: true, unhalvedHardRockWindows: true, manualNewlines: true).ToLegacy(dummy_beatmap).MouseY);
+        }
+
+        /// <summary>
         /// BIT 13 (backlog 264, value 8192): this run's Hard Rock left the judgement windows at their
         /// normal width. The same legacy round trip and the same append-only statement every era bit
         /// before it makes, and the sharpest reason yet for making it: every Hard Rock row already on

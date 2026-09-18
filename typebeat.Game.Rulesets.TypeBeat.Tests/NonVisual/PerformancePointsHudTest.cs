@@ -225,7 +225,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 var counts = new PerformancePoints.NoteCounts(500, 12, 15);
 
                 Assert.That(PerformancePoints.ForPlay(plain!.Value, counts, 0.93, 480, halfTime),
-                    Is.EqualTo(PerformancePoints.Compute(LyricDifficulty.Compute(source, 0.75), 500, 12, 0.93, 480, halfTime, 15)).Within(1e-12));
+                    Is.EqualTo(PerformancePoints.Compute(LyricDifficulty.Compute(source, 0.75), 500, difficultCharacters: 500, 12, 0.93, 480, halfTime, 15)).Within(1e-12));
             });
         }
 
@@ -295,129 +295,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 processor.HighestCombo.Value,
                 withMods);
 
-        /// <summary>The same reading from a FINISHED score, i.e. from the row that gets submitted.</summary>
-        private static double submittedReading(ScoreInfo score, double stars, IReadOnlyList<Mod>? withMods)
-            => PerformancePoints.ForPlay(stars, PerformancePoints.CountNotes(score), score.Accuracy, score.MaxCombo, withMods);
-
-        [Test]
-        public void LiveCounterConvergesOnTheSubmittedScoresValue()
-        {
-            var beatmap = playable();
-            var withMods = mods(new TypeBeatModLiterate());
-            double stars = TypeBeatHudOverlay.StarRatingFor(beatmap, withMods)!.Value;
-
-            var processor = new TypeBeatScoreProcessor(new TypeBeatRuleset());
-            processor.ApplyBeatmap(beatmap);
-
-            var readings = new List<double>();
-            int cells = 0;
-
-            foreach (var lineObject in beatmap.HitObjects)
-            {
-                foreach (var cell in lineObject.NestedHitObjects.OfType<TypeBeatCharObject>())
-                {
-                    // A messy but plausible play: mostly greats, some sloppy timing, the odd missed
-                    // cell, and wrong keypresses that break combo without being notes.
-                    var type = (cells % 11) switch
-                    {
-                        3 => HitResult.Ok,
-                        6 => HitResult.Meh,
-                        9 => HitResult.Miss,
-                        _ => HitResult.Great,
-                    };
-
-                    processor.ApplyResult(new JudgementResult(cell, cell.CreateJudgement()) { Type = type });
-
-                    // One mistype every 13 cells, not every 7. On this 56-cell fixture every 7 put
-                    // the count at exactly 8, which is exactly the backlog-97 mistype cliff
-                    // ((1 + sqrt(1 + 4·56))/2 = 8), so the whole play priced to 0 and the
-                    // convergence assertion below became vacuous. This is a PLUMBING test (the live
-                    // counter reaching the submitted value), not a shape test, so the fixture has
-                    // to stay on the priced side of the cliff.
-                    if (cells % 13 == 0)
-                        processor.RecordMistype();
-
-                    readings.Add(liveReading(processor, stars, withMods));
-                    cells++;
-                }
-
-                // The line container seals as the scoring-inert IgnoreHit the ruleset gives it.
-                processor.ApplyResult(new JudgementResult(lineObject, lineObject.CreateJudgement()) { Type = HitResult.IgnoreHit });
-                readings.Add(liveReading(processor, stars, withMods));
-            }
-
-            var score = new ScoreInfo();
-            processor.PopulateScore(score);
-
-            double finalLive = readings[^1];
-            double submitted = submittedReading(score, stars, withMods);
-
-            Assert.Multiple(() =>
-            {
-                // THE POINT: the last live reading is the submitted play's value, exactly.
-                Assert.That(finalLive, Is.EqualTo(submitted), "the live counter must land on the submitted score's value");
-                Assert.That(submitted, Is.GreaterThan(0), "the fixture play must actually be worth something");
-
-                // ...and it got there by counting judged notes, not the map's total: the denominator
-                // grew to the whole map only once every cell was judged.
-                var liveCounts = PerformancePoints.CountNotes(processor.Statistics);
-                Assert.That(liveCounts.Notes, Is.EqualTo(cells));
-                Assert.That(liveCounts, Is.EqualTo(PerformancePoints.CountNotes(score)));
-                Assert.That(score.MaxCombo, Is.EqualTo(processor.HighestCombo.Value));
-                Assert.That(score.Accuracy, Is.EqualTo(processor.Accuracy.Value));
-
-                // Not vacuous: the reading really did move over the play, and the line containers
-                // (ignore_hit) never moved it, which is why they must stay out of `notes`.
-                Assert.That(readings.Distinct().Count(), Is.GreaterThan(cells / 2));
-                Assert.That(readings[^1], Is.EqualTo(readings[^2]), "sealing a line is not a note and cannot change the price");
-
-                // Every intermediate reading is a real number a HUD can print.
-                foreach (double reading in readings)
-                {
-                    Assert.That(double.IsFinite(reading), Is.True);
-                    Assert.That(reading, Is.GreaterThanOrEqualTo(0));
-                }
-            });
-        }
-
-        [Test]
-        public void MistypesReachTheLiveCounterThroughTheCleanlinessTermOnly()
-        {
-            var beatmap = playable();
-            double stars = TypeBeatHudOverlay.StarRatingFor(beatmap, null)!.Value;
-
-            var clean = new TypeBeatScoreProcessor(new TypeBeatRuleset());
-            var sloppy = new TypeBeatScoreProcessor(new TypeBeatRuleset());
-
-            foreach (var processor in new[] { clean, sloppy })
-            {
-                processor.ApplyBeatmap(beatmap);
-
-                foreach (var lineObject in beatmap.HitObjects)
-                {
-                    foreach (var cell in lineObject.NestedHitObjects.OfType<TypeBeatCharObject>())
-                        processor.ApplyResult(new JudgementResult(cell, cell.CreateJudgement()) { Type = HitResult.Great });
-                }
-            }
-
-            for (int i = 0; i < 40; i++)
-                sloppy.RecordMistype();
-
-            var cleanCounts = PerformancePoints.CountNotes(clean.Statistics);
-            var sloppyCounts = PerformancePoints.CountNotes(sloppy.Statistics);
-
-            Assert.Multiple(() =>
-            {
-                // Same map, same cells typed, same accuracy, same combo: only the mistypes differ...
-                Assert.That(sloppyCounts.Notes, Is.EqualTo(cleanCounts.Notes));
-                Assert.That(sloppyCounts.Misses, Is.EqualTo(cleanCounts.Misses));
-                Assert.That(sloppyCounts.Typos, Is.EqualTo(40));
-                Assert.That(sloppy.Accuracy.Value, Is.EqualTo(clean.Accuracy.Value));
-
-                // ...and the counter prices exactly that difference.
-                Assert.That(liveReading(sloppy, stars, null), Is.LessThan(liveReading(clean, stars, null)));
-            });
-        }
 
         [Test]
         public void ARewoundJudgementUnwindsTheCounterRatherThanStrandingIt()

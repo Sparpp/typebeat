@@ -11,6 +11,7 @@ using osu.Framework.Graphics.Audio;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Input.Events;
+using typebeat.Game.Audio.Effects;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
@@ -87,6 +88,16 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
         private float defaultTimelineZoom;
 
         private WaveformGraph waveform = null!;
+
+        /// <summary>
+        /// The waveform as the map will SOUND (see <see cref="updateWaveformGain"/>): the same peaks,
+        /// scaled by the map's own gain. Its container clips, which is the point rather than a detail -
+        /// a peak the amplifier pushes past full scale is drawn flat against the edge instead of
+        /// running off the timeline, so a gain that clips is legible here before it is audible.
+        /// </summary>
+        private Container waveformClip = null!;
+
+        private double appliedWaveformGain = -1;
 
         private TimelineTickDisplay ticks = null!;
 
@@ -192,13 +203,23 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
                     Height = timeline_height,
                     Children = new[]
                     {
-                        waveform = new WaveformGraph
+                        waveformClip = new Container
                         {
                             RelativeSizeAxes = Axes.Both,
-                            BaseColour = colours.Blue.Opacity(0.2f),
-                            LowColour = colours.BlueLighter,
-                            MidColour = colours.BlueDark,
-                            HighColour = colours.BlueDarker,
+                            Masking = true,
+                            Child = waveform = new WaveformGraph
+                            {
+                                RelativeSizeAxes = Axes.Both,
+                                // Scalings happen about the graph's VERTICAL CENTRE, because that is where
+                                // the waveform is drawn from: a gain has to grow it both ways, not just
+                                // downwards.
+                                Anchor = Anchor.Centre,
+                                Origin = Anchor.Centre,
+                                BaseColour = colours.Blue.Opacity(0.2f),
+                                LowColour = colours.BlueLighter,
+                                MidColour = colours.BlueDark,
+                                HighColour = colours.BlueDarker,
+                            },
                         },
                         centreMarker.CreateProxy(),
                         ticks.CreateProxy(),
@@ -221,6 +242,27 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
         {
             waveform.Waveform = beatmap.Value.Waveform;
             Scheduler.AddOnce(applyVisualOffset, beatmap);
+        }
+
+        /// <summary>
+        /// Draws the waveform AT THE GAIN THE MAP WILL PLAY AT (see
+        /// <see cref="BeatmapMetadata.AudioGain"/> and <see cref="Audio.Effects.AudioGain"/>), so the
+        /// peaks on the timeline are the peaks the player will hear rather than the ones inside the
+        /// audio file: a mapper raising the gain can watch the take get louder and see where it starts
+        /// running past the top, which is the same reading the gain bar's own indicator gives them in
+        /// words. Honest about its limits: this is a vertical scale of the same analysis, so what it
+        /// shows past the edges is clipped because the amplifier clips it, not because the waveform was
+        /// re-measured after the boost.
+        /// </summary>
+        private void updateWaveformGain()
+        {
+            double gain = beatmap.Value?.Metadata.AudioGain ?? BeatmapMetadata.DEFAULT_AUDIO_GAIN;
+
+            if (gain == appliedWaveformGain)
+                return;
+
+            appliedWaveformGain = gain;
+            waveform.Scale = new Vector2(1, (float)gain);
         }
 
         private void applyVisualOffset(IBindable<WorkingBeatmap> beatmap)
@@ -267,6 +309,10 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
             // This needs to happen after transforms are updated, but before the scroll position is updated in base.UpdateAfterChildren
             if (editorClock.IsRunning)
                 scrollToTrackTime();
+
+            // Read every frame rather than bound: the gain is a plain value on the beatmap's metadata,
+            // which the mapper moves from the setup screen, so the timeline follows the bar live.
+            updateWaveformGain();
 
             if (editorClock.TrackLength != trackLengthForZoom)
             {

@@ -82,6 +82,44 @@ namespace typebeat.Game.Beatmaps
         /// </summary>
         public int PreviewTime { get; set; } = -1;
 
+        /// <summary>
+        /// No gain change: the song exactly as the mapper imported it.
+        /// </summary>
+        public const double DEFAULT_AUDIO_GAIN = 1;
+
+        /// <summary>
+        /// The most gain a map may ask for, as a linear multiplier (4 = +12 dB).
+        /// </summary>
+        public const double MAX_AUDIO_GAIN = 4;
+
+        /// <summary>
+        /// The map's own TRACK GAIN, as a linear multiplier: <see cref="DEFAULT_AUDIO_GAIN"/> is the
+        /// song exactly as it was imported, 2 is twice the amplitude (+6 dB), 0.5 half of it (-6 dB).
+        /// Chosen with the bar under the audio track picker in the editor's setup screen, and applied
+        /// wherever the map's track plays.
+        /// </summary>
+        /// <remarks>
+        /// A GAIN and not a volume, and the difference is the whole reason the field exists: the
+        /// audio stack's volume is capped at full scale (<c>AdjustableAudioComponent.Volume</c> and
+        /// its aggregate are both limited to 0..1), so a quietly mastered song cannot be turned up by
+        /// volume at all - it is already played at 1. A value above the default is applied as a real
+        /// amplifier on the track mixer instead (<see cref="Audio.Effects.AudioGain"/>), which is the
+        /// one place the signal may be scaled past its own level; the cost is that a map boosted past
+        /// what its samples can hold clips, which is the mapper's call and why the bar is a choice and
+        /// not an automatic normalisation.
+        ///
+        /// <para>Stored as <c>[Metadata] AudioGain:</c> and only written when it is not the default, so
+        /// every map that never touches the bar still encodes byte for byte as it did. Values are
+        /// clamped to [0, <see cref="MAX_AUDIO_GAIN"/>] on read (see <c>LegacyBeatmapDecoder</c>), so a
+        /// hand-edited file cannot ask for an amplifier that eats the mix.</para>
+        ///
+        /// <para>Deliberately not on <see cref="IBeatmapMetadataInfo"/> for the reason
+        /// <see cref="Language"/> is not: that interface is the display/search contract shared with the
+        /// API response models, and widening its default equality would change what counts as a
+        /// metadata difference across the whole game.</para>
+        /// </remarks>
+        public double AudioGain { get; set; } = DEFAULT_AUDIO_GAIN;
+
         public string AudioFile { get; set; } = string.Empty;
         public string BackgroundFile { get; set; } = string.Empty;
 
@@ -109,6 +147,7 @@ namespace typebeat.Game.Beatmaps
             Tags = Tags,
             Language = Language,
             PreviewTime = PreviewTime,
+            AudioGain = AudioGain,
             AudioFile = AudioFile,
             BackgroundFile = BackgroundFile
         };

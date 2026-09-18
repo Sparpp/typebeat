@@ -15,9 +15,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// <summary>
     /// The ruleset's own settings section (titled "type!beat"): the two monkeytype-style head choices
     /// (typing caret and song playhead, kept adjacent so the pair reads as a pair), the physical
-    /// keyboard layout and the typing surface's look. Everything here is settled and cosmetic or
-    /// input shaped; the settings still on trial (the two spacebar behaviours and the local
-    /// auto-aligner) moved to <see cref="TypeBeatExperimentalSettingsSubsection"/>.
+    /// keyboard layout and the typing surface's look, and the typing behaviours that have settled -
+    /// space to skip a word, manual newlines, the space error dot and the syllable markers. Those four
+    /// moved here OUT of <see cref="TypeBeatExperimentalSettingsSubsection"/> once they were no longer
+    /// on trial, and the move is of the CONTROLS and not of the settings: Realm keys the stored rows
+    /// by enum member name, so every value a player already has reads exactly as it did. The settings
+    /// still on trial (the sync metric and the local auto-aligner) stay in Experimental.
     /// (LyricOffsetMs/LyricLabPath surfacing remains deferred to M7.)
     /// </summary>
     public partial class TypeBeatSettingsSubsection : RulesetSettingsSubsection
@@ -51,11 +54,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         [BackgroundDependencyLoader]
         private void load()
         {
-            var config = (TypeBeatRulesetConfigManager)Config;
+            Children = BuildControls((TypeBeatRulesetConfigManager)Config);
+        }
 
+        /// <summary>
+        /// Builds this subsection's controls against an explicitly supplied config, rather than
+        /// reading <see cref="RulesetSettingsSubsection.Config"/> directly, so a headless test can pin
+        /// the set of controls - and the order they appear in - without standing up a game host to run
+        /// the dependency loader. That is the same seam
+        /// <see cref="TypeBeatExperimentalSettingsSubsection.BuildControls"/> offers, and it covers the
+        /// typing font too: <see cref="fontManager"/> is resolved CanBeNull, so an absent one simply
+        /// contributes no extra faces.
+        /// </summary>
+        internal Drawable[] BuildControls(TypeBeatRulesetConfigManager config)
+        {
             var lyricFont = config.GetBindable<string>(TypeBeatRulesetSetting.LyricFont);
 
-            Children = new Drawable[]
+            return new Drawable[]
             {
                 // A plain SettingsDropdown, not a SettingsEnumDropdown: the enum one lists EVERY
                 // member, and CaretStyle.None is not a shape the typing caret can wear (it means "no
@@ -81,6 +96,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     LabelText = "Keyboard layout",
                     Current = config.GetBindable<KeyboardLayout>(TypeBeatRulesetSetting.KeyboardLayout),
                 },
+                // The two settings that change what the KEYS do, next to the layout that decides which
+                // keys they are. Both had been on trial in Settings > Experimental (see the note on
+                // this class); nothing but the control moved.
+                new SettingsCheckbox
+                {
+                    LabelText = "Space to skip current word",
+                    TooltipText = "Press space in the middle of a word to give up on it and jump to the next one. Everything you had not typed of that word counts as a miss, so one bad character costs a word instead of your whole run. Applies from the next play.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.SpaceSkipsWord),
+                },
+                new SettingsCheckbox
+                {
+                    LabelText = "Manual newlines",
+                    TooltipText = "Finish a line yourself: once its last character is typed, press space (at the end of the line) or enter to move on to the next one. Without it a finished line hands you over as soon as the next line is nearly due. You are never left behind - the song still takes you to the next line if you do not press, and a press made before the next line is nearly due is simply refused. Applies from the next play.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ManualNewlines),
+                },
                 new SettingsSlider<float>
                 {
                     LabelText = "Lyric line spacing",
@@ -93,6 +123,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     TooltipText = "Font for the gameplay lyric text only (the rest of the UI is unchanged). OpenDyslexic is bundled; you can also pick any installed system font. Applies from the next play.",
                     Items = buildFontItems(lyricFont.Value),
                     Current = lyricFont,
+                },
+                // And the two marks the line itself can carry, display only.
+                new SettingsCheckbox
+                {
+                    LabelText = "Use space error dot",
+                    TooltipText = "Mark a word you left with an error in it: once you space on past it, a small red dot appears in the gap after that word. Display only, nothing about your score or your judgements changes.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.UseSpaceErrorDot),
+                },
+                new SettingsCheckbox
+                {
+                    LabelText = "Show syllable markers",
+                    TooltipText = "Mark the syllable boundaries inside a word the mapper timed syllable by syllable: a tiny triangle sits in the gap between the last character of one syllable and the first of the next, so you can see the subdivision coming. Display only, nothing about your score or your judgements changes.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyllableMarkers),
                 },
             };
         }

@@ -160,9 +160,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void RealDeltasRankTheWayThePlayerWouldExpect()
         {
-            // Built the way gameplay builds it: the cell's window tier, then the same asymmetric
-            // quality the results screen's sync percent is summed from.
-            var windows = SyncWindows.For(TimingGranularity.Word);
+            // Built the way gameplay builds it: the one ladder, then the same quality the results
+            // screen's sync percent is summed from.
+            var windows = SyncWindows.Default;
 
             var deadOn = tint(windows.SyncQuality(0));
             var okEdge = tint(windows.SyncQuality(windows.OkLate));
@@ -182,29 +182,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void TheRampIsAsymmetricJustAsJudgementIs()
+        public void TheRampIsSymmetricJustAsJudgementIs()
         {
-            // Late tolerance is wider than early tolerance, so the same magnitude of error is
-            // punished harder when the player rushes than when they drag. The tint inherits that
-            // from SyncQuality rather than restating it.
-            var windows = SyncWindows.For(TimingGranularity.Syllable);
+            // The ladder is symmetric on every tier (the 1.6x late bias is retired), so the tint is
+            // too: the same magnitude of error reads the same whichever side of the target it fell
+            // on. The tint inherits that from SyncQuality rather than restating it.
+            var windows = SyncWindows.Default;
             double offset = windows.MehEarly * 0.5;
 
-            assertBrighterThan(tint(windows.SyncQuality(offset)), tint(windows.SyncQuality(-offset)),
+            Assert.That(windows.GreatEarly, Is.EqualTo(windows.GreatLate));
+            Assert.That(windows.OkEarly, Is.EqualTo(windows.OkLate));
+            Assert.That(windows.MehEarly, Is.EqualTo(windows.MehLate));
+
+            Assert.That(tint(windows.SyncQuality(offset)), Is.EqualTo(tint(windows.SyncQuality(-offset))),
                 "the same error late vs early");
+
+            assertBrighterThan(tint(windows.SyncQuality(0)), tint(windows.SyncQuality(offset)),
+                "dead on vs half the Meh window");
         }
 
         [Test]
-        public void ATighterWindowTierPunishesTheSameDeltaHarder()
+        public void TheTintReadsTheOneLadderWhateverTheMapWasAuthoredAt()
         {
-            // Estimated lines and low-confidence words are judged at the widest (Line) tier, so the
-            // same delta must leave a brighter char there than on a syllable-timed map. Free, because
-            // the tint reads the cell's own JudgeGranularity.
+            // ONE ladder for every cell, whatever timing granularity the map was authored at (the
+            // granularity tier selection is gone; TypingEngineTest.WindowBoundariesClassifyExactly
+            // owns that pin). So there is exactly one quality per delta and the tint can never
+            // disagree with the judgement that awarded the char: the ramp's floor sits on BOTH Meh
+            // edges, and the same delta is the same colour on either side.
             const double delta = 300;
+            var windows = SyncWindows.Default;
 
-            assertBrighterThan(tint(SyncWindows.For(TimingGranularity.Line).SyncQuality(delta)),
-                tint(SyncWindows.For(TimingGranularity.Syllable).SyncQuality(delta)),
-                "Line tier vs Syllable tier at the same delta");
+            Assert.That(tint(windows.SyncQuality(delta)), Is.EqualTo(tint(0.5)));
+            Assert.That(tint(windows.SyncQuality(delta)), Is.EqualTo(tint(windows.SyncQuality(-delta))),
+                "the same delta early and late");
+            Assert.That(tint(windows.SyncQuality(windows.MehEarly)), Is.EqualTo(tint(0)));
+            Assert.That(tint(windows.SyncQuality(windows.MehLate)), Is.EqualTo(tint(0)));
         }
     }
 }

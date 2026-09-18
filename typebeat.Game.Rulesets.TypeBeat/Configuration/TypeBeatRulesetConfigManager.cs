@@ -78,6 +78,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// </summary>
         SpaceSkipsWord,
 
+        /// <summary>
+        /// Whether the player must CLOSE a finished line themselves: with this on, space (on a line
+        /// whose last cell is typed) or Enter hands the caret to the next line, and nothing else
+        /// does until the song forces it (the line's seal, which is the drag cutoff). OFF by default,
+        /// so the shipped behaviour is unchanged: a finished line rolls on by itself as soon as the
+        /// next line's entry window opens.
+        ///
+        /// <para>It is the manual half of what <see cref="Gameplay.TypingEngine.BoundedRush"/> bounds:
+        /// the timing constraints on WHEN the next line may be entered still apply to the press (the
+        /// entry window opens 1500 ms before that line's cue), so this setting decides WHO asks, not
+        /// how early the answer may come. Reaching the live engine through
+        /// <see cref="UI.TypeBeatPlayfield"/>'s load, like <see cref="SpaceSkipsWord"/>, because the
+        /// replay CONFIG frame stamps whatever the engine holds at the first keystroke.</para>
+        /// </summary>
+        ManualNewlines,
+
         /// <summary>Vertical gap (px) between the three gameplay lyric lines.</summary>
         LineSpacing,
 
@@ -253,6 +269,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.SungCaretStyle, DEFAULT_SUNG_CARET_STYLE);
             SetDefault(TypeBeatRulesetSetting.KeyboardLayout, Gameplay.KeyboardLayout.Qwerty);
             SetDefault(TypeBeatRulesetSetting.SpaceSkipsWord, true);
+            SetDefault(TypeBeatRulesetSetting.ManualNewlines, false);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
             SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, false);

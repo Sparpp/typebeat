@@ -161,6 +161,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool SyllableTiming { get; set; }
 
         /// <summary>
+        /// The EASY mod's shelter: a cell is judged against the span of its whole WORD
+        /// (<see cref="TypingLine.Words"/>) instead of the span of its syllable
+        /// (<see cref="TypingLine.Syllables"/>). 0 anywhere inside the word, the signed distance to
+        /// the nearer edge outside it, through the same <see cref="SyncWindows.Classify"/> ladder --
+        /// the same bargain <see cref="SyllableTiming"/> strikes one level down, over a unit that
+        /// contains one or more syllables. On a word with no subdivisions the two readings agree,
+        /// which is why this is a widening and never a rule change of its own: what it buys is the
+        /// freedom to be late on one syllable because the word is still being sung.
+        ///
+        /// <para>It is the Easy arm and NOT an era. <see cref="Mods.TypeBeatModEasy"/> is the only
+        /// thing that sets it (<c>ApplyToDrawableRuleset</c> for live play,
+        /// <c>TypeBeatReplayScorer</c>'s mod loop for a re-derivation, and
+        /// <see cref="Mods.TypeBeatModAutoplay"/> passes it to the generator), and the mod ships in
+        /// this release, so no stored row predates it and no CONFIG bit records it. Hard Rock does
+        /// not interact with it: HR turns <see cref="SyllableTiming"/> off outright, and the two
+        /// mods are mutually exclusive on a stack anyway.</para>
+        ///
+        /// <para>A cell in no word keeps the classic point delta under either reading (the
+        /// inter-word SPACE cell, whose own target is the word boundary it types). The two
+        /// narrowings still narrow it: <see cref="CharTimedStretch"/> reverts a stretch cell to its
+        /// own point target, and <see cref="FirstCharTiming"/> anchors the WORD's first cell to the
+        /// word's start rather than a syllable's, so under Easy the word opening is on the clock and
+        /// the rest of the word is paid 0.</para>
+        /// </summary>
+        public bool WordShelter { get; set; }
+
+        /// <summary>
         /// The narrowing backlog 209 puts on <see cref="SyllableTiming"/>: a STRETCH cell
         /// (<see cref="TypingLine.IsCharTimedStretch"/>, a freestyle slot or a cell of a run of
         /// three or more identical characters inside one syllable) reverts to its own point target
@@ -453,17 +480,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>
-        /// The ladder for the BEATMAP's own granularity, at the current <see cref="WindowScale"/>.
-        /// Individual cells may be judged at a wider tier than this (an estimated or low-confidence
-        /// word falls back to Line), which is what <see cref="windowsFor"/> resolves.
+        /// The one ladder every cell of every map is judged on, at the current
+        /// <see cref="WindowScale"/>. The map's timing granularity no longer selects a tier, so
+        /// there is nothing per-cell to resolve here.
         /// </summary>
         public SyncWindows Windows { get; private set; }
 
         /// <summary>
         /// A MULTIPLICATIVE scale on every judgement window this engine grades against, 1 by default
-        /// (the ladder exactly as <see cref="SyncWindows.For"/> hands it over). 2 doubles every
-        /// window, 0.5 halves it; the scale multiplies each granularity tier's bounds, so it widens
-        /// Line, Word and Syllable cells in the same proportion rather than flattening them.
+        /// (the ladder exactly as <see cref="SyncWindows.Default"/> hands it over). 2 doubles every
+        /// window, 0.5 halves it.
         ///
         /// <para>DELIBERATELY NOT AN "EASY" FLAG. The Easy mod sets it to 2, but a mod that scales
         /// the windows by the audio rate wants exactly the same lever, and the two must COMPOSE:
@@ -677,7 +703,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                         if (cell.State == CellState.Correct && cell.JudgedDelta is double d)
                         {
-                            sum += windowsFor(cell).SyncQuality(d);
+                            sum += Windows.SyncQuality(d);
                             resolved++;
                         }
                         else if (lineSealed[i])
@@ -966,6 +992,63 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// same "record it uniformly" convention bits 3, 4 and 6 follow.</para>
         /// </summary>
         public bool BoundedRush { get; set; }
+
+        /// <summary>
+        /// MANUAL NEWLINES: the player closes a finished line themselves. With this set, a caret
+        /// that has walked past the last cell of its line is NOT handed the next one by the two
+        /// time-driven arms (<see cref="rollForwardIfFinishedEarly"/> on the press that finished it,
+        /// <see cref="snapForwardOnLineStart"/> when the next line's entry window opens); it waits for
+        /// a SPACE or an ENTER (<see cref="rollForwardManually"/>), or for the engine to TAKE the line
+        /// at its seal - the instant the push warning's red bar completes, and the same one that
+        /// forces a caret on with the setting off. That is also when a step back up closes (see
+        /// <see cref="ProcessBackspace"/>).
+        ///
+        /// <para>WHERE THAT SEAL IS: the line is HELD to that instant rather than left to seal on its
+        /// own deadline (<see cref="manualNewlineHoldsLineOpen"/>). A typed-out line would otherwise
+        /// seal the moment its deadline passed - which is the next line's first word in any ordinary
+        /// map - and the seal loop's own hand-over would move the caret there, well before the push.
+        /// The hold is what makes "the engine took the line" and "the red bar reached the end" one
+        /// instant for a finished line, exactly as they already are for a dragging one, so the caret
+        /// is never pulled while the line it is standing on is still the player's to type or to step
+        /// back into.</para>
+        ///
+        /// <para>THE NEWLINE ALWAYS LANDS, and the WINDOW REFUSES THE TYPING INSTEAD. A press made
+        /// before the next line's <see cref="entryPermitted"/> window opens still moves the caret
+        /// there; the line then waits - characters greyed (<see cref="AwaitingEntry"/>), keys and
+        /// Enter swallowed - until the window opens, and a backspace from its head steps back up to
+        /// the line it came from for as long as the engine has not taken that line yet. Refusing the
+        /// press itself made the player press again at the right moment, which reads as the newline
+        /// being broken; the window is about when the player may TYPE, which is what it now gates.</para>
+        ///
+        /// <para><b>Inert under a pinned caret</b>, like every other roll: <see cref="FletcherEnabled"/>
+        /// gates it, so the Fletcher mod's players are unaffected wherever they set this. Live-only
+        /// otherwise: it changes WHICH LINE the caret is on at a given time, so it is an ERA flag on
+        /// CONFIG frame bit 14, recorded by the live client and re-applied from the frame
+        /// (<c>ReplayEngineFeed.Apply</c>) so a run played with manual newlines re-derives with the
+        /// caret parked exactly where its player parked it, and every run stored before the setting
+        /// existed keeps the automatic hand-over it was played with. The setting's own era IS the
+        /// bit, so a manual run stored before this rule changed re-derives under the new one: the
+        /// refusal moved from the hand-over to the typing, which can put the caret on a later frame
+        /// than it used to. Nothing outside the setting moves.</para>
+        /// </summary>
+        public bool ManualNewlines { get; set; }
+
+        /// <summary>
+        /// Whether the caret is WAITING ON A LINE IT MAY NOT TYPE YET: the player has handed
+        /// themselves on to the next line (see <see cref="ManualNewlines"/>), or the song has, and
+        /// that line's entry window (<see cref="entryPermitted"/>) has not opened. The line's
+        /// characters render greyed while this is true, keypresses are swallowed by
+        /// <see cref="ProcessKey"/> and <see cref="ProcessEnter"/>, and a
+        /// <see cref="ProcessBackspace"/> from the head of the line steps back up to the one it came
+        /// from while that line can still be typed.
+        ///
+        /// <para>This is what makes an early newline a WAIT rather than a mistake: the setting no
+        /// longer refuses a press made before the next line's window (see
+        /// <see cref="rollForwardManually"/>), so the refusal had to move from the hand-over to the
+        /// typing. False in every other era, and false while no line is active, so the pinned and
+        /// rush arms keep exactly the input they had.</para>
+        /// </summary>
+        public bool AwaitingEntry => awaitingEntry(lastUpdateTime ?? double.NegativeInfinity);
 
         /// <summary>
         /// THE RUSH CAP DOES NOT APPLY (backlog 261). With this set, <see cref="rushesPastCap"/> is
@@ -1448,15 +1531,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         private SpaceTimingRule spaceTiming = SpaceTimingRule.Untimed;
 
-        /// <summary>
-        /// The ladder each granularity is judged at under the current <see cref="WindowScale"/>,
-        /// indexed by <see cref="TimingGranularity"/>. Rebuilt when the scale is set, so a keypress
-        /// costs one array read and no allocation whatever the scale is: at 1 the entries ARE
-        /// <see cref="SyncWindows.For"/>'s cached instances, and at any other scale there are three
-        /// scaled ones for this engine, never a global cache keyed by granularity and scale.
-        /// </summary>
-        private readonly SyncWindows[] windowsByGranularity = new SyncWindows[Enum.GetValues<TimingGranularity>().Length];
-
         public TypingEngine(LyricBeatmap beatmap, bool literate = false)
         {
             Beatmap = beatmap ?? throw new ArgumentNullException(nameof(beatmap));
@@ -1464,7 +1538,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // Assigned here as well as in applyWindowScale (which sets the same value at the default
             // scale of 1) because definite assignment of a get-only-outside property cannot see
             // through a helper call.
-            Windows = SyncWindows.For(beatmap.Granularity);
+            Windows = SyncWindows.Default;
             applyWindowScale();
 
             Literate = literate;
@@ -1473,7 +1547,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             lines = new List<TypingLine>(beatmap.Lines.Count);
 
             foreach (var line in beatmap.Lines)
-                lines.Add(TypingLine.FromLyricLine(line, beatmap.Granularity, literate));
+                lines.Add(TypingLine.FromLyricLine(line, literate));
 
             lineSealed = new bool[lines.Count];
             lineAbandoned = new bool[lines.Count];
@@ -1968,6 +2042,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (!FletcherEnabled || (!FlexibleLineSnap && !BoundedRush) || isFinished)
                 return false;
 
+            // MANUAL NEWLINES: a finished caret is the PLAYER's to hand over, so this arm does
+            // nothing for them - and NEITHER does anything earlier. What hands them on is the seal
+            // itself, the instant the engine takes the line away (<see cref="sealPermitted"/>), and a
+            // FINISHED line is held to the one instant that matters rather than left to seal on its
+            // deadline (see <see cref="manualNewlineHoldsLineOpen"/>): the moment the PUSH WARNING's
+            // red bar has been counting down to. "The time you would be forced on with the setting
+            // off" is the line being taken, not the vocals running out, the next line's cue arriving,
+            // or the line's own deadline - which is the next line's first word in any ordinary map.
+            // The seal loop's own hand-over does it, so a manual caret waits through all of those and
+            // moves exactly when a pinned one would.
+            if (ManualNewlines)
+                return false;
+
             bool snapped = false;
 
             while (IsLineComplete
@@ -2084,7 +2171,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// past that the line seals as usual (untyped cells become misses, one combo break) and the
         /// caret is moved on. Always true with a pinned caret, and true under a flexible one for any
         /// line the player is not currently on, so a finished-early line still seals exactly on its
-        /// own deadline.
+        /// own deadline - unless <see cref="ManualNewlines"/> is holding it (see
+        /// <see cref="manualNewlineHoldsLineOpen"/>).
         ///
         /// <para>Its mirror is <see cref="entryPermitted"/> (backlog 218): this one is how far past a
         /// line's natural END a dragging player may still be on it, that one is how far before a
@@ -2098,6 +2186,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private bool sealPermitted(int index, double time)
         {
+            // MANUAL NEWLINES: a line the player has TYPED OUT and not closed is held to the drag
+            // cutoff rather than left to seal on its own deadline. That deadline is the next line's
+            // first word in any ordinary map, so sealing there is exactly the pull the setting exists
+            // to prevent; the cutoff is the instant the push warning's red bar completes, and the
+            // same one a caret still dragging on the line is force-sealed at with the setting off.
+            // Held together, the seal, the seal loop's hand-over of the caret and the closed step
+            // back (see ProcessBackspace) all land on that one instant.
+            if (manualNewlineHoldsLineOpen(index))
+                return time >= lines[index].EndTime + lines[index].SealGraceMs + FLETCHER_DRAG_GRACE_MS;
+
             if (!FletcherEnabled || (activeLineIndex != index && !lineAbandoned[index]))
                 return true;
 
@@ -2110,6 +2208,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 return true;
 
             return time >= line.EndTime + line.SealGraceMs + FLETCHER_DRAG_GRACE_MS;
+        }
+
+        /// <summary>
+        /// Whether <see cref="ManualNewlines"/> is holding <paramref name="index"/> open: a FINISHED
+        /// line the player is still standing on, or one immediately behind a caret that has been
+        /// handed to the next line's head and could still step back up to it.
+        ///
+        /// <para>Those two are the states the delay is observable in, and they are the same one: the
+        /// caret is one keystroke from the line and the line is still the player's to give up. The
+        /// hold ends at the drag cutoff (<see cref="FLETCHER_DRAG_GRACE_MS"/> past the line's own
+        /// deadline), which is the instant the push warning has been counting down to, so a player
+        /// who never presses is handed on exactly when they would have been forced on with the
+        /// setting off - not at the line's own deadline, which is the next line's first word.</para>
+        ///
+        /// <para>A line that still owes a character is NOT held here: the drag rule above already
+        /// holds the caret's own line, and holding a line the player merely left behind untyped would
+        /// put its misses later than the song's own punishment. The LAST line is not held either: it
+        /// has no next line to be handed on to, so its seal is what ends the run and must stay on its
+        /// own deadline.</para>
+        /// </summary>
+        private bool manualNewlineHoldsLineOpen(int index)
+        {
+            if (!ManualNewlines || !FletcherEnabled)
+                return false;
+
+            if (index + 1 >= lines.Count || hasUntypedTypeable(lines[index]))
+                return false;
+
+            return activeLineIndex == index || (activeLineIndex == index + 1 && caretIndex == 0);
         }
 
         /// <summary>
@@ -2135,6 +2262,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private bool entryPermitted(int index, double time) => !BoundedRush || time >= entryOpensAt(index);
 
         /// <summary>
+        /// Whether the caret is on a line it may not type on yet, at <paramref name="time"/> (see
+        /// <see cref="AwaitingEntry"/>): the manual-newline era only, and only for a live line.
+        /// </summary>
+        private bool awaitingEntry(double time)
+            => ManualNewlines && FletcherEnabled && activeLineIndex >= 0 && !entryPermitted(activeLineIndex, time);
+
+        /// <summary>
         /// The earliest instant the caret may be on line <paramref name="index"/> by RUSHING onto it:
         /// the line's own <see cref="TypingLine.ActivationTime"/> under the unbounded era, and
         /// <see cref="FLETCHER_DRAG_GRACE_MS"/> before it under <see cref="BoundedRush"/>, which is
@@ -2146,7 +2280,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>
         /// A line may seal once its EndTime has passed AND either its grace window has elapsed
-        /// or nothing typeable is left untyped (early seal so the next line isn't delayed).
+        /// or nothing typeable is left untyped (early seal so the next line isn't delayed). This is
+        /// only the DEADLINE half: whether the seal may actually run is
+        /// <see cref="sealPermitted"/>'s, and a line is held past this point both by drag protection
+        /// and by a manual caret that has finished it (<see cref="manualNewlineHoldsLineOpen"/>).
         /// </summary>
         private static bool canSeal(TypingLine line, double time)
         {
@@ -2181,7 +2318,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// LINE SKIP (backlog 241): give up the rest of the active line and move on. Deterministic in
         /// (input, time) exactly like <see cref="ProcessKey"/>, and returns whether it did anything,
-        /// so the caller records a frame only for an effective press.
+        /// so the caller records a frame only for an effective press. UNPINNED ONLY
+        /// (<see cref="FletcherEnabled"/>): the press is inert with the caret pinned, because the
+        /// "move on" half of it is the whole of what it is for and a pinned caret has nowhere to be
+        /// moved to - see the guard at the head of <see cref="ProcessEnter"/>.
         ///
         /// <para>IT IS CARET MOVEMENT AND NOTHING ELSE. The caret parks past the line's last cell,
         /// which is the SAME parked state a <see cref="BoundedRush"/>-refused roll leaves behind
@@ -2208,10 +2348,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         ///
         /// <para>NO-OP when there is nothing to skip: no active line, the run finished, or the caret
         /// already past the last cell (a line typed out, or one already skipped). In particular Enter
-        /// on a COMPLETE line does NOT perform the roll the next keypress would: the two time-driven
-        /// arms already own that caret, so a second way in could only duplicate them, and the key
-        /// handler lets the press fall through to its global binding in that state rather than
-        /// swallowing it for nothing.</para>
+        /// on a COMPLETE line does NOT perform the roll the next keypress would UNDER THE DEFAULT
+        /// hand-over: the two time-driven arms already own that caret, so a second way in could only
+        /// duplicate them, and the key handler lets the press fall through to its global binding in
+        /// that state rather than swallowing it for nothing. Under <see cref="ManualNewlines"/> there
+        /// is no time-driven arm left to duplicate and Enter IS the newline, so on a complete line it
+        /// does the same hand-over a space does (see <see cref="rollForwardManually"/>).</para>
         ///
         /// <para>The WPM clock needs nothing here and is deliberately NOT armed: an Enter is not
         /// typing. Accrual stops by itself the moment the caret parks (<see cref="Update"/> accrues
@@ -2226,6 +2368,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (isFinished || activeLineIndex == -1)
                 return false;
 
+            // PINNED CARET (the Fletcher mod): Enter is not a gameplay key at all, so the press falls
+            // through to whatever the client binds it to. The skip below is CARET MOVEMENT, and it is
+            // worth something only because the unpinned caret may carry the player on early: with the
+            // caret pinned to the song there is nothing to move them to, and the press would give the
+            // rest of the line up for NOTHING - the misses land at the seal, the caret stays parked on
+            // a line it can no longer type on, and the next line arrives on the song's own time either
+            // way. Inert here is the same answer the complete-line arm already gives a pinned caret
+            // under the default hand-over (see rollForwardManually), so Enter never does anything at
+            // all under this caret.
+            if (!FletcherEnabled)
+                return false;
+
+            // A line handed to the player before its window opens waits rather than judging: the
+            // press is swallowed, exactly as a keypress on it is (see AwaitingEntry).
+            if (awaitingEntry(time))
+                return false;
+
             var line = lines[activeLineIndex];
 
             // Hop auto-skip cells before measuring, exactly as ProcessKey does, so "the caret is at
@@ -2233,7 +2392,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             autoSkipForward();
 
             if (caretIndex >= line.Cells.Count)
-                return false; // nothing left to give up: parked already, or the line is fully typed.
+            {
+                // Nothing left to give up: parked already, or the line is fully typed. That second
+                // state is the manual newline's own, so Enter closes it here (and reports the move so
+                // the caller records the frame); under the default hand-over it stays inert.
+                return rollForwardManually(time);
+            }
 
             // Only a line with something still untyped is ABANDONED. A caret walked to the end over
             // nothing but wrong cells owes no misses, so the seal has no drag to protect and the flag
@@ -2244,8 +2408,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             caretIndex = line.Cells.Count;
 
             // The same call the last character of a line makes, so an Enter inside the next line's
-            // entry window rolls on at once and one outside it parks, with no second rule.
-            rollForwardIfFinishedEarly(time);
+            // entry window rolls on at once and one outside it parks, with no second rule. Under
+            // ManualNewlines that roll is the PLAYER'S own, so the skip hands the line over the way
+            // the newline key does: one Enter still means "I am done with this line, move me on",
+            // and the entry window decides whether it lands now or parks (see rollForwardManually).
+            if (!rollForwardManually(time))
+                rollForwardIfFinishedEarly(time);
 
             return true;
         }
@@ -2275,13 +2443,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (isFinished || activeLineIndex == -1)
                 return false;
 
+            // WAITING FOR THE WINDOW (see AwaitingEntry): the player was handed this line early, so
+            // nothing here is judged - not the character, not a typo - until the window opens.
+            if (awaitingEntry(time))
+                return false;
+
             var line = lines[activeLineIndex];
 
             // Hop auto-skip cells before matching (normally already done on advance/activation).
             autoSkipForward();
 
             if (caretIndex >= line.Cells.Count)
-                return false; // line complete, wait for the song.
+            {
+                // MANUAL NEWLINES: on a finished line the SPACEBAR is the newline (see
+                // ManualNewlines), so it hands the caret on instead of being inert. Every other key
+                // stays inert here, which is the dead zone the automatic roll parks in today, and a
+                // space outside the next line's entry window is refused exactly as one pressed
+                // mid-word would be.
+                return c == ' ' && rollForwardManually(time);
+            }
 
             // The press is going to do something, so the player is typing on this line; if the song
             // has not reached it yet, that is the instant the WPM clock starts counting (backlog 222,
@@ -2634,7 +2814,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // same ladder, and through the same backlog 210 cap, because the flag it reads is
                 // set only before a cell is judged and never cleared. Announcing anything else here
                 // would show a Great on a cell whose stored result is the capped Ok.
-                type = TypeBeatResultMapping.AwardedTier(windowsFor(cell).Classify(delta), cell.HeldWrongBeforeJudged, CorrectionCredit);
+                type = TypeBeatResultMapping.AwardedTier(Windows.Classify(delta), cell.HeldWrongBeforeJudged, CorrectionCredit);
 
                 cell.State = CellState.Correct;
                 cell.TypedChar = c;
@@ -2658,7 +2838,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // osu result all follow the one decision and cannot say different things. The delta
                 // itself is untouched, so the sync timeline and the sync readouts see the press the
                 // player actually made.
-                type = TypeBeatResultMapping.AwardedTier(windowsFor(cell).Classify(delta), cell.HeldWrongBeforeJudged, CorrectionCredit);
+                type = TypeBeatResultMapping.AwardedTier(Windows.Classify(delta), cell.HeldWrongBeforeJudged, CorrectionCredit);
                 int basePoints = SyncWindows.BasePoints(type);
 
                 // Fletcher RUSH CAP, evaluated before the caret moves: does this press put the caret
@@ -3218,6 +3398,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>
+        /// THE MANUAL NEWLINE (see <see cref="ManualNewlines"/>): the player's own space-on-a-finished-
+        /// line or Enter, which is the ONLY thing that hands a parked caret on while the setting is
+        /// armed. Returns whether the caret moved, so a caller records a frame only for an effective
+        /// press and lets a refused one fall through to whatever it would have done anyway.
+        ///
+        /// <para>Deliberately the same three conditions the automatic roll uses, and no others: the
+        /// caret must be FINISHED (<c>caretIndex</c> past the last cell), there must be a next line,
+        /// and that line's entry window must be open (<see cref="entryPermitted"/>, i.e. within
+        /// <see cref="FLETCHER_DRAG_GRACE_MS"/> of its cue). "The timing constraints about when you
+        /// may move on still apply" is exactly that third clause, so pressing space seconds early is
+        /// refused rather than queued: the player presses again when the window opens, and if they
+        /// never do, the seal's drag cutoff takes them as it always did.</para>
+        ///
+        /// <para>No WPM clock work here, for the reason <see cref="ProcessEnter"/> gives: a newline is
+        /// not typing, so the clock on the line being LANDED on arms lazily on its first real press
+        /// (<see cref="armWpmClockAheadOfTheCue"/>) exactly as it does after a refused rush.</para>
+        /// </summary>
+        private bool rollForwardManually(double time)
+        {
+            if (!ManualNewlines || !FletcherEnabled || isFinished || activeLineIndex == -1)
+                return false;
+
+            if (caretIndex < lines[activeLineIndex].Cells.Count)
+                return false;
+
+            if (activeLineIndex + 1 >= lines.Count)
+                return false;
+
+            // NO WINDOW GATE: the press always lands, and the line it lands on may sit greyed and
+            // untypeable until its entry window opens (AwaitingEntry). Refusing the press instead
+            // made the player press again at the right moment, which read as the newline not
+            // working; the window now refuses the TYPING, which is what it is actually about.
+            activeLineIndex++;
+            caretIndex = 0;
+            autoSkipForward();
+            raise(LineActivated, activeLineIndex);
+            return true;
+        }
+
+        /// <summary>
         /// RUSH FREEDOM (see <see cref="FletcherEnabled"/>): the moment a press finishes a line, the
         /// caret moves straight on to the next one instead of waiting for its activation cue. It is
         /// the KEYPRESS half of moving a finished caret on; the time-driven half, for a caret that
@@ -3241,6 +3461,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (!FletcherEnabled || isFinished || activeLineIndex == -1)
                 return;
 
+            // MANUAL NEWLINES: the press that finished the line does NOT hand the caret on. The
+            // caret parks past the last cell and waits for the player's own newline
+            // (rollForwardManually), or for the seal to force it, which is the same parked state a
+            // refused rush leaves and therefore the same state every arm downstream already
+            // understands.
+            if (ManualNewlines)
+                return;
+
             if (caretIndex < lines[activeLineIndex].Cells.Count)
                 return;
 
@@ -3259,38 +3487,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>
-        /// Windows for a cell's judgement tier (Line for estimated/low-confidence timing), at this
-        /// engine's <see cref="WindowScale"/>. NOT static, which is the whole point of the scale: the
-        /// tier is a property of the CELL and the scale is a property of the ENGINE, so the four
-        /// sites that grade or measure a delta (both <see cref="SyncWindows.Classify"/> calls plus
-        /// the two <see cref="SyncWindows.SyncQuality"/> ones behind
-        /// <see cref="LiveSyncPercent"/> and <see cref="BuildResults"/>) all resolve it here and
-        /// none of them can quietly miss the scale. Scaling the sync readouts is correct rather than
-        /// incidental even now that they are display-only (backlog 251 cut SyncPercent out of the
-        /// letter grade): a wider window really is easier to sit inside, so a readout that ignored
-        /// the scale would be telling the player something untrue about their own play.
-        /// </summary>
-        private SyncWindows windowsFor(TypingCell cell)
-        {
-            int index = (int)cell.JudgeGranularity;
-
-            // Mirrors SyncWindows.For's default arm: an unrecognised granularity is judged at Line.
-            return (uint)index < (uint)windowsByGranularity.Length
-                ? windowsByGranularity[index]
-                : windowsByGranularity[(int)TimingGranularity.Line];
-        }
-
-        /// <summary>
         /// The delta a press on cell <paramref name="cellIndex"/> is judged, stored and announced
         /// on. Classic rule: time minus the cell's point target. Under <see cref="SyllableTiming"/>
         /// a cell inside a syllable group is judged against the group's sung SPAN instead: 0
         /// anywhere inside [StartTime, EndTime] (edge-inclusive), the signed distance to the nearer
-        /// edge outside it (negative early, positive late), so the same asymmetric
+        /// edge outside it (negative early, positive late), and the same
         /// <see cref="SyncWindows.Classify"/> ladder grades distance from the syllable's edge. A
         /// cell in no group keeps the point delta under either rule, and that fallback is what gives
         /// a stylised word its classic per-character judgement (backlog 178 leaves such a token
         /// ungrouped rather than adding a second rule here): space cells, lines without groups, and
         /// the cells of an unsyllabifiable token all land in the same arm.
+        ///
+        /// <para>Under <see cref="WordShelter"/> the span rule is drawn around the WORD instead of
+        /// the syllable (<see cref="Mods.TypeBeatModEasy"/>): the arms below are otherwise
+        /// identical, which is the point -- the narrowing flags keep narrowing, and only the span
+        /// the delta is measured from changes. A cell in no word keeps the point delta, exactly as a
+        /// cell in no group does.</para>
         ///
         /// <para>Under <see cref="CharTimedStretch"/> a third kind of cell lands there too, and it
         /// is the only one that IS in a group: a STRETCH cell
@@ -3307,25 +3519,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private double judgedDeltaFor(TypingLine line, int cellIndex, double time)
         {
-            if (SyllableTiming)
+            if (SyllableTiming && !(CharTimedStretch && line.IsCharTimedStretch(cellIndex)))
             {
-                int syllable = line.SyllableIndexOf(cellIndex);
+                // The shelter's span: the WORD under Easy's arm, the syllable otherwise. Both arms
+                // are the same four lines below, deliberately: one rule, two spans.
+                int startCell;
+                double startTime, endTime;
 
-                if (syllable >= 0 && !(CharTimedStretch && line.IsCharTimedStretch(cellIndex)))
+                if (WordShelter)
                 {
-                    var group = line.Syllables[syllable];
+                    int word = line.WordIndexOf(cellIndex);
 
-                    if (FirstCharTiming && cellIndex == group.StartCell)
-                        return time - group.StartTime;
+                    if (word < 0)
+                        return time - line.Cells[cellIndex].TargetTime;
 
-                    if (time < group.StartTime)
-                        return time - group.StartTime;
-
-                    if (time > group.EndTime)
-                        return time - group.EndTime;
-
-                    return 0;
+                    WordGroup group = line.Words[word];
+                    startCell = group.StartCell;
+                    startTime = group.StartTime;
+                    endTime = group.EndTime;
                 }
+                else
+                {
+                    int syllable = line.SyllableIndexOf(cellIndex);
+
+                    if (syllable < 0)
+                        return time - line.Cells[cellIndex].TargetTime;
+
+                    SyllableGroup group = line.Syllables[syllable];
+                    startCell = group.StartCell;
+                    startTime = group.StartTime;
+                    endTime = group.EndTime;
+                }
+
+                if (FirstCharTiming && cellIndex == startCell)
+                    return time - startTime;
+
+                if (time < startTime)
+                    return time - startTime;
+
+                if (time > endTime)
+                    return time - endTime;
+
+                return 0;
             }
 
             return time - line.Cells[cellIndex].TargetTime;
@@ -3349,10 +3584,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // duplicated so the era constant has exactly one definition.
             double scale = windowScale * (hardRockFromMod && !unhalvedHardRockWindows ? Mods.TypeBeatModHardRock.WINDOW_SCALE : 1);
 
-            foreach (var granularity in Enum.GetValues<TimingGranularity>())
-                windowsByGranularity[(int)granularity] = SyncWindows.For(granularity).Scaled(scale);
-
-            Windows = SyncWindows.For(Beatmap.Granularity).Scaled(scale);
+            Windows = SyncWindows.Default.Scaled(scale);
         }
 
         /// <summary>
@@ -3388,6 +3620,72 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>
+        /// HAND BACK INTO A LINE the player was moved off: the undo for a mid-line Enter that gave the
+        /// rest of the line up (see <see cref="ProcessEnter"/>), and just as much the way back to a
+        /// line the SONG has handed them on from (see <see cref="ProcessBackspace"/>, which asks for
+        /// this on either caret). The caret lands at the LAST CHARACTER THEY ACTUALLY TYPED - just
+        /// after the last cell they put something into - and everything that was given up is handed
+        /// back LIVE rather than left behind the caret to be missed at the seal.
+        ///
+        /// <para>THE END OF THE LINE IS THE WRONG PLACE FOR IT, and that is the whole reason this is
+        /// not the plain <c>caretIndex = Cells.Count</c> it used to be: parked past the last cell the
+        /// line reads COMPLETE (<see cref="IsLineComplete"/>), keypresses there are inert, the
+        /// characters the player came back for are unreachable, and the misses the return was meant
+        /// to erase are the very ones it guarantees. On the frontier they are all in front of the
+        /// caret again, where typing them is what erases them - the same "come back and type it"
+        /// account the word skip's reclaim keeps (backlog 167).</para>
+        ///
+        /// <para>WHAT THE WALK BACK STOPS ON: a cell the player TYPED (correct or wrong) and a cell
+        /// already resolved as <see cref="CellState.Missed"/> both end it, so the caret lands after
+        /// the last thing the line has an answer for. A Missed cell can only sit in that tail on a
+        /// stored run re-derived under the pre-167 <see cref="WordSkipRule.ImmediateMiss"/> era,
+        /// where the skip spent the cell then and there; those are left exactly as they are, because
+        /// re-opening one would move a judgement that run is pinned to.</para>
+        ///
+        /// <para>The line's own abandonment goes with the skip (<see cref="lineAbandoned"/>): the
+        /// flag exists to hold the line open, past its deadline, for the misses the player walked
+        /// away from, and there is nothing left to hold it open for once they have walked back. An
+        /// ABANDONED word caught in the tail is re-opened the way <see cref="ProcessBackspace"/>'s own
+        /// walk re-opens one, refund included (<see cref="AbandonReclaimed"/>); its combo still comes
+        /// back at the retype, which is what the claim left in place is for.</para>
+        /// </summary>
+        private void stepBackIntoLine(int index)
+        {
+            var cells = lines[index].Cells;
+
+            int frontier = 0;
+
+            for (int i = cells.Count - 1; i >= 0; i--)
+            {
+                if (cells[i].State == CellState.Correct || cells[i].State == CellState.Wrong || cells[i].State == CellState.Missed)
+                {
+                    frontier = i + 1;
+                    break;
+                }
+            }
+
+            List<int>? reclaimed = null;
+
+            for (int i = frontier; i < cells.Count; i++)
+            {
+                if (cells[i].State == CellState.Abandoned)
+                    (reclaimed ??= new List<int>()).Add(i);
+
+                if (cells[i].State == CellState.Abandoned || cells[i].State == CellState.AutoSkipped)
+                    cells[i].State = CellState.Untyped;
+            }
+
+            lineAbandoned[index] = false;
+
+            activeLineIndex = index;
+            caretIndex = frontier;
+            autoSkipForward();
+
+            if (reclaimed != null)
+                raise(AbandonReclaimed, new AbandonedCells(index, reclaimed));
+        }
+
+        /// <summary>
         /// Erase the most recent typed cell within the active line, stepping back transparently
         /// over AutoSkipped punctuation (which is un-skipped so retyping re-marks it) and, since
         /// backlog 167, over the ABANDONED cells of a skipped word (which go back to
@@ -3415,6 +3713,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         {
             if (isFinished || activeLineIndex == -1)
                 return false;
+
+            // THE HEAD OF A LINE THE PLAYER ARRIVED ON: a backspace there steps BACK UP to the line it
+            // came from. That is the undo for a newline pressed EARLY (see
+            // <see cref="rollForwardManually"/>), and equally the way back to a line the SONG has just
+            // handed them on from, so a typo noticed a beat too late is still the player's to fix. It
+            // works for exactly as long as that line is still theirs, whoever moved them: until the
+            // engine TAKES it, which is the seal (<see cref="sealPermitted"/>, the instant the push
+            // warning's red bar has counted down to) and not the vocals running out or the next cue
+            // arriving. Once the line is sealed the press is inert, just as it is on any other line's
+            // head, so the step back closes exactly when being forced on with the setting off would
+            // have closed it.
+            //
+            // AND IT LANDS ON WHAT THE PLAYER LAST TYPED rather than at the end of the line (see
+            // stepBackIntoLine): the line it comes back to is one the player may have given the rest
+            // of up to a mid-line Enter, and the characters that press gave up have to be in front of
+            // the caret again for coming back to mean anything.
+            if (caretIndex == 0 && activeLineIndex > 0 && FletcherEnabled)
+            {
+                int previous = activeLineIndex - 1;
+
+                if (previous >= nextSealIndex)
+                {
+                    stepBackIntoLine(previous);
+                    raise(LineActivated, activeLineIndex);
+                    return true;
+                }
+
+                return false;
+            }
 
             var cells = lines[activeLineIndex].Cells;
 
@@ -3769,6 +4096,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// nothing left untyped seals on its ordinary deadline with no drag to protect and no
         /// punishment to warn about: typing the last cell out cancels the push there and then.</para>
         ///
+        /// <para>ONE EXCEPTION, and it warns about a push that really is coming: under
+        /// <see cref="ManualNewlines"/> a line the player has typed out but not closed is held to its
+        /// own cutoff (<see cref="manualNewlineHoldsLineOpen"/>), so the bar keeps counting down to
+        /// the instant that line is taken from them - the setting's whole point being that a press is
+        /// what moves the caret on, with the cutoff as the backstop. Everywhere else the three
+        /// conditions above stand unchanged.</para>
+        ///
         /// <para>The value is <see cref="TypingLine.EndTime"/> + <see cref="TypingLine.SealGraceMs"/> +
         /// <see cref="FLETCHER_DRAG_GRACE_MS"/>, exactly what <see cref="sealPermitted"/> tests, so the
         /// warning can never disagree with the moment it warns about.</para>
@@ -3782,7 +4116,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 var line = lines[activeLineIndex];
 
-                if (!hasUntypedTypeable(line))
+                if (!hasUntypedTypeable(line) && !manualNewlineHoldsLineOpen(activeLineIndex))
                     return null;
 
                 return line.EndTime + line.SealGraceMs + FLETCHER_DRAG_GRACE_MS;
@@ -3806,7 +4140,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 foreach (var cell in line.Cells)
                 {
                     if (isTimed(cell) && cell.State == CellState.Correct && cell.JudgedDelta is double d)
-                        qualitySum += windowsFor(cell).SyncQuality(d);
+                        qualitySum += Windows.SyncQuality(d);
                 }
             }
 

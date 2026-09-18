@@ -25,7 +25,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     {
         private static TypingCell cell(char expected, bool typeable, CellState state)
         {
-            var c = new TypingCell(expected, typeable, 0, TimingGranularity.Word);
+            var c = new TypingCell(expected, typeable, 0);
             c.State = state;
             return c;
         }

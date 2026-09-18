@@ -485,13 +485,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, comboBreaks);
 
             // The 7th press ('g', target 1600) would sit 6 chars ahead: over the cap. The char still
-            // lands, is still judged Ok (delta -600 is the Ok edge) and still scores at the
-            // pre-break multiplier, 150 * (1 + 6/50) = 168, but the combo goes.
+            // lands, is judged Meh (delta -600 is the Meh edge) and still scores at the pre-break
+            // multiplier, 50 * (1 + 6/50) = 56, but the combo goes.
             long scoreBefore = typing.Score;
             Assert.IsTrue(typing.ProcessKey('g', 1000));
             Assert.AreEqual(CellState.Correct, typing.Lines[0].Cells[6].State);
             Assert.AreEqual(-600, typing.Lines[0].Cells[6].JudgedDelta);
-            Assert.AreEqual(168, typing.Score - scoreBefore);
+            Assert.AreEqual(56, typing.Score - scoreBefore);
             Assert.AreEqual(0, typing.Combo);
             Assert.AreEqual(6, typing.MaxCombo, "the over-cap press must not extend max combo");
             Assert.AreEqual(1, comboBreaks);
@@ -1116,6 +1116,53 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(30.0, typing.LiveWpm, 1e-9);
         }
 
+        /// <summary>
+        /// THE ROLL IS THE PLAYER'S TO TAKE BACK, with the manual-newline setting OFF: a backspace
+        /// from the head of the line a finished caret was handed to returns it to the line it came
+        /// from, just as the setting's own step back does. Nothing about the gesture belongs to that
+        /// setting - it is the UNDO for any caret movement the player did not make themselves - and
+        /// without it a typo noticed a beat after the hand-over could not be fixed at all, because the
+        /// line it is on reads complete and takes no input.
+        ///
+        /// <para>What closes it is the line being sealed, which is <c>ProcessBackspace</c>'s own
+        /// guard and is asserted by the manual-newline tests; here the point is only that the way back
+        /// exists on the shipped stack.</para>
+        /// </summary>
+        [Test]
+        public void TheHandedOverCaretCanStepBackWithoutTheManualNewlineSetting()
+        {
+            // Line 1 activates at 3000, so entry into it opens at 1500 and the press that finishes
+            // line 0 rolls the caret straight onto it.
+            var typing = engine(dragMap(), flexible: true);
+
+            var activations = new List<int>();
+            typing.LineActivated += i => activations.Add(i);
+
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000));
+            Assert.IsTrue(typing.ProcessKey('b', 1500));
+
+            Assert.AreEqual(1, typing.ActiveLineIndex, "the finished line handed the caret on by itself");
+            Assert.AreEqual(new[] { 0, 1 }, activations);
+
+            // Back over the newline: the caret lands on the last character actually typed, which for a
+            // line typed out in full is its end, and the line is the player's again.
+            Assert.IsTrue(typing.ProcessBackspace(), "the hand-over is the player's to undo");
+            Assert.AreEqual(0, typing.ActiveLineIndex);
+            Assert.AreEqual(2, typing.CaretIndex);
+            Assert.IsTrue(typing.IsLineComplete);
+            Assert.AreEqual(new[] { 0, 1, 0 }, activations, "and the stage is told the caret went back");
+
+            // And the typo is fixable: one more backspace erases the character and re-opens the line.
+            Assert.IsTrue(typing.ProcessBackspace());
+            Assert.AreEqual(1, typing.CaretIndex);
+            Assert.AreEqual(CellState.Untyped, typing.Lines[0].Cells[1].State);
+            Assert.IsFalse(typing.IsLineComplete);
+
+            Assert.IsTrue(typing.ProcessKey('b', 1600), "which can then be typed again in place");
+            Assert.AreEqual(CellState.Correct, typing.Lines[0].Cells[1].State);
+        }
+
         #endregion
 
         #region Drag freedom (finishing a line the song has left)
@@ -1438,6 +1485,47 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(1, typing.ActiveLineIndex);
             Assert.AreEqual(0, typing.CaretIndex);
             Assert.AreEqual(new[] { 0, 1 }, activations);
+        }
+
+        /// <summary>
+        /// A PINNED CARET TAKES NO LINE SKIP AT ALL, which is the Fletcher mod's Enter. The skip is
+        /// CARET MOVEMENT and that is the whole of what it is worth: unpinned, it is how a player gets
+        /// to the next line early. Pinned, there is no early - the song moves the caret at its own
+        /// deadline whatever the player does - so the press would only give the rest of the line up,
+        /// park the caret on a line it can no longer type on, and take the misses at the seal for
+        /// nothing. Inert instead, and the press falls through to the client's own binding.
+        /// </summary>
+        [Test]
+        public void ThePinnedCaretTakesNoLineSkip()
+        {
+            var typing = engine(instrumentalGapMap(), flexible: false);
+
+            var activations = new List<int>();
+            typing.LineActivated += i => activations.Add(i);
+
+            typing.Update(1000);
+            Assert.IsTrue(typing.ProcessKey('a', 1000));
+
+            typing.Update(2000);
+            Assert.IsFalse(typing.ProcessEnter(2000), "the pinned caret's Enter does nothing at all");
+
+            // Nothing moved and nothing was given up: the caret is still on the cell it owes, the line
+            // still reads incomplete, and the keypress that follows lands on that very cell.
+            Assert.AreEqual(0, typing.ActiveLineIndex);
+            Assert.AreEqual(1, typing.CaretIndex);
+            Assert.IsFalse(typing.IsLineComplete);
+            Assert.AreEqual(new[] { 0 }, activations, "and no line was announced");
+            Assert.AreEqual(CellState.Untyped, typing.Lines[0].Cells[1].State, "the cell it would have given up is still the player's");
+            Assert.AreEqual(0, typing.BuildResults().Counts[JudgementType.Miss]);
+
+            Assert.IsTrue(typing.ProcessKey('b', 2000), "and it is still typeable right where the caret stands");
+            Assert.IsTrue(typing.IsLineComplete);
+
+            // Enter on a COMPLETE line is inert under this caret as well, which is the other half of
+            // the same rule: the song, not the player, decides when a pinned caret moves on.
+            Assert.IsFalse(typing.ProcessEnter(2000), "a pinned caret is not the player's to move");
+            Assert.AreEqual(0, typing.ActiveLineIndex);
+            Assert.AreEqual(new[] { 0 }, activations);
         }
 
         /// <summary>

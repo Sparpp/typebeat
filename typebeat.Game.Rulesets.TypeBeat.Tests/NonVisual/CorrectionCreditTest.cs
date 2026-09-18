@@ -48,8 +48,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// One line, "abcdefgh", cell i targeting 1000 + 500i, the same shape
-        /// <see cref="ComboRestoreTest"/> uses. Line-granularity windows: Great [-250, 400],
-        /// Ok [-600, 1000], Meh [-1200, 2000].
+        /// <see cref="ComboRestoreTest"/> uses. The one ladder: Great +/-150, Ok +/-300,
+        /// Meh +/-600.
         /// </summary>
         private const string word = "abcdefgh";
 
@@ -195,8 +195,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The correction-heavy fixture the era pins run on: the 'm' of "me" spoiled and fixed 200 ms
-        /// late (inside the Great window, so the cap bites) and the 'e' spoiled and fixed 1200 ms late
+        /// The correction-heavy fixture the era pins run on: the 'm' of "me" spoiled and fixed 100 ms
+        /// late (inside the Great window, so the cap bites) and the 'e' spoiled and fixed 500 ms late
         /// (inside Meh, outside Ok, so the cap has nothing to take). Everything else on target.
         /// </summary>
         private static Replay correctionRun()
@@ -209,11 +209,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             presses.Add((targets[10], 'x'));
             presses.Add((targets[10] + 100, TypeBeatReplayFrame.BACKSPACE));
-            presses.Add((targets[10] + 200, 'm'));
+            presses.Add((targets[10] + 100, 'm'));
 
             presses.Add((targets[11], 'z'));
             presses.Add((targets[11] + 100, TypeBeatReplayFrame.BACKSPACE));
-            presses.Add((targets[11] + 1200, 'e'));
+            presses.Add((targets[11] + 500, 'e'));
 
             for (int i = 12; i < correction_text.Length; i++)
                 presses.Add((targets[i], correction_text[i]));
@@ -237,8 +237,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// The whole of backlog 210, on the shape it came out of. The SAME sixteen keystrokes at the
-        /// SAME times, except that one run spoils a cell and fixes it 200 ms after its target while
-        /// the other simply types that cell 200 ms after its target. Both presses that earn the cell
+        /// SAME times, except that one run spoils a cell and fixes it 100 ms after its target while
+        /// the other simply types that cell 100 ms after its target. Both presses that earn the cell
         /// are struck at exactly the same moment, so under the old rule the two runs are graded
         /// identically: the detour was free.
         ///
@@ -250,8 +250,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void TheCapIsWhyThisFileExists()
         {
-            var clean = run(spoiledCell: null, fixOffsetMs: 200);
-            var corrected = run(spoiledCell: 10, fixOffsetMs: 200);
+            var clean = run(spoiledCell: null, fixOffsetMs: 100);
+            var corrected = run(spoiledCell: 10, fixOffsetMs: 100);
 
             var cleanAccount = score(clean, CorrectionCreditRule.Capped);
             var cappedAccount = score(corrected, CorrectionCreditRule.Capped);
@@ -335,9 +335,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// under <see cref="CorrectionCreditRule.Full"/>, which is the uncapped ladder.
         /// </summary>
         [TestCase(0, JudgementType.Great, JudgementType.Ok)]
-        [TestCase(200, JudgementType.Great, JudgementType.Ok)]
-        [TestCase(700, JudgementType.Ok, JudgementType.Ok)]
-        [TestCase(1500, JudgementType.Meh, JudgementType.Meh)]
+        [TestCase(100, JudgementType.Great, JudgementType.Ok)]
+        [TestCase(250, JudgementType.Ok, JudgementType.Ok)]
+        [TestCase(500, JudgementType.Meh, JudgementType.Meh)]
         public void TheCapIsAMinimumOverTheLadder(double fixOffsetMs, JudgementType uncapped, JudgementType capped)
         {
             Assert.Multiple(() =>
@@ -562,9 +562,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             Assert.Multiple(() =>
             {
-                // MehLate is 2000 at Line granularity, so 2500 past the target is off the ladder.
-                Assert.That(fixedTier(CorrectionCreditRule.Capped, 2500), Is.EqualTo(JudgementType.Lagging));
-                Assert.That(fixedTier(CorrectionCreditRule.Full, 2500), Is.EqualTo(JudgementType.Lagging));
+                // The Meh window ends at 600, so 700 past the target is off the ladder entirely.
+                Assert.That(fixedTier(CorrectionCreditRule.Capped, 700), Is.EqualTo(JudgementType.Lagging));
+                Assert.That(fixedTier(CorrectionCreditRule.Full, 700), Is.EqualTo(JudgementType.Lagging));
 
                 // ...and it resolves as the off-time rule says, under both credit arms, because the
                 // cap never reached the tier.
@@ -699,7 +699,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void TheCreditEraChangesNothingWithoutACorrection()
         {
-            var r = run(spoiledCell: null, fixOffsetMs: 200);
+            var r = run(spoiledCell: null, fixOffsetMs: 100);
 
             var capped = score(r, CorrectionCreditRule.Capped);
             var full = score(r, CorrectionCreditRule.Full);

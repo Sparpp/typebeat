@@ -48,7 +48,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <see cref="FoldsDisplacedClaim"/> (whether a break taking the claim off an older break folded
     /// that claim into its own rather than discarding it, backlog 262) and bit 13
     /// <see cref="UnhalvedHardRockWindows"/> (whether this run's Hard Rock left the judgement
-    /// windows at their normal width instead of halving them, backlog 264).
+    /// windows at their normal width instead of halving them, backlog 264) and bit 14
+    /// <see cref="ManualNewlines"/> (whether a finished line was handed over by the player's own
+    /// space or Enter rather than automatically, the manual-newlines setting).
     /// Other mods
     /// (Literate/Mashing/rate) travel in the score itself and need no frames.
     ///
@@ -69,7 +71,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// strict-spaces, bit 5 = flexible-lines, bit 6 = char-timed-stretch, bit 7 = bounded-rush,
     /// bit 8 = first-char-timing, bit 9 = wall-clock-frames, bit 10 = back-dated-seal-break,
     /// bit 11 = lossless-skip-reclaim, bit 12 = displaced-claim-fold,
-    /// bit 13 = unhalved-hard-rock-windows; only
+    /// bit 13 = unhalved-hard-rock-windows, bit 14 = manual-newlines; only
     /// meaningful on CONFIG frames),
     /// ButtonState = None, time = the integral frame time. A flags word of at most 16383 is as harmless
     /// to the encoder as the single bit was, and each new bit is appended ABOVE the existing ones,
@@ -85,7 +87,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// never negative, so neither coordinate can match whatever the flags word grows to. The
     /// sentinels sit at 0x00, 0x08 and 0x0A, below every printable mark, so nothing
     /// collides. Bit 12 pushed the word to 4096 and the ceiling to 8191, and bit 13 pushes them to
-    /// 8192 and 16383; neither changes anything about that argument, which never depended on the
+    /// 8192 and 16383, and bit 14 to 16384 and 32767; none of them changes anything about that
+    /// argument, which never depended on the
     /// word's size: the strip matches the POSITION PAIR (256, -500) exactly, and a CONFIG frame's
     /// MouseX is 0x00 with a MouseY that is never negative.</para>
     ///
@@ -347,6 +350,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool UnhalvedHardRockWindows;
 
         /// <summary>
+        /// The engine's manual-newlines setting at record time (see
+        /// <see cref="Gameplay.TypingEngine.ManualNewlines"/>). Only meaningful on <see cref="CONFIG"/>
+        /// frames, and the ERA carrier for the setting: with it set, a finished line is handed on by
+        /// the player's own space or Enter rather than by the two time-driven arms, so this bit
+        /// decides WHICH LINE the caret is on at a given time exactly as <see cref="FlexibleLines"/>
+        /// and <see cref="BoundedRush"/> do, and a run decoded under the wrong arm lands every
+        /// keystroke after a finished line on different cells. Clear - every replay stored before the
+        /// setting existed, and every run played with it off - means the automatic hand-over those
+        /// runs were played with.
+        /// </summary>
+        public bool ManualNewlines;
+
+        /// <summary>
         /// The ANCHOR carried by a bit-9 CONFIG frame: the track position the tape was started at,
         /// which is also the origin of the wall axis every other frame in the run is stamped on. It
         /// is simply this frame's own <see cref="ReplayFrame.Time"/>, named here because that is a
@@ -394,10 +410,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <paramref name="backDatedSealBreak"/> (bit 10) after that,
         /// <paramref name="losslessSkipReclaim"/> (bit 11) after that again,
         /// <paramref name="foldsDisplacedClaim"/> (bit 12) after that, and
-        /// <paramref name="unhalvedHardRockWindows"/> (bit 13) last. Pass the newer nine by
-        /// name.</para>
+        /// <paramref name="unhalvedHardRockWindows"/> (bit 13) after that, and
+        /// <paramref name="manualNewlines"/> (bit 14) last. Pass the newer ones by name.</para>
         /// </summary>
-        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false, bool flexibleLines = false, bool boundedRush = false, bool firstCharTiming = false, bool wallClockFrames = false, bool backDatedSealBreak = false, bool losslessSkipReclaim = false, bool foldsDisplacedClaim = false, bool unhalvedHardRockWindows = false) => new TypeBeatReplayFrame(time, CONFIG)
+        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false, bool flexibleLines = false, bool boundedRush = false, bool firstCharTiming = false, bool wallClockFrames = false, bool backDatedSealBreak = false, bool losslessSkipReclaim = false, bool foldsDisplacedClaim = false, bool unhalvedHardRockWindows = false, bool manualNewlines = false) => new TypeBeatReplayFrame(time, CONFIG)
         {
             AllowWrongInput = allowWrongInput,
             SpaceSkipsWord = spaceSkipsWord,
@@ -413,6 +429,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             LosslessSkipReclaim = losslessSkipReclaim,
             FoldsDisplacedClaim = foldsDisplacedClaim,
             UnhalvedHardRockWindows = unhalvedHardRockWindows,
+            ManualNewlines = manualNewlines,
         };
 
         /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>
@@ -473,6 +490,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// windows at their normal width instead of halving them (backlog 264).</summary>
         private const int flag_unhalved_hard_rock_windows = 8192;
 
+        /// <summary>Bit 14 of the CONFIG frame's flags word: a finished line was handed over by the
+        /// player's own space or Enter rather than automatically (the manual-newlines setting).</summary>
+        private const int flag_manual_newlines = 16384;
+
         public void FromLegacy(LegacyReplayFrame currentFrame, IBeatmap beatmap, ReplayFrame? lastFrame = null)
         {
             Character = (char)(int)(currentFrame.MouseX ?? 0);
@@ -493,6 +514,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             LosslessSkipReclaim = (flags & flag_lossless_skip_reclaim) != 0;
             FoldsDisplacedClaim = (flags & flag_displaced_claim_fold) != 0;
             UnhalvedHardRockWindows = (flags & flag_unhalved_hard_rock_windows) != 0;
+            ManualNewlines = (flags & flag_manual_newlines) != 0;
         }
 
         public LegacyReplayFrame ToLegacy(IBeatmap beatmap) =>
@@ -512,7 +534,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             | (BackDatedSealBreak ? flag_back_dated_seal_break : 0)
             | (LosslessSkipReclaim ? flag_lossless_skip_reclaim : 0)
             | (FoldsDisplacedClaim ? flag_displaced_claim_fold : 0)
-            | (UnhalvedHardRockWindows ? flag_unhalved_hard_rock_windows : 0);
+            | (UnhalvedHardRockWindows ? flag_unhalved_hard_rock_windows : 0)
+            | (ManualNewlines ? flag_manual_newlines : 0);
 
         /// <summary>
         /// Never equivalent: every frame is a discrete keystroke. Two identical characters at the

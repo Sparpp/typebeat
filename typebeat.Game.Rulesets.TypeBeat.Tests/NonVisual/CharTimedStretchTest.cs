@@ -522,7 +522,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, judgedTarget[7].Delta, 1e-9, "the stretch cell's own target is still the perfect instant");
             Assert.AreEqual(800, judgedStart[7].Delta, 1e-9, "and the span start its group opens at is not");
             Assert.AreEqual(JudgementType.Great, judgedTarget[7].Type);
-            Assert.AreEqual(JudgementType.Ok, judgedStart[7].Type);
+            // 800 ms from the group's start is off the one ladder (Meh ends at 600), which is a
+            // stronger statement of the same thing: the span start is NOT this cell's instant.
+            Assert.AreEqual(JudgementType.Lagging, judgedStart[7].Type);
         }
 
         #endregion

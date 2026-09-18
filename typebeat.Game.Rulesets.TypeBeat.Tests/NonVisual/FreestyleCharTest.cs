@@ -113,7 +113,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void FreestyleCellIsTypeableAndTimedLikeALetter()
         {
-            var typingLine = TypingLine.FromLyricLine(freestyleMap().Lines[0], TimingGranularity.Word);
+            var typingLine = TypingLine.FromLyricLine(freestyleMap().Lines[0]);
 
             Assert.AreEqual(3, typingLine.Cells.Count);
             Assert.AreEqual(3, typingLine.TypeableCount);
@@ -488,7 +488,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual("me you", hitObject.Line.RawText);
 
-            var typingLine = TypingLine.FromLyricLine(hitObject.Line, TimingGranularity.Word);
+            var typingLine = TypingLine.FromLyricLine(hitObject.Line);
             Assert.IsTrue(typingLine.Cells.All(c => !c.IsFreestyle));
         }
 
@@ -500,7 +500,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual("me & you", hitObject.Line.RawText);
 
-            var typingLine = TypingLine.FromLyricLine(hitObject.Line, TimingGranularity.Word);
+            var typingLine = TypingLine.FromLyricLine(hitObject.Line);
             var freestyleCells = typingLine.Cells.Where(c => c.IsFreestyle).ToList();
 
             Assert.AreEqual(1, freestyleCells.Count);
@@ -532,7 +532,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(TypeBeatEditorOperations.SetLineText(editorBeatmap, hitObject, "he&&o, wor&d!"));
             Assert.AreEqual("he&&o, wor&d!", hitObject.Line.RawText);
 
-            var authored = TypingLine.FromLyricLine(hitObject.Line, TimingGranularity.Word);
+            var authored = TypingLine.FromLyricLine(hitObject.Line);
             Assert.AreEqual("he&&o wor&d", authored.DisplayText);
             Assert.AreEqual(3, authored.Cells.Count(c => c.IsFreestyle));
 
@@ -546,7 +546,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var reloaded = decode(sb.ToString()).HitObjects.OfType<TypeBeatHitObject>().Single();
             Assert.AreEqual("he&&o, wor&d!", reloaded.Line.RawText);
 
-            var reloadedLine = TypingLine.FromLyricLine(reloaded.Line, TimingGranularity.Word);
+            var reloadedLine = TypingLine.FromLyricLine(reloaded.Line);
             Assert.AreEqual(3, reloadedLine.Cells.Count(c => c.IsFreestyle));
 
             for (int i = 0; i < authored.Cells.Count; i++)

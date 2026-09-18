@@ -29,7 +29,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         #region Cell / line builders
 
         private static TypingCell cell(char expected, bool typeable, double targetTime)
-            => new TypingCell(expected, typeable, targetTime, TimingGranularity.Word);
+            => new TypingCell(expected, typeable, targetTime);
 
         private static TypingCell letter(char expected, double targetTime) => cell(expected, true, targetTime);
 
@@ -54,7 +54,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 EndTime = singEnd + 1000,
                 SingEndTime = singEnd,
                 Units = new[] { unit("aa", start, start + wordMs), unit("bb", start + wordMs, singEnd) },
-            }, TimingGranularity.Word);
+            });
         }
 
         /// <summary>
@@ -458,7 +458,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             EndTime = 9000,
             SingEndTime = singEnd,
             Units = new[] { unit("ab", 1000, 2000), unit("cd", 2000, 3400) },
-        }, TimingGranularity.Word);
+        });
 
         /// <summary>
         /// Backlog 245: the last word is priced by its OWN duration, not by the line's sung-end
@@ -527,7 +527,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 EndTime = 9000,
                 SingEndTime = 100,
                 Units = new[] { unit("ab", 0, 4000) },
-            }, TimingGranularity.Word);
+            });
 
             Assert.That(UnderlinePace.SungEndOf(late), Is.GreaterThanOrEqualTo(late.Cells[^1].TargetTime));
         }

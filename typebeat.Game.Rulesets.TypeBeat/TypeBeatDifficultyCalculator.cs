@@ -53,11 +53,14 @@ namespace typebeat.Game.Rulesets.TypeBeat
 
             var lines = objects.Select(h => h.Line).ToList();
 
-            // The rating is the whole of what these attributes have to carry. A TypeBeat subclass
-            // existed until backlog 265 purely to ship the pp RATE multiplier alongside, because
-            // the performance calculator gets no beatmap of its own and could not compute a term
-            // that took the map's rating at three rates. There is no such term any more.
-            return new DifficultyAttributes(mods, LyricDifficulty.Compute(lines, rate, PerformancePoints.IsLiterate(mods)));
+            // The rating AND the map's difficult characters. The second half is why this returns a
+            // TypeBeat subclass again: the pp formula's miss penalty is measured against the
+            // envelope model's own N, and the performance calculator is handed a score and these
+            // attributes rather than the lyric lines, so the count has to travel with the rating it
+            // was computed under.
+            var model = LyricDifficulty.ComputeDetail(lines, rate, PerformancePoints.IsLiterate(mods), LyricDifficulty.Live, PerformancePoints.JudgementArmFor(mods));
+
+            return new TypeBeatDifficultyAttributes(mods, model.Stars, model.DifficultCharacters);
         }
 
         protected override IEnumerable<DifficultyHitObject> CreateDifficultyHitObjects(IBeatmap beatmap, Mod[] mods) => Enumerable.Empty<DifficultyHitObject>();

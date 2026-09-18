@@ -296,17 +296,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var engine = started(abCd());
 
-            // Every LYRIC character 200 ms late: q = 1 - 200/2000 = 0.9 apiece.
+            // Every LYRIC character 200 ms late: q = 1 - 200/600 = 2/3 apiece.
             Assert.IsTrue(engine.ProcessKey('a', 1200));
             Assert.IsTrue(engine.ProcessKey('b', 1700));
             Assert.IsTrue(engine.ProcessKey(' ', 7000)); // exempt, and neutral
             Assert.IsTrue(engine.ProcessKey('c', 2200));
             Assert.IsTrue(engine.ProcessKey('d', 2700));
 
-            // 4 timed cells at 0.9, the space out of both halves. Counted IN at its zeroed delta it
-            // would read 100 * (3.6 + 1) / 5 = 92, which is a player at 90 being handed an S.
-            Assert.AreEqual(90, engine.LiveSyncPercent, 1e-9);
-            Assert.AreEqual(90, engine.BuildResults().SyncPercent, 1e-9);
+            // 4 timed cells at 2/3, the space out of both halves. Counted IN at its zeroed delta it
+            // would read 100 * (8/3 + 1) / 5 = 73.33, which is a player at 66.67 being handed a
+            // better number than they earned.
+            Assert.AreEqual(200.0 / 3, engine.LiveSyncPercent, 1e-9);
+            Assert.AreEqual(200.0 / 3, engine.BuildResults().SyncPercent, 1e-9);
 
             // ...and the space's own timing cannot move either readout, which is the whole claim.
             var onTime = started(abCd());

@@ -97,7 +97,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             var cell = display.Line.Cells[index];
             double delta = cell.JudgedDelta!.Value;
 
-            return LyricLineDisplay.CorrectCharColour(Gameplay.SyncWindows.For(cell.JudgeGranularity).SyncQuality(delta));
+            return LyricLineDisplay.CorrectCharColour(Gameplay.SyncWindows.Default.SyncQuality(delta));
         }
 
         // The same cached-per-ShortName manager the gameplay bindings read, so setting a value here

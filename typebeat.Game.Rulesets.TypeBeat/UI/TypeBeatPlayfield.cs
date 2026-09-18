@@ -159,7 +159,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // header describing only part of the run. Absent config (a bare test scene) leaves the
             // engine's own default, which is off.
             if (config != null)
+            {
                 Engine.SpaceSkipsWord = config.Get<bool>(TypeBeatRulesetSetting.SpaceSkipsWord);
+
+                // MANUAL NEWLINES is read once for the same reason, and matches it in every other
+                // way: one engine flag, stamped on the CONFIG frame, nobody able to change it
+                // mid-run. OFF leaves the automatic hand-over of a finished line exactly as it was.
+                Engine.ManualNewlines = config.Get<bool>(TypeBeatRulesetSetting.ManualNewlines);
+            }
 
             // The Player already renders the beatmap background image (dimmed) and, when
             // "beatmap storyboard/video" is on, the video, both BELOW the ruleset. Historically
@@ -1039,7 +1046,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // arm a player who pressed Enter into an instrumental gap leaves through, and
                 // TestSceneTypeBeatInstrumentalSkip drives that end to end.
                 if (engine.IsLineComplete && playfield.CurrentRetypeSelection is null)
+                {
+                    // MANUAL NEWLINES: a finished line is the PLAYER's to close, so the two keys that
+                    // close it are LIVE input rather than a fall-through to the global bindings. They
+                    // go through the SAME two engine entry points the replay feed feeds a recorded
+                    // run through (ProcessKey for the space, ProcessEnter for enter), so a re-derived
+                    // run lands on the same line by construction rather than by a second
+                    // implementation that has to agree with this one. A press the entry window has
+                    // not opened for is refused, and then falls through exactly as this state always
+                    // did; a LETTER keeps falling through untouched, which is what keeps the mid-song
+                    // skip overlay reachable through an instrumental gap.
+                    if (engine.ManualNewlines)
+                    {
+                        bool space = e.Key == Key.Space;
+                        bool enter = e.Key == Key.Enter || e.Key == Key.KeypadEnter;
+
+                        if ((space || enter) && (space ? engine.ProcessKey(' ', time) : engine.ProcessEnter(time)))
+                        {
+                            drawableRuleset?.RecordTypingInput(space ? ' ' : TypeBeatReplayFrame.ENTER, time);
+                            return true;
+                        }
+                    }
+
                     return false;
+                }
 
                 // Pass Shift AND the Caps Lock toggle through so either route to a capital works,
                 // required for the Literate (case-sensitive) mod; folded away harmlessly in normal

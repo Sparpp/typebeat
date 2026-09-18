@@ -71,7 +71,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>Cell target times of one line, read off the engine's own flattening.</summary>
         private static IReadOnlyList<double> targets(LyricBeatmap map, int lineIndex)
-            => TypingLine.FromLyricLine(map.Lines[lineIndex], map.Granularity, false).Cells.Select(c => c.TargetTime).ToList();
+            => TypingLine.FromLyricLine(map.Lines[lineIndex]).Cells.Select(c => c.TargetTime).ToList();
 
         /// <summary>
         /// A deliberately messy run, so the rewind has something to get wrong: a clean first line, a

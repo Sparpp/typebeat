@@ -29,7 +29,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             // backlog 180. Get this wrong in either direction and autoplay stops being perfect:
             // pressing point targets against a span engine costs Oks wherever a subtimed word's
             // target falls outside its own syllable (backlog 181), and pressing span edges against
-            // the classic HR engine would be worse still, since HR halves every window.
+            // the classic HR engine presses past a target the engine is measuring.
+            //
+            // The SHELTER travels with it, which is the same mirror one level up: under Easy the
+            // span is the whole word (TypingEngine.WordShelter), so a generator clamped into a
+            // syllable would press an instant the engine no longer calls perfect and autoplay would
+            // drop off 100%.
             //
             // Backlog 209's narrowing rides along unconditionally, exactly as createEngine stamps
             // it: a stretch cell is judged on its own character target, so autoplay must press that
@@ -43,7 +48,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
                     literate: mods.Any(m => m is TypeBeatModLiterate),
                     syllableTiming: !mods.Any(m => m is TypeBeatModHardRock),
                     charTimedStretch: true,
-                    firstCharTiming: true).Generate(),
+                    firstCharTiming: true,
+                    wordShelter: mods.Any(m => m is TypeBeatModEasy)).Generate(),
                 new ModCreatedUser { Username = "typebot" });
     }
 }

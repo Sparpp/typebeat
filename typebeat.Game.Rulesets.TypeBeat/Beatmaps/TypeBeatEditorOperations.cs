@@ -1173,7 +1173,123 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// Splits a line before the given unit index: words [0, index) stay, words [index, n)
+        /// Splits the word at <paramref name="unitIndex"/> into TWO words at the syllable subdivision
+        /// <paramref name="boundaryIndex"/>: the characters left of that cut become one word and the
+        /// characters right of it the next, their spans being the old word's own either side of the
+        /// boundary. The subdivision is CONSUMED - it becomes the gap between the two words, which is
+        /// the point of the operation - and any OTHER subdivision of the word rides into whichever of
+        /// the two now owns it, with the second word's char indices measured from its own start.
+        ///
+        /// <para>The line's stored text gains a space at the cut, which is what makes the two tokens;
+        /// everything else about the line is untouched. No-op when the cut cannot be expressed: an
+        /// index that is not a subdivision of that word, a word whose subdivisions cannot all be named
+        /// in characters (an over-forced short word, where the syllabifier answered with fewer cuts
+        /// than segments), or a cut that would leave either word shorter than
+        /// <see cref="MIN_SPAN_MS"/>.</para>
+        /// </summary>
+        public static bool SplitWord(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int boundaryIndex)
+        {
+            var line = hitObject.Line;
+            string[] tokens = line.RawText.Split(' ');
+
+            if (unitIndex < 0 || unitIndex >= line.Units.Count || tokens.Length != line.Units.Count)
+                return false;
+
+            var unit = line.Units[unitIndex];
+
+            if (boundaryIndex < 0 || boundaryIndex >= unit.SyllableBoundaries.Count)
+                return false;
+
+            // The EFFECTIVE split: the authored one where there is one, the syllabifier's answer
+            // otherwise. It has to name every boundary for the cut to have a character to live
+            // between, which is exactly the case this operation needs.
+            var splits = SyllableSegments.SplitsFor(unit);
+
+            if (splits.Count != unit.SyllableBoundaries.Count)
+                return false;
+
+            int cut = splits[boundaryIndex];
+            double boundary = unit.SyllableBoundaries[boundaryIndex];
+
+            if (cut <= 0 || cut >= unit.Text.Length)
+                return false;
+
+            if (boundary - unit.StartTime < MIN_SPAN_MS || unit.EndTime - boundary < MIN_SPAN_MS)
+                return false;
+
+            string firstText = unit.Text.Substring(0, cut);
+            string secondText = unit.Text.Substring(cut);
+
+            var units = line.Units.ToList();
+
+            units[unitIndex] = new TimedUnit
+            {
+                Text = firstText,
+                StartTime = unit.StartTime,
+                EndTime = boundary,
+                Source = unit.Source,
+                Confidence = unit.Confidence,
+                // Both of these are left of the cut, so neither index moves.
+                SyllableBoundaries = unit.SyllableBoundaries.Take(boundaryIndex).ToArray(),
+                SyllableSplits = carriedSplits(firstText, splits, 0, boundaryIndex, 0),
+            };
+
+            units.Insert(unitIndex + 1, new TimedUnit
+            {
+                Text = secondText,
+                StartTime = boundary,
+                EndTime = unit.EndTime,
+                Source = unit.Source,
+                Confidence = unit.Confidence,
+                SyllableBoundaries = unit.SyllableBoundaries.Skip(boundaryIndex + 1).ToArray(),
+                // This word's cuts are indices into ITS OWN token, so each shifts down by the
+                // characters the first word took.
+                SyllableSplits = carriedSplits(secondText, splits, boundaryIndex + 1, splits.Count, cut),
+            });
+
+            tokens[unitIndex] = firstText + " " + secondText;
+
+            editorBeatmap.BeginChange();
+
+            hitObject.Line = rebuild(line, rawText: string.Join(' ', tokens), units: units.ToArray());
+            editorBeatmap.Update(hitObject);
+
+            // A word whose only subdivision this was leaves none behind, so the line's granularity has
+            // to follow it down (the units stay Explicit, so that lands on Word, never on Line).
+            syncGranularity(editorBeatmap, keepAuthoredWords: true);
+
+            editorBeatmap.EndChange();
+            return true;
+        }
+
+        /// <summary>
+        /// The subdivision cuts a <see cref="SplitWord"/> side keeps: <c>splits[from..to]</c> rebased
+        /// by <paramref name="shift"/> and kept only when that is a VALID authored split of
+        /// <paramref name="token"/> that the syllabifier would not have answered anyway. A subset that
+        /// is simply the derived split stays derived, exactly as
+        /// <see cref="SetSyllableSplit"/>'s own rule keeps a pipe moved back onto the derived cut from
+        /// pinning it; anything else falls back to derived rather than carrying an index that could
+        /// re-cut the word.
+        /// </summary>
+        private static IReadOnlyList<int> carriedSplits(string token, IReadOnlyList<int> splits, int from, int to, int shift)
+        {
+            if (to <= from)
+                return Array.Empty<int>();
+
+            var kept = new int[to - from];
+
+            for (int i = 0; i < kept.Length; i++)
+                kept[i] = splits[from + i] - shift;
+
+            int segments = kept.Length + 1;
+
+            return SyllableSegments.IsAuthoredValid(token, segments, kept) && !sameSplits(kept, SyllableSegments.Derived(token, segments))
+                ? kept
+                : Array.Empty<int>();
+        }
+
+        /// <summary>
+        /// Splits a line before the given unit index: words [0, index) stay, words [index, n) 
         /// become a new line starting at that word's start time. No-op for edge indices.
         /// </summary>
         public static void SplitLine(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int firstUnitOfSecondLine)
@@ -1375,16 +1491,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         #region Syllable subdivisions (per-word dotted-line boundaries)
 
         /// <summary>
-        /// Adds one syllable-subdivision boundary inside the given word unit, bisecting its widest
-        /// current segment (so successive presses keep splitting evenly). The word becomes Explicit
-        /// hand timing and the beatmap is promoted to Syllable granularity. The encoder only
-        /// persists syllables[] for units that carry boundaries, so without the promotion a
-        /// subdivision would silently vanish on save. No-op when the widest segment is too narrow
-        /// to split into two <see cref="MIN_SYLLABLE_MS"/> halves. Returns the new boundary time (for
-        /// the UI to focus the fresh handle), or null when nothing was added.
-        /// The inverse press is <see cref="RemoveNarrowestSyllableBoundary"/>.
+        /// Adds one syllable-subdivision boundary inside the given word unit. WHERE it lands is the
+        /// mapper's call, in this order:
+        ///
+        /// <list type="number">
+        /// <item><b>The caret wins.</b> When <paramref name="caretTime"/> (the editor's playhead, the
+        /// caret of <c>snap to caret</c>) is inside this word, the boundary lands exactly on it -
+        /// the mapper is pointing at the moment they want to cut, so they get that moment instead of
+        /// a bisection they then have to drag. Its CHARACTERS are still cut inside the segment the
+        /// caret landed in, the same "split the space you have" idiom the bisect below uses, and the
+        /// word's split follows exactly as it does there (an authored split is bisected, a derived
+        /// one stays derived).</item>
+        /// <item><b>Otherwise the widest segment is bisected</b>, so successive presses keep
+        /// splitting evenly and a mapper who never parks the caret in the word is unaffected.</item>
+        /// </list>
+        ///
+        /// <para>A caret that sits in the word but within <see cref="MIN_SYLLABLE_MS"/> of one of
+        /// its edges cannot cut two legal segments, and a caret on a boundary is not "inside" a
+        /// segment at all, so both fall through to the bisect rather than refusing.</para>
+        ///
+        /// <para>The word becomes Explicit hand timing and the beatmap is promoted to Syllable
+        /// granularity. The encoder only persists syllables[] for units that carry boundaries, so
+        /// without the promotion a subdivision would silently vanish on save. No-op when there is no
+        /// room to subdivide at all. Returns the new boundary time (for the UI to focus the fresh
+        /// handle), or null when nothing was added. The inverse press is
+        /// <see cref="RemoveNarrowestSyllableBoundary"/>.</para>
         /// </summary>
-        public static double? AddSyllableBoundary(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex)
+        /// <param name="editorBeatmap">The map being edited.</param>
+        /// <param name="hitObject">The line owning the word.</param>
+        /// <param name="unitIndex">The word unit within that line.</param>
+        /// <param name="caretTime">The editor's caret (playhead) in song time, or null when the
+        /// caller has none to offer. Only used when it falls inside the word.</param>
+        public static double? AddSyllableBoundary(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, double? caretTime = null)
         {
             var line = hitObject.Line;
 
@@ -1393,11 +1531,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             var unit = line.Units[unitIndex];
 
-            // Segment edges: word start, existing boundaries, word end. Split the widest gap.
+            // Segment edges: word start, existing boundaries, word end.
             var edges = new List<double> { unit.StartTime };
             edges.AddRange(unit.SyllableBoundaries);
             edges.Add(unit.EndTime);
 
+            if (caretTime is double caret && segmentForCaret(edges, caret) is int caretSegment)
+            {
+                var caretBoundaries = unit.SyllableBoundaries.Append(caret).OrderBy(b => b).ToArray();
+                replaceUnitBoundaries(editorBeatmap, hitObject, unitIndex, caretBoundaries, bisectSplit(unit, caretSegment));
+                return caret;
+            }
+
+            // No caret in the word: split the widest gap.
             double mid = double.NaN;
             double widest = 0;
             int widestSegment = -1;
@@ -1421,6 +1567,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             var boundaries = unit.SyllableBoundaries.Append(mid).OrderBy(b => b).ToArray();
             replaceUnitBoundaries(editorBeatmap, hitObject, unitIndex, boundaries, bisectSplit(unit, widestSegment));
             return mid;
+        }
+
+        /// <summary>
+        /// The segment of <paramref name="edges"/> that <paramref name="caret"/> falls INSIDE with
+        /// room to cut a legal pair of segments, or null when it is outside the word, sits exactly on
+        /// a boundary (which is inside no segment), or is closer than
+        /// <see cref="MIN_SYLLABLE_MS"/> to one of that segment's edges. A null answer is what sends
+        /// <see cref="AddSyllableBoundary"/> back to its bisect.
+        /// </summary>
+        private static int? segmentForCaret(IReadOnlyList<double> edges, double caret)
+        {
+            for (int i = 0; i < edges.Count - 1; i++)
+            {
+                if (caret <= edges[i] || caret >= edges[i + 1])
+                    continue;
+
+                return caret - edges[i] >= MIN_SYLLABLE_MS && edges[i + 1] - caret >= MIN_SYLLABLE_MS ? i : null;
+            }
+
+            return null;
         }
 
         /// <summary>

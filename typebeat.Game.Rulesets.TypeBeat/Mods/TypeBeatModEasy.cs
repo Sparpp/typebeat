@@ -13,17 +13,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 {
     /// <summary>
     /// Easy: every judgement window is twice as wide, so every character gives you twice as long to
-    /// hit it. The ladder keeps its shape (each tier and each asymmetric side is scaled by the same
-    /// factor), and so does its granularity split: a Syllable-timed cell is still judged more
-    /// tightly than a Line-timed one, just at double the tolerance it had.
+    /// hit it. The ladder keeps its shape (the one symmetric ladder is scaled by the same factor on
+    /// every rung), and WHICH cell is judged changes not at all: there is one ladder for every cell
+    /// of every map, so a syllable-subdivided map is judged exactly as tightly as a coarse one, at
+    /// double the tolerance both of them had.
+    ///
+    /// <para>THE SHELTER follows the same bargain one level up (the user's decision): a cell is
+    /// judged against its whole WORD's span rather than its own syllable's
+    /// (<see cref="Gameplay.TypingEngine.WordShelter"/>), so a press anywhere inside the word is
+    /// dead on and only the distance past the word's own edges counts. Easy therefore widens BOTH
+    /// bounds of the challenge -- twice the window, and a span that covers the whole word the
+    /// syllable sits in -- and the two compose exactly as they do without the mod, since the
+    /// narrowing flags keep narrowing.</para>
     ///
     /// <para>Implemented by MULTIPLYING one engine number
     /// (<see cref="Gameplay.TypingEngine.WindowScale"/>) rather than by assigning it, the same
     /// single-flag pattern Literate, Mashing and Fletcher use. The scale is general on purpose: it
     /// is not an "easy" flag, so any other mod that widens or tightens the windows multiplies its
     /// own factor in and the two compose, in either application order. Judgement is otherwise
-    /// untouched: the cells, their target times, the tier names and the points each tier pays are
-    /// exactly as they are without the mod.</para>
+    /// untouched: the cells, their target times, the Great/Ok/Meh names and the points each tier
+    /// pays are exactly as they are without the mod.</para>
     ///
     /// <para>The scale reaches the two sync readouts as well as the two <c>Classify</c> calls, which
     /// is correct rather than an oversight: <c>SyncQuality</c> measures a delta against the widest
@@ -35,7 +44,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// <summary>
         /// What the mod multiplies every judgement window by. Read by
         /// <see cref="Scoring.TypeBeatReplayScorer"/> too, so a replay is re-judged on the same
-        /// ladder the live run was.
+        /// ladder the live run was, alongside <see cref="Gameplay.TypingEngine.WordShelter"/> for
+        /// the span it measures a press against.
         /// </summary>
         public const double WINDOW_SCALE = 2.0;
 
@@ -70,7 +80,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         {
         }
 
-        public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset) =>
-            ((DrawableTypeBeatRuleset)drawableRuleset).Engine.WindowScale *= WINDOW_SCALE;
+        public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset)
+        {
+            var engine = ((DrawableTypeBeatRuleset)drawableRuleset).Engine;
+            engine.WindowScale *= WINDOW_SCALE;
+            // Assignment and not a multiply: the shelter is a boolean reading of the span rule, so
+            // applying the mod twice cannot compound it (unlike WindowScale, which multiplies).
+            engine.WordShelter = true;
+        }
     }
 }

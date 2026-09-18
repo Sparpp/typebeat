@@ -5,12 +5,15 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using osu.Framework.Allocation;
+using osu.Framework.Audio.Track;
 using osu.Framework.Bindables;
 using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Localisation;
 using osu.Framework.Logging;
+using typebeat.Game.Audio.Effects;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Localisation;
@@ -29,9 +32,34 @@ namespace typebeat.Game.Screens.Edit.Setup
         public const string VIDEO_OFFSET_CAPTION = "Video offset (ms)";
 
         private FormBeatmapFileSelector audioTrackChooser = null!;
+        private FormSliderBar<double> audioGainBar = null!;
+        private AudioClippingIndicator clippingIndicator = null!;
         private FormBeatmapFileSelector backgroundChooser = null!;
         private FormBeatmapFileSelector videoChooser = null!;
         private FormNumberBox videoOffsetBox = null!;
+
+        /// <summary>
+        /// The map's own track gain, as the linear multiplier the beatmap stores (1 = as imported), and
+        /// what the bar above edits. A bindable of its own rather than the metadata's value held
+        /// directly, because the metadata OBJECT is replaced when the mapper switches difficulty or
+        /// reloads the map, and the write-through then happens in exactly one place (see
+        /// <see cref="applyAudioGain"/>). Bounded to the model's own limits, so the bar cannot ask for a
+        /// gain the format would clamp away on the next load.
+        /// </summary>
+        private readonly BindableDouble audioGain = new BindableDouble(BeatmapMetadata.DEFAULT_AUDIO_GAIN)
+        {
+            MinValue = 0,
+            MaxValue = BeatmapMetadata.MAX_AUDIO_GAIN,
+            Precision = 0.01,
+        };
+
+        /// <summary>
+        /// The waveform the clipping indicator's reading came from, so a REPLACED audio file is noticed:
+        /// a new file is a new waveform object with its own peaks, and the reading has to follow the
+        /// object rather than the screen's lifetime. Read on every frame (see <see cref="Update"/>)
+        /// because the swap happens elsewhere in this same screen.
+        /// </summary>
+        private Waveform? analysedWaveform;
 
         private readonly Bindable<EditorBeatmapSkin.SampleSet?> currentSampleSet = new Bindable<EditorBeatmapSkin.SampleSet?>();
 
@@ -101,6 +129,27 @@ namespace typebeat.Game.Screens.Edit.Setup
                     PlaceholderText = EditorSetupStrings.ClickToSelectTrack,
                     HintText = EditorSetupStrings.AudioTrackHint,
                 },
+                // Directly under the track it scales, and a GAIN rather than a volume, because the
+                // stack's volume stops at 100%: a quietly mastered song has nothing left to give there
+                // (see BeatmapMetadata.AudioGain and Audio.Effects.AudioGain), so this is the only
+                // control that can actually make one louder. 100% is the song as imported.
+                audioGainBar = new FormSliderBar<double>
+                {
+                    Caption = "Audio gain",
+                    HintText = "Loudness of the song itself, for everyone who plays the map: 100% is the file as imported, above that amplifies it. Use it to lift a quietly mastered track; boost too far and a loud song clips.",
+                    Current = { BindTarget = audioGain },
+                    KeyboardStep = 0.05f,
+                    DisplayAsPercentage = true,
+                    // Applied when the drag ends rather than on every pixel of it: one write to the
+                    // mixer and ONE editor state per adjustment, instead of an undoable step per
+                    // intermediate value.
+                    TransferValueOnCommit = true,
+                },
+                clippingIndicator = new AudioClippingIndicator
+                {
+                    RelativeSizeAxes = Axes.X,
+                    Height = 20,
+                },
                 new FormSampleSetChooser
                 {
                     Current = { BindTarget = currentSampleSet },
@@ -144,6 +193,166 @@ namespace typebeat.Game.Screens.Edit.Setup
             // whole editor background storyboard asynchronously.
             videoOffsetBox.OnCommit += (_, _) => commitVideoOffset();
             updateVideoOffsetDisplay();
+
+            // The gain goes in as the bar is released rather than on a commit key, which is the same
+            // "pick it, then it is applied" shape the language dropdown uses rather than the shared
+            // Ctrl+S rule the sections' text boxes follow: there is no text to type, and unlike the
+            // video offset above there is nothing expensive about applying it - one mixer write. State
+            // is saved with it, so the change is undoable and Ctrl+S has nothing left to do.
+            audioGain.Value = currentWorkingBeatmap.Value.Metadata.AudioGain;
+            audioGain.BindValueChanged(gain => applyAudioGain(gain.NewValue));
+            audioGainBar.Current.BindValueChanged(_ => Beatmap.SaveState());
+            setupScreen.MetadataChanged += reloadAudioGain;
+
+            analyseTrackPeaks();
+        }
+
+        /// <summary>
+        /// Reads the track's loudest sample for the clipping indicator (see
+        /// <see cref="AudioClippingIndicator"/>), ON A WORKER: the first thing that touches the
+        /// framework's waveform decodes the whole song, and doing that on the update thread would stall
+        /// the editor on the frame the setup screen opens. The result comes back through
+        /// <see cref="Schedule"/> like every other piece of cross-thread state here.
+        /// </summary>
+        private void analyseTrackPeaks()
+        {
+            var waveform = currentWorkingBeatmap.Value?.Waveform;
+            analysedWaveform = waveform;
+
+            clippingIndicator.Peak = null;
+            clippingIndicator.Gain = audioGain.Value;
+
+            if (waveform == null)
+            {
+                // No audio to read at all: nothing can clip, and leaving the indicator saying it is still
+                // reading would be a lie about work that is never coming.
+                clippingIndicator.Peak = 0;
+                return;
+            }
+
+            Task.Run(async () =>
+            {
+                double peak;
+
+                try
+                {
+                    // The ASYNC reading: the synchronous one waits inside the framework, which the
+                    // framework forbids from inside a task, and this is a task on purpose so that a song's
+                    // first analysis cannot stall the editor.
+                    peak = await AudioGain.PeakOfAsync(waveform).ConfigureAwait(false);
+                }
+                catch (Exception e)
+                {
+                    // Reading a waveform that a swap has since replaced or disposed is not the mapper's
+                    // problem, and it must not become one: an exception escaping a Task nobody awaits
+                    // is what the game reports as an unobserved error, which is exactly what this used
+                    // to do here. The replacement's own reading is already queued, so this one stands
+                    // down and says so quietly in the log.
+                    Logger.Log($@"Could not read the audio's peaks for the clipping indicator: {e.Message}");
+                    return;
+                }
+
+                try
+                {
+                    Schedule(() =>
+                    {
+                        // A reading that arrives after the audio was replaced is about a file that is no
+                        // longer loaded, so it is dropped rather than shown.
+                        if (!ReferenceEquals(waveform, analysedWaveform))
+                            return;
+
+                        // One line per reading, so "the indicator is blank" can be told apart from "the
+                        // indicator is showing something wrong" without guessing.
+                        Logger.Log($@"Audio peaks read for the clipping indicator: {peak * 100:0}% of full scale before the map's gain.");
+
+                        clippingIndicator.Peak = peak;
+                        clippingIndicator.Gain = audioGain.Value;
+                    });
+                }
+                catch (ObjectDisposedException)
+                {
+                    // The setup screen closed while the song was being read. Nothing to report to anyone.
+                }
+            });
+        }
+
+        protected override void Update()
+        {
+            base.Update();
+
+            // Follow the WAVEFORM OBJECT, not this screen's lifetime: swapping the audio file hands the
+            // map a different waveform with different peaks, and the old reading is about a song that is
+            // no longer loaded. This is the only reliable place to notice it - the swap happens inside
+            // this same screen, and the object it replaces is the framework's.
+            if (!ReferenceEquals(analysedWaveform, currentWorkingBeatmap.Value?.Waveform))
+                analyseTrackPeaks();
+        }
+
+        /// <summary>
+        /// Re-reads the map's gain into the bar when the metadata is rebuilt underneath this section
+        /// (an audio swap re-derives the artist and title, and the setup screen reloads for another
+        /// difficulty): what the bar shows has to be what the map carries.
+        /// </summary>
+        private void reloadAudioGain()
+        {
+            audioGain.Value = currentWorkingBeatmap.Value.Metadata.AudioGain;
+
+            // A swapped audio file has its own peaks, so the clipping reading goes with it rather than
+            // being kept from the song it replaced.
+            analyseTrackPeaks();
+        }
+
+        /// <summary>
+        /// Writes the bar's value onto the beatmap and lets the music controller re-read it, which is
+        /// what makes a gain change audible in the editor the moment the bar moves instead of on the
+        /// next load of the map.
+        /// </summary>
+        /// <remarks>
+        /// THE GAIN BELONGS TO THE SONG, NOT TO THE DIFFICULTY, so it is written to every other
+        /// difficulty of the set in the same breath (the reasoning <c>MetadataSection</c> already
+        /// applies to the language, and the same shape): one audio file is shared by the whole set, and
+        /// a set whose difficulties disagreed about how loud it is would sound different depending on
+        /// which difficulty a player picked. There is deliberately no "apply to all" checkbox to opt
+        /// out of - a gain can only be right once for the file it scales.
+        /// </remarks>
+        private void applyAudioGain(double gain)
+        {
+            if (currentWorkingBeatmap.Value.Metadata.AudioGain == gain)
+                return;
+
+            currentWorkingBeatmap.Value.Metadata.AudioGain = gain;
+            music.RefreshBeatmapGain();
+            clippingIndicator.Gain = gain;
+
+            // AND HEARD NOW, not on the next load: the gain is applied to the AUDIO itself (see
+            // ScaledAudio), so the only way a moving slider can be audible is to rebuild the track from
+            // the newly scaled audio. That is the same reload a swapped audio file uses, and it carries
+            // the playhead over, so the take restarts a few hundred milliseconds later at the same
+            // moment it was at - quiet enough to compare a gain by ear, which is the whole point of a
+            // slider.
+            music.ReloadCurrentTrack();
+
+            var working = currentWorkingBeatmap.Value;
+
+            foreach (var difficulty in working.BeatmapSetInfo.Beatmaps)
+            {
+                if (difficulty.Equals(working.BeatmapInfo))
+                    continue;
+
+                difficulty.Metadata.AudioGain = gain;
+
+                // Persisted now rather than left for the mapper's next save: these are OTHER files, and
+                // the editor's save only ever writes the one it has open.
+                try
+                {
+                    var target = beatmaps.GetWorkingBeatmap(difficulty);
+                    beatmaps.Save(difficulty, target.GetPlayableBeatmap(difficulty.Ruleset), target.GetSkin(), target.Storyboard);
+                }
+                catch (Exception e)
+                {
+                    Logger.Error(e, $@"Failed to sync the audio gain to {difficulty.GetDisplayTitle()}");
+                }
+            }
         }
 
         public bool ChangeBackgroundImage(FileInfo source, bool applyToAllDifficulties)

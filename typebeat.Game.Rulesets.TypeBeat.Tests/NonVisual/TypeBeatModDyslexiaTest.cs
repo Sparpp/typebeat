@@ -327,24 +327,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var judged = new List<CharJudgement>();
             typing.CharJudged += judged.Add;
 
-            Assert.IsTrue(typing.ProcessKey('t', 1200)); // cell 2, target 1200 => delta 0
-            Assert.IsTrue(typing.ProcessKey('a', 1210)); // cell 1, target 1100 => delta 110
-            Assert.IsTrue(typing.ProcessKey('c', 1220)); // cell 0, target 1000 => delta 220
+            Assert.IsTrue(typing.ProcessKey('t', 1100)); // cell 2, target 1200 => delta -100
+            Assert.IsTrue(typing.ProcessKey('a', 1110)); // cell 1, target 1100 => delta 10
+            Assert.IsTrue(typing.ProcessKey('c', 1120)); // cell 0, target 1000 => delta 120
 
             Assert.AreEqual(0, typing.Mistypes, "every press matched a character the word still owed");
             Assert.AreEqual(3, typing.Combo);
 
             Assert.AreEqual(new[] { 2, 1, 0 }, judged.Select(j => j.CellIndex).ToArray(),
                 "the judgement must name the cell the press landed on, not the caret");
-            Assert.AreEqual(new[] { 0.0, 110.0, 220.0 }, judged.Select(j => j.Delta).ToArray(),
-                "each press is graded against its own cell's target, all three inside the 400 ms late Great window");
+            Assert.AreEqual(new[] { -100.0, 10.0, 120.0 }, judged.Select(j => j.Delta).ToArray(),
+                "each press is graded against its own cell's target, all three inside the +/-150 Great window");
 
             foreach (var j in judged)
                 Assert.AreEqual(JudgementType.Great, j.Type);
 
-            Assert.AreEqual(220.0, line[0].JudgedDelta);
-            Assert.AreEqual(110.0, line[1].JudgedDelta);
-            Assert.AreEqual(0.0, line[2].JudgedDelta);
+            Assert.AreEqual(120.0, line[0].JudgedDelta);
+            Assert.AreEqual(10.0, line[1].JudgedDelta);
+            Assert.AreEqual(-100.0, line[2].JudgedDelta);
 
             Assert.AreEqual('c', line[0].TypedChar);
             Assert.AreEqual('a', line[1].TypedChar);
@@ -654,13 +654,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             typing.LineSealed += sealed_.Add;
 
             // Both words backwards, and the gap in the middle where it always was.
-            typing.ProcessKey('t', 1200);
-            typing.ProcessKey('a', 1210);
-            typing.ProcessKey('c', 1220);
+            typing.ProcessKey('t', 1100);
+            typing.ProcessKey('a', 1110);
+            typing.ProcessKey('c', 1120);
             typing.ProcessKey(' ', 1300);
-            typing.ProcessKey('g', 2200);
-            typing.ProcessKey('o', 2210);
-            typing.ProcessKey('d', 2220);
+            typing.ProcessKey('g', 2100);
+            typing.ProcessKey('o', 2110);
+            typing.ProcessKey('d', 2120);
 
             Assert.IsTrue(typing.IsLineComplete);
             Assert.AreEqual(7, typing.CaretIndex, "== Cells.Count when complete");
@@ -752,8 +752,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Each cell struck dead on its own target, in the order c a t ' ' d o g.
             var ordered = run((1000, 'c'), (1100, 'a'), (1200, 't'), (1300, ' '), (2000, 'd'), (2100, 'o'), (2200, 'g'));
 
-            // The same seven cells, each struck within its own Great window, both words backwards.
-            var scrambled = run((1200, 't'), (1210, 'a'), (1220, 'c'), (1300, ' '), (2200, 'g'), (2210, 'o'), (2220, 'd'));
+            // The same seven cells, each struck within its own Great window, both words backwards:
+            // the presses are early because 'c' is the earliest target and is typed last.
+            var scrambled = run((1100, 't'), (1110, 'a'), (1120, 'c'), (1300, ' '), (2100, 'g'), (2110, 'o'), (2120, 'd'));
 
             var clean = score(beatmap, ordered);
             var withMod = score(beatmap, scrambled, new TypeBeatModDyslexia());

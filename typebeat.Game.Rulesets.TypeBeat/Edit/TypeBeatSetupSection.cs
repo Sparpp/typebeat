@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Threading;
@@ -28,6 +29,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// The type!beat-specific editor setup section: a global lyric-vs-song offset (baked into the
     /// map data, unlike the per-player LyricOffsetMs preference) and an in-editor auto-timer that
     /// aligns a lyrics file to the map's audio and replaces the lines.
+    ///
+    /// <para>The lyrics file chooser takes a .txt, .lrc or Apple Music .ttml. Its own registration
+    /// as a file-import handler is what makes a drop work: the window hands a dropped file to the
+    /// most recently registered handler that claims its extension, so while this screen is up a
+    /// .ttml lands HERE rather than in the global song-import flow. A .ttml is applied the moment it
+    /// arrives (it is already word-timed, so there is nothing to run and nothing to wait for); the
+    /// other two still go through the aligner when the button is pressed.</para>
     /// </summary>
     public partial class TypeBeatSetupSection : SetupSection
     {
@@ -94,10 +102,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     ButtonText = "Shift timings",
                     Action = applyShift,
                 },
-                lyricsSelector = new FormFileSelector(".txt", ".lrc")
+                lyricsSelector = new FormFileSelector(".txt", ".lrc", ".ttml")
                 {
                     Caption = "Lyrics file",
-                    PlaceholderText = "Click to select a .txt / .lrc lyrics file",
+                    PlaceholderText = "Click to select a .txt / .lrc / .ttml lyrics file",
                 },
                 new FormButton
                 {
@@ -108,6 +116,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             };
 
             beatdropBox.OnCommit += (_, _) => commitBeatdrop();
+
+            // A .ttml is applied the moment it arrives, however it arrived (a drop into the window,
+            // which this selector is registered to receive, or the file chooser): it is already
+            // word-timed, so there is nothing to run and no reason to make the mapper press the
+            // button. The .txt/.lrc path keeps the button, because alignment is expensive.
+            lyricsSelector.Current.BindValueChanged(selected =>
+            {
+                if (selected.NewValue is FileInfo file && TtmlParser.IsTtmlFile(file.FullName) && tryReadLyrics(file, out string content))
+                    importTtml(file, content);
+            });
         }
 
         protected override void LoadComplete()
@@ -197,6 +215,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         private void runImport()
         {
+            var lyricsFile = lyricsSelector.Current.Value;
+
+            if (lyricsFile == null || !lyricsFile.Exists)
+            {
+                notify("Select a lyrics file (.txt, .lrc or .ttml) first.");
+                return;
+            }
+
+            // A TTML needs neither the aligner nor the audio: it arrives already word-timed, so it
+            // is converted and applied on the spot, and the button works on a machine with no
+            // aligner environment at all. Recognised on its CONTENT as well as its name, so a TTML
+            // saved under some other extension is converted rather than handed to the aligner as
+            // though it were a lyrics file.
+            if (!tryReadLyrics(lyricsFile, out string lyricsContent))
+                return;
+
+            if (TtmlParser.IsTtmlFile(lyricsFile.FullName) || TtmlParser.LooksLikeTtml(lyricsContent))
+            {
+                importTtml(lyricsFile, lyricsContent);
+                return;
+            }
+
             if (importer == null)
             {
                 notify("The lyric aligner is not available in this build.");
@@ -208,14 +248,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (string.IsNullOrEmpty(audioFilename))
             {
                 notify("Set the song's audio first (Resources section), then generate timing.");
-                return;
-            }
-
-            var lyricsFile = lyricsSelector.Current.Value;
-
-            if (lyricsFile == null || !lyricsFile.Exists)
-            {
-                notify("Select a lyrics file (.txt or .lrc) first.");
                 return;
             }
 
@@ -245,7 +277,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 return;
             }
 
-            string lyricsContent = File.ReadAllText(lyricsFile.FullName);
             string artist = working.Value.Metadata.Artist;
             string title = working.Value.Metadata.Title;
 
@@ -326,6 +357,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         private void notify(string message) => notifications?.Post(new SimpleNotification { Text = message });
+
+        /// <summary>Reads a lyrics file, reporting (rather than throwing) anything that stops it.</summary>
+        private bool tryReadLyrics(FileInfo file, out string content)
+        {
+            try
+            {
+                content = File.ReadAllText(file.FullName);
+                return true;
+            }
+            catch (Exception e)
+            {
+                content = string.Empty;
+                notify($"Couldn't read {file.Name}: {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Replaces the map's lines with a TTML's own word timing, in one transaction so the whole
+        /// import is a single undo. The document's timings are taken as written; a mapper whose rip
+        /// needs nudging uses the "shift all timings" control above, which is also where the
+        /// leading-silence note points.
+        /// </summary>
+        private void importTtml(FileInfo file, string content)
+        {
+            if (!TtmlParser.TryParse(content, out IReadOnlyList<LyricLine> lines, out TtmlParser.TtmlMetadata metadata) || lines.Count == 0)
+            {
+                notify($"{file.Name} has no timed lyrics in it.");
+                return;
+            }
+
+            TypeBeatEditorOperations.ReplaceLines(Beatmap, lines, TypeBeatEditorOperations.InferGranularity(lines));
+
+            string message = $"Imported {lines.Count} lyric lines from {file.Name}.";
+
+            // Not applied, only said out loud: an Apple TTML states how much silence precedes the
+            // first word, and a rip that needs that shift is common enough to be worth naming.
+            if (metadata.LeadingSilenceMs > 0)
+                message += $" The file declares {metadata.LeadingSilenceMs:0.#} ms of leading silence; use Shift timings if the lyrics sit early.";
+
+            notify(message);
+        }
 
         protected override void Dispose(bool isDisposing)
         {

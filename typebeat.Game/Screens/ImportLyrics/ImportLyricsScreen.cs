@@ -112,12 +112,12 @@ namespace typebeat.Game.Screens.ImportLyrics
                                 new OsuSpriteText
                                 {
                                     Text = "drop an audio file (.mp3/.ogg/.wav) or video (.mp4) anywhere in the window, "
-                                           + "plus a lyrics file (.txt/.lrc) if you have one.",
+                                           + "plus a lyrics file (.txt/.lrc/.ttml) if you have one.",
                                     Colour = colourProvider.Content2,
                                     Font = OsuFont.Default.With(size: 16),
                                 },
                                 audioSlot = new FileSlot("audio", "drop .mp3 / .ogg / .wav / .mp4"),
-                                lyricsSlot = new FileSlot("lyrics (optional)", "drop .txt / .lrc, or import without for a blank map"),
+                                lyricsSlot = new FileSlot("lyrics (optional)", "drop .txt / .lrc / .ttml, or import without for a blank map"),
                                 artistBox = new LabelledTextBox { Label = "artist" },
                                 titleBox = new LabelledTextBox { Label = "title" },
                                 automaticAlignmentCheckbox = new OsuCheckbox

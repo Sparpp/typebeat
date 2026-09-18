@@ -79,10 +79,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     Assert.That(hitObjects[i].Granularity, Is.EqualTo(TimingGranularity.Word));
                 }
 
-                // Estimated flag survives the trip (drives Line-tier judging).
+                // Estimated flag survives the trip. It is authored TIMING data now: the one
+                // ladder judges every cell the same, so the flag no longer buys tolerance.
                 Assert.That(hitObjects[1].Line.Estimated, Is.True);
 
-                // Low word score survives (0.1 < LOW_CONFIDENCE_SCORE widens windows).
+                // Low word score survives the trip as authored data (it no longer widens a
+                // window: there are no per-granularity tiers left to widen to).
                 Assert.That(hitObjects[1].Line.Units[0].Confidence, Is.EqualTo(0.1).Within(1e-9));
             }
             finally

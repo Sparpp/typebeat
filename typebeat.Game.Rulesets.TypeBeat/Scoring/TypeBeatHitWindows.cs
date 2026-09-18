@@ -8,24 +8,24 @@ using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 {
     /// <summary>
-    /// Mirrors the engine's asymmetric <see cref="SyncWindows"/> onto osu's symmetric
+    /// Mirrors the engine's <see cref="SyncWindows"/> onto osu's symmetric
     /// <see cref="HitWindows"/> API so <see cref="typebeat.Game.Rulesets.Objects.Drawables.DrawableHitObject"/>
     /// lifetimes and time-offset bookkeeping are coherent. osu's API has one width per result
-    /// (± around the target), so the LATE (wider) side of each engine window is used; the
-    /// engine remains the sole judgement authority; these windows are never used to classify.
-    /// Difficulty does not scale the windows (granularity does, via the engine's tiers).
+    /// (± around the target), and so does this ladder now, so the two agree directly; the engine
+    /// remains the sole judgement authority and these windows are never used to classify.
+    /// Neither difficulty nor the map's timing granularity scales the windows.
     /// </summary>
     public class TypeBeatHitWindows : HitWindows
     {
         // Nullable because the base ctor validates via the WindowFor override BEFORE this
-        // field is assigned; the Line tier stands in during that base-ctor call only.
+        // field is assigned; the default ladder stands in during that base-ctor call only.
         private readonly SyncWindows? windows;
 
-        private SyncWindows effectiveWindows => windows ?? SyncWindows.For(TimingGranularity.Line);
+        private SyncWindows effectiveWindows => windows ?? SyncWindows.Default;
 
-        public TypeBeatHitWindows(TimingGranularity judgeGranularity)
+        public TypeBeatHitWindows()
         {
-            windows = SyncWindows.For(judgeGranularity);
+            windows = SyncWindows.Default;
         }
 
         public override bool IsHitResultAllowed(HitResult result)
@@ -45,7 +45,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         public override void SetDifficulty(double difficulty)
         {
-            // Windows are granularity-scaled by the engine, never difficulty-scaled.
+            // Windows are never difficulty-scaled.
         }
 
         public override double WindowFor(HitResult result)

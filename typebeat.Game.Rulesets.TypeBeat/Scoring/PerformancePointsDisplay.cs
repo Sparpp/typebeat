@@ -134,7 +134,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             if (!Eligible(score) || StarRatingFor(playableBeatmap, score.Mods) is not double stars)
                 return null;
 
-            return PerformancePoints.ForPlay(stars, PerformancePoints.CountNotes(score), score.Accuracy, score.MaxCombo, score.Mods);
+            var lines = playableBeatmap!.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line);
+            var counts = PerformancePoints.CountNotes(score)
+                with { DifficultCharacters = PerformancePoints.DifficultCharactersFor(lines, score.Mods) };
+
+            return PerformancePoints.ForPlay(stars, counts, score.Accuracy, score.MaxCombo, score.Mods);
         }
 
         /// <summary>

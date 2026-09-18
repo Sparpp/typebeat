@@ -17,15 +17,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
     /// <summary>
     /// The ruleset's half of Settings > Experimental: the settings that work but are not settled.
-    /// Two of them change how the spacebar reads (skipping the rest of a word, and the dot marking a
-    /// word you left spoiled), one marks the mapper's syllable subdivisions on the lyric line, one
-    /// puts the sync metric back on screen for anyone who wants it (backlog 251 took it off by
-    /// default and cut it out of the grade), and the last is the local auto-aligner, an opt-in
+    /// What is left here is the sync metric, put back on screen for anyone who wants it (backlog 251
+    /// took it off by default and cut it out of the grade), and the local auto-aligner, an opt-in
     /// multi-gigabyte install that times imported lyrics on this machine instead of on the server.
-    /// They live here rather than in
-    /// <see cref="TypeBeatSettingsSubsection"/> so the type!beat section stays the settled set;
-    /// nothing about the bindables behind them changes with the move, and none of the enum members
-    /// may be renamed (Realm keys them by member name).
+    ///
+    /// <para>The four typing behaviours that used to sit above them - space skipping a word, manual
+    /// newlines, the space error dot and the syllable markers - have SETTLED, so their controls now
+    /// live in <see cref="TypeBeatSettingsSubsection"/> with the rest of the settled set. The move is
+    /// of the CONTROLS and not of the settings: nothing about the bindables behind them changed, and
+    /// none of the enum members may be renamed (Realm keys them by member name), so every stored
+    /// value still reads exactly as it did.</para>
     /// </summary>
     public partial class TypeBeatExperimentalSettingsSubsection : RulesetSettingsSubsection
     {
@@ -63,24 +64,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             var controls = new Drawable[]
             {
-                new SettingsCheckbox
-                {
-                    LabelText = "Space to skip current word",
-                    TooltipText = "Press space in the middle of a word to give up on it and jump to the next one. Everything you had not typed of that word counts as a miss, so one bad character costs a word instead of your whole run. Applies from the next play.",
-                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.SpaceSkipsWord),
-                },
-                new SettingsCheckbox
-                {
-                    LabelText = "Use space error dot",
-                    TooltipText = "Mark a word you left with an error in it: once you space on past it, a small red dot appears in the gap after that word. Display only, nothing about your score or your judgements changes.",
-                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.UseSpaceErrorDot),
-                },
-                new SettingsCheckbox
-                {
-                    LabelText = "Show syllable markers",
-                    TooltipText = "Mark the syllable boundaries inside a word the mapper timed syllable by syllable: a tiny triangle sits in the gap between the last character of one syllable and the first of the next, so you can see the subdivision coming. Display only, nothing about your score or your judgements changes.",
-                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyllableMarkers),
-                },
                 new SettingsCheckbox
                 {
                     LabelText = "Show sync metric",

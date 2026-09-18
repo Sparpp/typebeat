@@ -532,10 +532,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         /// <summary>
         /// ENTER GIVES UP THE REST OF THE LINE, through the real input stack. The caret parks past
-        /// the last cell (from where the roll or the snap would carry it on, though the caret is
-        /// PINNED in this scene so nothing does until the seal), nothing about the cells left behind
+        /// the last cell (from where the roll or the snap would carry it on, though the line after
+        /// this one is far away, so nothing does until the seal), nothing about the cells left behind
         /// is judged at the press, and the whole gesture records as ONE frame of the new sentinel
         /// kind, which re-derives through the legacy encode/decode exactly.
+        ///
+        /// <para>THE PLAYER IS RELOADED WITHOUT THE SCENE'S FLETCHER MOD for this one, because the
+        /// skip is CARET MOVEMENT and only an UNPINNED caret has anywhere to be moved to: pinned, the
+        /// press is inert and records nothing
+        /// (<see cref="TestEnterIsInertUnderTheFletcherCaret"/>), which is the same rule
+        /// <c>TypingEngine.ProcessEnter</c> enforces. The gesture is pinned on the stack it exists
+        /// on.</para>
         ///
         /// <para>It is also the one gesture here that is NOT composed out of existing engine calls,
         /// which is why it needs a frame kind of its own: nothing in the engine's vocabulary moved a
@@ -544,6 +551,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void TestEnterGivesUpTheLineAndRecordsOneFrame()
         {
+            reloadWithoutFletcher();
             waitForLine();
 
             type("ab ");
@@ -584,6 +592,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void TestKeypadEnterSkipsTheLineToo()
         {
+            reloadWithoutFletcher();
             waitForLine();
 
             type("a");
@@ -591,6 +600,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("the caret parked past the end of the line", () => engine.CaretIndex == 8 && engine.IsLineComplete);
             AddAssert("through the same frame kind", () => frames.Last().IsEnter);
+        }
+
+        /// <summary>
+        /// AND WITH THE SCENE'S OWN FLETCHER CARET, ENTER IS NOT A GESTURE AT ALL: the caret does not
+        /// move, the cells the press would have given up are still the player's, and the handler
+        /// records nothing, because the engine reported that it did nothing. Pinned, the skip could
+        /// only hand the rest of the line to the misses, with the song moving the caret on its own
+        /// time regardless.
+        /// </summary>
+        [Test]
+        public void TestEnterIsInertUnderTheFletcherCaret()
+        {
+            waitForLine();
+            type("ab ");
+
+            AddAssert("a word and its gap are in", () => engine.CaretIndex == 3 && engine.Combo == 3);
+
+            int recorded = 0;
+            AddStep("capture frame count", () => recorded = frames.Count);
+
+            AddStep("press Enter", () => InputManager.Key(Key.Enter));
+            AddStep("press Keypad Enter", () => InputManager.Key(Key.KeypadEnter));
+
+            AddAssert("nothing moved", () => engine.CaretIndex == 3 && !engine.IsLineComplete);
+            AddAssert("nothing was given up", () => engine.Lines[0].Cells.Skip(3).All(c => c.State == CellState.Untyped));
+            AddAssert("and nothing was recorded", () => frames.Count == recorded);
+
+            AddStep("type the next character", () => InputManager.Key(Key.C));
+            AddAssert("it is still the player's to type", () => cell(3).State != CellState.Untyped);
         }
 
         // -----------------------------------------------------------------------------------------
@@ -814,6 +852,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         private void waitForLine() => AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0);
+
+        /// <summary>
+        /// Load the player again WITHOUT the scene's Fletcher mod. The scene pins the caret with that
+        /// mod for every gesture that acts on a fully typed line, but the line skip is CARET MOVEMENT
+        /// and only an unpinned caret has anywhere to be moved to, so the two Enter tests pick the
+        /// stack the gesture exists on. LoadPlayer is the same per-test idiom the push-warning scene
+        /// uses for the same reason.
+        /// </summary>
+        private void reloadWithoutFletcher() => AddStep("load player without Fletcher (unpinned caret)", () => LoadPlayer());
 
         private TypingCell cell(int index) => engine.Lines[0].Cells[index];
 
