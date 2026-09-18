@@ -2,5 +2,5 @@
 
 dotnet tool restore
 dotnet CodeFileSanity
-dotnet jb inspectcode "typebeat.Desktop.slnf" --no-build --output="inspectcodereport.xml" --caches-home="inspectcode" --verbosity=WARN
+dotnet jb inspectcode "typebeat.Desktop.slnf" --no-build --format=Xml --output="inspectcodereport.xml" --caches-home="inspectcode" --verbosity=WARN
 dotnet nvika parsereport "inspectcodereport.xml" --treatwarningsaserrors
