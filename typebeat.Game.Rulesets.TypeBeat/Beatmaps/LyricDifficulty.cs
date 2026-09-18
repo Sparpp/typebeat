@@ -64,13 +64,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// <c>tools/star-rating-sandbox/model.mjs</c> is the same arithmetic with every constant lifted
     /// into a dial. Every constant below is that sandbox's currently active setting.</para>
     ///
-    /// <para>One reading of a map, above. The sandbox also carries a second one - the CHUNKED
-    /// ENDURANCE AXIS, which cuts the map into equal chunks and scores each as a window of its own -
-    /// and <see cref="ComputeDetail"/> can take it instead through <see cref="EnduranceAxis"/>. That
-    /// axis reads none of the peak, envelope, stamina or catch-up machinery below; see
-    /// <see cref="ChunkedEndurance"/> for what it does read and for the fixture it is pinned
-    /// against. The default is <see cref="EnduranceAxis.Envelope"/>, so every existing caller -
-    /// including the pp lab's baseline - reads exactly the model documented here.</para>
+    /// <para>One reading of a map, above. The sandbox also carries a second one, the CHUNKED
+    /// ENDURANCE AXIS, which cuts the map into equal chunks and scores each as a window of its own,
+    /// and <see cref="ComputeDetail"/> takes either through <see cref="EnduranceAxis"/>. That axis
+    /// reads none of the peak, envelope, stamina or catch-up machinery below; see
+    /// <see cref="ChunkedEndurance"/> for what it does read. THE SHIPPED RATING IS THE CHUNKED AXIS:
+    /// <see cref="Live"/> is <see cref="EnduranceAxis.Chunked"/>, and every default-argument caller
+    /// (the difficulty calculator, pp, the server mirror) rates through it. The envelope model
+    /// documented here survives as the explicit <see cref="EnduranceAxis.Envelope"/> arm, which the
+    /// pace statistics still read for their target figure.</para>
     /// </summary>
     public static class LyricDifficulty
     {

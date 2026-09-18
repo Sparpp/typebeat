@@ -3403,13 +3403,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// armed. Returns whether the caret moved, so a caller records a frame only for an effective
         /// press and lets a refused one fall through to whatever it would have done anyway.
         ///
-        /// <para>Deliberately the same three conditions the automatic roll uses, and no others: the
-        /// caret must be FINISHED (<c>caretIndex</c> past the last cell), there must be a next line,
-        /// and that line's entry window must be open (<see cref="entryPermitted"/>, i.e. within
-        /// <see cref="FLETCHER_DRAG_GRACE_MS"/> of its cue). "The timing constraints about when you
-        /// may move on still apply" is exactly that third clause, so pressing space seconds early is
-        /// refused rather than queued: the player presses again when the window opens, and if they
-        /// never do, the seal's drag cutoff takes them as it always did.</para>
+        /// <para>Two conditions, and deliberately NOT the automatic roll's third: the caret must be
+        /// FINISHED (<c>caretIndex</c> past the last cell) and there must be a next line. The entry
+        /// window (<see cref="entryPermitted"/>, within <see cref="FLETCHER_DRAG_GRACE_MS"/> of the
+        /// next cue) does not gate the press itself: the newline always lands, and the line it lands
+        /// on sits greyed and untypeable (<see cref="AwaitingEntry"/>) until its window opens, so
+        /// "the timing constraints about when you may move on still apply" to the TYPING rather
+        /// than to the press. A refused press read as the newline not working. If the player never
+        /// presses at all, the seal's drag cutoff takes them as it always did.</para>
         ///
         /// <para>No WPM clock work here, for the reason <see cref="ProcessEnter"/> gives: a newline is
         /// not typing, so the clock on the line being LANDED on arms lazily on its first real press

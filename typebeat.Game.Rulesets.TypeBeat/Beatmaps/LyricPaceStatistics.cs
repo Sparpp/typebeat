@@ -187,10 +187,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double charged = 0;
             double cursor = line.StartTime;
 
+            // A line whose end precedes its start (a mid-edit line, or a malformed import) has no
+            // window to charge: clamping against it would throw, so it reads as its own start and
+            // the walk below charges nothing for it.
+            double lineEnd = Math.Max(line.EndTime, line.StartTime);
+
             foreach (TimedUnit unit in line.Units)
             {
-                double start = Math.Clamp(unit.StartTime, line.StartTime, line.EndTime);
-                double end = Math.Clamp(unit.EndTime, start, line.EndTime);
+                double start = Math.Clamp(unit.StartTime, line.StartTime, lineEnd);
+                double end = Math.Clamp(unit.EndTime, start, lineEnd);
                 double gap = start - cursor;
 
                 if (gap > 0 && gap <= break_min_ms)
@@ -200,7 +205,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 cursor = Math.Max(cursor, end);
             }
 
-            double tail = line.EndTime - cursor;
+            double tail = lineEnd - cursor;
 
             if (tail > 0 && tail <= break_min_ms)
                 charged += tail;

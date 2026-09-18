@@ -23,15 +23,9 @@
 //     (Hardware Store, Guns and Ships, My Regards, Twilight Learned to Fly) are what pin it.
 
 using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Text.Json;
 using NUnit.Framework;
-using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
-using typebeat.Game.Rulesets.TypeBeat.Mods;
-using typebeat.Game.Rulesets.TypeBeat.Scoring;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {

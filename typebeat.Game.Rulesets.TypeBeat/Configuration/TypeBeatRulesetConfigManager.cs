@@ -86,9 +86,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// next line's entry window opens.
         ///
         /// <para>It is the manual half of what <see cref="Gameplay.TypingEngine.BoundedRush"/> bounds:
-        /// the timing constraints on WHEN the next line may be entered still apply to the press (the
-        /// entry window opens 1500 ms before that line's cue), so this setting decides WHO asks, not
-        /// how early the answer may come. Reaching the live engine through
+        /// the press itself always lands, and the timing constraints on WHEN the next line may be
+        /// TYPED still apply to the line it lands on (it stays greyed until its entry window opens,
+        /// 1500 ms before its cue), so this setting decides WHO asks, not how early typing may
+        /// start. Reaching the live engine through
         /// <see cref="UI.TypeBeatPlayfield"/>'s load, like <see cref="SpaceSkipsWord"/>, because the
         /// replay CONFIG frame stamps whatever the engine holds at the first keystroke.</para>
         /// </summary>

@@ -667,15 +667,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 if (replay != null)
                 {
+                    var frames = replay.Frames;
+
                     // The replay can be swapped mid-play (editor autoplay toggle); restart feeding.
                     if (!ReferenceEquals(replay, activeReplay))
                     {
                         activeReplay = replay;
                         nextFrameIndex = 0;
                         lastFedTime = double.NegativeInfinity;
-                    }
 
-                    var frames = replay.Frames;
+                        // Prime the judgement flags from the recorded CONFIG frame BEFORE the first
+                        // tick rather than when the frame's own time comes round. The playfield's
+                        // load put the WATCHER's settings on the engine (SpaceSkipsWord,
+                        // ManualNewlines), and ManualNewlines is read by Update itself (whether a
+                        // finished line is held open, whether the caret snaps onto a starting
+                        // line), so every tick between the song's start and the first keystroke
+                        // would otherwise run under the watcher's arm rather than the recorded one.
+                        // Apply on a CONFIG frame only sets flags and ticks nothing, and applying
+                        // it again at its own time below is idempotent, so it is not consumed here.
+                        for (int i = 0; i < frames.Count; i++)
+                        {
+                            if (frames[i] is TypeBeatReplayFrame { IsConfig: true } config)
+                            {
+                                ReplayEngineFeed.Apply(engine, config, clockRate);
+                                break;
+                            }
+                        }
+                    }
 
                     // BACKWARDS SEEK. Both this index and the engine only ever move forwards, so a
                     // clock that has gone back leaves every keystroke between the new time and the

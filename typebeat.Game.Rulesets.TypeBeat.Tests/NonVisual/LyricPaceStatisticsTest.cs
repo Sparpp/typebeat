@@ -356,6 +356,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// character floor the target needs, which is why these lines exercise the two AVERAGES and
         /// are paired with <see cref="denseLine"/> wherever a target is wanted.</para>
         /// </summary>
+        [Test]
+        public void AnInvertedLineWindowChargesNothingRatherThanThrowing()
+        {
+            // A line whose end precedes its start (a line mid-edit, or a malformed import) used to
+            // throw out of the whole-map walk, because Math.Clamp refuses an inverted range. It is
+            // read as a zero-width window instead: the second line alone carries the map's pace.
+            LyricPaceStatistics stats = default;
+
+            Assert.DoesNotThrow(() => stats = LyricPaceStatistics.Compute(new[]
+            {
+                makeLine("ab cd", 4000, 1000, singEnd: 1000, (4000, 4500), (4600, 5000)),
+                makeLine("ef gh", 10000, 12000, singEnd: 12000, (10000, 11000), (11000, 12000)),
+            }));
+
+            Assert.That(double.IsFinite(stats.AverageCpm), "the walk produced a number");
+            Assert.That(stats.AverageCpm, Is.GreaterThan(0), "and the well-formed line is what it measures");
+        }
+
         private static LyricLine[] linesAtWindows(params double[] windowsMs) => linesAtWindowsOf("a b c", windowsMs);
 
         /// <summary><see cref="linesAtWindows"/> with the line text chosen.</summary>
