@@ -75,8 +75,6 @@ namespace typebeat.Game.Overlays
 
         private AudioFilter audioDuckFilter = null!;
 
-        private AudioGain beatmapGain = null!;
-
         private readonly Bindable<RandomSelectAlgorithm> randomSelectAlgorithm = new Bindable<RandomSelectAlgorithm>();
 
         private readonly LinkedList<Live<BeatmapSetInfo>> randomHistory = new LinkedList<Live<BeatmapSetInfo>>();
@@ -86,7 +84,6 @@ namespace typebeat.Game.Overlays
         private void load(AudioManager audio, OsuConfigManager configManager)
         {
             AddInternal(audioDuckFilter = new AudioFilter(audio.TrackMixer));
-            AddInternal(beatmapGain = new AudioGain());
             audio.Tracks.AddAdjustment(AdjustableProperty.Volume, audioDuckVolume);
             sampleVolume = audio.VolumeSample.GetBoundCopy();
 
@@ -103,32 +100,6 @@ namespace typebeat.Game.Overlays
                     changeBeatmap(b.NewValue);
             }, true);
             mods.BindValueChanged(_ => ResetTrackAdjustments(), true);
-            RefreshBeatmapGain();
-        }
-
-        /// <summary>
-        /// Applies the current beatmap's own track gain (see
-        /// <see cref="BeatmapMetadata.AudioGain"/> and <see cref="AudioGain"/>).
-        ///
-        /// <para>Read from the working beatmap rather than pushed by the editor, so the one owner of what
-        /// the track mixer is doing is this controller: the map's gain applies to its preview in song
-        /// select, to the song while it is being mapped, and to the song during play, and follows on to
-        /// the next map as a matter of course. A map that never touched the bar sits at 0 dB, which
-        /// <see cref="AudioGain"/> treats as bypass, so its audio graph is the one it always had.</para>
-        ///
-        /// <para>Public because the editor's gain bar writes the metadata, which is not a change THIS
-        /// controller can see: the bound object is the working beatmap, not its metadata.</para>
-        /// </summary>
-        public void RefreshBeatmapGain()
-        {
-            var working = beatmap.Value;
-
-            beatmapGain.Gain = working?.Metadata.AudioGain ?? BeatmapMetadata.DEFAULT_AUDIO_GAIN;
-
-            // The track as well as the value: the map's audio is what gets routed through the amplifier,
-            // and it is a different object whenever the map (or its audio file) changes. TrackLoaded is
-            // asked first because reading the track before MusicController has loaded one throws.
-            beatmapGain.Track = working != null && working.TrackLoaded ? working.Track : null;
         }
 
         /// <summary>
@@ -559,10 +530,6 @@ namespace typebeat.Game.Overlays
             queuedTrack.Volume.Value = 0;
             AddInternal(queuedTrack);
             queuedTrack.Delay(DELAY_BEFORE_FADE).VolumeTo(1, track_fade_in_time);
-
-            // A reloaded (or newly selected) map has a NEW track object, so the amplifier is pointed at
-            // it here rather than being left on the one that just faded out.
-            RefreshBeatmapGain();
         }
 
         private DrawableTrack getQueuedTrack()

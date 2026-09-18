@@ -148,8 +148,11 @@ namespace typebeat.Game.Beatmaps.Formats
             // an unspecified map emits no line, so every existing beatmap's encoding is unchanged.
             if (beatmap.Metadata.Language != BeatmapLanguage.Unspecified) writer.WriteLine(FormattableString.Invariant($"Language: {beatmap.Metadata.Language.ToCanonicalName()}"));
             // type!beat addition: the map's own track gain, and only when a mapper has moved the bar
-            // off its default, for the same map-hash reason as the language line above.
-            if (beatmap.Metadata.AudioGain != BeatmapMetadata.DEFAULT_AUDIO_GAIN) writer.WriteLine(FormattableString.Invariant($"AudioGain: {beatmap.Metadata.AudioGain:0.####}"));
+            // off its default, for the same map-hash reason as the language line above. The VALUE goes
+            // through BeatmapMetadata.EncodeAudioGain, which the ruleset's native encoder shares: a map
+            // exported to .osz through here and re-imported has to come back at the gain it left with,
+            // and the rounded format this used to use quietly walked a fine gain down on every export.
+            if (beatmap.Metadata.AudioGain != BeatmapMetadata.DEFAULT_AUDIO_GAIN) writer.WriteLine(FormattableString.Invariant($"AudioGain: {BeatmapMetadata.EncodeAudioGain(beatmap.Metadata.AudioGain)}"));
             if (beatmap.BeatmapInfo.OnlineID > 0) writer.WriteLine(FormattableString.Invariant($"BeatmapID: {beatmap.BeatmapInfo.OnlineID}"));
             if (beatmap.BeatmapInfo.BeatmapSet?.OnlineID > 0) writer.WriteLine(FormattableString.Invariant($"BeatmapSetID: {beatmap.BeatmapInfo.BeatmapSet.OnlineID}"));
         }

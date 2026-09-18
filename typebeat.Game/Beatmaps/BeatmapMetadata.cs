@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using JetBrains.Annotations;
 using Newtonsoft.Json;
 using typebeat.Game.Models;
@@ -119,6 +120,17 @@ namespace typebeat.Game.Beatmaps
         /// metadata difference across the whole game.</para>
         /// </remarks>
         public double AudioGain { get; set; } = DEFAULT_AUDIO_GAIN;
+
+        /// <summary>
+        /// THE one on-disk spelling of <see cref="AudioGain"/>, shared by the ruleset's native encoder
+        /// and the legacy <c>.osu</c> encoder the <c>.osz</c> exporter uses.
+        ///
+        /// <para>Shared because it has to be: the two encoders write the same map, and a map exported
+        /// through one and re-imported through the other must come back at the gain it left with. A
+        /// rounded format ("0.####") on one side of that pair is what walked an exported 1.33333 back to
+        /// 1.3333. "R" is round-trippable by definition, which is exactly the property wanted.</para>
+        /// </summary>
+        public static string EncodeAudioGain(double gain) => gain.ToString("R", CultureInfo.InvariantCulture);
 
         public string AudioFile { get; set; } = string.Empty;
         public string BackgroundFile { get; set; } = string.Empty;

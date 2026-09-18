@@ -150,6 +150,13 @@ namespace typebeat.Game.Beatmaps
             if (BeatmapInfo?.AudioEquals(target.BeatmapInfo) != true || Track.IsDummyDevice)
                 return false;
 
+            // The same audio FILE is not the same audio once a map's own gain is baked into what its
+            // track plays (see BeatmapMetadata.AudioGain): a set whose difficulties disagree about the
+            // gain would otherwise carry the first one's loudness into the second. Checked here rather
+            // than in AudioEquals, which also decides whether two difficulties share a stored offset.
+            if (Metadata.AudioGain != target.Metadata.AudioGain)
+                return false;
+
             target.track = Track;
             return true;
         }
