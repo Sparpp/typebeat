@@ -177,26 +177,31 @@ jobs:
           done
           echo "publish carries the lyriclab aligner scripts"
 
-      # The repo carries the app art only as assets/lazer.png (1024x1024). vpk on macOS wants an
-      # .icns for the bundle icon, and an .icns can only be assembled by iconutil, which ships with
-      # macOS and has no Windows equivalent, so it cannot be generated on the dev box and checked
-      # in. Build it here on the runner instead. Sizes are the set iconutil expects; 512@2x is 1024,
-      # exactly the source resolution, so nothing is ever upscaled.
-      - name: Build the .icns bundle icon from assets/lazer.png
+      # The app art is assets/typebeat.png (256x256), the type!beat icon. It used to be
+      # assets/lazer.png, osu!'s own logo, which is ppy's IP and must not ship in a type!beat build:
+      # a mac user reported the installed app showing the osu! logo, and this step was why.
+      # vpk on macOS wants an .icns for the bundle icon, and an .icns can only be assembled by
+      # iconutil, which ships with macOS and has no Windows equivalent, so it cannot be generated on
+      # the dev box and checked in. Build it here on the runner instead. Sizes are the set iconutil
+      # expects. The master is 256 because that is the largest frame in typb.ico, which is the only
+      # place the type!beat icon exists at all (ship-client.ps1 hands that same file to vpk on
+      # Windows), so the 512 and 512@2x entries are sips upscales. A >= 1024 export of the icon,
+      # dropped in as assets/typebeat.png, would remove the upscale and needs no change here.
+      - name: Build the .icns bundle icon from assets/typebeat.png
         run: |
           set -euo pipefail
-          SRC="${GITHUB_WORKSPACE}/assets/lazer.png"
-          ICONSET="${RUNNER_TEMP}/lazer.iconset"
+          SRC="${GITHUB_WORKSPACE}/assets/typebeat.png"
+          ICONSET="${RUNNER_TEMP}/typebeat.iconset"
           rm -rf "$ICONSET"
           mkdir -p "$ICONSET"
           for sz in 16 32 128 256 512; do
             sips -z "$sz" "$sz" "$SRC" --out "$ICONSET/icon_${sz}x${sz}.png" > /dev/null
             sips -z "$((sz * 2))" "$((sz * 2))" "$SRC" --out "$ICONSET/icon_${sz}x${sz}@2x.png" > /dev/null
           done
-          iconutil -c icns "$ICONSET" -o "${RUNNER_TEMP}/lazer.icns"
-          test -s "${RUNNER_TEMP}/lazer.icns" \
-            || { echo "::error::iconutil produced no .icns from assets/lazer.png"; exit 1; }
-          ls -la "${RUNNER_TEMP}/lazer.icns"
+          iconutil -c icns "$ICONSET" -o "${RUNNER_TEMP}/typebeat.icns"
+          test -s "${RUNNER_TEMP}/typebeat.icns" \
+            || { echo "::error::iconutil produced no .icns from assets/typebeat.png"; exit 1; }
+          ls -la "${RUNNER_TEMP}/typebeat.icns"
 
       - name: Install Velopack CLI (vpk)
         run: |
@@ -225,7 +230,7 @@ jobs:
             --mainExe "type!beat" \
             --packTitle "type!beat" \
             --bundleId "${BUNDLE_ID}" \
-            --icon "${RUNNER_TEMP}/lazer.icns" \
+            --icon "${RUNNER_TEMP}/typebeat.icns" \
             --outputDir "${GITHUB_WORKSPACE}/release-macos"
           echo "---- vpk output ----"
           ls -la "${GITHUB_WORKSPACE}/release-macos"
