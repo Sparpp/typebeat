@@ -2,7 +2,6 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics.Containers;
@@ -12,7 +11,6 @@ using osu.Framework.Screens;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Input.Bindings;
 using typebeat.Game.Overlays;
-using typebeat.Game.Rulesets.Judgements;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Objects;
 using typebeat.Game.Rulesets.Objects.Drawables;
@@ -72,10 +70,6 @@ namespace typebeat.Game.Screens.Edit.GameplayTest
         {
             base.LoadComplete();
 
-            // this will notify components such as the skin's combo counter, which needs to happen on the update thread
-            // and therefore can't happen alongside `preventMissOnPreviousHitObjects()` in `LoadAsyncComplete()`
-            markPreviousObjectsHit();
-
             ScoreProcessor.HasCompleted.BindValueChanged(completed =>
             {
                 if (completed.NewValue)
@@ -89,42 +83,24 @@ namespace typebeat.Game.Screens.Edit.GameplayTest
             });
         }
 
-        private void markPreviousObjectsHit()
-        {
-            foreach (var hitObject in enumerateHitObjects(DrawableRuleset.Objects, editorState.Time))
-            {
-                var judgement = hitObject.Judgement;
-                // this is very dodgy because there's no guarantee that `JudgementResult` is the correct result type for the object.
-                // however, instantiating the correct one is difficult here, because `JudgementResult`s are constructed by DHOs
-                // and because of pooling we don't *have* a DHO to use here.
-                // this basically mostly attempts to fill holes in `ScoreProcessor` tallies
-                // so that gameplay can actually complete at the end of the map when entering gameplay test midway through it, and not much else.
-                var result = new JudgementResult(hitObject, judgement)
-                {
-                    Type = judgement.MaxResult,
-                    GameplayRate = GameplayClockContainer.GetTrueGameplayRate(),
-                };
-
-                HealthProcessor.ApplyResult(result);
-                ScoreProcessor.ApplyResult(result);
-            }
-
-            static IEnumerable<HitObject> enumerateHitObjects(IEnumerable<HitObject> hitObjects, double cutoffTime)
-            {
-                foreach (var hitObject in hitObjects)
-                {
-                    foreach (var nested in enumerateHitObjects(hitObject.NestedHitObjects, cutoffTime))
-                    {
-                        if (nested.GetEndTime() < cutoffTime)
-                            yield return nested;
-                    }
-
-                    if (hitObject.GetEndTime() < cutoffTime)
-                        yield return hitObject;
-                }
-            }
-        }
-
+        /// <summary>
+        /// Resolves every hit object the play found already behind it as its best result, so a test play
+        /// started part-way through a map does not drop a line of misses on the player as it begins.
+        ///
+        /// <para>The SKIPPED PREFIX's RESULTS no longer come from here: the ruleset grants a character
+        /// that was already due when the play began at its line's seal
+        /// (<c>TypeBeatPlayfield.cellWasDueBeforeThePlayStarted</c>), from the same start time the engine
+        /// puts its caret by. Applying them here as well - which the editor player used to do, straight
+        /// into the score processor - counted every skipped character TWICE, once as that granted hit
+        /// and once as the miss the engine's own seal charged for it, which is what left a test play
+        /// starting at 50% accuracy instead of 100%.</para>
+        ///
+        /// <para>What is left here is the DRAWABLE side of the same idea, and it is deliberately
+        /// narrow: an object that comes alive during the play after the playhead has already passed it
+        /// (the line under the cursor, and the characters of it that are behind them) is resolved
+        /// directly, so it neither misses nor draws as unfinished. Objects that never come alive are not
+        /// reachable this way at all, and do not need to be - the seal covers them.</para>
+        /// </summary>
         private void preventMissOnPreviousHitObjects()
         {
             void preventMiss(HitObject hitObject)

@@ -168,20 +168,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// What the SCORE PANEL's pp readout would show for the same score: null where it renders
         /// its ineligible dash, otherwise the number it prints. Built from the panel's own public
-        /// gate plus the same two value sources the panel uses in the same order (a server-supplied
-        /// price first, then the ruleset's performance calculator), so this is the panel's rule
-        /// rather than a paraphrase of it.
+        /// gate plus the same two value sources the panel uses in the same order (the panel re-prices
+        /// every play the client can still price, and falls back to the archived server value only for
+        /// the ones it cannot), so this is the panel's rule rather than a paraphrase of it.
         /// </summary>
         private static double? panelValue(ScoreInfo score, Beatmap<TypeBeatHitObject>? beatmap)
         {
             if (!PerformanceStatistic.ScoreEarnsPerformancePoints(score))
                 return null;
 
-            if (score.PP is double stored)
-                return stored;
+            if (score.Ruleset?.CreateInstance().ScoreEarnsPerformancePoints(score) != true)
+                return score.PP;
 
             if (beatmap == null)
-                return null;
+                return score.PP;
 
             return new TypeBeatPerformanceCalculator(new TypeBeatRuleset()).Calculate(score, cachedAttributes(beatmap, score.Mods)).Total;
         }
@@ -306,21 +306,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
-        #region The server's value wins, but only where a value genuinely exists
+        #region The play is priced as it is NOW, and the archived value only covers what cannot be
 
         [Test]
-        public void AStoredServerValueOutranksTheLocalCalculation()
+        public void APlayIsPricedAsItIsNowRatherThanAsItWasArchived()
         {
             var beatmap = playable();
             var (score, _) = play(beatmap);
 
-            double local = ppRow(score, beatmap)!.Value;
+            double current = ppRow(score, beatmap)!.Value;
 
-            // A number the local calculation would never produce: the server priced this play
-            // against its own stored ratings, and may know of refusals the client cannot see.
-            score.PP = local + 137;
+            // A number the current map and formula would never produce: the play was archived by a
+            // server that priced it against ratings it held at the time, and the map has moved since.
+            score.PP = current + 137;
 
-            Assert.That(ppRow(score, beatmap), Is.EqualTo(local + 137));
+            Assert.Multiple(() =>
+            {
+                Assert.That(ppRow(score, beatmap), Is.EqualTo(current), "the results table reads the current price");
+                Assert.That(panelValue(score, beatmap), Is.EqualTo(current).Within(1e-9), "and so does the score panel");
+            });
         }
 
         [Test]
@@ -342,12 +346,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // A give-up run on a ranked map earns exactly 0, and the server says so with a 0 rather
             // than a null. That is a price, so it prints, and it must not be confused with the dash
-            // an ineligible play gets.
-            var beatmap = playable();
-            var (score, _) = play(beatmap);
+            // an ineligible play gets. The map is one the client can no longer price - the LOCAL copy
+            // drifted - which is the case the archived number is kept for.
+            var (score, _) = play(playable());
             score.PP = 0;
 
-            var value = ppRow(score, beatmap);
+            var value = ppRow(score, playable(BeatmapOnlineStatus.LocallyModified));
 
             Assert.Multiple(() =>
             {
@@ -369,7 +373,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(ppRow(unsubmitted, beatmap), Is.GreaterThan(0), "an unsubmitted play is priced, not zeroed");
-                Assert.That(ppRow(submitted, beatmap), Is.EqualTo(0d));
+                Assert.That(ppRow(submitted, playable(BeatmapOnlineStatus.LocallyModified)), Is.EqualTo(0d),
+                    "and an archived zero on a map that can no longer be priced stays a zero, not a dash");
             });
         }
 

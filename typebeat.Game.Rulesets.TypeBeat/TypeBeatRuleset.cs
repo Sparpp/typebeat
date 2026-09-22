@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using osu.Framework;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
@@ -397,10 +398,34 @@ namespace typebeat.Game.Rulesets.TypeBeat
         public override IConvertibleReplayFrame CreateConvertibleReplayFrame() => new TypeBeatReplayFrame();
 
         /// <summary>
+        /// The modifier the two word-level recovery gestures
+        /// (<see cref="TypeBeatAction.EraseWord"/> and <see cref="TypeBeatAction.SelectBackToTypo"/>)
+        /// are chorded with by DEFAULT: Ctrl everywhere, and the Command key on macOS, where Ctrl+A
+        /// and Ctrl+Backspace are not the editing chords the rest of the OS uses for them.
+        ///
+        /// <para>This is the DEFAULT only. The rows are written into the user's realm the first time
+        /// the game runs and a rebind replaces them (see <c>RealmKeyBindingStore</c>), so this decides
+        /// what a fresh install is offered; the migration that moves an existing macOS install off
+        /// the old Ctrl chords - which it would otherwise keep forever, because the store only fills
+        /// in rows that are MISSING - is version 56 in <c>RealmAccess</c>.</para>
+        /// </summary>
+        public static InputKey RecoveryGestureModifier => RecoveryGestureModifierFor(RuntimeInfo.OS);
+
+        /// <summary>
+        /// <see cref="RecoveryGestureModifier"/> as a pure function of the platform, so the choice
+        /// can be pinned for the hosts the tests are not running on.
+        /// </summary>
+        public static InputKey RecoveryGestureModifierFor(RuntimeInfo.Platform platform)
+            => platform == RuntimeInfo.Platform.macOS ? InputKey.Super : InputKey.Control;
+
+        /// <summary>
         /// The ruleset's rebindable actions, as shown in the key configuration screen's type!beat
         /// section. Z/X are vestigial (typing is taken from raw key events, so they never fire while
         /// a line is being typed); the TYPING GESTURES are the real content, defaulting to the chords
         /// (and, for the line skip, the keys) every other typing site uses for them.
+        ///
+        /// <para>The two recovery chords are the PLATFORM's editing chords rather than one fixed
+        /// pair: <see cref="RecoveryGestureModifier"/> is Ctrl everywhere and Command on macOS.</para>
         ///
         /// <para>Appended to <see cref="TypeBeatAction"/> rather than inserted, because the stored
         /// binding rows key off the enum's INTEGER value: renumbering Button1/Button2 would silently
@@ -410,8 +435,8 @@ namespace typebeat.Game.Rulesets.TypeBeat
         {
             new KeyBinding(InputKey.Z, TypeBeatAction.Button1),
             new KeyBinding(InputKey.X, TypeBeatAction.Button2),
-            new KeyBinding(new KeyCombination(InputKey.Control, InputKey.BackSpace), TypeBeatAction.EraseWord),
-            new KeyBinding(new KeyCombination(InputKey.Control, InputKey.A), TypeBeatAction.SelectBackToTypo),
+            new KeyBinding(new KeyCombination(RecoveryGestureModifier, InputKey.BackSpace), TypeBeatAction.EraseWord),
+            new KeyBinding(new KeyCombination(RecoveryGestureModifier, InputKey.A), TypeBeatAction.SelectBackToTypo),
 
             // The line skip (backlog 241) takes BOTH Enter keys, which is why this list is not one
             // binding per action: a keyboard has two keys that mean "next" and a player reaching for

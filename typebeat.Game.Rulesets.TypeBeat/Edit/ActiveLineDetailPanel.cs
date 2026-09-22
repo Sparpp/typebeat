@@ -24,8 +24,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// LINE-level actions on top (add at playhead, split before word, merge, delete), then the
     /// line view (index, text, start / sung end / window end, granularity, estimated badge),
     /// then the interactive fine-timing surface (<see cref="LyricTimeline"/>), and WORD-level
-    /// actions on the bottom (add word, remove word, subdivide, unsubdivide) right beside the word
-    /// blocks they act on.
+    /// actions on the bottom (add word, remove word, subdivide, unsubdivide, insert pause) right
+    /// beside the word blocks they act on.
     /// </summary>
     public partial class ActiveLineDetailPanel : CompositeDrawable
     {
@@ -142,6 +142,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 // reason "subdivide" is: both are no-ops on a word that cannot take
                                 // them, and neither greys out per press.
                                 actionButton("unsubdivide", unsubdivideSelectedWords),
+                                // The authored rest (see InsertWordPause): a tap-edge, not a text
+                                // edit, so it lives beside the subdivision buttons that it is clamped
+                                // and dragged like. Also always enabled, and a no-op on a word whose
+                                // rest the engine could not honour.
+                                actionButton("insert pause", insertPauseOnSelectedWords),
                             }),
                         },
                     },
@@ -419,6 +424,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             foreach (int i in targets)
                 TypeBeatEditorOperations.RemoveNarrowestSyllableBoundary(editorBeatmap, line, i);
+
+            editorBeatmap.EndChange();
+        }
+
+        /// <summary>
+        /// Inserts an authored rest into every selected word of the ACTIVE line (the primary word
+        /// alone when there is no multi-selection), as one undo. The playhead is the rest's START and
+        /// its split snaps to the nearest character boundary at or after it, so a mapper who parks the
+        /// caret in the breath and presses this gets a rest they then widen by dragging either of the
+        /// strip's two edge handles. A word that cannot hold one is left alone, exactly as
+        /// "subdivide" leaves a word it cannot split.
+        /// </summary>
+        private void insertPauseOnSelectedWords()
+        {
+            if (state.ActiveLine.Value is not TypeBeatHitObject line)
+                return;
+
+            int[] targets = selectedWords(line);
+
+            if (targets.Length == 0)
+                return;
+
+            editorBeatmap.BeginChange();
+
+            foreach (int i in targets)
+                TypeBeatEditorOperations.InsertWordPause(editorBeatmap, line, i, editorClock.CurrentTime);
 
             editorBeatmap.EndChange();
         }

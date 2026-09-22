@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System.Collections.Generic;
+using System.Linq;
 
 namespace typebeat.Game.Beatmaps
 {
@@ -16,8 +17,19 @@ namespace typebeat.Game.Beatmaps
         /// <summary>
         /// The pace profile of this beatmap, or null when it carries nothing typeable to measure.
         /// Potentially expensive; call it off the update thread.
+        ///
+        /// <para>"This beatmap" is the CONVERTED one: a caller that converted with mods gets a
+        /// profile of what those mods produced, so the Literate mod's punctuation cells count in
+        /// the target and average WPM exactly as they do in the play. The peak is the one
+        /// exception, and the profile says why.</para>
         /// </summary>
-        TypingPaceProfile? GetTypingPace();
+        /// <param name="rate">
+        /// The CLOCK to read it at: 1 for no rate mod, 1.5 for DoubleTime, 0.75 for HalfTime, and
+        /// whatever a custom rate mod asks for. The peak and the average are WPM, so they scale with
+        /// the clock; the target is the map's hardest window re-expressed at a fixed reading DURATION,
+        /// and a faster clock shortens that duration too, so it is recomputed rather than multiplied.
+        /// </param>
+        TypingPaceProfile? GetTypingPace(double rate = 1);
     }
 
     /// <summary>
@@ -54,8 +66,10 @@ namespace typebeat.Game.Beatmaps
         /// <summary>
         /// The whole map's typing pace: every typeable cell over the total time the map is sung,
         /// with pauses wider than the break threshold left out and freestyle slots not counted
-        /// (<c>LyricPaceStatistics.AverageWpm</c>).
+        /// (<c>LyricPaceStatistics.AverageWpm</c>). A supported punctuation mark counts here when
+        /// the mods this profile was asked of turned it into a typed cell.
         /// </summary>
         public required double AverageWpm { get; init; }
+
     }
 }

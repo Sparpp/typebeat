@@ -206,6 +206,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // Parallel to words[]: word i's authored char splits (empty = derived). Kept beside the
             // word tuple rather than inside it so every existing RawLine construction still compiles.
             var wordSplits = new List<List<int>>();
+            var wordPauses = new List<List<(double Start, double End, int Split)>>();
 
             if (lineElement.TryGetProperty("words", out JsonElement wordsElement)
                 && wordsElement.ValueKind == JsonValueKind.Array)
@@ -261,6 +262,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                     words.Add((wordText, ws, we, score, syllables));
                     wordSplits.Add(splitChars);
+
+                    // THE AUTHORED PAUSES (type!beat editor extension): the rests inside the word, read
+                    // RAW here and validated against the CLAMPED word in buildExplicitUnits, exactly as
+                    // the splits above are - the times there are the ones that survive. `pauses` is the
+                    // array a word writes when it takes more than one breath; the single `pause` object
+                    // is the shape this feature had before a word could hold several, and reads the same
+                    // way, so a map written by that build still opens with its rest where it was.
+                    var pauses = new List<(double Start, double End, int Split)>();
+
+                    void readPause(JsonElement element)
+                    {
+                        if (element.ValueKind != JsonValueKind.Object
+                            || !element.TryGetProperty("start_ms", out JsonElement pauseStart) || !tryGetDouble(pauseStart, out double pauseMsA)
+                            || !element.TryGetProperty("end_ms", out JsonElement pauseEnd) || !tryGetDouble(pauseEnd, out double pauseMsB)
+                            || !element.TryGetProperty("split", out JsonElement pauseSplit) || !tryGetInt(pauseSplit, out int pauseChar))
+                        {
+                            return;
+                        }
+
+                        pauses.Add((pauseMsA, pauseMsB, pauseChar));
+                    }
+
+                    if (wordElement.TryGetProperty("pauses", out JsonElement pausesEl) && pausesEl.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (JsonElement pauseEl in pausesEl.EnumerateArray())
+                            readPause(pauseEl);
+                    }
+                    else if (wordElement.TryGetProperty("pause", out JsonElement singlePauseEl))
+                    {
+                        readPause(singlePauseEl);
+                    }
+
+                    wordPauses.Add(pauses);
                 }
             }
 
@@ -276,7 +310,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
 
             rawLine = new RawLine(normalized, startMs, endMs, estimated, words, sealGraceMs,
-                wordSplits.Exists(s => s.Count > 0) ? wordSplits : null);
+                wordSplits.Exists(s => s.Count > 0) ? wordSplits : null,
+                wordPauses.Exists(p => p.Count > 0) ? wordPauses : null);
             return true;
         }
 
@@ -336,7 +371,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 if (tokens.Length == line.Words.Count && tokens.Length > 0)
                 {
-                    units = buildExplicitUnits(tokens, line.Words, line.WordSplits, pipes, start, end);
+                    units = buildExplicitUnits(tokens, line.Words, line.WordSplits, line.WordPauses, pipes, start, end);
                 }
                 else
                 {
@@ -384,6 +419,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             string[] tokens,
             List<(string Text, double Start, double End, double Score, List<double> Syllables)> words,
             List<List<int>>? wordSplits,
+            List<List<(double Start, double End, int Split)>>? wordPauses,
             IReadOnlyList<IReadOnlyList<int>> pipes,
             double lineStart,
             double lineEnd)
@@ -417,6 +453,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 double[] boundaries = syllables;
 
+                // THE AUTHORED PAUSE, kept only when it survived the same clamping the syllables did
+                // and it is a real rest inside this token: both edges strictly inside the clamped
+                // word, start before end, and the split a character index strictly inside the text
+                // (a pause after the last character would be a trailing silence, which the word's own
+                // end already is, and one before the first would be a lead-in). Anything else is
+                // dropped rather than guessed at, exactly like a split that no longer fits.
+                //
+                // Which of a word's rests survive is the DERIVATION's own answer (PausedWord.UsableRests),
+                // so a map never loads a rest the play would ignore: the per-rest terms above, and then
+                // none overlapping an earlier one, no two sharing a character, and every later rest on a
+                // later character than the one before it.
+                var rawPauses = wordPauses != null && m < wordPauses.Count ? wordPauses[m] : null;
+                var keptPauses = Gameplay.PausedWord.UsableRests(
+                    tokens[m], ws, we,
+                    rawPauses?.Select(pause => new WordPause(pause.Start, pause.End, pause.Split)) ?? Enumerable.Empty<WordPause>());
+
                 // Pipes in the line text win: matching the aligner's own subdivision count keeps
                 // its times, anything else re-divides the word evenly.
                 var wordPipes = m < pipes.Count ? pipes[m] : System.Array.Empty<int>();
@@ -443,6 +495,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     Confidence = Math.Clamp(words[m].Score, 0, 1),
                     SyllableBoundaries = boundaries.Length == 0 ? System.Array.Empty<double>() : boundaries,
                     SyllableSplits = keptSplits,
+                    Pauses = keptPauses,
                 });
 
                 prevEnd = we;
@@ -494,6 +547,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             bool Estimated,
             List<(string Text, double Start, double End, double Score, List<double> Syllables)> Words,
             double? SealGraceMs = null,
-            List<List<int>>? WordSplits = null);
+            List<List<int>>? WordSplits = null,
+            List<List<(double Start, double End, int Split)>>? WordPauses = null);
     }
 }

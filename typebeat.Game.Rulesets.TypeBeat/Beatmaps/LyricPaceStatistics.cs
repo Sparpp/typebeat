@@ -29,6 +29,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// included, so on a map that carries them the two figures part company: those answer "how
     /// fast did this player type", this one answers "how fast does this map ask to be typed".</para>
     ///
+    /// <para>WHICH STREAM those cells come from is the caller's choice (<see cref="Compute"/>'s
+    /// <c>literate</c> parameter). It defaults to the DEFAULT stream, the one every play without
+    /// the Literate mod types and the one every stored figure was computed on, so nothing here
+    /// moves for a caller that does not opt in. Under the mod the authored marks ARE typed cells,
+    /// so they are counted and the rates rise: that is the whole point of the flag, and it is read
+    /// by the surfaces that display a beatmap converted with the selected mods (song select's count
+    /// statistics and the metadata wedge's pace readouts) while the server's stored per-map columns
+    /// stay on the default stream.</para>
+    ///
     /// <para><see cref="LineAverageWpm"/> is the figure that averaged before: each counted line's
     /// own cells over its BOUNDARY window, one vote per line however long or short it is. Both are
     /// kept because they answer different questions — "how fast is this map typed" against "how
@@ -78,9 +87,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// The whole-map rate: total typeable cells over the summed sung windows, where a sung
         /// window is the line's word spans plus every pause no wider than <see cref="break_min_ms"/>.
-        /// Breaks — anything longer than that, whether between two lines or inside one — are NOT in
+        /// Breaks, anything longer than that whether between two lines or inside one, are NOT in
         /// the denominator, and a line contributes time in proportion to how long it is sung rather
         /// than one vote.
+        ///
+        /// <para>The cell stream is the one <see cref="Compute"/> was asked for: the default stream
+        /// (marks deleted, a hyphen a word break) unless the caller opted into the Literate one, in
+        /// which case every authored mark is a typed cell and the rate is correspondingly higher.</para>
         /// </summary>
         public double AverageCpm { get; init; }
 
@@ -118,6 +131,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// window is slower than its own whole-map pace reports the average instead of a target
         /// below it - and a map with no qualifying window at all, which the model prices at 0,
         /// reports its average for the same reason.</para>
+        ///
+        /// <para>Both the window scan and the pace it is read at follow the same cell stream as
+        /// <see cref="AverageCpm"/>, because they come from the difficulty model configured with the
+        /// caller's <c>literate</c> flag. Under the mod the authored marks are real cells, so the
+        /// hardest window is denser and the target rises with the average.</para>
         /// </summary>
         public double TargetWpm { get; init; }
 
@@ -208,7 +226,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return charged;
         }
 
-        public static LyricPaceStatistics Compute(IEnumerable<LyricLine> lines)
+        /// <summary>
+        /// The pace figures for <paramref name="lines"/>.
+        ///
+        /// <para><paramref name="literate"/> selects the cell stream, exactly as
+        /// <c>TypingLine.FromLyricLine</c> does for the engine: off (the default) is
+        /// <see cref="Typeability.ToDefaultStream"/>, the play everyone shares; on is the authored
+        /// text, where every supported punctuation mark is a typed cell of its own and a hyphen is
+        /// no longer a word break. A caller that has a converted beatmap must therefore ask for the
+        /// stream that map was converted with, or its figures describe a different play.</para>
+        /// </summary>
+        /// <param name="rate">
+        /// The CLOCK the map is read at: 1 for no rate mod, 1.5 for DoubleTime, 0.75 for HalfTime, and
+        /// whatever a custom rate mod asks for. The two whole-map rates are cells over TIME, so they
+        /// scale with it exactly; the TARGET is not, because the fixed reading duration it is
+        /// re-expressed at is a duration the faster clock also shortens - so it is recomputed through
+        /// the difficulty model at this rate rather than multiplied (see <see cref="TargetWpm"/>).
+        /// </param>
+        public static LyricPaceStatistics Compute(IEnumerable<LyricLine> lines, bool literate = false, double rate = 1)
         {
             // Materialised because the target below reads the same lines again through the
             // difficulty model, and a caller is free to hand in a lazy sequence.
@@ -226,32 +261,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // Cell arithmetic mirrors TypingLine.FromLyricLine: every typeable char is a
                 // cell, plus one typeable space cell per token gap.
                 //
-                // Measured on the DEFAULT stream, never the authored text: a map's pace has to be
-                // the pace of the play everyone shares, not of the harder Literate variant, and it
-                // has to stay comparable with every figure computed before punctuation existed.
+                // The DEFAULT stream unless the caller opted into the Literate one. The default
+                // path is byte-identical to what every stored figure was computed on:
                 // ToDefaultStream is idempotent, so on an already-stripped line this is exactly the
-                // old arithmetic (lower-casing cannot change any count).
-                string[] tokens = Typeability.ToDefaultStream(line.RawText).Split(' ');
+                // old arithmetic (lower-casing cannot change any count). The Literate path is the
+                // authored text, where a mark is a typed cell and a hyphen keeps its word together,
+                // so both the cell total and the word total move with the mod.
+                string[] tokens = (literate ? line.RawText : Typeability.ToDefaultStream(line.RawText)).Split(' ');
 
                 int cells = tokens.Length - 1;
                 int words = 0;
 
                 foreach (string token in tokens)
                 {
-                    int typeable = 0;
+                    int counted = 0;
 
                     foreach (char ch in token)
                     {
                         // TYPING, not mere keypresses: a freestyle slot takes any key, so no map can
                         // ask for a particular speed in one. IsCell would count them; IsTypeable does
                         // not, and the pace figure is about the speed the map actually demands.
-                        if (Typeability.IsTypeable(ch))
-                            typeable++;
+                        // Under Literate a supported mark is demanded too, so it counts exactly as
+                        // the engine makes it a typed cell.
+                        if (Typeability.IsTypeable(ch) || (literate && Typeability.IsPunctuation(ch)))
+                            counted++;
                     }
 
-                    cells += typeable;
+                    cells += counted;
 
-                    if (typeable > 0)
+                    if (counted > 0)
                         words++;
                 }
 
@@ -296,8 +334,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             try
             {
+                // Read AT THE RATE, because the model's own scan is what "the SR algorithm's target"
+                // means: a faster clock does not merely scale the figures it finds, it moves the reading
+                // durations (the timeline is binned in REAL milliseconds) and can therefore name a
+                // different window. Scaling the rate-1 target would answer a different question.
                 targetWpm = LyricDifficulty
-                    .ComputeDetail(lineList, 1, false, LyricDifficulty.EnduranceAxis.Envelope)
+                    .ComputeDetail(lineList, rate, literate, LyricDifficulty.EnduranceAxis.Envelope)
                     .TargetWpm;
             }
             catch (InvalidOperationException)
@@ -305,13 +347,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 targetWpm = 0;
             }
 
+            // The two whole-map rates scale with the clock; the target is already read at it.
+            averageCpm *= rate;
+
             if (pace_floor_target && averageCpm / CHARS_PER_WORD > targetWpm)
                 targetWpm = averageCpm / CHARS_PER_WORD;
 
             return new LyricPaceStatistics
             {
                 AverageCpm = averageCpm,
-                LineAverageCpm = cpmSum / lineCount,
+                LineAverageCpm = cpmSum / lineCount * rate,
                 TargetWpm = targetWpm,
                 TypeableCellCount = totalCells,
                 WordCount = totalWords,

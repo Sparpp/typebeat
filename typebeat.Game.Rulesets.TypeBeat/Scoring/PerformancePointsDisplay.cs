@@ -100,22 +100,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// What a FINISHED score is worth, or null when it can never be worth anything (rendered as
         /// <see cref="INELIGIBLE_TEXT"/>).
         ///
-        /// <para>A STORED value wins outright, ahead of every local gate. The server sends a number
-        /// only for a play it actually ran the formula for, and null for everything else (an
-        /// ineligible play, or one it cannot price yet), so a stored value is proof of eligibility
-        /// by itself and needs no second opinion. It is also the authoritative number: it is what
-        /// the leaderboards and the profile count, it was priced against the server's own stored
-        /// star ratings, and it can encode refusals the client cannot see at all (the play-time
-        /// gate, an out-of-bounds total, a blocked build). Taking it ahead of the gates is what
-        /// keeps a genuinely earned number on screen when the local copy of the map has drifted from
-        /// the ranked one the play was set on: opening it in the editor marks it LocallyModified,
-        /// which the gates would otherwise read as earning nothing.</para>
+        /// <para>THE CURRENT PRICE COMES FIRST. A stored number is what a play was worth when it was
+        /// set, and this surface answers what it is worth NOW: against today's star rating for the map
+        /// as it is on disk and today's <see cref="PerformancePoints"/>. That is the number the player
+        /// can reproduce - and the one that moves when a map is retimed or the formula is fixed, which
+        /// is the whole reason to re-read it rather than print the archived figure.</para>
         ///
-        /// <para>With no stored value, <see cref="Eligible"/> decides between a dash and a local
-        /// calculation. The local calculation covers most plays there are: an offline play, an
-        /// imported <c>.osr</c>, a replay downloaded from the website, and any play whose submission
-        /// failed. Those price identically to a submitted one, because both sides run the same
-        /// formula over the same star rating.</para>
+        /// <para>The stored value is the FALLBACK, for a play the client cannot price at all: no local
+        /// copy of the map, a map that no longer grants pp (opening one in the editor marks it
+        /// LocallyModified), an unranked mod stack, a custom rate, a failure. There the server's number
+        /// is still the only truth available - it may know of refusals the client cannot see (the
+        /// play-time gate, an out-of-bounds total, a blocked build) - so it prints rather than a dash,
+        /// which would claim nothing was ever on offer. <see cref="Eligible"/> is what picks that
+        /// branch, and a play that is neither priceable nor stored reads
+        /// <see cref="INELIGIBLE_TEXT"/>.</para>
         ///
         /// <para>REPLAYS: watching a replay re-simulates it, and
         /// <see cref="ScoreProcessor.PopulateScore"/> drops the stored pp when it overwrites the
@@ -128,17 +126,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <param name="playableBeatmap">The beatmap the score was set on, converted with its mods.</param>
         public static double? ForScore(ScoreInfo score, IBeatmap? playableBeatmap)
         {
-            if (score.PP is double stored)
-                return stored;
+            if (Eligible(score) && StarRatingFor(playableBeatmap, score.Mods) is double stars)
+            {
+                var lines = playableBeatmap!.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line);
+                var counts = PerformancePoints.CountNotes(score)
+                    with { DifficultCharacters = PerformancePoints.DifficultCharactersFor(lines, score.Mods) };
 
-            if (!Eligible(score) || StarRatingFor(playableBeatmap, score.Mods) is not double stars)
-                return null;
+                return PerformancePoints.ForPlay(stars, counts, score.Accuracy, score.MaxCombo, score.Mods);
+            }
 
-            var lines = playableBeatmap!.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line);
-            var counts = PerformancePoints.CountNotes(score)
-                with { DifficultCharacters = PerformancePoints.DifficultCharactersFor(lines, score.Mods) };
-
-            return PerformancePoints.ForPlay(stars, counts, score.Accuracy, score.MaxCombo, score.Mods);
+            return score.PP;
         }
 
         /// <summary>

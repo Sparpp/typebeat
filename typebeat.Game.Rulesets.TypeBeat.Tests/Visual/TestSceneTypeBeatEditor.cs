@@ -15,6 +15,7 @@ using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.Edit;
+using typebeat.Game.Screens.Edit.GameplayTest;
 using typebeat.Game.Screens.Edit.Components.Timelines.Summary;
 using typebeat.Game.Screens.Edit.Compose;
 using typebeat.Game.Screens.Edit.Compose.Components.Timeline;
@@ -708,6 +709,262 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             => Editor.ChildrenOfType<ActiveLineDetailPanel>().Single()
                      .ChildrenOfType<RoundedButton>().Single(b => b.Text.ToString() == text);
 
+        /// <summary>
+        /// A word can take more than one breath, and the strip draws one greyed region per breath: the
+        /// button adds a second rest where the playhead is, both are drawn, and taking one back out leaves
+        /// the other exactly where it was.
+        /// </summary>
+        [Test]
+        public void TestASecondPauseCanBeAddedAndOneTakenBackOut()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddUntilStep("insert pause button present", () => panelButton("insert pause").DrawWidth > 0);
+
+            AddStep("park the caret and select the word", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(1200);
+                state().SelectedLine.Value = lineAt(0);
+                state().SelectUnit(0);
+            });
+
+            AddUntilStep("caret parked", () => Math.Abs(EditorClock.CurrentTime - 1200) < 1);
+            AddUntilStep("strip sized", () => strip().IsLoaded && strip().DrawWidth > 0);
+
+            AddStep("insert the first breath", () => clickPanelButton("insert pause"));
+            AddUntilStep("one rest", () => lineAt(0).Line.Units[0].Pauses.Count == 1);
+            AddUntilStep("and its region is drawn", () => strip().PauseRegionCount == 1);
+
+            AddStep("park further along and insert a second", () =>
+            {
+                EditorClock.Seek(2300);
+                state().SelectUnit(0);
+            });
+
+            AddUntilStep("caret parked again", () => Math.Abs(EditorClock.CurrentTime - 2300) < 1);
+
+            AddStep("insert the second breath", () => clickPanelButton("insert pause"));
+
+            AddUntilStep("two rests", () => lineAt(0).Line.Units[0].Pauses.Count == 2);
+            AddUntilStep("and two regions are drawn", () => strip().PauseRegionCount == 2);
+            AddAssert("in time order", () => lineAt(0).Line.Units[0].Pauses[0].StartTime < lineAt(0).Line.Units[0].Pauses[1].StartTime);
+
+            AddStep("double-click the first rest's start edge", () =>
+                doubleClickStripAtX(strip().PositionOf(lineAt(0).Line.Units[0].Pauses[0].StartTime)));
+
+            AddUntilStep("the word is back to one rest", () => lineAt(0).Line.Units[0].Pauses.Count == 1);
+            AddAssert("the one that stayed is the second", () =>
+                Math.Abs(lineAt(0).Line.Units[0].Pauses[0].StartTime - 2300) < 5);
+            AddUntilStep("and only its region is drawn", () => strip().PauseRegionCount == 1);
+        }
+
+        /// <summary>
+        /// SHIFT+Dragging a dotted subdivision line PROMOTES it into an authored rest: the divider is
+        /// re-timed exactly as a plain drag re-times it, and on release the span it swept becomes the
+        /// breath - the divider consumed by it, and the strip drawing the rest's greyed region where the
+        /// dotted line was.
+        /// </summary>
+        [Test]
+        public void TestShiftDragPromotesASubdivisionIntoARest()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddUntilStep("subdivide present", () => panelButton("subdivide (D)").DrawWidth > 0);
+
+            AddStep("park the caret in line 1's word and select it", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(2000);
+                state().SelectedLine.Value = lineAt(0);
+                state().SelectUnit(0);
+            });
+
+            AddUntilStep("caret parked", () => Math.Abs(EditorClock.CurrentTime - 2000) < 1);
+            AddUntilStep("strip sized", () => strip().IsLoaded && strip().DrawWidth > 0);
+
+            AddStep("subdivide at the caret", () => clickPanelButton("subdivide (D)"));
+            AddUntilStep("the word carries one divider", () => lineAt(0).Line.Units[0].SyllableBoundaries.Count == 1);
+
+            float sweptPixels = 0;
+
+            dragStripHandle(() => strip().PositionOf(lineAt(0).Line.Units[0].SyllableBoundaries[0]),
+                () => strip().PositionOf(2400), shift: true, midDrag: () =>
+                {
+                    // Mid-sweep, and before anything is authored: the rest the release would make is
+                    // already drawn, growing under the cursor - the span it covers IS the span the drag
+                    // has covered so far.
+                    AddStep("measure the sweep", () => sweptPixels = strip().PositionOf(2400) - strip().PositionOf(2000));
+
+                    AddAssert("the rest preview is showing", () => strip().PromotionPreviewAlpha > 0);
+                    AddAssert("as wide as the sweep", () => Math.Abs(strip().PromotionPreviewWidth - sweptPixels) < 2);
+                    AddAssert("and nothing is authored yet", () => lineAt(0).Line.Units[0].Pauses.Count == 0);
+                });
+
+            AddUntilStep("the divider became a rest", () => lineAt(0).Line.Units[0].Pauses.Count > 0);
+            AddAssert("spanning the drag", () => Math.Abs(lineAt(0).Line.Units[0].Pauses[0].StartTime - 2000) < 5
+                                                && Math.Abs(lineAt(0).Line.Units[0].Pauses[0].EndTime - 2400) < 5);
+            AddAssert("with the divider consumed by it", () => lineAt(0).Line.Units[0].SyllableBoundaries.Count == 0);
+            AddUntilStep("and the strip draws the rest", () => strip().PauseRegionCount == 1);
+        }
+
+        /// <summary>
+        /// The rest's TWO edges drag independently, which is the whole point of drawing it as a band
+        /// rather than as one marker: the far edge says how long the breath lasts, the near edge says
+        /// when it starts, and each is clamped by the word's own bounds rather than by the other's
+        /// handle. The rest is widened FIRST, because the gesture authors it at its shortest - one
+        /// character boundary - and at that width the two grab zones overlap.
+        /// </summary>
+        [Test]
+        public void TestPauseEdgesDragIndependently()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddUntilStep("insert pause button present", () => panelButton("insert pause").DrawWidth > 0);
+
+            AddStep("select line 1's word with the caret early in it", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(1100);
+                state().SelectedLine.Value = lineAt(0);
+                state().SelectUnit(0);
+            });
+
+            AddUntilStep("caret parked", () => Math.Abs(EditorClock.CurrentTime - 1100) < 1);
+            AddUntilStep("strip sized", () => strip().IsLoaded && strip().DrawWidth > 0);
+
+            AddStep("click insert pause", () => clickPanelButton("insert pause"));
+            AddUntilStep("the word carries a rest", () => lineAt(0).Line.Units[0].Pauses.Count > 0);
+
+            // Whatever edge this press lands on, it IS one of them, and pulling it out makes room to
+            // address the two separately.
+            dragStripHandle(() => strip().PositionOf(1200), () => strip().PositionOf(2000));
+
+            AddUntilStep("the rest got longer", () => lineAt(0).Line.Units[0].Pauses[0].EndTime > 1500);
+
+            AddAssert("and its two edges now sit clear of each other", () =>
+                strip().PositionOf(lineAt(0).Line.Units[0].Pauses[0].StartTime) + 16
+                < strip().PositionOf(lineAt(0).Line.Units[0].Pauses[0].EndTime) - 16);
+
+            dragStripHandle(() => strip().PositionOf(lineAt(0).Line.Units[0].Pauses[0].StartTime), () => strip().PositionOf(1300));
+
+            AddUntilStep("the rest now starts where it was dragged to", () =>
+                Math.Abs(lineAt(0).Line.Units[0].Pauses[0].StartTime - 1300) < 5);
+            AddAssert("with the end the first drag left", () => Math.Abs(lineAt(0).Line.Units[0].Pauses[0].EndTime - 2000) < 5);
+        }
+
+        /// <summary>
+        /// The Insert Pause gesture end to end: with a word selected and the caret parked inside it,
+        /// the panel's button authors a rest that starts AT the caret, the strip rebuilds to draw that
+        /// rest's greyed region, and double-clicking one of its edges takes the rest back out - the
+        /// model and the surface together, since neither is worth much without the other.
+        /// </summary>
+        [Test]
+        public void TestInsertPauseButtonAuthorsARestAndItsEdgeRemovesIt()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddUntilStep("insert pause button present", () => panelButton("insert pause").DrawWidth > 0);
+
+            AddStep("select line 1's word and park the caret inside it", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(2000);
+                state().SelectedLine.Value = lineAt(0);
+                state().SelectUnit(0);
+            });
+
+            AddUntilStep("caret parked", () => Math.Abs(EditorClock.CurrentTime - 2000) < 1);
+            AddUntilStep("strip sized", () => strip().IsLoaded && strip().DrawWidth > 0);
+
+            AddStep("click insert pause", () => clickPanelButton("insert pause"));
+
+            AddUntilStep("the word carries a rest", () => lineAt(0).Line.Units[0].Pauses.Count > 0);
+            AddAssert("the rest starts at the caret", () => Math.Abs(lineAt(0).Line.Units[0].Pauses[0].StartTime - 2000) < 1);
+            AddUntilStep("and the strip draws it", () => strip().PauseRegionCount == 1);
+
+            // The characters part around the rest, exactly as they part around a dotted subdivision
+            // line: "hello " in the first half and "world" in the second, so the band lands in the gap
+            // between two runs rather than over the letters.
+            AddUntilStep("the word's characters parted around the rest", () =>
+                labelExists("hello ") && labelExists("world"));
+
+            AddStep("double-click the rest's start edge", () =>
+                doubleClickStripAtX(strip().PositionOf(lineAt(0).Line.Units[0].Pauses[0].StartTime)));
+
+            AddUntilStep("the rest is gone", () => lineAt(0).Line.Units[0].Pauses.Count == 0);
+            AddUntilStep("and so is its region", () => strip().PauseRegionCount == 0);
+            AddUntilStep("and the word's characters run together again", () => labelExists("hello world"));
+        }
+
+        /// <summary>Whether the strip is drawing a word-run label with exactly this text.</summary>
+        private bool labelExists(string text)
+            => Editor.ChildrenOfType<TruncatingSpriteText>().Any(t => t.Text.ToString() == text);
+
+        /// <summary>
+        /// Testing a map from PARTWAY THROUGH must not charge the player for the part they skipped: the
+        /// accuracy the HUD reads on entry is 100%, not the 50% a prefix counted twice leaves (the
+        /// skipped cells pre-marked as hits by the editor player AND sealed as misses by the engine
+        /// behind them).
+        /// </summary>
+        [Test]
+        public void TestGameplayFromMidMapStartsWithFullAccuracy()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("park the playhead inside the second line", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(4000);
+            });
+
+            AddUntilStep("caret parked", () => Math.Abs(EditorClock.CurrentTime - 4000) < 1);
+
+            AddStep("start the test play", () => Editor.TestGameplay());
+
+            AddUntilStep("player entered", () => editorPlayer() != null);
+
+            double accuracy = -1;
+
+            AddStep("read the entry accuracy", () => accuracy = editorPlayer()!.GameplayState.ScoreProcessor.Accuracy.Value);
+
+            AddStep("check it", () => Assert.That(accuracy, Is.EqualTo(1),
+                "testing from partway through must not charge the skipped prefix"));
+
+            // And the run still RUNS OUT: the results the editor player used to put straight into the
+            // score processor now arrive, granted, from the engine's own seal, so the play reaches the
+            // map's full object count and leaves for the results screen exactly as it always did. (The
+            // editor player only exits on its own once the score has completed.)
+            AddUntilStep("the test play runs to its end and leaves", () => editorPlayer() == null);
+        }
+
+        /// <summary>
+        /// And from the very start of the map, where nothing is behind the playhead to be either
+        /// pre-marked or sealed.
+        /// </summary>
+        [Test]
+        public void TestGameplayFromTheStartStartsWithFullAccuracy()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("park the playhead at the start", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(0);
+            });
+
+            AddUntilStep("caret parked", () => Math.Abs(EditorClock.CurrentTime) < 1);
+
+            AddStep("start the test play", () => Editor.TestGameplay());
+
+            AddUntilStep("player entered", () => editorPlayer() != null);
+
+            double accuracy = -1;
+
+            AddStep("read the entry accuracy", () => accuracy = editorPlayer()!.GameplayState.ScoreProcessor.Accuracy.Value);
+
+            AddStep("check it", () => Assert.That(accuracy, Is.EqualTo(1), "nothing is behind the playhead"));
+        }
+
+        private EditorPlayer? editorPlayer()
+            => Stack.ChildrenOfType<EditorPlayer>().SingleOrDefault();
+
         private float left(string text) => panelButton(text).ScreenSpaceDrawQuad.TopLeft.X;
 
         private Vector2 size(string text) => panelButton(text).ScreenSpaceDrawQuad.Size;
@@ -1104,6 +1361,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             InputManager.MoveMouseTo(stripPointAtX(localX));
             InputManager.Click(MouseButton.Left);
             InputManager.Click(MouseButton.Left);
+        }
+
+        /// <summary>
+        /// <see cref="dragOnStrip"/> with the move and the press in SEPARATE steps, for targets only a
+        /// few pixels wide. The shared helper presses in the same step it moves, which is enough for a
+        /// word block (wide enough that the press still lands on it from wherever the cursor was), but
+        /// a rest's edge handles (and a dotted line's) are a couple of pixels across: the press has to
+        /// arrive on a frame the pointer has already settled on them, which is exactly how a real user's
+        /// hand does it. <paramref name="shift"/> holds the promotion modifier down for the whole
+        /// gesture, which is what the strip latches at drag start.
+        /// </summary>
+        private void dragStripHandle(Func<float> fromX, Func<float> toX, bool shift = false, Action? midDrag = null)
+        {
+            if (shift)
+                AddStep("hold shift", () => InputManager.PressKey(Key.ShiftLeft));
+
+            AddStep("settle the pointer on the edge", () => InputManager.MoveMouseTo(stripPointAtX(fromX())));
+            AddStep("press the edge", () => InputManager.PressButton(MouseButton.Left));
+            AddStep("travel far enough to start the drag", () => InputManager.MoveMouseTo(stripPointAtX(fromX() - 40)));
+            AddStep("drag to the target", () => InputManager.MoveMouseTo(stripPointAtX(toX())));
+            midDrag?.Invoke();
+            AddStep("release", () => InputManager.ReleaseButton(MouseButton.Left));
+
+            if (shift)
+                AddStep("let shift go", () => InputManager.ReleaseKey(Key.ShiftLeft));
         }
 
         /// <summary>

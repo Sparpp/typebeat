@@ -269,10 +269,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.SungCaretStyle, DEFAULT_SUNG_CARET_STYLE);
             SetDefault(TypeBeatRulesetSetting.KeyboardLayout, Gameplay.KeyboardLayout.Qwerty);
             SetDefault(TypeBeatRulesetSetting.SpaceSkipsWord, true);
-            SetDefault(TypeBeatRulesetSetting.ManualNewlines, false);
+            SetDefault(TypeBeatRulesetSetting.ManualNewlines, true);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
-            SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, false);
+            SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, true);
             SetDefault(TypeBeatRulesetSetting.ShowSyllableMarkers, true);
             SetDefault(TypeBeatRulesetSetting.ShowSyncMetric, false);
         }

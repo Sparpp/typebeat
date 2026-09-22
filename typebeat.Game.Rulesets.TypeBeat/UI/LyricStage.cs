@@ -60,6 +60,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private const float approach_bar_max_width = 140;
         private const float approach_bar_height = 4;
 
+        // How long the push warning takes to reach its full strength once its window opens. It is a
+        // warning the player did not ask for, so it announces itself instead of appearing at half
+        // brightness between one frame and the next; the WIDTH drain, not the entrance, is what
+        // carries the countdown.
+        private const double push_fade_in_ms = 400;
+
         private readonly TypingEngine engine;
 
         // Cached by DrawableTypeBeatRuleset for its subtree; absent in bare playfield test scenes.
@@ -79,7 +85,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private Caret playerCaret = null!;
         private Caret sungCaret = null!;
         private Box approachBar = null!;   // first-word cue (50% opaque)
-        private Box boundaryBar = null!;   // line-boundary cue (solid), drawn on top
+        private Box boundaryBar = null!;   // line-boundary cue (solid, Fletcher only), drawn on top
         private Box pushBar = null!;       // the push warning (solid red, right-aligned)
         private Container wrongKeyLayer = null!;
 
@@ -289,7 +295,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 Alpha = 0f,
             };
 
-            boundaryBar = new Box // line-boundary cue (solid)
+            boundaryBar = new Box // line-boundary cue (solid; Fletcher only, see updateApproachCue)
             {
                 Anchor = Anchor.TopLeft,
                 Origin = Anchor.TopLeft,
@@ -496,6 +502,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // the sung caret hides rather than parking at a phantom position.
                 int sungLine = sungLineFor(active);
                 var sd = displays[sungLine];
+                SungLineIndex = sungLine;
 
                 // The syllable group the vocals are on lights in EVERY style (backlog 177): the
                 // highlight and the playhead are complements, not alternatives, so this is fed each
@@ -693,13 +700,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
-        /// Shows two depleting bars under the upcoming line's first typeable char: a solid one
-        /// that lands on the line BOUNDARY (StartTime) and a 50%-opaque one that lands on the
-        /// FIRST WORD: the "get ready" signals after pre-roll and between lines. When the mapper
-        /// set the boundary earlier than the first word the two are distinct; when the boundary
-        /// sits at the first word they coincide as one solid bar. Each is hidden outside its own
-        /// final <see cref="approach_lead_ms"/> window (a past instant is behind the clock, so
-        /// stale cues can never appear).
+        /// Shows the "get ready" signals under the upcoming line's first typeable char: a
+        /// 50%-opaque bar that lands on the FIRST WORD, and - <b>under Fletcher only</b> - a solid bar
+        /// that lands on the line BOUNDARY (<see cref="TypingLine.StartTime"/>), which a mapper may set
+        /// earlier than the word.
+        ///
+        /// <para>The split is the mod's: with the caret PINNED the line is handed over at its boundary,
+        /// so the boundary is a moment the player acts on and gets its own bar; with the caret unpinned
+        /// an unopened line cannot be typed, so the game counts the line as starting when its FIRST WORD
+        /// starts and there is one signal rather than two. Where the boundary sits at the first word the
+        /// two bars coincide as one solid bar either way. Each is hidden outside its own final
+        /// <see cref="approach_lead_ms"/> window (a past instant is behind the clock, so stale cues can
+        /// never appear).</para>
         /// </summary>
         private void updateApproachCue()
         {
@@ -734,10 +746,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     Vector2 point = d.ToSpaceOfOtherDrawable(d.PositionOfCell(firstCell), this);
                     var barPos = new Vector2(point.X, point.Y + d.LineHeight + 6);
 
-                    // First-word cue (50% opaque) lands on the first word; boundary cue (solid)
-                    // lands on the line's StartTime, which a mapper may set earlier than the word.
-                    bool wordShown = updateCueBar(approachBar, barPos, line.Cells[firstCell].TargetTime - Time.Current, 0.5f);
-                    bool boundaryShown = updateCueBar(boundaryBar, barPos, line.StartTime - Time.Current, 1f);
+                    // First-word cue (50% opaque) lands on the first word. The SOLID boundary cue lands on
+                    // the line's StartTime, which a mapper may set earlier than the word - and it is
+                    // FLETCHER-ONLY, because the pinned caret is the one that treats the boundary as the
+                    // line's beginning: under Fletcher the line is handed over AT its boundary and the
+                    // drag protection that holds it hangs off the same instant (backlog 208).
+                    //
+                    // A cue for the line the player is ALREADY on (the line self-activated into its own
+                    // lead-in, or the pinned caret was handed it) is not a hint about a line they cannot
+                    // type yet: it is the line under their caret, so it is drawn at FULL strength
+                    // instead of the 50%-opaque whisper it keeps while the line is still to come.
+                    float wordOpacity = upcoming == engine.ActiveLineIndex ? 1f : 0.5f;
+
+                    bool wordShown = updateCueBar(approachBar, barPos, line.Cells[firstCell].TargetTime - Time.Current, wordOpacity);
+                    bool boundaryShown = false;
+
+                    // NOTE the flag's name is the ERA, not the mod: TRUE is the FLEXIBLE caret that is
+                    // the default since backlog 208, and the mod NAMED Fletcher is the one that turns it
+                    // OFF and pins the caret back to the playhead. The boundary bar belongs to the
+                    // PINNED caret, so it is shown when the flag is false.
+                    bool pinnedCaret = !engine.FletcherEnabled;
+
+                    // With the caret UNPINNED a line starts when its FIRST WORD starts, so there is one
+                    // signal and not two: the game does not count the line from a boundary the player
+                    // cannot yet be on. The bar is zeroed rather than merely skipped, since the
+                    // first-word cue above may be the one showing this frame.
+                    if (pinnedCaret)
+                        boundaryShown = updateCueBar(boundaryBar, barPos, line.StartTime - Time.Current, 1f);
+                    else
+                        boundaryBar.Alpha = 0f;
 
                     if (wordShown || boundaryShown)
                     {
@@ -766,12 +803,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <see cref="Anchor.TopRight"/> origin the width depletes leftward out of the line's right
         /// edge while the alpha ramps up.</para>
         ///
-        /// <para>Its window lines up with the punishment exactly. The bar covers the final
-        /// <see cref="approach_lead_ms"/> (CUE_LEAD_MS, 1500) before the cutoff, and the cutoff is
-        /// EndTime + SealGraceMs + FLETCHER_DRAG_GRACE_MS with the two constants both 1500, so the
-        /// first frame it draws is the instant the song leaves the line's own grace: the moment the
-        /// seal becomes permitted but for drag protection, and the whole of the borrowed time is what
-        /// the player watches drain.</para>
+        /// <para>Its window opens when the line that is about to TAKE the player counts as starting,
+        /// which is that line's FIRST WORD (see <see cref="pushWarningOpensAt"/>) and not the boundary
+        /// a mapper may have set earlier, and it runs for the fixed <see cref="approach_lead_ms"/> from
+        /// there. It never outlives the punishment: the push
+        /// (EndTime + SealGraceMs + FLETCHER_DRAG_GRACE_MS) cuts the bar off the moment it lands, and
+        /// where the word begins later than that the bar is the lead into the push instead (see
+        /// <see cref="pushWarningOpensAt"/>). It fades in over <see cref="push_fade_in_ms"/> rather
+        /// than snapping on.</para>
         ///
         /// <para>Display only. It reads a nullable engine readout and nothing else, so every path where
         /// no push is coming (a pinned caret, the caret rolled on ahead of an abandoned line, the run
@@ -793,9 +832,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // definition while the player is dragging.
                 Vector2 end = d.ToSpaceOfOtherDrawable(d.PositionOfCell(d.Line.Cells.Count), this);
                 var barPos = new Vector2(end.X, end.Y + d.LineHeight + 6);
+                double opensAt = pushWarningOpensAt(active, cutoff);
+                double closesAt = opensAt + approach_lead_ms;
 
-                if (updateCueBar(pushBar, barPos, cutoff - Time.Current, 1f))
+                if (Time.Current >= opensAt && Time.Current < cutoff && Time.Current < closesAt)
                 {
+                    // A FIXED lead (approach_lead_ms) measured from the word, so the bar always drains
+                    // at the one rate the player has learned; it is NOT stretched to fill a window
+                    // that happens to be longer, and the push cuts it short rather than reshaping it.
+                    // The fade-in is the one thing the cues do not have: they may snap on, a warning
+                    // may not.
+                    float progress = (float)((closesAt - Time.Current) / approach_lead_ms); // 1 -> 0 as it lands
+                    float fadeIn = (float)Math.Clamp((Time.Current - opensAt) / push_fade_in_ms, 0d, 1d);
+
+                    pushBar.Position = barPos;
+                    pushBar.Width = approach_bar_max_width * progress;
+                    pushBar.Alpha = arrivalAlpha(progress) * fadeIn;
                     pushWarningTargetLine = active;
                     return;
                 }
@@ -803,6 +855,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             pushBar.Alpha = 0f;
             pushWarningTargetLine = -1;
+        }
+
+        /// <summary>
+        /// The instant the push warning OPENS: when the line about to take the player counts as
+        /// starting, measured on the SAME terms as every other line-start signal in the stage - its
+        /// FIRST WORD, the first typeable cell's target, which is the instant the first-word cue lands
+        /// on. The caret is unpinned wherever this runs at all (<see cref="TypingEngine.DragCutoffAt"/>
+        /// is null under a pinned one), and an unpinned caret cannot type an unopened line, so the
+        /// boundary a mapper may have set earlier is not a moment the player acts on and the warning
+        /// must not fire on it.
+        ///
+        /// <para>Falls back to the old fixed <see cref="approach_lead_ms"/> lead before the cutoff when
+        /// there is no next typeable line to anchor on (the map's last line, a line of pure
+        /// punctuation) or when its first word begins at or after the push itself, where a
+        /// word-anchored window would have no width at all and the player would get no warning rather
+        /// than a short one.</para>
+        /// </summary>
+        private double pushWarningOpensAt(int active, double cutoff)
+        {
+            double fallback = cutoff - approach_lead_ms;
+            int next = active + 1;
+
+            if (next < 0 || next >= engine.Lines.Count)
+                return fallback;
+
+            int firstCell = firstTypeableIndex(engine.Lines[next]);
+
+            if (firstCell < 0)
+                return fallback;
+
+            double wordStart = engine.Lines[next].Cells[firstCell].TargetTime;
+
+            return wordStart < cutoff ? wordStart : fallback;
         }
 
         /// <summary>
@@ -818,13 +903,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 float progress = (float)(remaining / approach_lead_ms); // 1 -> 0 as it lands
                 bar.Position = pos;
                 bar.Width = approach_bar_max_width * progress;
-                bar.Alpha = (0.85f - 0.35f * progress) * opacityScale; // brightens as it arrives
+                bar.Alpha = arrivalAlpha(progress) * opacityScale; // brightens as it arrives
                 return true;
             }
 
             bar.Alpha = 0f;
             return false;
         }
+
+        /// <summary>
+        /// The shared brightness ramp of every depleting bar: half strength while it is at its widest,
+        /// 0.85 by the time it lands (<paramref name="progress"/> 1 -> 0), before the per-bar opacity
+        /// scale. Monotonic in the bar's own time, which is what lets a test pin these bands.
+        /// </summary>
+        private static float arrivalAlpha(float progress) => 0.85f - 0.35f * progress;
 
         // Which line the approach bar is currently rendered for; -1 while hidden. Test support:
         // alpha alone cannot distinguish "cued the right line" from a bar under a later line.
@@ -1013,16 +1105,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             double time = Time.Current;
 
+            // The seal cursor can be a row PAST the song as well as behind it. A player who types an
+            // OVERRUN line out early seals it at its own boundary (<c>canSeal</c> lets a line owing
+            // nothing go the moment its boundary passes) while the song is still singing its tail, and
+            // taking the cursor at its word there would blank the very sweep that is running. Step back
+            // to whatever the song has not finished, then walk forward over everything it has: the two
+            // loops cannot fight, since neither moves past a line whose own song-window is still open.
+
+            while (songLine > 0 && time < songWindowClosesAt(displays[songLine - 1].Line))
+                songLine--;
+
             while (songLine + 1 < displays.Length && time >= songWindowClosesAt(displays[songLine].Line))
                 songLine++;
 
             return songLine;
         }
 
-        /// <summary>The instant the playhead leaves <paramref name="line"/>: its hard deadline plus
-        /// whatever grace its overrunning vocals were given, the same sum
-        /// <see cref="TypingEngine.SongWindowOpen"/> ends on.</summary>
-        private static double songWindowClosesAt(TypingLine line) => line.EndTime + line.SealGraceMs;
+        /// <summary>
+        /// The instant the playhead leaves <paramref name="line"/>: the LATER of the line's own
+        /// boundary and the moment its sweep reaches its last character
+        /// (<see cref="TypingLine.SweepEndTime"/>, which runs past the boundary when the line's vocals
+        /// genuinely overrun it).
+        ///
+        /// <para>NOT the line's typing deadline. A seal grace is time the PLAYER is still allowed to
+        /// type the line in, and a line that authored one keeps the song's own line past the point the
+        /// next line is already being sung; the sweep then appeared <i>on the next line</i> part way
+        /// through it, as if that line had started mid-word. The song's line answers to the song's
+        /// times and nothing else: it flips at the boundary that hands the row over - where the line's
+        /// own sweep holds, complete, through the gap before the next line sings - and later only when
+        /// something of this line is genuinely still being sung.</para>
+        /// </summary>
+        private static double songWindowClosesAt(TypingLine line) => Math.Max(line.EndTime, line.SweepEndTime);
 
         // Which display currently carries a lit sung syllable; -1 = none. Stage-tracked so the one
         // line leaving the sung role is cleared explicitly, the highlight's mirror of how the sung
@@ -1189,11 +1302,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public bool ApproachCueVisible =>
             (approachBar.IsNotNull() && approachBar.Alpha > 0.1f) || (boundaryBar.IsNotNull() && boundaryBar.Alpha > 0.1f);
 
+        /// <summary>
+        /// Whether the SOLID line-boundary cue is currently drawn, the one that lands on the line's
+        /// <see cref="TypingLine.StartTime"/> rather than its first word. Fletcher-only, so this is the
+        /// readout that tells a test the second "get ready" signal is present (pinned caret) or absent
+        /// (the default, where a line counts as starting at its first word).
+        /// </summary>
+        public bool BoundaryCueVisible => boundaryBar.IsNotNull() && boundaryBar.Alpha > 0.1f;
+
+        /// <summary>
+        /// The first-word cue's current alpha, unscaled by the visibility threshold. Reads full when the
+        /// cued line is the line the player is already on and half that while it is still a line to
+        /// come, which is the difference a test wants to see rather than just "something is drawn".
+        /// </summary>
+        public float FirstWordCueAlpha => approachBar.IsNotNull() ? approachBar.Alpha : 0f;
+
         /// <summary>The line index the approach cue is currently shown for; -1 while hidden.</summary>
         public int ApproachCueTargetLine => approachCueTargetLine;
 
+        /// <summary>
+        /// The line the SONG is on: the one whose sweep and sung playhead are drawn. Under a pinned
+        /// caret that is always the caret's own line; with the caret unpinned it is the first line the
+        /// song has not left, which is what lets the two come apart. Test support.
+        /// </summary>
+        public int SungLineIndex { get; private set; } = -1;
+
         /// <summary>Whether the red push warning (backlog 263) is currently drawn.</summary>
         public bool PushWarningVisible => pushBar.IsNotNull() && pushBar.Alpha > 0.1f;
+
+        /// <summary>
+        /// The push warning's current alpha, so a test can tell the fade-in from a snap-on: the bar is
+        /// weakest the frame its window opens and climbs to its full strength from there. Zero
+        /// whenever the window is shut.
+        /// </summary>
+        public float PushWarningAlpha => pushBar.IsNotNull() ? pushBar.Alpha : 0f;
+
+        /// <summary>
+        /// Whether the push warning's COUNTDOWN is running this frame, whatever its fade-in has reached.
+        /// This is the window membership a test can pin exactly: the alpha is deliberately soft on the
+        /// frame the window opens, so "has it faded in yet" is a different question from "is this line
+        /// being counted down".
+        /// </summary>
+        public bool PushWarningWindowOpen => pushWarningTargetLine >= 0;
 
         /// <summary>The line index the push warning is currently shown for; -1 while hidden.</summary>
         public int PushWarningTargetLine => pushWarningTargetLine;

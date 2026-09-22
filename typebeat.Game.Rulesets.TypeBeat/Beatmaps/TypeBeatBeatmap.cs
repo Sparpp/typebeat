@@ -41,15 +41,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// Peak (rolling-window) and target/average (per-line) pace for song select's metadata
         /// wedge, all derived from ONE materialised pass over the lyric lines: the curve sweep and
         /// the pace statistics read the same list rather than enumerating the hit objects twice.
+        ///
+        /// <para>The TARGET and AVERAGE follow the mods this beatmap was converted with: a line the
+        /// Literate mod stamped has its authored marks counted (see
+        /// <see cref="LyricPaceStatistics.Compute"/>). The curve does NOT, deliberately: it is
+        /// <see cref="LyricWpmCurve"/>, which is mirrored byte for byte on the website, and a map's
+        /// published peak has to stay one figure across both. The peak therefore answers "how fast
+        /// does this shared map ask" while the two figures beside it answer the same question about
+        /// the stream this particular conversion produced.</para>
         /// </summary>
-        public TypingPaceProfile? GetTypingPace()
+        public TypingPaceProfile? GetTypingPace(double rate = 1)
         {
             if (HitObjects.Count == 0)
                 return null;
 
             var lines = HitObjects.Select(h => h.Line).ToList();
             var curve = LyricWpmCurve.Compute(lines);
-            var pace = LyricPaceStatistics.Compute(lines);
+            var pace = LyricPaceStatistics.Compute(lines, HitObjects.Any(h => h.Literate), rate);
 
             // Nothing to draw (no typeable cell at all, or fewer than one rolling window's worth)
             // reports null so the wedge hides the section instead of showing a flat empty graph.
@@ -58,8 +66,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             return new TypingPaceProfile
             {
-                WpmCurve = curve.Curve,
-                PeakWpm = curve.PeakWpm,
+                // The curve's window is a run of CELLS, not a span of seconds, so a rate mod moves every
+                // sample by exactly the rate: scaling here is the same reading as recomputing, and it
+                // leaves the graph's normalised shape alone. The TARGET is the one figure that has to go
+                // back through the model - see LyricPaceStatistics.Compute.
+                WpmCurve = curve.Curve.Select(wpm => wpm * rate).ToArray(),
+                PeakWpm = curve.PeakWpm * rate,
                 TargetWpm = pace.TargetWpm,
                 AverageWpm = pace.AverageWpm,
             };
@@ -70,7 +82,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (HitObjects.Count == 0)
                 yield break;
 
-            var pace = LyricPaceStatistics.Compute(HitObjects.Select(h => h.Line));
+            // The statistics are figures of THIS beatmap, so a cell the mod added to it counts:
+            // under Literate every authored mark is a typed cell (see LyricPaceStatistics.Compute),
+            // and the caller converts with the selected mods for exactly this reason.
+            var pace = LyricPaceStatistics.Compute(HitObjects.Select(h => h.Line), HitObjects.Any(h => h.Literate));
 
             // How much typing the map is, in the unit the player thinks in. The total comes from the
             // same pass that produces Average WPM below, so the two can never disagree: a word is a
@@ -111,6 +126,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // model's own duration and character floors.
             double baseTargetWpm = pace.TargetWpm;
 
+            // THE ONE FIGURE THAT HAS TO BE READ AGAIN RATHER THAN RATED. A faster clock does not merely
+            // scale the target: the model bins its timeline in REAL milliseconds, so the scan that picks
+            // the hardest window runs against different readings and can even name a different window.
+            // The figure is therefore recomputed through the model at the clock (see
+            // LyricPaceStatistics.Compute) - memoised per rate, because that is a scan over the whole map,
+            // and the caller renders these rows off the update thread for exactly this reason.
+            var targets = new Dictionary<double, double>();
+
+            double targetAt(double rate)
+            {
+                lock (targets)
+                {
+                    if (targets.TryGetValue(rate, out double cached))
+                        return cached;
+                }
+
+                double value = LyricPaceStatistics
+                    .Compute(HitObjects.Select(h => h.Line), HitObjects.Any(h => h.Literate), rate)
+                    .TargetWpm;
+
+                lock (targets)
+                    targets[rate] = value;
+
+                return value;
+            }
+
             yield return new BeatmapStatistic
             {
                 Name = "Average WPM",
@@ -126,7 +167,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Content = baseTargetWpm.ToString("0"),
                 CreateIcon = () => new SpriteIcon { Icon = FontAwesome.Solid.Bullseye },
                 BarDisplayLength = (float)Math.Min(1, baseTargetWpm / max_display_wpm),
-                RateAdjusted = rate => ((baseTargetWpm * rate).ToString("0"), (float?)Math.Min(1, baseTargetWpm * rate / max_display_wpm)),
+                // NOT a rate, and not a cached multiply either: the figure comes from the model read at
+                // the clock (see targetAt above), so it is the same number the pace chart prints for the
+                // same map. The Average WPM above IS a rate and simply scales, which is why the two rows
+                // move by different factors on the same toggle.
+                RateAdjusted = rate =>
+                {
+                    double target = targetAt(rate);
+                    return (target.ToString("0"), (float?)Math.Min(1, target / max_display_wpm));
+                },
             };
 
             // Still here, and still worth a column, now that the CPM it used to explain has left the

@@ -235,6 +235,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// THE TYPED-THROUGH NEWLINE (see <c>TypingEngine.NewlineOnTypedLetter</c>): a letter at a
+        /// finished caret hands the line on as well, and then lands on its first slot, right or wrong.
+        /// The MOVE is ungated, exactly like the space's, because the window's business is what may be
+        /// TYPED and not where the caret may stand: gating the press meant finishing a line early -
+        /// the whole point - got nothing. So the caret moves either way, and the window then refuses
+        /// the CHARACTER on a line that has not opened yet.
+        /// </summary>
+        [Test]
+        public void ATypedLetterHandsTheLineOnOnceTheWindowOpens()
+        {
+            var engine = started(manualNewlines: true);
+            engine.NewlineOnTypedLetter = true;
+            typeLine0(engine);
+
+            engine.Update(1600);
+            Assert.IsTrue(engine.ProcessKey('c', 1600), "the letter hands the line on even 3900 ms before the window opens");
+            Assert.AreEqual(1, engine.ActiveLineIndex, "the caret is on the next line");
+            Assert.AreEqual(0, engine.CaretIndex, "but the CHARACTER was refused: nothing was typed");
+
+            engine.Update(l1_entry_opens);
+            Assert.IsTrue(engine.ProcessKey('c', l1_entry_opens), "and once the window opens the letter lands");
+            Assert.AreEqual(1, engine.ActiveLineIndex);
+            Assert.AreEqual(1, engine.CaretIndex, "having typed that line's first slot");
+        }
+
+        /// <summary>
+        /// The era bit's own test: with it clear the same press is inert, which is every replay stored
+        /// before the setting existed. It is a bit rather than an amendment to
+        /// <c>ManualNewlines</c> precisely because it decides whether a keystroke is ACCEPTED.
+        /// </summary>
+        [Test]
+        public void ATypedLetterIsInertWithoutItsEraBit()
+        {
+            var engine = started(manualNewlines: true);
+            typeLine0(engine);
+
+            engine.Update(l1_entry_opens);
+            Assert.IsFalse(engine.ProcessKey('c', l1_entry_opens), "the old era keeps every letter inert at a finished caret");
+            Assert.AreEqual(0, engine.ActiveLineIndex);
+            Assert.AreEqual(2, engine.CaretIndex);
+        }
+
+        /// <summary>
         /// The wait is undone from the head of the waiting line: a backspace steps back up to the
         /// line it came from, WHILE that line can still be typed - its sweep has not reached its own
         /// end - and the player is free to retype it with a second backspace.

@@ -44,7 +44,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         // explicitly rather than inheriting whatever the previous one left.
         private bool dragMap;
 
-        private void useDragMap(bool drag) => AddStep(drag ? "use the drag map" : "use the rush map", () => dragMap = drag);
+        // The three flags are ONE choice, so every setter clears the others: a fixture left standing
+        // from the previous test would otherwise answer for the next one's map.
+        private void useDragMap(bool drag) => AddStep(drag ? "use the drag map" : "use the rush map", () =>
+        {
+            dragMap = drag;
+            graceMap = false;
+            overrunMap = false;
+        });
+
+        // A THIRD fixture, for the one thing the seal cursor can get wrong in the other direction: a
+        // line that authors a SEAL GRACE, i.e. extra time for the PLAYER to finish typing it.
+        private bool graceMap;
+
+        private void useGraceMap() => AddStep("use the grace map", () =>
+        {
+            graceMap = true;
+            dragMap = false;
+            overrunMap = false;
+        });
+
+        // And a fourth, for the mirror image: a line the PLAYER can take the game past before its own
+        // vocals have finished.
+        private bool overrunMap;
+
+        private void useOverrunMap() => AddStep("use the overrun map", () =>
+        {
+            overrunMap = true;
+            dragMap = false;
+            graceMap = false;
+        });
 
         protected override IBeatmap CreateBeatmap(RulesetInfo ruleset)
         {
@@ -53,6 +82,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             beatmap.BeatmapInfo.Ruleset = ruleset;
             beatmap.BeatmapInfo.Metadata.Artist = "Test";
             beatmap.BeatmapInfo.Metadata.Title = "Fletcher";
+
+            if (graceMap)
+            {
+                // THE GRACE MAP. Line 0's vocals are over by 2 s and its boundary is at 3 s, but the
+                // mapper authored 460 ms of seal grace on top - time the PLAYER may still type in.
+                // Line 1's vocals begin at 3100, i.e. inside that grace, so a stage that read the
+                // song's line off the typing deadline held line 0 through the first 360 ms of line
+                // 1's singing and then drew the sweep part way into line 1. The song's line is a fact
+                // about the SONG: it moves at the 3 s boundary and line 1's sweep opens on its own
+                // first character.
+                addLine(beatmap, 0, "ab", 1000, 3000, 2000, 1000, 2000, sealGrace: 460);
+                addLine(beatmap, 1, "cd", 3000, 30000, 5000, 3100, 5000);
+
+                return beatmap;
+            }
+
+            if (overrunMap)
+            {
+                // THE OVERRUN MAP, the mirror of the grace one. Line 0's vocals run 600 ms PAST its
+                // boundary, so the sweep is still moving for most of a second after the row is handed
+                // over. A player who types the line out during that time seals it at the boundary - a
+                // line owing nothing goes the moment its boundary passes - and a stage that trusted
+                // the seal cursor would then blank the sweep that is still running.
+                addLine(beatmap, 0, "ab", 1000, 2000, 2600, 1000, 2600);
+                addLine(beatmap, 1, "cd", 2000, 10000, 5000, 2600, 5000);
+
+                return beatmap;
+            }
 
             if (dragMap)
             {
@@ -83,7 +140,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             return beatmap;
         }
 
-        private static void addLine(Beatmap beatmap, int index, string text, double start, double end, double singEnd, double unitStart, double unitEnd)
+        private static void addLine(Beatmap beatmap, int index, string text, double start, double end, double singEnd, double unitStart, double unitEnd, double sealGrace = 0)
         {
             var line = new LyricLine
             {
@@ -91,6 +148,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 StartTime = start,
                 EndTime = end,
                 SingEndTime = singEnd,
+                SealGraceMs = sealGrace,
                 Units = new[] { new TimedUnit { Text = text, StartTime = unitStart, EndTime = unitEnd } },
             };
 
@@ -208,6 +266,97 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // still on line 0 with a character owed.
             AddAssert("the typing caret stayed on the player's line", () =>
                 stage.PlayerCaretVisible && engine.ActiveLineIndex == 0);
+        }
+
+        /// <summary>
+        /// A seal grace is time the PLAYER may still type in, and it must not move the SONG. The grace
+        /// map's line 0 carries 460 ms of it while line 1 starts singing 100 ms past the boundary, so
+        /// the two answers come apart exactly where the reported bug was: reading the song's line off
+        /// the typing deadline held line 0 through the first third of a second of line 1's vocals and
+        /// then opened line 1's sweep part way along it, as though that line had begun mid-word.
+        /// </summary>
+        [Test]
+        public void TestThePlayheadFollowsTheSongsTimesNotTheTypingGrace()
+        {
+            useGraceMap();
+            AddStep("load player with no mods", () => LoadPlayer(Array.Empty<Mod>()));
+            AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
+            AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0 && stage.Clock.CurrentTime > 0);
+
+            // Nothing is typed, so line 0 is DRAGGING: it stays unsealed well past the boundary, and
+            // any answer the stage gave from the seal cursor would be line 0's.
+            bool sampled = false;
+            float openedAt = -1;
+
+            AddUntilStep("line 1 is the song's line on every frame the grace spans", () =>
+            {
+                double t = stage.Clock.CurrentTime;
+
+                // The FIRST frame the sweep is on line 1, so the reading describes where it opened
+                // rather than wherever it has got to by the time the loop below ends.
+                if (openedAt < 0 && stage.SungLineIndex == 1 && stage.DisplayAt(1) is { } opened)
+                    openedAt = opened.SweepFillWidth / Math.Max(1f, opened.FullOnScreenWidth);
+
+                if (t > 3050 && t < 3460)
+                {
+                    sampled = true;
+                    Assert.That(engine.NextUnsealedLineIndex, Is.EqualTo(0),
+                        $"at {t:F0} ms line 0 had sealed, so the seal cursor could have answered this");
+                    Assert.That(stage.SungLineIndex, Is.EqualTo(1),
+                        $"at {t:F0} ms the song was still drawn on line 0, inside line 1's singing");
+                }
+
+                return t >= 3460;
+            });
+
+            AddAssert("the window that tells the two rules apart was sampled", () => sampled);
+
+            // And it is line 1's OWN beginning the sweep opened on, not a point the grace allowed the
+            // old rule to reach: at the boundary line 1 has not sung a character yet.
+            AddAssert("line 1's sweep opened on its own first character", () => openedAt >= 0 && openedAt < 0.15f);
+        }
+
+        /// <summary>
+        /// The other direction the seal cursor can be wrong in: a row the game has already gone past
+        /// while the SONG is still on it. Line 0's vocals overrun its boundary, so a player who types
+        /// it out inside that tail seals it there, and the sweep has to stay where the singing is.
+        /// </summary>
+        [Test]
+        public void TestThePlayheadStaysOnALineWhoseTailIsStillBeingSung()
+        {
+            useOverrunMap();
+            AddStep("load player with no mods", () => LoadPlayer(Array.Empty<Mod>()));
+            AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
+            AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0 && stage.Clock.CurrentTime > 0);
+
+            // Typed out ON TIME, each press near its own character, so its boundary is the last thing
+            // the line waits for. Both presses are made inside the sweep below, off the caret rather
+            // than off a guess at the frame: the second one has to land while the caret is still on it.
+            bool pressedA = false;
+
+            AddUntilStep("line 0 sealed at its boundary with its tail still being sung", () =>
+            {
+                double t = stage.Clock.CurrentTime;
+
+                if (!pressedA && t > 900)
+                {
+                    pressedA = true;
+                    InputManager.Key(Key.A);
+                }
+
+                if (t > 1600 && t < 2000 && engine.CaretIndex == 1 && engine.ActiveLineIndex == 0)
+                    InputManager.Key(Key.B);
+
+                if (engine.NextUnsealedLineIndex != 1)
+                    return false;
+
+                // Sealed at the boundary at 2000, while its vocals run to 2600: the cursor says line 1,
+                // the song says line 0.
+                Assert.That(t, Is.LessThan(2600), "the seal arrived after line 0's tail had finished, so there was nothing left to hold");
+                Assert.That(stage.SungLineIndex, Is.EqualTo(0),
+                    $"at {t:F0} ms the sweep left a line whose tail is still being sung (sung={stage.SungLineIndex}, active={engine.ActiveLineIndex})");
+                return true;
+            });
         }
     }
 }

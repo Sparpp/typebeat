@@ -4,6 +4,7 @@
 using System;
 using System.Linq;
 using NUnit.Framework;
+using osu.Framework;
 using osu.Framework.Extensions;
 using osu.Framework.Input.Bindings;
 
@@ -25,12 +26,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void GesturesAreBoundToTheirChordsByDefault()
         {
             var defaults = new TypeBeatRuleset().GetDefaultKeyBindings().ToList();
+            var modifier = TypeBeatRuleset.RecoveryGestureModifier;
 
             Assert.That(combinationFor(defaults, TypeBeatAction.EraseWord),
-                Is.EqualTo(new KeyCombination(InputKey.Control, InputKey.BackSpace)));
+                Is.EqualTo(new KeyCombination(modifier, InputKey.BackSpace)));
 
             Assert.That(combinationFor(defaults, TypeBeatAction.SelectBackToTypo),
-                Is.EqualTo(new KeyCombination(InputKey.Control, InputKey.A)));
+                Is.EqualTo(new KeyCombination(modifier, InputKey.A)));
+        }
+
+        /// <summary>
+        /// The modifier half of the two recovery chords is the PLATFORM's: Ctrl everywhere except
+        /// macOS, where the rest of the OS edits with Command and the framework's
+        /// <see cref="InputKey.Super"/> ("the windows/command key") is the key a player reaches for,
+        /// so the defaults have to follow. Pinned per platform rather than only for the host, because
+        /// the tests run on whatever the developer is sitting in front of: an assertion that read
+        /// <see cref="TypeBeatRuleset.RecoveryGestureModifier"/> would have agreed with itself on a
+        /// Windows machine and on a Mac alike.
+        /// </summary>
+        [TestCase(RuntimeInfo.Platform.Windows, InputKey.Control)]
+        [TestCase(RuntimeInfo.Platform.Linux, InputKey.Control)]
+        [TestCase(RuntimeInfo.Platform.macOS, InputKey.Super)]
+        public void TheRecoveryModifierFollowsThePlatformsEditingChord(RuntimeInfo.Platform platform, InputKey expected)
+        {
+            Assert.That(TypeBeatRuleset.RecoveryGestureModifierFor(platform), Is.EqualTo(expected));
         }
 
         /// <summary>

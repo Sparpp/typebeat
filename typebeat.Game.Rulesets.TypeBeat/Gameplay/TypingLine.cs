@@ -501,22 +501,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                         k++;
                 }
 
-                // Syllable subdivisions warp the char-to-time mapping WITHIN the word: instead of
-                // one flat ramp across [unitStart, unitEnd], the boundaries split it into segments
-                // and the k chars are spread evenly across the segments in index-space, so the caret
-                // reaches each boundary time at that boundary's proportional char and moves linearly
-                // (but at a per-segment speed) between them. Empty boundaries => the flat ramp.
-                //
-                // An AUTHORED char split (backlog 181, "ap|ple") replaces that even distribution:
-                // the mapper's own cut says how many chars ride each segment, so the same split
-                // drives the targets here and the judgement groups in buildSyllables. Derived
-                // (empty, or stale) keeps the index-even spread untouched, which is what makes a
-                // map with no authored split flatten byte-identically to before.
-                var boundaries = unit?.SyllableBoundaries ?? System.Array.Empty<double>();
-
-                int[]? cellCuts = unit != null && SyllableSegments.IsAuthoredValid(token, boundaries.Count + 1, unit.SyllableSplits)
-                    ? SyllableSegments.CellCuts(token, unit.SyllableSplits)
-                    : null;
+                // Per-typeable-cell targets for this token, which is where syllable subdivisions AND
+                // an authored pause warp the char-to-time mapping (see tokenCellTargets).
+                double[] ramp = tokenCellTargets(token, unitStart, unitEnd, unit, k);
 
                 int j = 0;
 
@@ -527,9 +514,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     if (Typeability.IsCell(ch))
                     {
                         isTypeable[pos] = true;
-                        // Typeable char j of k in unit u: first char AT unit start, piecewise across
-                        // syllable boundaries (degenerates to u.Start + j*(u.End-u.Start)/k when undivided).
-                        targets[pos] = syllableCharTarget(unitStart, unitEnd, boundaries, k, j, cellCuts);
+                        targets[pos] = ramp[j];
                         j++;
                     }
                     // else: punctuation, resolved in the second pass.
@@ -830,23 +815,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 bool subtimed = boundaries.Count > 0;
 
+                // A word carrying an authored PAUSE is a SUBTIMED word with one more divider than the
+                // syllabifier's: the rest's own pair of edges (its start closing the group before it and
+                // its end opening the one after) leave a gap no group covers, which is what gives the
+                // characters past the breath their own sung span to be judged against and what puts the
+                // gameplay subdivision mark at the cut - the same reading a mapper-authored subdivider
+                // gets. A rest that cannot cut the word changes nothing here, exactly as it changes
+                // nothing in the ramp.
+                var paused = unit != null ? PausedWord.Of(token, unitStart, unitEnd, unit) : null;
+
                 // A stylised spelling gets no groups at all UNLESS the mapper subtimed it, in which
                 // case the hand-authored count wins over anything the rules would have guessed.
-                if (token.Length > 0 && (subtimed || Syllabifier.IsSyllabifiable(token)))
+                if (token.Length > 0 && (subtimed || paused != null || Syllabifier.IsSyllabifiable(token)))
                 {
-                    var splits = subtimed
-                        ? SyllableSegments.SplitsFor(token, boundaries.Count + 1, unit?.SyllableSplits)
-                        : Syllabifier.SplitPoints(token);
+                    IReadOnlyList<int> splits = paused != null
+                        ? paused.Splits
+                        : subtimed
+                            ? SyllableSegments.SplitsFor(token, boundaries.Count + 1, unit?.SyllableSplits)
+                            : Syllabifier.SplitPoints(token);
 
                     int groupBase = starts.Count;
                     int groupCount = splits.Count + 1;
 
                     for (int g = 0; g < groupCount; g++)
                     {
-                        subtimedInterior.Add(subtimed && g > 0);
+                        subtimedInterior.Add((subtimed || paused != null) && g > 0);
                         groupTokenBase.Add(groupBase);
 
-                        if (subtimed)
+                        if (paused != null)
+                        {
+                            // The run's own span, rest's gap and all: no run covers a rest. (A run is what
+                            // the strip draws - a stretch with its own boundaries taken out - so the groups
+                            // and the text part at exactly the same places.)
+                            var (lo, hi) = paused.RunSpans[Math.Min(g, paused.RunSpans.Count - 1)];
+                            starts.Add(lo);
+                            ends.Add(hi);
+                        }
+                        else if (subtimed)
                         {
                             starts.Add(g == 0 ? unitStart : boundaries[g - 1]);
                             ends.Add(g == groupCount - 1 ? unitEnd : boundaries[g]);
@@ -1030,7 +1035,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 if (extends)
                     continue;
 
-                if (cellSyllable[runStart] >= 0 && i - runStart >= STRETCH_RUN_LENGTH)
+                if (cellSyllable[runStart] >= 0 && i - runStart >= STRETCH_RUN_LENGTH && !subdividedRun(cells, cellSyllable, runStart, i))
                 {
                     for (int j = runStart; j < i; j++)
                         flags[j] = true;
@@ -1040,6 +1045,64 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             return flags;
+        }
+
+        /// <summary>
+        /// Whether the identical run at <c>[start, end)</c> is SUBDIVIDED: a mapper's subdivider cuts
+        /// through a long stretch of the same character, leaving a run of at least
+        /// <see cref="STRETCH_RUN_LENGTH"/> of them on the other side of the boundary.
+        ///
+        /// <para>That is the shape of "yooooo|oooo|u" in Standing Next to You - nine identical 'o's
+        /// split 5 | 4 - and it is the statement this exclusion exists to respect: the author has
+        /// PACED one long stretch into spans, so each group's sung span is exactly the information the
+        /// player needs and nothing reverts to character timing. Both of those groups hold a run the
+        /// stretch rule would otherwise claim.</para>
+        ///
+        /// <para>WHAT IT DELIBERATELY DOES NOT COVER is a divider that merely STARTS a run: "heyyyyy"
+        /// subtimed as "hey|yyyy" has one 'y' on the far side of the boundary, and a run of one is not
+        /// a stretch, so the four 'y's keep the character timing the exploit argument gives them. The
+        /// threshold on the far side is the whole of the difference between the two shapes, and it is
+        /// what keeps the fixtures this rule was built on reading as they always did.</para>
+        /// </summary>
+        private static bool subdividedRun(IReadOnlyList<TypingCell> cells, int[] cellSyllable, int start, int end)
+        {
+            static bool sameChar(TypingCell a, TypingCell b) => Typeability.Fold(a.Expected) == Typeability.Fold(b.Expected);
+
+            if (start > 0
+                && cellSyllable[start - 1] >= 0
+                && cellSyllable[start - 1] != cellSyllable[start]
+                && sameChar(cells[start - 1], cells[start])
+                && sameRunLength(cells, cellSyllable, start - 1, -1) >= STRETCH_RUN_LENGTH)
+                return true;
+
+            return end < cells.Count
+                   && cellSyllable[end] >= 0
+                   && cellSyllable[end] != cellSyllable[start]
+                   && sameChar(cells[end], cells[start])
+                   && sameRunLength(cells, cellSyllable, end, 1) >= STRETCH_RUN_LENGTH;
+        }
+
+        /// <summary>
+        /// How many cells of the same folded character run from <paramref name="index"/> in
+        /// <paramref name="direction"/> while staying inside that cell's OWN group. Bounded by the
+        /// group, so it measures the stretch a subdivider left on one side of itself and never walks
+        /// across another boundary.
+        /// </summary>
+        private static int sameRunLength(IReadOnlyList<TypingCell> cells, int[] cellSyllable, int index, int direction)
+        {
+            int group = cellSyllable[index];
+            char expected = Typeability.Fold(cells[index].Expected);
+            int count = 0;
+
+            for (int i = index; i >= 0 && i < cells.Count && cellSyllable[i] == group; i += direction)
+            {
+                if (Typeability.Fold(cells[i].Expected) != expected)
+                    break;
+
+                count++;
+            }
+
+            return count;
         }
 
         /// <summary>
@@ -1104,7 +1167,84 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             return timeLo + (j - segIndexLo) / (segIndexHi - segIndexLo) * (timeHi - timeLo);
         }
 
+        /// <summary>
+        /// Per-TYPEABLE-CELL target times for one token (<c>ramp[j]</c> is typeable char j of k).
+        ///
+        /// <para>Without an authored pause this is exactly the old single call per char: syllable
+        /// subdivisions warp the char-to-time mapping WITHIN the word - instead of one flat ramp
+        /// across the unit's span, the boundaries split it into segments and the k chars are spread
+        /// evenly across the segments in index-space, so the caret reaches each boundary time at that
+        /// boundary's proportional char and moves linearly (but at a per-segment speed) between them.
+        /// Empty boundaries =&gt; the flat ramp. An AUTHORED char split (backlog 181, "ap|ple")
+        /// replaces that even distribution: the mapper's own cut says how many chars ride each
+        /// segment, so the same split drives these targets and the judgement groups in
+        /// <see cref="buildSyllables"/>. Derived (empty, or stale) keeps the index-even spread
+        /// untouched, which is what makes a map with no authored split flatten byte-identically to
+        /// before.</para>
+        ///
+        /// <para>An authored <see cref="TimedUnit.Pauses">pause</see> splits the word into the stretches
+        /// it is sung in, timed independently (see <see cref="fillPausedStretches"/>); a rest the engine
+        /// cannot honour - one whose edges have left the unit's span, whose split leaves every cell on one
+        /// side of it, or that overlaps another - is ignored here, exactly as the loader drops it.</para>
+        /// </summary>
+        private static double[] tokenCellTargets(string token, double unitStart, double unitEnd, TimedUnit? unit, int k)
+        {
+            var ramp = new double[k];
+
+            if (k <= 0)
+                return ramp;
+
+            var boundaries = unit?.SyllableBoundaries ?? Array.Empty<double>();
+
+            if (unit != null && PausedWord.Of(token, unitStart, unitEnd, unit) is PausedWord.Cut cut)
+            {
+                fillPausedStretches(cut, ramp);
+                return ramp;
+            }
+
+            int[]? cellCuts = unit != null && SyllableSegments.IsAuthoredValid(token, boundaries.Count + 1, unit.SyllableSplits)
+                ? SyllableSegments.CellCuts(token, unit.SyllableSplits)
+                : null;
+
+            for (int j = 0; j < k; j++)
+                ramp[j] = syllableCharTarget(unitStart, unitEnd, boundaries, k, j, cellCuts);
+
+            return ramp;
+        }
+
+        /// <summary>
+        /// The ramp of a PAUSED word: it is as many units as it has rests plus one, each stretch timed
+        /// over its own span with no rest inside it. No cell therefore has a target inside a rest, and the
+        /// first cell of a stretch lands exactly on its start - which is what makes the sung caret WAIT
+        /// through a breath with no special engine state: the polyline has no anchor in the gap.
+        ///
+        /// <para>Every stretch carries its OWN boundaries and its own char cut (see
+        /// <see cref="PausedWord.Of"/>, which is shared with the editor's strip so the mapper sees the
+        /// word part where the play parts the timing), and each one's ramp is computed by the same
+        /// <see cref="syllableCharTarget"/> arithmetic a whole word uses.</para>
+        ///
+        /// <para>A rest moves TARGETS only, and the stretch boundaries it produces are what the
+        /// judgement GROUPS are built from too (<see cref="buildSyllables"/> reads the same stretches),
+        /// so the judges' windows part at a rest exactly as they part at a subdivider.</para>
+        /// </summary>
+        private static void fillPausedStretches(PausedWord.Cut cut, double[] ramp)
+        {
+            foreach (var piece in cut.Pieces)
+            {
+                for (int j = 0; j < piece.CellCount; j++)
+                    ramp[piece.FirstCell + j] = syllableCharTarget(piece.StartTime, piece.EndTime, piece.Boundaries, piece.CellCount, j, piece.CellCuts);
+            }
+        }
+
         private const double boundary_epsilon_ms = 30;
+        /// <summary>
+        /// The editor's view of one word's per-cell targets: the SAME spread gameplay judges on, so a
+        /// gesture that snaps to a character boundary (the Map Editor's Insert Pause) lands on the
+        /// moment the player will actually be typing, existing subdivisions and all.
+        /// </summary>
+        internal static double[] CellTargetsFor(TimedUnit unit, int typeableCount)
+            => tokenCellTargets(unit.Text, unit.StartTime, unit.EndTime, unit, typeableCount);
+
         private const double min_boundary_grace_ms = 250;
         private const double max_seal_grace_ms = 700;
     }

@@ -3,12 +3,15 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using CollectionAssert = NUnit.Framework.Legacy.CollectionAssert;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
@@ -145,8 +148,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(pace.TargetWpm.ToString("0"), stat.Content);
             Assert.AreEqual((float)Math.Min(1, pace.TargetWpm / 150), stat.BarDisplayLength);
 
-            // And the rate scales it linearly, like the average beside it.
-            Assert.AreEqual((pace.TargetWpm * 1.5).ToString("0"), stat.RateAdjusted!(1.5).Item1);
+            // And the rate RE-READS it, where the average beside it only scales. The target is the
+            // map's hardest window re-expressed at a fixed reading duration, and a faster clock shortens
+            // that duration too, so the figure the row prints at 1.5x is the MODEL's own target at 1.5x -
+            // the same number the pace chart prints (TypingPaceRateTest pins the two surfaces together).
+            Assert.AreEqual(LyricPaceStatistics.Compute(lines, false, 1.5).TargetWpm.ToString("0"), stat.RateAdjusted!(1.5).Item1);
         }
 
         /// <summary>
@@ -169,6 +175,81 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             return lines;
         }
+
+        [Test]
+        public void LiterateMarksReachTheStatisticsThroughTheBeatmap()
+        {
+            // The statistics are figures of the CONVERTED beatmap, so a line the Literate mod
+            // stamped has to be measured on the authored stream. The stamp is what the converter
+            // leaves for the display to read, which is how a caller that converted with the
+            // selected mods reaches this without the beatmap itself knowing what a mod is.
+            var lines = literateFixture();
+            var beatmap = makeBeatmap(lines);
+
+            double plainAverage = paceStatistic(beatmap, "Average WPM");
+            double plainTarget = paceStatistic(beatmap, "Target WPM");
+
+            new TypeBeatModLiterate().ApplyToBeatmap(beatmap);
+
+            var expected = LyricPaceStatistics.Compute(lines, literate: true);
+
+            Assert.AreEqual(expected.AverageWpm.ToString("0"), beatmap.GetStatistics().Single(s => s.Name.ToString() == "Average WPM").Content);
+            Assert.AreEqual(expected.TargetWpm.ToString("0"), beatmap.GetStatistics().Single(s => s.Name.ToString() == "Target WPM").Content);
+
+            // The extra marks ask for more keys inside the same sung time, so the pace the map
+            // advertises has to rise with them.
+            Assert.Greater(paceStatistic(beatmap, "Average WPM"), plainAverage);
+            Assert.Greater(paceStatistic(beatmap, "Target WPM"), plainTarget);
+
+            // The stats are still rendered from the pace model, never re-derived here: the bar
+            // follows the same figure the text does.
+            Assert.AreEqual((float)Math.Min(1, expected.AverageWpm / 150), beatmap.GetStatistics().Single(s => s.Name.ToString() == "Average WPM").BarDisplayLength);
+        }
+
+        [Test]
+        public void LiterateMarksMoveThePaceProfileButNotTheSharedCurve()
+        {
+            // The metadata wedge's readouts share the beatmap's stamp, so Target and Average follow
+            // the mod. The curve deliberately does not: it is LyricWpmCurve, mirrored byte for byte
+            // on the website, and a published peak has to stay one figure across both.
+            var lines = literateFixture();
+            var beatmap = makeBeatmap(lines);
+
+            var plain = beatmap.GetTypingPace()!;
+
+            new TypeBeatModLiterate().ApplyToBeatmap(beatmap);
+
+            var literate = beatmap.GetTypingPace()!;
+
+            Assert.Greater(literate.AverageWpm, plain.AverageWpm);
+            Assert.Greater(literate.TargetWpm, plain.TargetWpm);
+
+            Assert.AreEqual(plain.PeakWpm, literate.PeakWpm, 1e-12);
+            CollectionAssert.AreEqual(plain.WpmCurve, literate.WpmCurve);
+        }
+
+        /// <summary>
+        /// Twelve packed lines of "The bad-cat sat.", the shape whose two streams differ in BOTH
+        /// counts (see LyricPaceStatisticsTest). Twelve lines are enough for the difficulty model
+        /// to have a real window to read the target from rather than only the pace floor.
+        /// </summary>
+        private static IReadOnlyList<LyricLine> literateFixture()
+        {
+            var lines = new List<LyricLine>();
+            double at = 1000;
+
+            for (int i = 0; i < 12; i++)
+            {
+                double ms = i < 6 ? 700 : 1300;
+                lines.Add(makeLine("The bad-cat sat.", at, at + ms));
+                at += ms;
+            }
+
+            return lines;
+        }
+
+        private static double paceStatistic(TypeBeatBeatmap beatmap, string name)
+            => double.Parse(beatmap.GetStatistics().Single(s => s.Name.ToString() == name).Content, CultureInfo.InvariantCulture);
 
         [Test]
         public void CharsPerWordSitsRightOfTargetWpmAndRendersOneDecimal()

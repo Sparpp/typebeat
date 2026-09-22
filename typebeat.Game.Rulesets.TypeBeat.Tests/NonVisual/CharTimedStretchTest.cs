@@ -114,6 +114,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             => map(line("heyyyyy", 1000, 60000, 13000, splitUnit("heyyyyy", 1000, 13000, 5000, 3)));
 
         /// <summary>
+        /// A SUBDIVIDED STRETCH: "yooooo|oooo|u" from Standing Next to You, one unit of eleven cells
+        /// ("y" + nine "o" + "u") split at 6 and 10, so the identical 'o's run ACROSS group
+        /// boundaries - group 0 owns y+ooooo over [1000, 3000], group 1 owns oooo over [3000, 8000],
+        /// group 2 owns u over [8000, 13000].
+        ///
+        /// <para>Each group holds a run of three or more identical characters, so before the
+        /// exclusion every 'o' was char-timed. The mapper's subdividers are the whole point of the
+        /// spelling: they pace the run into spans, so the span rule is the information the player
+        /// needs and the stretch reverts nothing.</para>
+        /// </summary>
+        private static LyricBeatmap subdividedStretch()
+            => map(line("yooooooooou", 1000, 60000, 13000, new TimedUnit
+            {
+                Text = "yooooooooou",
+                StartTime = 1000,
+                EndTime = 13000,
+                SyllableBoundaries = new[] { 3000.0, 8000.0 },
+                SyllableSplits = new[] { 6, 10 },
+            }));
+
+        /// <summary>
         /// The autoplay fixture: a freestyle section and a subtimed stretch on one line, cells
         /// &amp;0 &amp;1 &amp;2 &amp;3 _4 a5 a6 a7 a8 a9.
         ///
@@ -226,6 +247,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(new double[] { 1000, 5000, 9000 }, tl.Cells.Select(c => c.TargetTime).ToArray());
             Assert.AreEqual(1, tl.Syllables.Count);
             Assert.AreEqual(new SyllableGroup(0, 3, 1000, 13000), tl.Syllables[0]);
+        }
+
+        /// <summary>
+        /// A SUBDIVIDED RUN KEEPS THE SPAN RULE. "yooooo|oooo|u": the mapper has drawn subdividers
+        /// through one long stretch of identical characters, so each group's sung span is the
+        /// information the player needs and nothing reverts to character timing. Both groups hold runs
+        /// of three or more 'o's, which is exactly what the stretch rule would otherwise claim.
+        /// </summary>
+        [Test]
+        public void ASubdividedStretchKeepsItsSpans()
+        {
+            var tl = TypingLine.FromLyricLine(subdividedStretch().Lines[0]);
+
+            Assert.AreEqual(3, tl.Syllables.Count);
+            Assert.AreEqual(new SyllableGroup(0, 6, 1000, 3000), tl.Syllables[0]);
+            Assert.AreEqual(new SyllableGroup(6, 10, 3000, 8000), tl.Syllables[1]);
+            Assert.AreEqual(new SyllableGroup(10, 11, 8000, 13000), tl.Syllables[2]);
+
+            for (int i = 0; i < tl.Cells.Count; i++)
+                Assert.IsFalse(tl.IsCharTimedStretch(i), $"cell {i} sits in a subdivided run");
+
+            // And the engine pays it on the group's span: the second 'o' pressed at the tail of group
+            // 0 is a Great, where character timing would read the same press as 1566 ms late.
+            var engine = started(subdividedStretch(), charTimedStretch: true);
+            var judged = record(engine);
+
+            Assert.IsTrue(engine.ProcessKey('y', 1000));
+            Assert.IsTrue(engine.ProcessKey('o', 2900));
+
+            Assert.AreEqual(JudgementType.Great, judged[judged.Count - 1].Type,
+                "the span rule pays 0 anywhere inside the group");
         }
 
         #endregion

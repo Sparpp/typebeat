@@ -25,6 +25,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public const double CUE_LEAD_MS = 1500;
 
         /// <summary>
+        /// How long before its first word the map's FIRST line opens for typing.
+        ///
+        /// <para>A later line is reachable early by RUSHING from the one before it (<see
+        /// cref="entryPermitted"/>, up to <see cref="FLETCHER_DRAG_GRACE_MS"/> of head start), but
+        /// the first line has nothing to rush from, and its boundary is usually set ON its first
+        /// word - so <see cref="TypingLine.ActivationTime"/>'s clamp to that boundary left the
+        /// player unable to type a single character until the word was already being sung. This is
+        /// the head start the first line gets instead: typing before its word lands, the same kind of
+        /// lead the later lines' rush bound hands out for free - a short one, because a first line is
+        /// where the player is still finding their hands, not a line they arrived at mid-run.</para>
+        ///
+        /// <para>A FLOOR, not a fixed window: a mapper whose first line starts well before its vocals
+        /// still gets the longer lead that boundary already gives them (never less than
+        /// <see cref="CUE_LEAD_MS"/>, since that clamp still applies).</para>
+        /// </summary>
+        public const double FIRST_LINE_LEAD_MS = 300;
+
+        /// <summary>
         /// Fletcher mod: how many COUNTABLE characters (typeable and not a space, the same currency
         /// the Flashlight window measures in) the player's caret may sit ahead of the playhead before
         /// a keypress stops earning combo. The press still lands and still scores; it simply cannot
@@ -558,6 +576,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>
+        /// Whether the map's FIRST line is inside the head start <see cref="FIRST_LINE_LEAD_MS"/> gives
+        /// it, at <paramref name="time"/>: the window in which a press may open a line the clock has not
+        /// activated yet (see <see cref="ProcessKey"/>).
+        ///
+        /// <para>The line's own <see cref="TypingLine.ActivationTime"/> is NOT moved by any of this,
+        /// because the WPM clock is armed from it and a stored run's WPM must re-derive exactly as it
+        /// was played. Nothing stored can notice the widening either: a press made before a line opened
+        /// was INERT, and the recorder writes one frame per EFFECTIVE engine call, so no stored replay
+        /// carries one.</para>
+        /// </summary>
+        public bool FirstLineTypingOpensAt(double time)
+            => !isFinished && activeLineIndex == -1 && firstLineTypingWindowOpen(time);
+
+        private bool firstLineTypingWindowOpen(double time)
+            => nextSealIndex == 0
+               && lines.Count > 0
+               && time >= Math.Min(lines[0].ActivationTime, lines[0].FirstVocalTime - FIRST_LINE_LEAD_MS)
+               && time < lines[0].EndTime + lines[0].SealGraceMs;
+
+        /// <summary>
         /// Whether the SONG is asking for characters on the very line the player's caret is on:
         /// the playhead is inside a typeable window AND that window belongs to the caret's line.
         /// Equal to <see cref="SongWindowOpen"/> with a pinned caret, where the two are always the
@@ -612,6 +650,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool IsLineComplete => activeLineIndex != -1 && caretIndex >= lines[activeLineIndex].Cells.Count;
 
         public bool IsFinished => isFinished;
+
+        /// <summary>Whether a declared play start still owes the caret its walk (see <see cref="SetPlayStart"/>).</summary>
+        private bool playStartPending;
+
+        /// <summary>
+        /// Where THIS play began: the clock time its first frame stood at, declared once by the play that
+        /// owns the clock (<see cref="SetPlayStart"/>). Null for an engine nobody has declared a start
+        /// for - every re-derivation, and every engine a test drives by hand.
+        ///
+        /// <para>A type!beat play does not always start at the beginning of its map. The editor's
+        /// gameplay test can start anywhere - the mapper parks the playhead and presses test - and
+        /// everything the map asks for BEFORE this time was never in front of the player. The engine
+        /// therefore places its caret on the first character still to come
+        /// (<see cref="alignCaretToThePlayStart"/>) and leaves the characters it walked past to be
+        /// granted rather than missed at the seal (<c>TypeBeatPlayfield</c> reads this same time), which
+        /// is what keeps a test play from charging its player for the part of the map they skipped.</para>
+        ///
+        /// <para>An ordinary play - one that starts at the map's own beginning, lead-in and all - reads
+        /// its first frame before any character is due, so it grants nothing and is untouched by
+        /// this.</para>
+        /// </summary>
+        public double? PlayStartTime { get; private set; }
+
+        /// <summary>
+        /// Declares where this play began (see <see cref="PlayStartTime"/>), which places the caret on
+        /// the first character still to come when this engine is next updated.
+        ///
+        /// <para>Declared by the PLAY, and only by the play: the same engine is also driven by
+        /// re-derivations - replay scoring, puppeteer tapes - which pick a map up at whatever time their
+        /// tape happens to start and must judge exactly what the tape says. Those never declare a start,
+        /// so nothing about them moves.</para>
+        /// </summary>
+        public void SetPlayStart(double time)
+        {
+            PlayStartTime = time;
+            playStartPending = true;
+        }
 
         public long Score => score;
 
@@ -1032,6 +1107,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// than it used to. Nothing outside the setting moves.</para>
         /// </summary>
         public bool ManualNewlines { get; set; }
+
+        /// <summary>
+        /// Whether a finished line can ALSO be handed on by TYPING, not only by space or Enter: any
+        /// letter pressed while the caret is parked past the line's last cell moves to the next line
+        /// and lands on that line's first slot, right or wrong. It moves on the space's own terms -
+        /// no window gate on the press - and the ENTRY WINDOW then decides whether the character may
+        /// be typed, exactly as it does for any other press on a line that has not opened yet; see
+        /// the branch in <see cref="ProcessKey"/>. Inert under a pinned caret, because the space
+        /// newline it rides on is.
+        ///
+        /// <para>Its own replay era bit (CONFIG bit 15), because it decides whether a keystroke is
+        /// ACCEPTED, not merely where the caret is.</para>
+        /// </summary>
+        public bool NewlineOnTypedLetter { get; set; }
 
         /// <summary>
         /// Whether the caret is WAITING ON A LINE IT MAY NOT TYPE YET: the player has handed
@@ -1992,6 +2081,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (activeLineIndex != -1 && snapForwardOnLineStart(time))
                 pendingActivation = true;
 
+            // (5) A DECLARED PLAY START: the caret starts where the PLAY did, not where the LINE did. A
+            //     play that begins in the middle of a line begins past the characters that line has
+            //     already sung - which is the whole point of the editor's test play starting at the
+            //     mapper's playhead - so the caret is walked up to the first character still to come
+            //     rather than left owing the ones behind it. Placed after the ordinary activation above
+            //     (which is what puts the caret on the line in the first place) and before the
+            //     announcement below, so the stage is told about the caret the play actually starts
+            //     with. One shot: only the first update after the declaration.
+            if (playStartPending)
+            {
+                playStartPending = false;
+                alignCaretToThePlayStart();
+            }
+
             // The caret moved (a fresh activation, a drag cutoff inside the seal loop, or a snap);
             // announce it exactly once. Guarded on there being a line to announce: a cutoff that
             // cascaded off the end of the map has already parked the caret nowhere and finished the
@@ -2001,6 +2104,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 autoSkipForward();
                 raise(LineActivated, activeLineIndex);
             }
+        }
+
+        /// <summary>
+        /// Walks the caret off every character of the active line that was already DUE before
+        /// <see cref="PlayStartTime"/>: this play began among them, so they are not the player's to
+        /// type. Nothing is judged here - the cells are left exactly as they are, and the seam that
+        /// resolves them (the line's seal) grants them for the same reason this walk does, from the same
+        /// time. The walk stops at the first character still to come, which is where the mapper pointed
+        /// the playhead and therefore where their play starts.
+        /// </summary>
+        private void alignCaretToThePlayStart()
+        {
+            if (activeLineIndex == -1 || PlayStartTime is not double start)
+                return;
+
+            var cells = lines[activeLineIndex].Cells;
+
+            while (caretIndex < cells.Count && cells[caretIndex].IsTypeable && cells[caretIndex].TargetTime < start)
+                caretIndex++;
+
+            // Same landing as every other caret move: a caret that came to rest on nothing typeable is
+            // walked on, so the player's first key lands on a real character.
+            autoSkipForward();
         }
 
         /// <summary>
@@ -2440,6 +2566,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool ProcessKey(char c, double time)
         {
+            // THE MAP'S FIRST LINE OPENS A SECOND EARLY (see FIRST_LINE_LEAD_MS). There is no previous
+            // line to rush from, so the PRESS is what opens it: the same hand-over the time-driven
+            // activation arm performs, made on demand rather than idling a line the song has not reached.
+            // The clock alone still leaves the line alone, so nothing that only WATCHES the engine sees a
+            // line become active a second before its word.
+            if (activeLineIndex == -1 && FirstLineTypingOpensAt(time))
+            {
+                activeLineIndex = 0;
+                caretIndex = 0;
+                autoSkipForward();
+                raise(LineActivated, 0);
+            }
+
             if (isFinished || activeLineIndex == -1)
                 return false;
 
@@ -2456,11 +2595,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (caretIndex >= line.Cells.Count)
             {
                 // MANUAL NEWLINES: on a finished line the SPACEBAR is the newline (see
-                // ManualNewlines), so it hands the caret on instead of being inert. Every other key
-                // stays inert here, which is the dead zone the automatic roll parks in today, and a
-                // space outside the next line's entry window is refused exactly as one pressed
-                // mid-word would be.
-                return c == ' ' && rollForwardManually(time);
+                // ManualNewlines), so it hands the caret on instead of being inert, and a space
+                // outside the next line's entry window is refused exactly as one pressed mid-word
+                // would be.
+                if (c == ' ')
+                    return rollForwardManually(time);
+
+                // OR BY TYPING, under its own era bit: ANY letter hands the caret on and then lands
+                // on the next line's first slot, right or wrong. It moves on the SAME terms the space
+                // does - NO WINDOW GATE on the press - because the window's business is what may be
+                // TYPED, not where the caret may stand. Gating the press here meant a player who
+                // finished a line more than FLETCHER_DRAG_GRACE_MS early (the case this exists for)
+                // got nothing at all, while the space still worked. So the move happens, and the
+                // window then refuses the CHARACTER exactly as it refuses every other press on a line
+                // that has not opened yet - the player types the letter again when the line does.
+                if (NewlineOnTypedLetter && ManualNewlines && FletcherEnabled
+                    && activeLineIndex + 1 < lines.Count
+                    && rollForwardManually(time))
+                {
+                    line = lines[activeLineIndex];
+
+                    if (awaitingEntry(time))
+                        return true;
+                }
+                else
+                {
+                    // Every other key stays inert here, which is the dead zone the automatic roll
+                    // parks in today.
+                    return false;
+                }
             }
 
             // The press is going to do something, so the player is typing on this line; if the song
@@ -3709,6 +3872,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// is also rarely felt, because every cell behind the frontier caret is Correct or Wrong
         /// whichever order they were typed in.</para>
         /// </summary>
+        /// <summary>
+        /// True when the caret sits on a PARKED typo: the one cell state a backspace clears IN PLACE
+        /// (see <see cref="ProcessBackspace"/>), reporting a mutation without moving the caret. Only
+        /// the StrictSpaces + <see cref="SpaceSkipsWord"/> arm ever leaves the caret there.
+        ///
+        /// <para>The playfield's erase runs read this so an in-place clear is not mistaken for the end
+        /// of a selection. A retype selection (<see cref="RetypeSelectionAnchor"/>) that ends on a
+        /// spoiled word gap clears that gap first; stopping the run there would leave the word the
+        /// selection was opened for still standing, and the next letter would land on the just-cleared
+        /// gap as a fresh typo - the "select back to my mistake, type, and nothing I typed took" case
+        /// a gap holding more than one character produces.</para>
+        /// </summary>
+        public bool CaretOnParkedTypo
+        {
+            get
+            {
+                if (isFinished || activeLineIndex == -1)
+                    return false;
+
+                var cells = lines[activeLineIndex].Cells;
+
+                return caretIndex < cells.Count && cells[caretIndex].State == CellState.Wrong;
+            }
+        }
+
         public bool ProcessBackspace()
         {
             if (isFinished || activeLineIndex == -1)

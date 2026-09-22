@@ -166,6 +166,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // way: one engine flag, stamped on the CONFIG frame, nobody able to change it
                 // mid-run. OFF leaves the automatic hand-over of a finished line exactly as it was.
                 Engine.ManualNewlines = config.Get<bool>(TypeBeatRulesetSetting.ManualNewlines);
+                // THE TYPED-THROUGH NEWLINE RIDES THE SAME SETTING: with Manual Newlines armed, a
+                // letter at a finished caret hands the line on as well (see
+                // TypingEngine.NewlineOnTypedLetter), so there is no second switch for the player to
+                // find. Its own replay bit still records which rule a stored run was played under.
+                Engine.NewlineOnTypedLetter = Engine.ManualNewlines;
             }
 
             // The Player already renders the beatmap background image (dimmed) and, when
@@ -527,6 +532,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             line.ApplySealResults(cellIndex =>
             {
+                // GRANTED: a character that was already due before this play BEGAN was never in front of
+                // the player. A type!beat play can start anywhere in its map - the editor's gameplay
+                // test starts at the mapper's playhead - and the part it jumped past is not a miss
+                // anybody earned, so it resolves as the perfect hit the run is credited with. The engine
+                // reads the same start time to place its caret past exactly these characters
+                // (see TypingEngine.PlayStartTime), so the two never disagree about what the play
+                // reached.
+                if (cellWasDueBeforeThePlayStarted(line, cellIndex))
+                    return line.CellAt(cellIndex)!.HitObject.Judgement.MaxResult;
+
                 var result = TypeBeatResultMapping.UnresolvedCellResult(Engine.CellLeftWrong(sealResult.LineIndex, cellIndex), TypoRule.Deferred);
 
                 if (result == TypeBeatResultMapping.UNFIXED_TYPO || (backDated && result == TypeBeatResultMapping.SEAL_MISS))
@@ -535,6 +550,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 return result;
             });
         }
+
+        /// <summary>
+        /// Whether one of <paramref name="line"/>'s cells was already due before this play began, i.e.
+        /// whether the play reached it at all (see the seal above, and
+        /// <see cref="TypingEngine.PlayStartTime"/>).
+        ///
+        /// <para>The time it is measured against is the CELL OBJECT's own start, which
+        /// <c>TypeBeatHitObject.CreateNestedHitObjects</c> takes straight from the engine's flattening:
+        /// the playfield cannot form a second opinion about when a character was due.</para>
+        /// </summary>
+        private bool cellWasDueBeforeThePlayStarted(DrawableTypeBeatHitObject line, int cellIndex)
+            => Engine.PlayStartTime is double start
+               && line.CellAt(cellIndex) is DrawableTypeBeatCharObject cell
+               && cell.HitObject.StartTime < start;
 
         /// <summary>
         /// The engine has been re-derived to an earlier time after a backwards seek during replay or
@@ -700,6 +729,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     }
                 }
 
+                // THE PLAY DECLARES WHERE IT BEGAN (see TypingEngine.SetPlayStart): a play can start
+                // part-way through a map - the editor's gameplay test resets its clock to the mapper's
+                // playhead - and everything the map asks for before that moment was never in front of
+                // the player.
+                //
+                // The time is the gameplay clock's own START time, i.e. where the play's clock was
+                // started or RESET to, and deliberately not the time of this first frame: the clock of a
+                // scene that drives a ruleset by hand, or one that has merely been seeked, has not
+                // started a play where it happens to be standing. (A bare drawable-ruleset scene has no
+                // gameplay clock at all, which is the same "no play to declare" case.)
+                //
+                // A REPLAY-driven play declares nothing either: it re-enacts a run that was already
+                // played and scored, so its characters are the tape's to judge, not ours to grant.
+                if (engine.PlayStartTime is null && replay == null && gameplayClock != null)
+                    engine.SetPlayStart(gameplayClock.StartTime);
+
                 engine.Update(Time.Current, clockRate);
             }
         }
@@ -713,8 +758,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// keyboard's own repeat rate, and holding it produces nothing at all beyond the initial
         /// press. Ctrl/Alt combos fall through to framework shortcuts, EXCEPT the two word-level
         /// editing gestures every typing site has and backlog 182 brought here: ERASE WORD (default
-        /// Ctrl+Backspace, key repeat honoured like the plain key) and SELECT BACK TO TYPO (default
-        /// Ctrl+A, select back to the mistake that has to be retyped).
+        /// Ctrl+Backspace, Command+Backspace on macOS; key repeat honoured like the plain key) and
+        /// SELECT BACK TO TYPO (default Ctrl+A, Command+A on macOS; select back to the mistake that
+        /// has to be retyped). Which modifier it is, is
+        /// <see cref="TypeBeatRuleset.RecoveryGestureModifier"/>'s to say.
         ///
         /// <para>Since backlog 183 those two are REBINDABLE ruleset actions
         /// (<see cref="TypeBeatAction.EraseWord"/> / <see cref="TypeBeatAction.SelectBackToTypo"/>),
@@ -882,8 +929,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     gesture = null;
                 }
 
-                // Let framework shortcuts (every Ctrl/Alt combo that is not a bound gesture) fall through.
-                if ((e.ControlPressed || e.AltPressed) && gesture == null)
+                // Let framework shortcuts (every modifier combo that is not a bound gesture) fall
+                // through. Super is in the list for macOS, where it is the platform's editing
+                // modifier: the two recovery gestures are chorded with it there by default
+                // (TypeBeatRuleset.RecoveryGestureModifier), so leaving it out would have every
+                // OTHER Command chord fall through to the typing path and land in the lyric.
+                if ((e.ControlPressed || e.AltPressed || e.SuperPressed) && gesture == null)
                     return false;
 
                 // Millisecond-quantised keystroke time: what the engine judges at, what gets
@@ -900,7 +951,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // line) typing is inert, so DON'T swallow the key; let it fall through to global
                 // key bindings so Space reaches GlobalAction.SkipCutscene and the intro / mid-song
                 // instrumental skip overlays can act.
-                if (!engine.LineIsActive)
+                // ...and the map's FIRST line is the one exception: it has no line before it to rush
+                // from, so a press inside its head start (FIRST_LINE_LEAD_MS) is consumed and opens it,
+                // rather than falling through to a global binding for the whole second before its word.
+                if (!engine.LineIsActive && !engine.FirstLineTypingOpensAt(time))
                     return false;
 
                 // An UNPINNED caret (the default since backlog 208) parks at the head of the next
@@ -1068,6 +1122,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         }
                     }
 
+                    // AND BY TYPING (the typed-through era bit): a typeable letter hands the line on
+                    // here rather than falling through to the global bindings, so the caret can be
+                    // moved by typing the next line instead of by space. Asked of the ENGINE rather
+                    // than decided here - ProcessKey answers whether it consumed the press - because a
+                    // letter it refuses must still fall through, which is what keeps the mid-song skip
+                    // overlay reachable through an instrumental gap. This is the arm the engine's own
+                    // rule needs to be reachable at all: without it a letter never gets past this
+                    // block, however the engine is configured.
+                    if (engine.NewlineOnTypedLetter && !e.Repeat
+                        && KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, engine.Literate, capsLockEnabled, out char typedThrough)
+                        && engine.ProcessKey(typedThrough, time))
+                    {
+                        drawableRuleset?.RecordTypingInput(typedThrough, time);
+                        return true;
+                    }
+
                     return false;
                 }
 
@@ -1116,6 +1186,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 while (engine.CaretIndex > target)
                 {
                     int before = engine.CaretIndex;
+                    // A PARKED typo is cleared where it sits (see TypingEngine.ProcessBackspace), so the
+                    // press that removes it mutates the run without moving the caret. Read BEFORE the
+                    // press: that is the only iteration the guard below has to let through.
+                    bool parked = engine.CaretOnParkedTypo;
 
                     if (!engine.ProcessBackspace())
                         break;
@@ -1125,7 +1199,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // Defensive termination only. Every erase that reports a mutation moves the
                     // caret back, but one that reclaimed abandoned cells at the head of a line can
                     // land on 0 and be auto-skipped forward again, and a gesture must never spin.
-                    if (engine.CaretIndex >= before)
+                    //
+                    // THE PARKED EXCEPTION IS NOT THAT CASE: clearing a parked typo is a real
+                    // mutation of the cell the caret is on, with the caret deliberately unmoved, and
+                    // breaking here would leave the rest of the selection standing - a retype
+                    // selection opened over a word skip ends on exactly such a cell whenever the
+                    // player has since typed characters into the gap. The next press steps back
+                    // normally, so the run terminates on its own.
+                    if (engine.CaretIndex >= before && !parked)
                         break;
                 }
             }

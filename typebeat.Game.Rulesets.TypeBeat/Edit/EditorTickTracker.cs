@@ -91,7 +91,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// <summary>
     /// Collects the compose screen's audible tick times from the live lines, split into the two
     /// streams the screen plays with different samples: WORD-unit starts (the dominant tick) and
-    /// syllable-subdivision boundaries (the lighter sub-tick for the draggable dotted lines).
+    /// syllable-subdivision boundaries (the lighter sub-tick for the draggable dotted lines). The END
+    /// of an authored pause ticks with the second stream, exactly as a subdivision boundary does: the
+    /// characters after a rest are timed FROM there (see <see cref="Gameplay.PausedWord"/>), so it is
+    /// the moment the next character is due and the mapper has to hear it to time the breath.
     ///
     /// Dedupe rule: a time that is both a word start and (degenerately) a syllable boundary
     /// belongs to the word stream ONLY; the accented word tick plays alone, never doubled by a
@@ -113,6 +116,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                     for (int i = 0; i < unit.SyllableBoundaries.Count; i++)
                         boundaries.Add(unit.SyllableBoundaries[i]);
+
+                    // Every rest's own END, not its start: the start is where the characters before it
+                    // ran out, the end is where the next one lands.
+                    foreach (var pause in unit.Pauses)
+                        boundaries.Add(pause.EndTime);
                 }
             }
 

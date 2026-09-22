@@ -250,6 +250,64 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(unit.SyllableSplits, Is.EqualTo(new[] { 3 }));
         }
 
+        /// <summary>
+        /// THE AUTHORED PAUSE (the editor's Insert Pause) is read, both as the ARRAY a word writes when it
+        /// takes more than one breath and as the single OBJECT this feature had before that: one rest
+        /// inside the word, carrying both its edges and the character it sits after.
+        /// </summary>
+        [Test]
+        public void AnAuthoredPauseInsideAWordIsRead()
+        {
+            string json = "{\"version\":2,\"song_end_ms\":20000,\"lines\":["
+                          + "{\"text\":\"please\",\"start_ms\":1000,\"end_ms\":2000,\"words\":[{\"text\":\"please\",\"start_ms\":1000,\"end_ms\":2000,"
+                          + "\"pause\":{\"start_ms\":1400,\"end_ms\":1700,\"split\":3}}]}]}";
+
+            Assert.That(TimingJsonLoader.TryLoad(writeTemp(json), out var lines), Is.True);
+
+            Assert.That(lines.Single().Units.Single().Pauses, Is.EqualTo(new[] { new WordPause(1400, 1700, 3) }));
+        }
+
+        /// <summary>
+        /// And a word may take SEVERAL: the array is read in order, each rest validated on its own terms,
+        /// and the ones that cannot cut the word (an edge at the word's own start, a split off the token,
+        /// a rest overlapping one already read, a second rest on the same character) are dropped rather
+        /// than guessed at.
+        /// </summary>
+        [Test]
+        public void SeveralPausesInOneWordAreRead()
+        {
+            string json = "{\"version\":2,\"song_end_ms\":20000,\"lines\":["
+                          + "{\"text\":\"remember\",\"start_ms\":1000,\"end_ms\":2000,\"words\":[{\"text\":\"remember\",\"start_ms\":1000,\"end_ms\":2000,"
+                          + "\"pauses\":[{\"start_ms\":1200,\"end_ms\":1300,\"split\":2},"
+                          + "{\"start_ms\":1600,\"end_ms\":1800,\"split\":5}]}]}]}";
+
+            Assert.That(TimingJsonLoader.TryLoad(writeTemp(json), out var lines), Is.True);
+
+            Assert.That(lines.Single().Units.Single().Pauses, Is.EqualTo(new[]
+            {
+                new WordPause(1200, 1300, 2),
+                new WordPause(1600, 1800, 5),
+            }));
+        }
+
+        /// <summary>
+        /// A pause that no longer fits its word is DROPPED rather than guessed at, on exactly the terms
+        /// the authored splits are: an edge outside the clamped word (here the start, at the word's own
+        /// beginning), or a split that has left the token (a six-character word cannot hold one at 9).
+        /// </summary>
+        [TestCase(1000, 1700, 3, TestName = "APauseStartingAtTheWordEdgeIsDropped")]
+        [TestCase(1400, 1700, 9, TestName = "APauseWhoseSplitLeftTheTokenIsDropped")]
+        public void AnIllegalPauseIsDropped(double pauseStart, double pauseEnd, int split)
+        {
+            string json = "{\"version\":2,\"song_end_ms\":20000,\"lines\":["
+                          + "{\"text\":\"please\",\"start_ms\":1000,\"end_ms\":2000,\"words\":[{\"text\":\"please\",\"start_ms\":1000,\"end_ms\":2000,"
+                          + $"\"pause\":{{\"start_ms\":{pauseStart},\"end_ms\":{pauseEnd},\"split\":{split}}}}}]}}]}}";
+
+            Assert.That(TimingJsonLoader.TryLoad(writeTemp(json), out var lines), Is.True);
+
+            Assert.That(lines.Single().Units.Single().Pauses, Is.Empty);
+        }
+
         [Test]
         public void AMismatchedPipeCountRedividesTheWord()
         {

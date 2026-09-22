@@ -131,6 +131,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private int[] gapCells = Array.Empty<int>();
         private Circle[] gapDots = Array.Empty<Circle>();
         private bool[] gapDotFlags = Array.Empty<bool>();
+
+        /// <summary>Per-dot bounce left to run, in milliseconds (see <see cref="SpaceErrorDotPulseScale"/>).</summary>
+        private float[] gapDotPulseMs = Array.Empty<float>();
+
         private bool spaceErrorDotsEnabled;
         private bool spaceErrorDotsDirty;
 
@@ -458,6 +462,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             gapCells = gaps.ToArray();
             gapDots = new Circle[gapCells.Length];
             gapDotFlags = new bool[n];
+            gapDotPulseMs = new float[gapCells.Length];
 
             for (int k = 0; k < gapCells.Length; k++)
             {
@@ -580,6 +585,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 spaceErrorDotsDirty = false;
                 applySpaceErrorDots();
+            }
+
+            // The dots' bounce, run down every frame whether or not anything repainted: a pulse is a
+            // clock, not a state change, and the dot that is swelling is not the one being edited.
+            if (gapDots.Length > 0)
+            {
+                float elapsedMs = (float)Time.Elapsed;
+
+                for (int k = 0; k < gapDots.Length; k++)
+                {
+                    if (gapDotPulseMs[k] <= 0)
+                    {
+                        if (gapDots[k].Scale.X != 1f)
+                            gapDots[k].Scale = Vector2.One;
+
+                        continue;
+                    }
+
+                    gapDotPulseMs[k] = Math.Max(0, gapDotPulseMs[k] - elapsedMs);
+                    gapDots[k].Scale = new Vector2(SpaceErrorDotPulseScale(SPACE_ERROR_DOT_PULSE_MS - gapDotPulseMs[k]));
+                }
             }
 
             if (syllableMarkersDirty)
@@ -979,11 +1005,51 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             => expected == ' ' && state == CellState.Wrong && typedChar is char typo ? typo : expected;
 
         /// <summary>
+        /// THE GAP'S OWN GLYPH, which is the one cell whose text depends on a user setting as well as
+        /// on its state.
+        ///
+        /// <para>With the SPACE ERROR DOT on, a gap that earns the dot shows ONLY THE DOT: the dot is
+        /// the marker for the error in the word behind it, and drawing the mistyped character as well
+        /// stacked two marks in one slot - the character sitting on top of the dot. With the dot off
+        /// the character is the only thing that can show a gap typo at all (a red space is nothing),
+        /// so it stays, and it is REPLACED by each further press rather than accumulating: the engine
+        /// keeps one character on the cell (see <see cref="TypingEngine.ProcessKey"/>'s parked-gap
+        /// arm), so one backspace still erases it and no extra cell or miss is created.</para>
+        /// </summary>
+        public static char GapGlyph(bool spaceErrorDotsEnabled, bool dotted, char expected, CellState state, char? typedChar)
+            => expected == ' ' && spaceErrorDotsEnabled && dotted ? ' ' : CellGlyph(expected, state, typedChar);
+
+        /// <summary>
         /// Radius of a space error dot as a fraction of the glyph row height (so it tracks the font
         /// size and the auto-shrink scale for free). Small on purpose: the dot is a margin note about
         /// a word already behind the caret, not a sixth character state competing with the line.
         /// </summary>
         public const float SPACE_ERROR_DOT_RADIUS = 0.07f;
+
+        /// <summary>
+        /// How long a dot's BOUNCE lasts, in milliseconds, and how far it swells at the peak. Every
+        /// NEW mistype on a gap pulses the dot that stands for it - the marker has to acknowledge the
+        /// keypress even though the character it replaces is no longer drawn (see
+        /// <see cref="GapGlyph"/>), or mashing a space looks like nothing happened. Fast and small on
+        /// purpose: a margin note reacting, not an animation the eye has to follow.
+        /// </summary>
+        public const float SPACE_ERROR_DOT_PULSE_MS = 150f;
+        public const float SPACE_ERROR_DOT_PULSE_SCALE = 0.5f;
+
+        /// <summary>
+        /// The bounce's scale multiplier <paramref name="elapsedMs"/> into a pulse: 1 at the start and
+        /// the end, <c>1 + SPACE_ERROR_DOT_PULSE_SCALE</c> at the halfway point. Pure and static so the
+        /// curve can be pinned without standing up a drawable (the same shape the other geometry
+        /// rules here use), and a sine rather than two tweened halves so it eases in and out of the
+        /// peak instead of cornering at it.
+        /// </summary>
+        public static float SpaceErrorDotPulseScale(float elapsedMs)
+        {
+            if (!(elapsedMs > 0) || elapsedMs >= SPACE_ERROR_DOT_PULSE_MS)
+                return 1f;
+
+            return 1f + SPACE_ERROR_DOT_PULSE_SCALE * MathF.Sin(MathF.PI * (elapsedMs / SPACE_ERROR_DOT_PULSE_MS));
+        }
 
         /// <summary>
         /// Content-local drop from the bottom of the glyph row to the sung sweep rail. Absolute, not
@@ -1065,7 +1131,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 if (IsWordGap(cell))
                 {
-                    into[i] = flawed && cell.State == CellState.Correct;
+                    // THE DOT ANSWERS TWO QUESTIONS, and the second one is the gap's own error.
+                    //
+                    //   * The WORD behind the gap was left flawed and the player has SPACED PAST it
+                    //     (Correct) - the original rule, and the one a clean run past a mistyped word
+                    //     still reads.
+                    //   * The GAP ITSELF is holding an unfixed typo: state Wrong. Under Space to Skip
+                    //     a wrong letter lands IN the space and parks the caret there (backlog 184), so
+                    //     the error lives in the gap and nowhere else, and nothing behind it needs to
+                    //     be flawed for the player to have something to fix.
+                    //
+                    // THE STATE, NOT THE CHARACTER, is what says the gap holds a mistake. A CORRECT
+                    // space records its character too (the engine keeps TypedChar through every
+                    // resolution), so keying the gap's own error on TypedChar != null dotted every word
+                    // the player simply passed - the marker appeared all over a clean line. Either way
+                    // the mark itself is the dot when the setting is on and the character when it is
+                    // off (see GapGlyph), so the two never stack in the same slot.
+                    into[i] = cell.State == CellState.Wrong || (flawed && cell.State == CellState.Correct);
                     flawed = false;
                     continue;
                 }
@@ -1107,7 +1189,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 Array.Fill(gapDotFlags, false);
 
             for (int k = 0; k < gapCells.Length; k++)
-                gapDots[k].Alpha = gapDotFlags[gapCells[k]] ? 1f : 0f;
+            {
+                int cellIndex = gapCells[k];
+                bool dotted = gapDotFlags[cellIndex];
+
+                gapDots[k].Alpha = dotted ? 1f : 0f;
+
+                // The glyph moves with the overlay, in the same pass and from the same flag: with the
+                // marker on, a dotted gap is blank (the dot is the whole mark), and with it off the
+                // character comes back. Without this the two would be written by different code paths
+                // and a corrected word would leave the character standing over a dot that had gone.
+                var source = Line.Cells[cellIndex];
+                cells[cellIndex].Text = GapGlyph(spaceErrorDotsEnabled, dotted, source.Expected, source.State, source.TypedChar).ToString();
+            }
         }
 
         /// <summary>
@@ -1239,7 +1333,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // still written exactly once, at construction, and this cannot become a per-refresh
             // string allocation across the whole line.
             if (source.Expected == ' ')
-                cell.Text = CellGlyph(source.Expected, source.State, source.TypedChar).ToString();
+                cell.Text = GapGlyph(spaceErrorDotsEnabled, cellIndex < gapDotFlags.Length && gapDotFlags[cellIndex],
+                    source.Expected, source.State, source.TypedChar).ToString();
 
             switch (source.State)
             {
@@ -1340,7 +1435,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 cell.MoveToX(baseX - 2f, 25)
                     .Then().MoveToX(baseX + 2f, 25)
                     .Then().MoveToX(baseX, 15, Easing.OutQuint);
+
+                // AND THE GAP'S OWN DOT BOUNCES, on EVERY mistype - the same character twice included.
+                // This runs per JUDGEMENT, which the engine raises once per wrong keypress that LANDS
+                // on a cell (a Gatekeeper rejection never reaches here, because nothing landed), so the
+                // bounce is a per-press signal. Reading the cell's character instead missed a repeated
+                // key: pressing 'x' twice leaves the same 'x' on the cell and nothing to compare.
+                int dot = gapDotIndex(i);
+
+                if (dot >= 0)
+                    gapDotPulseMs[dot] = SPACE_ERROR_DOT_PULSE_MS;
             }
+        }
+
+        /// <summary>The dot slot standing for <paramref name="cellIndex"/>, or -1 when that cell is
+        /// not a word gap. A line holds a handful of gaps, so the scan is cheaper than a map.</summary>
+        private int gapDotIndex(int cellIndex)
+        {
+            for (int k = 0; k < gapCells.Length; k++)
+            {
+                if (gapCells[k] == cellIndex)
+                    return k;
+            }
+
+            return -1;
         }
 
         public void SetSungPosition(double fractionalCellIndex)

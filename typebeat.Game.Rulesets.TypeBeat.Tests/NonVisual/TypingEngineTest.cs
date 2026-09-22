@@ -65,6 +65,80 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
+        #region Starting part-way through a map
+
+        /// <summary>
+        /// A play that begins in the MIDDLE of a line begins past the characters that line has already
+        /// sung. The engine's first frame is where the play began (see
+        /// <see cref="TypingEngine.PlayStartTime"/>), and the caret is placed on the first character
+        /// still to come rather than left owing the ones behind it - which is what lets the editor's
+        /// test play start at the mapper's playhead and behave like a play from there.
+        ///
+        /// <para>The fixture's "ab cd" cell targets are 1000 ('a'), 1500 ('b'), 2000 (' '), 2000 ('c')
+        /// and 2500 ('d'); entering at 2100 therefore starts the caret on the 'd', the first character
+        /// due at or after that moment.</para>
+        /// </summary>
+        [Test]
+        public void APlayThatBeginsMidLineStartsTheCaretAtTheFirstCharacterStillToCome()
+        {
+            var engine = new TypingEngine(map(TimingGranularity.Line, abcdLine()));
+
+            engine.SetPlayStart(2100);
+            engine.Update(2100);
+
+            Assert.AreEqual(2100, engine.PlayStartTime);
+            Assert.AreEqual(0, engine.ActiveLineIndex, "the play began inside the only line");
+            Assert.AreEqual(4, engine.CaretIndex, "so the caret starts on its 'd'");
+            Assert.IsTrue(engine.ProcessKey('d', 2500), "which is the character the player owes");
+            Assert.IsTrue(engine.IsLineComplete, "and typing it finishes the line");
+        }
+
+        /// <summary>
+        /// A play that begins at the map's own beginning grants nothing: its first frame comes before any
+        /// character is due, so the caret is left on the line's first character exactly as it always was.
+        /// This is the row that says the feature cannot touch an ordinary play.
+        /// </summary>
+        [Test]
+        public void APlayThatBeginsAtTheStartLeavesTheCaretAlone()
+        {
+            var engine = new TypingEngine(map(TimingGranularity.Line, abcdLine()));
+
+            engine.SetPlayStart(900);
+            engine.Update(900);
+
+            Assert.AreEqual(900, engine.PlayStartTime);
+            Assert.AreEqual(-1, engine.ActiveLineIndex, "nothing is active yet: this is the lead-in");
+            Assert.AreEqual(0, engine.CaretIndex);
+
+            engine.Update(1000);
+
+            Assert.AreEqual(0, engine.ActiveLineIndex);
+            Assert.AreEqual(0, engine.CaretIndex, "the play starts on the line's first character, as it always has");
+        }
+
+        /// <summary>
+        /// The boundary rule: a character due EXACTLY when the play begins is that play's to type, not one
+        /// of the ones it jumped past, so the caret stays on it. (The line behind is not touched here -
+        /// its seal grants it, see the playfield, from this same start time.)
+        /// </summary>
+        [Test]
+        public void APlayThatBeginsExactlyOnACharactersTimeStartsOnThatCharacter()
+        {
+            var engine = new TypingEngine(map(TimingGranularity.Line,
+                line("ab", 1000, 2000, 2000, unit("ab", 1000, 2000)),
+                line("cd", 3000, 4000, 4000, unit("cd", 3000, 4000))));
+
+            engine.SetPlayStart(3000);
+            engine.Update(3000);
+
+            Assert.AreEqual(3000, engine.PlayStartTime);
+            Assert.AreEqual(1, engine.ActiveLineIndex, "the play begins on the second line");
+            Assert.AreEqual(0, engine.CaretIndex, "whose first character is due right now");
+            Assert.IsTrue(engine.ProcessKey('c', 3000), "and is the play's to type");
+        }
+
+        #endregion
+
         /// <summary>
         /// Backlog 245: the sung-end flag does not set the pace of the LAST WORD. Every interior
         /// word is closed by its own inter-word space cell, at its unit's end, so its sweep is

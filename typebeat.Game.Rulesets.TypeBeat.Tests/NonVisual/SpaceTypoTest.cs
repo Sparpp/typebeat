@@ -510,6 +510,148 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// THE COLLAPSE OF A RETYPE SELECTION THAT ENDS ON A PARKED GAP (Ctrl+A, then type).
+        ///
+        /// <para>Give up on a word with a wrong letter, then spray characters into the gap after it:
+        /// under StrictSpaces + SpaceSkipsWord the gap takes the typo and PARKS the caret (backlog
+        /// 184), so the selection Ctrl+A opens runs from the flawed word up to that very cell. The
+        /// first backspace of the collapse clears the parked gap IN PLACE - a real mutation that does
+        /// not move the caret - and an erase run that read "the caret did not move" as its end
+        /// stopped right there, leaving the word the player asked to retype still standing while the
+        /// next letter landed on the just-cleared gap as a fresh typo. That is the reported
+        /// "select back to my mistake, type, and nothing I typed took".</para>
+        ///
+        /// <para>The run's termination rule reads <see cref="TypingEngine.CaretOnParkedTypo"/> (the
+        /// playfield's <c>eraseBackTo</c>), so what this pins is exactly what that rule reads: the
+        /// parked cell reports itself, the press that clears it mutates without moving the caret, and
+        /// the press after that steps back so the run reaches its anchor.</para>
+        /// </summary>
+        [Test]
+        public void ARetypeSelectionEndingOnAParkedGapStillCollapsesToItsAnchor()
+        {
+            var engine = started(abCd(), gapTypos: true);
+            engine.SpaceSkipsWord = true;
+            engine.StrictSpaces = true;
+
+            Assert.That(engine.ProcessKey('a', 1000), Is.True);
+            Assert.That(engine.ProcessKey('x', 1500), Is.True, "a wrong letter on the lyric cell is typed through");
+            Assert.That(engine.CaretIndex, Is.EqualTo(2), "the spoiled word leaves the caret on the gap");
+            Assert.That(cells(engine)[1].State, Is.EqualTo(CellState.Wrong), "and the word behind it is flawed");
+
+            Assert.That(engine.ProcessKey('q', 2000), Is.True);
+            Assert.That(engine.ProcessKey('z', 2000), Is.True, "a second character overwrites the same parked cell");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(engine.CaretIndex, Is.EqualTo(2), "the gap PARKS the caret under StrictSpaces + SpaceSkipsWord");
+                Assert.That(cells(engine)[2].State, Is.EqualTo(CellState.Wrong));
+                Assert.That(cells(engine)[2].TypedChar, Is.EqualTo('z'), "one park is one cell however many letters arrive");
+                Assert.That(engine.CaretOnParkedTypo, Is.True);
+            });
+
+            int anchor = engine.RetypeSelectionAnchor;
+            Assert.That(anchor, Is.EqualTo(0), "Ctrl+A opens a selection from the word behind the parked gap");
+
+            int parked = engine.CaretIndex;
+            Assert.That(engine.ProcessBackspace(), Is.True);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(engine.CaretIndex, Is.EqualTo(parked), "clearing a parked typo does not move the caret...");
+                Assert.That(engine.CaretOnParkedTypo, Is.False, "...but the cell it sat on is no longer a typo");
+            });
+
+            while (engine.CaretIndex > anchor)
+                Assert.That(engine.ProcessBackspace(), Is.True, "the run carries on to the anchor");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(engine.CaretIndex, Is.EqualTo(anchor));
+                Assert.That(cells(engine)[0].State, Is.EqualTo(CellState.Untyped), "the word the selection covered is cleared");
+                Assert.That(cells(engine)[1].State, Is.EqualTo(CellState.Untyped));
+            });
+
+            Assert.That(engine.ProcessKey('a', 1000), Is.True);
+            Assert.That(engine.ProcessKey('b', 1500), Is.True, "and the retype takes");
+        }
+
+        /// <summary>
+        /// WHAT MASHING THE SAME SPACE COSTS. The gap is ONE CELL, so however many wrong letters land
+        /// in it the MAP's accounting is one result: the cell seals as one unfixed typo (priced as a
+        /// miss by rank, completion and pp), one backspace erases it, and the character on it is
+        /// replaced rather than accumulated. What does tick per press is the wrong-keypress counters -
+        /// the mistype stat, the live accuracy denominator and the engine's own totalKeypresses -
+        /// because each one really was a wrong key. Combo breaks once: after the first press it is
+        /// already zero and a break with no streak behind it leaves the standing claim alone.
+        /// </summary>
+        [Test]
+        public void MashingTheSameSpaceCostsOneCellHoweverManyPresses()
+        {
+            var engine = started(abCd(), gapTypos: true);
+            engine.SpaceSkipsWord = true;
+            engine.StrictSpaces = true;
+
+            typeAb(engine);
+
+            Assert.That(engine.CaretIndex, Is.EqualTo(2), "the caret is on the gap");
+            Assert.That(engine.Combo, Is.EqualTo(2));
+            Assert.That(engine.LiveAccuracy, Is.EqualTo(1));
+
+            for (int i = 0; i < 5; i++)
+                Assert.That(engine.ProcessKey((char)('q' + i), 2000), Is.True);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(cells(engine)[2].State, Is.EqualTo(CellState.Wrong));
+                Assert.That(cells(engine)[2].TypedChar, Is.EqualTo('u'), "the last press replaced the character");
+                Assert.That(engine.CaretIndex, Is.EqualTo(2), "one cell however many letters arrive");
+                Assert.That(engine.Combo, Is.Zero, "combo broke once and stays broken");
+                Assert.That(engine.Mistypes, Is.EqualTo(5), "each press is its own wrong keypress");
+                Assert.That(engine.LiveAccuracy, Is.LessThan(1), "and each one is in the live accuracy denominator");
+            });
+
+            Assert.That(engine.ProcessBackspace(), Is.True, "one backspace erases the whole thing");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(cells(engine)[2].State, Is.EqualTo(CellState.Untyped));
+                Assert.That(cells(engine)[2].TypedChar, Is.Null);
+            });
+        }
+
+        /// <summary>
+        /// A REPEATED MISTYPE IS STILL A MISTYPE. Pressing the same wrong character twice on a parked
+        /// gap replaces the character with itself, so the CELL's end state cannot tell the two presses
+        /// apart - which is exactly why the dot's bounce is driven by the JUDGEMENT (one WrongChar per
+        /// press) rather than by comparing the character. This pins the signal the display reads.
+        /// </summary>
+        [Test]
+        public void RepeatingTheSameWrongCharacterStillRaisesItsOwnMistype()
+        {
+            var engine = started(abCd(), gapTypos: true);
+            engine.SpaceSkipsWord = true;
+            engine.StrictSpaces = true;
+
+            typeAb(engine);
+
+            var judged = record(engine);
+
+            Assert.That(engine.ProcessKey('x', 2000), Is.True);
+            Assert.That(engine.ProcessKey('x', 2000), Is.True);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(judged.Count, Is.EqualTo(2), "one judgement per press, the same key included");
+                Assert.That(judged[0].Type, Is.EqualTo(JudgementType.WrongChar));
+                Assert.That(judged[1].Type, Is.EqualTo(JudgementType.WrongChar));
+                Assert.That(judged[1].CellIndex, Is.EqualTo(2), "both land on the gap");
+                Assert.That(engine.Mistypes, Is.EqualTo(2), "and both are mistypes");
+                Assert.That(cells(engine)[2].TypedChar, Is.EqualTo('x'), "even though the cell looks unchanged");
+                Assert.That(engine.CaretIndex, Is.EqualTo(2), "still parked on the one cell");
+            });
+        }
+
+        /// <summary>
         /// Gatekeeper still refuses everything. The new flag is an extension of
         /// <see cref="TypingEngine.AllowWrongInput"/> and not a competitor to it, so with wrong input
         /// off the gap rejects a typo whichever way the era flag points.
