@@ -65,8 +65,16 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// Sandbox's ACTIVE settings snapshot - the anchor (11.5 to 11.1), the character floor (16 to
         /// 22) and the chunk length bonus/falloff/floor/scale plus the decay power, which the game had
         /// been shipping from the snapshot's BASELINE column. Every map's rating moves.</para>
+        ///
+        /// <para>v4 (2026-09-22): the character floor goes back DOWN, 22 to 16, on the sandbox's own
+        /// dial. The floor decides which windows may stand as candidates, so dropping it admits
+        /// shorter and lighter stretches; on the bundled catalogue 72 of 89 maps move and every one of
+        /// them moves UP, the largest by 0.54 stars at the bottom of the range where the floor was
+        /// doing the most work. The envelope model's mirror of the same dial
+        /// (<c>LyricDifficulty.MinimumWindowChars</c>) moves with it, which moves the song select
+        /// Target WPM figure but no rating.</para>
         /// </summary>
-        public override int Version => 3;
+        public override int Version => 4;
 
         protected override DifficultyAttributes CreateDifficultyAttributes(IBeatmap beatmap, Mod[] mods, Skill[] skills)
         {

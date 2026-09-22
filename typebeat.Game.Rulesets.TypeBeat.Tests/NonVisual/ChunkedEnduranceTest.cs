@@ -120,7 +120,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <para>Expected values are the sandbox's, from the same map at the same dials - the ACTIVE
         /// snapshot in <c>sr-config.json</c> that <see cref="ChunkedEndurance.Live"/> mirrors (anchor
         /// 11.1, burst 200, reference 1.5 s, exponent 0.31, base 1.5 s, samples 4, horizon 60.75 s,
-        /// decay 0.9^rank^1.07, floor 22 characters, bonus 0.15 at 1500 characters).</para>
+        /// decay 0.9^rank^1.07, floor 16 characters, bonus 0.15 at 1500 characters).</para>
         /// </summary>
         [Test]
         public void TheOverlappingAxisMatchesTheSandboxOnASyntheticMap()

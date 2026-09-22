@@ -190,7 +190,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             /// Read off the same cell prefix the strain reads, so the floor means the same thing on
             /// this axis as it does on the peak. 0 disables it.
             /// </summary>
-            public double minimum_chars { get; init; } = 22;
+            public double minimum_chars { get; init; } = 16;
 
             /// <summary>
             /// The envelope-characters dial. On this axis only the <c>Fill</c> readout reads it;

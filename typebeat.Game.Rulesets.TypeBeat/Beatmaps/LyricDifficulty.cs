@@ -116,10 +116,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// The hardest window must carry at least this many weighted characters. The shortest
         /// interval holding them raises the minimum duration above
-        /// <see cref="MinimumWindowSeconds"/> when it is longer; it can never lower it. Zero
-        /// disables the cutoff, which is the sandbox's own default.
+        /// <see cref="MinimumWindowSeconds"/> when it is longer; it can never lower it. A map with
+        /// no window carrying them therefore rates zero, however fast its short bursts are. Zero
+        /// disables the cutoff.
         /// </summary>
-        public const double MinimumWindowChars = 0;
+        public const double MinimumWindowChars = 16;
 
         /// <summary>
         /// The duration every map's peak is re-expressed at for the Target WPM readout (see
