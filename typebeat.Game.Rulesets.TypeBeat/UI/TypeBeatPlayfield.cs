@@ -760,7 +760,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 //
                 // A REPLAY-driven play declares nothing either: it re-enacts a run that was already
                 // played and scored, so its characters are the tape's to judge, not ours to grant.
-                if (engine.PlayStartTime is null && replay == null && gameplayClock != null)
+                //
+                // And ONLY the editor's gameplay test declares at all (DrawableRuleset
+                // .IsEditorGameplayTest, set by EditorPlayer). The declaration makes the seal grant
+                // every cell due before the start as a perfect hit, so on a play that submits a score
+                // it would be free accuracy for whatever the clock's start time happened to skip. A
+                // normal play, a spectated one and a replay start where the map does, and a late
+                // clock start there changes nothing about what the player is charged for.
+                if (engine.PlayStartTime is null && replay == null && gameplayClock != null && drawableRuleset?.IsEditorGameplayTest == true)
                     engine.SetPlayStart(gameplayClock.StartTime);
 
                 engine.Update(Time.Current, clockRate);

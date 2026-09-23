@@ -510,6 +510,19 @@ namespace typebeat.Game.Rulesets.UI
         public Score ReplayScore { get; protected set; }
 
         /// <summary>
+        /// Whether this ruleset is being played by the editor's gameplay test, which can start its
+        /// clock part-way through the map (at the mapper's playhead). Set by <c>EditorPlayer</c> before
+        /// the ruleset loads, and false for every other play: a normal play, a spectated one and a
+        /// replay all start where the map does, whatever their clock's start time happens to be.
+        ///
+        /// <para>A ruleset may read it to decide whether what the map asked for before the play began
+        /// was ever in front of the player (type!beat grants those characters rather than sealing
+        /// them as misses). Nothing that submits or stores a score may ever take that path, which is
+        /// why it is keyed to this one caller rather than to the clock.</para>
+        /// </summary>
+        public bool IsEditorGameplayTest { get; set; }
+
+        /// <summary>
         /// The cursor being displayed by the <see cref="Playfield"/>. May be null if no cursor is provided.
         /// </summary>
         [CanBeNull]

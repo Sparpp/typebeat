@@ -667,9 +667,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// granted rather than missed at the seal (<c>TypeBeatPlayfield</c> reads this same time), which
         /// is what keeps a test play from charging its player for the part of the map they skipped.</para>
         ///
-        /// <para>An ordinary play - one that starts at the map's own beginning, lead-in and all - reads
-        /// its first frame before any character is due, so it grants nothing and is untouched by
-        /// this.</para>
+        /// <para>An ordinary play never declares one at all: <c>TypeBeatPlayfield</c> declares only for
+        /// the editor's gameplay test (<c>DrawableRuleset.IsEditorGameplayTest</c>), so a normal play,
+        /// a spectated one and a replay are charged for every character of the map whatever their
+        /// clock's start time is.</para>
         /// </summary>
         public double? PlayStartTime { get; private set; }
 
