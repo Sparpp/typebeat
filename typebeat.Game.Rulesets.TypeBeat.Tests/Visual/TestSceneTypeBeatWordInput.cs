@@ -64,6 +64,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public override void SetUpSteps()
         {
             AddStep("word skipping off", () => config.SetValue(Configuration.TypeBeatRulesetSetting.SpaceSkipsWord, false));
+
+            // AUTOMATIC NEWLINES, declared for the same reason: the game now ships with
+            // ManualNewlines ON, and under it Enter is the newline, so a mid-line Enter hands the
+            // caret straight to the next line instead of parking it past the end of this one. The
+            // line-skip pins below were written on the automatic arm, where the park IS the skip;
+            // the manual arm's Enter is pinned by ManualNewlinesTest. Every other test here runs on
+            // the pinned caret, where the setting is inert.
+            AddStep("manual newlines off", () => config.SetValue(Configuration.TypeBeatRulesetSetting.ManualNewlines, false));
             base.SetUpSteps();
 
             // FLETCHER, i.e. the caret PINNED to the playhead (backlog 208 reversed the mod and made

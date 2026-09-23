@@ -39,6 +39,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private TypingEngine engine => playfield.Engine;
         private LyricStage stage => Player.ChildrenOfType<LyricStage>().Single();
 
+        private Configuration.TypeBeatRulesetConfigManager config
+            => (Configuration.TypeBeatRulesetConfigManager)RulesetConfigs.GetConfigFor(new TypeBeatRuleset())!;
+
+        /// <summary>
+        /// Every test starts on the SHIPPED newline setting (manual, since PR 2), because the config
+        /// manager is shared across the fixture and a test that opts out below would otherwise leave
+        /// its arm standing for the next one. The playfield reads the value once at load, which is why
+        /// this runs before any test loads its player.
+        /// </summary>
+        public override void SetUpSteps()
+        {
+            base.SetUpSteps();
+            AddStep("manual newlines at the shipped default", () =>
+                config.SetValue(Configuration.TypeBeatRulesetSetting.ManualNewlines, config.GetBindable<bool>(Configuration.TypeBeatRulesetSetting.ManualNewlines).Default));
+        }
+
+        /// <summary>
+        /// The AUTOMATIC hand-over, for the tests written on it: a finished line rolled on by the rush
+        /// bound and sealed at its own boundary. Under manual newlines (the shipped default) neither
+        /// happens without the player's own newline, by design, so those tests declare the arm they
+        /// pin rather than inherit it. Must come before the test loads its player.
+        /// </summary>
+        private void useAutomaticNewlines() => AddStep("manual newlines off", () =>
+            config.SetValue(Configuration.TypeBeatRulesetSetting.ManualNewlines, false));
+
         // Which map LoadPlayer builds. PlayerTestScene calls CreateBeatmap from inside LoadPlayer,
         // which is a custom step here, so a step may choose the fixture first. Every test sets it
         // explicitly rather than inheriting whatever the previous one left.
@@ -165,6 +190,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void TestStackFollowsTheCaretNotThePlayhead()
         {
             useDragMap(false);
+            useAutomaticNewlines();
             AddStep("load player with no mods", () => LoadPlayer(Array.Empty<Mod>()));
             AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
             AddAssert("the default stack is unpinned, with the line-start snap armed and the rush bounded", () =>
@@ -325,6 +351,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void TestThePlayheadStaysOnALineWhoseTailIsStillBeingSung()
         {
             useOverrunMap();
+            useAutomaticNewlines();
             AddStep("load player with no mods", () => LoadPlayer(Array.Empty<Mod>()));
             AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
             AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0 && stage.Clock.CurrentTime > 0);
