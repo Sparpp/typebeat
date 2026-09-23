@@ -582,12 +582,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         ///
         /// <para>The line's own <see cref="TypingLine.ActivationTime"/> is NOT moved by any of this,
         /// because the WPM clock is armed from it and a stored run's WPM must re-derive exactly as it
-        /// was played. Nothing stored can notice the widening either: a press made before a line opened
-        /// was INERT, and the recorder writes one frame per EFFECTIVE engine call, so no stored replay
-        /// carries one.</para>
+        /// was played.</para>
+        ///
+        /// <para>Always false unless <see cref="FirstLineLeadIn"/> is set, which is the era this head
+        /// start belongs to.</para>
         /// </summary>
         public bool FirstLineTypingOpensAt(double time)
-            => !isFinished && activeLineIndex == -1 && firstLineTypingWindowOpen(time);
+            => FirstLineLeadIn && !isFinished && activeLineIndex == -1 && firstLineTypingWindowOpen(time);
+
+        /// <summary>
+        /// Whether the map's first line takes the <see cref="FIRST_LINE_LEAD_MS"/> head start at all
+        /// (see <see cref="FirstLineTypingOpensAt"/>). Clear, the first line opens exactly as it did
+        /// before the head start existed: on its own <see cref="TypingLine.ActivationTime"/>, with a
+        /// press before that refused.
+        ///
+        /// <para>An ERA flag on CONFIG frame bit 16, like every other rule that decides whether a
+        /// keystroke is ACCEPTED: the live client sets it for every stack
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c>), and <c>ReplayEngineFeed.Apply</c> sets it
+        /// from the frame, so a bare engine and every replay stored before it keep the old gate. That
+        /// matters even though a press made before a line opened was inert and never recorded: a
+        /// frame's time is ROUNDED to the millisecond at capture, so a first keystroke made a fraction
+        /// after a fractional activation can be stored a fraction BEFORE it. The old gate refuses
+        /// that frame on re-derivation and the head start would accept it, which moves every
+        /// keystroke after it onto a different cell. With the bit carried, a stored run re-derives
+        /// under the gate it was played on, whichever that was.</para>
+        /// </summary>
+        public bool FirstLineLeadIn { get; set; }
 
         private bool firstLineTypingWindowOpen(double time)
             => nextSealIndex == 0

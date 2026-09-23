@@ -5,6 +5,7 @@ using System;
 using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Beatmaps.Formats;
 using typebeat.Game.Replays.Legacy;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
 
@@ -338,6 +339,62 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             // The two live-era bits together: the word a stack with the setting ON writes today.
             Assert.AreEqual(16384f + 15869f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true, boundedRush: true, firstCharTiming: true, backDatedSealBreak: true, losslessSkipReclaim: true, foldsDisplacedClaim: true, unhalvedHardRockWindows: true, manualNewlines: true).ToLegacy(dummy_beatmap).MouseY);
+        }
+
+        /// <summary>
+        /// BIT 16 (value 65536): the map's first line took its head start, so a press shortly before
+        /// the first vocal opened it. The same legacy round trip and append-only statement every era
+        /// bit before it makes, because it decides whether a keystroke is ACCEPTED: re-derived under
+        /// the wrong arm, a press near the first line's activation is refused or accepted and every
+        /// press after it lands on a different cell.
+        ///
+        /// <para>And the CEILING: bit 16 is the last bit the .osr carrier holds, because the decoder
+        /// parses MouseY against <see cref="Parsing.MAX_COORDINATE_VALUE"/> and throws above it. The
+        /// fully set word must still parse, exactly as the encoder writes it.</para>
+        /// </summary>
+        [Test]
+        public void FirstLineLeadInIsBitSixteenAndLeavesEveryOlderBitWhereItWas()
+        {
+            var legacy = TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: false, firstLineLeadIn: true).ToLegacy(dummy_beatmap);
+
+            Assert.AreEqual(65536f, legacy.MouseY, "bit 16 is 65536 and nothing else may be set");
+            Assert.AreEqual(0f, legacy.MouseX, "a CONFIG frame's MouseX is still the NUL sentinel");
+
+            var decoded = roundTrip(TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: false, firstLineLeadIn: true));
+
+            Assert.IsTrue(decoded.IsConfig);
+            Assert.IsTrue(decoded.FirstLineLeadIn);
+            Assert.IsFalse(decoded.AllowWrongInput);
+            Assert.IsFalse(decoded.NewlineOnTypedLetter);
+            Assert.IsFalse(decoded.ManualNewlines);
+            Assert.IsFalse(decoded.BoundedRush);
+
+            Assert.IsFalse(roundTrip(TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true)).FirstLineLeadIn, "and a clear bit decodes clear");
+
+            // Every word a stored replay can carry, bits 14 and 15 included: the new bit reads false
+            // and no older bit moves.
+            foreach (int flags in new[] { 0, 1, 4, 256, 509, 511, 512, 1024, 4095, 8191, 15869, 16383, 16384 + 15869, 32767, 32768, 65535 })
+            {
+                var stored = new TypeBeatReplayFrame();
+                stored.FromLegacy(new LegacyReplayFrame(0, (float)TypeBeatReplayFrame.CONFIG, flags, ReplayButtonState.None), dummy_beatmap);
+
+                Assert.IsFalse(stored.FirstLineLeadIn, $"a stored replay with flags {flags} opened its first line on the line's own activation");
+                Assert.AreEqual((flags & 1) != 0, stored.AllowWrongInput);
+                Assert.AreEqual((flags & 128) != 0, stored.BoundedRush);
+                Assert.AreEqual((flags & 8192) != 0, stored.UnhalvedHardRockWindows);
+                Assert.AreEqual((flags & 16384) != 0, stored.ManualNewlines);
+                Assert.AreEqual((flags & 32768) != 0, stored.NewlineOnTypedLetter);
+            }
+
+            // The word a live stack writes today (bits 14 and 15 ride the manual-newlines setting,
+            // so they are off here), and the fully set word, which must survive the decoder's
+            // coordinate limit as the encoder formats it.
+            Assert.AreEqual(65536f + 15869f, TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true, boundedRush: true, firstCharTiming: true, backDatedSealBreak: true, losslessSkipReclaim: true, foldsDisplacedClaim: true, unhalvedHardRockWindows: true, firstLineLeadIn: true).ToLegacy(dummy_beatmap).MouseY);
+
+            float everyBit = TypeBeatReplayFrame.CreateConfigFrame(500, allowWrongInput: true, spaceSkipsWord: true, syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true, boundedRush: true, firstCharTiming: true, wallClockFrames: true, backDatedSealBreak: true, losslessSkipReclaim: true, foldsDisplacedClaim: true, unhalvedHardRockWindows: true, manualNewlines: true, newlineOnTypedLetter: true, firstLineLeadIn: true).ToLegacy(dummy_beatmap).MouseY!.Value;
+
+            Assert.AreEqual(131071f, everyBit);
+            Assert.AreEqual(131071f, Parsing.ParseFloat(FormattableString.Invariant($"{everyBit}"), Parsing.MAX_COORDINATE_VALUE), "the fully set word is still decodable");
         }
 
         /// <summary>

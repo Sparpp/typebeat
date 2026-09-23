@@ -128,6 +128,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // judgement after it moves. Clobbered from the frame like the rest.
                 engine.NewlineOnTypedLetter = frame.NewlineOnTypedLetter;
 
+                // FirstLineLeadIn (bit 16) is an accept/reject bit as well, at the other end of the
+                // map: with it set a press shortly before the first vocal opens the first line, with
+                // it clear that press is refused until the line's own activation, which is the gate
+                // every run stored before the head start was played on. A frame rounded a fraction
+                // before a fractional activation is where the two disagree, and every press after it
+                // would land on a different cell. Clobbered from the frame like the rest.
+                engine.FirstLineLeadIn = frame.FirstLineLeadIn;
+
                 // FlexibleLines (backlog 208) is the one bit here that needs a word more than an
                 // assignment, because the axis it selects has TWO sources. The bit says
                 // "this run was played with the caret unpinned AND snapped forward at each line

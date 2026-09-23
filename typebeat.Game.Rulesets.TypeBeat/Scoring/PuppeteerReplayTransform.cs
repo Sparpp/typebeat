@@ -253,6 +253,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             LosslessSkipReclaim = source.LosslessSkipReclaim,
             FoldsDisplacedClaim = source.FoldsDisplacedClaim,
             UnhalvedHardRockWindows = source.UnhalvedHardRockWindows,
+            FirstLineLeadIn = source.FirstLineLeadIn,
         };
     }
 }

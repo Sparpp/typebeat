@@ -392,10 +392,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <c>AllowWrongInput</c>, <c>SpaceSkipsWord</c>, <c>SyllableTiming</c>,
         /// <c>WrongInputOnWordGaps</c>, <c>StrictSpaces</c>, <c>CharTimedStretch</c>,
         /// <c>FlexibleLineSnap</c>, <c>BoundedRush</c>, <c>FirstCharTiming</c>,
-        /// <c>BackDatedSealBreak</c>, <c>LosslessSkipReclaim</c>, <c>FoldsDisplacedClaim</c> and
-        /// <c>UnhalvedHardRockWindows</c> are
+        /// <c>BackDatedSealBreak</c>, <c>LosslessSkipReclaim</c>, <c>FoldsDisplacedClaim</c>,
+        /// <c>UnhalvedHardRockWindows</c> and <c>FirstLineLeadIn</c> are
         /// deliberately NOT set from the mods or from any config: the replay's CONFIG frame carries
-        /// what the run was judged under and overwrites all thirteen, which is the only thing that judges
+        /// what the run was judged under and overwrites all fourteen, which is the only thing that judges
         /// a pre-Gatekeeper strict run right. The one flag the frame cannot carry is which MODS the
         /// score holds, so <c>HardRockFromMod</c> (like <c>FlexibleCaretFromMod</c>) IS set here, and
         /// the engine pairs it with the frame's era bit.
@@ -486,6 +486,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // than standing on the frame alone. What it halves is the ladder as it ships TODAY: this
             // bit is an era for the halving and not for the constants under it, so a retune of the
             // single ladder moves both arms together.
+            //
+            // FirstLineLeadIn (CONFIG frame bit 16) is on the same terms as bits 3, 4 and 7: the
+            // default is the gate every stored replay's first line opened on (a press before the
+            // line's own activation refused), the bit is set for every live stack, and where the
+            // first line opens is not a mod's business, so there is nothing to select here.
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the arms below compose in any order. A replay carries
