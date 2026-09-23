@@ -150,14 +150,16 @@ namespace typebeat.Game.Rulesets.TypeBeat
 
         /// <summary>
         /// Erase the word behind the caret (backlog 182, rebindable since backlog 183). Default
-        /// Ctrl+Backspace, the chord every other typing site uses for it.
+        /// Ctrl+Backspace, the chord every other typing site uses for it - Command+Backspace on
+        /// macOS, where that is the platform's own chord (see
+        /// <see cref="TypeBeatRuleset.RecoveryGestureModifier"/>).
         /// </summary>
         [Description("Erase word")]
         EraseWord,
 
         /// <summary>
         /// Offer the run from the caret back to the nearest unfixed typo for retyping (backlog 182,
-        /// rebindable since backlog 183). Default Ctrl+A.
+        /// rebindable since backlog 183). Default Ctrl+A - Command+A on macOS, as above.
         /// </summary>
         [Description("Select back to typo")]
         SelectBackToTypo,

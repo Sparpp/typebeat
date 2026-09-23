@@ -136,6 +136,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                                 json.WriteEndArray();
                             }
 
+                            // THE AUTHORED PAUSES (the editor's Insert Pause), additive in exactly the same
+                            // way: written only when the word carries any, one object per breath, in time
+                            // order.
+                            if (unit.Pauses.Count > 0)
+                            {
+                                json.WriteStartArray("pauses");
+
+                                foreach (var pause in unit.Pauses)
+                                {
+                                    json.WriteStartObject();
+                                    json.WriteNumber("start_ms", pause.StartTime);
+                                    json.WriteNumber("end_ms", pause.EndTime);
+                                    json.WriteNumber("split", pause.SplitChar);
+                                    json.WriteEndObject();
+                                }
+
+                                json.WriteEndArray();
+                            }
+
                             json.WriteEndObject();
                         }
 

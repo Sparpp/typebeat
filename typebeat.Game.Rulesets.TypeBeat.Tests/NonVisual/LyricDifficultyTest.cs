@@ -101,6 +101,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// prototype's <c>anchor</c> has to be moved with it for the two to keep agreeing bit for
         /// bit.
         ///
+        /// <para>It moved a second time with the character cutoff (<c>LyricDifficulty.MinimumWindowChars</c>,
+        /// which the sandbox's <c>minimumChars</c> dial now sets to 16): this four-word map carries
+        /// 22 cells, so the shortest stretch holding 16 of them is longer than the 1.36 second
+        /// duration floor and the peak is read off that longer window instead. Both floors are in
+        /// the reading, so the number moved with the dial and not with the model.</para>
+        ///
         /// <para>Four words over 4.6 seconds, which is deliberately more than the 1.36 second
         /// smallest window: see <see cref="AMapShorterThanTheSmallestWindowRatesExactlyZero"/>
         /// for what happens under that.</para>
@@ -111,7 +117,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             line(2600, 5200, ("world", 2600, 3400), ("again", 3600, 4600)),
         };
 
-        private const double anchor_stars = 1.9987321307058443;
+        private const double anchor_stars = 1.433936415287919;
 
         [Test]
         public void MatchesTheReferenceModel()
@@ -136,20 +142,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// length term is gone, so there is nothing left for such a map to rate, and Is.Zero here is
         /// now a statement about the model rather than about a term being small.</para>
         ///
-        /// <para>"cat cat" over 800 ms was this suite's anchor for six backlog items, which is why
-        /// it is still here: it rates exactly nothing, and stretching the same two words over three
-        /// seconds is all it takes to make it rate something.</para>
+        /// <para>THE FIXTURE CARRIES 23 CELLS SO THE DURATION IS THE ONLY THING UNDER TEST. "cat cat"
+        /// over 800 ms was this suite's anchor for six backlog items, but the character cutoff
+        /// (<c>LyricDifficulty.MinimumWindowChars</c>, 16) prices its 7 cells at zero whatever its
+        /// length, so the same two words stretched over three seconds no longer rate anything and the
+        /// duration claim needs a map that clears the cutoff to be about the duration at all. That
+        /// second claim is kept below rather than dropped: 7 cells is below the floor however long
+        /// the map runs.</para>
         /// </summary>
         [Test]
         public void AMapShorterThanTheSmallestWindowRatesExactlyZero()
         {
-            var tooShort = new[] { line(0, 800, ("cat", 0, 400), ("cat", 400, 800)) };
-            var longEnough = new[] { line(0, 3000, ("cat", 0, 1500), ("cat", 1500, 3000)) };
+            // Six "cat"s: 18 letters and the 5 spaces between them, which clears the 16-cell floor.
+            var tooShort = new[] { line(0, 1000, ("cat", 0, 167), ("cat", 167, 333), ("cat", 333, 500), ("cat", 500, 667), ("cat", 667, 833), ("cat", 833, 1000)) };
+            var longEnough = new[] { line(0, 3000, ("cat", 0, 500), ("cat", 500, 1000), ("cat", 1000, 1500), ("cat", 1500, 2000), ("cat", 2000, 2500), ("cat", 2500, 3000)) };
+            var belowTheFloor = new[] { line(0, 3000, ("cat", 0, 1500), ("cat", 1500, 3000)) };
 
             Assert.Multiple(() =>
             {
-                Assert.That(Envelope(tooShort), Is.Zero, "0.8 s of singing fits no window at all");
-                Assert.That(Envelope(longEnough), Is.EqualTo(0.6680255352545187), "3 s of the same two words does");
+                Assert.That(Envelope(tooShort), Is.Zero, "1.0 s of singing fits no scheduled window at all");
+                Assert.That(Envelope(longEnough), Is.EqualTo(2.1710013017631233), "3 s of the same six words does");
+                Assert.That(Envelope(belowTheFloor), Is.Zero, "and 3 s of \"cat cat\" does not: 7 cells is under the cutoff");
             });
         }
 
@@ -160,21 +173,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// a line break. So the same two words at the same two times rate differently depending on
         /// whether the author put them on one line or two, and that is correct: on two lines the
         /// player really does type one keystroke fewer.
+        ///
+        /// <para>FOUR WORDS RATHER THAN TWO, because the comparison has to clear the character cutoff
+        /// to be readable at all (see <see cref="AMapShorterThanTheSmallestWindowRatesExactlyZero"/>):
+        /// one line of four carries 3 spaces over the same timeline that four lines of one carry
+        /// none, which is the whole of the difference between the two ratings below.</para>
         /// </summary>
         [Test]
         public void AnInterWordSpaceIsACellAndBelongsToItsLine()
         {
-            var oneLine = new[] { line(0, 2000, ("aaa", 0, 1000), ("bbb", 1000, 2000)) };
+            var oneLine = new[] { line(0, 4000, ("flame", 0, 1000), ("river", 1000, 2000), ("cider", 2000, 3000), ("amber", 3000, 4000)) };
             var twoLines = new[]
             {
-                line(0, 1000, ("aaa", 0, 1000)),
-                line(1000, 2000, ("bbb", 1000, 2000)),
+                line(0, 1000, ("flame", 0, 1000)),
+                line(1000, 2000, ("river", 1000, 2000)),
+                line(2000, 3000, ("cider", 2000, 3000)),
+                line(3000, 4000, ("amber", 3000, 4000)),
             };
 
             Assert.Multiple(() =>
             {
-                Assert.That(Envelope(oneLine), Is.EqualTo(0.9185219527454119), "7 cells: aaa + space + bbb");
-                Assert.That(Envelope(twoLines), Is.EqualTo(0.7512636532216476), "6 cells: no space over a line break");
+                Assert.That(Envelope(oneLine), Is.EqualTo(1.6979519367095162), "23 cells: four words + the 3 spaces between them");
+                Assert.That(Envelope(twoLines), Is.EqualTo(1.4256092329973917), "20 cells: no space over a line break");
             });
         }
 

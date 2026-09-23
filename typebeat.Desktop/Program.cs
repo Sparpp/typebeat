@@ -6,6 +6,7 @@ using System.IO;
 using System.Runtime.Versioning;
 using typebeat.Desktop.Windows;
 using osu.Framework;
+using osu.Framework.Configuration;
 using osu.Framework.Development;
 using osu.Framework.Logging;
 using osu.Framework.Platform;
@@ -140,11 +141,52 @@ namespace typebeat.Desktop
                     }
                 }
 
+                applyPlatformRendererDefault(gameName, host);
+
                 host.Run(new OsuGameDesktop(args)
                 {
                     IsFirstRun = isFirstRun,
                     EnableWebSocketServer = Environment.GetEnvironmentVariable("OSU_WEBSOCKET_SERVER") == "1",
                 });
+            }
+        }
+
+        /// <summary>
+        /// macOS starts on OpenGL rather than on whatever the framework's own preference order puts
+        /// first, which there is Metal.
+        ///
+        /// <para>"Automatic" is the framework's pick from <c>GetPreferredRenderersForCurrentPlatform</c>,
+        /// and on macOS that list leads with Metal - a backend this game does not want to hand a fresh
+        /// install. So a configuration still sitting on Automatic is re-based to OpenGL before the host
+        /// reads it, through the framework's OWN config manager: the same file, the same format and the
+        /// same value the graphics settings show, so the setting reads as a deliberate choice rather
+        /// than as a hidden override. An EXPLICIT renderer is never touched - anyone who selects Metal
+        /// or Vulkan keeps it - and nothing happens on any other platform.</para>
+        /// </summary>
+        private static void applyPlatformRendererDefault(string gameName, DesktopGameHost host)
+        {
+            if (!OperatingSystem.IsMacOS())
+                return;
+
+            // The host builds its own storage during Run, and framework.ini is written into it then;
+            // this constructs the same storage up front so the value is in place before the renderer is
+            // chosen. .NET resolves ApplicationData to ~/Library/Application Support on macOS, which is
+            // where every one of the game's other files already live.
+            string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), gameName);
+
+            var storage = new DesktopStorage(path, host);
+
+            using (var config = new FrameworkConfigManager(storage))
+            {
+                var renderer = config.GetBindable<RendererType>(FrameworkSetting.Renderer);
+
+                if (renderer.Value != RendererType.Automatic)
+                    return;
+
+                renderer.Value = RendererType.OpenGL;
+                config.Save();
+
+                Logger.Log(@"No renderer chosen, so macOS is defaulting to OpenGL rather than Metal.", LoggingTarget.Runtime, LogLevel.Verbose);
             }
         }
 

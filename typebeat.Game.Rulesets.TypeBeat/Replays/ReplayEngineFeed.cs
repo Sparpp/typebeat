@@ -122,6 +122,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // other era flag here. Inert under a pinned caret, which FletcherEnabled gates.
                 engine.ManualNewlines = frame.ManualNewlines;
 
+                // NewlineOnTypedLetter (bit 15) is the accept/reject half of the same era: with it set
+                // a letter at a finished caret is a newline AND a keystroke, so a run re-derived with
+                // the bit clear refuses a press the player really made (and vice versa), and every
+                // judgement after it moves. Clobbered from the frame like the rest.
+                engine.NewlineOnTypedLetter = frame.NewlineOnTypedLetter;
+
                 // FlexibleLines (backlog 208) is the one bit here that needs a word more than an
                 // assignment, because the axis it selects has TWO sources. The bit says
                 // "this run was played with the caret unpinned AND snapped forward at each line

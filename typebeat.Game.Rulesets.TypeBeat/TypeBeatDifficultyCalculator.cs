@@ -39,6 +39,44 @@ namespace typebeat.Game.Rulesets.TypeBeat
         {
         }
 
+        /// <summary>
+        /// THE DIFFICULTY VERSION, and it is not decoration: a star rating is STORED, not
+        /// recalculated per view. <see cref="TypeBeat.Game.Database.BackgroundDataStoreProcessor"/>
+        /// compares this against the ruleset's <c>LastAppliedDifficultyVersion</c> on startup and,
+        /// when this is the higher of the two, stamps every stored rating back to -1 so the next
+        /// pass recomputes it. Without a bump the database keeps serving the old numbers to song
+        /// select (and to anything reading <c>BeatmapInfo.StarRating</c>) no matter what this
+        /// calculator now returns.
+        ///
+        /// <para>BUMP THIS WHENEVER THE RATING MUST MOVE FOR EXISTING MAPS: a model change, a dial
+        /// change in <see cref="ChunkedEndurance.Settings.Live"/>, or a fix to the demand field.
+        /// Version 0 was the default this calculator inherited, so every stored rating in an
+        /// existing install was written under it.</para>
+        ///
+        /// <para>v1 (2026-09-20): the endurance axis moved from the chunk grid to the OVERLAPPING
+        /// window layout with the sandbox's current dials, which moves every map's rating; the pp
+        /// side carries the same idea in <see cref="Scoring.PerformancePoints.VERSION"/>.</para>
+        ///
+        /// <para>v2 (2026-09-21): a PAUSE inside a word is a divider for the rating, priced from the
+        /// stretches it is actually sung in (see <c>LyricDifficulty.BuildWords</c>), where it used to
+        /// price as one span with the rests folded in as free time. Only maps carrying rests move, but
+        /// every one of them moves, so their stored numbers have to be re-derived.</para>
+        ///
+        /// <para>v3 (2026-09-22): the chunked axis's dials were brought up to the Star Rating
+        /// Sandbox's ACTIVE settings snapshot - the anchor (11.5 to 11.1), the character floor (16 to
+        /// 22) and the chunk length bonus/falloff/floor/scale plus the decay power, which the game had
+        /// been shipping from the snapshot's BASELINE column. Every map's rating moves.</para>
+        ///
+        /// <para>v4 (2026-09-22): the character floor goes back DOWN, 22 to 16, on the sandbox's own
+        /// dial. The floor decides which windows may stand as candidates, so dropping it admits
+        /// shorter and lighter stretches; on the bundled catalogue 72 of 89 maps move and every one of
+        /// them moves UP, the largest by 0.54 stars at the bottom of the range where the floor was
+        /// doing the most work. The envelope model's mirror of the same dial
+        /// (<c>LyricDifficulty.MinimumWindowChars</c>) moves with it, which moves the song select
+        /// Target WPM figure but no rating.</para>
+        /// </summary>
+        public override int Version => 4;
+
         protected override DifficultyAttributes CreateDifficultyAttributes(IBeatmap beatmap, Mod[] mods, Skill[] skills)
         {
             var objects = beatmap.HitObjects.OfType<TypeBeatHitObject>().ToList();

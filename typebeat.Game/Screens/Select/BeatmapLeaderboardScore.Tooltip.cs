@@ -294,9 +294,15 @@ namespace typebeat.Game.Screens.Select
                         return;
                     }
 
-                    if (score.PP.HasValue)
+                    // Re-priced when the client can still price it, so the tooltip reads the play's
+                    // CURRENT worth; the archived number covers the plays it cannot price (see
+                    // PerformanceStatistic). The ruleset's own gate is asked rather than the shared one,
+                    // which a stored value alone already satisfies.
+                    if (score.Ruleset?.CreateInstance().ScoreEarnsPerformancePoints(score) != true)
                     {
-                        setPerformanceValue(score.PP.Value);
+                        if (score.PP is double archived)
+                            setPerformanceValue(archived);
+
                         return;
                     }
 
@@ -305,9 +311,15 @@ namespace typebeat.Game.Screens.Select
                         var attributes = await difficultyCache.GetDifficultyAsync(score.BeatmapInfo!, score.Ruleset, score.Mods, cancellationToken ?? CancellationToken.None).ConfigureAwait(false);
                         var performanceCalculator = score.Ruleset.CreateInstance().CreatePerformanceCalculator();
 
-                        // Performance calculation requires the beatmap and ruleset to be locally available. If not, return a default value.
+                        // Performance calculation requires the beatmap and ruleset to be locally
+                        // available; without them the archived number is all there is.
                         if (attributes?.DifficultyAttributes == null || performanceCalculator == null)
+                        {
+                            if (score.PP is double archived)
+                                Schedule(() => setPerformanceValue(archived));
+
                             return;
+                        }
 
                         var result = await performanceCalculator.CalculateAsync(score, attributes.Value.DifficultyAttributes, cancellationToken ?? CancellationToken.None).ConfigureAwait(false);
 

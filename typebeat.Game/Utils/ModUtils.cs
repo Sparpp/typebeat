@@ -205,6 +205,22 @@ namespace typebeat.Game.Utils
         }
 
         /// <summary>
+        /// The subset of <paramref name="mods"/> that rewrites the beatmap itself during
+        /// conversion, rather than only changing the clock or the live playfield.
+        ///
+        /// <para>It exists so the surfaces that read a beatmap's OWN content (song select's count
+        /// statistics and the metadata wedge's pace readouts) convert with exactly the mods that
+        /// can move that content. Handing over the whole selection would be harmless for the clock
+        /// mods but wrong for a surface that converts with the MAP's own ruleset: another ruleset's
+        /// conversion mods would be offered a map they do not apply to.</para>
+        ///
+        /// <para>Wrappers are flattened first, so a <see cref="MultiMod"/> neither hides a shaping
+        /// mod from the filter nor gets applied alongside the child it already carries.</para>
+        /// </summary>
+        public static IReadOnlyList<Mod> BeatmapShapingMods(IEnumerable<Mod> mods)
+            => FlattenMods(mods).Where(m => m is IApplicableToBeatmapConverter || m is IApplicableAfterBeatmapConversion).ToList();
+
+        /// <summary>
         /// Verifies all proposed mods are valid for a given ruleset and returns instantiated <see cref="Mod"/>s for further processing.
         /// </summary>
         /// <param name="ruleset">The ruleset to verify mods against.</param>

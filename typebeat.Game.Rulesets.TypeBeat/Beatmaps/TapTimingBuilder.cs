@@ -420,6 +420,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         // syllable leaves every later split paired with the wrong segment, so the
                         // word falls back to the derived split.
                         SyllableSplits = boundaries.Count == source.SyllableBoundaries.Count ? source.SyllableSplits : Array.Empty<int>(),
+                        // The rests are positions inside the word, so an untouched word keeps them
+                        // verbatim and a retimed one carries them into its new span (dropped only when
+                        // the new span has no room left for them) - unlike the syllables above, which a
+                        // re-tap replaces with the taps it heard.
+                        Pauses = retimed[p] ? TypeBeatEditorOperations.ClampPauses(source, s, e) : source.Pauses,
                     };
                 }
 

@@ -84,7 +84,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 }
 
                 // And the defaults the game ships with, which the move must not have reset either.
-                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, false, false, true }));
+                // Manual newlines and the space error dot both ship ON as of 2026-09-21.
+                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, true, true, true }));
             }
         }
 

@@ -39,11 +39,12 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Statistics
     /// </para>
     ///
     /// <para>
-    /// A value the SERVER supplied wins outright, ahead of the eligibility check. Safe, because the
-    /// server sends a number only for a play it actually priced and null for everything else, so a
-    /// stored value is proof of eligibility by itself. Necessary, because the local copy of a map
-    /// can drift from the ranked one a score was set on (opening it in the editor marks it
-    /// LocallyModified), and that must not hide pp the player really earned.
+    /// The number is the play's CURRENT worth, not the one it was archived with: a play the client can
+    /// still price is re-priced here, against the map as it is on disk and the formula as it is now.
+    /// A stored value is the FALLBACK for the plays this surface cannot price at all - no local copy
+    /// of the map, a map that no longer grants pp (opening one in the editor marks it LocallyModified),
+    /// an unranked stack, a failure - because the server's number is then the only truth available and
+    /// it may know of refusals the client cannot see. Without either, the play reads as ineligible.
     /// </para>
     /// </summary>
     public partial class PerformanceStatistic : StatisticDisplay, IHasTooltip
@@ -106,9 +107,16 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Statistics
                 return;
             }
 
-            if (score.PP.HasValue)
+            // A play the CLIENT can price is priced again, against the map and formula as they are now;
+            // the stored number is only for the ones it cannot (see the class docs). The ruleset's own
+            // gate is asked rather than ScoreEarnsPerformancePoints, because a stored value makes THAT
+            // true even for a play the local gates refuse - and those are exactly the plays whose
+            // archived number this surface must keep showing.
+            if (score.Ruleset?.CreateInstance().ScoreEarnsPerformancePoints(score) != true)
             {
-                performance.Value = toDisplayValue(score.PP.Value);
+                if (score.PP is double archived)
+                    performance.Value = toDisplayValue(archived);
+
                 return;
             }
 
@@ -117,9 +125,16 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Statistics
                 var attributes = await difficultyCache.GetDifficultyAsync(score.BeatmapInfo!, score.Ruleset, score.Mods, cancellationToken ?? CancellationToken.None).ConfigureAwait(false);
                 var performanceCalculator = score.Ruleset.CreateInstance().CreatePerformanceCalculator();
 
-                // Performance calculation requires the beatmap and ruleset to be locally available. If not, return a default value.
+                // Performance calculation requires the beatmap and ruleset to be locally available. If
+                // they are not, fall back to whatever the play was archived with rather than showing
+                // nothing: the server's number is all that is left of a map this machine does not have.
                 if (attributes?.DifficultyAttributes == null || performanceCalculator == null)
+                {
+                    if (score.PP is double archived)
+                        Schedule(() => performance.Value = toDisplayValue(archived));
+
                     return;
+                }
 
                 var result = await performanceCalculator.CalculateAsync(score, attributes.Value.DifficultyAttributes, cancellationToken ?? CancellationToken.None).ConfigureAwait(false);
 

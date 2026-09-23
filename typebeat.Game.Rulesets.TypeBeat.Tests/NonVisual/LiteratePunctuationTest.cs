@@ -12,7 +12,10 @@ using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
+using typebeat.Game.Rulesets.Mods;
+using typebeat.Game.Utils;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using CollectionAssert = NUnit.Framework.Legacy.CollectionAssert;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
@@ -1249,6 +1252,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.AreEqual(engineCells[nested[i].CellIndex].Expected, nested[i].Expected, $"nested {i}");
                 Assert.AreEqual(engineCells[nested[i].CellIndex].TargetTime, nested[i].StartTime, $"nested {i}");
             }
+        }
+
+        [Test]
+        public void LiterateIsTheOnlyBeatmapShapingModAndAPresetStillShowsIt()
+        {
+            // The filter the display surfaces convert with, and the one they use to decide whether a
+            // mod toggle has to convert AGAIN rather than re-read a clock rate. Literate is the
+            // ruleset's only mod that rewrites the hit objects, so it has to be the only one in the
+            // result; a rate mod moves the clock and nothing else.
+            var mods = new TypeBeatRuleset().AllMods.OfType<Mod>().ToList();
+
+            var literate = mods.Single(m => m is TypeBeatModLiterate);
+            CollectionAssert.AreEqual(new[] { literate }, ModUtils.BeatmapShapingMods(new[] { literate }));
+
+            CollectionAssert.IsEmpty(ModUtils.BeatmapShapingMods(mods.Where(m => m is not TypeBeatModLiterate)));
+
+            // And a preset wrapper neither hides the child from the filter nor rides along beside
+            // it, which is what keeps the child from being applied twice.
+            CollectionAssert.AreEqual(new[] { literate }, ModUtils.BeatmapShapingMods(new[] { new MultiMod(literate) }));
         }
 
         [Test]

@@ -70,6 +70,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // Splits are CHAR indices: a time shift cannot invalidate one, so they ride
                 // through every shift/offset operation untouched.
                 SyllableSplits = u.SyllableSplits,
+                // A rest is two absolute times, so it moves with the word it lives in. Its split is a
+                // CHAR index like the others and cannot be invalidated by a shift either - so the whole
+                // set of rests rides through a global offset with its shape intact.
+                Pauses = u.Pauses.Select(pause => new WordPause(pause.StartTime + deltaMs, pause.EndTime + deltaMs, pause.SplitChar)).ToArray(),
             }).ToArray(),
         };
 
@@ -101,15 +105,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         /// <summary>
         /// The finest granularity the unit data requires: Syllable when any word carries subdivision
-        /// boundaries, else Word when some unit timing is Explicit (authored words[]), else Line.
-        /// Line-granularity maps also carry one unit per token, but those are Interpolated,
-        /// synthesized by the loader, not real word timing.
+        /// boundaries, else Word when some unit timing is Explicit (authored words[]) OR some word
+        /// carries an authored pause, else Line. Line-granularity maps also carry one unit per token,
+        /// but those are Interpolated, synthesized by the loader, not real word timing.
+        ///
+        /// <para>The pause counts as its own Word trigger rather than riding on the Explicit stamp its
+        /// every setter gives it, because the two are separate facts: a REST is written inside
+        /// <c>words[]</c>, so a map holding one must not be allowed to fall back to Line and drop it.
+        /// That keeps the rule true even for a unit built by a caller that forgot the stamp.</para>
         /// </summary>
         public static TimingGranularity InferGranularity(IReadOnlyList<LyricLine> lines)
         {
             if (lines.Any(l => l.Units.Any(u => u.SyllableBoundaries.Count > 0)))
                 return TimingGranularity.Syllable;
-            if (lines.Any(l => l.Units.Any(u => u.Source == TimingSource.Explicit)))
+            if (lines.Any(l => l.Units.Any(u => u.Source == TimingSource.Explicit || u.Pauses.Count > 0)))
                 return TimingGranularity.Word;
             return TimingGranularity.Line;
         }
@@ -156,8 +165,73 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // authored for: if the clamp dropped one, every remaining split would pair with the
                 // wrong segment, so the word falls back to the derived split rather than lie.
                 SyllableSplits = boundaries.Count == unit.SyllableBoundaries.Count ? unit.SyllableSplits : Array.Empty<int>(),
+                Pauses = ClampPauses(unit, start, end),
             };
         }
+
+        /// <summary>
+        /// The rests a RETIMED word keeps: each one stays at ITS OWN time, exactly as a subdivision
+        /// boundary does just above (<see cref="clampBoundaries"/>) - stretching or squeezing a word
+        /// re-times the word around the dividers the mapper put inside it, and never drags a breath along
+        /// with the edge they are pulling or squashes it into a shorter one.
+        ///
+        /// <para>A rest the new span can no longer hold (an edge on or past the word's own) is dropped
+        /// rather than stretched onto an edge, which is the same rule the loader applies to one that no
+        /// longer fits, and the reason a word pulled down to nothing comes back with no breath in it. The
+        /// survivors keep their order: none of them moved, and they were in order already.</para>
+        /// </summary>
+        internal static IReadOnlyList<WordPause> ClampPauses(TimedUnit unit, double start, double end)
+        {
+            if (unit.Pauses.Count == 0)
+                return Array.Empty<WordPause>();
+
+            var kept = new List<WordPause>(unit.Pauses.Count);
+
+            foreach (var pause in unit.Pauses)
+            {
+                if (pause.StartTime > start + 1e-3 && pause.EndTime < end - 1e-3)
+                    kept.Add(pause);
+            }
+
+            return kept;
+        }
+
+        /// <summary>
+        /// The rests a word keeps when its whole SPAN is REDISTRIBUTED - the word-count change that moves
+        /// words wholesale, where the boundaries rescale (<see cref="rescaleBoundaries"/>) rather than
+        /// clamp. Each rest keeps its relative position in the word, so the shape the mapper authored
+        /// travels with the word it belongs to; one the new span cannot hold is dropped, exactly as a
+        /// boundary that no longer fits is.
+        /// </summary>
+        private static IReadOnlyList<WordPause> scalePauses(TimedUnit unit, double start, double end)
+        {
+            if (unit.Pauses.Count == 0 || unit.EndTime <= unit.StartTime || end <= start)
+                return Array.Empty<WordPause>();
+
+            double scale = (end - start) / (unit.EndTime - unit.StartTime);
+            var kept = new List<WordPause>(unit.Pauses.Count);
+
+            foreach (var pause in unit.Pauses)
+            {
+                double ps = start + (pause.StartTime - unit.StartTime) * scale;
+                double pe = start + (pause.EndTime - unit.StartTime) * scale;
+
+                if (ps > start + 1e-3 && pe < end - 1e-3 && ps < pe)
+                    kept.Add(new WordPause(ps, pe, pause.SplitChar));
+            }
+
+            return kept;
+        }
+
+        /// <summary>
+        /// The rests a word keeps across a TEXT commit: they ride along only while the word came back
+        /// spelled EXACTLY as it was. Their <see cref="WordPause.SplitChar"/> values are indices into that
+        /// spelling, so a retyped word invalidates them the same way it invalidates an authored char
+        /// split - there is no honest place for a rest to sit in a word that is no longer the one it was
+        /// authored against.
+        /// </summary>
+        private static IReadOnlyList<WordPause> carryPausesAcrossText(TimedUnit unit, string token)
+            => token == unit.Text ? unit.Pauses : Array.Empty<WordPause>();
 
         /// <summary>Keeps only boundaries strictly inside (start, end), sorted; empty stays empty.</summary>
         private static IReadOnlyList<double> clampBoundaries(IReadOnlyList<double> boundaries, double start, double end)
@@ -611,6 +685,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <item>B boundaries, fewer pipes but at least one: the pipes given replace the leading
         /// splits and the remaining ones keep the value the word already showed (authored or
         /// derived). Only the ZERO case removes.</item>
+        /// <item>a word carrying RESTS (see <see cref="InsertWordPause"/>): each one is a divider like
+        /// the others, so it prints a pipe of its own and the pipes fill the word's cuts - its syllable
+        /// splits with every rest's cut among them - in TEXT order, which is how "ple|ase" becomes
+        /// "pl|ease". Surplus pipes are dropped and a cut left without a pipe keeps the value it showed,
+        /// on the same terms as the rows above. A rest itself is NEVER removed from the box: it has its
+        /// own gesture and a rest with no cut has nowhere to sit, so deleting its pipe leaves it exactly
+        /// where it was.</item>
         /// <item>a pipe that would leave a segment EMPTY (at the start or end of the word, or on
         /// top of another pipe): the whole word keeps its previous split, so a typo cannot silently
         /// re-cut it.</item>
@@ -678,8 +759,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 // A commit that moved neither the text nor a single pipe is a no-op, so a map with
                 // no authored splits does not start carrying them just because a box lost focus.
+                // A pipe that moved a word's REST is a change like any other, so the comparison is
+                // over every cut the box can author, not only the syllable splits.
                 if (textUnchanged && !authoredSubdivision && !anyRemoval
-                    && !units.Where((u, i) => !sameSplits(u.SyllableSplits, line.Units[i].SyllableSplits)).Any())
+                    && !units.Where((u, i) => !sameSplits(u.SyllableSplits, line.Units[i].SyllableSplits)
+                                              || !u.Pauses.SequenceEqual(line.Units[i].Pauses)).Any())
                 {
                     return true;
                 }
@@ -745,8 +829,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         // so the word carries the same Explicit/trusted stamp either way.
                         Source = TimingSource.Explicit,
                         Confidence = 1,
+                        // The word is being un-subdivided, not retyped, so its rests stay.
+                        Pauses = u.Pauses,
                     };
                 }
+
+                // A word carrying authored PAUSES: the pipes are ITS cuts, not a new subdivision. A rest
+                // is a divider like any other, so '|' moves where a breath falls in the word exactly as it
+                // moves a syllable split - and, unlike a syllable split, a rest is never DELETED from the
+                // text box: it has its own gesture and a rest with no cut has nowhere to sit, so a commit
+                // that leaves one no pipe keeps the cut it had. Checked BEFORE the "author a subdivision"
+                // branch below, which would otherwise read a paused word's pipe as a request to subdivide
+                // it.
+                if (u.Pauses.Count > 0 && tokens[i] == u.Text)
+                    return withPipeAuthoredCuts(u, tokens[i], wordPipes);
 
                 if (u.SyllableBoundaries.Count == 0 && wordPipes.Count > 0
                     && SplitMarkers.Authored(tokens[i], u.StartTime, u.EndTime, wordPipes) is (double[] boundaries, int[] splits))
@@ -764,6 +860,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         Confidence = 1,
                         SyllableBoundaries = boundaries,
                         SyllableSplits = splits,
+                        Pauses = carryPausesAcrossText(u, tokens[i]),
                     };
                 }
 
@@ -776,6 +873,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     Confidence = u.Confidence,
                     SyllableBoundaries = u.SyllableBoundaries,
                     SyllableSplits = splitsFromPipes(tokens[i], u.SyllableBoundaries.Count + 1, u.SyllableSplits, wordPipes),
+                    Pauses = carryPausesAcrossText(u, tokens[i]),
                 };
             }).ToArray();
 
@@ -870,6 +968,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     Confidence = units[i].Confidence,
                     SyllableBoundaries = moved,
                     SyllableSplits = old.SyllableSplits,
+                    // A rest is a position INSIDE the word, so it travels the same way the boundaries
+                    // do - rescaled into the span the redistribution gave this word.
+                    Pauses = scalePauses(old, units[i].StartTime, units[i].EndTime),
                 };
             }
 
@@ -901,18 +1002,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         /// <summary>
         /// A line's text as the editor's line box SHOWS it: the stored text with a
-        /// <see cref="Typeability.SPLIT_MARKER"/> at every subdivided word's EFFECTIVE split, the
-        /// authored one where there is one and the derived one otherwise. Showing the derived split
-        /// is deliberate: it is the split gameplay's judgement groups already use, so the mapper
-        /// edits what the game does rather than an empty field. Identical to the stored text for a
-        /// line with no subdivisions at all, and for a line whose tokens and units have drifted
-        /// apart (nothing there can be paired safely).
+        /// <see cref="Typeability.SPLIT_MARKER"/> at every word's EFFECTIVE cuts, the authored ones
+        /// where there are any and the derived ones otherwise. Showing the derived split is deliberate:
+        /// it is the split gameplay's judgement groups already use, so the mapper edits what the game
+        /// does rather than an empty field.
+        ///
+        /// <para>A word carrying authored PAUSES prints their cuts too - every rest's own cut among its
+        /// syllable cuts - so the mapper moves where a breath falls in the word with '|' exactly as they
+        /// move a syllable split, and can see all of them at once on a word that has both. Identical to
+        /// the stored text for a line with no subdivisions and no rests at all, and for a line whose
+        /// tokens and units have drifted apart (nothing there can be paired safely).</para>
         /// </summary>
         public static string PipeDisplayText(LyricLine line)
         {
             string[] tokens = line.RawText.Split(' ');
 
-            if (tokens.Length != line.Units.Count || !line.Units.Any(u => u.SyllableBoundaries.Count > 0))
+            if (tokens.Length != line.Units.Count || !line.Units.Any(u => u.SyllableBoundaries.Count > 0 || u.Pauses.Count > 0))
                 return line.RawText;
 
             var pieces = new string[tokens.Length];
@@ -920,14 +1025,112 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             for (int i = 0; i < tokens.Length; i++)
             {
                 var unit = line.Units[i];
+                var cuts = Gameplay.PausedWord.Cuts(unit, unit.StartTime, unit.EndTime);
 
-                pieces[i] = unit.SyllableBoundaries.Count == 0
+                pieces[i] = cuts.Count == 0
                     ? tokens[i]
-                    : string.Join(Typeability.SPLIT_MARKER,
-                        SyllableSegments.SegmentTexts(tokens[i], SyllableSegments.SplitsFor(tokens[i], unit.SyllableBoundaries.Count + 1, unit.SyllableSplits)));
+                    : string.Join(Typeability.SPLIT_MARKER, SyllableSegments.SegmentTexts(tokens[i], cuts));
             }
 
             return string.Join(' ', pieces);
+        }
+
+        /// <summary>
+        /// One word that already carries authored PAUSES, after a text commit: its pipes fill the word's
+        /// cuts in TEXT order - its syllable cuts with every rest's own cut among them - and each rest
+        /// keeps whatever cut ends up in its slot.
+        ///
+        /// <para>A rest behaves like a subdivision divider here and nothing more: the pipes are read
+        /// positionally (as they are for a subdivided word), surplus pipes are dropped because a text
+        /// commit never changes how many dividers a word has, and a divider left without a pipe keeps the
+        /// value it already showed. A rest is NEVER removed by deleting its pipe: it has its own gesture,
+        /// and a rest with no cut has nowhere to sit - so a commit that empties the box of pipes still
+        /// leaves the word with the cuts it had, on the same terms
+        /// <see cref="removesSubdivision(TimedUnit, string, IReadOnlyList{int})"/> sets for a subdivision
+        /// it is allowed to remove.</para>
+        ///
+        /// <para>A set of pipes that would not describe legal cuts - not strictly ascending, a segment
+        /// left EMPTY at either end of the word, or a cut a rest could not sit at - returns the word
+        /// exactly as it was, so a typo costs the mapper nothing. The syllable cuts are stored as DERIVED
+        /// when they say exactly what the syllabifier would, like every other split commit.</para>
+        /// </summary>
+        private static TimedUnit withPipeAuthoredCuts(TimedUnit unit, string token, IReadOnlyList<int> pipes)
+        {
+            var current = Gameplay.PausedWord.Cuts(unit, unit.StartTime, unit.EndTime);
+
+            if (current.Count == 0)
+                return unit;
+
+            // Which of the word's cuts belong to a REST: the slot a rest's own character stands at, which
+            // is exactly where its divider sits in the printed text. The word's rests share no character
+            // (see PausedWord.UsableRests), so each slot names at most one of them.
+            var restSlots = new HashSet<int>();
+
+            for (int i = 0; i < current.Count; i++)
+            {
+                if (unit.Pauses.Any(pause => pause.SplitChar == current[i]))
+                    restSlots.Add(i);
+            }
+
+            var target = current.ToList();
+
+            for (int i = 0; i < target.Count && i < pipes.Count; i++)
+                target[i] = pipes[i];
+
+            for (int i = 1; i < target.Count; i++)
+            {
+                if (target[i] <= target[i - 1])
+                    return unit;
+            }
+
+            if (target[0] <= 0 || target[^1] >= token.Length)
+                return unit;
+
+            var splits = new List<int>(target.Count);
+
+            for (int i = 0; i < target.Count; i++)
+            {
+                if (!restSlots.Contains(i))
+                    splits.Add(target[i]);
+            }
+
+            int segments = unit.SyllableBoundaries.Count + 1;
+
+            // A word carrying RESTS never stores its cuts as "derived". The spread a paused word is
+            // derived from is its STRETCHES' own - the syllabifier's answer for each sung run of text - not
+            // its answer for the whole word, so a cut that happens to equal the whole-word answer (the
+            // mapper moved a divider to exactly where the syllabifier would have put it: "mul|ti|plying"
+            // out of "mul|tiply|ing") is NOT the same cut, and treating it as such would throw the edit
+            // away and snap the characters back to the syllabifier's own division.
+            var stored = splits.Count == 0 || !SyllableSegments.IsAuthoredValid(token, segments, splits)
+                         || (unit.Pauses.Count == 0 && sameSplits(splits, SyllableSegments.Derived(token, segments)))
+                ? Array.Empty<int>()
+                : splits.ToArray();
+
+            var pauses = new List<WordPause>(unit.Pauses.Count);
+
+            foreach (int slot in restSlots.OrderBy(slot => slot))
+            {
+                var rest = unit.Pauses.First(pause => pause.SplitChar == current[slot]);
+                pauses.Add(new WordPause(rest.StartTime, rest.EndTime, target[slot]));
+            }
+
+            // Nothing moved: keep the instance, so a box losing focus with the same pipes in it is not an
+            // undo step.
+            if (sameSplits(stored, unit.SyllableSplits) && pauses.SequenceEqual(unit.Pauses))
+                return unit;
+
+            return new TimedUnit
+            {
+                Text = unit.Text,
+                StartTime = unit.StartTime,
+                EndTime = unit.EndTime,
+                Source = unit.Source,
+                Confidence = unit.Confidence,
+                SyllableBoundaries = unit.SyllableBoundaries,
+                SyllableSplits = stored,
+                Pauses = pauses,
+            };
         }
 
         /// <summary>
@@ -1220,6 +1423,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             string firstText = unit.Text.Substring(0, cut);
             string secondText = unit.Text.Substring(cut);
 
+            // The word's own rest follows the half its split character lands in, rebased onto that
+            // half's spelling. A rest sitting exactly ON the cut is dropped: the gap between the two
+            // new words already IS a break there, so keeping it would only author a silence inside a
+            // word with nothing left to separate. A rest one of the halves has no room for goes too,
+            // exactly as the loader would drop it on the way back in.
+            // The word's rests follow the half their character lands in, rebased onto that half's spelling.
+            // One sitting exactly ON the cut is dropped: the gap between the two new words already IS a
+            // break there, so keeping it would only author a silence inside a word with nothing left to
+            // separate. A rest a half has no room for goes too, exactly as the loader would drop it on the
+            // way back in.
+            var firstPauses = new List<WordPause>();
+            var secondPauses = new List<WordPause>();
+
+            foreach (var pause in unit.Pauses)
+            {
+                if (pause.SplitChar < cut
+                    && pause.StartTime > unit.StartTime && pause.EndTime < boundary
+                    && pause.SplitChar > 0 && pause.SplitChar < firstText.Length)
+                {
+                    firstPauses.Add(pause);
+                }
+                else if (pause.SplitChar > cut
+                         && pause.StartTime > boundary && pause.EndTime < unit.EndTime
+                         && pause.SplitChar - cut > 0 && pause.SplitChar - cut < secondText.Length)
+                {
+                    secondPauses.Add(new WordPause(pause.StartTime, pause.EndTime, pause.SplitChar - cut));
+                }
+            }
+
             var units = line.Units.ToList();
 
             units[unitIndex] = new TimedUnit
@@ -1231,7 +1463,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Confidence = unit.Confidence,
                 // Both of these are left of the cut, so neither index moves.
                 SyllableBoundaries = unit.SyllableBoundaries.Take(boundaryIndex).ToArray(),
-                SyllableSplits = carriedSplits(firstText, splits, 0, boundaryIndex, 0),
+                SyllableSplits = carriedSplits(firstText, splits, 0, boundaryIndex, 0, firstPauses.Count > 0),
+                Pauses = Gameplay.PausedWord.UsableRests(firstText, unit.StartTime, boundary, firstPauses),
             };
 
             units.Insert(unitIndex + 1, new TimedUnit
@@ -1244,7 +1477,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 SyllableBoundaries = unit.SyllableBoundaries.Skip(boundaryIndex + 1).ToArray(),
                 // This word's cuts are indices into ITS OWN token, so each shifts down by the
                 // characters the first word took.
-                SyllableSplits = carriedSplits(secondText, splits, boundaryIndex + 1, splits.Count, cut),
+                SyllableSplits = carriedSplits(secondText, splits, boundaryIndex + 1, splits.Count, cut, secondPauses.Count > 0),
+                Pauses = Gameplay.PausedWord.UsableRests(secondText, boundary, unit.EndTime, secondPauses),
             });
 
             tokens[unitIndex] = firstText + " " + secondText;
@@ -1271,7 +1505,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// pinning it; anything else falls back to derived rather than carrying an index that could
         /// re-cut the word.
         /// </summary>
-        private static IReadOnlyList<int> carriedSplits(string token, IReadOnlyList<int> splits, int from, int to, int shift)
+        private static IReadOnlyList<int> carriedSplits(string token, IReadOnlyList<int> splits, int from, int to, int shift, bool carriesRests = false)
         {
             if (to <= from)
                 return Array.Empty<int>();
@@ -1283,7 +1517,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             int segments = kept.Length + 1;
 
-            return SyllableSegments.IsAuthoredValid(token, segments, kept) && !sameSplits(kept, SyllableSegments.Derived(token, segments))
+            // As in the pipe commit, a half that carries a rest keeps its cuts rather than folding them
+            // into "derived": its spread is derived per stretch, not from the syllabifier's whole-word answer.
+            bool derived = !carriesRests && sameSplits(kept, SyllableSegments.Derived(token, segments));
+
+            return SyllableSegments.IsAuthoredValid(token, segments, kept) && !derived
                 ? kept
                 : Array.Empty<int>();
         }
@@ -1510,6 +1748,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// its edges cannot cut two legal segments, and a caret on a boundary is not "inside" a
         /// segment at all, so both fall through to the bisect rather than refusing.</para>
         ///
+        /// <para>A word carrying an authored REST is divided by it too, and its rest is taken OUT of the
+        /// spans a divider can be spliced into - exactly as it belongs to no judgement group (see
+        /// <see cref="PausedWord"/>) - so a caret parked in the breath falls through to the bisect (it is
+        /// inside no sung span), and the bisect itself measures the sung parts of each span rather than
+        /// the whole span. Without that, a new divider would land INSIDE the rest: it would separate
+        /// characters the rest already separates, and the word's authored cuts would stop describing its
+        /// halves at all, which is a word no further divider could move.</para>
+        ///
         /// <para>The word becomes Explicit hand timing and the beatmap is promoted to Syllable
         /// granularity. The encoder only persists syllables[] for units that carry boundaries, so
         /// without the promotion a subdivision would silently vanish on save. No-op when there is no
@@ -1536,27 +1782,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             edges.AddRange(unit.SyllableBoundaries);
             edges.Add(unit.EndTime);
 
-            if (caretTime is double caret && segmentForCaret(edges, caret) is int caretSegment)
+            if (caretTime is double caret && segmentForCaret(unit, edges, caret) is int caretSegment)
             {
                 var caretBoundaries = unit.SyllableBoundaries.Append(caret).OrderBy(b => b).ToArray();
                 replaceUnitBoundaries(editorBeatmap, hitObject, unitIndex, caretBoundaries, bisectSplit(unit, caretSegment));
                 return caret;
             }
 
-            // No caret in the word: split the widest gap.
+            // No caret in the word (or none in a sung span of it): split the widest one.
             double mid = double.NaN;
             double widest = 0;
             int widestSegment = -1;
 
-            for (int i = 0; i < edges.Count - 1; i++)
+            foreach ((double lo, double hi, int segment) in spliceableSpans(unit, edges))
             {
-                double width = edges[i + 1] - edges[i];
+                double width = hi - lo;
 
                 if (width > widest)
                 {
                     widest = width;
-                    widestSegment = i;
-                    mid = (edges[i] + edges[i + 1]) / 2;
+                    widestSegment = segment;
+                    mid = (lo + hi) / 2;
                 }
             }
 
@@ -1570,20 +1816,55 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// The segment of <paramref name="edges"/> that <paramref name="caret"/> falls INSIDE with
-        /// room to cut a legal pair of segments, or null when it is outside the word, sits exactly on
-        /// a boundary (which is inside no segment), or is closer than
-        /// <see cref="MIN_SYLLABLE_MS"/> to one of that segment's edges. A null answer is what sends
-        /// <see cref="AddSyllableBoundary"/> back to its bisect.
+        /// The SUNG spans of a word's segments, as (lo, hi, segment index) triples: the segments
+        /// <paramref name="edges"/> divides the word into, with the word's authored rest taken out of
+        /// whichever one holds it - because a rest is not sung, and belongs to no syllable, so no divider
+        /// may be spliced into it. A word with no rest yields exactly its segments, in order, which is
+        /// what keeps this a no-op for every word that never had one.
         /// </summary>
-        private static int? segmentForCaret(IReadOnlyList<double> edges, double caret)
+        private static IEnumerable<(double Lo, double Hi, int Segment)> spliceableSpans(TimedUnit unit, IReadOnlyList<double> edges)
         {
+            var rests = Gameplay.PausedWord.UsableRests(unit.Text, unit.StartTime, unit.EndTime, unit.Pauses);
+
             for (int i = 0; i < edges.Count - 1; i++)
             {
-                if (caret <= edges[i] || caret >= edges[i + 1])
+                double lo = edges[i];
+                double hi = edges[i + 1];
+                double cursor = lo;
+
+                // Every rest straddling this segment takes a bite out of it: what is left either side of a
+                // breath is what a divider can be spliced into.
+                foreach (var rest in rests)
+                {
+                    if (rest.EndTime <= cursor || rest.StartTime >= hi)
+                        continue;
+
+                    if (rest.StartTime > cursor)
+                        yield return (cursor, Math.Min(rest.StartTime, hi), i);
+
+                    cursor = Math.Max(cursor, rest.EndTime);
+                }
+
+                if (cursor < hi)
+                    yield return (cursor, hi, i);
+            }
+        }
+
+        /// <summary>
+        /// The segment of a word that <paramref name="caret"/> falls INSIDE with
+        /// room to cut a legal pair of segments, or null when it is outside the word, sits exactly on
+        /// a boundary (which is inside no segment), sits in the word's rest (which belongs to no segment
+        /// either), or is closer than <see cref="MIN_SYLLABLE_MS"/> to one of that span's edges. A null
+        /// answer is what sends <see cref="AddSyllableBoundary"/> back to its bisect.
+        /// </summary>
+        private static int? segmentForCaret(TimedUnit unit, IReadOnlyList<double> edges, double caret)
+        {
+            foreach ((double lo, double hi, int segment) in spliceableSpans(unit, edges))
+            {
+                if (caret <= lo || caret >= hi)
                     continue;
 
-                return caret - edges[i] >= MIN_SYLLABLE_MS && edges[i + 1] - caret >= MIN_SYLLABLE_MS ? i : null;
+                return caret - lo >= MIN_SYLLABLE_MS && hi - caret >= MIN_SYLLABLE_MS ? segment : null;
             }
 
             return null;
@@ -1621,6 +1902,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// Drags syllable boundary <paramref name="boundaryIndex"/> of a word to
         /// <paramref name="newTime"/>, clamped to stay <see cref="MIN_SYLLABLE_MS"/> inside the word
         /// and from its adjacent boundaries (order preserved). Single undo step.
+        ///
+        /// <para>A word carrying an authored REST is one no divider may be parked INSIDE: a divider in the
+        /// breath would separate characters the rest already separates, and the word's authored cuts
+        /// would stop describing its halves at all (see <c>PausedWord.AuthoredCutsUsable</c>), so the
+        /// divider could never be moved again. A drag that LANDS in the rest therefore keeps the divider
+        /// on the side it came from, against the rest's own edge - while a drag that sweeps clean across
+        /// it (the cursor past the far edge by the next frame) is followed, so crossing a breath reads
+        /// like crossing any other span.</para>
         /// </summary>
         public static void SetSyllableBoundary(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int boundaryIndex, double newTime)
         {
@@ -1644,10 +1933,68 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             newTime = Math.Clamp(newTime, lower, upper);
 
+            foreach (var pause in unit.Pauses)
+            {
+                if (newTime <= pause.StartTime || newTime >= pause.EndTime)
+                    continue;
+
+                bool cameFromBeforeTheRest = unit.SyllableBoundaries[boundaryIndex] <= pause.StartTime;
+                double wall = cameFromBeforeTheRest ? pause.StartTime - MIN_SYLLABLE_MS : pause.EndTime + MIN_SYLLABLE_MS;
+
+                // Clamped again against the neighbours, so a divider with no room at all simply stops
+                // where it already was allowed to be.
+                newTime = Math.Clamp(wall, lower, upper);
+                break;
+            }
+
             var boundaries = unit.SyllableBoundaries.ToArray();
             boundaries[boundaryIndex] = newTime;
-            // The boundary COUNT is unchanged, so the authored split still describes this word.
-            replaceUnitBoundaries(editorBeatmap, hitObject, unitIndex, boundaries, unit.SyllableSplits);
+
+            // The boundary COUNT is unchanged, so the authored split still describes this word - but a
+            // divider that has been dragged ACROSS a rest takes its CHARACTER with it: its cut is clamped
+            // into the stretch its new time sits in, so the word's dividers still read left to right in
+            // both senses and the characters part where the mapper put the line. (A cut the stretch cannot
+            // hold at all is simply left where it was: the derivation ignores it and derives that stretch
+            // evenly, exactly as it does with any stale authored split.)
+            var splits = unit.SyllableSplits;
+
+            if (SyllableSegments.IsAuthoredValid(unit.Text, boundaries.Length + 1, unit.SyllableSplits))
+            {
+                var recut = unit.SyllableSplits.ToArray();
+                var (lo, hi) = stretchCharRange(unit, newTime);
+                recut[boundaryIndex] = Math.Clamp(recut[boundaryIndex], lo, hi);
+                splits = recut;
+            }
+
+            replaceUnitBoundaries(editorBeatmap, hitObject, unitIndex, boundaries, splits);
+        }
+
+        /// <summary>
+        /// The character range of the sung stretch a TIME falls in: after the cut of every rest that ends
+        /// before it and before the cut of the first rest that starts after it. Returned as the range a
+        /// character CUT is clamped into (so both ends leave a character either side of it).
+        /// </summary>
+        private static (int Lo, int Hi) stretchCharRange(TimedUnit unit, double time)
+        {
+            int lo = 0;
+            int hi = unit.Text.Length;
+
+            foreach (var rest in Gameplay.PausedWord.UsableRests(unit.Text, unit.StartTime, unit.EndTime, unit.Pauses))
+            {
+                if (time >= rest.EndTime)
+                {
+                    lo = Math.Max(lo, rest.SplitChar);
+                    continue;
+                }
+
+                if (time <= rest.StartTime)
+                {
+                    hi = Math.Min(hi, rest.SplitChar);
+                    break;
+                }
+            }
+
+            return (lo + 1, Math.Max(lo + 1, hi - 1));
         }
 
         /// <summary>
@@ -1693,7 +2040,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             splits[boundaryIndex] = Math.Clamp(charIndex, lower, upper);
 
-            var stored = sameSplits(splits, SyllableSegments.Derived(unit.Text, segments))
+            // The same rule the pipe commit follows: a word carrying rests keeps every cut it is given,
+            // because the spread its stretches derive is not the syllabifier's whole-word answer.
+            var stored = unit.Pauses.Count == 0 && sameSplits(splits, SyllableSegments.Derived(unit.Text, segments))
                 ? Array.Empty<int>()
                 : splits.ToArray();
 
@@ -1711,6 +2060,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Confidence = unit.Confidence,
                 SyllableBoundaries = unit.SyllableBoundaries,
                 SyllableSplits = stored,
+                // Moving one dotted line moves a CUT, not a rest: the word's breaths are untouched.
+                Pauses = unit.Pauses,
             };
 
             editorBeatmap.BeginChange();
@@ -1806,6 +2157,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         private static void replaceUnitBoundaries(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex,
                                                   IReadOnlyList<double> boundaries, IReadOnlyList<int> splits)
+            => replaceUnitShape(editorBeatmap, hitObject, unitIndex, boundaries, splits, hitObject.Line.Units[unitIndex].Pauses);
+
+        /// <summary>
+        /// Rebuilds a line with one unit's subdivision AND its authored rest replaced together - the
+        /// shared tail of every edit that reshapes a word's dividers (subdivide / un-subdivide, and the
+        /// SHIFT+drag that promotes a divider into a rest). The unit becomes Explicit and fully trusted
+        /// (both are hand timing), the line stops being Estimated, and the beatmap's granularity is
+        /// reconciled (up to Syllable while a boundary survives, down to Word when the last one goes -
+        /// and never below Word while a rest is there, since a rest is persisted inside <c>words[]</c>).
+        /// Single undo step.
+        /// </summary>
+        private static void replaceUnitShape(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex,
+                                             IReadOnlyList<double> boundaries, IReadOnlyList<int> splits, IReadOnlyList<WordPause> pauses)
         {
             var line = hitObject.Line;
             var units = line.Units.ToArray();
@@ -1824,6 +2188,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Confidence = 1,
                 SyllableBoundaries = boundaries.Count == 0 ? Array.Empty<double>() : boundaries.ToArray(),
                 SyllableSplits = keepSplits ? splits.ToArray() : Array.Empty<int>(),
+                // The rests the CALLER decided on: left alone by the subdivision edits (a word's breath is
+                // a decision about its own spelling and span, neither of which they touch), and authored
+                // by the SHIFT+drag that promotes a divider into one.
+                Pauses = pauses,
             };
 
             editorBeatmap.BeginChange();
@@ -1840,6 +2208,343 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             editorBeatmap.Update(hitObject);
             syncGranularity(editorBeatmap);
             editorBeatmap.EndChange();
+        }
+
+        #endregion
+
+        #region The authored pause inside a word (the timeline strip's Insert Pause)
+
+        /// <summary>
+        /// Inserts the Map Editor's authored pause into one word: a rest between two of its
+        /// characters, for the multisyllabic words where the singer breathes mid-word. The mapper
+        /// points at the breath with the playhead, so:
+        ///
+        /// <list type="number">
+        /// <item><b>The playhead is the rest's START.</b></item>
+        /// <item><b>The SPLIT snaps to the nearest character boundary at or after it</b> - the first
+        /// character of the word whose own target time is not before the playhead, read through the
+        /// very spread gameplay judges on (<c>TypingLine.CellTargetsFor</c>), so "the boundary" is the
+        /// moment the player will actually be typing and not a second opinion about it. The rest is
+        /// placed after that character's predecessor, so the character the mapper pointed at is the
+        /// first one sung AFTER the breath. A playhead past every boundary takes the last one the word
+        /// can hold, since a rest still needs a character on each side of it.</item>
+        /// <item><b>The rest initially runs to that same boundary's time</b> - the moment the next
+        /// character was due - which is the shortest rest that leaves every character in its own stretch
+        /// and the one the mapper then widens by dragging its end edge.</item>
+        /// </list>
+        ///
+        /// <para>A word may take SEVERAL rests, one per breath, so this ADDS one rather than replacing
+        /// what is there: the new rest is kept only when it fits among the others - no overlap with an
+        /// existing breath, its own character position, and its character in the same order as its time,
+        /// which is the invariant <see cref="Gameplay.PausedWord"/> reads the word by.</para>
+        ///
+        /// <para>The two edges are clamped to the same minimum the subdivision boundaries use, and the
+        /// word becomes Explicit hand timing with the beatmap promoted to at least Word granularity
+        /// (<see cref="promoteToWordGranularity"/>): the encoder only persists <c>words[]</c>, and the
+        /// pause is written inside it, so without the promotion the rest would vanish on save - the
+        /// exact trap <see cref="AddSyllableBoundary"/> documents for a subdivision.</para>
+        ///
+        /// <para>No-op (null) on a word with fewer than two typeable characters - nothing to breathe
+        /// between - or one too short to hold a rest with a character of room either side.
+        /// Single undo step. Inserting over a rest the word already had replaces it.</para>
+        /// </summary>
+        /// <param name="editorBeatmap">The map being edited.</param>
+        /// <param name="hitObject">The line owning the word.</param>
+        /// <param name="unitIndex">The word unit within that line.</param>
+        /// <param name="playheadTime">The editor's playhead (caret) in song time, which becomes the
+        /// rest's start.</param>
+        /// <returns>The pause that was written, or null when the word cannot hold one.</returns>
+        public static WordPause? InsertWordPause(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, double playheadTime)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < 0 || unitIndex >= line.Units.Count)
+                return null;
+
+            var unit = line.Units[unitIndex];
+            int typeable = Typeability.TypeableCount(unit.Text);
+
+            if (typeable < 2)
+                return null;
+
+            // The word must hold room before the rest, the rest itself, and a character after it.
+            double earliestStart = unit.StartTime + MIN_SYLLABLE_MS;
+            double latestStart = unit.EndTime - MIN_SYLLABLE_MS * 2;
+
+            if (latestStart < earliestStart)
+                return null;
+
+            var targets = Gameplay.TypingLine.CellTargetsFor(unit, typeable);
+
+            // First character whose own target is at/after the playhead, clamped to the last one that
+            // still leaves a character after it.
+            int cell = 1;
+
+            while (cell < typeable - 1 && targets[cell] < playheadTime)
+                cell++;
+
+            int split = rawIndexOfCell(unit.Text, cell);
+
+            if (split <= 0 || split >= unit.Text.Length)
+                return null;
+
+            double pauseStart = Math.Clamp(playheadTime, earliestStart, latestStart);
+            double pauseEnd = Math.Clamp(targets[cell], pauseStart + MIN_SYLLABLE_MS, unit.EndTime - MIN_SYLLABLE_MS);
+            var pause = new WordPause(pauseStart, pauseEnd, split);
+
+            var pauses = Gameplay.PausedWord.UsableRests(unit.Text, unit.StartTime, unit.EndTime, unit.Pauses.Append(pause));
+
+            // A rest that this word cannot take (it would overlap a breath it already has, or share a
+            // character with one) is refused rather than stored: the derivation would ignore it, and a
+            // rest that does nothing is worse than a button that says so.
+            if (pauses.Count != unit.Pauses.Count + 1)
+                return null;
+
+            replaceUnitPauses(editorBeatmap, hitObject, unitIndex, pauses);
+            return pause;
+        }
+
+        /// <summary>
+        /// PROMOTES one subdivision of a word into an authored PAUSE - the timeline strip's SHIFT+drag
+        /// on a dotted line. The mapper drags the divider as usual, and the span it was dragged ACROSS
+        /// becomes the rest: <paramref name="fromTime"/> is where the divider stood when the drag began
+        /// (what the characters before it ran out at) and <paramref name="toTime"/> is the moment they
+        /// let go, which is where the characters after it now begin. Its cut is the consumed divider's
+        /// own character split, so the characters either side of the breath are exactly the ones that
+        /// divider separated.
+        ///
+        /// <para>The divider is CONSUMED, exactly as <see cref="SplitWord"/> consumes one when it turns
+        /// it into the gap between two words: the rest it becomes is a divider in its own right - it
+        /// prints its own pipe, parts the word's text either side of itself, ticks the sub-tick and parts
+        /// the judgement groups (see <see cref="WordPause"/>) - so the word's divider count does not change
+        /// and its line box reads the same before and after: "re|member" dragged open is still
+        /// "re|member", with the pipe now standing on a breath. A word may take several rests (one per
+        /// breath), and this ADDS one.</para>
+        ///
+        /// <para>Both edges are clamped <see cref="MIN_SYLLABLE_MS"/> inside the word, exactly as the
+        /// rest's own edge drags clamp them. No-op for a divider with no character cut to sit after (a
+        /// syllabifier that degraded on an over-forced word), a rest that would not fit among the ones the
+        /// word already has (see <see cref="InsertWordPause"/>), a rest the ENGINE could not honour (its
+        /// split leaving every typeable cell on one side, which is the same derivation that would ignore
+        /// it at play time, asked here so a mapper is never handed a rest that does nothing), and a sweep
+        /// shorter than <see cref="MIN_SYLLABLE_MS"/> - a SHIFT+press that never really moved, which
+        /// leaves the divider at the new position the drag gave it, exactly as a plain drag would.</para>
+        ///
+        /// <para>Single undo step, and it is the step the drag that owns it already opened: the strip
+        /// latches where the divider started, re-times it exactly as a plain drag does while the mapper
+        /// moves, and promotes the swept span on release. The word becomes Explicit hand timing and the
+        /// beatmap is reconciled to carry it, as every divider edit is.</para>
+        /// </summary>
+        /// <returns>Whether a rest was authored.</returns>
+        public static bool ExtendSubdivisionIntoPause(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex,
+                                                      int boundaryIndex, double fromTime, double toTime)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < 0 || unitIndex >= line.Units.Count)
+                return false;
+
+            var unit = line.Units[unitIndex];
+
+            if (boundaryIndex < 0 || boundaryIndex >= unit.SyllableBoundaries.Count)
+                return false;
+
+            // The consumed divider's own cut, which is what the rest will sit after.
+            var splits = SyllableSegments.SplitsFor(unit);
+
+            if (splits.Count != unit.SyllableBoundaries.Count)
+                return false;
+
+            int split = splits[boundaryIndex];
+
+            if (split <= 0 || split >= unit.Text.Length)
+                return false;
+
+            int cellsBefore = 0;
+
+            for (int i = 0; i < split; i++)
+            {
+                if (Typeability.IsCell(unit.Text[i]))
+                    cellsBefore++;
+            }
+
+            int cells = Typeability.TypeableCount(unit.Text);
+
+            if (cellsBefore <= 0 || cellsBefore >= cells)
+                return false;
+
+            // A sweep too short to be a drag is not one, however the clamping below would round it.
+            if (Math.Abs(toTime - fromTime) < MIN_SYLLABLE_MS)
+                return false;
+
+            // Room for a character, the rest and a character, then the rest's own edges clamped into it.
+            if (unit.EndTime - unit.StartTime < MIN_SYLLABLE_MS * 3)
+                return false;
+
+            double start = Math.Clamp(Math.Min(fromTime, toTime), unit.StartTime + MIN_SYLLABLE_MS, unit.EndTime - MIN_SYLLABLE_MS * 2);
+            double end = Math.Clamp(Math.Max(fromTime, toTime), start + MIN_SYLLABLE_MS, unit.EndTime - MIN_SYLLABLE_MS);
+
+            if (end - start < MIN_SYLLABLE_MS)
+                return false;
+
+            // The rest must fit among the ones this word already has, on the same terms every other rest
+            // is held to.
+            var added = Gameplay.PausedWord.UsableRests(unit.Text, unit.StartTime, unit.EndTime,
+                unit.Pauses.Append(new WordPause(start, end, split)));
+
+            if (added.Count != unit.Pauses.Count + 1)
+                return false;
+
+            // The divider's time goes with it; the rest of them still describe the same characters.
+            var boundaries = unit.SyllableBoundaries.Where((_, i) => i != boundaryIndex).ToArray();
+            var kept = SyllableSegments.IsAuthoredValid(unit.Text, unit.SyllableBoundaries.Count + 1, unit.SyllableSplits)
+                ? unit.SyllableSplits.Where((_, i) => i != boundaryIndex).ToArray()
+                : Array.Empty<int>();
+
+            replaceUnitShape(editorBeatmap, hitObject, unitIndex, boundaries, kept, added);
+            return true;
+        }
+
+        /// <summary>
+        /// Drags the START edge of rest <paramref name="pauseIndex"/> of a word (its
+        /// <paramref name="newStart"/> following the cursor), clamped to stay
+        /// <see cref="MIN_SYLLABLE_MS"/> inside the word and from that rest's other edge and its
+        /// neighbours' breaths, exactly as a dotted subdivision line is clamped between its neighbours.
+        /// No-op on a word with no such rest, or when there is no legal slot. Single undo step.
+        /// </summary>
+        public static void SetWordPauseStart(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int pauseIndex, double newStart)
+            => moveWordPauseEdge(editorBeatmap, hitObject, unitIndex, pauseIndex, newStart, moveStart: true);
+
+        /// <summary>
+        /// Drags the END edge of rest <paramref name="pauseIndex"/> - the other half of the same gesture,
+        /// and the edge the mapper actually widens to say how long the breath lasts. Clamped as
+        /// <see cref="SetWordPauseStart"/>'s is. Single undo step.
+        /// </summary>
+        public static void SetWordPauseEnd(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int pauseIndex, double newEnd)
+            => moveWordPauseEdge(editorBeatmap, hitObject, unitIndex, pauseIndex, newEnd, moveStart: false);
+
+        /// <summary>
+        /// Takes rest <paramref name="pauseIndex"/> back out of a word (the double-click on that rest's
+        /// greyed body), leaving the word's OTHER breaths exactly where they were. An index with no rest
+        /// behind it is untouched, so it is safe to call unconditionally. Single undo step.
+        /// </summary>
+        public static void RemoveWordPause(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int pauseIndex)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < 0 || unitIndex >= line.Units.Count)
+                return;
+
+            var unit = line.Units[unitIndex];
+
+            if (pauseIndex < 0 || pauseIndex >= unit.Pauses.Count)
+                return;
+
+            replaceUnitPauses(editorBeatmap, hitObject, unitIndex, unit.Pauses.Where((_, i) => i != pauseIndex).ToArray());
+        }
+
+        private static void moveWordPauseEdge(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int pauseIndex, double newTime, bool moveStart)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < 0 || unitIndex >= line.Units.Count)
+                return;
+
+            var unit = line.Units[unitIndex];
+
+            if (pauseIndex < 0 || pauseIndex >= unit.Pauses.Count)
+                return;
+
+            var pause = unit.Pauses[pauseIndex];
+
+            // The rest is clamped inside the word, and cannot grow THROUGH a neighbouring breath: the
+            // nearer edge of the one before or after it is its wall, exactly as a neighbouring boundary is
+            // a divider's.
+            double lower = moveStart ? unit.StartTime + MIN_SYLLABLE_MS : pause.StartTime + MIN_SYLLABLE_MS;
+            double upper = moveStart ? pause.EndTime - MIN_SYLLABLE_MS : unit.EndTime - MIN_SYLLABLE_MS;
+
+            if (moveStart && pauseIndex > 0)
+                lower = Math.Max(lower, unit.Pauses[pauseIndex - 1].EndTime + MIN_SYLLABLE_MS);
+
+            if (!moveStart && pauseIndex < unit.Pauses.Count - 1)
+                upper = Math.Min(upper, unit.Pauses[pauseIndex + 1].StartTime - MIN_SYLLABLE_MS);
+
+            // The word (or the rest's other edge, or its neighbour) leaves no valid slot; no-op rather
+            // than clamp into an inverted range.
+            if (upper < lower)
+                return;
+
+            newTime = Math.Clamp(newTime, lower, upper);
+
+            var pauses = unit.Pauses.ToArray();
+            pauses[pauseIndex] = moveStart
+                ? new WordPause(newTime, pause.EndTime, pause.SplitChar)
+                : new WordPause(pause.StartTime, newTime, pause.SplitChar);
+
+            replaceUnitPauses(editorBeatmap, hitObject, unitIndex, pauses);
+        }
+
+        /// <summary>
+        /// Writes one unit's authored pauses back (an EMPTY list removes them all), stamping the word
+        /// Explicit and trusted exactly as <see cref="replaceUnitBoundaries"/> does - a rest IS hand
+        /// timing - and reconciling the beatmap's granularity so the saved map still carries the
+        /// <c>words[]</c> the rests are written inside. Single undo step.
+        /// </summary>
+        private static void replaceUnitPauses(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, IReadOnlyList<WordPause> pauses)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < 0 || unitIndex >= line.Units.Count)
+                return;
+
+            var unit = line.Units[unitIndex];
+
+            if (unit.Pauses.SequenceEqual(pauses))
+                return;
+
+            var units = line.Units.ToArray();
+
+            units[unitIndex] = new TimedUnit
+            {
+                Text = unit.Text,
+                StartTime = unit.StartTime,
+                EndTime = unit.EndTime,
+                Source = TimingSource.Explicit,
+                Confidence = 1,
+                SyllableBoundaries = unit.SyllableBoundaries,
+                SyllableSplits = unit.SyllableSplits,
+                Pauses = pauses.ToArray(),
+            };
+
+            editorBeatmap.BeginChange();
+            hitObject.Line = rebuild(line, units: units);
+            editorBeatmap.Update(hitObject);
+            promoteToWordGranularity(editorBeatmap);
+            editorBeatmap.EndChange();
+        }
+
+        /// <summary>
+        /// The INDEX IN THE TOKEN of its <paramref name="cellIndex"/>-th typeable cell: "the third
+        /// character" of "well-known" is 'l', not '-' or 'k', which is what a
+        /// <see cref="WordPause.SplitChar"/> has to name. Falls back to the token's length for an index
+        /// past the last cell, which every caller then rejects.
+        /// </summary>
+        private static int rawIndexOfCell(string token, int cellIndex)
+        {
+            int seen = 0;
+
+            for (int i = 0; i < token.Length; i++)
+            {
+                if (!Typeability.IsCell(token[i]))
+                    continue;
+
+                if (seen == cellIndex)
+                    return i;
+
+                seen++;
+            }
+
+            return token.Length;
         }
 
         #endregion

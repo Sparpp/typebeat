@@ -54,6 +54,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         /// </summary>
         private double gameplayTime => stage.Clock.CurrentTime;
 
+        // Which map LoadPlayer builds. CreateBeatmap runs from inside LoadPlayer, which is a custom
+        // step, so a step chooses the fixture first. Every test sets it explicitly rather than
+        // inheriting whatever the previous one left.
+        private bool wordAnchorMap;
+
+        private void useWordAnchorMap() => AddStep("use the word-anchor map", () => wordAnchorMap = true);
+
+        // A fourth fixture: the push lands LATER than the fixed lead the bar measures from the next
+        // line's word, which is what tells a fixed lead apart from one stretched to the push.
+        private bool fixedLeadMap;
+
+        private void useFixedLeadMap() => AddStep("use the fixed-lead map", () => fixedLeadMap = true);
+
         protected override IBeatmap CreateBeatmap(RulesetInfo ruleset)
         {
             var beatmap = new Beatmap { HitObjects = new List<Rulesets.Objects.HitObject>() };
@@ -62,13 +75,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             beatmap.BeatmapInfo.Metadata.Artist = "Test";
             beatmap.BeatmapInfo.Metadata.Title = "PushWarning";
 
+            if (wordAnchorMap)
+            {
+                // The shape where "the following line begins" and "its first word begins" are two
+                // different instants: line 1's boundary sits on line 0's end (6000, what the editor's
+                // shared boundary produces) while its vocals only start at 6800. Line 0 is the same
+                // drag shape as above, so its cutoff is still 7500 and the only thing that moves is
+                // where the warning opens.
+                addLine(beatmap, 0, "ab", 1000, 6000, 2000, 1000, 2000);
+                addLine(beatmap, 1, "cd", 6000, 30000, 9000, 6800, 9000);
+                return beatmap;
+            }
+
+            if (fixedLeadMap)
+            {
+                // Line 0 authors the largest seal grace a line may carry (700 ms), so its cutoff is
+                // 6000 + 700 + 1500 = 8200 while line 1's first word begins at 6100. The bar is a
+                // fixed 1.5 s from that word - [6100, 7600) - and NOT stretched over the 2100 ms the
+                // whole warning span happens to be, which is the difference between a fixed lead and
+                // a window fitted to the push.
+                addLine(beatmap, 0, "ab", 1000, 6000, 2000, 1000, 2000, sealGrace: 700);
+                addLine(beatmap, 1, "cd", 6000, 30000, 9000, 6100, 9000);
+                return beatmap;
+            }
+
             addLine(beatmap, 0, "ab", 1000, 6000, 2000, 1000, 2000);
             addLine(beatmap, 1, "cd", 6000, 30000, 8000, 6000, 8000);
 
             return beatmap;
         }
 
-        private static void addLine(Beatmap beatmap, int index, string text, double start, double end, double singEnd, double unitStart, double unitEnd)
+        private static void addLine(Beatmap beatmap, int index, string text, double start, double end, double singEnd, double unitStart, double unitEnd, double sealGrace = 0)
         {
             var line = new LyricLine
             {
@@ -76,6 +113,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 StartTime = start,
                 EndTime = end,
                 SingEndTime = singEnd,
+                SealGraceMs = sealGrace,
                 Units = new[] { new TimedUnit { Text = text, StartTime = unitStart, EndTime = unitEnd } },
             };
 
@@ -115,11 +153,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             double lastDark = -1;
             double firstLit = -1;
+            float firstLitAlpha = 1;
+            float lastLitAlpha = 0;
 
-            // The opening EDGE, checked every frame. The bar covers the final CUE_LEAD_MS (1500) of a
-            // cutoff at EndTime + SealGraceMs + FLETCHER_DRAG_GRACE_MS, and with those two constants both
-            // 1500 that is EndTime + SealGraceMs = 6000 exactly, the instant the song leaves the line's
-            // own grace and the seal becomes permitted but for drag protection.
+            // The opening EDGE, checked every frame. The bar's window opens when the line that is about
+            // to take the player counts as starting - its FIRST WORD - and closes on the cutoff at
+            // EndTime + SealGraceMs + FLETCHER_DRAG_GRACE_MS. Line 1's first unit starts on its boundary
+            // here, so both land on 6000 and the window is [6000, 7500) exactly as it was when the rule
+            // was a fixed CUE_LEAD_MS before the cutoff.
             //
             // The assertion is a function of the time the frame LANDED ON rather than of the frame count,
             // which is what keeps it honest on a loaded machine. A sweep that asserted "dark" flatly and
@@ -131,31 +172,51 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // to land anywhere in particular and pins the edge with no tolerance at all: the last dark
             // frame and the first lit one are adjacent, so it cannot pass if the bar opened a frame early
             // or a frame late.
-            AddUntilStep("dark below 6000 and red from 6000, on every frame", () =>
+            //
+            // Membership, not visibility: the bar FADES IN from nothing (see the alpha assertions
+            // below), so "is the bar drawn yet" lags the window by a few frames and cannot pin an edge
+            // on its own. The bar being COUNTED DOWN is the crisp fact, and the two are pinned apart.
+            AddUntilStep("dark below 6000 and counting from 6000, on every frame", () =>
             {
                 double t = gameplayTime;
-                bool visible = stage.PushWarningVisible;
+                bool open = stage.PushWarningWindowOpen;
 
-                Assert.That(t, Is.LessThan(7500),
-                    "a single frame skipped the whole 1500 ms window, so the opening edge was never sampled");
-
-                if (visible)
+                if (open)
                 {
-                    firstLit = t;
+                    if (firstLit < 0)
+                    {
+                        firstLit = t;
+                        firstLitAlpha = stage.PushWarningAlpha;
+                    }
+
+                    lastLitAlpha = stage.PushWarningAlpha;
+
                     Assert.That(stage.PushWarningTargetLine, Is.EqualTo(0), $"at {t:F0} ms the bar warned about the wrong line");
                     Assert.That(engine.ActiveLineIndex, Is.EqualTo(0), $"at {t:F0} ms the player was no longer on the line being counted down");
                 }
                 else
                     lastDark = t;
 
-                Assert.That(visible, Is.EqualTo(t >= 6000),
-                    $"at {t:F0} ms the warning was {(visible ? "up before" : "still dark after")} the line's grace ran out at 6000");
+                Assert.That(open, Is.EqualTo(t >= 6000),
+                    $"at {t:F0} ms the warning was {(open ? "up before" : "still dark after")} the next line's first word at 6000");
 
-                return visible;
+                // Stop once the window is old enough to have shown how bright it gets, or the moment it
+                // shuts. Sampling right up to the cutoff would make the far end of the sweep a race
+                // against a frame that steps over it; the alpha only has to be READ late in the window,
+                // not at the last instant of it.
+                return t >= 7000 || (t > 6000 && !open);
             });
 
-            AddAssert("it opened on the frame that crossed the grace end, and not one frame either side", () =>
+            AddAssert("it opened on the frame that crossed the next line's word, and not one frame either side", () =>
                 lastDark < 6000 && firstLit >= 6000 && firstLit < 7500);
+
+            // THE ENTRANCE, which the edge cannot pin: the bar must not arrive at half brightness
+            // between one frame and the next (what it did when it borrowed the cues' ramp whole), and
+            // it must have climbed to its full strength by the time it has drained into the push. The
+            // opening frame is dim by construction, the fade starting from nothing; on the ~200-270 ms
+            // frames this scene runs on that is under a third of what the cues open at.
+            AddAssert("it fades in rather than snapping on, and is bright as it drains", () =>
+                firstLitAlpha < 0.5f && lastLitAlpha > 0.7f);
 
             // And it is gone the moment the thing it warned about has happened: the line force-sealed,
             // the caret was landed on line 1, and line 1's own cutoff (30000 + 1500) is nowhere near.
@@ -240,6 +301,104 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                        && Math.Abs(stage.PushWarningScreenRightEdge.X - lineEnd) < 1f
                        && stage.PushWarningScreenLeftEdge.X < lineEnd - 1f;
             });
+        }
+
+        /// <summary>
+        /// WHEN the window opens, since a line counts as starting at its first word. Line 1's boundary
+        /// passes at 6000 and its first word begins at 6800; the unpinned caret cannot act on the
+        /// boundary, so the warning must stay dark right through it and open with the word, still
+        /// draining into the same push at 7500. Nothing about the PUNISHMENT moves - same cutoff, same
+        /// force-seal - only the moment the player is told about it.
+        /// </summary>
+        [Test]
+        public void TestWarningOpensWithTheNextLinesWordNotItsBoundary()
+        {
+            useWordAnchorMap();
+            AddStep("load player with no mods", () => LoadPlayer(Array.Empty<Mod>()));
+            AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
+            AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0 && gameplayTime > 0);
+            AddStep("press A only", () => InputManager.Key(Key.A));
+            AddAssert("the push being warned about is the same one", () =>
+                engine.DragCutoffAt == 7500 && engine.ActiveLineIndex == 0);
+
+            // The next line's boundary comes and goes with the bar still dark: the player is on line 0,
+            // and a boundary they cannot type from is not a moment anything happens at. Swept per
+            // frame, so no frame has to land anywhere in particular - the bar is shut on every frame
+            // below the word and counting on every frame from it, and the two facts are read off the
+            // times the frames actually landed on.
+            double lastDark = -1;
+            double firstLit = -1;
+
+            AddUntilStep("dark through the boundary, counting from the word, on every frame", () =>
+            {
+                double t = gameplayTime;
+                bool open = stage.PushWarningWindowOpen;
+
+                if (open)
+                {
+                    if (firstLit < 0)
+                        firstLit = t;
+
+                    Assert.That(stage.PushWarningTargetLine, Is.EqualTo(0), $"at {t:F0} ms the bar warned about the wrong line");
+                    Assert.That(engine.ActiveLineIndex, Is.EqualTo(0), $"at {t:F0} ms the player was no longer on the line being counted down");
+                }
+                else if (t < 6800)
+                    lastDark = t;
+
+                Assert.That(open, Is.EqualTo(t >= 6800),
+                    $"at {t:F0} ms the warning was {(open ? "up before" : "still dark after")} the next line's word at 6800");
+
+                // Stop with half a second of window still ahead of the sweep, so the exit never races
+                // the cutoff: this test is about the OPENING edge, and the other one reads the far end.
+                return t >= 7000;
+            });
+
+            AddAssert("the boundary at 6000 passed with the bar dark, which the word at 6800 opened", () =>
+                lastDark > 6000 && firstLit >= 6800 && firstLit < 7500);
+        }
+
+        /// <summary>
+        /// The bar is a FIXED lead, not a window fitted to the punishment. Here the push lands at 8200 -
+        /// a full 2.1 s after the next line's first word at 6100 - so a bar that stretched itself over
+        /// the whole span would still be counting at 8000, while a fixed 1.5 s lead is out by 7600.
+        /// </summary>
+        [Test]
+        public void TestWarningIsAFixedLeadFromTheWordNotTheSpanToThePush()
+        {
+            useFixedLeadMap();
+            AddStep("load player with no mods", () => LoadPlayer(Array.Empty<Mod>()));
+            AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
+            AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0 && gameplayTime > 0);
+            AddStep("press A only", () => InputManager.Key(Key.A));
+            AddAssert("the push being warned about is the 8200 one", () =>
+                engine.DragCutoffAt == 8200 && gameplayTime < 6100);
+
+            double lastLit = -1;
+            double firstDark = -1;
+
+            AddUntilStep("lit from the word at 6100, out again at 7600, on every frame", () =>
+            {
+                double t = gameplayTime;
+                bool open = stage.PushWarningWindowOpen;
+
+                if (open)
+                {
+                    lastLit = t;
+                    Assert.That(stage.PushWarningTargetLine, Is.EqualTo(0), $"at {t:F0} ms the bar warned about the wrong line");
+                }
+                else if (t > 6100)
+                    firstDark = t;
+
+                Assert.That(open, Is.EqualTo(t >= 6100 && t < 7600),
+                    $"at {t:F0} ms the warning was {(open ? "up before" : "still dark after")} its fixed lead from the word at 6100");
+
+                return t >= 7600;
+            });
+
+            // Out a good second before the push, with the push still ahead: that is what "fixed" means,
+            // and a window stretched to the punishment would fail every one of these.
+            AddAssert("a full 1.5 s from the word, and out well before the push", () =>
+                lastLit < 7600 && firstDark >= 7600 && firstDark < 8200 && engine.DragCutoffAt == 8200);
         }
     }
 }

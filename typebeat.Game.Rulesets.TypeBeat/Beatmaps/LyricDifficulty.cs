@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
@@ -117,10 +118,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// The hardest window must carry at least this many weighted characters. The shortest
         /// interval holding them raises the minimum duration above
-        /// <see cref="MinimumWindowSeconds"/> when it is longer; it can never lower it. Zero
-        /// disables the cutoff, which is the sandbox's own default.
+        /// <see cref="MinimumWindowSeconds"/> when it is longer; it can never lower it. A map with
+        /// no window carrying them therefore rates zero, however fast its short bursts are. Zero
+        /// disables the cutoff.
         /// </summary>
-        public const double MinimumWindowChars = 0;
+        public const double MinimumWindowChars = 16;
 
         /// <summary>
         /// The duration every map's peak is re-expressed at for the Target WPM readout (see
@@ -157,12 +159,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             /// <summary>Start time of each authored syllable group, or null when the word carries none.</summary>
             public readonly double[]? Groups;
 
+            /// <summary>
+            /// End time of each group in <see cref="Groups"/>, when the groups are STRETCHES rather
+            /// than contiguous syllables: a word cut by rests is sung in pieces whose spans do not
+            /// meet, and a rest between two of them belongs to no stretch of typing. Null for every
+            /// ordinary word, whose group g ends exactly where group g + 1 begins.
+            /// </summary>
+            public readonly double[]? GroupEnds;
+
             public readonly double Z;
             public readonly bool Scored;
 
             public double End => Start + Span;
 
-            public Word(double start, double span, double cells, int lineIndex, string token, double[]? groups, double z, bool scored)
+            public Word(double start, double span, double cells, int lineIndex, string token, double[]? groups, double z, bool scored, double[]? groupEnds = null)
             {
                 Start = start;
                 Span = span;
@@ -170,6 +180,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 LineIndex = lineIndex;
                 Token = token;
                 Groups = groups;
+                GroupEnds = groupEnds;
                 Z = z;
                 Scored = scored;
             }
@@ -205,6 +216,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             /// <summary>Weighted cells the peak window carries.</summary>
             public required double PeakCells { get; init; }
+
 
             /// <summary>Start of the peak window, in seconds from the map's first sung word.</summary>
             public required double PeakStartSeconds { get; init; }
@@ -708,6 +720,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>Public form of the capability curve, so the pace figures and tests can read it.</summary>
         public static double Capability(double seconds) => capability(seconds);
 
+
         /// <summary>
         /// A prefix table read at a fractional position, clamped to the table's own ends. Both arms
         /// read a window's mass through this one interpolation - the envelope's character-weighted
@@ -876,7 +889,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double rate,
             bool literate,
             LyricScoreSource scores,
-            ChunkedEndurance.Settings settings)
+            ChunkedEndurance.Settings settings,
+            bool decideRuns = true)
         {
             if (rate <= 0)
                 return new ChunkedRating(ChunkedEndurance.EmptyReport(settings), 0, 0, 0, 0, false);
@@ -928,8 +942,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return applies ? ChunkedTypabilityMultiplier(z, settings) : 1;
             }
 
-            var timeline = new ChunkedEndurance.Timeline(words, t0, nb, settings.bin_ms, pre);
-            ChunkedEndurance.Report report = ChunkedEndurance.Compute(timeline, load, Window, settings, literate);
+            var timeline = new ChunkedEndurance.Timeline(words, t0, nb, settings.bin_ms, pre,
+                ChunkedEndurance.BuildShiftPrefix(words, t0, nb, literate, settings));
+
+            // THE RUNS AND THE GRID ARE DECIDED BEFORE THE NON-RATE MODS, and ONLY when one is actually
+            // in play. A run is a property of the map's material - which passages butt up against each
+            // other and which are separated by a rest - so Literate and the judgement arms must not be
+            // able to reshape it: deciding it on the played stream is what let Literate dissolve a run
+            // (the merge's lift fell from +7.1% to +4.6% between the plain and Literate readings of one
+            // map, which swallowed everything the extra material had added).
+            //
+            // A play with NEITHER of those takes the live path untouched, which is the whole point of
+            // the gate: the fix must not move the figures of a map no mod has shaped. That is not a
+            // coincidence of the two passes agreeing - the live path reads its grid off the strain,
+            // which the base pass cannot reproduce - so a plain play must not be handed a base pass at
+            // all (see ChunkedEndurance.Compute's anchor rule).
+            //
+            // The base pass is taken at the PLAYED RATE, because a rate genuinely repacks the grid (the
+            // chunk length is a real duration, so Double Time buys fewer, denser chunks) - and with the
+            // DEFAULT stream and the LIVE shelter. The map's own TYPABILITY is kept: that index is part
+            // of the material rather than a mod, and it is what the live figures were computed with.
+            IReadOnlyList<ChunkedEndurance.RunSpan>? baseRuns = null;
+
+            bool modShapedPlay = literate || settings.complexity_mod != ChunkedEndurance.mod_none;
+
+            if (decideRuns && modShapedPlay && settings.chunk_merge_mode is ChunkedEndurance.merge_runs or ChunkedEndurance.merge_runs_gated)
+            {
+                ChunkedEndurance.Settings baseSettings = settings with { complexity_mod = ChunkedEndurance.mod_none };
+                ChunkedRating baseRating = RateChunked(lines, rate, literate: false, scores, baseSettings, decideRuns: false);
+
+                baseRuns = baseRating.Report.RunSpans;
+            }
+
+            ChunkedEndurance.Report report = ChunkedEndurance.Compute(timeline, load, Window, settings, literate, baseRuns);
 
             return new ChunkedRating(report, pre[nb], durationSeconds, meanZ, scoredFraction, applies);
         }
@@ -1030,8 +1075,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     // beatmap time (it is a floor on the AUTHORING, not on the player's clock) and
                     // the divide happens after it, exactly as the onset's does.
                     double[]? groups = null;
+                    double[]? groupEnds = null;
 
-                    if (j < line.Units.Count && line.Units[j].SyllableBoundaries.Count > 0)
+                    // A PAUSE IS A DIVIDER TOO. A word the mapper cut with rests is sung in as many
+                    // separate stretches, and live play judges each character inside its STRETCH's own
+                    // span exactly as it does inside a syllable's - so the rating has to read those
+                    // spans, not one long word with the rests folded in as free time. Derived through
+                    // PausedWord itself, the one derivation the engine's targets and judgement groups
+                    // read, so the two can never disagree about where a stretch begins or ends.
+                    if (j < line.Units.Count && PausedWord.Of(token, unitStart, unitEnd, line.Units[j]) is PausedWord.Cut paused)
+                    {
+                        groups = new double[paused.Pieces.Count];
+                        groupEnds = new double[paused.Pieces.Count];
+
+                        for (int g = 0; g < paused.Pieces.Count; g++)
+                        {
+                            groups[g] = paused.Pieces[g].StartTime / rate;
+                            groupEnds[g] = paused.Pieces[g].EndTime / rate;
+                        }
+                    }
+                    else if (j < line.Units.Count && line.Units[j].SyllableBoundaries.Count > 0)
                     {
                         IReadOnlyList<double> boundaries = line.Units[j].SyllableBoundaries;
                         groups = new double[boundaries.Count + 1];
@@ -1063,7 +1126,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         token,
                         groups,
                         z,
-                        scored));
+                        scored,
+                        groupEnds));
                 }
             }
 
@@ -1075,7 +1139,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 if (i + 1 < words.Count && words[i + 1].LineIndex == words[i].LineIndex)
                 {
                     Word w = words[i];
-                    words[i] = new Word(w.Start, w.Span, w.Cells + 1, w.LineIndex, w.Token, w.Groups, w.Z, w.Scored);
+                    words[i] = new Word(w.Start, w.Span, w.Cells + 1, w.LineIndex, w.Token, w.Groups, w.Z, w.Scored, w.GroupEnds);
                 }
             }
 
@@ -1126,7 +1190,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 Word timed = pause != 0
                     ? new Word(word.Start - pause, word.Span, word.Cells, word.LineIndex, word.Token,
-                        word.Groups?.Select(g => g - pause).ToArray(), word.Z, word.Scored)
+                        word.Groups?.Select(g => g - pause).ToArray(), word.Z, word.Scored,
+                        word.GroupEnds?.Select(g => g - pause).ToArray())
                     : word;
 
                 // Each keypress carries its OWN weight, fixed BEFORE the search: an easy keypress
@@ -1192,7 +1257,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             double edge(int g) => start + (end - start) * g / Math.Max(1, segments);
             double spanLo(int g) => authored ? (g == 0 ? start : word.Groups![g]) : edge(g);
-            double spanHi(int g) => authored ? (g == segments - 1 ? end : word.Groups![g + 1]) : edge(g + 1);
+
+            // A STRETCH word says where each group ends itself: its pieces are separated by rests that
+            // belong to no group, so "the next group's start" is not this group's end. Every other
+            // word's groups tile its span, and the last of them ends at the word's own end.
+            double spanHi(int g) => word.GroupEnds != null
+                ? word.GroupEnds[g]
+                : authored ? (g == segments - 1 ? end : word.Groups![g + 1]) : edge(g + 1);
 
             bool[] firstOf = new bool[count];
 

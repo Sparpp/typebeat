@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,6 +23,8 @@ using typebeat.Game.Online;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.Chat;
 using typebeat.Game.Resources.Localisation.Web;
+using typebeat.Game.Rulesets.Mods;
+using typebeat.Game.Utils;
 using osuTK;
 
 namespace typebeat.Game.Screens.Select
@@ -55,6 +58,9 @@ namespace typebeat.Game.Screens.Select
 
         [Resolved]
         private IBindable<SongSelect.BeatmapSetLookupResult> onlineLookupResult { get; set; } = null!;
+
+        [Resolved]
+        private IBindable<IReadOnlyList<Mod>> mods { get; set; } = null!;
 
         [Resolved]
         private IAPIProvider api { get; set; } = null!;
@@ -255,6 +261,17 @@ namespace typebeat.Game.Screens.Select
             beatmap.BindValueChanged(_ => Scheduler.AddOnce(updateDisplay));
             onlineLookupResult.BindValueChanged(_ => Scheduler.AddOnce(updateDisplay));
 
+            // The pace readouts follow the mods that rewrite the beatmap (Literate stamps the
+            // authored punctuation into the cells), so a toggle has to convert the map again even
+            // though the selection itself has not moved. updateTypingPace keys its own cache on
+            // that state, so every other mod change is still free.
+            //
+            // The CLOCK is the other half, and it moves the figures without moving the cells: a rate
+            // mod is a re-reading of the same converted map (see GetTypingPace), which is why the
+            // converted beatmap is kept and only the profile is recomputed. The cache below is keyed
+            // on both, so a toggle that changes neither is still free.
+            mods.BindValueChanged(_ => Scheduler.AddOnce(updateTypingPace), true);
+
             apiState = api.State.GetBoundCopy();
             apiState.BindValueChanged(_ => Scheduler.AddOnce(updateDisplay), true);
         }
@@ -396,22 +413,68 @@ namespace typebeat.Game.Screens.Select
 
         private WorkingBeatmap? typingPaceBeatmap;
 
+        /// <summary>
+        /// Whether <see cref="typingPaceBeatmap"/> was last converted with a mod that shapes the
+        /// beatmap (Literate). The pace readouts follow those mods, so a toggle has to convert
+        /// again even though the selection itself has not moved.
+        /// </summary>
+        private bool typingPaceLiterate;
+
+        /// <summary>
+        /// The clock <see cref="typingPacePlayable"/>'s last profile was read at, so a rate toggle
+        /// re-reads the map while any other mod change is free.
+        /// </summary>
+        private double typingPaceRate = double.NaN;
+
+        /// <summary>
+        /// The CONVERTED map the profile comes from, held so a clock change re-reads it rather than
+        /// converting the beatmap all over again - the conversion is the expensive half, and a rate mod
+        /// does not move a single cell.
+        /// </summary>
+        private IHasTypingPace? typingPacePlayable;
+
+        /// <summary>
+        /// The clock rate the selected mods play at: DT/NC 1.5x, HT 0.75x, and whatever a custom rate
+        /// mod asks for. The same walk the difficulty model and the pp formula do, so the pace chart
+        /// cannot read a different clock from the rating beside it.
+        /// </summary>
+        private double typingPaceClockRate()
+        {
+            double rate = 1;
+
+            foreach (var mod in mods.Value.OfType<IApplicableToRate>())
+                rate = mod.ApplyToRate(0, rate);
+
+            return rate;
+        }
+
         private void updateTypingPace()
         {
             var working = beatmap.Value;
+            var conversionMods = ModUtils.BeatmapShapingMods(mods.Value);
+            bool literate = conversionMods.Count > 0;
+            double rate = typingPaceClockRate();
 
             // updateDisplay also fires on online-lookup and api-state changes, neither of which can
-            // move a local pace figure; converting the beatmap again for those would be pure waste.
-            if (ReferenceEquals(typingPaceBeatmap, working))
+            // move a local pace figure; re-reading the map for those would be pure waste.
+            if (ReferenceEquals(typingPaceBeatmap, working) && typingPaceLiterate == literate && typingPaceRate == rate)
                 return;
 
+            // The map has to be converted again only when the CELLS can have moved. A rate change is a
+            // re-reading of the map already held, so it takes the conversion it was handed.
+            bool needsConversion = !ReferenceEquals(typingPaceBeatmap, working) || typingPaceLiterate != literate;
+            IHasTypingPace? previous = typingPacePlayable;
+
             typingPaceBeatmap = working;
+            typingPaceLiterate = literate;
+            typingPaceRate = rate;
 
             int requestId = ++typingPaceRequestId;
 
             if (beatmap.IsDefault)
             {
                 typingPaceAvailable = false;
+                typingPacePlayable = null;
                 updateSubWedgeVisibility();
                 return;
             }
@@ -423,7 +486,19 @@ namespace typebeat.Game.Screens.Select
                 try
                 {
                     // Expensive and synchronous (it converts the beatmap), so never on the update thread.
-                    profile = (working.GetPlayableBeatmap(working.BeatmapInfo.Ruleset) as IHasTypingPace)?.GetTypingPace();
+                    IHasTypingPace? playable = needsConversion || previous == null
+                        ? working.GetPlayableBeatmap(working.BeatmapInfo.Ruleset, conversionMods) as IHasTypingPace
+                        : previous;
+
+                    // The clock is read at, not multiplied into, the figures: DoubleTime shortens the
+                    // fixed duration the target is re-expressed at as well as the map itself.
+                    profile = playable?.GetTypingPace(rate);
+
+                    Schedule(() =>
+                    {
+                        if (requestId == typingPaceRequestId)
+                            typingPacePlayable = playable;
+                    });
                 }
                 catch (Exception e)
                 {

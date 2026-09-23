@@ -11,6 +11,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using osu.Framework;
 using osu.Framework.Allocation;
 using osu.Framework.Development;
 using osu.Framework.Extensions;
@@ -107,8 +108,12 @@ namespace typebeat.Game.Database
         /// 55   2026-09-18    Added AudioGain to BeatmapMetadata (the map's own track gain), filled in
         ///                    as "no gain change" on every existing row: the column's realm default
         ///                    (0) would otherwise read as silence for every map already installed.
+        /// 56   2026-09-19    Chord type!beat's two recovery gestures with the platform's editing
+        ///                    modifier by default (Command on macOS, Ctrl elsewhere); drop the old
+        ///                    Ctrl rows on macOS, if not already changed by user, so the key store
+        ///                    re-inserts the platform's own default.
         /// </summary>
-        private const int schema_version = 55;
+        private const int schema_version = 56;
 
         /// <summary>
         /// Lock object which is held during <see cref="BlockAllOperations"/> sections, blocking realm retrieval during blocking periods.
@@ -1317,6 +1322,52 @@ namespace typebeat.Game.Database
                         metadata.AudioGain = BeatmapMetadata.DEFAULT_AUDIO_GAIN;
 
                     break;
+
+                case 56:
+                {
+                    // type!beat's two word-level recovery gestures are chorded with the PLATFORM's
+                    // editing modifier by default now: Ctrl everywhere, Command (InputKey.Super)
+                    // on macOS, where Ctrl+A and Ctrl+Backspace are not the chords the rest of the
+                    // OS uses. RealmKeyBindingStore only ever INSERTS a default for a row that is
+                    // missing (a rebind replaces the existing row instead), so an install that
+                    // predates the change would keep the old Ctrl chords forever. Dropping a row
+                    // that still holds the OLD default hands it back to the store, which re-inserts
+                    // the platform's own default on the next startup; a row the player had already
+                    // moved somewhere else fails the comparison below and is left alone.
+                    //
+                    // Guarded on macOS because that is the only platform whose default MOVED: the
+                    // rows on Windows and Linux already say Ctrl, which is still what they say.
+                    if (RuntimeInfo.OS == RuntimeInfo.Platform.macOS)
+                    {
+                        // EraseWord and SelectBackToTypo by their STORED integer values. typebeat.Game
+                        // cannot name the enum itself (the ruleset project references this one, not
+                        // the other way around), and the values are append-only for exactly this
+                        // reason - see TypeBeatRuleset.GetDefaultKeyBindings.
+                        const int erase_word = 2;
+                        const int select_back_to_typo = 3;
+
+                        // Held for the whole block rather than reached through migration.NewRealm
+                        // each time: a row handed out by a migration realm is only readable while
+                        // SOMETHING still holds that realm, and `migration.NewRealm` is a property.
+                        // Materialising `All<RealmKeyBinding>()` into a list and filtering it in .NET
+                        // is the way to hit that: the list holds the rows, nothing holds the realm,
+                        // and the first property read throws RealmInvalidObjectException ("attempted
+                        // to access detached row"). Every read below is a property read.
+                        Realm realm = migration.NewRealm;
+
+                        var eraseWordBinding = realm.All<RealmKeyBinding>()
+                                                    .FirstOrDefault(k => k.RulesetName == "typebeat" && k.ActionInt == erase_word);
+                        if (eraseWordBinding?.KeyCombination.Keys.SequenceEqual(new[] { InputKey.Control, InputKey.BackSpace }) == true)
+                            realm.Remove(eraseWordBinding);
+
+                        var selectBackToTypoBinding = realm.All<RealmKeyBinding>()
+                                                           .FirstOrDefault(k => k.RulesetName == "typebeat" && k.ActionInt == select_back_to_typo);
+                        if (selectBackToTypoBinding?.KeyCombination.Keys.SequenceEqual(new[] { InputKey.Control, InputKey.A }) == true)
+                            realm.Remove(selectBackToTypoBinding);
+                    }
+
+                    break;
+                }
             }
 
             Logger.Log($"Migration completed in {stopwatch.ElapsedMilliseconds}ms");

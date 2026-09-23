@@ -120,16 +120,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The space error dot ships OFF (backlog 197). Unlike the setting above it changes nothing
-        /// about judgement, so the reason is the other one: it adds a mark to the lyric line, and
-        /// existing styling stays the only styling until a player asks for it.
+        /// The space error dot ships ON as of 2026-09-21: the mark it adds is the ONLY thing that can
+        /// show a mistake sitting in a word gap once Space to Skip parks the caret there, so leaving it
+        /// off hid errors the player still had to fix. It changes nothing about judgement.
         /// </summary>
         [Test]
-        public void SpaceErrorDotDefaultsToOff()
+        public void SpaceErrorDotDefaultsToOn()
         {
             using (var rulesetConfig = new TypeBeatRulesetConfigManager(null, new TypeBeatRuleset().RulesetInfo))
             {
-                Assert.That(rulesetConfig.GetBindable<bool>(TypeBeatRulesetSetting.UseSpaceErrorDot).Default, Is.False);
+                Assert.That(rulesetConfig.GetBindable<bool>(TypeBeatRulesetSetting.UseSpaceErrorDot).Default, Is.True);
             }
         }
 

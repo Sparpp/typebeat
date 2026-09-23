@@ -547,6 +547,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Less(model.TargetWpm, 300, "a sanity bound: this fixture is not a 300 WPM map");
         }
         [Test]
+        public void LiterateCountsTheAuthoredMarksAndKeepsHyphenatedWordsTogether()
+        {
+            // "The bad-cat sat." is the one shape that moves BOTH counts. The default stream drops
+            // the period, turns the hyphen into a word break and folds the capital, so it is 4 words
+            // of 15 cells (3 + 3 + 3 + 3, plus 3 spaces). The authored stream the Literate mod
+            // types keeps all three marks, so it is 3 words of 16 cells ("The" 3, "bad-cat" 7,
+            // "sat." 4, plus 2 spaces). Over the same 3000 ms line that is 60 WPM against 64.
+            var lines = new[] { makeLine("The bad-cat sat.", 1000, 4000) };
+
+            var plain = LyricPaceStatistics.Compute(lines);
+            var literate = LyricPaceStatistics.Compute(lines, literate: true);
+
+            Assert.AreEqual(4, plain.WordCount);
+            Assert.AreEqual(15, plain.TypeableCellCount);
+            Assert.AreEqual(60.0, plain.AverageWpm, 1e-9);
+
+            Assert.AreEqual(3, literate.WordCount);
+            Assert.AreEqual(16, literate.TypeableCellCount);
+            Assert.AreEqual(64.0, literate.AverageWpm, 1e-9);
+
+            // The denominator never moves: the song is sung for the same time, the mod only asks
+            // for more keys inside it. The two rates are therefore in exactly the cell ratio, which
+            // is why a rate mod's single multiply cannot stand in for this and the beatmap has to
+            // be converted again.
+            Assert.AreEqual(16.0 / 15.0, literate.AverageCpm / plain.AverageCpm, 1e-12);
+
+            // And the target is read off the same dense stream, so it never falls below the
+            // average it is floored at either.
+            Assert.GreaterOrEqual(literate.TargetWpm, literate.AverageWpm);
+            Assert.Greater(literate.TargetWpm, plain.TargetWpm);
+        }
+
+        [Test]
         public void EmptyMapIsZero()
         {
             var pace = LyricPaceStatistics.Compute(Array.Empty<LyricLine>());

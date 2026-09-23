@@ -23,6 +23,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     {
         private KeyBindingPanel panel = null!;
 
+        /// <summary>
+        /// The modifier the ruleset's default recovery chords carry on the platform under test: Ctrl,
+        /// or the Command key on macOS (<see cref="TypeBeatRuleset.RecoveryGestureModifier"/>). The
+        /// rows below are built straight out of those defaults, so this is what the screen is
+        /// expected to be SHOWING, not a second place the choice is made.
+        /// </summary>
+        private static readonly InputKey recovery_modifier = TypeBeatRuleset.RecoveryGestureModifier;
+
         [SetUpSteps]
         public void SetUpSteps()
         {
@@ -43,11 +51,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("erase word shows its default chord", () =>
                 rowFor(TypeBeatAction.EraseWord)!.Defaults,
-                () => Is.EqualTo(new[] { new KeyCombination(InputKey.Control, InputKey.BackSpace) }));
+                () => Is.EqualTo(new[] { new KeyCombination(recovery_modifier, InputKey.BackSpace) }));
 
             AddAssert("select back to typo shows its default chord", () =>
                 rowFor(TypeBeatAction.SelectBackToTypo)!.Defaults,
-                () => Is.EqualTo(new[] { new KeyCombination(InputKey.Control, InputKey.A) }));
+                () => Is.EqualTo(new[] { new KeyCombination(recovery_modifier, InputKey.A) }));
 
             // A row only takes a rebind while it can be focused; the ruleset subsection is the one
             // that also allows the main mouse buttons (a gameplay binding may legitimately be a click).

@@ -129,6 +129,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
                 ApplyResult(TypeBeatResultMapping.LINE_RESULT);
         }
 
+        /// <summary>
+        /// The drawable carrying <paramref name="cellIndex"/>'s score, or null when this line has no such
+        /// cell. Exposed for the playfield's seal, which needs a cell's own target time to tell what the
+        /// play actually reached (see <c>TypeBeatPlayfield.cellWasDueBeforeThePlayStarted</c>).
+        /// </summary>
+        public DrawableTypeBeatCharObject? CellAt(int cellIndex)
+            => charDrawablesByCell.TryGetValue(cellIndex, out var cell) ? cell : null;
+
         protected override void CheckForResult(bool userTriggered, double timeOffset)
         {
             // Results come exclusively from the engine (sealing drives ApplySealResults).

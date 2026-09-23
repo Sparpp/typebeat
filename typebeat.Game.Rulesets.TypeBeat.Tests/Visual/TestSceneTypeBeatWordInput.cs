@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
+using osu.Framework;
 using osu.Framework.Allocation;
 using osu.Framework.Input.Bindings;
 using osu.Framework.Testing;
@@ -25,8 +26,10 @@ using osuTK.Input;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 {
     /// <summary>
-    /// Backlog 182 through the REAL input stack: Ctrl+Backspace erases the previous word and Ctrl+A
-    /// selects back to the nearest unfixed typo, both driven here as actual key presses on a live
+    /// Backlog 182 through the REAL input stack: the two word-level recovery chords - Ctrl+Backspace
+    /// and Ctrl+A, which are Command+Backspace and Command+A on macOS (see
+    /// <see cref="TypeBeatRuleset.RecoveryGestureModifier"/>) - erase the previous word and select
+    /// back to the nearest unfixed typo, both driven here as actual key presses on a live
     /// <see cref="typebeat.Game.Screens.Play.Player"/> with the standard record target.
     ///
     /// <para>Two things are being pinned that the headless <c>WordInputTest</c> cannot reach. The
@@ -145,7 +148,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         // -----------------------------------------------------------------------------------------
-        // Ctrl+Backspace
+        // The erase-word chord (Ctrl+Backspace, Command+Backspace on macOS)
         // -----------------------------------------------------------------------------------------
 
         /// <summary>
@@ -161,22 +164,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             type("ab cd ef");
             AddAssert("line complete", () => engine.IsLineComplete);
 
-            ctrl(Key.BackSpace);
+            recoveryChord(Key.BackSpace);
             AddAssert("\"ef\" is gone", () => engine.CaretIndex == 6 && cell(6).State == CellState.Untyped && cell(7).State == CellState.Untyped);
 
-            ctrl(Key.BackSpace);
+            recoveryChord(Key.BackSpace);
             AddAssert("the gap before it and \"cd\" are gone", () =>
                 engine.CaretIndex == 3
                 && cell(5).State == CellState.Untyped
                 && cell(3).State == CellState.Untyped
                 && cell(2).State == CellState.Correct);
 
-            ctrl(Key.BackSpace);
+            recoveryChord(Key.BackSpace);
             AddAssert("the whole line is open again", () => engine.CaretIndex == 0 && engine.Lines[0].Cells.All(c => c.State == CellState.Untyped));
 
             int recorded = 0;
             AddStep("capture frame count", () => recorded = frames.Count);
-            ctrl(Key.BackSpace);
+            recoveryChord(Key.BackSpace);
             AddAssert("a press at the head of the line recorded nothing", () => frames.Count == recorded);
             AddAssert("and changed nothing", () => engine.CaretIndex == 0);
         }
@@ -195,12 +198,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("press Backspace", () => InputManager.Key(Key.BackSpace));
             AddAssert("one cell erased", () => engine.CaretIndex == 4);
 
-            ctrl(Key.BackSpace);
+            recoveryChord(Key.BackSpace);
             AddAssert("the rest of the word erased", () => engine.CaretIndex == 3);
         }
 
         // -----------------------------------------------------------------------------------------
-        // Ctrl+A and the consume paths
+        // The select-back-to-typo chord (Ctrl+A, Command+A on macOS) and the consume paths
         // -----------------------------------------------------------------------------------------
 
         /// <summary>
@@ -220,7 +223,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("the typo landed", () => cell(1).State == CellState.Wrong && engine.CaretIndex == 4);
 
-            ctrl(Key.A);
+            recoveryChord(Key.A);
 
             AddAssert("the run back to the typo's word is selected", () =>
                 playfield.CurrentRetypeSelection is TypeBeatPlayfield.RetypeSelection { LineIndex: 0, StartCell: 0, EndCell: 4 });
@@ -256,7 +259,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("press X (wrong for 'b')", () => InputManager.Key(Key.X));
             type(" c");
 
-            ctrl(Key.A);
+            recoveryChord(Key.A);
             AddAssert("selection held", () => playfield.CurrentRetypeSelection != null);
 
             AddStep("press Backspace", () => InputManager.Key(Key.BackSpace));
@@ -281,7 +284,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("the gap holds the typo", () => cell(2).State == CellState.Wrong && cell(2).TypedChar == 'x');
 
-            ctrl(Key.A);
+            recoveryChord(Key.A);
 
             AddAssert("only the gap onwards is selected", () =>
                 playfield.CurrentRetypeSelection is TypeBeatPlayfield.RetypeSelection { StartCell: 2, EndCell: 4 });
@@ -301,7 +304,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             int recorded = 0;
             AddStep("capture frame count", () => recorded = frames.Count);
 
-            ctrl(Key.A);
+            recoveryChord(Key.A);
 
             AddAssert("nothing selected", () => playfield.CurrentRetypeSelection == null);
             AddAssert("nothing recorded", () => frames.Count == recorded);
@@ -324,7 +327,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("press X (wrong for 'b')", () => InputManager.Key(Key.X));
             type(" cd ef");
 
-            ctrl(Key.A);
+            recoveryChord(Key.A);
             AddAssert("selection held", () => playfield.CurrentRetypeSelection != null && activeDisplay.SelectionVisible);
 
             AddStep("run the engine past the line's deadline", () => engine.Update(700000));
@@ -354,8 +357,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             int recorded = 0;
             AddStep("capture frame count", () => recorded = frames.Count);
 
-            ctrl(Key.BackSpace);
-            ctrl(Key.A);
+            recoveryChord(Key.BackSpace);
+            recoveryChord(Key.A);
 
             AddAssert("neither gesture touched the engine", () =>
                 engine.CaretIndex == 5 && engine.Lines[0].Cells.Take(5).All(c => c.State == CellState.Correct));
@@ -385,7 +388,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("the rest of \"ab\" was given up", () =>
                 cell(1).State == CellState.Abandoned && cell(2).State == CellState.Correct && engine.CaretIndex == 3);
 
-            ctrl(Key.A);
+            recoveryChord(Key.A);
 
             AddAssert("the skipped word is offered back", () =>
                 playfield.CurrentRetypeSelection is TypeBeatPlayfield.RetypeSelection { LineIndex: 0, StartCell: 0, EndCell: 3 });
@@ -426,7 +429,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             });
 
             type("a ");
-            ctrl(Key.A);
+            recoveryChord(Key.A);
             AddAssert("selection held", () => playfield.CurrentRetypeSelection != null);
 
             AddStep("press Backspace", () => InputManager.Key(Key.BackSpace));
@@ -465,7 +468,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             type("ab cd ");
 
             // A Ctrl+Backspace burst: three erases (the gap, 'd', 'c') out of one key press.
-            ctrl(Key.BackSpace);
+            recoveryChord(Key.BackSpace);
             AddAssert("the gap and \"cd\" went", () => engine.CaretIndex == 3);
 
             type("cd ");
@@ -473,7 +476,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             type("f");
 
             // A Ctrl+A consume: two erases back to the head of "ef", then the letter at the anchor.
-            ctrl(Key.A);
+            recoveryChord(Key.A);
             AddAssert("the typo's word is selected", () =>
                 playfield.CurrentRetypeSelection is TypeBeatPlayfield.RetypeSelection { StartCell: 6, EndCell: 8 });
             AddStep("press E (consumes the selection)", () => InputManager.Key(Key.E));
@@ -637,10 +640,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         /// <summary>
         /// The whole point of backlog 183: the gesture follows the USER'S binding. Rebound through
-        /// realm exactly as the key configuration screen rebinds it, the old chord goes inert (it is
-        /// an unclaimed Ctrl combo again, so it falls through to the framework untouched) and the new
-        /// one erases the word. What it records is unchanged by any of that, because the binding only
-        /// decides WHICH press starts the gesture, never what the gesture then does.
+        /// realm exactly as the key configuration screen rebinds it, the DEFAULT chord goes inert (it
+        /// is an unclaimed modifier combo again, so it falls through to the framework untouched) and
+        /// the new one erases the word. What it records is unchanged by any of that, because the
+        /// binding only decides WHICH press starts the gesture, never what the gesture then does.
         /// </summary>
         [Test]
         public void TestEraseWordFollowsARebind()
@@ -654,11 +657,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             int recorded = 0;
             AddStep("capture frame count", () => recorded = frames.Count);
 
-            AddStep("press the OLD chord (Ctrl+Backspace)", () =>
+            AddStep($"press the default chord ({default_chord_modifier}+Backspace)", () =>
             {
-                InputManager.PressKey(Key.ControlLeft);
+                InputManager.PressKey(default_chord_modifier);
                 InputManager.Key(Key.BackSpace);
-                InputManager.ReleaseKey(Key.ControlLeft);
+                InputManager.ReleaseKey(default_chord_modifier);
             });
 
             AddAssert("the old chord did nothing", () => engine.CaretIndex == 5);
@@ -684,8 +687,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         /// <summary>
         /// The other half of the same rebind, on the other gesture, and the proof that the OLD chord
-        /// really is inert rather than merely quiet: Ctrl+A no longer selects, and the chord it moved
-        /// to does.
+        /// really is inert rather than merely quiet: the DEFAULT chord no longer selects, and the
+        /// chord it moved to does.
         /// </summary>
         [Test]
         public void TestSelectBackToTypoFollowsARebind()
@@ -698,7 +701,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             rebind(TypeBeatAction.SelectBackToTypo, new KeyCombination(InputKey.Control, InputKey.Q));
 
-            ctrl(Key.A);
+            recoveryChord(Key.A);
             AddAssert("the old chord selects nothing", () => playfield.CurrentRetypeSelection == null);
 
             ctrl(Key.Q);
@@ -746,9 +749,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             int recorded = 0;
             AddStep("capture frame count", () => recorded = frames.Count);
 
-            AddStep("hold Ctrl+Backspace", () =>
+            AddStep($"hold {default_chord_modifier}+Backspace", () =>
             {
-                InputManager.PressKey(Key.ControlLeft);
+                InputManager.PressKey(default_chord_modifier);
                 InputManager.PressKey(Key.BackSpace);
             });
 
@@ -757,7 +760,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("release", () =>
             {
                 InputManager.ReleaseKey(Key.BackSpace);
-                InputManager.ReleaseKey(Key.ControlLeft);
+                InputManager.ReleaseKey(default_chord_modifier);
             });
 
             AddAssert("in three word-sized bursts", () =>
@@ -871,7 +874,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 InputManager.Key(c == ' ' ? Key.Space : Key.A + (c - 'a'));
         });
 
-        /// <summary>One press of <paramref name="key"/> with Control held, released again after.</summary>
+        /// <summary>
+        /// The raw modifier the SHIPPED defaults chord the two recovery gestures with on this
+        /// platform: Control everywhere, and the Command key - which osuTK calls
+        /// <see cref="Key.LWin"/> and the framework reports as <c>SuperPressed</c> - on macOS. Kept
+        /// as a raw key because that is what the input manager presses; the two cannot drift apart
+        /// silently, since a modifier that disagreed with the ruleset's default would simply stop
+        /// triggering the gesture and every pin below would fail.
+        /// </summary>
+        private static readonly Key default_chord_modifier = RuntimeInfo.OS == RuntimeInfo.Platform.macOS ? Key.LWin : Key.ControlLeft;
+
+        /// <summary>
+        /// One press of <paramref name="key"/> on the shipped DEFAULT recovery chord (<see
+        /// cref="default_chord_modifier"/>), released again after. Every pin that drives a default
+        /// chord goes through here, so the scene exercises the chord the platform under test
+        /// actually ships rather than one hardcoded for Windows.
+        /// </summary>
+        private void recoveryChord(Key key) => AddStep($"press {default_chord_modifier}+{key}", () =>
+        {
+            InputManager.PressKey(default_chord_modifier);
+            InputManager.Key(key);
+            InputManager.ReleaseKey(default_chord_modifier);
+        });
+
+        /// <summary>
+        /// One press of <paramref name="key"/> with Control held, released again after - a literal
+        /// Ctrl chord, for the pins that REBIND a gesture onto one and then press it. The default
+        /// chord is <see cref="recoveryChord"/>'s to press.
+        /// </summary>
         private void ctrl(Key key) => AddStep($"press Ctrl+{key}", () =>
         {
             InputManager.PressKey(Key.ControlLeft);

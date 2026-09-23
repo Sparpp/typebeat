@@ -422,6 +422,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
     }
 
+    /// <summary>
+    /// AN AUTHORED PAUSE INSIDE ONE WORD - the Map Editor's <b>Insert Pause</b>.
+    ///
+    /// <para>A rest the singer takes between two of the word's characters, for the multisyllabic words
+    /// where the breath falls mid-word: nothing is typed while it lasts, the caret waits where it is,
+    /// and the characters after it are timed from its END. It is deliberately NOT a rest for the pace
+    /// figures - the word still reads as uninterrupted singing, so the WPM denominators keep counting
+    /// it as silence inside the word instead of resetting on a breath.</para>
+    ///
+    /// <para><see cref="SplitChar"/> is the character index the pause sits AFTER (the character before
+    /// it is the last one typed before the wait), so it is strictly inside the token, like the
+    /// syllable splits it sits beside. The times are absolute milliseconds, strictly inside the unit's
+    /// own span, with <see cref="StartTime"/> before <see cref="EndTime"/>. An old map carries none of
+    /// this at all.</para>
+    ///
+    /// <para>A word may take SEVERAL rests (see <see cref="TimedUnit.Pauses"/>), one per breath: each is
+    /// a divider of its own, so the word is sung in as many stretches as it has rests plus one, and every
+    /// pair must agree with the text - a rest later in TIME sits on a later character than the ones
+    /// before it, and no two rests share a character or a moment.</para>
+    /// </summary>
+    public readonly record struct WordPause(double StartTime, double EndTime, int SplitChar);
+
     public sealed class TimedUnit
     {
         public required string Text { get; init; }
@@ -443,6 +465,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// timing.json <c>words[].syllables[]</c>.
         /// </summary>
         public IReadOnlyList<double> SyllableBoundaries { get; init; } = Array.Empty<double>();
+
+        /// <summary>
+        /// The authored pauses inside this word, in TIME order: empty for every word in every map written
+        /// before the feature existed, and for every word that never needed one. See
+        /// <see cref="WordPause"/>.
+        ///
+        /// <para>N rests cut the word into N + 1 sung stretches, each timed in its own right by
+        /// <see cref="Gameplay.PausedWord"/> - the ONE derivation the engine's targets and judgement
+        /// groups, the editor's word strip and its line box all read. The rests never overlap each other
+        /// and never share a character, and each one's cut stands in the same order as its time, so a
+        /// word's dividers always read the same way from left to right in both senses.</para>
+        /// </summary>
+        public IReadOnlyList<WordPause> Pauses { get; init; } = Array.Empty<WordPause>();
 
         /// <summary>
         /// Optional AUTHORED character split of <see cref="Text"/> into its syllable segments

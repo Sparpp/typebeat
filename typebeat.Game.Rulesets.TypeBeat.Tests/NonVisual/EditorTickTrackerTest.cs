@@ -187,6 +187,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(syllables, Is.EqualTo(new[] { 1200d, 1600d, 1800d }));
         }
 
+        /// <summary>
+        /// The END of an authored pause ticks with the subdivision stream, because it is the moment the
+        /// characters after the rest are timed from - the mapper has to hear it to place the breath. Its
+        /// START is not a tick: that is where the characters before the rest already ran out, and the
+        /// line's own word start is what the ear is following by then.
+        /// </summary>
+        [Test]
+        public void APausesEndTicksWithTheSubdivisionBoundaries()
+        {
+            var paused = new TimedUnit
+            {
+                Text = "word",
+                StartTime = 1000,
+                EndTime = 2000,
+                Pauses = new[] { new WordPause(1400, 1700, 3) },
+            };
+
+            var (wordStarts, syllables) = EditorTickTimes.Collect(new[] { line(unit(1000, 1400), paused) });
+
+            Assert.That(wordStarts, Is.EqualTo(new[] { 1000d, 1000d }));
+            Assert.That(syllables, Is.EqualTo(new[] { 1700d }), "the rest's END only");
+        }
+
+        /// <summary>
+        /// And a rest that ends exactly where the next word begins plays the word tick alone, on the same
+        /// dedupe rule every other coinciding boundary follows.
+        /// </summary>
+        [Test]
+        public void APauseEndingOnAWordStartYieldsOnlyTheWordTick()
+        {
+            var paused = new TimedUnit
+            {
+                Text = "word",
+                StartTime = 1000,
+                EndTime = 2000,
+                Pauses = new[] { new WordPause(1500, 2000, 3) },
+            };
+
+            var (wordStarts, syllables) = EditorTickTimes.Collect(new[] { line(paused, unit(2000, 2600)) });
+
+            Assert.That(wordStarts, Is.EqualTo(new[] { 1000d, 2000d }));
+            Assert.That(syllables, Is.Empty);
+        }
+
         [Test]
         public void BoundaryCoincidingWithAWordStart_YieldsOnlyTheWordTick()
         {

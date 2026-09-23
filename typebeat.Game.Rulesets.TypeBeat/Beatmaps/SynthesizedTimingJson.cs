@@ -125,6 +125,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                             word["split_chars"] = splitChars;
                     }
 
+                    // THE AUTHORED PAUSES (the editor's Insert Pause), written BESIDE the syllable data
+                    // rather than inside it, and only when the word actually carries any: a word without a
+                    // rest persists exactly as it always did, so no existing map's bytes move. They are
+                    // deliberately not nested under syllables[] - the common case is a word the mapper
+                    // never subdivided, and nesting them there would silently drop the rests of every such
+                    // word.
+                    if (unit.Pauses.Count > 0)
+                    {
+                        var pauses = new JsonArray();
+
+                        foreach (var pause in unit.Pauses)
+                        {
+                            pauses.Add(new JsonObject
+                            {
+                                ["start_ms"] = pause.StartTime,
+                                ["end_ms"] = pause.EndTime,
+                                ["split"] = pause.SplitChar,
+                            });
+                        }
+
+                        word["pauses"] = pauses;
+                    }
+
                     words.Add(word);
                 }
 

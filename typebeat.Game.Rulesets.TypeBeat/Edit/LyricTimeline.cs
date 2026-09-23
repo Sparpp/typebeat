@@ -43,6 +43,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// picture. Poll-synced: children are rebuilt only when the line set / text layout changes
     /// and are repositioned in place otherwise, so a block survives its own drag while the
     /// model updates per frame beneath it.
+    ///
+    /// A word carrying AUTHORED PAUSES (the Map Editor's Insert Pause) wears a greyed band across each
+    /// stretch of the block a rest covers, with a draggable handle on both of its edges (see
+    /// <see cref="PauseRegion"/>): a rest is a piece of the word's own timing, so it is adjusted here
+    /// rather than in the text, and a word may take several - one per breath.
+    /// SHIFT+Dragging a DOTTED line promotes that subdivision into one, the span it was dragged across
+    /// becoming the rest (see <see cref="TypeBeatEditorOperations.ExtendSubdivisionIntoPause"/>).
     /// </summary>
     public partial class LyricTimeline : CompositeDrawable, IProvideCursor
     {
@@ -85,8 +92,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private const double min_window_ms = 400;    // deepest zoom-in
         private const double max_window_ms = 120000; // furthest zoom-out
 
-        // Rebuild signature: line identities + text + unit counts (positions are re-polled).
-        private readonly List<(TypeBeatHitObject hitObject, string rawText, int unitCount, int syllableCount)> displayed = new List<(TypeBeatHitObject, string, int, int)>();
+        // Rebuild signature: line identities + text + unit / boundary / pause counts (positions are
+        // re-polled, but a HANDLE appearing or vanishing needs a rebuild).
+        private readonly List<(TypeBeatHitObject hitObject, string rawText, int unitCount, int syllableCount, int pauseCount)> displayed = new List<(TypeBeatHitObject, string, int, int, int)>();
 
         private bool edgeHovered;
 
@@ -133,6 +141,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>Reported by word blocks: whether the mouse is currently over a resize edge.</summary>
         public void SetEdgeHovered(bool value) => edgeHovered = value;
+
+        /// <summary>
+        /// How many authored-pause regions the strip is drawing right now. A test seam rather than a
+        /// public surface: the region type is private, so a visual test has no other way to pin that
+        /// adding or removing a rest actually REBUILDS the strip rather than only moving the model.
+        /// </summary>
+        internal int PauseRegionCount => handleLayer.OfType<PauseRegion>().Count();
+
+        /// <summary>
+        /// The width, in pixels, of the live rest PREVIEW a SHIFT+drag is drawing (see
+        /// <see cref="SyllableHandle.updatePromotionBand"/>), or 0 when none is showing. A test seam, for
+        /// the same reason <see cref="PauseRegionCount"/> is one: the handle that draws it is private, so
+        /// a visual test has no other way to pin that sweeping a dotted line really does show the breath
+        /// GROWING rather than only applying one on release.
+        /// </summary>
+        internal float PromotionPreviewWidth
+            => handleLayer.OfType<SyllableHandle>().Select(handle => handle.PromotionBandWidth).DefaultIfEmpty(0).Max();
+
+        /// <summary>How opaque that preview currently is (see <see cref="PromotionPreviewWidth"/>).</summary>
+        internal float PromotionPreviewAlpha
+            => handleLayer.OfType<SyllableHandle>().Select(handle => handle.PromotionBandAlpha).DefaultIfEmpty(0).Max();
 
         protected override void LoadComplete()
         {
@@ -201,6 +230,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             foreach (var syllable in handleLayer.OfType<SyllableHandle>())
                 syllable.UpdateLayout(this);
 
+            foreach (var region in handleLayer.OfType<PauseRegion>())
+                region.UpdateLayout(this);
+
             // A live tap-timing pass has committed nothing yet; its taps show as ghosts on top.
             ghostLayer.UpdateGhosts(state.TapSession?.Taps, PositionOf);
 
@@ -218,10 +250,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             for (int i = 0; i < ordered.Count; i++)
             {
-                var (hitObject, rawText, unitCount, syllableCount) = displayed[i];
+                var (hitObject, rawText, unitCount, syllableCount, pauseCount) = displayed[i];
 
                 if (ordered[i] != hitObject || ordered[i].Line.RawText != rawText || ordered[i].Line.Units.Count != unitCount
-                    || totalSyllableBoundaries(ordered[i].Line) != syllableCount)
+                    || totalSyllableBoundaries(ordered[i].Line) != syllableCount
+                    || totalPauses(ordered[i].Line) != pauseCount)
                 {
                     return true;
                 }
@@ -241,6 +274,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             return count;
         }
 
+        /// <summary>
+        /// How many pauses a line carries: the rebuild trigger for the greyed bands and their edge
+        /// handles. A COUNT is enough because every operation that writes a pause touches exactly one
+        /// word at a time - a rest moving between words cannot leave the count the same without the
+        /// line's text or unit count moving with it, and both of those are already in the signature.
+        /// </summary>
+        private static int totalPauses(LyricLine line)
+        {
+            int count = 0;
+
+            foreach (var unit in line.Units)
+                count += unit.Pauses.Count;
+
+            return count;
+        }
+
         private void rebuild(IReadOnlyList<TypeBeatHitObject> ordered)
         {
             displayed.Clear();
@@ -251,7 +300,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             for (int i = 0; i < ordered.Count; i++)
             {
                 var hitObject = ordered[i];
-                displayed.Add((hitObject, hitObject.Line.RawText, hitObject.Line.Units.Count, totalSyllableBoundaries(hitObject.Line)));
+                displayed.Add((hitObject, hitObject.Line.RawText, hitObject.Line.Units.Count,
+                    totalSyllableBoundaries(hitObject.Line), totalPauses(hitObject.Line)));
 
                 bandLayer.Add(new LineBand(this, hitObject, i));
 
@@ -263,6 +313,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     // the word block so it takes the drag before the block's move/resize.
                     for (int k = 0; k < hitObject.Line.Units[j].SyllableBoundaries.Count; k++)
                         handleLayer.Add(new SyllableHandle(this, hitObject, j, k));
+
+                    // One greyed band with two edge handles per authored pause, same layer for the same
+                    // reason: a rest is adjusted in place, not as a word move.
+                    for (int p = 0; p < hitObject.Line.Units[j].Pauses.Count; p++)
+                        handleLayer.Add(new PauseRegion(this, hitObject, j, p));
                 }
 
                 // ONE boundary per line start: dragging it moves this line's start and the
@@ -542,22 +597,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 // derived, so "ap" sits left of the dotted line and "ple" right of it. Derived is
                 // shown as readily as authored on purpose: it is the split gameplay's judgement
                 // groups already use, so the strip shows the real grouping rather than a blank.
-                var segments = SyllableSegments.SegmentTexts(display, SyllableSegments.SplitsFor(unit));
-                ensureLabels(segments.Count);
+                //
+                // An authored PAUSE cuts the runs again, and moves them: the characters before a
+                // breath sit in the first half and the ones after it in the second, so the rest's
+                // greyed band lands in the gap between two runs instead of over the letters. That is
+                // the very cut the engine times the halves by (see PausedWord), so the way the word
+                // reads here is the way it is played.
+                var runs = PausedWord.DisplayRuns(display, unit, unit.StartTime, unit.EndTime);
+                ensureLabels(runs.Count);
 
-                for (int i = 0; i < segments.Count; i++)
+                for (int i = 0; i < runs.Count; i++)
                 {
-                    // Same edge rule buildSyllables uses, including the degraded case where the
-                    // syllabifier hands back fewer segments than there are boundaries: the last
-                    // segment runs to the word's end.
-                    double lo = i == 0 ? unit.StartTime : unit.SyllableBoundaries[i - 1];
-                    double hi = i == segments.Count - 1 ? unit.EndTime : unit.SyllableBoundaries[i];
-
-                    float loX = parent.PositionOf(lo) - blockX;
-                    float hiX = parent.PositionOf(hi) - blockX;
+                    float loX = parent.PositionOf(runs[i].StartTime) - blockX;
+                    float hiX = parent.PositionOf(runs[i].EndTime) - blockX;
 
                     var text = segmentLabels[i];
-                    text.Text = segments[i];
+                    text.Text = runs[i].Text;
                     text.X = (loX + hiX) / 2;
                     text.MaxWidth = Math.Max(1, hiX - loX - 6);
                     text.Alpha = hiX - loX < 16 ? 0 : 1;
@@ -892,14 +947,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// clicking splits the WORD in two at it, consuming the subdivision as the gap between the two
         /// new words (see <see cref="TypeBeatEditorOperations.SplitWord"/>). Added by the "subdivide
         /// word" action, one per boundary. Sits in the handle layer above the word blocks.
+        ///
+        /// <para>SHIFT+Dragging it PROMOTES it into an authored pause instead: the divider is dragged as
+        /// it always is, and the span it was dragged across becomes the rest (see
+        /// <see cref="TypeBeatEditorOperations.ExtendSubdivisionIntoPause"/>). The modifier is latched
+        /// when the drag begins - like the word blocks' Shift-on-a-shared-edge gesture - so a Shift
+        /// pressed or released mid-drag cannot switch the gesture out from under the mapper's hand. The
+        /// promotion lands on RELEASE, because the span it needs is only known once the divider has come
+        /// to rest, and it is a no-op (leaving the plain re-time the drag already made) wherever a rest
+        /// cannot sit - which includes a word that already carries one, so a SHIFT+drag there is simply an
+        /// ordinary re-time, with no preview to promise otherwise.</para>
+        ///
+        /// <para>While such a drag sweeps, the rest it would author is DRAWN as it grows: a greyed band
+        /// (the word strip's own rest fill) reaching from where the divider stood to where the cursor
+        /// holds it, fading up over <see cref="promotion_fade_ms"/>. It is a preview only - nothing is
+        /// authored until the release - so the mapper can size a breath by eye before committing it, and
+        /// watch it collapse again if they drag it back to nothing.</para>
         /// </summary>
         private partial class SyllableHandle : CompositeDrawable
         {
+            /// <summary>How long the promotion preview takes to fade up (and back down) once a real sweep exists.</summary>
+            private const double promotion_fade_ms = 120;
+
             private readonly LyricTimeline strip;
             private readonly TypeBeatHitObject hitObject;
             private readonly int unitIndex;
             private readonly int boundaryIndex;
             private readonly Container visual;
+            private readonly Box promotionBand;
+
+            // Shift latched at drag start, and the run of the drag the promotion needs: where the
+            // divider STARTED (the rest's near edge) and where it was last dragged to (its far edge).
+            private bool promote;
+            private double promotedFrom;
+            private double draggedTo;
 
             [Resolved]
             private EditorBeatmap editorBeatmap { get; set; } = null!;
@@ -945,19 +1026,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     });
                 }
 
-                InternalChild = visual = new Container
+                InternalChildren = new Drawable[]
                 {
-                    Anchor = Anchor.Centre,
-                    Origin = Anchor.Centre,
-                    RelativeSizeAxes = Axes.Y,
-                    Width = 2,
-                    Masking = true,
-                    Alpha = 0.85f,
-                    Child = dashes,
+                    // The live preview of the rest a SHIFT+drag is opening (see promotionBand below): the
+                    // same greyed fill the committed rest wears, so what the mapper watches grow is what
+                    // they will get.
+                    promotionBand = new Box
+                    {
+                        RelativeSizeAxes = Axes.Y,
+                        Width = 0,
+                        Colour = TypeBeatStyle.Background,
+                        Alpha = 0,
+                    },
+                    visual = new Container
+                    {
+                        Anchor = Anchor.Centre,
+                        Origin = Anchor.Centre,
+                        RelativeSizeAxes = Axes.Y,
+                        Width = 2,
+                        Masking = true,
+                        Alpha = 0.85f,
+                        Child = dashes,
+                    },
                 };
             }
 
             public override bool HandlePositionalInput => true;
+
+            /// <summary>How wide, in pixels, the live rest preview is right now (0 when none is showing).</summary>
+            internal float PromotionBandWidth => promotionBand.Width;
+
+            /// <summary>How opaque the live rest preview is right now.</summary>
+            internal float PromotionBandAlpha => promotionBand.Alpha;
 
             /// <summary>Current boundary time, or null when this handle's word/boundary no longer exists.</summary>
             private double? boundaryTime()
@@ -985,6 +1085,87 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 if (time.HasValue)
                     X = parent.PositionOf(time.Value);
+
+                updatePromotionBand(parent);
+            }
+
+            /// <summary>
+            /// Draws the rest a SHIFT+drag would author, as the mapper sweeps it: a band reaching from
+            /// where the divider stood when the drag began (<see cref="promotedFrom"/>) to where the
+            /// cursor holds it now, so the breath GROWS under their hand - and shrinks back, or flips to
+            /// the other side of the divider, if that is where they take it. Nothing is authored here
+            /// (that is <see cref="TypeBeatEditorOperations.ExtendSubdivisionIntoPause"/>'s job on
+            /// release); this is the preview that lets a breath be sized by eye first.
+            ///
+            /// <para>It appears only once the sweep is long enough to be one - the same
+            /// <see cref="TypeBeatEditorOperations.MIN_SYLLABLE_MS"/> a promotion needs - and fades over
+            /// <see cref="promotion_fade_ms"/> so it does not pop into being. Re-anchored on the divider,
+            /// whose own position IS the cursor while the drag is live.</para>
+            /// </summary>
+            private void updatePromotionBand(LyricTimeline parent)
+            {
+                if (!promote || boundaryTime() is not double now)
+                {
+                    promotionBand.Alpha = 0;
+                    return;
+                }
+
+                double from = parent.PositionOf(promotedFrom);
+                double to = parent.PositionOf(now);
+                float left = (float)Math.Min(from, to);
+                float right = (float)Math.Max(from, to);
+
+                // Local space: the handle is a 16 px grab zone whose CENTRE is the divider's own time, so
+                // the band's left edge is measured out from that centre.
+                promotionBand.X = left - X + Width / 2;
+                promotionBand.Width = Math.Max(0, right - left);
+
+                float wanted = wouldAuthor(now) ? 0.6f : 0f;
+
+                // Only re-aimed when it is actually somewhere else, so the fade is not restarted every
+                // frame (which would never let it arrive).
+                if (Math.Abs(promotionBand.Alpha - wanted) > 0.01f)
+                    promotionBand.FadeTo(wanted, promotion_fade_ms, wanted > 0 ? Easing.OutQuint : Easing.Out);
+            }
+
+            /// <summary>
+            /// Whether releasing here would really author a rest, which is what the preview promises: the
+            /// sweep must be long enough to be one AND the rest it makes must fit among the word's own
+            /// breaths (see <see cref="TypeBeatEditorOperations.ExtendSubdivisionIntoPause"/>). The second
+            /// half is asked through the SAME derivation the operation uses, so the preview cannot promise
+            /// a rest the release would refuse.
+            /// </summary>
+            private bool wouldAuthor(double now)
+            {
+                if (Math.Abs(now - promotedFrom) < TypeBeatEditorOperations.MIN_SYLLABLE_MS)
+                    return false;
+
+                var units = hitObject.Line.Units;
+
+                if (unitIndex < 0 || unitIndex >= units.Count)
+                    return false;
+
+                var unit = units[unitIndex];
+                double min = TypeBeatEditorOperations.MIN_SYLLABLE_MS;
+
+                if (unit.EndTime - unit.StartTime < min * 3)
+                    return false;
+
+                double start = Math.Clamp(Math.Min(promotedFrom, now), unit.StartTime + min, unit.EndTime - min * 2);
+                double end = Math.Clamp(Math.Max(promotedFrom, now), start + min, unit.EndTime - min);
+
+                if (end - start < min || boundaryTime() is not double boundary)
+                    return false;
+
+                var splits = Gameplay.SyllableSegments.SplitsFor(unit);
+
+                if (boundaryIndex >= splits.Count)
+                    return false;
+
+                var candidate = new WordPause(start, end, splits[boundaryIndex]);
+
+                return Gameplay.PausedWord.UsableRests(unit.Text, unit.StartTime, unit.EndTime, unit.Pauses.Append(candidate)).Count
+                       == unit.Pauses.Count + 1;
             }
 
             protected override bool OnHover(HoverEvent e)
@@ -1030,6 +1211,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnDragStart(DragStartEvent e)
             {
+                double? from = boundaryTime();
+
+                // SHIFT+drag promotes this divider into a rest. Whether THIS sweep is one the word can take
+                // (it may already carry breaths, and the new one must fit among them) is asked by
+                // updatePromotionBand, which only previews a rest the release would really author.
+                promote = e.ShiftPressed && from.HasValue;
+                promotedFrom = from ?? 0;
+                draggedTo = promotedFrom;
                 state.BeginInteraction();
                 editorBeatmap.BeginChange();
                 return true;
@@ -1037,8 +1226,213 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override void OnDrag(DragEvent e)
             {
-                TypeBeatEditorOperations.SetSyllableBoundary(editorBeatmap, hitObject, unitIndex, boundaryIndex,
-                    strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X));
+                draggedTo = strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X);
+
+                TypeBeatEditorOperations.SetSyllableBoundary(editorBeatmap, hitObject, unitIndex, boundaryIndex, draggedTo);
+            }
+
+            protected override void OnDragEnd(DragEndEvent e)
+            {
+                // The promotion is a modifier on the WHOLE gesture: the divider re-timed exactly as a
+                // plain drag re-times it, and only on release does the span it swept become a rest.
+                if (promote)
+                    TypeBeatEditorOperations.ExtendSubdivisionIntoPause(editorBeatmap, hitObject, unitIndex, boundaryIndex, promotedFrom, draggedTo);
+
+                promote = false;
+                editorBeatmap.EndChange();
+                state.EndInteraction();
+            }
+        }
+
+        /// <summary>
+        /// ONE of a word's AUTHORED PAUSES (the Map Editor's Insert Pause), drawn as a greyed-out band
+        /// across the word block with a draggable handle on each of its edges. The band says at a glance
+        /// that nothing is sung here; the two edges say how long the breath lasts, and the engine times
+        /// the characters after the rest from its end (see <see cref="Gameplay.TypingLine"/>). A word may
+        /// carry several, one per breath (see <see cref="Beatmaps.TimedUnit.Pauses"/>), each with its own
+        /// region and its own pair of edges.
+        ///
+        /// <para>Both edges reuse the syllable-boundary handle idiom - a wide invisible grab zone
+        /// around a thin visual, hover widening it, drag retiming, the strip's horizontal-resize
+        /// cursor - in ONE region, because the two edges belong to one rest and their grab zones
+        /// therefore stay a fixed number of pixels wide however far the strip is zoomed out. When a
+        /// rest is shorter on screen than those zones are wide the two overlap; the END edge is added
+        /// last and so takes the press, which is the one a mapper widening a breath reaches for, and
+        /// the START edge becomes reachable as soon as the rest is widened or the strip zoomed in.</para>
+        /// </summary>
+        private partial class PauseRegion : CompositeDrawable
+        {
+            private readonly TypeBeatHitObject hitObject;
+            private readonly int unitIndex;
+            private readonly int pauseIndex;
+
+            private readonly Box band;
+            private readonly PauseEdgeHandle startEdge;
+            private readonly PauseEdgeHandle endEdge;
+
+            [Resolved]
+            private LyricEditState state { get; set; } = null!;
+
+            public PauseRegion(LyricTimeline strip, TypeBeatHitObject hitObject, int unitIndex, int pauseIndex)
+            {
+                this.hitObject = hitObject;
+                this.unitIndex = unitIndex;
+                this.pauseIndex = pauseIndex;
+
+                Anchor = Anchor.CentreLeft;
+                Origin = Anchor.CentreLeft;
+                RelativeSizeAxes = Axes.Y;
+                // The band matches the word block's own height, so it reads as "this stretch of the
+                // word is not sung" rather than as an overlay floating over it.
+                Height = 0.55f;
+
+                InternalChildren = new Drawable[]
+                {
+                    band = new Box
+                    {
+                        RelativeSizeAxes = Axes.Both,
+                        Colour = TypeBeatStyle.Background,
+                        Alpha = 0.6f,
+                    },
+                    startEdge = new PauseEdgeHandle(strip, hitObject, unitIndex, pauseIndex, start: true),
+                    endEdge = new PauseEdgeHandle(strip, hitObject, unitIndex, pauseIndex, start: false),
+                };
+            }
+
+            public void UpdateLayout(LyricTimeline parent)
+            {
+                var units = hitObject.Line.Units;
+
+                // Stale (an undo dropped the rest before the next rebuild), out of the live pass's
+                // scope, or a word that no longer has this pause: hidden outright, like every other
+                // handle on this strip.
+                if (unitIndex < 0 || unitIndex >= units.Count || pauseIndex < 0 || pauseIndex >= units[unitIndex].Pauses.Count
+                    || state.HiddenByTapScope(hitObject, unitIndex))
+                {
+                    Alpha = 0;
+                    return;
+                }
+
+                Alpha = 1;
+
+                var pause = units[unitIndex].Pauses[pauseIndex];
+                float x = parent.PositionOf(pause.StartTime);
+                X = x;
+                // Never narrower than a sliver, so a very short rest still READS as a band even though
+                // its edges stay grabbable regardless (their zones are fixed pixels, not proportions).
+                Width = Math.Max(2, parent.PositionOf(pause.EndTime) - x);
+
+                startEdge.X = 0;
+                endEdge.X = Width;
+            }
+        }
+
+        /// <summary>
+        /// One draggable edge of an authored rest, and the double-click that takes the rest back out.
+        /// Deliberately the same interaction as <see cref="SyllableHandle"/>'s: a wide invisible grab
+        /// zone around a thin visual, hover widening it, drag retiming (clamped by
+        /// <see cref="TypeBeatEditorOperations.SetWordPauseStart"/> / <c>SetWordPauseEnd</c>), and the
+        /// press pulling the word's line into the detail panel so the panel's actions point at the same
+        /// word. Undo/redo is one step per drag, exactly as for every other handle here.
+        /// </summary>
+        private partial class PauseEdgeHandle : CompositeDrawable
+        {
+            // Wide enough to be easy to hit, invisible, and identical to the other handles' grab width.
+            private const float grab_width = 16;
+
+            private readonly LyricTimeline strip;
+            private readonly TypeBeatHitObject hitObject;
+            private readonly int unitIndex;
+            private readonly int pauseIndex;
+            private readonly bool start;
+            private readonly Box line;
+
+            [Resolved]
+            private EditorBeatmap editorBeatmap { get; set; } = null!;
+
+            [Resolved]
+            private LyricEditState state { get; set; } = null!;
+
+            public PauseEdgeHandle(LyricTimeline strip, TypeBeatHitObject hitObject, int unitIndex, int pauseIndex, bool start)
+            {
+                this.strip = strip;
+                this.hitObject = hitObject;
+                this.unitIndex = unitIndex;
+                this.pauseIndex = pauseIndex;
+                this.start = start;
+
+                Anchor = Anchor.CentreLeft;
+                Origin = Anchor.Centre;
+                RelativeSizeAxes = Axes.Y;
+                Width = grab_width;
+
+                InternalChild = line = new Box
+                {
+                    Anchor = Anchor.Centre,
+                    Origin = Anchor.Centre,
+                    RelativeSizeAxes = Axes.Y,
+                    Width = 2,
+                    Colour = TypeBeatStyle.TypedChar,
+                };
+            }
+
+            public override bool HandlePositionalInput => true;
+
+            // The edge reports its own hover through OnMouseMove rather than OnHover, exactly as
+            // WordBlock's edges do: the two must behave identically for a press that arrives in the
+            // same frame as the move that produced it (a scripted drag, and a fast real one), and the
+            // block's idiom is the one this strip is already built around.
+            protected override bool OnHover(HoverEvent e) => false;
+
+            protected override bool OnMouseMove(MouseMoveEvent e)
+            {
+                line.Width = 4;
+                strip.SetEdgeHovered(true);
+                return false;
+            }
+
+            protected override void OnHoverLost(HoverLostEvent e)
+            {
+                line.Width = 2;
+                strip.SetEdgeHovered(false);
+            }
+
+            // The handle owns the press (so the band, the block and the strip never see the gesture);
+            // claiming the single click as inert is what makes the double click reachable, exactly as
+            // BoundaryHandle does.
+            protected override bool OnMouseDown(MouseDownEvent e) => true;
+
+            protected override bool OnClick(ClickEvent e)
+            {
+                if (state.ActiveLine.Value != hitObject)
+                    state.SelectedLine.Value = hitObject;
+                else
+                    state.SelectUnit(unitIndex);
+
+                return true;
+            }
+
+            protected override bool OnDoubleClick(DoubleClickEvent e)
+            {
+                TypeBeatEditorOperations.RemoveWordPause(editorBeatmap, hitObject, unitIndex, pauseIndex);
+                return true;
+            }
+
+            protected override bool OnDragStart(DragStartEvent e)
+            {
+                state.BeginInteraction();
+                editorBeatmap.BeginChange();
+                return true;
+            }
+
+            protected override void OnDrag(DragEvent e)
+            {
+                double time = strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X);
+
+                if (start)
+                    TypeBeatEditorOperations.SetWordPauseStart(editorBeatmap, hitObject, unitIndex, pauseIndex, time);
+                else
+                    TypeBeatEditorOperations.SetWordPauseEnd(editorBeatmap, hitObject, unitIndex, pauseIndex, time);
             }
 
             protected override void OnDragEnd(DragEndEvent e)

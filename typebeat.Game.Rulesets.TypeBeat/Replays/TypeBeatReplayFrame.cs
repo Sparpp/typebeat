@@ -363,6 +363,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool ManualNewlines;
 
         /// <summary>
+        /// Whether a finished line may ALSO be handed over by TYPING the next line's first slot
+        /// (see <see cref="Gameplay.TypingEngine.NewlineOnTypedLetter"/>): any letter, provided that
+        /// line's entry window is already open, and the letter is then judged on the slot it landed
+        /// on - right or wrong.
+        ///
+        /// <para>The second half of the manual-newline era, and its own bit because it changes which
+        /// keystrokes are ACCEPTED rather than only which line the caret is on: with it clear a letter
+        /// at a finished caret is inert, with it set that same press moves the caret and types. A run
+        /// decoded under the wrong arm therefore refuses or accepts a whole keystroke, and every press
+        /// after it lands on different cells.</para>
+        /// </summary>
+        public bool NewlineOnTypedLetter;
+
+        /// <summary>
         /// The ANCHOR carried by a bit-9 CONFIG frame: the track position the tape was started at,
         /// which is also the origin of the wall axis every other frame in the run is stamped on. It
         /// is simply this frame's own <see cref="ReplayFrame.Time"/>, named here because that is a
@@ -413,7 +427,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <paramref name="unhalvedHardRockWindows"/> (bit 13) after that, and
         /// <paramref name="manualNewlines"/> (bit 14) last. Pass the newer ones by name.</para>
         /// </summary>
-        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false, bool flexibleLines = false, bool boundedRush = false, bool firstCharTiming = false, bool wallClockFrames = false, bool backDatedSealBreak = false, bool losslessSkipReclaim = false, bool foldsDisplacedClaim = false, bool unhalvedHardRockWindows = false, bool manualNewlines = false) => new TypeBeatReplayFrame(time, CONFIG)
+        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false, bool flexibleLines = false, bool boundedRush = false, bool firstCharTiming = false, bool wallClockFrames = false, bool backDatedSealBreak = false, bool losslessSkipReclaim = false, bool foldsDisplacedClaim = false, bool unhalvedHardRockWindows = false, bool manualNewlines = false, bool newlineOnTypedLetter = false) => new TypeBeatReplayFrame(time, CONFIG)
         {
             AllowWrongInput = allowWrongInput,
             SpaceSkipsWord = spaceSkipsWord,
@@ -430,6 +444,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             FoldsDisplacedClaim = foldsDisplacedClaim,
             UnhalvedHardRockWindows = unhalvedHardRockWindows,
             ManualNewlines = manualNewlines,
+            NewlineOnTypedLetter = newlineOnTypedLetter,
         };
 
         /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>
@@ -494,6 +509,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// player's own space or Enter rather than automatically (the manual-newlines setting).</summary>
         private const int flag_manual_newlines = 16384;
 
+        /// <summary>Bit 15 of the CONFIG frame's flags word: a finished line may also be handed over by
+        /// typing the next line's first slot (see <see cref="NewlineOnTypedLetter"/>).</summary>
+        private const int flag_newline_on_typed_letter = 32768;
+
         public void FromLegacy(LegacyReplayFrame currentFrame, IBeatmap beatmap, ReplayFrame? lastFrame = null)
         {
             Character = (char)(int)(currentFrame.MouseX ?? 0);
@@ -515,6 +534,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             FoldsDisplacedClaim = (flags & flag_displaced_claim_fold) != 0;
             UnhalvedHardRockWindows = (flags & flag_unhalved_hard_rock_windows) != 0;
             ManualNewlines = (flags & flag_manual_newlines) != 0;
+            NewlineOnTypedLetter = (flags & flag_newline_on_typed_letter) != 0;
         }
 
         public LegacyReplayFrame ToLegacy(IBeatmap beatmap) =>
@@ -535,7 +555,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             | (LosslessSkipReclaim ? flag_lossless_skip_reclaim : 0)
             | (FoldsDisplacedClaim ? flag_displaced_claim_fold : 0)
             | (UnhalvedHardRockWindows ? flag_unhalved_hard_rock_windows : 0)
-            | (ManualNewlines ? flag_manual_newlines : 0);
+            | (ManualNewlines ? flag_manual_newlines : 0)
+            | (NewlineOnTypedLetter ? flag_newline_on_typed_letter : 0);
 
         /// <summary>
         /// Never equivalent: every frame is a discrete keystroke. Two identical characters at the
