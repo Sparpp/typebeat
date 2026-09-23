@@ -23,6 +23,7 @@
 //     (Hardware Store, Guns and Ships, My Regards, Twilight Learned to Fly) are what pin it.
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
