@@ -10,9 +10,9 @@ namespace typebeat.Game.Localisation
         private const string prefix = @"typebeat.Game.Resources.Localisation.MenuTip";
 
         /// <summary>
-        /// "Check out osu!"
+        /// "Join the type!beat Discord"
         /// </summary>
-        public static LocalisableString EmbeddedWebContent => new TranslatableString(getKey(@"embedded_web_content"), @"Check out osu!");
+        public static LocalisableString JoinDiscord => new TranslatableString(getKey(@"join_discord"), @"Join the type!beat Discord");
 
         private static string getKey(string key) => $@"{prefix}:{key}";
     }
