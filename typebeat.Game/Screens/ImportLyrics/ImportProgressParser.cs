@@ -25,15 +25,13 @@ namespace typebeat.Game.Screens.ImportLyrics
         /// </summary>
         ExtractingAudio,
 
-        Uploading,
-        WaitingForServer,
         SeparatingVocals,
         LoadingModel,
         AligningLyrics,
 
         /// <summary>
         /// A momentary notice that the aligner that was running gave up and the next option is being
-        /// tried (local aligner -> server -> line stamps). Never a long-lived stage.
+        /// tried (local aligner -> line stamps). Never a long-lived stage.
         /// </summary>
         FallingBack,
 
@@ -68,12 +66,6 @@ namespace typebeat.Game.Screens.ImportLyrics
 
                 case ImportStage.ExtractingAudio:
                     return "extracting the audio";
-
-                case ImportStage.Uploading:
-                    return "uploading to the server";
-
-                case ImportStage.WaitingForServer:
-                    return "waiting for the server";
 
                 case ImportStage.SeparatingVocals:
                     return "separating vocals";
@@ -170,14 +162,10 @@ namespace typebeat.Game.Screens.ImportLyrics
             if (has(l, "packaging") || has(l, "packaged"))
                 return ImportStage.Packaging;
 
-            if (has(l, "uploading"))
-                return ImportStage.Uploading;
-
-            if (has(l, "waiting for the server") || has(l, "server aligner") || has(l, "queued"))
-                return ImportStage.WaitingForServer;
-
-            // "aligner unavailable (...), trying next option" / "server alignment unavailable (...)".
-            if (has(l, "unavailable") || has(l, "trying next option") || has(l, "trying line-timed fallback"))
+            // "aligner unavailable (aligner exited with code 1: ...), trying next option". The whole
+            // upload/queue/wait family of arms is gone with the server-side aligner: an import now
+            // runs entirely on this machine, so nothing ever emits an upload or a queue line.
+            if (has(l, "unavailable") || has(l, "trying next option"))
                 return ImportStage.FallingBack;
 
             // The split step. Deliberately matched on the ACT, not on the word "extractor", so the

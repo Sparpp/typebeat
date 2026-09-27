@@ -19,7 +19,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// The ruleset's half of Settings > Experimental: the settings that work but are not settled.
     /// What is left here is the sync metric, put back on screen for anyone who wants it (backlog 251
     /// took it off by default and cut it out of the grade), and the local auto-aligner, an opt-in
-    /// multi-gigabyte install that times imported lyrics on this machine instead of on the server.
+    /// multi-gigabyte install that times imported lyrics word-by-word on this machine. Since the
+    /// server-side aligner was retired that install is the ONLY automatic timing path in the game,
+    /// so this is where an import without [mm:ss.xx] line stamps is sent.
     ///
     /// <para>The four typing behaviours that used to sit above them - space skipping a word, manual
     /// newlines, the space error dot and the syllable markers - have SETTLED, so their controls now
@@ -73,7 +75,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsCheckbox
                 {
                     LabelText = "Use local auto-aligner",
-                    TooltipText = "When the local aligner is installed, time imported lyrics on this machine (no server queue, nothing uploaded). Turn off to always use the type!beat server instead.",
+                    TooltipText = "When the local aligner is installed, time imported lyrics word-by-word on this machine (nothing is uploaded). Turn off to time imports from their own [mm:ss.xx] line stamps instead.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.LocalAlignerEnabled),
                 },
                 installButton = new SettingsButton

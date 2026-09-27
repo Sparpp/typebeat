@@ -12,21 +12,21 @@ using System.Threading.Tasks;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Platform;
-using typebeat.Game.Online.API;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Screens.ImportLyrics;
-using typebeat.Game;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Import
 {
     /// <summary>
     /// DI adapter bridging the shell's <see cref="ILyricMapImporter"/> seam to the static
-    /// <see cref="LyricMapImporter"/> core. Owns the concerns the core cannot reach on its own:
-    /// the ruleset-scoped <see cref="TypeBeatRulesetSetting.LyricLabPath"/> override, the game's
-    /// runtime location (start directories for aligner discovery), and the API session behind
-    /// server-side alignment (<see cref="RemoteAlignClient"/>), which is offered only in deployed
-    /// builds, never in a dev build (those use the local lyriclab checkout). A <see cref="Component"/>
-    /// so it can resolve the ruleset config cache; typebeat.Desktop caches it and adds it to the hierarchy.
+    /// <see cref="LyricMapImporter"/> core. Owns the concerns the core cannot reach on its own: the
+    /// ruleset-scoped <see cref="TypeBeatRulesetSetting.LyricLabPath"/> override and the game's
+    /// runtime location (start directories for aligner discovery). A <see cref="Component"/> so it
+    /// can resolve the ruleset config cache; typebeat.Desktop caches it and adds it to the hierarchy.
+    ///
+    /// There is no remote seam any more: the server-side aligner is retired, so the ladder is the
+    /// LOCAL aligner then the LRC line stamps, identically in a dev and a deployed build (the older
+    /// shape withheld the remote rung from dev builds off <c>IsDeployedBuild</c>, which is now moot).
     ///
     /// Also implements <see cref="ILocalAlignerManager"/>: installing the local auto-aligner into
     /// the game's DATA directory (so its multi-GB environment survives Velopack updates, which
@@ -45,12 +45,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         private IRulesetConfigCache? configCache { get; set; }
 
         [Resolved(CanBeNull = true)]
-        private IAPIProvider? api { get; set; }
-
-        [Resolved(CanBeNull = true)]
-        private OsuGameBase? game { get; set; }
-
-        [Resolved(CanBeNull = true)]
         private Storage? storage { get; set; }
 
         public (string Artist, string Title) GuessArtistTitle(string audioPath) => LyricMapImporter.GuessArtistTitle(audioPath);
@@ -58,30 +52,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         public Task<LyricImportResult> BuildOszAsync(
             string audioPath, string? lyricsPath, string artist, string title,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = false)
-            => LyricMapImporter.BuildOszAsync(audioPath, lyricsPath, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token, remoteAligner(), useAutomaticAlignment);
+            => LyricMapImporter.BuildOszAsync(audioPath, lyricsPath, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token, useAutomaticAlignment);
 
         public Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true)
-            => LyricMapImporter.ProduceTimingJsonAsync(audioPath, lyricsContent, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token, remoteAligner(), useAutomaticAlignment);
-
-        private RemoteAligner? remoteAligner()
-        {
-            var capturedApi = api;
-
-            if (capturedApi == null)
-                return null;
-
-            // Server-side alignment exists for SHIPPED builds, which carry no local Python/torch.
-            // A development build (non-deployed: AssemblyVersion.Major == 0) has the vendored
-            // lyriclab beside the repo and must use it, never offload to the production aligner,
-            // so the remote fallback is withheld here and import resolves local aligner -> LRC only.
-            if (game?.IsDeployedBuild != true)
-                return null;
-
-            return (audioPath, lyricsContent, artist, title, progress, token) =>
-                RemoteAlignClient.AlignAsync(capturedApi, audioPath, lyricsContent, artist, title, progress, token);
-        }
+            => LyricMapImporter.ProduceTimingJsonAsync(audioPath, lyricsContent, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token, useAutomaticAlignment);
 
         private TypeBeatRulesetConfigManager? config()
         {
@@ -101,7 +77,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// <summary>
         /// The configured lyriclab path for import runs; null when the local aligner is switched
         /// off, which (together with empty start directories) makes discovery find nothing and the
-        /// pipeline go straight to the server aligner / LRC fallback.
+        /// pipeline go straight to the LRC line-stamp fallback.
         /// </summary>
         private string? effectiveConfiguredPath()
         {

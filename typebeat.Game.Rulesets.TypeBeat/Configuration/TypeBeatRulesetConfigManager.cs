@@ -25,10 +25,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 
         /// <summary>
         /// Whether the locally installed lyriclab auto-aligner is used for imports. On by default:
-        /// when an installed environment exists the local aligner is preferred over the server one;
-        /// when off (or nothing is installed) imports use the server aligner / LRC fallback. This
-        /// only decides which aligner runs; it never triggers the multi-GB install, which stays an
-        /// explicit action (the first-run prompt and the Settings button).
+        /// when an installed environment exists it times the words; when off (or nothing is
+        /// installed) imports fall back to the lyrics' own [mm:ss.xx] line stamps, which since the
+        /// server-side aligner was retired is the ONLY other source of timing. The setting still
+        /// earns its keep as the gate on the installed environment (a user who has paid the multi-GB
+        /// install can still choose the instant line-stamp path per import without uninstalling); it
+        /// never triggers the install itself, which stays an explicit action (the first-run prompt
+        /// and the Settings button).
         /// </summary>
         LocalAlignerEnabled,
 

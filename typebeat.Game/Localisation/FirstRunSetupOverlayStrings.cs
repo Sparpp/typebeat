@@ -63,11 +63,11 @@ type!beat is a very configurable game, and diving straight into the settings can
         /// The local auto-aligner pitch shown during first-run setup.
         /// </summary>
         public static LocalisableString LocalAlignerDescription => new TranslatableString(getKey(@"local_aligner_description"),
-            @"When you create a map, type!beat uses an AI aligner to time the song's lyrics word-by-word against the audio.
+            @"When you create a map, type!beat can use an AI aligner to time the song's lyrics word-by-word against the audio.
 
-By default that runs on the type!beat server; it works everywhere, but jobs queue up and can take a few minutes per song.
+The aligner runs on your own machine: install it once and every map you import gets word-by-word timing, with nothing uploaded anywhere. It is a one-time download of roughly 2 GB (about 2.5 GB for the GPU build), and it is worth installing if you have a decent graphics card or a fast CPU.
 
-If your machine has a decent graphics card (or a fast CPU), you can install the aligner locally instead: your imports run on your own hardware with no queue and nothing uploaded. This is a one-time download of roughly 2 GB (about 2.5 GB for the GPU build) and can always be installed later from Settings.");
+Without it, imports are timed from the [mm:ss.xx] line stamps in your lyrics file: instant, but only accurate to the start of each line. You can always install the aligner later from Settings.");
 
         /// <summary>
         /// "Install the local auto-aligner"

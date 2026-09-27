@@ -24,7 +24,7 @@ namespace typebeat.Game.Screens.ImportLyrics
     /// importing looks and sounds like submitting.
     ///
     /// Where submission knows its four steps up front, an import's route is decided as it runs
-    /// (local aligner, server aligner, or straight from line stamps), so rows are revealed as their
+    /// (the local aligner, or straight from the lyrics' line stamps), so rows are revealed as their
     /// stage is first reached: entering a stage completes every row above it. Raw pipeline chatter
     /// is classified by <see cref="ImportProgressParser"/> and never rendered; unrecognised lines
     /// leave the current row alone rather than printing internals.
