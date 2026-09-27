@@ -137,13 +137,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 frames.Add(new TypeBeatReplayFrame(engine.Lines[0].Cells[index].TargetTime, TypeBeatReplayFrame.BACKSPACE));
         });
 
-        /// <summary>Run line 0 out of time so it seals, which costs no keystroke and no frame.</summary>
-        private void sealLineZero() => AddStep("run line 0 out of time", () => engine.Update(line_zero_end + 1));
+        /// <summary>
+        /// Run line 0 past its DRAG CUTOFF so it seals inside this very step, costing no keystroke
+        /// and no frame. Its <c>EndTime</c> alone is not out of time under the default stack: the
+        /// unpinned caret holds a finished line the player is standing on open for another
+        /// <see cref="TypingEngine.FLETCHER_DRAG_GRACE_MS"/> past <c>EndTime + SealGraceMs</c>, so
+        /// an update to <c>EndTime + 1</c> sealed NOTHING and the scene silently fell back on the
+        /// real gameplay clock fast-forwarding all 300 s of map to the cutoff, a wait whose wall
+        /// length scales with machine load and is what took this scene to ~9 s in isolation and
+        /// over the 10 s until-step budget under a loaded full suite. Driven past the cutoff, the
+        /// seal and its hand-over of the caret are synchronous and nothing waits on the clock.
+        /// </summary>
+        private void sealLineZero()
+        {
+            AddStep("run line 0 past its drag cutoff", () => engine.Update(line_zero_end + TypingEngine.FLETCHER_DRAG_GRACE_MS + 1));
+            AddAssert("the seal really happened in that step", () =>
+                engine.NextUnsealedLineIndex == 1 && engine.ActiveLineIndex == 1);
+        }
 
-        /// <summary>Type line 1's single cell, at the moment the seal ran the clock to.</summary>
+        /// <summary>
+        /// Type line 1's single cell, dead on its own start. The seal's hand-over already put the
+        /// caret on line 1 (asserted above), and the press time is the cell's own target rather
+        /// than the engine's, so the recorded frame and its judgement are identical however far
+        /// past the cutoff the seal step ran the engine.
+        /// </summary>
         private void typeLineOneCell()
         {
-            AddUntilStep("line 1 active", () => engine.ActiveLineIndex == 1);
             AddStep("type line 1's cell", () => press(engine.Lines[1].Cells[0].Expected, line_zero_end + 1));
         }
 
