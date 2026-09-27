@@ -124,6 +124,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     Items = buildFontItems(lyricFont.Value),
                     Current = lyricFont,
                 },
+                // Right under the typing font it defers to: the map's own font only ever applies
+                // while the dropdown above sits on Default, because a deliberate personal pick
+                // (an accessibility font above all) always wins (see LyricFontResolution).
+                new SettingsCheckbox
+                {
+                    LabelText = "Use map fonts",
+                    TooltipText = "Show the lyric font the mapper chose for their map, when it has one. Your own typing font choice above always takes priority, so turn this off only if you want the built-in font even on maps that bring their own. Applies from the next play.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.UseMapFonts),
+                },
                 // And the two marks the line itself can carry, display only.
                 new SettingsCheckbox
                 {

@@ -117,6 +117,15 @@ namespace typebeat.Game.Beatmaps.Formats
 
             if (beatmap.SamplesMatchPlaybackRate)
                 writer.WriteLine(@"SamplesMatchPlaybackRate: 1");
+
+            // type!beat addition (backlog 291): the mapper-chosen typing font and its optionally
+            // bundled file. Written only when the mapper actually chose one, for the same map-hash
+            // reason the [Metadata] Language/AudioGain lines are conditional: an unconditional line
+            // would change every existing beatmap's encoding. The ruleset's native encoder
+            // (LyricOsuFormat) writes the same two keys, spelled identically, so a map exported to
+            // .osz through here and re-imported comes back with the font it left with.
+            if (!string.IsNullOrEmpty(beatmap.Metadata.LyricFont)) writer.WriteLine(FormattableString.Invariant($"LyricFont: {beatmap.Metadata.LyricFont}"));
+            if (!string.IsNullOrEmpty(beatmap.Metadata.LyricFontFile)) writer.WriteLine(FormattableString.Invariant($"LyricFontFile: {Path.GetFileName(beatmap.Metadata.LyricFontFile)}"));
         }
 
         private void handleEditor(TextWriter writer)

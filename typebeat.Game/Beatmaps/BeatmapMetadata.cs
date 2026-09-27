@@ -135,6 +135,31 @@ namespace typebeat.Game.Beatmaps
         public string AudioFile { get; set; } = string.Empty;
         public string BackgroundFile { get; set; } = string.Empty;
 
+        /// <summary>
+        /// The mapper-chosen font family for the gameplay typing surface (backlog 291), or empty for
+        /// the game's built-in lyric font. Stored as <c>[General] LyricFont:</c> and only written when
+        /// a mapper has chosen one, so every existing map still encodes byte for byte as it did.
+        /// </summary>
+        /// <remarks>
+        /// A THIRD source for the one family string the lyric stack renders in, not a new rendering
+        /// path: the player's own <c>TypeBeatRulesetSetting.LyricFont</c> pick (when not Default)
+        /// always wins, then this, then the built-in font. A family the player's machine cannot
+        /// resolve falls back rather than failing the play. Deliberately not on
+        /// <see cref="IBeatmapMetadataInfo"/> for the reason <see cref="Language"/> and
+        /// <see cref="AudioGain"/> are not: that interface is the display/search contract shared with
+        /// the API response models.
+        /// </remarks>
+        public string LyricFont { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Optional filename (inside the beatmap set, like <see cref="BackgroundFile"/>) of a bundled
+        /// font file for <see cref="LyricFont"/>, so players without the family installed still see
+        /// the mapper's font. Stored as <c>[General] LyricFontFile:</c>, written only when set. A
+        /// missing or corrupt file falls back to resolving <see cref="LyricFont"/> by name, then to
+        /// the built-in font; it never fails the play.
+        /// </summary>
+        public string LyricFontFile { get; set; } = string.Empty;
+
         public BeatmapMetadata(RealmUser? user = null)
         {
             Author = user ?? new RealmUser();
@@ -161,7 +186,9 @@ namespace typebeat.Game.Beatmaps
             PreviewTime = PreviewTime,
             AudioGain = AudioGain,
             AudioFile = AudioFile,
-            BackgroundFile = BackgroundFile
+            BackgroundFile = BackgroundFile,
+            LyricFont = LyricFont,
+            LyricFontFile = LyricFontFile
         };
     }
 }

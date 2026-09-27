@@ -112,8 +112,12 @@ namespace typebeat.Game.Database
         ///                    modifier by default (Command on macOS, Ctrl elsewhere); drop the old
         ///                    Ctrl rows on macOS, if not already changed by user, so the key store
         ///                    re-inserts the platform's own default.
+        /// 57   2026-09-27    Added LyricFont and LyricFontFile to BeatmapMetadata (the mapper-chosen
+        ///                    typing font and its optionally bundled file). No migration body: unlike
+        ///                    AudioGain, realm's own default for a required string column (empty)
+        ///                    already means "no font chosen" for every existing row.
         /// </summary>
-        private const int schema_version = 56;
+        private const int schema_version = 57;
 
         /// <summary>
         /// Lock object which is held during <see cref="BlockAllOperations"/> sections, blocking realm retrieval during blocking periods.

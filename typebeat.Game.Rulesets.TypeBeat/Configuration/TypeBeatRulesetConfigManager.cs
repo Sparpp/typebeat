@@ -111,6 +111,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         LyricFont,
 
         /// <summary>
+        /// Whether a map's own font choice (<c>[General] LyricFont</c>, backlog 291) is applied to
+        /// the typing surface. ON by default, in the spirit of osu's beatmap skin/hitsound toggles:
+        /// the mapper picked a look for their map and most players want to see it. It only matters
+        /// while <see cref="LyricFont"/> is the Default sentinel, because a player's own deliberate
+        /// font pick always beats the map's (see <c>UI.LyricFontResolution</c>). Display only, so it
+        /// never reaches the replay CONFIG frame.
+        /// </summary>
+        UseMapFonts,
+
+        /// <summary>
         /// Whether a word left carrying an error, once the player has spaced past it, is marked with
         /// a small red dot centred in the gap after it (the TypeGG-style error indicator). OFF by
         /// default. Purely visual: it decides nothing about judgement, scoring, the replay or the
@@ -276,6 +286,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.ManualNewlines, true);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
+            SetDefault(TypeBeatRulesetSetting.UseMapFonts, true);
             SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, true);
             SetDefault(TypeBeatRulesetSetting.ShowSyllableMarkers, true);
             SetDefault(TypeBeatRulesetSetting.ShowSyncMetric, false);
