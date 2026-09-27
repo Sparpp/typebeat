@@ -142,10 +142,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         #region Everything that has to carry it
 
         /// <summary>
-        /// A rest is LOCKED IN PLACE through a re-time, exactly as a subdivision boundary is: it sits at
-        /// the time the mapper put it, and stretching or squeezing the word re-times the word around it.
-        /// A move that still leaves it inside the word therefore leaves it exactly where it was, and one
-        /// the new span can no longer hold goes - the same clamp-then-drop rule the boundaries take.
+        /// A rest is LOCKED IN PLACE through a RESIZE, exactly as a subdivision boundary is: it sits
+        /// at the time the mapper put it, and stretching or squeezing the word re-times the word
+        /// around it; one the new span can no longer hold goes - the same clamp-then-drop rule the
+        /// boundaries take. A rigid MOVE is the other regime: the whole word travels, and the rest
+        /// travels with it at the same offset (leaving it behind was the bug where a moved word's
+        /// sub-word timing stayed anchored in the song).
         /// </summary>
         [Test]
         public void RetimingAWordLeavesItsRestWhereItIs()
@@ -154,10 +156,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var line = lineAt(beatmap, 0);
             TypeBeatEditorOperations.InsertWordPause(beatmap, line, 0, 1450);
 
-            // MOVED: the word shifts 400 ms later, and the rest does not follow it.
+            // MOVED: the word shifts 400 ms later, and the rest rides along at the same offset.
             TypeBeatEditorOperations.MoveUnit(beatmap, line, 0, 1400);
             Assert.That(line.Line.Units[0].StartTime, Is.EqualTo(1400).Within(tolerance), "the move itself landed");
-            Assert.That(line.Line.Units[0].Pauses, Is.EqualTo(new[] { new WordPause(1450, 1500, 3) }), "and the rest stayed put");
+            Assert.That(line.Line.Units[0].Pauses, Is.EqualTo(new[] { new WordPause(1850, 1900, 3) }), "and the rest moved with the word");
 
             // SHRUNK around it: still where it was.
             var resized = createBeatmap();

@@ -147,8 +147,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Estimated = line.Estimated,
             };
 
-        private static TimedUnit retime(TimedUnit unit, double start, double end, TimingSource? source = null, double? confidence = null)
+        /// <summary>
+        /// One word's unit rebuilt over a new span. Two regimes, split by <paramref name="translate"/>:
+        ///
+        /// <para>A RESIZE (the default) re-times the word AROUND its dividers: the mapper is pulling
+        /// one edge to better fit the vocal, and the vocal events inside the word (a syllable onset,
+        /// a breath) did not move, so boundaries and rests keep their OWN times and any the new span
+        /// can no longer hold are dropped (see <see cref="ClampPauses"/> for the full reasoning).</para>
+        ///
+        /// <para>A TRANSLATION (<paramref name="translate"/> true, and the span really is the old one
+        /// shifted whole) moves the word's interior WITH it: the mapper grabbed the word body, and a
+        /// word is its shape, so boundaries and rests shift by the same delta the edges did (the same
+        /// offsets into the new span) and the authored split stays verbatim. No clamp can apply,
+        /// because the shape is unchanged: a divider strictly inside the old span is strictly inside
+        /// the new one, and a split valid against the old boundary count is valid against the same
+        /// count. This is the word-move face of the rule the line-timing paste applies (a rebased
+        /// pattern carries its sub-word timing at the same offsets); leaving the dividers at their
+        /// absolute times here anchored them in the song while the word left, which dropped or staled
+        /// them. The flag is explicit rather than inferred from an unchanged duration so the unit-run
+        /// paste (whose documented rule is that the target keeps its own dividers, re-clamped) cannot
+        /// drift onto this path when a pasted span happens to equal a word's width.</para>
+        /// </summary>
+        private static TimedUnit retime(TimedUnit unit, double start, double end, TimingSource? source = null, double? confidence = null, bool translate = false)
         {
+            if (translate && Math.Abs((end - start) - (unit.EndTime - unit.StartTime)) < 1e-6)
+            {
+                double delta = start - unit.StartTime;
+
+                return new TimedUnit
+                {
+                    Text = unit.Text,
+                    StartTime = start,
+                    EndTime = end,
+                    Source = source ?? unit.Source,
+                    Confidence = confidence ?? unit.Confidence,
+                    SyllableBoundaries = unit.SyllableBoundaries.Count == 0
+                        ? unit.SyllableBoundaries
+                        : unit.SyllableBoundaries.Select(b => b + delta).ToArray(),
+                    SyllableSplits = unit.SyllableSplits,
+                    Pauses = unit.Pauses.Count == 0
+                        ? unit.Pauses
+                        : unit.Pauses.Select(pause => new WordPause(pause.StartTime + delta, pause.EndTime + delta, pause.SplitChar)).ToArray(),
+                };
+            }
+
             // Syllable subdivisions ride along, clamped to the new span (any that fall outside the
             // re-timed window are dropped: the word shrank past them).
             var boundaries = clampBoundaries(unit.SyllableBoundaries, start, end);
@@ -450,6 +492,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// Moves one word unit as a RIGID block (its duration is preserved), clamped so the whole
         /// word stays between its neighbours. Dragging a word into the next one just stops it at
         /// the boundary; it never gets squashed (which independent-edge clamping would do).
+        /// Its subdivision boundaries, authored split and rests move WITH it (see
+        /// <see cref="retime"/>'s translation regime): the word arrives with the same shape it left.
         /// </summary>
         public static void MoveUnit(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, double newStart)
         {
@@ -469,7 +513,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return;
 
             newStart = Math.Clamp(newStart, lower, upper - duration);
-            applyUnit(editorBeatmap, hitObject, unitIndex, newStart, newStart + duration);
+            applyUnit(editorBeatmap, hitObject, unitIndex, newStart, newStart + duration, translate: true);
         }
 
         /// <summary>How a group edit transforms each selected unit: rigid move, or drag one edge.</summary>
@@ -568,7 +612,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     default: ns += applied; ne += applied; break;
                 }
 
-                units[i] = retime(units[i], ns, ne, TimingSource.Explicit, 1);
+                // A group MOVE is the multi-select face of MoveUnit: every selected word translates
+                // rigidly, so each carries its sub-word timing along. The two resize modes keep the
+                // clamp regime, exactly as a single-word edge drag does.
+                units[i] = retime(units[i], ns, ne, TimingSource.Explicit, 1, translate: mode == UnitGroupEdit.Move);
             }
 
             editorBeatmap.BeginChange();
@@ -610,13 +657,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return line.EndTime;
         }
 
-        /// <summary>Writes one unit's [start, end] back (Explicit, trusted), clearing Estimated and promoting granularity.</summary>
-        private static void applyUnit(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, double newStart, double newEnd)
+        /// <summary>Writes one unit's [start, end] back (Explicit, trusted), clearing Estimated and promoting granularity.
+        /// <paramref name="translate"/> marks a rigid move, whose sub-word timing rides along (see <see cref="retime"/>).</summary>
+        private static void applyUnit(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, double newStart, double newEnd, bool translate = false)
         {
             var line = hitObject.Line;
             double previousLastEnd = lastUnitEnd(line);
             var units = line.Units.ToArray();
-            units[unitIndex] = retime(units[unitIndex], newStart, newEnd, TimingSource.Explicit, 1);
+            units[unitIndex] = retime(units[unitIndex], newStart, newEnd, TimingSource.Explicit, 1, translate);
 
             editorBeatmap.BeginChange();
             hitObject.Line = new LyricLine
