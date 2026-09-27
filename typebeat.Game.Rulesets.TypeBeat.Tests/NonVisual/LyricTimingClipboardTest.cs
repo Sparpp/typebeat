@@ -1,9 +1,11 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the LICENCE file in the repository root.
 
+using System;
 using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.Edit;
 
@@ -69,6 +71,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         private static TypeBeatHitObject line(EditorBeatmap editorBeatmap, int index)
             => TypeBeatEditorOperations.OrderedLines(editorBeatmap)[index];
+
+        /// <summary>
+        /// Gives one word of a line the SUB-WORD timing the fixture cannot express: subdivision
+        /// boundaries, an authored char split, authored rests. Written straight onto the model, since
+        /// the syllable ops have their own fixture. The line's Granularity is left at the fixture's
+        /// Word: the encoder persists sub-word timing for anything above Line, and a paste is
+        /// supposed to raise it to Syllable by itself.
+        /// </summary>
+        private static void subdivide(EditorBeatmap editorBeatmap, int lineIndex, int unitIndex,
+                                      double[]? boundaries = null, int[]? splits = null, WordPause[]? rests = null)
+        {
+            var hitObject = line(editorBeatmap, lineIndex);
+            var lyric = hitObject.Line;
+            var units = lyric.Units.ToArray();
+            var unit = units[unitIndex];
+
+            units[unitIndex] = new TimedUnit
+            {
+                Text = unit.Text,
+                StartTime = unit.StartTime,
+                EndTime = unit.EndTime,
+                Source = TimingSource.Explicit,
+                Confidence = 1,
+                SyllableBoundaries = boundaries ?? Array.Empty<double>(),
+                SyllableSplits = splits ?? Array.Empty<int>(),
+                Pauses = rests ?? Array.Empty<WordPause>(),
+            };
+
+            hitObject.Line = new LyricLine
+            {
+                RawText = lyric.RawText,
+                StartTime = lyric.StartTime,
+                EndTime = lyric.EndTime,
+                SingEndTime = lyric.SingEndTime,
+                Units = units,
+            };
+        }
 
         // ---- serialization ----
 
@@ -307,6 +346,322 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var run = TypeBeatEditorOperations.CopyUnitTimings(line(editorBeatmap, 1), new[] { 1, 0, 1 })!;
 
             Assert.That(run.Units.Select(u => (u.Start, u.End)), Is.EqualTo(new[] { (0d, 1200d), (1300d, 2500d) }));
+        }
+
+        // ---- sub-word timing: subdivisions, authored splits, authored rests ----
+        //
+        // A line paste used to drop every one of them. The source's were never captured, and the
+        // target's own were destroyed by the retime clamp (they sat at their old absolute times while
+        // the word moved to the source's span), so the chorus workflow came back undivided. The
+        // policy now is on PasteLineTimings: boundaries always travel for a positionally mapped word,
+        // the two CHAR-INDEXED halves travel only when the two words have the same character count.
+
+        [Test]
+        public void LinePayloadCapturesSubWordTiming()
+        {
+            var editorBeatmap = createBeatmap();
+
+            // "alpha" [1000..1800] cut "al|ph|a"; "beta" [1900..2800] with one rest after "be".
+            subdivide(editorBeatmap, 0, 0, boundaries: new[] { 1300d, 1600d }, splits: new[] { 2, 4 });
+            subdivide(editorBeatmap, 0, 1, rests: new[] { new WordPause(2200, 2350, 2) });
+
+            var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) });
+            var (parsed, _) = LyricTimingClipboard.TryParse(LyricTimingClipboard.Serialize(payload));
+            var words = parsed!.Lines[0].Units;
+
+            Assert.Multiple(() =>
+            {
+                // Every offset is LINE-relative, exactly like the spans beside it (line start 1000).
+                Assert.That(words[0].Boundaries, Is.EqualTo(new[] { 300d, 600d }));
+                Assert.That(words[0].Splits, Is.EqualTo(new[] { 2, 4 }));
+                Assert.That(words[0].Chars, Is.EqualTo(5), "\"alpha\"");
+                Assert.That(words[0].Rests, Is.Null);
+
+                Assert.That(words[1].Boundaries, Is.Null, "\"beta\" is undivided");
+                Assert.That(words[1].Splits, Is.Null);
+                Assert.That(words[1].Chars, Is.EqualTo(4), "\"beta\"");
+                Assert.That(words[1].Rests!.Select(r => (r.Start, r.End, r.SplitChar)), Is.EqualTo(new[] { (1200d, 1350d, 2) }));
+            });
+        }
+
+        [Test]
+        public void PayloadWithoutTheSubWordFields_StillParses()
+        {
+            // A payload serialized before the fields existed: every one of them is optional, so it
+            // reads back as a plain span pattern rather than failing the whole paste.
+            var (lines, _) = LyricTimingClipboard.TryParse(
+                "{\"type\":\"typebeat-line-timings\",\"lines\":[{\"sing_end\":1800,\"units\":[{\"start\":0,\"end\":800}]}]}");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(lines, Is.Not.Null);
+                Assert.That(lines!.Lines[0].Units[0].End, Is.EqualTo(800));
+                Assert.That(lines.Lines[0].Units[0].Chars, Is.Zero);
+                Assert.That(lines.Lines[0].Units[0].Boundaries, Is.Null);
+                Assert.That(lines.Lines[0].Units[0].Splits, Is.Null);
+                Assert.That(lines.Lines[0].Units[0].Rests, Is.Null);
+            });
+        }
+
+        [Test]
+        public void PasteCarriesSubdivisionsRebasedOntoTheTargetWord()
+        {
+            var editorBeatmap = createBeatmap();
+
+            // Source line 0: "alpha" cut "al|ph|a" at 1300/1600, "beta" cut "be|ta" at 2300.
+            subdivide(editorBeatmap, 0, 0, boundaries: new[] { 1300d, 1600d }, splits: new[] { 2, 4 });
+            subdivide(editorBeatmap, 0, 1, boundaries: new[] { 2300d }, splits: new[] { 2 });
+
+            var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) });
+            TypeBeatEditorOperations.PasteLineTimings(editorBeatmap, new[] { line(editorBeatmap, 1) }, payload);
+
+            var target = line(editorBeatmap, 1).Line;
+
+            Assert.Multiple(() =>
+            {
+                // Word 0: span 1000..1800 rebased to 3000..3800, so each boundary keeps its distance
+                // into the word (300 and 600 in).
+                Assert.That(target.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3300d, 3600d }));
+
+                // "gamma" is 5 chars like "alpha", so the authored cut travels verbatim.
+                Assert.That(target.Units[0].SyllableSplits, Is.EqualTo(new[] { 2, 4 }));
+                Assert.That(SyllableSegments.SegmentTexts("gamma", SyllableSegments.SplitsFor(target.Units[0])),
+                    Is.EqualTo(new[] { "ga", "mm", "a" }));
+
+                // Word 1: span 1900..2800 rebased to 3900..4800, boundary 400 in.
+                Assert.That(target.Units[1].SyllableBoundaries, Is.EqualTo(new[] { 4300d }));
+
+                // "delta" is 5 chars where "beta" was 4, so the CHAR INDEX does not travel: the word
+                // falls back to the derived split, which can never point past its own end.
+                Assert.That(target.Units[1].SyllableSplits, Is.Empty);
+                Assert.That(SyllableSegments.SplitsFor(target.Units[1]), Is.EqualTo(SyllableSegments.Derived("delta", 2)));
+            });
+        }
+
+        [Test]
+        public void PasteReplacesTheTargetsOwnSubdivisionsRatherThanKeepingThem()
+        {
+            var editorBeatmap = createBeatmap();
+
+            subdivide(editorBeatmap, 0, 0, boundaries: new[] { 1300d, 1600d }, splits: new[] { 2, 4 });
+
+            // The target word has a subdivision of its OWN at 3100, inside its old span 3000..4200
+            // AND inside the span it is about to be given (3000..3800). Carrying the target's own
+            // boundaries through the retime clamp is exactly how this used to survive as a stale
+            // leftover while the source's two were never captured at all.
+            subdivide(editorBeatmap, 1, 0, boundaries: new[] { 3100d }, splits: new[] { 1 });
+
+            var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) });
+            TypeBeatEditorOperations.PasteLineTimings(editorBeatmap, new[] { line(editorBeatmap, 1) }, payload);
+
+            var word = line(editorBeatmap, 1).Line.Units[0];
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(word.SyllableBoundaries, Is.EqualTo(new[] { 3300d, 3600d }));
+                Assert.That(word.SyllableBoundaries, Has.No.Member(3100d), "the target's own boundary is overwritten, not kept");
+                Assert.That(word.SyllableSplits, Is.EqualTo(new[] { 2, 4 }));
+            });
+        }
+
+        [Test]
+        public void PasteLeavesNoSubWordTimingOnAnInterpolatedLeftoverWord()
+        {
+            var editorBeatmap = createBeatmap();
+
+            // Source: the one-word line, "omega" cut "om|ega" at 6400.
+            subdivide(editorBeatmap, 2, 0, boundaries: new[] { 6400d }, splits: new[] { 2 });
+
+            // Target word 1 ("beta") has a subdivision of its own; it is a LEFTOVER (one span, two
+            // words), so it has no source word to take timing from and must keep none of its own.
+            subdivide(editorBeatmap, 0, 1, boundaries: new[] { 2300d }, splits: new[] { 2 });
+
+            var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 2) });
+            TypeBeatEditorOperations.PasteLineTimings(editorBeatmap, new[] { line(editorBeatmap, 0) }, payload);
+
+            var target = line(editorBeatmap, 0).Line;
+
+            Assert.Multiple(() =>
+            {
+                // Word 0 is mapped: "alpha" is 5 chars like "omega", so the cut travels.
+                Assert.That(target.Units[0].StartTime, Is.EqualTo(1000));
+                Assert.That(target.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 1400d }));
+                Assert.That(target.Units[0].SyllableSplits, Is.EqualTo(new[] { 2 }));
+
+                Assert.That(target.Units[1].Source, Is.EqualTo(TimingSource.Interpolated));
+                Assert.That(target.Units[1].SyllableBoundaries, Is.Empty);
+                Assert.That(target.Units[1].SyllableSplits, Is.Empty);
+            });
+        }
+
+        [Test]
+        public void PasteDropsSurplusSourceWordsSubWordTimingWithTheirSpans()
+        {
+            var editorBeatmap = createBeatmap();
+
+            subdivide(editorBeatmap, 0, 0, boundaries: new[] { 1300d, 1600d }, splits: new[] { 2, 4 });
+            subdivide(editorBeatmap, 0, 1, boundaries: new[] { 2300d }, splits: new[] { 2 });
+
+            // Two source words onto the one-word last line: source word 1 drops whole.
+            var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) });
+            TypeBeatEditorOperations.PasteLineTimings(editorBeatmap, new[] { line(editorBeatmap, 2) }, payload);
+
+            var target = line(editorBeatmap, 2).Line;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(target.Units, Has.Count.EqualTo(1));
+                Assert.That(target.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 6300d, 6600d }));
+                Assert.That(target.Units[0].SyllableSplits, Is.EqualTo(new[] { 2, 4 }), "\"omega\" is 5 chars like \"alpha\"");
+
+                // Every boundary strictly inside its own word, the invariant TimedUnit declares.
+                Assert.That(target.Units[0].SyllableBoundaries.All(b => b > target.Units[0].StartTime && b < target.Units[0].EndTime), Is.True);
+            });
+        }
+
+        [Test]
+        public void SubdivisionsTheTargetWindowCannotHoldAreDropped()
+        {
+            var editorBeatmap = createBeatmap();
+
+            // "gamma" [3000..4200] cut at 3600; "delta" [4300..5500] cut at 5400, near its end.
+            subdivide(editorBeatmap, 1, 0, boundaries: new[] { 3600d }, splits: new[] { 3 });
+            subdivide(editorBeatmap, 1, 1, boundaries: new[] { 5400d }, splits: new[] { 3 });
+
+            // Line 1's wide pattern onto line 0, whose window ends at 3000: word 1 is clamped to
+            // 2300..3000, and its boundary would land at 3400, past the clamped end.
+            var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 1) });
+            TypeBeatEditorOperations.PasteLineTimings(editorBeatmap, new[] { line(editorBeatmap, 0) }, payload);
+
+            var target = line(editorBeatmap, 0).Line;
+
+            Assert.Multiple(() =>
+            {
+                // Word 0 fits: span 1000..2200, boundary 600 in.
+                Assert.That(target.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 1600d }));
+                Assert.That(target.Units[0].SyllableSplits, Is.EqualTo(new[] { 3 }), "\"alpha\" is 5 chars like \"gamma\"");
+
+                Assert.That((target.Units[1].StartTime, target.Units[1].EndTime), Is.EqualTo((2300d, 3000d)));
+                Assert.That(target.Units[1].SyllableBoundaries, Is.Empty, "the clamped span cannot hold it");
+
+                // The split named a boundary that no longer exists, so it goes with it rather than
+                // pairing with the wrong segment.
+                Assert.That(target.Units[1].SyllableSplits, Is.Empty);
+            });
+        }
+
+        [Test]
+        public void PasteCarriesAuthoredRestsOnlyWhenTheCharacterCountMatches()
+        {
+            var editorBeatmap = createBeatmap();
+
+            subdivide(editorBeatmap, 0, 0, rests: new[] { new WordPause(1400, 1500, 2) }); // "be"-style cut in "alpha"
+            subdivide(editorBeatmap, 0, 1, rests: new[] { new WordPause(2200, 2350, 2) }); // in "beta", 4 chars
+
+            var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) });
+            TypeBeatEditorOperations.PasteLineTimings(editorBeatmap, new[] { line(editorBeatmap, 1) }, payload);
+
+            var target = line(editorBeatmap, 1).Line;
+
+            Assert.Multiple(() =>
+            {
+                // "gamma" matches "alpha" at 5 chars: the rest travels, rebased with the span.
+                Assert.That(target.Units[0].Pauses.Select(p => (p.StartTime, p.EndTime, p.SplitChar)),
+                    Is.EqualTo(new[] { (3400d, 3500d, 2) }));
+
+                // "delta" (5) against "beta" (4): a rest has no derived form, so it is dropped rather
+                // than landing on a character it was not authored for.
+                Assert.That(target.Units[1].Pauses, Is.Empty);
+            });
+        }
+
+        [Test]
+        public void PasteMovesGranularityWithTheSubdivisionsItBringsAndTakesAway()
+        {
+            var editorBeatmap = createBeatmap();
+
+            subdivide(editorBeatmap, 0, 0, boundaries: new[] { 1300d }, splits: new[] { 2 });
+            Assert.That(line(editorBeatmap, 1).Granularity, Is.EqualTo(TimingGranularity.Word), "fixture");
+
+            var subdivided = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) });
+            TypeBeatEditorOperations.PasteLineTimings(editorBeatmap, new[] { line(editorBeatmap, 1) }, subdivided);
+
+            Assert.That(TypeBeatEditorOperations.OrderedLines(editorBeatmap).Select(o => o.Granularity),
+                Is.All.EqualTo(TimingGranularity.Syllable), "a subdivision arrived, so the encoder has to persist it");
+
+            // Now stamp the undivided last line's pattern over both subdivided lines: the map holds no
+            // boundary anywhere, so it falls back to Word, never below (the units are still Explicit).
+            var plain = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 2) });
+            TypeBeatEditorOperations.PasteLineTimings(editorBeatmap, new[] { line(editorBeatmap, 0), line(editorBeatmap, 1) }, plain);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(TypeBeatEditorOperations.OrderedLines(editorBeatmap).SelectMany(o => o.Line.Units).All(u => u.SyllableBoundaries.Count == 0), Is.True);
+                Assert.That(TypeBeatEditorOperations.OrderedLines(editorBeatmap).Select(o => o.Granularity), Is.All.EqualTo(TimingGranularity.Word));
+            });
+        }
+
+        [Test]
+        public void UndoRestoresTheTargetLinesOwnSubdivisions()
+        {
+            var editorBeatmap = createBeatmap();
+
+            subdivide(editorBeatmap, 0, 0, boundaries: new[] { 1300d, 1600d }, splits: new[] { 2, 4 });
+            subdivide(editorBeatmap, 1, 0, boundaries: new[] { 3500d }, splits: new[] { 1 });
+
+            // The real editor handler: every state is the map through this ruleset's own encoder, and
+            // undo decodes one back over the hit objects. Sub-word timing only survives that round
+            // trip above Line granularity, so the paste's own granularity sync is load-bearing here.
+            foreach (var o in TypeBeatEditorOperations.OrderedLines(editorBeatmap))
+                o.Granularity = TimingGranularity.Syllable;
+
+            var changeHandler = new RulesetBeatmapChangeHandler(editorBeatmap, new TypeBeatRuleset());
+
+            var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) });
+            TypeBeatEditorOperations.PasteLineTimings(editorBeatmap, new[] { line(editorBeatmap, 1) }, payload);
+
+            Assert.That(line(editorBeatmap, 1).Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3300d, 3600d }), "pasted");
+            Assert.That(changeHandler.CanUndo.Value, Is.True);
+
+            changeHandler.RestoreState(-1);
+
+            var restored = line(editorBeatmap, 1).Line.Units[0];
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(restored.SyllableBoundaries, Is.EqualTo(new[] { 3500d }));
+                Assert.That(restored.SyllableSplits, Is.EqualTo(new[] { 1 }));
+                Assert.That((restored.StartTime, restored.EndTime), Is.EqualTo((3000d, 4200d)));
+            });
+
+            changeHandler.RestoreState(1);
+
+            Assert.That(line(editorBeatmap, 1).Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3300d, 3600d }), "redo");
+        }
+
+        [Test]
+        public void UnitRunPayloadStillCarriesNoSubWordTiming()
+        {
+            var editorBeatmap = createBeatmap();
+
+            subdivide(editorBeatmap, 0, 0, boundaries: new[] { 1300d }, splits: new[] { 2 });
+
+            var run = TypeBeatEditorOperations.CopyUnitTimings(line(editorBeatmap, 0), new[] { 0, 1 })!;
+
+            // Deliberate divergence from the LINE paste: a unit run is anchored wherever the caret
+            // sits, so there is no positional correspondence to justify moving a char index.
+            Assert.Multiple(() =>
+            {
+                Assert.That(run.Units.All(u => u.Boundaries == null && u.Splits == null && u.Rests == null && u.Chars == 0), Is.True);
+
+                // And the target word keeps its own, re-clamped: "gamma" 3000..4200 with a boundary at
+                // 3500 takes the pattern's 3000..3800, which still holds it.
+                subdivide(editorBeatmap, 1, 0, boundaries: new[] { 3500d }, splits: new[] { 1 });
+                TypeBeatEditorOperations.PasteUnitTimings(editorBeatmap, line(editorBeatmap, 1), 0, run);
+
+                Assert.That(line(editorBeatmap, 1).Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3500d }));
+                Assert.That(line(editorBeatmap, 1).Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 1 }));
+            });
         }
     }
 }

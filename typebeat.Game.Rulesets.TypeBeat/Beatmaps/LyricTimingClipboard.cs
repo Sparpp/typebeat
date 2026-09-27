@@ -19,11 +19,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     ///    starts by ear, then paste chorus #1's internal timing onto #2/#3.
     ///  - <see cref="UnitTimingsPayload"/>: the selected word units' offsets relative to the FIRST
     ///    selected unit's start. Pasting anchors the pattern at a target word's current start.
+    ///
+    /// <para>A line payload carries a word's SUB-WORD timing too (subdivision boundaries, the
+    /// authored char split, the authored rests), because a chorus line's internal rhythm is the
+    /// whole point of the gesture: see <see cref="TypeBeatEditorOperations.PasteLineTimings"/> for
+    /// the transfer policy. A UNIT payload deliberately does not, and the same method's remarks say
+    /// why. Every one of those fields is OPTIONAL, so a payload written before they existed still
+    /// parses and simply carries no sub-word timing.</para>
+    ///
+    /// <para>Still TIMING ONLY: <see cref="UnitSpan.Chars"/> is a character COUNT, not text, and it
+    /// is there because a split and a rest are char INDICES, which only mean anything against the
+    /// spelling they were authored for.</para>
     /// </summary>
     public static class LyricTimingClipboard
     {
         private const string line_type = "typebeat-line-timings";
         private const string unit_type = "typebeat-unit-timings";
+
+        /// <summary>One authored rest inside a word: its [start, end] as offsets from the payload's
+        /// reference point, plus the character index it sits after (see <see cref="WordPause"/>).</summary>
+        public class RestSpan
+        {
+            [JsonProperty("start")]
+            public double Start;
+
+            [JsonProperty("end")]
+            public double End;
+
+            [JsonProperty("split_char")]
+            public int SplitChar;
+        }
 
         /// <summary>One unit's [start, end] as offsets from the payload's reference point.</summary>
         public class UnitSpan
@@ -33,6 +58,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             [JsonProperty("end")]
             public double End;
+
+            /// <summary>
+            /// The source word's character count, or 0 when the payload predates the field. The gate
+            /// on every CHAR-INDEXED field below: same count means the cut lands on the same
+            /// character of the repeated word, so it can travel.
+            /// </summary>
+            [JsonProperty("chars")]
+            public int Chars;
+
+            /// <summary>
+            /// <see cref="TimedUnit.SyllableBoundaries"/> as offsets from the payload's reference
+            /// point, or null for an undivided word (and for any payload predating the field).
+            /// </summary>
+            [JsonProperty("syllables", NullValueHandling = NullValueHandling.Ignore)]
+            public List<double>? Boundaries;
+
+            /// <summary>
+            /// <see cref="TimedUnit.SyllableSplits"/> verbatim (char indices into the SOURCE word),
+            /// or null when the source word's split was derived rather than authored.
+            /// </summary>
+            [JsonProperty("split_chars", NullValueHandling = NullValueHandling.Ignore)]
+            public List<int>? Splits;
+
+            /// <summary><see cref="TimedUnit.Pauses"/>, or null for a word with no authored rest.</summary>
+            [JsonProperty("rests", NullValueHandling = NullValueHandling.Ignore)]
+            public List<RestSpan>? Rests;
         }
 
         /// <summary>One line's internal timing, all offsets relative to the line's StartTime.</summary>
