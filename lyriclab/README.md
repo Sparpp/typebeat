@@ -70,6 +70,16 @@ char spans → syllables (pyphen + vowel-group fallback) → words → lines
   third of all lines; both lost on the ranked-map corpus (see below). Only a
   line the aligner cannot place at all is paced from its stamp and flagged
   `"estimated": true`.
+- **Garbage-path detector (version 4)**: a `ref` path is also replaced when
+  its SHAPE says the model heard nothing: most words sung one letter per
+  frame (`crammed`), the whole line under 0.6x the song's median time per
+  letter (`fast`), or a stamped line whose path opens 0.8 s or more after its
+  stamp while running no slower than the median (`late`). The replacement is
+  paced at the song's median rate from the stamp plus the song's stamp lead
+  (how late the confident lines start after their stamps), flagged
+  `"estimated": true` and logged with its reason.
+  `python align_lyrics.py --self-test-garbage` pins the rules on synthetic
+  paths; `--self-test` runs every self-test.
 - **Sparse anchors (version 3)**: `ref` no longer needs every line stamped.
   Stamp only the section starts: a stamped line opens a section, the
   unstamped lines after it join it, and the whole section is aligned inside
@@ -112,10 +122,26 @@ Every map scores above `auto` with half its stamps; fully stamped and `auto`
 outputs are byte-identical to version 2 on all 101 maps.
 
 Better on 43 maps, within 3 points on 36, worse on 5 (all screamed or
-effect-heavy vocals, where even pacing from the stamp beat a garbage CTC path;
-a detector for such paths is the open follow-up). Pinning the first word to
-its stamp was also measured and rejected: 76 % under human stamps. Bench
-scripts: `bench/` (build the corpus from the site, run variants, score).
+effect-heavy vocals, where even pacing from the stamp beat a garbage CTC path
+under EXACT stamps). Pinning the first word to its stamp was also measured and
+rejected: 76 % under human stamps. Bench scripts: `bench/` (build the corpus
+from the site, run variants, score).
+
+Garbage-path detector (version 4, same 85 maps, word starts within 200 ms):
+
+| stamps | version 3 | version 4 | lines replaced |
+|---|---|---|---|
+| every line, exact | 89.5 % | 90.2 % | 103 |
+| every line, human | 87.8 % | 88.0 % | 103 |
+| every 2nd line, exact | 86.5 % | 86.9 % | 146 |
+| every 2nd line, human | 85.5 % | 85.8 % | 152 |
+| none (`auto`, untouched) | 66.8 % | 66.8 % | – |
+
+Exact stamps: 18 maps up by a point or more, none down; Crimson Dance 66 % ->
+79 %. Human stamps: 10 up, 2 down by at most 2.5 points. Shinigiwa Satellite
+stays at 46 %: its wrong paths are spread at the song's own pace, so no shape
+rule sees them, and the margin rule that does (version 1's, margin < 0.08)
+costs 5 to 11 points corpus-wide under human stamps.
 
 ## Accuracy, version 1 (Friday Pilots Club – Spectator, 183 s, vs hand line stamps)
 

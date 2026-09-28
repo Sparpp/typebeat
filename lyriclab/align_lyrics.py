@@ -22,9 +22,10 @@ Pipeline:
   6. anchoring:
        --anchors ref   align each line inside EXACTLY its hand-stamped window
                        [its stamp, next stamp): no slack either side, and the
-                       CTC path is kept however low its confidence (see below);
-                       unstamped lines share the window of the stamped line
-                       above them (sparse anchors, version 3)
+                       CTC path is kept however low its confidence (see below)
+                       unless its shape is garbage (version 4); unstamped
+                       lines share the window of the stamped line above them
+                       (sparse anchors, version 3)
        --anchors auto  global pass -> high-margin lines anchor a local
                        re-alignment of weak runs between them; lines with ~zero
                        evidence are interpolated and flagged "estimated"
@@ -66,6 +67,22 @@ target with '*' between its lines. A fully stamped file gives byte-identical
 output to version 2. Ranked corpus (85 maps, 20.8k words), word starts within
 200 ms with stamps 250 ms early: every line 88%, every second line 85%, every
 fourth line 83%, no stamps (auto) 67%.
+
+Version 4 (2026-09-28): garbage-path detector. ref mode still keeps the CTC
+path, unless its SHAPE says the model found nothing (garbage_reasons): most
+words sung one letter per frame ("crammed"), the whole line under 0.6x the
+song's median time per letter ("fast"), or a stamped line whose path opens
+0.8 s or more after its stamp while no slower than the median ("late", every
+word piled at the far end of the window). Such a line is paced at the song's
+median rate from its stamp PLUS the song's stamp lead (how late confident
+lines start after their stamps: ~0 for exact stamps, ~250 ms for a mapper who
+taps early) and flagged estimated. Without the lead, even pacing from an early
+stamp lost on every map, the five effect-heavy ones included. A margin
+threshold was measured and rejected again: at 0.03 it costs 1 point with exact
+stamps and 2 to 6 with human ones. Shinigiwa Satellite (the worst of the five)
+is NOT recovered: its wrong paths look like singing, spread at the song's pace.
+Ranked corpus, word starts within 200 ms: exact 89.5% -> 90.2%, human 87.8% ->
+88.0%, every second stamp 86.5% -> 86.9% (exact) / 85.5% -> 85.8% (human).
 """
 
 import os
@@ -91,7 +108,7 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 
 # Bumped when the output of the same inputs changes. The game compares the shipped copy's
 # version with the installed one and offers a reinstall; `--version` prints it.
-ALIGNER_VERSION = "3"
+ALIGNER_VERSION = "4"
 
 SAMPLE_RATE = 16000
 FRAME_SAMPLES = 320          # wav2vec2 stride: 20 ms at 16 kHz
@@ -110,6 +127,15 @@ REF_SLACK_AFTER_S = 0.0
 DEAD_MARGIN = 0.08           # auto mode: below this a line is considered evidence-free
 ANCHOR_MARGIN = 0.25         # auto mode: lines above this anchor their region
 MIN_ANCHOR_CHARS = 6
+
+# ref mode garbage-path detector (version 4). A path is judged by its SHAPE, never by its margin
+# alone (a margin threshold trades lines evenly both ways; see the module docstring). Measured on
+# the ranked-map corpus; a flagged line is paced from its stamp and marked estimated.
+GARBAGE_CRAMMED_FRAC = 2 / 3   # this share of a line's multi-letter words sung one letter per frame
+GARBAGE_SUB_MEDIAN = 0.6       # whole path shorter than this x the song's median time per letter
+GARBAGE_LATE_S = 0.8           # a stamped line whose path opens this long after the stamp ...
+GARBAGE_LATE_RATE = 1.0        # ... while no slower than the song's median pace
+LEAD_MARGIN = 0.3              # lines this confident measure how early the stamps sit
 
 
 def log(msg: str) -> None:
@@ -928,6 +954,89 @@ def self_test_sections() -> int:
     return 1 if failed else 0
 
 
+def path_shape(word_spans, char_dur: float) -> dict:
+    """
+    The shape of one line's CTC path. `word_spans` is the line's placed words in order, each a
+    list of char spans (start_f, end_f, ...); `char_dur` is the song's median frames per letter.
+
+      crammed  share of the multi-letter words whose letters sit in consecutive frames (the word
+               spans at most letters + 1 frames): nobody sings a word at 20 ms a letter, the
+               path parked the word on whatever frames were left
+      rate     frames from the first letter to the last, over letters x char_dur: 1.0 is the
+               song's own median pace, 0.4 is the line squeezed into 40% of the time it needs
+      start_f  the frame the path opens on
+    Standard library only, so the self-test runs without the venv.
+    """
+    multi = [spans for spans in word_spans if len(spans) >= 2]
+    crammed = (sum(1 for s in multi if s[-1][1] - s[0][0] <= len(s) + 1) / len(multi)) if multi else 0.0
+    letters = sum(len(s) for s in word_spans)
+    extent = word_spans[-1][-1][1] - word_spans[0][0][0]
+    return {"crammed": crammed, "rate": extent / max(1e-6, letters * char_dur),
+            "start_f": word_spans[0][0][0]}
+
+
+def garbage_reasons(shape: dict, late_f=None) -> list:
+    """
+    Why a ref-mode path is garbage, empty when it is kept. `late_f` is how many frames after the
+    line's expected onset (its stamp plus the song's stamp lead) the path opens, or None for a
+    line that does not open its section (its stamp, if any, says nothing about where it starts).
+
+      crammed  most words sung one letter per frame (GARBAGE_CRAMMED_FRAC)
+      fast     the whole line far faster than the song's median pace (GARBAGE_SUB_MEDIAN)
+      late     the words piled at the far end of the window: the path skips the stamp by more
+               than GARBAGE_LATE_S while running no slower than the median, so it is not a
+               slow line that merely starts late
+    """
+    reasons = []
+    if shape["crammed"] >= GARBAGE_CRAMMED_FRAC - 1e-9:
+        reasons.append("crammed")
+    if shape["rate"] < GARBAGE_SUB_MEDIAN:
+        reasons.append("fast")
+    if late_f is not None and late_f * FRAME_SEC >= GARBAGE_LATE_S - 1e-9 and shape["rate"] < GARBAGE_LATE_RATE:
+        reasons.append("late")
+    return reasons
+
+
+def self_test_garbage() -> int:
+    """Pins the shape detector on synthetic paths (standard library only)."""
+    def word(start, letters, step):
+        return [(start + k * step, start + k * step + 1, 0.0, 0.0) for k in range(letters)]
+
+    def line(starts_letters, step):
+        return [word(s, n, step) for s, n in starts_letters]
+
+    cd = 4.0                                            # song median: 4 frames (80 ms) a letter
+    sung = line([(0, 4), (20, 5), (44, 3)], 4)          # letters 4 frames apart: rate 53/48 = 1.10
+    crammed = line([(0, 4), (20, 5), (44, 3)], 1)       # every word in consecutive frames, spread out: rate 0.98
+    two_of_three = [word(0, 4, 1), word(6, 5, 1), word(22, 3, 4)]   # rate 31/48 = 0.65
+    one_of_three = [word(0, 4, 1), word(20, 5, 4), word(44, 3, 4)]  # a single crammed word is kept
+    fast = line([(0, 4), (9, 5), (20, 3)], 2)           # blanks between letters, but rate 25/48 = 0.52
+    brisk = line([(0, 4), (16, 5), (36, 3)], 3)         # rate 43/48 = 0.90: not fast, not slow
+    slow = line([(0, 4), (40, 5), (80, 3)], 6)          # rate 93/48 = 1.94: a drawn-out line
+    cases = [
+        ("sung at the song's pace", sung, None, []),
+        ("crammed words", crammed, None, ["crammed"]),
+        ("two of three crammed", two_of_three, None, ["crammed"]),
+        ("one crammed word", one_of_three, None, []),
+        ("sub-median pace", fast, None, ["fast"]),
+        ("piled late after its stamp", brisk, 50, ["late"]),
+        ("late by exactly 0.8 s", brisk, 40, ["late"]),
+        ("late by less than 0.8 s", brisk, 39, []),
+        ("late but slow", slow, 50, []),
+        ("late at the song's pace", sung, 50, []),
+        ("late, not a section opener", brisk, None, []),
+        ("crammed, fast and late", fast[:1] + [word(9, 5, 1), word(20, 3, 1)], 60, ["crammed", "fast", "late"]),
+    ]
+    failed = 0
+    for name, path, late, want in cases:
+        got = garbage_reasons(path_shape(path, cd), late)
+        if got != want:
+            failed += 1
+            print(f"FAIL {name}: got {got}, expected {want} (shape {path_shape(path, cd)})")
+    print(f"garbage self-test: {len(cases) - failed}/{len(cases)}")
+    return 1 if failed else 0
+
+
 def align_ref_mode(lines, ref_end_ms, log_probs, dictionary, star_id, voiced,
                    char_dur_holder):
     """
@@ -952,10 +1061,12 @@ def align_ref_mode(lines, ref_end_ms, log_probs, dictionary, star_id, voiced,
             end = start + 12000.0 * len(sections[k])
         return start, end
 
+    windows = []
     for k, sec in enumerate(sections):
         s_ms, e_ms = window_ms(k)
         f0 = max(0, int((s_ms / 1000.0 - REF_SLACK_BEFORE_S) / FRAME_SEC))
         f1 = min(T, max(f0 + 25, int((e_ms / 1000.0 + REF_SLACK_AFTER_S) / FRAME_SEC)))
+        windows.append((f0, f1))
         char_ids, owners = build_targets([(i, lines[i]) for i in sec], dictionary, star_id)
         try:
             got = align_window(log_probs, f0, f1, char_ids, owners)
@@ -966,31 +1077,90 @@ def align_ref_mode(lines, ref_end_ms, log_probs, dictionary, star_id, voiced,
 
     char_dur = median_char_dur_frames(per_word, lines)
     char_dur_holder.append(char_dur)
-    for k, sec in enumerate(sections):
-        # The CTC path is kept whatever its margin (version 2): even pacing used to replace a
-        # third of all lines, most of which had usable evidence, and lost corpus-wide. Only a line
-        # the aligner could not place at all (window too short for its characters) is paced
-        # from the stamp, the one thing known to be true about it; the unplaced lines of a
-        # section share its window by character count.
-        dead = [i for i in sec
-                if not any((i, wi) in per_word for wi in range(len(lines[i].words)))
-                and any(not w.untimed for w in lines[i].words)]
-        if not dead:
-            continue
-        s_ms, e_ms = window_ms(k)
-        f0 = int(s_ms / 1000.0 / FRAME_SEC)
-        if k + 1 < len(sections) or ref_end_ms is not None:
-            f1 = int(e_ms / 1000.0 / FRAME_SEC)
-        else:
-            f1 = min(T, f0 + 500 * len(sec))
-        f0s, _ = shrink_to_voiced(voiced, f0, f1)
-        pos = float(max(f0, f0s))
-        counts = [sum(len(w.norm) for w in lines[i].words if not w.untimed) for i in dead]
-        for i, n in zip(dead, counts):
-            nxt = pos + (f1 - max(f0, f0s)) * n / sum(counts)
-            synthesize_line_spans(lines[i], i, int(round(pos)), int(round(nxt)), char_dur, per_word)
-            pos = nxt
+    replace_garbage_paths(lines, sections, windows, per_word, char_dur)
     return per_word
+
+
+def line_word_spans(per_word, lines, i) -> list:
+    """Line i's placed words in order, each its list of char spans."""
+    return [per_word[(i, wi)] for wi in range(len(lines[i].words)) if (i, wi) in per_word]
+
+
+def stamp_lead_frames(lines, sections, windows, per_word) -> float:
+    """
+    How far after its stamp a confidently heard section opener starts, median over the song
+    (frames). About 0 for exact stamps and about 12 (250 ms) for a mapper who taps early. A
+    replaced line is paced from its stamp PLUS this lead: pacing from an early stamp put every
+    word of the replacement early, which is why version 1's even pacing lost under human stamps.
+    """
+    leads = []
+    for (f0, _), sec in zip(windows, sections):
+        if lines[sec[0]].ref_ms is None:
+            continue
+        ws = line_word_spans(per_word, lines, sec[0])
+        chars = [sp for spans in ws for sp in spans]
+        if chars and sum(sp[3] for sp in chars) / len(chars) >= LEAD_MARGIN:
+            leads.append(ws[0][0][0] - f0)
+    leads.sort()
+    return float(leads[len(leads) // 2]) if leads else 0.0
+
+
+def replace_garbage_paths(lines, sections, windows, per_word, char_dur) -> None:
+    """
+    Version 4: the CTC path of each ref-mode line is kept (version 2) UNLESS its shape says it is
+    garbage (see garbage_reasons) or the aligner could not place it at all. Those lines are paced
+    at the song's median rate from the one thing known to be true about them, and flagged
+    estimated: a section opener from its stamp plus the song's stamp lead, a line inside a sparse
+    section from the end of the kept line before it. A run of replaced lines shares the room up
+    to the next kept line (or the section's end) by character count.
+    """
+    lead = stamp_lead_frames(lines, sections, windows, per_word)
+    replaced = 0
+    for (f0, f1), sec in zip(windows, sections):
+        stamped = lines[sec[0]].ref_ms is not None   # False only for a leading unstamped section
+        bad = {}
+        for pos, i in enumerate(sec):
+            if not any(not w.untimed for w in lines[i].words):
+                continue
+            ws = line_word_spans(per_word, lines, i)
+            if not ws:
+                bad[i] = ["unplaced"]
+                continue
+            late = ws[0][0][0] - (f0 + lead) if pos == 0 and stamped else None
+            reasons = garbage_reasons(path_shape(ws, char_dur), late)
+            if reasons:
+                bad[i] = reasons
+        pos = 0
+        while pos < len(sec):
+            if sec[pos] not in bad:
+                pos += 1
+                continue
+            end = pos
+            while end < len(sec) and sec[end] in bad:
+                end += 1
+            run = sec[pos:end]
+            for i in run:
+                for wi in range(len(lines[i].words)):
+                    per_word.pop((i, wi), None)
+            # the room: from the kept (or already paced) line before the run, or the stamp plus
+            # the lead, to the next kept line, or the section's end
+            before = [sp[1] for i in sec[:pos] for spans in line_word_spans(per_word, lines, i) for sp in spans]
+            after = [sp[0] for i in sec[end:] if i not in bad for spans in line_word_spans(per_word, lines, i) for sp in spans]
+            lo = max(before) if before else f0
+            start = lo if before or not stamped else f0 + lead
+            stop = min(after) if after else f1
+            start = max(lo, min(start, stop - 10))
+            counts = [max(1, sum(len(w.norm) for w in lines[i].words if not w.untimed)) for i in run]
+            at = float(start)
+            for i, n in zip(run, counts):
+                nxt = at + (stop - start) * n / sum(counts)
+                synthesize_line_spans(lines[i], i, int(round(at)), int(round(nxt)), char_dur, per_word)
+                log(f"line {i + 1}: {'+'.join(bad[i])} path replaced by even pacing (estimated)")
+                at = nxt
+            replaced += len(run)
+            pos = end
+    if replaced:
+        log(f"garbage paths replaced: {replaced} line(s); stamp lead {lead * FRAME_SEC * 1000:.0f} ms")
 
 
 def align_auto_mode(lines, log_probs, dictionary, star_id, voiced,
@@ -1236,4 +1406,8 @@ if __name__ == "__main__":
         sys.exit(self_test_normalize())
     if "--self-test-sections" in sys.argv:
         sys.exit(self_test_sections())
+    if "--self-test-garbage" in sys.argv:
+        sys.exit(self_test_garbage())
+    if "--self-test" in sys.argv:
+        sys.exit(max(self_test_syllables(), self_test_normalize(), self_test_sections(), self_test_garbage()))
     main()
