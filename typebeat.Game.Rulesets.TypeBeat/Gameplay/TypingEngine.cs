@@ -2638,6 +2638,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                     if (awaitingEntry(time))
                         return true;
+
+                    // A landed line with nothing typeable on it (every cell auto-skipped) leaves the
+                    // caret past its end with no slot for the letter, so the move is kept and the
+                    // letter goes nowhere: the answer the awaiting branch above already gives, and the
+                    // one typebeat-core.js gives. Nothing is judged and the WPM clock is not armed,
+                    // because nothing was typed.
+                    if (caretIndex >= line.Cells.Count)
+                        return true;
                 }
                 else
                 {

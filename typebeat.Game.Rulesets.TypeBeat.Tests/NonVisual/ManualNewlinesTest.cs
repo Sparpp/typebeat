@@ -1,6 +1,8 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System.Collections.Generic;
+using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
@@ -527,6 +529,140 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             engine.Update(l0_seals + 1);
             Assert.AreEqual(1, engine.ActiveLineIndex, "the song moved the pinned caret on at L0's seal");
+        }
+
+        #endregion
+
+        #region a newline onto a line with nothing to type
+
+        /// <summary>
+        /// FletcherEngineTest's parked-line shape: L0 "ab" [1000, 3000) (a = 1000, b = 1500), L1 "..."
+        /// [3000, 20000), pure punctuation the default stream strips, so it has NO typeable cell, and
+        /// L2 "cd" [10000, 30000) (c = 12000, d = 12500). L1 activates at its StartTime of 3000, so
+        /// entry into it opens at 1500; L2 activates at 10500 (12000 - CUE_LEAD_MS), so entry into it
+        /// opens at 9000. A newline pressed at 2000 therefore lands on L1 with nothing to wait for,
+        /// and the next one lands on L2 long before its window.
+        /// </summary>
+        private static LyricBeatmap cellLessMiddleLine() => new LyricBeatmap
+        {
+            Metadata = new LyricBeatmapMetadata
+            {
+                Artist = "Test",
+                Title = "Song",
+                FolderPath = @"X:\nowhere",
+                AudioFileName = "a.mp3",
+            },
+            Lines = new[]
+            {
+                line("ab", 1000, 3000, 2000, unit("ab", 1000, 2000)),
+                line("...", 3000, 20000, 19000, unit("...", 3000, 19000)),
+                line("cd", 10000, 30000, 13000, unit("cd", 12000, 13000)),
+            },
+            Granularity = TimingGranularity.Line,
+        };
+
+        /// <summary>What the engine reported after L0 was typed out: every judgement and every typo.</summary>
+        private sealed class Reports
+        {
+            public readonly List<CharJudgement> Judged = new List<CharJudgement>();
+            public int Mistyped;
+        }
+
+        /// <summary>The live manual arm on <see cref="cellLessMiddleLine"/>, with L0 typed out and parked.</summary>
+        private static TypingEngine parkedBeforeTheCellLessLine(out Reports reports)
+        {
+            var engine = new TypingEngine(cellLessMiddleLine())
+            {
+                ManualNewlines = true,
+                NewlineOnTypedLetter = true,
+                FletcherEnabled = true,
+                FlexibleLineSnap = true,
+                BoundedRush = true,
+            };
+
+            Assert.IsFalse(engine.Lines[1].Cells.Any(c => c.IsTypeable), "the fixture's middle line must have nothing to type");
+
+            engine.Update(1000);
+            Assert.IsTrue(engine.ProcessKey('a', 1000));
+            engine.Update(1500);
+            Assert.IsTrue(engine.ProcessKey('b', 1500));
+            engine.Update(2000);
+            Assert.AreEqual(0, engine.ActiveLineIndex, "parked on the finished line, as the manual arm leaves it");
+
+            var r = new Reports();
+            engine.CharJudged += r.Judged.Add;
+            engine.Mistyped += () => r.Mistyped++;
+            reports = r;
+            return engine;
+        }
+
+        /// <summary>
+        /// THE TYPED-LETTER NEWLINE ONTO A CELL-LESS LINE (backlog 326). The letter hands the caret
+        /// on, and the line it lands on has no slot for it: the move is kept and the letter goes
+        /// nowhere, exactly what the awaiting branch does with a letter it cannot type yet, and what
+        /// typebeat-core.js does. It used to read <c>Cells[caretIndex]</c> past the end and throw.
+        /// Nothing is judged, the run is untouched, and the engine carries on: the next letter is a
+        /// newline again, onto L2, where it waits for the window and then types.
+        /// </summary>
+        [Test]
+        public void ATypedLetterOntoACellLessLineMovesAndDropsTheLetter()
+        {
+            var engine = parkedBeforeTheCellLessLine(out var reports);
+            int comboBefore = engine.Combo;
+
+            bool moved = false;
+            Assert.DoesNotThrow(() => moved = engine.ProcessKey('c', 2000));
+            Assert.IsTrue(moved, "the move is reported, so the caller records the frame");
+            Assert.AreEqual(1, engine.ActiveLineIndex, "the caret is on the cell-less line");
+            Assert.AreEqual(0, engine.CaretIndex);
+            Assert.IsFalse(engine.AwaitingEntry, "2000 is inside L1's entry window, so this is not a wait");
+            Assert.IsTrue(engine.IsLineComplete, "and a line with nothing to type is complete the moment it is landed on");
+            Assert.IsEmpty(reports.Judged, "the letter judged nothing");
+            Assert.AreEqual(0, reports.Mistyped, "and was not a typo either");
+            Assert.AreEqual(0, engine.Mistypes);
+            Assert.AreEqual(comboBefore, engine.Combo, "the run is untouched");
+
+            // The engine keeps running: the next letter is the newline off the cell-less line, onto L2
+            // 7000 ms before its window, where the character is refused as on any waiting line.
+            Assert.IsTrue(engine.ProcessKey('c', 2100));
+            Assert.AreEqual(2, engine.ActiveLineIndex);
+            Assert.AreEqual(0, engine.CaretIndex);
+            engine.Update(2100);
+            Assert.IsTrue(engine.AwaitingEntry);
+            Assert.IsEmpty(reports.Judged);
+
+            engine.Update(9000);
+            Assert.IsFalse(engine.AwaitingEntry, "9000 is the instant entry into L2 opens");
+            Assert.IsTrue(engine.ProcessKey('c', 9000), "and the line types from there");
+            Assert.AreEqual(1, engine.CaretIndex);
+            Assert.AreEqual(1, reports.Judged.Count, "the first judgement since the cell-less landing is L2's own first cell");
+            Assert.AreEqual(0, reports.Mistyped);
+        }
+
+        /// <summary>
+        /// The same line through the other two newline keys, pinned so all three agree. Neither needed
+        /// a guard: a space at a finished caret returns straight out of <c>rollForwardManually</c>, and
+        /// Enter measures the frontier after the auto-skip and closes a complete line the same way, so
+        /// each lands on the cell-less line, judges nothing, and hands it on to L2 when pressed again.
+        /// </summary>
+        [TestCase(' ')]
+        [TestCase('\n')]
+        public void SpaceAndEnterHandACellLessLineOnWithoutJudging(char key)
+        {
+            var engine = parkedBeforeTheCellLessLine(out var reports);
+
+            bool press(double time) => key == '\n' ? engine.ProcessEnter(time) : engine.ProcessKey(key, time);
+
+            Assert.IsTrue(press(2000));
+            Assert.AreEqual(1, engine.ActiveLineIndex, "onto the cell-less line");
+            Assert.AreEqual(0, engine.CaretIndex);
+
+            Assert.IsTrue(press(2100));
+            Assert.AreEqual(2, engine.ActiveLineIndex, "and off it again");
+            Assert.AreEqual(0, engine.CaretIndex);
+
+            Assert.IsEmpty(reports.Judged);
+            Assert.AreEqual(0, reports.Mistyped);
         }
 
         #endregion
