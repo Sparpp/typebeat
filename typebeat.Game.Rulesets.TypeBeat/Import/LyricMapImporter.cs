@@ -233,16 +233,42 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         }
 
         /// <summary>
-        /// True when every content line carries a leading [mm:ss.xx] stamp: the aligner's
-        /// high-accuracy "ref" mode, and the precondition for the LRC-only fallback. Metadata tag
-        /// lines ([ar:...], [Lyrics]) are neutral. Unstamped lyrics run with "--anchors auto".
+        /// True when every content line carries a leading [mm:ss.xx] stamp: the precondition for
+        /// the LRC-only fallback, which has no other source for an unstamped line's time. Metadata
+        /// tag lines ([ar:...], [Lyrics]) are neutral. The ALIGNER needs less, see
+        /// <see cref="HasAnyLineStamp"/>.
         /// </summary>
         public static bool HasLineStamps(string lyricsContent)
         {
-            if (string.IsNullOrWhiteSpace(lyricsContent))
-                return false;
+            (int stamped, int unstamped) = countStampedLines(lyricsContent);
+            return stamped > 0 && unstamped == 0;
+        }
 
-            bool anyStamp = false;
+        /// <summary>
+        /// True when at least one line carries a [mm:ss.xx] stamp. That is enough for the aligner's
+        /// "ref" mode since sparse anchors (aligner version 3): a stamped line opens a section and
+        /// the unstamped lines after it are placed inside [that stamp, the next stamp), so stamping
+        /// only the section starts still beats fully automatic alignment by a wide margin.
+        /// </summary>
+        public static bool HasAnyLineStamp(string lyricsContent) => countStampedLines(lyricsContent).Stamped > 0;
+
+        /// <summary>
+        /// The <c>--anchors</c> mode the aligner is run with: "ref" whenever any line is stamped,
+        /// "auto" for bare text.
+        /// </summary>
+        public static string AlignerAnchorMode(string lyricsContent) => HasAnyLineStamp(lyricsContent) ? "ref" : "auto";
+
+        /// <summary>
+        /// Counts the lines that carry a leading [mm:ss.xx] stamp and the content lines that do not.
+        /// A tag line with no text after it (a bare stamp is the end marker, [ar:...] is metadata)
+        /// is neither.
+        /// </summary>
+        private static (int Stamped, int Unstamped) countStampedLines(string lyricsContent)
+        {
+            if (string.IsNullOrWhiteSpace(lyricsContent))
+                return (0, 0);
+
+            int stamped = 0, unstamped = 0;
 
             foreach (string raw in lyricsContent.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
             {
@@ -256,18 +282,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
                     if (close > 1)
                     {
-                        if (LrcParser.TryParseTimestamp(line.Substring(1, close - 1), out _))
-                            anyStamp = true;
+                        if (LrcParser.TryParseTimestamp(line.Substring(1, close - 1), out _) && line.Substring(close + 1).Trim().Length > 0)
+                            stamped++;
 
                         // Timestamped or metadata tag line, either way not a bare content line.
                         continue;
                     }
                 }
 
-                return false; // a content line without a stamp -> not fully stamped
+                unstamped++;
             }
 
-            return anyStamp;
+            return (stamped, unstamped);
         }
 
         /// <summary>Removes path-invalid chars, collapses whitespace, trims trailing dots/spaces.</summary>
@@ -473,9 +499,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 progress("automatic alignment off, using your line timestamps");
 
                 if (!HasLineStamps(lyricsContent))
-                    return (LyricImportResult.Fail(
-                        "these lyrics have no [mm:ss.xx] line timestamps. Add line stamps, or turn on "
-                        + "\"automatic alignment\" to have the words timed for you."), null);
+                    return (LyricImportResult.Fail(HasAnyLineStamp(lyricsContent)
+                        ? "only some lines have [mm:ss.xx] timestamps, and without automatic alignment every "
+                          + "line needs one. Stamp the rest, or turn on \"automatic alignment\" to have the "
+                          + "unstamped lines placed between your stamps."
+                        : "these lyrics have no [mm:ss.xx] line timestamps. Add line stamps, or turn on "
+                          + "\"automatic alignment\" to have the words timed for you."), null);
 
                 return synthesizeFromLrc(lyricsContent, progress);
             }
@@ -525,8 +554,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             if (!HasLineStamps(lyricsContent))
             {
                 return (LyricImportResult.Fail(
-                    "no auto-aligner is available and the lyrics have no [mm:ss.xx] line timestamps "
-                    + "to fall back on. Install the local auto-aligner (Settings > Experimental > "
+                    (HasAnyLineStamp(lyricsContent)
+                        ? "no auto-aligner is available and only some lines have [mm:ss.xx] timestamps, "
+                          + "so the unstamped ones have no time to fall back on. "
+                        : "no auto-aligner is available and the lyrics have no [mm:ss.xx] line timestamps "
+                          + "to fall back on. ")
+                    + "Install the local auto-aligner (Settings > Experimental > "
                     + "Install the local auto-aligner), or add [mm:ss.xx] line stamps to the lyrics."), null);
             }
 
@@ -586,12 +619,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 psi.ArgumentList.Add("cuda");
             }
 
-            if (!HasLineStamps(lyricsContent))
-            {
-                psi.ArgumentList.Add("--anchors");
-                psi.ArgumentList.Add("auto");
+            // Explicit either way: "ref" as soon as ONE line is stamped (sparse anchors place the
+            // unstamped lines inside their section's window), "auto" only for bare text.
+            string anchorMode = AlignerAnchorMode(lyricsContent);
+            psi.ArgumentList.Add("--anchors");
+            psi.ArgumentList.Add(anchorMode);
+
+            if (anchorMode == "auto")
                 progress("no line stamps found, using fully automatic alignment (less accurate)");
-            }
+            else if (!HasLineStamps(lyricsContent))
+                progress("some lines are stamped, aligning the unstamped ones inside their sections");
 
             (int exitCode, string tail) = await RunProcessAsync(psi, progress, token).ConfigureAwait(false);
 

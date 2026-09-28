@@ -66,6 +66,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void AnyStampedLineRunsTheAlignerInRefMode()
+        {
+            // Every line stamped: ref, as before.
+            Assert.That(LyricMapImporter.AlignerAnchorMode("[00:01.00] hello\n[00:02.00] world\n[00:03.00]\n"), Is.EqualTo("ref"));
+
+            // Only the section starts stamped (sparse anchors): still ref, where it used to be auto.
+            const string sparse = "[00:01.00] hello\nworld\nagain\n[00:09.00] second verse\nmore\n[00:15.00]\n";
+            Assert.That(LyricMapImporter.HasLineStamps(sparse), Is.False, "the LRC fallback still needs every line");
+            Assert.That(LyricMapImporter.HasAnyLineStamp(sparse), Is.True);
+            Assert.That(LyricMapImporter.AlignerAnchorMode(sparse), Is.EqualTo("ref"));
+
+            // A single stamp, even on a later line, is enough.
+            Assert.That(LyricMapImporter.AlignerAnchorMode("hello\n[00:05.00] world\n"), Is.EqualTo("ref"));
+
+            // Bare text, metadata tags or a lone end marker carry no line stamp: auto.
+            Assert.That(LyricMapImporter.AlignerAnchorMode("hello\nworld\n"), Is.EqualTo("auto"));
+            Assert.That(LyricMapImporter.AlignerAnchorMode("[ar:Artist]\n[Lyrics]\nhello\n"), Is.EqualTo("auto"));
+            Assert.That(LyricMapImporter.AlignerAnchorMode("hello\nworld\n[00:30.00]\n"), Is.EqualTo("auto"));
+            Assert.That(LyricMapImporter.HasAnyLineStamp(""), Is.False);
+        }
+
+        [Test]
         public void SanitizeFolderNameRemovesInvalidChars()
         {
             Assert.That(LyricMapImporter.SanitizeFolderName("AC/DC - T.N.T."), Is.EqualTo("AC DC - T.N.T"));

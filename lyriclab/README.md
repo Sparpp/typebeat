@@ -70,6 +70,14 @@ char spans → syllables (pyphen + vowel-group fallback) → words → lines
   third of all lines; both lost on the ranked-map corpus (see below). Only a
   line the aligner cannot place at all is paced from its stamp and flagged
   `"estimated": true`.
+- **Sparse anchors (version 3)**: `ref` no longer needs every line stamped.
+  Stamp only the section starts: a stamped line opens a section, the
+  unstamped lines after it join it, and the whole section is aligned inside
+  exactly `[its stamp, next stamp)` as one CTC target with `*` between its
+  lines, so the model places the unstamped line starts itself. Lines before
+  the first stamp form a section that opens at 0. A fully stamped file gives
+  byte-identical output to version 2; `ref` is the default as soon as ONE
+  line is stamped.
 - **`auto`**: global pass → lines with margin ≥ 0.25 become anchors → each run
   of weak lines is re-aligned locally between its anchors → still-dead lines
   are interpolated char-proportionally across the voiced part of their window,
@@ -89,6 +97,19 @@ mappers actually stamp). Word starts within 200 ms of the map:
 | version 1 (slack windows, even pacing under margin 0.08) | 85 % | 74 % | 87 % | 319 ms |
 | **version 2 (exact windows, CTC kept)** | **90 %** | **87 %** | **93 %** | **210 ms** |
 | `auto` (no stamps) | 67 % | – | 75 % | 10.4 s |
+
+Sparse anchors (version 3, same corpus, 85 maps, 20,783 words; stamps
+250 ± 120 ms early, a stamp dropped from all but every Nth line):
+
+| stamps | word starts within 200 ms | non-first words | lines within 1 s | p90 |
+|---|---|---|---|---|
+| every line | 88 % | 88 % | 97 % | 250 ms |
+| every 2nd line | 85 % | 86 % | 94 % | 342 ms |
+| every 4th line | 83 % | 84 % | 89 % | 590 ms |
+| none (`auto`) | 67 % | 69 % | 71 % | 10.9 s |
+
+Every map scores above `auto` with half its stamps; fully stamped and `auto`
+outputs are byte-identical to version 2 on all 101 maps.
 
 Better on 43 maps, within 3 points on 36, worse on 5 (all screamed or
 effect-heavy vocals, where even pacing from the stamp beat a garbage CTC path;
@@ -119,7 +140,8 @@ scripts: `bench/` (build the corpus from the site, run variants, score).
 ## Practical recipe for type!beat maps
 
 1. Author `lyrics.txt` as today: one `[mm:ss.xx]` stamp per line (fast, tap
-   along) + trailing end-marker.
+   along) + trailing end-marker. Short on time? Stamp only the first line of
+   each verse and chorus; the rest are placed between the stamps.
 2. Run the aligner (defaults to `ref` mode) → per-word/per-syllable timing.
 3. Open the demo page, click through low-confidence (underlined) words, nudge
    stamps if needed, re-run (20 s).

@@ -22,7 +22,9 @@ Pipeline:
   6. anchoring:
        --anchors ref   align each line inside EXACTLY its hand-stamped window
                        [its stamp, next stamp): no slack either side, and the
-                       CTC path is kept however low its confidence (see below)
+                       CTC path is kept however low its confidence (see below);
+                       unstamped lines share the window of the stamped line
+                       above them (sparse anchors, version 3)
        --anchors auto  global pass -> high-margin lines anchor a local
                        re-alignment of weak runs between them; lines with ~zero
                        evidence are interpolated and flagged "estimated"
@@ -55,6 +57,15 @@ words, the maps' own timings as truth; see typebeat-lyriclab/bench):
     stamp takes seconds instead of a model pass.
   - "pin the first word to its stamp" was measured and REJECTED: it only
     helps when stamps are exact acoustic onsets and hurts with human stamps.
+
+Version 3 (2026-09-28): sparse anchors. ref mode no longer needs EVERY line
+stamped (it used to fall back to auto on a single missing stamp): a stamped
+line opens a section, the unstamped lines after it join that section, and the
+section is aligned inside exactly [its stamp, the next stamp) as one CTC
+target with '*' between its lines. A fully stamped file gives byte-identical
+output to version 2. Ranked corpus (85 maps, 20.8k words), word starts within
+200 ms with stamps 250 ms early: every line 88%, every second line 85%, every
+fourth line 83%, no stamps (auto) 67%.
 """
 
 import os
@@ -80,7 +91,7 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 
 # Bumped when the output of the same inputs changes. The game compares the shipped copy's
 # version with the installed one and offers a reinstall; `--version` prints it.
-ALIGNER_VERSION = "2"
+ALIGNER_VERSION = "3"
 
 SAMPLE_RATE = 16000
 FRAME_SAMPLES = 320          # wav2vec2 stride: 20 ms at 16 kHz
@@ -882,47 +893,103 @@ def line_margin_of(per_word, lines, li) -> float:
     return float(np.average(vals, weights=weights)) if vals else 0.0
 
 
+def ref_sections(lines) -> list:
+    """
+    Sparse anchors (version 3): a stamped line opens a SECTION and every unstamped line after it
+    joins that section, so a lyrics file may stamp only its section starts. Lines before the first
+    stamp form a leading section that opens at the top of the song. With every line stamped, each
+    section is one line and ref mode is exactly what it was.
+    """
+    sections = []
+    for i, ln in enumerate(lines):
+        if ln.ref_ms is not None or not sections:
+            sections.append([i])
+        else:
+            sections[-1].append(i)
+    return sections
+
+
+def self_test_sections() -> int:
+    """Pins ref_sections (standard library only, like the other self-tests). None = unstamped."""
+    cases = [
+        ([0, 1000, 2000], [[0], [1], [2]]),                  # fully stamped: one line each, as in v2
+        ([0, None, None, 5000, None], [[0, 1, 2], [3, 4]]),  # section starts only
+        ([None, None, 3000, None], [[0, 1], [2, 3]]),        # leading unstamped lines open at 0
+        ([0, None, None], [[0, 1, 2]]),                      # one stamp is enough
+        ([], []),
+    ]
+    failed = 0
+    for stamps, want in cases:
+        got = ref_sections([Line(display="x", words=[], ref_ms=s) for s in stamps])
+        if got != want:
+            failed += 1
+            print(f"FAIL {stamps}: got {got}, expected {want}")
+    print(f"sections self-test: {len(cases) - failed}/{len(cases)}")
+    return 1 if failed else 0
+
+
 def align_ref_mode(lines, ref_end_ms, log_probs, dictionary, star_id, voiced,
                    char_dur_holder):
-    """Each line aligned inside its own hand-stamped window."""
+    """
+    Each section (see ref_sections) aligned inside exactly [its stamp, the next section's stamp).
+    A one-line section is the version 2 per-line window. A longer one is a single CTC target with
+    '*' before, between and after its lines (the same star layout the global pass uses), so the
+    model places the unstamped line starts and the gaps between them freely inside the window.
+    """
     T = log_probs.size(0)
     per_word = {}
-    stamps = [ln.ref_ms for ln in lines]
-    for i, ln in enumerate(lines):
-        w0 = stamps[i] / 1000.0 - REF_SLACK_BEFORE_S
-        if i + 1 < len(lines):
-            w1 = stamps[i + 1] / 1000.0 + REF_SLACK_AFTER_S
+    sections = ref_sections(lines)
+
+    def window_ms(k):
+        """[start, end) in ms of section k; the leading unstamped section opens at 0."""
+        head = lines[sections[k][0]].ref_ms
+        start = head if head is not None else 0.0
+        if k + 1 < len(sections):
+            end = lines[sections[k + 1][0]].ref_ms
         elif ref_end_ms is not None:
-            w1 = ref_end_ms / 1000.0 + REF_SLACK_AFTER_S
+            end = ref_end_ms
         else:
-            w1 = stamps[i] / 1000.0 + 12.0
-        f0 = max(0, int(w0 / FRAME_SEC))
-        f1 = min(T, max(f0 + 25, int(w1 / FRAME_SEC)))
-        char_ids, owners = build_targets([(i, ln)], dictionary, star_id)
+            end = start + 12000.0 * len(sections[k])
+        return start, end
+
+    for k, sec in enumerate(sections):
+        s_ms, e_ms = window_ms(k)
+        f0 = max(0, int((s_ms / 1000.0 - REF_SLACK_BEFORE_S) / FRAME_SEC))
+        f1 = min(T, max(f0 + 25, int((e_ms / 1000.0 + REF_SLACK_AFTER_S) / FRAME_SEC)))
+        char_ids, owners = build_targets([(i, lines[i]) for i in sec], dictionary, star_id)
         try:
             got = align_window(log_probs, f0, f1, char_ids, owners)
             per_word.update(got)
         except RuntimeError as exc:
-            log(f"line {i + 1}: local align failed ({exc}); will interpolate")
+            where = f"line {sec[0] + 1}" if len(sec) == 1 else f"lines {sec[0] + 1}..{sec[-1] + 1}"
+            log(f"{where}: local align failed ({exc}); will interpolate")
 
     char_dur = median_char_dur_frames(per_word, lines)
     char_dur_holder.append(char_dur)
-    for i, ln in enumerate(lines):
+    for k, sec in enumerate(sections):
         # The CTC path is kept whatever its margin (version 2): even pacing used to replace a
         # third of all lines, most of which had usable evidence, and lost corpus-wide. Only a line
         # the aligner could not place at all (window too short for its characters) is paced
-        # from the stamp, the one thing known to be true about it.
-        if any((i, wi) in per_word for wi in range(len(ln.words))):
+        # from the stamp, the one thing known to be true about it; the unplaced lines of a
+        # section share its window by character count.
+        dead = [i for i in sec
+                if not any((i, wi) in per_word for wi in range(len(lines[i].words)))
+                and any(not w.untimed for w in lines[i].words)]
+        if not dead:
             continue
-        f0 = int(stamps[i] / 1000.0 / FRAME_SEC)
-        if i + 1 < len(lines):
-            f1 = int(stamps[i + 1] / 1000.0 / FRAME_SEC)
-        elif ref_end_ms is not None:
-            f1 = int(ref_end_ms / 1000.0 / FRAME_SEC)
+        s_ms, e_ms = window_ms(k)
+        f0 = int(s_ms / 1000.0 / FRAME_SEC)
+        if k + 1 < len(sections) or ref_end_ms is not None:
+            f1 = int(e_ms / 1000.0 / FRAME_SEC)
         else:
-            f1 = min(T, f0 + 500)
-        f0s, f1s = shrink_to_voiced(voiced, f0, f1)
-        synthesize_line_spans(ln, i, max(f0, f0s), f1, char_dur, per_word)
+            f1 = min(T, f0 + 500 * len(sec))
+        f0s, _ = shrink_to_voiced(voiced, f0, f1)
+        pos = float(max(f0, f0s))
+        counts = [sum(len(w.norm) for w in lines[i].words if not w.untimed) for i in dead]
+        for i, n in zip(dead, counts):
+            nxt = pos + (f1 - max(f0, f0s)) * n / sum(counts)
+            synthesize_line_spans(lines[i], i, int(round(pos)), int(round(nxt)), char_dur, per_word)
+            pos = nxt
     return per_word
 
 
@@ -1023,9 +1090,10 @@ def main():
     ap.add_argument("--offset-ms", type=float, default=0.0,
                     help="constant added to all output times")
     ap.add_argument("--anchors", choices=["auto", "ref", "none"], default=None,
-                    help="ref: align inside hand-stamped line windows; "
+                    help="ref: align inside hand-stamped windows (a stamped line opens a "
+                         "section, unstamped lines join the section above them); "
                          "auto: two-pass margin anchoring; none: single pass. "
-                         "Default: ref when the lyrics file has timestamps, else auto.")
+                         "Default: ref when any line has a timestamp, else auto.")
     ap.add_argument("--language", default="en_US", help="pyphen hyphenation language")
     args = ap.parse_args()
 
@@ -1055,12 +1123,16 @@ def main():
     # ---- lyrics
     lines, ref_end_ms = parse_lyrics(args.lyrics)
     n_words = sum(len(ln.words) for ln in lines)
-    has_ref = all(ln.ref_ms is not None for ln in lines) and lines
+    # Sparse anchors (version 3): ONE stamped line is enough for ref mode; the unstamped lines are
+    # placed inside their section's window (see ref_sections).
+    n_stamped = sum(1 for ln in lines if ln.ref_ms is not None)
+    has_ref = n_stamped > 0
     mode = args.anchors or ("ref" if has_ref else "auto")
     if mode == "ref" and not has_ref:
-        log("WARNING: --anchors ref requested but not all lines have stamps; using auto")
+        log("WARNING: --anchors ref requested but no line has a stamp; using auto")
         mode = "auto"
-    log(f"lyrics: {len(lines)} lines, {n_words} words; anchor mode: {mode}")
+    stamped = f" ({n_stamped} of {len(lines)} lines stamped)" if mode == "ref" and n_stamped < len(lines) else ""
+    log(f"lyrics: {len(lines)} lines, {n_words} words; anchor mode: {mode}{stamped}")
 
     # ---- audio prep
     song_wav = work / f"{stem}.wav"
@@ -1162,4 +1234,6 @@ if __name__ == "__main__":
         sys.exit(self_test_syllables())
     if "--self-test-normalize" in sys.argv:
         sys.exit(self_test_normalize())
+    if "--self-test-sections" in sys.argv:
+        sys.exit(self_test_sections())
     main()
