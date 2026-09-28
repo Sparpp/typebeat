@@ -37,7 +37,8 @@ namespace typebeat.Game.Beatmaps
     /// three are WPM, in the typing-test unit of 5 characters to the word, the same unit the
     /// in-game counter and the results screen use, so every WPM the game ever shows a player means
     /// one thing. They are three different questions, not one ladder: <see cref="PeakWpm"/> is the
-    /// fastest rolling window, <see cref="AverageWpm"/> is the whole map's cells over its sung time,
+    /// fastest window meeting the rating's minimum duration and character count,
+    /// <see cref="AverageWpm"/> is the whole map's cells over its sung time,
     /// and <see cref="TargetWpm"/> is the map's hardest window by raw speed re-expressed as the
     /// speed an equally demanding thirty-second stretch would ask for. The CPM twins they used
     /// to carry alongside are gone: since the typing-test redefinition a CPM is its WPM times five
@@ -48,7 +49,7 @@ namespace typebeat.Game.Beatmaps
         /// <summary>Raw (unnormalised) WPM at evenly spaced points from the map's first to its last typed cell.</summary>
         public required IReadOnlyList<double> WpmCurve { get; init; }
 
-        /// <summary>Highest WPM over any rolling window of the map.</summary>
+        /// <summary>Highest WPM over the shortest window meeting the rating's time and character floors.</summary>
         public required double PeakWpm { get; init; }
 
         /// <summary>
@@ -65,7 +66,7 @@ namespace typebeat.Game.Beatmaps
 
         /// <summary>
         /// The whole map's typing pace: every typeable cell over the total time the map is sung,
-        /// with pauses wider than the break threshold left out and freestyle slots not counted
+        /// with only pauses between lines left out and freestyle slots not counted
         /// (<c>LyricPaceStatistics.AverageWpm</c>). A supported punctuation mark counts here when
         /// the mods this profile was asked of turned it into a typed cell.
         /// </summary>

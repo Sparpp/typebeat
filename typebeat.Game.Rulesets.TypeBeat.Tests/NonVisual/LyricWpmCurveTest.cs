@@ -45,56 +45,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void SingleThirtyCharacterWordIsHandComputable()
+        public void SingleThirtyCharacterWordUsesShortestEligibleTimeWindow()
         {
-            // One 30-char word over [0, 3000]: k = 30, so typeable char j targets
-            // 0 + j*3000/30 = 100j. That is exactly 30 cells at 0, 100, ... 2900, with no
-            // inter-word space cell (there is only one token), so the map holds one window.
-            //
-            //   spanMs = 2900 - 0 = 2900
-            //   cpm    = 29 / (2900/60000) = 29 * 60000 / 2900   = 600
-            //   wpm    = 600 / 5                                 = 120
-            //
-            // The 30-character word does NOT make this window worth one word: under the typing-test
-            // convention a word is 5 keystrokes whatever the text says, so the map's own word length
-            // is reported separately (LyricPaceStatistics.AverageCharsPerWord) instead of being
-            // baked into the WPM. The real-word convention this replaced said 29/30 of a word over
-            // the same span, i.e. 20 WPM, a number the HUD could never have shown.
+            // 30 cells at 100 ms intervals. A 1.5-second window starting at the first cell
+            // contains 16 cells, meeting the SR character floor: 16 / 1.5 * 60 = 640 CPM.
             var curve = LyricWpmCurve.Compute(new[] { singleWordLine(new string('a', 30), 0, 3000) });
 
             Assert.IsFalse(curve.IsEmpty);
-            Assert.AreEqual(600.0, curve.PeakCpm, 1e-9);
-            Assert.AreEqual(120.0, curve.PeakWpm, 1e-9);
+            Assert.AreEqual(640.0, curve.PeakCpm, 1e-9);
+            Assert.AreEqual(128.0, curve.PeakWpm, 1e-9);
             Assert.AreEqual(0, curve.StartTime, 1e-9);
             Assert.AreEqual(2900, curve.EndTime, 1e-9);
-
-            // The single window starts at the map's first cell, so it lands in bucket 0.
             Assert.AreEqual(LyricWpmCurve.DEFAULT_CURVE_POINTS, curve.Curve.Count);
-            Assert.AreEqual(120.0, curve.Curve[0], 1e-9);
-            Assert.AreEqual(0.0, curve.Curve.Skip(1).Max(), 1e-9);
+            Assert.AreEqual(128.0, curve.Curve[0], 1e-9);
+            Assert.AreEqual(curve.PeakWpm, curve.Curve.Max(), 1e-9);
         }
 
         [Test]
-        public void InterWordSpaceCellsHalveTheWindowSpan()
+        public void InterWordSpaceCellsCountInTimeWindow()
         {
-            // 30 one-char words 100 ms apart. The flattening interleaves an inter-word space cell at
-            // each unit end, so the map holds 30 chars + 29 spaces = 59 cells whose targets run
-            // 0, 100, 100, 200, 200, ... 2800, 2900, 2900: cell i is char m at 100m for even i = 2m,
-            // and the space after word m at 100(m+1) for odd i = 2m+1.
-            //
-            //   even-start window: span 1500 ms, cpm 29*60000/1500 = 1160,       wpm 232
-            //   odd-start  window: span 1400 ms, cpm 29*60000/1400 = 1242.857..., wpm 248.571...
-            //
-            // The odd-start window wins BOTH now. Under the old real-word convention the even and
-            // odd windows tied on WPM (15 whole words vs 14 words and 2 halves) while the odd one
-            // won on CPM, so the two peaks sat in different windows and had to be maximised
-            // independently. Every cell being worth 1/5 of a word removes that possibility: the
-            // peaks are proportional, and the assertion below is the whole point of this fixture.
+            // 30 one-char words 100 ms apart contain 59 typing cells, including spaces.
+            // A 1.5-second inclusive window beginning at 100 ms contains 32 cells.
             var curve = LyricWpmCurve.Compute(new[] { evenWordsLine(30, 0, 100) });
 
-            Assert.AreEqual(1740000.0 / 1400.0, curve.PeakCpm, 1e-9);
-            Assert.AreEqual(1740000.0 / 1400.0 / 5.0, curve.PeakWpm, 1e-9);
-            Assert.AreEqual(248.571428571428, curve.PeakWpm, 1e-9);
+            Assert.AreEqual(1280.0, curve.PeakCpm, 1e-9);
+            Assert.AreEqual(256.0, curve.PeakWpm, 1e-9);
             Assert.AreEqual(0, curve.StartTime, 1e-9);
             Assert.AreEqual(2900, curve.EndTime, 1e-9);
         }
@@ -108,9 +83,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // LiveWpm/LiveRollingWpm, is not reachable from here without standing up a whole run.
             Assert.AreEqual(LyricPaceStatistics.CHARS_PER_WORD, LyricWpmCurve.CHARS_PER_WORD);
 
-            // Holds for every map, whatever its word lengths, which is what makes the in-game HUD's
-            // rolling counter and this map figure the same quantity: both average over 30 presses,
-            // both divide characters by 5 (Gameplay/TypingEngine.cs, LiveRollingWpm).
+            // Holds for every map, regardless of word length or eligible window duration.
             foreach (var curve in new[]
                      {
                          LyricWpmCurve.Compute(new[] { evenWordsLine(40, 0, 100) }),
@@ -155,8 +128,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void MapShorterThanTheWindowIsEmpty()
         {
-            // 10 one-char words = 10 chars + 9 spaces = 19 cells, under the 30-cell window.
-            var curve = LyricWpmCurve.Compute(new[] { evenWordsLine(10, 0, 100) });
+            // Eight one-char words = eight chars plus seven spaces, below the 16-cell floor.
+            var curve = LyricWpmCurve.Compute(new[] { evenWordsLine(8, 0, 100) });
 
             Assert.IsTrue(curve.IsEmpty);
             Assert.AreEqual(0, curve.Curve.Count);

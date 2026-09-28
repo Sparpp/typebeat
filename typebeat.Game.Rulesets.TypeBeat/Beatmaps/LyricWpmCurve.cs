@@ -9,8 +9,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
     /// Typing pace ACROSS a lyric map, as a perfect player would experience it: every typeable cell
-    /// of the map is laid out on the beatmap timeline in typing order, a rolling window of
-    /// <see cref="WINDOW_CELLS"/> consecutive cells is swept over that sequence, and each window
+    /// of the map is laid out on the beatmap timeline in typing order, a rolling window of at least
+    /// <see cref="WINDOW_SECONDS"/> seconds and <see cref="MIN_WINDOW_CELLS"/> cells is swept over it, and each window
     /// yields one WPM and one CPM. What comes out is the peak of each (independently) plus a
     /// downsampled curve of the WPM over map time, which song select draws as a bar graph.
     ///
@@ -23,13 +23,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     public readonly struct LyricWpmCurve
     {
         /// <summary>
-        /// Cells per rolling window. This is <c>TypingEngine.rolling_wpm_window</c>
-        /// (Gameplay/TypingEngine.cs:47-48), the window the HUD's live WPM counter averages over,
-        /// and that is the whole reason the number is 30: the curve is meant to show the same
-        /// "how fast are you typing RIGHT NOW" quantity the player watches during a run, measured
-        /// on the map instead of on a performance.
+        /// The shipped SR endurance axis's shortest window and character floor. Keep these in step
+        /// with <c>ChunkedEndurance.Live.chunk_seconds</c> and <c>minimum_chars</c>, including in
+        /// the website's mirrored copy of this file.
         /// </summary>
-        public const int WINDOW_CELLS = 30;
+        public const double WINDOW_SECONDS = 1.5;
+        public const int MIN_WINDOW_CELLS = 16;
 
         /// <summary>Curve resolution used by song select (one point per graph bar).</summary>
         public const int DEFAULT_CURVE_POINTS = 100;
@@ -46,22 +45,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private readonly double[]? curve;
 
         /// <summary>
-        /// Highest WPM of any window, in the typing-test unit of <see cref="CHARS_PER_WORD"/> cells
-        /// to the word, hence exactly <see cref="PeakCpm"/> / 5. This class used to count REAL
-        /// fractional words here, which made the peak a number the in-game counter could never have
-        /// shown; it now IS that number, the highest reading a perfect player would have seen on the
-        /// HUD's rolling counter (which averages over the same <see cref="WINDOW_CELLS"/> presses
-        /// and divides by the same 5).
+        /// Highest WPM in the shortest window satisfying the shipped SR axis's minimum time and
+        /// character count, in the typing-test unit of <see cref="CHARS_PER_WORD"/> cells per word.
+        /// This is exactly <see cref="PeakCpm"/> / 5.
         /// </summary>
         public double PeakWpm { get; }
 
         /// <summary>
-        /// Highest CPM of any window. Under the old real-word convention this was maximised
-        /// INDEPENDENTLY of <see cref="PeakWpm"/>, since a burst of long words peaked the CPM and a
-        /// burst of short ones the WPM. With every cell now worth exactly 1/5 of a word the two are
-        /// proportional, so they always peak in the same window and the independent maximisation has
-        /// nothing left to find. Both are still reported: one is the unit players compare across
-        /// typing tests, the other the raw keystroke rate.
+        /// Highest CPM of any window. Every cell is worth exactly 1/5 of a word, so CPM and WPM
+        /// peak in the same window.
         /// </summary>
         public double PeakCpm { get; }
 
@@ -92,14 +84,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// Sweeps the rolling window over <paramref name="lines"/> and returns the peaks plus a
-        /// <paramref name="points"/>-point WPM curve.
+        /// Sweeps the shortest eligible SR-sized window over <paramref name="lines"/> and returns
+        /// the peaks plus a <paramref name="points"/>-point WPM curve at <paramref name="rate"/>.
         ///
-        /// <para>Degenerate input (no lines, fewer than <see cref="WINDOW_CELLS"/> cells in total, a
+        /// <para>Degenerate input (no lines, fewer than <see cref="MIN_WINDOW_CELLS"/> cells in total, a
         /// zero-length map span, a non-positive <paramref name="points"/>) returns an empty, all-zero
         /// result rather than throwing or dividing by zero.</para>
         /// </summary>
-        public static LyricWpmCurve Compute(IEnumerable<LyricLine> lines, int points = DEFAULT_CURVE_POINTS)
+        public static LyricWpmCurve Compute(IEnumerable<LyricLine> lines, int points = DEFAULT_CURVE_POINTS, double rate = 1)
         {
             var lineList = lines as IReadOnlyList<LyricLine> ?? lines.ToList();
 
@@ -125,8 +117,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // SYLLABLE BOUNDARIES ARE DELIBERATELY IGNORED here even though TypingLine honours
                 // them (syllableCharTarget): the server's TimedUnit carries Text/StartTime/EndTime
                 // only, so reading them would make this file impossible to mirror. The effect is
-                // confined to where chars sit WITHIN a single word, which a 30-cell window barely
-                // resolves anyway.
+                // confined to where chars sit WITHIN a single word.
                 string[] tokens = line.RawText.Split(' ');
 
                 for (int m = 0; m < tokens.Length; m++)
@@ -179,7 +170,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             int cellCount = targets.Count;
 
-            if (points <= 0 || cellCount < WINDOW_CELLS)
+            if (points <= 0 || rate <= 0 || cellCount < MIN_WINDOW_CELLS)
                 return new LyricWpmCurve(null, 0, 0, 0, 0);
 
             double first = targets[0];
@@ -189,28 +180,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (mapSpanMs <= 0)
                 return new LyricWpmCurve(null, 0, 0, 0, 0);
 
+            // On sparse maps the character floor makes the shortest eligible window longer than
+            // 1.5 seconds. Find the shortest span carrying 16 cells, then enforce the time floor.
+            double shortestCellsMs = double.PositiveInfinity;
+
+            for (int i = 0; i + MIN_WINDOW_CELLS <= cellCount; i++)
+            {
+                double span = targets[i + MIN_WINDOW_CELLS - 1] - targets[i];
+
+                if (span >= 0)
+                    shortestCellsMs = Math.Min(shortestCellsMs, span);
+            }
+
+            double windowMs = Math.Max(WINDOW_SECONDS * 1000 * rate, shortestCellsMs);
             double[] result = new double[points];
             double peakWpm = 0;
             double peakCpm = 0;
+            int end = 0;
 
-            for (int i = 0; i + WINDOW_CELLS <= cellCount; i++)
+            for (int i = 0; i + MIN_WINDOW_CELLS <= cellCount; i++)
             {
-                double spanMs = targets[i + WINDOW_CELLS - 1] - targets[i];
+                if (end < i)
+                    end = i;
 
-                if (spanMs <= 0)
+                while (end < cellCount && targets[end] <= targets[i] + windowMs)
+                    end++;
+
+                int cells = end - i;
+
+                if (cells < MIN_WINDOW_CELLS)
                     continue;
 
-                double minutes = spanMs / 60000.0;
-
-                // WINDOW_CELLS - 1, not WINDOW_CELLS: n presses bound n-1 inter-key gaps, so the span
-                // covers (n-1) cells' worth of typing. This is the live counter's own correction
-                // (TypingEngine.cs:185-188), kept here so the two readouts agree in scale.
-                double cpm = (WINDOW_CELLS - 1) / minutes;
-
-                // The same 29 cells, in words: 29/5 of one. Both peaks are still tracked separately
-                // even though wpm is now a fixed multiple of cpm, so that the invariant
-                // PeakWpm == PeakCpm / CHARS_PER_WORD is a consequence of the loop rather than an
-                // assumption written into it.
+                double cpm = cells * 60000.0 * rate / windowMs;
                 double wpm = cpm / CHARS_PER_WORD;
 
                 if (wpm > peakWpm)

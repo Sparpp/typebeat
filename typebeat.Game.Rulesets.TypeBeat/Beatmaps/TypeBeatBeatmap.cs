@@ -56,22 +56,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return null;
 
             var lines = HitObjects.Select(h => h.Line).ToList();
-            var curve = LyricWpmCurve.Compute(lines);
+            var curve = LyricWpmCurve.Compute(lines, rate: rate);
             var pace = LyricPaceStatistics.Compute(lines, HitObjects.Any(h => h.Literate), rate);
 
-            // Nothing to draw (no typeable cell at all, or fewer than one rolling window's worth)
+            // Nothing to draw (no typeable cell at all, or fewer than 16 cells)
             // reports null so the wedge hides the section instead of showing a flat empty graph.
             if (pace.TypeableCellCount == 0 || curve.IsEmpty)
                 return null;
 
             return new TypingPaceProfile
             {
-                // The curve's window is a run of CELLS, not a span of seconds, so a rate mod moves every
-                // sample by exactly the rate: scaling here is the same reading as recomputing, and it
-                // leaves the graph's normalised shape alone. The TARGET is the one figure that has to go
-                // back through the model - see LyricPaceStatistics.Compute.
-                WpmCurve = curve.Curve.Select(wpm => wpm * rate).ToArray(),
-                PeakWpm = curve.PeakWpm * rate,
+                // The curve is recomputed at the playback rate because its minimum window is in
+                // seconds. Target WPM is likewise recomputed by LyricPaceStatistics.Compute.
+                WpmCurve = curve.Curve,
+                PeakWpm = curve.PeakWpm,
                 TargetWpm = pace.TargetWpm,
                 AverageWpm = pace.AverageWpm,
             };
@@ -109,10 +107,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // unaffected (a rate mod changes when the words arrive, not how many there are), exactly
             // as the line count it replaced was, so it deliberately carries no RateAdjusted.
             //
-            // THE WHOLE MAP, with the song's breaks taken out: every cell the map makes the player
-            // TYPE (freestyle slots are not one) over the total time it is sung, where a pause counts
-            // up to the break threshold and is dropped whole beyond it — so an instrumental between
-            // two lines is not charged to the player and a long line weighs more than a short one. It
+            // THE WHOLE MAP, with only the breaks between lines taken out: every cell the map makes
+            // the player TYPE (freestyle slots are not one) over the sum of each line's full
+            // start-to-vocal-end span. Pauses within a line count regardless of length; an
+            // instrumental between lines does not. A long line weighs more than a short one. It
             // replaced an unweighted mean of per-line rates, which gave every line one vote and put
             // the pause after each line inside that line's own window. LyricPaceStatistics keeps both.
             double baseWpm = pace.AverageWpm;
