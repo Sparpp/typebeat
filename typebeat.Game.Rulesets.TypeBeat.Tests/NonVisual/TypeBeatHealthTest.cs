@@ -862,17 +862,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 engine.CharJudged += j =>
                 {
-                    // A wrong char applies NO osu result (its cell's is deferred), so what the
-                    // playfield does here is drain HP directly.
-                    if (j.Type == JudgementType.WrongChar)
-                    {
-                        Health.ApplyTypoDrain();
-                        return;
-                    }
-
-                    // An abandoned cell applies no result either (backlog 167), and its drain rides
-                    // on WordAbandoned below for exactly the same reason.
-                    if (j.Type == JudgementType.Abandoned)
+                    // A wrong char applies NO osu result (its cell's is deferred), and an abandoned
+                    // cell applies none either (backlog 167): what the playfield does for those two
+                    // is TypeBeatHealthFeed's, attached below.
+                    if (j.Type == JudgementType.WrongChar || j.Type == JudgementType.Abandoned)
                         return;
 
                     if (!judged.Add((j.LineIndex, j.CellIndex)))
@@ -881,15 +874,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     TypeBeatHealthTest.apply(Health, toHitResult(j.Type));
                 };
 
-                engine.TypoErased += Health.RefundTypoDrain;
-
-                // Backlog 167, the three seams of an abandoned cell: charged per cell at the skip,
-                // and refunded per cell on whichever of the two exits it takes. The seal's own Miss
-                // results then arrive through MissedCells below, which is what leaves each cell
-                // charged exactly once.
-                engine.WordAbandoned += a => Health.ApplyAbandonDrain(a.Count);
-                engine.AbandonReclaimed += a => Health.RefundAbandonDrain(a.Count);
-                engine.AbandonSealed += a => Health.RefundAbandonDrain(a.Count);
+                // The six result-less seams, through the very feed the live playfield attaches: the
+                // typo's drain and refund (backlog 166), the three seams of an abandoned cell
+                // (backlog 167: charged per cell at the skip, refunded per cell on whichever of the
+                // two exits it takes, so with the seal's own Miss results below each cell is
+                // charged exactly once), and the mash guard.
+                TypeBeatHealthFeed.Attach(engine, () => Health);
 
                 engine.LineSealed += r =>
                 {
@@ -907,8 +897,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                             TypeBeatHealthTest.apply(Health, TypeBeatResultMapping.UNFIXED_TYPO);
                     }
                 };
-
-                engine.WrongKeyRejected += _ => Health.ApplyWrongKeyStreak(engine.ConsecutiveWrongKeys);
             }
 
             /// <summary>

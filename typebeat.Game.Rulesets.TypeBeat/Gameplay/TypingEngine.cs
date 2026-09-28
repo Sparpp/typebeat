@@ -1392,7 +1392,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// image of that keypress, and the only way a cell ever leaves <see cref="CellState.Wrong"/>,
         /// so the two bracket the typo exactly.
         ///
-        /// <para>HEALTH is what listens (see <c>TypeBeatPlayfield.onTypoErased</c>): a typo drains
+        /// <para>HEALTH is what listens (see <see cref="Scoring.TypeBeatHealthFeed.OnTypoErased"/>): a typo drains
         /// HP the moment it is typed rather than at the line seal, and erasing it refunds that
         /// drain, so typing a character wrong, backspacing and retyping it correctly leaves the bar
         /// exactly where typing it right first time would have. Nothing else moves: the mistype

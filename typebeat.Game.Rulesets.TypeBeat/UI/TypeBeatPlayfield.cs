@@ -285,15 +285,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             Engine.CharJudged += onCharJudged;
             Engine.LineSealed += onLineSealed;
-            Engine.WrongKeyRejected += onWrongKeyRejected;
             Engine.Mistyped += onMistyped;
             Engine.ComboRestored += onComboRestored;
-            Engine.TypoErased += onTypoErased;
             Engine.WordAbandoned += onWordAbandoned;
-            Engine.AbandonReclaimed += onAbandonReclaimed;
             Engine.AbandonSealed += onAbandonSealed;
             Engine.Rewound += onRewound;
+
+            // HEALTH's six result-less seams (the typo drain and its refund, the word skip's drain
+            // and its two refunds, the mash guard) go through TypeBeatHealthFeed, the one place they
+            // live, so a headless driver can put a real processor behind an engine with none of
+            // this playfield around it. Attached AFTER the handlers above, which keeps each shared
+            // event's old order (the result or the combo write first, then the health move); the two
+            // accounts are independent anyway. The cell RESULTS still reach health the ordinary way,
+            // through the drawables and the Player.
+            healthFeed = TypeBeatHealthFeed.Attach(Engine, () => healthProcessor as TypeBeatHealthProcessor);
         }
+
+        /// <summary>The <see cref="TypeBeatHealthFeed"/> subscription, released on dispose.</summary>
+        private IDisposable? healthFeed;
 
         protected override void Update()
         {
@@ -339,14 +348,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // So HP is settled for a typo separately from its result (backlog 166), and at the same
             // moment every other judgement settles it: the keypress. Waiting for the seal made the
             // one account a typist watches while typing lag a line behind the mistake it was
-            // reporting. The drain is given back if the player backspaces the character away (see
-            // onTypoErased), which is what keeps a FIXED typo costing exactly what it did before:
-            // nothing beyond what the corrected retype earns.
-            //
-            // The rejection model needs nothing here: a rejected key writes no cell, raises no
-            // CharJudged, and already drains at its own keypress (see onWrongKeyRejected).
-            if (judgement.Type == JudgementType.WrongChar)
-                (healthProcessor as TypeBeatHealthProcessor)?.ApplyTypoDrain();
+            // reporting. The drain, and its refund if the player backspaces the character away, are
+            // TypeBeatHealthFeed's (attached in LoadComplete, on this same event), which is what keeps
+            // a FIXED typo costing exactly what it did before: nothing beyond what the corrected
+            // retype earns.
 
             // Fletcher's rush cap breaks combo on a press that is still judged Great/Ok/Meh, so the
             // hit result alone (a Great/Ok/Meh, which INCREMENTS osu's combo) cannot carry the break.
@@ -403,18 +408,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         private void onComboRestored(int streak) => (scoreProcessor as TypeBeatScoreProcessor)?.RestoreCombo(streak);
 
-        /// <summary>
-        /// A backspace took a wrong character back out of its cell (backlog 140's other half, made
-        /// visible by backlog 166): refund the HP its keypress drained. HEALTH only, and health is
-        /// the only account with anything to give back here: the mistype count is spent, and the
-        /// combo the keypress broke is restored by the corrected RETYPE (see
-        /// <see cref="onComboRestored"/>), not by the erase.
-        ///
-        /// <para>The refund rides on the ERASE rather than on the fix so that erasing a typo and
-        /// leaving the cell empty is priced as the miss it then is (one drain at the seal) instead
-        /// of as a typo plus a miss.</para>
-        /// </summary>
-        private void onTypoErased() => (healthProcessor as TypeBeatHealthProcessor)?.RefundTypoDrain();
+        // A backspace taking a wrong character back out of its cell (TypingEngine.TypoErased, backlog
+        // 140's other half, made visible by backlog 166) is HEALTH only: the mistype count is spent,
+        // and the combo the keypress broke is restored by the corrected RETYPE (see onComboRestored),
+        // not by the erase. So this playfield has no handler for it; TypeBeatHealthFeed refunds the
+        // drain. The refund rides on the ERASE rather than on the fix so that erasing a typo and
+        // leaving the cell empty is priced as the miss it then is (one drain at the seal) instead of
+        // as a typo plus a miss. The same is true of TypingEngine.AbandonReclaimed (backlog 167): the
+        // combo a skip broke comes back at the RETYPE, and the refund is the feed's. And of
+        // TypingEngine.WrongKeyRejected: its combo break rides on Mistyped (see onMistyped), one
+        // event earlier and in both input models, and the mash guard left behind is the feed's.
 
         /// <summary>
         /// A word skip abandoned a run of cells (backlog 167). Neither of the two things it costs can
@@ -422,9 +425,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// re-typeable, and a cell takes only its first result.
         ///
         /// <para>HEALTH drains one miss per cell, here and now, which is backlog 166's rule applied
-        /// to the other deferred judgement: the bar must react to what the player just did. It is
-        /// given back when the cells leave the abandoned state, whichever way they leave it (see
-        /// <see cref="onAbandonReclaimed"/> and <see cref="onAbandonSealed"/>).</para>
+        /// to the other deferred judgement: the bar must react to what the player just did. That
+        /// drain, and its refund when the cells leave the abandoned state whichever way they leave
+        /// it, are <see cref="TypeBeatHealthFeed"/>'s.</para>
         ///
         /// <para>COMBO is zeroed by hand, exactly as <see cref="onMistyped"/> zeroes it and for the
         /// identical reason. The engine has taken its one break at the skip; the Miss results that
@@ -436,18 +439,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             if (scoreProcessor != null)
                 scoreProcessor.Combo.Value = 0;
-
-            (healthProcessor as TypeBeatHealthProcessor)?.ApplyAbandonDrain(abandoned.Count);
         }
-
-        /// <summary>
-        /// The player backspaced back into a skipped word (backlog 167): its cells are untyped again
-        /// and re-typeable. HEALTH only, and for the same reason <see cref="onTypoErased"/> is health
-        /// only: the combo the skip broke comes back at the RETYPE, and there is nothing else the
-        /// erase itself has fixed.
-        /// </summary>
-        private void onAbandonReclaimed(AbandonedCells abandoned)
-            => (healthProcessor as TypeBeatHealthProcessor)?.RefundAbandonDrain(abandoned.Count);
 
         /// <summary>
         /// The line sealed on cells the player never came back for (backlog 167). Both halves of this
@@ -456,27 +448,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// engine guarantees by raising this event first.
         ///
         /// <para>HEALTH refunds the skip's drain into the drain the Miss results are about to take,
-        /// so the pair nets to one charge per cell. COMBO-NEUTRAL marks stop those misses breaking
-        /// osu's combo a second time: that break was taken at the skip, and the player may well have
-        /// rebuilt a run through the rest of the line since, which the engine's own combo has kept.</para>
+        /// so the pair nets to one charge per cell (<see cref="TypeBeatHealthFeed"/>, on this same
+        /// event). COMBO-NEUTRAL marks stop those misses breaking osu's combo a second time: that
+        /// break was taken at the skip, and the player may well have rebuilt a run through the rest
+        /// of the line since, which the engine's own combo has kept.</para>
         /// </summary>
         private void onAbandonSealed(AbandonedCells abandoned)
         {
-            (healthProcessor as TypeBeatHealthProcessor)?.RefundAbandonDrain(abandoned.Count);
-
             if (scoreProcessor is not TypeBeatScoreProcessor typeBeatProcessor)
                 return;
 
             foreach (int cellIndex in abandoned.CellIndices)
                 typeBeatProcessor.MarkComboNeutral(abandoned.LineIndex, cellIndex);
-        }
-
-        private void onWrongKeyRejected(char c)
-        {
-            // The combo break rides on Mistyped (see onMistyped), which fires for this key too, one
-            // event earlier and in both input models. The mash guard is all that is left here,
-            // because only the rejection model ever accrues the consecutive-wrong-key streak.
-            (healthProcessor as TypeBeatHealthProcessor)?.ApplyWrongKeyStreak(Engine.ConsecutiveWrongKeys);
         }
 
         /// <summary>
@@ -614,14 +597,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             Engine.CharJudged -= onCharJudged;
             Engine.LineSealed -= onLineSealed;
-            Engine.WrongKeyRejected -= onWrongKeyRejected;
             Engine.Mistyped -= onMistyped;
             Engine.ComboRestored -= onComboRestored;
-            Engine.TypoErased -= onTypoErased;
             Engine.WordAbandoned -= onWordAbandoned;
-            Engine.AbandonReclaimed -= onAbandonReclaimed;
             Engine.AbandonSealed -= onAbandonSealed;
             Engine.Rewound -= onRewound;
+            healthFeed?.Dispose();
             base.Dispose(isDisposing);
         }
 
