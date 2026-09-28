@@ -108,7 +108,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsCheckbox
                 {
                     LabelText = "Manual newlines",
-                    TooltipText = "Finish a line yourself: once its last character is typed, press space (at the end of the line) or enter to move on to the next one. Without it a finished line hands you over as soon as the next line is nearly due. You are never left behind - the song still takes you to the next line if you do not press, and a press made before the next line is nearly due is simply refused. Applies from the next play.",
+                    TooltipText = "You move on to the next line yourself: once a line's last character is typed, press space or enter, or just start typing the next line. Move on early and the next line waits, greyed out, until it is nearly due, so you can never get ahead of the song. You are never left behind either: if you do not press, the song still takes you to the next line. Turn this off to be moved on automatically as soon as the next line is nearly due. Applies from the next play.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ManualNewlines),
                 },
                 new SettingsSlider<float>

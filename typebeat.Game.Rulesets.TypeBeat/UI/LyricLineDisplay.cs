@@ -122,7 +122,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private OsuSpriteText[] cells = Array.Empty<OsuSpriteText>();
         private float[] advances = Array.Empty<float>();
 
-        // --- Space error dots (backlog 197, opt-in) ---
+        // --- Space error dots (backlog 197, on by default since PR 2) ---
         // Display indices of this line's WORD GAPS, one overlay dot per gap, and the flag buffer the
         // pure rule writes into (one entry per CELL, reused so a repaint allocates nothing). A line
         // with no gap pays for none of this. The dots are recomputed at most once per frame, off a
@@ -1082,9 +1082,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>
         /// The SPACE ERROR DOT rule (backlog 197), one flag per cell, true only on a gap that has
         /// earned a dot: the player left the word before it carrying an error and then spaced onward
-        /// past it, so a small red interpunct is drawn in that gap (the TypeGG-style indicator). Off
-        /// by default, purely visual, and nothing about scoring, judgement, the replay or the wire
-        /// reads this.
+        /// past it, or the gap itself holds an unfixed typo, so a small red interpunct is drawn in
+        /// that gap (the TypeGG-style indicator). On by default since PR 2, purely visual, and
+        /// nothing about scoring, judgement, the replay or the wire reads this.
         ///
         /// <para>Three decisions, each of which is what a repaint re-reads rather than something
         /// remembered from when it happened:</para>
@@ -1092,10 +1092,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <item>THE GAP IS ITS OWN CELL (<see cref="IsWordGap"/>), so the dot sits in the boundary
         /// between two words rather than on either of them.</item>
         /// <item>SPACED ONWARD means that gap cell is <see cref="CellState.Correct"/>: the space was
-        /// accepted. A gap still <see cref="CellState.Untyped"/> has not been passed yet, one holding
-        /// a typo is <see cref="CellState.Wrong"/> (and is already showing the offending character in
-        /// the error red, so a dot beside it would say the same thing twice), and backspacing an
-        /// accepted space puts the gap back to Untyped, which takes the dot away with it.</item>
+        /// accepted. A gap still <see cref="CellState.Untyped"/> has not been passed yet, and
+        /// backspacing an accepted space puts the gap back to Untyped, which takes the dot away with
+        /// it. A gap holding a typo is <see cref="CellState.Wrong"/> and is dotted on its own
+        /// account, flawed word or not (see the rule body); <see cref="GapGlyph"/> then draws the
+        /// dot INSTEAD of the offending character, so the two never stack in one slot.</item>
         /// <item>LEFT FLAWED means any TYPEABLE non-gap cell in the contiguous run before that gap
         /// (back to the previous gap, or the line start) is <see cref="CellState.Wrong"/>,
         /// <see cref="CellState.Missed"/> or <see cref="CellState.Abandoned"/>. Abandoned counts: a

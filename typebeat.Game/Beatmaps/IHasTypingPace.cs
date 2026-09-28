@@ -34,9 +34,9 @@ namespace typebeat.Game.Beatmaps
 
     /// <summary>
     /// Peak, target and average typing pace for a beatmap, plus a WPM curve over its length. All
-    /// three are WPM, in the typing-test unit of 5 characters to the word, the same unit the
-    /// in-game counter and the results screen use, so every WPM the game ever shows a player means
-    /// one thing. They are three different questions, not one ladder: <see cref="PeakWpm"/> is the
+    /// three are WPM, in the typing-test unit of 5 characters to the word, the same unit as the
+    /// gameplay HUD's live counter (the results screen shows no WPM), so every WPM the game ever
+    /// shows a player means one thing. They are three different questions, not one ladder: <see cref="PeakWpm"/> is the
     /// fastest rolling window, <see cref="AverageWpm"/> is the whole map's cells over its sung time,
     /// and <see cref="TargetWpm"/> is the map's hardest window by raw speed re-expressed as the
     /// speed an equally demanding thirty-second stretch would ask for. The CPM twins they used

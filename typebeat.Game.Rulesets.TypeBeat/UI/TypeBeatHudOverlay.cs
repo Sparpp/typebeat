@@ -231,7 +231,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             base.Update();
 
             // Rolling window over the last few dozen keypresses, not the whole-run average: the live
-            // readout should track current pace. The results screen still reports the whole-run figure.
+            // readout should track current pace. The whole-run figure (ResultsSummary.Wpm) is computed
+            // but drawn nowhere: the results screen shows no WPM, so this counter is the only place a
+            // player sees their own pace (the map's pace shows at song select).
             wpmValue.Text = engine.LiveRollingWpm.ToString("0");
 
             // Skipped entirely while the column is hidden: LiveSyncPercent walks every cell of the

@@ -35,7 +35,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private float lineGap = 96f;
         private readonly BindableFloat lineSpacing = new BindableFloat(96f);
 
-        // The optional space error dot (TypeBeatRulesetSetting.UseSpaceErrorDot, off by default), a
+        // The optional space error dot (TypeBeatRulesetSetting.UseSpaceErrorDot, on by default since PR 2), a
         // display-only marker the lyric displays draw themselves. Held here so a live change reaches
         // every display; see the binding in load() for why it never touches the replay CONFIG frame.
         private readonly Bindable<bool> spaceErrorDot = new Bindable<bool>();

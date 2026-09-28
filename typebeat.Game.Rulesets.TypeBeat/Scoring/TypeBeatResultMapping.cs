@@ -169,9 +169,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// to be re-derived under the rule it was PLAYED under. Live play is always
     /// <see cref="Reclaimable"/>.
     ///
-    /// <para>It reaches only rows played with the space-skip SETTING on, which is off by default, so
-    /// it is the narrowest of the axes: a row that never abandoned a word is graded identically under
-    /// both arms, because the branch it gates is never entered.</para>
+    /// <para>It reaches only rows played with the space-skip SETTING on (the shipped default since
+    /// backlog 198; it was off before that), and among those only the rows that actually abandoned a
+    /// word: a row that never did is graded identically under both arms, because the branch it gates
+    /// is never entered.</para>
     /// </summary>
     public enum WordSkipRule
     {
