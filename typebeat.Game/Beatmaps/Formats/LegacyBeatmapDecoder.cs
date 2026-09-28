@@ -415,7 +415,11 @@ namespace typebeat.Game.Beatmaps.Formats
                     // language line above: absent (every file written before this key existed) or
                     // unparseable leaves the default in place rather than failing the load, and a
                     // hand-edited value is clamped to what the mixer's amplifier will accept.
-                    if (double.TryParse(pair.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double audioGain))
+                    // double.TryParse accepts the literal "NaN", and Math.Clamp passes a NaN input
+                    // through untouched, so a hostile or corrupted file could otherwise hand the mixer
+                    // a NaN multiplier and play the track as a stream of NaN samples. Treated the same
+                    // as any other unparseable value: the default survives.
+                    if (double.TryParse(pair.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double audioGain) && !double.IsNaN(audioGain))
                         metadata.AudioGain = Math.Clamp(audioGain, 0, BeatmapMetadata.MAX_AUDIO_GAIN);
 
                     break;
