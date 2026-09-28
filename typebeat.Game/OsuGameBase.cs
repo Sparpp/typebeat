@@ -307,6 +307,15 @@ namespace typebeat.Game
 
             InitialiseFonts();
 
+            // Accessibility and map fonts for the gameplay typing surface (OpenDyslexic, system-font
+            // picks and a map's bundled font file), rasterised on demand into the shared font store;
+            // see LyricFontManager. Cached HERE rather than in InitialiseFonts, because the headless
+            // test runner overrides that method away (loading the game's own font files really is
+            // dispensable there) and the manager is not a font load: it is a lazily-registering
+            // dependency the settings and editor font pickers, and the lyric stage, resolve, and it
+            // has to exist under tests for any of those to be testable.
+            dependencies.Cache(new Graphics.Fonts.LyricFontManager(Fonts, Storage));
+
             addFilesWarning();
 
             Audio.Samples.PlaybackConcurrency = SAMPLE_CONCURRENCY;
@@ -513,10 +522,6 @@ namespace typebeat.Game
             AddFont(Resources, @"Fonts/Venera/Venera-Black");
 
             Fonts.AddStore(new OsuIcon.OsuIconStore(Textures));
-
-            // Accessibility fonts for the gameplay typing surface (OpenDyslexic + system-font picks).
-            // Rasterised on demand into the shared font store; see LyricFontManager.
-            dependencies.Cache(new Graphics.Fonts.LyricFontManager(Fonts, Storage));
         }
 
         protected override void LoadComplete()

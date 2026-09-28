@@ -305,6 +305,20 @@ namespace typebeat.Game.Beatmaps.Formats
                 case @"CountdownOffset":
                     beatmap.CountdownOffset = Parsing.ParseInt(pair.Value);
                     break;
+
+                case @"LyricFont":
+                    // type!beat addition (backlog 291): the mapper-chosen typing font family. Total
+                    // like AudioGain: absent (every file written before this key existed) leaves the
+                    // metadata's own empty default, and any string is accepted since an unresolvable
+                    // family falls back at render time rather than failing the load.
+                    metadata.LyricFont = pair.Value;
+                    break;
+
+                case @"LyricFontFile":
+                    // type!beat addition (backlog 291): the bundled font file's name inside the set,
+                    // an ordinary set file like AudioFilename above.
+                    metadata.LyricFontFile = pair.Value.ToStandardisedPath();
+                    break;
             }
         }
 

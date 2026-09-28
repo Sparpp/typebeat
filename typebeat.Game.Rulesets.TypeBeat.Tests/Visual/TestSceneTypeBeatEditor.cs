@@ -927,6 +927,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("check it", () => Assert.That(accuracy, Is.EqualTo(1),
                 "testing from partway through must not charge the skipped prefix"));
 
+            // The editor test is the ONE play that declares where it began (a normal play never
+            // does, see TestSceneTypeBeatPlayStartGate), and what it declares is the playhead.
+            AddUntilStep("the engine took the playhead as the play's start", () =>
+                Stack.ChildrenOfType<TypeBeat.UI.TypeBeatPlayfield>().SingleOrDefault()?.Engine.PlayStartTime is double start
+                && Math.Abs(start - 4000) < 1);
+
             // And the run still RUNS OUT: the results the editor player used to put straight into the
             // score processor now arrive, granted, from the engine's own seal, so the play reaches the
             // map's full object count and leaves for the results screen exactly as it always did. (The

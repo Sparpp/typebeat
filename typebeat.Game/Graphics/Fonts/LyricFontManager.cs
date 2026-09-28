@@ -45,6 +45,10 @@ namespace typebeat.Game.Graphics.Fonts
         // family name -> whether it is registered and usable. Absent = not yet attempted.
         private readonly Dictionary<string, bool> registered = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 
+        // Families added from arbitrary streams (a beatmap set's bundled font file) live here so the
+        // parsed data outlives the registration call; SixLabors ties a FontFamily to its collection.
+        private readonly FontCollection streamCollection = new FontCollection();
+
         private readonly FontCollection openDyslexicCollection = new FontCollection();
         private FontFamily? openDyslexicFamily;
         private bool openDyslexicProbed;
@@ -137,6 +141,56 @@ namespace typebeat.Game.Graphics.Fonts
                 }
 
                 registered[family] = ok;
+                return ok;
+            }
+        }
+
+        /// <summary>
+        /// Ensures a font parsed from an arbitrary stream (a beatmap set's bundled font file) is
+        /// rasterised and registered into the game font store under <paramref name="name"/>, the
+        /// caller's own lookup key (a per-file name, so two maps bundling different fonts can never
+        /// collide). Modeled on the OpenDyslexic drop-in path. Returns whether the font is usable; a
+        /// missing or corrupt stream logs and returns false so the caller falls back, never throwing,
+        /// because a broken bundled file must not fail the play.
+        /// </summary>
+        public bool EnsureRegisteredFromStream(string? name, Func<Stream?> openStream)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return false;
+
+            lock (sync)
+            {
+                if (registered.TryGetValue(name, out bool already))
+                    return already;
+
+                bool ok;
+
+                try
+                {
+                    FontFamily? family = null;
+
+                    using (var stream = openStream())
+                    {
+                        if (stream != null)
+                            family = streamCollection.Add(stream, CultureInfo.InvariantCulture);
+                    }
+
+                    if (family == null || fonts == null)
+                        ok = false;
+                    else
+                    {
+                        var store = new RuntimeFontGlyphStore(family.Value, name);
+                        fonts.AddTextureSource(store);
+                        ok = true;
+                    }
+                }
+                catch (Exception e)
+                {
+                    Logger.Error(e, $"Failed to load the bundled lyric font '{name}'; falling back.");
+                    ok = false;
+                }
+
+                registered[name] = ok;
                 return ok;
             }
         }

@@ -44,6 +44,12 @@ namespace typebeat.Game.Screens.Edit.GameplayTest
 
         protected override GameplayClockContainer CreateGameplayClockContainer(WorkingBeatmap beatmap, double gameplayStart)
         {
+            // Tell the ruleset this is the editor's test play, the one play allowed to begin
+            // part-way through its map (see DrawableRuleset.IsEditorGameplayTest). Set here because
+            // this is the first override Player calls with the drawable ruleset built and not yet
+            // loaded, so the flag is in place before the ruleset's first frame reads it.
+            DrawableRuleset.IsEditorGameplayTest = true;
+
             var masterGameplayClockContainer = new MasterGameplayClockContainer(beatmap, gameplayStart);
 
             // Only reset the time to the current point if the editor is later than the normal start time (and the first object).

@@ -123,7 +123,7 @@ namespace typebeat.Game.Screens.ImportLyrics
                                 automaticAlignmentCheckbox = new OsuCheckbox
                                 {
                                     RelativeSizeAxes = Axes.X,
-                                    LabelText = "automatic alignment (time each word from the audio, slower, needs sign-in; off = use your [mm:ss.xx] line stamps)",
+                                    LabelText = "automatic alignment (time each word from the audio, slower, needs the local auto-aligner; off = use your [mm:ss.xx] line stamps)",
                                     Current = { Value = false },
                                 },
                                 importButton = new RoundedButton
@@ -309,7 +309,7 @@ namespace typebeat.Game.Screens.ImportLyrics
 
         public override bool OnExiting(ScreenExitEvent e)
         {
-            // An import in flight, especially a multi-minute server alignment, shouldn't be torn
+            // An import in flight, especially a multi-minute local alignment run, shouldn't be torn
             // down by a stray Esc without asking. Nothing running -> leave freely.
             if (importing && !exitConfirmed && dialogOverlay != null)
             {
@@ -319,8 +319,8 @@ namespace typebeat.Game.Screens.ImportLyrics
                 return true; // block the exit until the user decides
             }
 
-            // Leaving for real: cancel the token. That kills any local aligner process tree AND makes
-            // RemoteAlignClient drop the server-side job, so the worker stops aligning for nobody.
+            // Leaving for real: cancel the token, which kills any local aligner process tree so it
+            // stops burning minutes of CPU on a result nobody will collect.
             importCancellation?.Cancel();
 
             contentContainer.ScaleTo(0.95f, 300, Easing.OutQuint);

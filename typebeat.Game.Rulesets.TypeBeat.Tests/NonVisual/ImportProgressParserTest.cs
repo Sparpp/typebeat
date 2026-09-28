@@ -40,10 +40,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [TestCase("[12:36:30] re-aligned lines 4..8 in 1.2s", ImportStage.AligningLyrics)]
         [TestCase("alignment complete", ImportStage.AligningLyrics)]
         [TestCase("line-timed alignment ready (no word-level timing)", ImportStage.AligningLyrics)]
-        [TestCase("uploading to the type!beat server for alignment...", ImportStage.Uploading)]
-        [TestCase("waiting for the server aligner (this can take a few minutes)...", ImportStage.WaitingForServer)]
         [TestCase("aligner unavailable (aligner exited with code 1: Traceback), trying next option", ImportStage.FallingBack)]
-        [TestCase("server alignment unavailable (sign in to type!beat), trying line-timed fallback", ImportStage.FallingBack)]
         [TestCase("packaging map", ImportStage.Packaging)]
         [TestCase("importing beatmap", ImportStage.Importing)]
         // The video split's own step. The first case is the PRODUCTION string (the extractor lives in
@@ -70,6 +67,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [TestCase("no audio extractor available (no ffmpeg found on this machine), keeping the video file as the map's audio")]
         public void TestUnknownLinesClaimNoStage(string line)
             => Assert.That(ImportProgressParser.Parse(line).Stage, Is.Null);
+
+        /// <summary>
+        /// The server-side aligner is retired, so no stage may promise one. An import now runs
+        /// entirely on this machine (the local aligner, else the lyrics' own line stamps), so there is
+        /// no upload step, no queue wait, and nothing on screen that names a server. This is the pin
+        /// that keeps a reinstated upload/wait pair from sneaking the old promise back into the UI.
+        /// </summary>
+        [Test]
+        public void TestNoStagePromisesAServer()
+        {
+            foreach (ImportStage stage in Enum.GetValues<ImportStage>())
+            {
+                Assert.That(stage.ToString(), Does.Not.Contain("Server").IgnoreCase, "no stage names a server");
+                Assert.That(stage.ToString(), Does.Not.Contain("Upload").IgnoreCase, "nothing is uploaded by an import");
+                Assert.That(ImportProgressParser.LabelFor(stage), Does.Not.Contain("server").IgnoreCase, $"{stage}'s label names a server");
+            }
+        }
 
         /// <summary>
         /// Whatever a line says, the thing shown to the user is the stage's fixed label. Nothing that

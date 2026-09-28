@@ -55,6 +55,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 {
                     "Space to skip current word",
                     "Manual newlines",
+                    "Use map fonts",
                     "Use space error dot",
                     "Show syllable markers",
                     "Show word pace colours",
@@ -67,6 +68,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 {
                     TypeBeatRulesetSetting.SpaceSkipsWord,
                     TypeBeatRulesetSetting.ManualNewlines,
+                    TypeBeatRulesetSetting.UseMapFonts,
                     TypeBeatRulesetSetting.UseSpaceErrorDot,
                     TypeBeatRulesetSetting.ShowSyllableMarkers,
                     TypeBeatRulesetSetting.ShowPaceColours,
@@ -86,8 +88,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 }
 
                 // And the defaults the game ships with, which the move must not have reset either.
-                // Manual newlines and the space error dot both ship ON as of 2026-09-21.
-                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, true, true, true, true }));
+                // Manual newlines, map fonts, the space error dot, syllable markers and pace colours
+                // ship on by default.
+                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, true, true, true, true, true }));
             }
         }
 
@@ -126,6 +129,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Manual newlines",
                     "Lyric line spacing",
                     "Typing font",
+                    "Use map fonts",
                     "Use space error dot",
                     "Show syllable markers",
                     "Show word pace colours",

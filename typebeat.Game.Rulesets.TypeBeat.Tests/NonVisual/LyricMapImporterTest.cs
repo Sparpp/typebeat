@@ -250,7 +250,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             File.WriteAllText(lyricsPath, "[00:01.00] one two\n[00:03.00]\n");
 
             var extractor = FakeAudioTrackExtractor.Producing(".mp3");
-            string? alignedAudioPath = null;
 
             var result = await LyricMapImporter.BuildOszAsync(
                 mp4Path, lyricsPath, "Some Artist", "Some Song",
@@ -258,13 +257,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 startDirectories: new[] { tempRoot },
                 progress: _ => { },
                 token: CancellationToken.None,
-                remoteAlign: (audioPath, _, _, _, _, _) =>
-                {
-                    // The aligner seam only records what it was handed; the LRC line stamps below
-                    // produce the timing, so the assertion does not depend on a stub's output.
-                    alignedAudioPath = audioPath;
-                    return Task.FromResult(RemoteAlignOutcome.Fail("stub"));
-                },
                 useAutomaticAlignment: true,
                 audioExtractor: extractor).ConfigureAwait(false);
 
@@ -293,11 +285,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     // is sample-accurate, so the video needs no offset (backlog 232's seam stays at 0).
                     Assert.That(osuText, Does.Contain("Video,0,\"Some Artist - Some Song.mp4\""));
 
-                    Assert.That(decode(osuText).Metadata.AudioFile, Is.EqualTo("Some Artist - Some Song.mp3"));
-
-                    // The whole point of splitting BEFORE alignment: the aligner (local subprocess or
-                    // the 64MB-capped server upload) sees the audio, never the container.
-                    Assert.That(alignedAudioPath, Is.EqualTo(extractor.ProducedPath));
+                    // The whole point of splitting BEFORE alignment: the local aligner sees the audio,
+                    // never the container. One variable (BuildOszAsync's effectiveAudioPath) is both
+                    // what alignment is handed and what AudioFilename is written from, so the decoded
+                    // AudioFile IS that pin. It used to be read off the remote aligner stub's first
+                    // argument; that seam is gone with the server-side aligner, and a local run cannot
+                    // be stubbed (it needs a real lyriclab environment).
+                    Assert.That(decode(osuText).Metadata.AudioFile, Is.EqualTo(Path.GetFileName(extractor.ProducedPath)));
                 });
             }
             finally
@@ -319,7 +313,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             File.WriteAllText(lyricsPath, "[00:01.00] one two\n[00:03.00]\n");
 
             var lines = new List<string>();
-            string? alignedAudioPath = null;
 
             var result = await LyricMapImporter.BuildOszAsync(
                 mp4Path, lyricsPath, "Some Artist", "Some Song",
@@ -327,11 +320,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 startDirectories: new[] { tempRoot },
                 progress: lines.Add,
                 token: CancellationToken.None,
-                remoteAlign: (audioPath, _, _, _, _, _) =>
-                {
-                    alignedAudioPath = audioPath;
-                    return Task.FromResult(RemoteAlignOutcome.Fail("stub"));
-                },
                 useAutomaticAlignment: true,
                 audioExtractor: FakeAudioTrackExtractor.Unavailable("no ffmpeg found on this machine")).ConfigureAwait(false);
 
@@ -349,8 +337,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     Assert.That(archive.Entries.Any(e => e.FullName.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase)), Is.False, "nothing was extracted");
                     Assert.That(osuText, Does.Contain("AudioFilename: Some Artist - Some Song.mp4"));
                     Assert.That(osuText, Does.Contain("Video,0,\"Some Artist - Some Song.mp4\""));
-                    Assert.That(decode(osuText).Metadata.AudioFile, Is.EqualTo("Some Artist - Some Song.mp4"));
-                    Assert.That(alignedAudioPath, Is.EqualTo(mp4Path), "with nothing extracted, the container is still what gets aligned");
+
+                    // With nothing extracted, the container is still what gets aligned, which the one
+                    // effectiveAudioPath variable makes the same statement as AudioFilename naming it.
+                    Assert.That(decode(osuText).Metadata.AudioFile, Is.EqualTo(Path.GetFileName(mp4Path)));
                 });
             }
             finally

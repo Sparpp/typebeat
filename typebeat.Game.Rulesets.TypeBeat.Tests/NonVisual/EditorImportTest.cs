@@ -109,6 +109,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(result.Success, Is.False);
                 Assert.That(timingJson, Is.Null);
                 Assert.That(result.Error, Does.Contain("timestamp").IgnoreCase);
+
+                // The hint used to offer signing in for server-side alignment. That aligner is
+                // retired, so the two things left are the LOCAL install and the line stamps, and the
+                // copy must name both rather than sending the user at an endpoint that is gone.
+                Assert.Multiple(() =>
+                {
+                    Assert.That(result.Error, Does.Contain("Settings > Experimental"));
+                    Assert.That(result.Error, Does.Contain("[mm:ss.xx]"));
+                    Assert.That(result.Error, Does.Not.Contain("server").IgnoreCase);
+                    Assert.That(result.Error, Does.Not.Contain("sign in").IgnoreCase);
+                });
             }
             finally
             {
@@ -150,7 +161,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 (var result, string? timingJson) = await LyricMapImporter.ProduceTimingJsonAsync(
                     audio, "[00:01.00]hello world\n[00:03.50]second line\n", "Artist", "Title",
                     null, new[] { Path.GetTempPath() }, _ => { }, CancellationToken.None,
-                    remoteAlign: null, useAutomaticAlignment: false).ConfigureAwait(false);
+                    useAutomaticAlignment: false).ConfigureAwait(false);
 
                 Assert.That(result.Success, Is.True, result.Error);
                 Assert.That(TimingJsonLoader.TryParse(timingJson!, out var lines), Is.True);
@@ -170,24 +181,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             try
             {
-                // A remote aligner IS supplied, but automatic alignment is off, so it must never be
-                // invoked; the failure directs the user to the toggle, not to the server.
-                bool remoteCalled = false;
-                RemoteAligner remote = (_, _, _, _, _, _) =>
-                {
-                    remoteCalled = true;
-                    return Task.FromResult(RemoteAlignOutcome.Ok("{}"));
-                };
-
+                // Automatic alignment is off, so no aligner runs and the failure directs the user at
+                // the TOGGLE rather than at any aligner. This used to pass a remote stub and assert it
+                // was never called; the remote seam is gone with the server-side aligner, so what is
+                // left to pin is that the off-switch alone short-circuits to the line-stamp arm (the
+                // hint names the toggle, never the "no auto-aligner is available" install copy).
                 (var result, string? timingJson) = await LyricMapImporter.ProduceTimingJsonAsync(
                     audio, "hello world\nno stamps", "Artist", "Title",
                     null, new[] { Path.GetTempPath() }, _ => { }, CancellationToken.None,
-                    remoteAlign: remote, useAutomaticAlignment: false).ConfigureAwait(false);
+                    useAutomaticAlignment: false).ConfigureAwait(false);
 
                 Assert.That(result.Success, Is.False);
                 Assert.That(timingJson, Is.Null);
-                Assert.That(remoteCalled, Is.False, "the aligner must not run when automatic alignment is off");
                 Assert.That(result.Error, Does.Contain("automatic alignment").IgnoreCase);
+                Assert.That(result.Error, Does.Not.Contain("Settings > Experimental"), "the toggle is the fix here, not the install");
             }
             finally
             {

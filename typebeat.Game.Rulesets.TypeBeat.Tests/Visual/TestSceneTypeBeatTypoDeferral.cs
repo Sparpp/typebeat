@@ -133,15 +133,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private void typeTypoOnCell(int index) =>
             AddStep($"type a wrong char onto cell {index}", () => engine.ProcessKey('q', engine.Lines[0].Cells[index].TargetTime));
 
-        private void sealLineZero() => AddStep("run line 0 out of time", () => engine.Update(line_zero_end + 1));
+        /// <summary>
+        /// Run line 0 past its DRAG CUTOFF so it seals inside this very step. Its <c>EndTime</c>
+        /// alone is not out of time under the default stack: the unpinned caret holds the line the
+        /// player is standing on open for another <see cref="TypingEngine.FLETCHER_DRAG_GRACE_MS"/>
+        /// past <c>EndTime + SealGraceMs</c> (the drag rule while a character is still owed, the
+        /// manual-newline hold once none is), so an update to <c>EndTime + 1</c> sealed NOTHING and
+        /// the scene silently fell back on the real gameplay clock fast-forwarding all 300 s of map
+        /// to the cutoff, a wait whose wall length scales with machine load. That race is what blew
+        /// the 10 s until-step budget under a loaded full suite; driven past the cutoff instead, the
+        /// seal and everything it raises are synchronous and nothing below waits on the clock.
+        /// </summary>
+        private void sealLineZero()
+        {
+            AddStep("run line 0 past its drag cutoff", () => engine.Update(line_zero_end + TypingEngine.FLETCHER_DRAG_GRACE_MS + 1));
+            AddAssert("the seal really happened in that step", () =>
+                engine.NextUnsealedLineIndex == 1 && engine.ActiveLineIndex == 1);
+        }
 
         /// <summary>
-        /// Type line 1's single cell, at the moment the seal ran the clock to. Line 1 is not sealed
-        /// afterwards, so the play stays open and the submitted account stays readable.
+        /// Type line 1's single cell, dead on its own start. The caret was handed to line 1 by the
+        /// seal itself (the seal loop's hand-over is never refused), so this is an assert and not a
+        /// wait; the press time is the cell's own target, which keeps its judgement a Great however
+        /// far past the cutoff the seal step ran the engine. Line 1 is not sealed afterwards, so the
+        /// play stays open and the submitted account stays readable.
         /// </summary>
         private void typeLineOneCell()
         {
-            AddUntilStep("line 1 active", () => engine.ActiveLineIndex == 1);
+            AddAssert("line 1 active", () => engine.ActiveLineIndex == 1);
             AddStep("type line 1's cell", () => engine.ProcessKey(engine.Lines[1].Cells[0].Expected, line_zero_end + 1));
         }
 
@@ -185,8 +204,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             // THE assertion this scene exists for since backlog 124: the cell resolves under the
             // typo's own key, not as a miss and not as the Meh a late-but-correct char takes, and the
-            // miss count stays at zero.
-            AddUntilStep("the cell resolves as a typo, not a miss", () =>
+            // miss count stays at zero. An ASSERT, not a wait: the seal raises its results straight
+            // through the playfield into the score processor, so they are due the moment the seal
+            // step returns, and a scene that had to wait for them would be hiding a defect.
+            AddAssert("the cell resolves as a typo, not a miss", () =>
                 statistics.GetValueOrDefault(TypeBeatResultMapping.UNFIXED_TYPO) == 1
                 && statistics.GetValueOrDefault(HitResult.Miss) == 0
                 && statistics.GetValueOrDefault(HitResult.Meh) == 0
@@ -245,7 +266,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             sealLineZero();
 
-            AddUntilStep("the untyped cell misses", () =>
+            AddAssert("the untyped cell misses", () =>
                 statistics.GetValueOrDefault(HitResult.Miss) == 1
                 && statistics.GetValueOrDefault(TypeBeatResultMapping.UNFIXED_TYPO) == 0);
             AddAssert("no mistype behind it", () => statistics.GetValueOrDefault(HitResult.ComboBreak) == 0);
@@ -284,7 +305,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             sealLineZero();
 
-            AddUntilStep("the abandoned cell took its result", () => statistics.GetValueOrDefault(TypeBeatResultMapping.UNFIXED_TYPO) == 1);
+            AddAssert("the abandoned cell took its result", () => statistics.GetValueOrDefault(TypeBeatResultMapping.UNFIXED_TYPO) == 1);
             AddAssert("...and the run it landed on is still standing", () => Player.ScoreProcessor.Combo.Value == 9);
 
             typeLineOneCell();
@@ -315,7 +336,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             sealLineZero();
             typeLineOneCell();
 
-            AddUntilStep("thirteen cells judged, twelve of them clean", () =>
+            AddAssert("thirteen cells judged, twelve of them clean", () =>
                 statistics.GetValueOrDefault(HitResult.Great) == 12
                 && statistics.GetValueOrDefault(TypeBeatResultMapping.UNFIXED_TYPO) == 1);
 
@@ -398,7 +419,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             typeCorrectly(3, 12);
             sealLineZero();
 
-            AddUntilStep("every cell is typed, the corrected one at Ok", () =>
+            AddAssert("every cell is typed, the corrected one at Ok", () =>
                 statistics.GetValueOrDefault(HitResult.Great) == 11
                 && statistics.GetValueOrDefault(HitResult.Ok) == 1
                 && statistics.GetValueOrDefault(HitResult.Miss) == 0);

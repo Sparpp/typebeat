@@ -329,6 +329,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(3, pace.WordCount);
             Assert.AreEqual(8 / 3.0, pace.AverageCharsPerWord, 1e-9);
         }
+        [Test]
+        public void AnInvertedLineWindowChargesNothingRatherThanThrowing()
+        {
+            // A line whose end precedes its start (a line mid-edit, or a malformed import) used to
+            // throw out of the whole-map walk, because Math.Clamp refuses an inverted range. It is
+            // read as a zero-width window instead: the second line alone carries the map's pace.
+            LyricPaceStatistics stats = default;
+
+            Assert.DoesNotThrow(() => stats = LyricPaceStatistics.Compute(new[]
+            {
+                makeLine("ab cd", 4000, 1000, singEnd: 1000, (4000, 4500), (4600, 5000)),
+                makeLine("ef gh", 10000, 12000, singEnd: 12000, (10000, 11000), (11000, 12000)),
+            }));
+
+            Assert.That(double.IsFinite(stats.AverageCpm), "the walk produced a number");
+            Assert.That(stats.AverageCpm, Is.GreaterThan(0), "and the well-formed line is what it measures");
+        }
 
         /// <summary>
         /// <paramref name="windowsMs"/> lines of "a b c", one per boundary window given. The line

@@ -11,6 +11,8 @@ using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
+using osu.Framework.Logging;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.Fonts;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
@@ -75,6 +77,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // Carries the Flashlight mod's visible-char radius (0 = mod off), read live each frame.
         [Resolved]
         private DrawableTypeBeatRuleset? drawableRuleset { get; set; }
+
+        // The game-wide working beatmap, the file store the map's bundled font file (backlog 291)
+        // is read from. Absent in bare playfield test scenes, where the map font simply cannot
+        // resolve and the built-in fallback applies.
+        [Resolved(CanBeNull = true)]
+        private IBindable<WorkingBeatmap>? workingBeatmap { get; set; }
 
         private Container lineContainer = null!;
         private LyricLineDisplay[] displays = Array.Empty<LyricLineDisplay>();
@@ -333,21 +341,56 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
-        /// Resolves the configured gameplay font family to a value safe to hand the lyric displays.
-        /// Returns null (built-in font) for the default sentinel, when the font manager is absent, or
-        /// when the chosen family cannot be registered; never throwing, so gameplay text always renders.
+        /// Resolves the gameplay font family to a value safe to hand the lyric displays, on the
+        /// order <see cref="LyricFontResolution"/> pins: the player's own pick, then the map's font
+        /// (bundled file first, then family name) while "Use map fonts" is on, then null (built-in).
+        /// Never throwing and never failing the play: a missing or corrupt bundled file, or an
+        /// unknown family, logs and falls through.
         /// </summary>
-        private static string? resolveLyricFont(TypeBeatRulesetConfigManager? config, LyricFontManager? fontManager)
+        private string? resolveLyricFont(TypeBeatRulesetConfigManager? config, LyricFontManager? fontManager)
         {
-            if (config == null || fontManager == null)
+            if (fontManager == null)
                 return null;
 
-            string family = config.GetBindable<string>(TypeBeatRulesetSetting.LyricFont).Value;
+            string? playerFamily = config?.GetBindable<string>(TypeBeatRulesetSetting.LyricFont).Value;
+            bool useMapFonts = config?.GetBindable<bool>(TypeBeatRulesetSetting.UseMapFonts).Value ?? true;
+            var metadata = drawableRuleset?.Beatmap.BeatmapInfo.Metadata;
 
-            if (string.IsNullOrWhiteSpace(family) || family.Equals(TypeBeatRulesetConfigManager.LYRIC_FONT_DEFAULT, StringComparison.Ordinal))
+            string? resolved = LyricFontResolution.Resolve(playerFamily, useMapFonts, metadata?.LyricFont,
+                fontManager.EnsureRegistered,
+                () => registerMapFontFile(fontManager, metadata?.LyricFontFile));
+
+            if (resolved == null && useMapFonts && !string.IsNullOrEmpty(metadata?.LyricFont))
+                Logger.Log($"The map's lyric font '{metadata.LyricFont}' could not be resolved on this machine; using the built-in font.");
+
+            return resolved;
+        }
+
+        /// <summary>
+        /// Registers the map's bundled font file (an ordinary set file, like the background) from
+        /// the working beatmap's file store, returning the per-file key it renders under, or null
+        /// when there is no file, the set does not actually carry it, or it cannot be parsed.
+        /// </summary>
+        private string? registerMapFontFile(LyricFontManager fontManager, string? fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
                 return null;
 
-            return fontManager.EnsureRegistered(family) ? family : null;
+            var working = workingBeatmap?.Value;
+            string? storagePath = working?.BeatmapSetInfo.GetPathForFile(fileName);
+
+            if (working == null || storagePath == null)
+            {
+                Logger.Log($"The map names a bundled lyric font '{fileName}' that its set does not carry; falling back.");
+                return null;
+            }
+
+            // Keyed by the CONTENT HASH the file is stored under rather than by family name, so two
+            // maps bundling different fonts under the same declared family can never collide in the
+            // shared font store, and the same file registers once across maps.
+            string key = $"MapFont-{storagePath.Split('/')[^1]}";
+
+            return fontManager.EnsureRegisteredFromStream(key, () => working.GetStream(storagePath)) ? key : null;
         }
 
         protected override void LoadComplete()

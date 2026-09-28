@@ -383,6 +383,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // the bound would refuse them outright, so this is CONFIG frame bit 7 of its own.
                 BoundedRush = true,
 
+                // THE FIRST LINE'S HEAD START: a press up to FIRST_LINE_LEAD_MS before the map's
+                // first vocal opens the first line, which has no line before it to rush from and
+                // whose boundary normally sits ON that vocal.
+                //
+                // Set UNCONDITIONALLY, because where the first line opens is not a mod's business,
+                // the same convention bits 3, 4 and 7 follow.
+                //
+                // An ERA flag on CONFIG frame bit 16, because it decides whether a keystroke is
+                // ACCEPTED, and every replay recorded before it re-derives under the old gate, which
+                // refused a press made before the line's own activation.
+                FirstLineLeadIn = true,
+
                 FlexibleCaretFromMod = legacyFletcher,
 
                 // THE ONE MOD FLAG SET HERE THAT IS NOT AN ERA (backlog 231). A stored replay can

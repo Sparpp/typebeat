@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -30,7 +31,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     public class BeatmapAudioGainTest
     {
         [SetUp]
-        public void SetUp() => LyricBeatmapDecoder.Register();
+        public void SetUp()
+        {
+            LyricBeatmapDecoder.Register();
+
+            // The .osz export path writes LEGACY .osu files, so that decoder has to be registered too
+            // for the two encoders to be held against each other below.
+            typebeat.Game.Beatmaps.Formats.LegacyBeatmapDecoder.Register();
+        }
 
         // ---- default and plumbing ----
 
@@ -109,6 +117,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        [Test]
+        public void BothEncodersWriteTheSameGain()
+        {
+            // TWO ENCODERS, ONE KEY. BeatmapManager.Save writes the ruleset's native format; the .osz
+            // export writes the legacy one. A map that leaves through the exporter and comes back through
+            // an import has to come back at the gain it left with, which it did not while one of the two
+            // rounded the value to four decimals.
+            foreach (double gain in new[] { 0.25, 0.5, 1.1, 1.25, 1.33, 1.7512, 3.99 })
+            {
+                string native = encode(buildBeatmap(gain));
+                string legacy = legacyEncode(buildBeatmap(gain, withHitObjects: false));
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(gainValueIn(legacy), Is.EqualTo(gainValueIn(native)), $"the two encoders spell {gain} the same way");
+                    Assert.That(decode(native).Metadata.AudioGain, Is.EqualTo(gain), $"native round trip of {gain}");
+                    Assert.That(decode(legacy).Metadata.AudioGain, Is.EqualTo(gain), $"legacy round trip of {gain}");
+                });
+            }
+        }
+
+        [Test]
+        public void NeitherEncoderWritesTheLineAtTheDefaultGain()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(encode(buildBeatmap(BeatmapMetadata.DEFAULT_AUDIO_GAIN)), Does.Not.Contain("AudioGain"));
+                Assert.That(legacyEncode(buildBeatmap(BeatmapMetadata.DEFAULT_AUDIO_GAIN, withHitObjects: false)), Does.Not.Contain("AudioGain"));
+            });
+        }
+
         // ---- multiplier <-> decibels ----
 
         [Test]
@@ -144,7 +183,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         // ---- helpers ----
 
-        private static Beatmap buildBeatmap(double audioGain)
+        private static Beatmap buildBeatmap(double audioGain, bool withHitObjects = true)
         {
             var beatmap = new Beatmap();
             beatmap.BeatmapInfo.Ruleset = new TypeBeatRuleset().RulesetInfo;
@@ -166,13 +205,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 },
             };
 
-            beatmap.HitObjects.Add(new TypeBeatHitObject
+            // The legacy encoder writes hit objects through the osu! ruleset's own shape, which a lyric
+            // object has none of, so the comparisons that go through it use a map with no objects. The
+            // [Metadata] block this is all about is the same either way.
+            if (withHitObjects)
             {
-                StartTime = line.StartTime,
-                LineIndex = 0,
-                Line = line,
-                Granularity = TimingGranularity.Word,
-            });
+                beatmap.HitObjects.Add(new TypeBeatHitObject
+                {
+                    StartTime = line.StartTime,
+                    LineIndex = 0,
+                    Line = line,
+                    Granularity = TimingGranularity.Word,
+                });
+            }
 
             return beatmap;
         }
@@ -184,6 +229,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 TypeBeatBeatmapEncoder.Encode(source, null, sw);
 
             return sb.ToString();
+        }
+
+        /// <summary>The same map through the legacy <c>.osu</c> encoder, which is what the .osz export writes.</summary>
+        private static string legacyEncode(Beatmap source)
+        {
+            var sb = new StringBuilder();
+            using (var sw = new StringWriter(sb))
+                new typebeat.Game.Beatmaps.Formats.LegacyBeatmapEncoder(source, null, null).Encode(sw);
+
+            return sb.ToString();
+        }
+
+        /// <summary>The value an encoding wrote on its AudioGain line, whatever spacing it used around it.</summary>
+        private static string gainValueIn(string encoded)
+        {
+            foreach (string line in encoded.Split('\n'))
+            {
+                string trimmed = line.Trim();
+
+                if (trimmed.StartsWith("AudioGain", StringComparison.Ordinal))
+                    return trimmed[(trimmed.IndexOf(':') + 1)..].Trim();
+            }
+
+            return string.Empty;
         }
 
         private static Beatmap decode(string text)

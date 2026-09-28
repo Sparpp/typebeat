@@ -231,7 +231,9 @@ namespace typebeat.Desktop
         {
             base.SetHost(host);
 
-            // Apple operating systems use a better icon provided via external assets.
+            // Apple operating systems use a better icon provided via external assets: the .icns
+            // build-macos.yml assembles into the .app bundle, which is built from the same
+            // assets/typebeat.png this resource embeds.
             if (!RuntimeInfo.IsApple)
             {
                 // This resource is a PNG, and must stay one. The framework's SetIconFromStream first
@@ -252,7 +254,7 @@ namespace typebeat.Desktop
                 //
                 // Handing over a PNG means the very first ImageSharp load succeeds and the .ico
                 // fallback is never entered on any platform.
-                var iconStream = Assembly.GetExecutingAssembly().GetManifestResourceStream(GetType(), "lazer.png");
+                var iconStream = Assembly.GetExecutingAssembly().GetManifestResourceStream(GetType(), "typebeat.png");
                 if (iconStream != null)
                     host.Window.SetIconFromStream(iconStream);
             }

@@ -4,19 +4,19 @@
 using System;
 using System.Threading.Tasks;
 using osu.Framework.Audio.Track;
-using osu.Framework.Graphics;
 
 namespace typebeat.Game.Audio.Effects
 {
     /// <summary>
-    /// A map's TRACK GAIN: the value behind the editor's audio gain bar, its conversion to decibels, and
-    /// the clipping reading that goes with it.
+    /// A map's TRACK GAIN, as the editor talks about it: the value behind the audio gain bar, its
+    /// conversion to decibels, and the clipping reading that goes with it.
     ///
-    /// <para><b>WHERE THE AUDIO HALF OF THIS STANDS, since it is the part that is not here.</b> The gain
-    /// is stored, edited, copied across a set's difficulties, drawn on the editor timeline and measured
-    /// for clipping, and it <b>is not applied to playback</b>. That is not an oversight and not a
-    /// parameter waiting to be found - the audio stack gives no safe way to do it on this platform, and
-    /// the three routes that exist were each tried:</para>
+    /// <para><b>WHERE THE AUDIO HALF OF THIS LIVES, since it is not here.</b> The gain is applied by
+    /// handing the framework DIFFERENT AUDIO - the song decoded, scaled, clamped and presented as the
+    /// WAV the track plays (see <see cref="ScaledAudio"/> and <see cref="ScaledAudioStream"/>), built
+    /// wherever a working beatmap's track is built. There is no live effect object and no amplifier on
+    /// a mixer, because the three routes that would have given one were each tried and each failed on
+    /// this platform:</para>
     ///
     /// <list type="bullet">
     /// <item>VOLUME CANNOT: <c>AdjustableAudioComponent.Volume</c> and the aggregate of every volume
@@ -36,12 +36,11 @@ namespace typebeat.Game.Audio.Effects
     /// removed for that reason and must not come back in that shape.</item>
     /// </list>
     ///
-    /// <para>What would work, and is a piece of work in its own right: pre-scaling the audio into the
-    /// stream the track reads (decode, scale, clamp, hand the framework a scaled copy of the file) -
-    /// no native callbacks, nothing to race, and the waveform would then be the real boosted one
-    /// rather than a scaled drawing of the original.</para>
+    /// <para>What is left here is the ARITHMETIC the editor's controls need, and nothing that pretends
+    /// to touch playback: a component that held a track and did nothing with it lived here for a while
+    /// and was only ever read as a promise it could not keep.</para>
     /// </summary>
-    public partial class AudioGain : Component
+    public static class AudioGain
     {
         /// <summary>
         /// The largest gain a map may ask for, in dB (+12 dB is four times the amplitude, which is
@@ -54,44 +53,6 @@ namespace typebeat.Game.Audio.Effects
         /// silence in everything but the arithmetic.
         /// </summary>
         public const double MIN_GAIN_DB = -60;
-
-        private double gainDb;
-        private Track? track;
-
-        /// <summary>
-        /// Whether the gain is being applied to playback. False, and it says so rather than implying
-        /// otherwise: see the class notes for what would have to change for this to be true.
-        /// </summary>
-        public bool IsAttached => false;
-
-        /// <summary>
-        /// The gain to apply, in dB. 0 is no change.
-        /// </summary>
-        public double GainDb
-        {
-            get => gainDb;
-            set => gainDb = Math.Clamp(value, MIN_GAIN_DB, MAX_GAIN_DB);
-        }
-
-        /// <summary>
-        /// The gain as a linear multiplier: 1 is the song as imported, 2 is +6 dB. This is the form the
-        /// beatmap stores and the bar shows.
-        /// </summary>
-        public double Gain
-        {
-            get => dbToMultiplier(gainDb);
-            set => GainDb = multiplierToDb(value);
-        }
-
-        /// <summary>
-        /// The track the gain belongs to. Held so the gain follows the map it was set on; nothing is
-        /// done to it (see the class notes).
-        /// </summary>
-        public Track? Track
-        {
-            get => track;
-            set => track = value;
-        }
 
         /// <summary>
         /// A linear multiplier in dB: 1 -> 0 dB, 2 -> +6.02 dB, 0.5 -> -6.02 dB. Zero or below (and

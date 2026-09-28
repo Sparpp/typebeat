@@ -12,7 +12,9 @@
     <IsPackable>true</IsPackable>
   </PropertyGroup>
   <ItemGroup Label="Icon">
-    <None Include="..\assets\lazer-nuget.png">
+    <!-- The type!beat icon, downscaled from assets/typebeat.png. It replaced assets/lazer-nuget.png,
+         which was osu!'s own logo and is ppy's IP. -->
+    <None Include="..\assets\typebeat-nuget.png">
       <Pack>True</Pack>
       <PackagePath>icon.png</PackagePath>
     </None>

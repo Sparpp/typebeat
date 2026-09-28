@@ -147,8 +147,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Estimated = line.Estimated,
             };
 
-        private static TimedUnit retime(TimedUnit unit, double start, double end, TimingSource? source = null, double? confidence = null)
+        /// <summary>
+        /// One word's unit rebuilt over a new span. Two regimes, split by <paramref name="translate"/>:
+        ///
+        /// <para>A RESIZE (the default) re-times the word AROUND its dividers: the mapper is pulling
+        /// one edge to better fit the vocal, and the vocal events inside the word (a syllable onset,
+        /// a breath) did not move, so boundaries and rests keep their OWN times and any the new span
+        /// can no longer hold are dropped (see <see cref="ClampPauses"/> for the full reasoning).</para>
+        ///
+        /// <para>A TRANSLATION (<paramref name="translate"/> true, and the span really is the old one
+        /// shifted whole) moves the word's interior WITH it: the mapper grabbed the word body, and a
+        /// word is its shape, so boundaries and rests shift by the same delta the edges did (the same
+        /// offsets into the new span) and the authored split stays verbatim. No clamp can apply,
+        /// because the shape is unchanged: a divider strictly inside the old span is strictly inside
+        /// the new one, and a split valid against the old boundary count is valid against the same
+        /// count. This is the word-move face of the rule the line-timing paste applies (a rebased
+        /// pattern carries its sub-word timing at the same offsets); leaving the dividers at their
+        /// absolute times here anchored them in the song while the word left, which dropped or staled
+        /// them. The flag is explicit rather than inferred from an unchanged duration so the unit-run
+        /// paste (whose documented rule is that the target keeps its own dividers, re-clamped) cannot
+        /// drift onto this path when a pasted span happens to equal a word's width.</para>
+        /// </summary>
+        private static TimedUnit retime(TimedUnit unit, double start, double end, TimingSource? source = null, double? confidence = null, bool translate = false)
         {
+            if (translate && Math.Abs((end - start) - (unit.EndTime - unit.StartTime)) < 1e-6)
+            {
+                double delta = start - unit.StartTime;
+
+                return new TimedUnit
+                {
+                    Text = unit.Text,
+                    StartTime = start,
+                    EndTime = end,
+                    Source = source ?? unit.Source,
+                    Confidence = confidence ?? unit.Confidence,
+                    SyllableBoundaries = unit.SyllableBoundaries.Count == 0
+                        ? unit.SyllableBoundaries
+                        : unit.SyllableBoundaries.Select(b => b + delta).ToArray(),
+                    SyllableSplits = unit.SyllableSplits,
+                    Pauses = unit.Pauses.Count == 0
+                        ? unit.Pauses
+                        : unit.Pauses.Select(pause => new WordPause(pause.StartTime + delta, pause.EndTime + delta, pause.SplitChar)).ToArray(),
+                };
+            }
+
             // Syllable subdivisions ride along, clamped to the new span (any that fall outside the
             // re-timed window are dropped: the word shrank past them).
             var boundaries = clampBoundaries(unit.SyllableBoundaries, start, end);
@@ -450,6 +492,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// Moves one word unit as a RIGID block (its duration is preserved), clamped so the whole
         /// word stays between its neighbours. Dragging a word into the next one just stops it at
         /// the boundary; it never gets squashed (which independent-edge clamping would do).
+        /// Its subdivision boundaries, authored split and rests move WITH it (see
+        /// <see cref="retime"/>'s translation regime): the word arrives with the same shape it left.
         /// </summary>
         public static void MoveUnit(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, double newStart)
         {
@@ -469,7 +513,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return;
 
             newStart = Math.Clamp(newStart, lower, upper - duration);
-            applyUnit(editorBeatmap, hitObject, unitIndex, newStart, newStart + duration);
+            applyUnit(editorBeatmap, hitObject, unitIndex, newStart, newStart + duration, translate: true);
         }
 
         /// <summary>How a group edit transforms each selected unit: rigid move, or drag one edge.</summary>
@@ -568,7 +612,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     default: ns += applied; ne += applied; break;
                 }
 
-                units[i] = retime(units[i], ns, ne, TimingSource.Explicit, 1);
+                // A group MOVE is the multi-select face of MoveUnit: every selected word translates
+                // rigidly, so each carries its sub-word timing along. The two resize modes keep the
+                // clamp regime, exactly as a single-word edge drag does.
+                units[i] = retime(units[i], ns, ne, TimingSource.Explicit, 1, translate: mode == UnitGroupEdit.Move);
             }
 
             editorBeatmap.BeginChange();
@@ -610,13 +657,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return line.EndTime;
         }
 
-        /// <summary>Writes one unit's [start, end] back (Explicit, trusted), clearing Estimated and promoting granularity.</summary>
-        private static void applyUnit(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, double newStart, double newEnd)
+        /// <summary>Writes one unit's [start, end] back (Explicit, trusted), clearing Estimated and promoting granularity.
+        /// <paramref name="translate"/> marks a rigid move, whose sub-word timing rides along (see <see cref="retime"/>).</summary>
+        private static void applyUnit(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, double newStart, double newEnd, bool translate = false)
         {
             var line = hitObject.Line;
             double previousLastEnd = lastUnitEnd(line);
             var units = line.Units.ToArray();
-            units[unitIndex] = retime(units[unitIndex], newStart, newEnd, TimingSource.Explicit, 1);
+            units[unitIndex] = retime(units[unitIndex], newStart, newEnd, TimingSource.Explicit, 1, translate);
 
             editorBeatmap.BeginChange();
             hitObject.Line = new LyricLine
@@ -2552,8 +2600,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         #region Timing copy/paste (see LyricTimingClipboard for the payload semantics)
 
         /// <summary>
-        /// Snapshots the given lines' INTERNAL timing (unit spans, subdivisions, pauses and sung end, as offsets from each
+        /// Snapshots the given lines' INTERNAL timing (unit spans + sung end, as offsets from each
         /// line's start) in the given order. Pair with <see cref="PasteLineTimings"/>.
+        ///
+        /// <para>A word's SUB-WORD timing travels with its span: its subdivision boundaries (as
+        /// line-relative offsets, exactly like the span), its authored char split and its authored
+        /// rests, plus the source word's character COUNT, which is what
+        /// <see cref="PasteLineTimings"/> gates the two char-indexed ones on. A word carrying none of
+        /// that writes none of the fields, so a plain word-timed line serializes exactly as before.</para>
         /// </summary>
         public static LyricTimingClipboard.LineTimingsPayload CopyLineTimings(IEnumerable<TypeBeatHitObject> lines)
         {
@@ -2566,7 +2620,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 foreach (var unit in line.Units)
                 {
-                    entry.Units.Add(copyTiming(unit, line.StartTime));
+                    entry.Units.Add(new LyricTimingClipboard.UnitSpan
+                    {
+                        Start = unit.StartTime - line.StartTime,
+                        End = unit.EndTime - line.StartTime,
+                        Chars = unit.Text.Length,
+                        Boundaries = unit.SyllableBoundaries.Count == 0
+                            ? null
+                            : unit.SyllableBoundaries.Select(b => b - line.StartTime).ToList(),
+                        Splits = unit.SyllableSplits.Count == 0 ? null : unit.SyllableSplits.ToList(),
+                        Rests = unit.Pauses.Count == 0
+                            ? null
+                            : unit.Pauses.Select(p => new LyricTimingClipboard.RestSpan
+                            {
+                                Start = p.StartTime - line.StartTime,
+                                End = p.EndTime - line.StartTime,
+                                SplitChar = p.SplitChar,
+                            }).ToList(),
+                    });
                 }
 
                 payload.Lines.Add(entry);
@@ -2587,6 +2658,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// sung window; with fewer, surplus spans are dropped. Everything is clamped monotonically
         /// into the target's window, pasted words become Explicit hand timing, and the whole paste
         /// is a single undo step.
+        ///
+        /// <para>SUB-WORD TIMING TRAVELS, and this is the policy for the shapes that do not line up.
+        /// A word's sub-word timing is three things: its subdivision BOUNDARIES (times), its authored
+        /// SPLIT (char indices naming which characters those boundaries fall between) and its
+        /// authored RESTS (a time span plus a char index each).</para>
+        ///
+        /// <list type="bullet">
+        /// <item>A positionally MAPPED word takes the source word's boundaries, at the same offsets
+        /// inside the pasted span that they sat at inside the source span, and then whatever
+        /// <see cref="clampBoundaries"/> leaves of them once the span is clamped into the target's
+        /// window. It never keeps its OWN: the span it had them under has just been overwritten, and
+        /// a boundary that stayed at its old absolute time while the word moved is the defect this
+        /// policy exists to fix.</item>
+        /// <item>A LEFTOVER word (more target words than the pattern has spans, so its span is
+        /// synthesized by interpolation) gets no sub-word timing at all. There is no source word to
+        /// take any from, and a synthesized span has no rhythm to claim.</item>
+        /// <item>A SURPLUS source span (more spans than target words) is dropped whole, its sub-word
+        /// timing with it.</item>
+        /// <item>CHAR COUNT MISMATCH: the two char-indexed halves travel only when the source word
+        /// and the target word have the same character count, since the payload carries no text and
+        /// an index means nothing against a different spelling. On a mismatch the split falls back to
+        /// DERIVED (<see cref="SyllableSegments.SplitsFor(TimedUnit)"/> cuts the target word into as
+        /// many segments as it now has boundaries, so a cut can never point past its end) and the
+        /// rests are dropped, since a rest has no derived form. The boundaries still travel: they are
+        /// pure times and need no agreement with a spelling.</item>
+        /// </list>
+        ///
+        /// <para>The split and the rests are then re-validated against the target word even when the
+        /// counts did match (<see cref="SyllableSegments.IsAuthoredValid"/> for the split,
+        /// <see cref="PausedWord.UsableRests"/> for the rests), because the clamp into the target's
+        /// window can drop a boundary and leave a matching-length split naming the wrong segment.</para>
         /// </summary>
         public static void PasteLineTimings(EditorBeatmap editorBeatmap, IReadOnlyList<TypeBeatHitObject> targets, LyricTimingClipboard.LineTimingsPayload payload)
         {
@@ -2621,12 +2723,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 var units = new TimedUnit[n];
 
                 for (int i = 0; i < mapped; i++)
-                {
-                    units[i] = pasteTiming(retime(line.Units[i],
-                        line.StartTime + source.Units[i].Start,
-                        line.StartTime + source.Units[i].End,
-                        TimingSource.Explicit, 1), source.Units[i], line.StartTime);
-                }
+                    units[i] = pasteUnit(line.Units[i], source.Units[i], line.StartTime);
 
                 // More words than the source pattern has spans: spread the leftovers across the
                 // remaining sung window (the same surface interpolation lives on) so the line
@@ -2642,7 +2739,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     {
                         double s = from + (to - from) * i / remaining;
                         double e = from + (to - from) * (i + 1) / remaining;
-                        units[mapped + i] = retime(line.Units[mapped + i], s, e, TimingSource.Interpolated, 0.5);
+
+                        // No source word, so no sub-word timing: an interpolated span carries none
+                        // of its own (see the policy in the remarks). Passing a bare span keeps that
+                        // deterministic rather than leaving whatever the clamp happened to spare of
+                        // the word's old dividers.
+                        units[mapped + i] = pasteUnit(line.Units[mapped + i],
+                            new LyricTimingClipboard.UnitSpan { Start = s - line.StartTime, End = e - line.StartTime },
+                            line.StartTime, TimingSource.Interpolated, 0.5);
                     }
                 }
 
@@ -2659,13 +2763,69 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 editorBeatmap.Update(target);
             }
 
+            // Not promoteToWordGranularity: a paste that brings subdivisions in has to reach
+            // Syllable, and one that overwrites the map's last subdivided word with an undivided
+            // pattern has to fall back to Word. keepAuthoredWords floors it there, so an authored
+            // map can never be demoted to Line and have the encoder drop its words[].
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
             editorBeatmap.EndChange();
         }
 
         /// <summary>
+        /// One pasted word: the TARGET word's text and the SOURCE span's timing, sub-word timing
+        /// included, per the policy in <see cref="PasteLineTimings"/>'s remarks. Offsets in
+        /// <paramref name="span"/> are relative to <paramref name="lineStart"/>.
+        /// </summary>
+        private static TimedUnit pasteUnit(TimedUnit target, LyricTimingClipboard.UnitSpan span, double lineStart,
+                                           TimingSource source = TimingSource.Explicit, double confidence = 1)
+        {
+            double start = lineStart + span.Start;
+            double end = lineStart + span.End;
+
+            // The subdivision rhythm rides with the span it was authored inside: rebased onto the
+            // target line's start exactly as the span itself is, so a boundary sits the same distance
+            // into the pasted word that it sat into the source word. clampBoundaries then drops any
+            // the span cannot hold, which is the same rule a dragged word gets from retime.
+            var boundaries = clampBoundaries(
+                span.Boundaries == null ? Array.Empty<double>() : span.Boundaries.Select(b => lineStart + b).ToArray(),
+                start, end);
+
+            // The gate on the two CHAR-INDEXED halves. The payload carries no text, only a length, so
+            // equal lengths is the most it can know about the cut landing on the same character.
+            bool sameShape = span.Chars == target.Text.Length;
+
+            var splits = sameShape && span.Splits != null
+                         && SyllableSegments.IsAuthoredValid(target.Text, boundaries.Count + 1, span.Splits)
+                ? (IReadOnlyList<int>)span.Splits.ToArray()
+                : Array.Empty<int>();
+
+            // A rest has no derived form, so a mismatch drops it outright. UsableRests is the same
+            // total validator every other rest writer goes through: it drops one the pasted span or
+            // the target word's own spelling cannot hold, and keeps the survivors in order.
+            var rests = sameShape && span.Rests != null
+                ? (IReadOnlyList<WordPause>)PausedWord.UsableRests(target.Text, start, end,
+                    span.Rests.Select(r => new WordPause(lineStart + r.Start, lineStart + r.End, r.SplitChar)))
+                : Array.Empty<WordPause>();
+
+            return new TimedUnit
+            {
+                Text = target.Text,
+                StartTime = start,
+                EndTime = end,
+                Source = source,
+                Confidence = confidence,
+                SyllableBoundaries = boundaries,
+                SyllableSplits = splits,
+                Pauses = rests,
+            };
+        }
+
+        /// <summary>
         /// Snapshots the given word units' spans (in ascending index order, gaps collapsed) as
         /// offsets from the FIRST selected unit's start. Pair with <see cref="PasteUnitTimings"/>.
+        ///
+        /// <para>The copied subdivision boundaries and rests use the same anchor as the word spans.
+        /// Source spelling travels only to map character cuts when the target word differs.</para>
         /// </summary>
         public static LyricTimingClipboard.UnitTimingsPayload? CopyUnitTimings(TypeBeatHitObject hitObject, IEnumerable<int> indices)
         {
@@ -2679,9 +2839,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             var payload = new LyricTimingClipboard.UnitTimingsPayload();
 
             foreach (int i in sorted)
-            {
                 payload.Units.Add(copyTiming(line.Units[i], anchor));
-            }
 
             return payload;
         }
@@ -2693,9 +2851,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// word list are dropped; the result is clamped monotonically into the line window (words
         /// after the pasted run are pushed, never reordered). Single undo step.
         ///
-        /// <para>Subdivision and pause times travel at their copied offsets. Authored character
-        /// splits travel when the target word matches the copied spelling; otherwise subdivisions
-        /// use derived splits and pause cuts are mapped by their position among typeable letters.</para>
+        /// <para>Subdivision and rest times travel at their copied offsets. Authored character
+        /// splits travel when the target word matches the source spelling; otherwise subdivisions
+        /// use derived splits and rest cuts are mapped among the target's typeable letters.</para>
         /// </summary>
         public static void PasteUnitTimings(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int anchorIndex, LyricTimingClipboard.UnitTimingsPayload payload)
         {
@@ -2737,10 +2895,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         {
             Start = unit.StartTime - origin,
             End = unit.EndTime - origin,
+            Chars = unit.Text.Length,
             Text = unit.Text,
-            Subdivisions = unit.SyllableBoundaries.Select(time => time - origin).ToList(),
+            Boundaries = unit.SyllableBoundaries.Select(time => time - origin).ToList(),
             Splits = unit.SyllableSplits.ToList(),
-            Pauses = unit.Pauses.Select(pause => new LyricTimingClipboard.PauseSpan
+            Rests = unit.Pauses.Select(pause => new LyricTimingClipboard.RestSpan
             {
                 Start = pause.StartTime - origin,
                 End = pause.EndTime - origin,
@@ -2752,18 +2911,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         {
             // Null means an older span-only clipboard payload. An empty list in a new payload
             // instead means the source had no such shape, so it clears the target's old shape.
-            var boundaries = source.Subdivisions == null
+            var boundaries = source.Boundaries == null
                 ? target.SyllableBoundaries
-                : clampBoundaries(source.Subdivisions.Select(offset => origin + offset).ToArray(), target.StartTime, target.EndTime);
+                : clampBoundaries(source.Boundaries.Select(offset => origin + offset).ToArray(), target.StartTime, target.EndTime);
 
-            IReadOnlyList<int> splits = source.Subdivisions == null
+            IReadOnlyList<int> splits = source.Boundaries == null
                 ? target.SyllableSplits
                 : source.Text == target.Text && source.Splits != null
                   && SyllableSegments.IsAuthoredValid(target.Text, boundaries.Count + 1, source.Splits)
                     ? source.Splits.ToArray()
                     : Array.Empty<int>();
 
-            IReadOnlyList<WordPause> pauses = source.Pauses == null
+            IReadOnlyList<WordPause> pauses = source.Rests == null
                 ? target.Pauses
                 : pastedPauses(target, source, origin);
 
@@ -2785,7 +2944,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             var pauses = new List<WordPause>();
             int previousCells = 0;
 
-            foreach (var copied in source.Pauses!)
+            foreach (var copied in source.Rests!)
             {
                 int cut = source.Text == target.Text
                     ? copied.SplitChar

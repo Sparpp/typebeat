@@ -80,26 +80,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("no rows added by completion", () => labels().Length, () => Is.EqualTo(6));
         }
 
+        /// <summary>
+        /// No aligner installed: the whole run IS the line stamps. This replaces the old server-run
+        /// transcript (upload, queue wait, remote separation), which no import can produce now that
+        /// server-side alignment is retired. The timing step is instant, so nothing narrates a wait.
+        /// </summary>
         [Test]
-        public void TestServerRun()
+        public void TestLineStampOnlyRun()
         {
-            AddStep("report a server run", () => report(
+            AddStep("report a line-stamped run with no aligner", () => report(
                 "starting import",
                 "no local aligner environment found",
-                "uploading to the type!beat server for alignment...",
-                "waiting for the server aligner (this can take a few minutes)...",
-                "[12:34:57] separation: running demucs (htdemucs) on cpu ...",
-                "[12:35:40] computing emissions...",
-                "server alignment complete",
+                "line-timed alignment ready (no word-level timing)",
                 "packaging map",
                 "importing beatmap"));
 
-            AddAssert("server steps lead the run", () => labels(), () => Is.EqualTo(new[]
+            AddAssert("the run is preparation then timing", () => labels(), () => Is.EqualTo(new[]
             {
                 "preparing",
-                "uploading to the server",
-                "waiting for the server",
-                "separating vocals",
                 "aligning lyrics",
                 "packaging map",
                 "importing beatmap",
@@ -109,22 +107,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void TestFallbackStartsANewRound()
         {
+            // The one handover left: the local aligner dies mid-run and the line stamps take over.
             AddStep("report a local run that gives up", () => report(
                 "starting import",
                 "[12:34:57] separation: running demucs (htdemucs) on cuda ...",
                 "[12:35:40] computing emissions...",
                 "aligner unavailable (aligner exited with code 1: Traceback), trying next option",
-                "uploading to the type!beat server for alignment...",
-                "[12:36:57] separation: running demucs (htdemucs) on cpu ..."));
+                "line-timed alignment ready (no word-level timing)",
+                "packaging map"));
 
-            AddAssert("handover is its own row and the retry gets fresh rows", () => labels(), () => Is.EqualTo(new[]
+            AddAssert("handover is its own row and the fallback gets fresh rows", () => labels(), () => Is.EqualTo(new[]
             {
                 "preparing",
                 "separating vocals",
                 "aligning lyrics",
                 "trying another aligner",
-                "uploading to the server",
-                "separating vocals",
+                "aligning lyrics",
+                "packaging map",
             }));
         }
 

@@ -10,9 +10,15 @@ using System.Threading.Tasks;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
+using osu.Framework.Graphics.Sprites;
 using osu.Framework.Localisation;
+using osu.Framework.Logging;
 using osu.Framework.Platform;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Graphics;
+using typebeat.Game.Graphics.Containers;
+using typebeat.Game.Graphics.Fonts;
+using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Notifications;
@@ -41,6 +47,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     {
         public override LocalisableString Title => "type!beat";
 
+        /// <summary>Caption of the lyric font picker; also how tests find it among the section's controls.</summary>
+        public const string LYRIC_FONT_CAPTION = "Lyric font";
+
+        /// <summary>Caption of the bundle toggle; also how tests find it.</summary>
+        public const string BUNDLE_FONT_CAPTION = "Bundle font file with the map";
+
+        /// <summary>The picker item meaning "no map font": the game's built-in lyric font.</summary>
+        public const string LYRIC_FONT_NONE = "None (built-in font)";
+
+        /// <summary>
+        /// The web's per-file cap for a bundled font, mirrored here so a mapper finds out in the
+        /// editor rather than at submission (PackageValidator enforces the same figure server-side).
+        /// </summary>
+        public const long MAX_BUNDLED_FONT_BYTES = 5 * 1024 * 1024;
+
+        /// <summary>
+        /// THE BUNDLING RULE (backlog 291): the toggle defaults OFF for a known OS-bundled family,
+        /// because the fonts everybody has are exactly the ones whose licences forbid
+        /// redistribution, and ON for everything else, which is usually OFL or freeware (with the
+        /// licence remaining the mapper's responsibility).
+        /// </summary>
+        public static bool BundleDefaultFor(string family) => !OsBundledFontFamilies.Contains(family);
+
         [Resolved]
         private IBindable<WorkingBeatmap> working { get; set; } = null!;
 
@@ -62,10 +91,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         [Resolved]
         private Storage storage { get; set; } = null!;
 
+        [Resolved(CanBeNull = true)]
+        private BeatmapManager? beatmaps { get; set; }
+
+        [Resolved(CanBeNull = true)]
+        private LyricFontManager? fontManager { get; set; }
+
         private FormNumberBox beatdropBox = null!;
         private FormNumberBox offsetBox = null!;
         private FormButton demoButton = null!;
         private FormFileSelector lyricsSelector = null!;
+        private FormDropdown<string> fontDropdown = null!;
+        private OsuSpriteText fontPreview = null!;
+        private FormCheckBox bundleToggle = null!;
+        private OsuTextFlowContainer bundleNote = null!;
+
+        // Guards the programmatic writes fontChanged makes to the bundle toggle (and rollbacks of a
+        // refused bundle), so they do not re-enter bundleChanged; same shape as ResourcesSection's
+        // rollingBack* flags.
+        private bool updatingFontControls;
 
         [BackgroundDependencyLoader]
         private void load()
@@ -113,7 +157,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     ButtonText = "Generate timing",
                     Action = runImport,
                 },
+                fontDropdown = new FormDropdown<string>
+                {
+                    Caption = LYRIC_FONT_CAPTION,
+                    HintText = "Font the lyrics are typed in on this map. Players see it unless they picked a font of their own; anyone whose machine can't show it gets the built-in font.",
+                    Items = buildFontItems(),
+                },
+                fontPreview = new OsuSpriteText
+                {
+                    Text = "the quick brown fox jumps over the lazy dog",
+                    Font = OsuFont.Default.With(size: 24),
+                    Margin = new MarginPadding { Left = 9 },
+                },
+                bundleToggle = new FormCheckBox
+                {
+                    Caption = BUNDLE_FONT_CAPTION,
+                    HintText = "Copies the font's file into the map, so players who don't have it installed still see it. Fonts that ship with an operating system can't be bundled (their licences forbid redistribution). Applies in the desktop client only for now; the browser player keeps its own font.",
+                },
+                bundleNote = new OsuTextFlowContainer(t => t.Font = OsuFont.Default.With(size: 14))
+                {
+                    RelativeSizeAxes = Axes.X,
+                    AutoSizeAxes = Axes.Y,
+                    Padding = new MarginPadding { Left = 9, Right = 9 },
+                },
             };
+
+            // Seed the font controls from what the map already carries; the value-changed wiring in
+            // LoadComplete only runs on later, user-made changes.
+            string initialFamily = string.IsNullOrEmpty(Beatmap.Metadata.LyricFont) ? LYRIC_FONT_NONE : Beatmap.Metadata.LyricFont;
+            fontDropdown.Current.Value = initialFamily;
+            bundleToggle.Current.Value = !string.IsNullOrEmpty(Beatmap.Metadata.LyricFontFile);
+            bundleToggle.Current.Disabled = initialFamily == LYRIC_FONT_NONE;
+            updateBundleNote(initialFamily);
+            updateFontPreview(initialFamily);
 
             beatdropBox.OnCommit += (_, _) => commitBeatdrop();
 
@@ -131,6 +207,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         protected override void LoadComplete()
         {
             base.LoadComplete();
+
+            fontDropdown.Current.BindValueChanged(e => fontChanged(e.NewValue));
+            bundleToggle.Current.BindValueChanged(e => bundleChanged(e.NewValue));
 
             Beatmap.IntroBeatdrop.BindValueChanged(drop =>
             {
@@ -354,6 +433,237 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     catch { /* best-effort */ }
                 }
             }, token);
+        }
+
+        // ---- the lyric font picker (backlog 291) ----
+
+        /// <summary>
+        /// The picker's items: the built-in sentinel, then every installed system family, plus the
+        /// map's own current font when it is not installed here (a set made on another machine must
+        /// still display, and re-picking anything else clears it).
+        /// </summary>
+        private List<string> buildFontItems()
+        {
+            var items = new List<string> { LYRIC_FONT_NONE };
+
+            if (fontManager != null)
+                items.AddRange(fontManager.GetSystemFontFamilies());
+
+            string current = Beatmap.Metadata.LyricFont;
+
+            if (!string.IsNullOrEmpty(current) && !items.Contains(current))
+                items.Add(current);
+
+            return items;
+        }
+
+        /// <summary>
+        /// A new font was picked. The old bundled file (if any) belongs to the OLD font, so it is
+        /// removed unconditionally, and the bundle toggle is reset to the new family's DEFAULT under
+        /// the bundling rule (see <see cref="BundleDefaultFor"/>): ON, with the copy made right
+        /// here, for a family the mapper installed themselves; OFF with a cannot-bundle note for a
+        /// known OS-bundled one.
+        /// </summary>
+        private void fontChanged(string family)
+        {
+            if (updatingFontControls)
+                return;
+
+            bool none = family == LYRIC_FONT_NONE;
+
+            Beatmap.Metadata.LyricFont = none ? string.Empty : family;
+
+            bool touchedFiles = removeBundledFile();
+
+            bool wantBundle = !none && BundleDefaultFor(family);
+
+            updatingFontControls = true;
+            bundleToggle.Current.Disabled = false;
+            bundleToggle.Current.Value = wantBundle;
+            bundleToggle.Current.Disabled = none;
+            updatingFontControls = false;
+
+            if (wantBundle)
+            {
+                if (tryBundleFont(family))
+                    touchedFiles = true;
+                else
+                    setToggleSilently(false);
+            }
+
+            updateBundleNote(family);
+            updateFontPreview(family);
+
+            Beatmap.SaveState();
+
+            // File additions/removals live outside the editor's change tracking, so they are saved
+            // through the same immediate-save convention every resource edit here follows.
+            if (touchedFiles)
+                editor?.SaveAndReload(withDialog: false);
+        }
+
+        private void bundleChanged(bool on)
+        {
+            if (updatingFontControls)
+                return;
+
+            string family = fontDropdown.Current.Value;
+
+            if (family == LYRIC_FONT_NONE)
+                return;
+
+            if (on)
+            {
+                if (!tryBundleFont(family))
+                {
+                    setToggleSilently(false);
+                    return;
+                }
+            }
+            else
+            {
+                if (!removeBundledFile())
+                    return;
+            }
+
+            Beatmap.SaveState();
+            editor?.SaveAndReload(withDialog: false);
+        }
+
+        private void setToggleSilently(bool value)
+        {
+            updatingFontControls = true;
+            bundleToggle.Current.Value = value;
+            updatingFontControls = false;
+        }
+
+        /// <summary>
+        /// Copies <paramref name="family"/>'s file out of the system font folder into the beatmap
+        /// set (SixLabors exposes the source path) and points <c>LyricFontFile</c> at it. Refused,
+        /// with the reason said out loud, for: a known OS-bundled family (licence), a family whose
+        /// source SixLabors cannot name, a font collection (.ttc/.otc: one file carries several
+        /// families, and extracting a single face means rewriting font tables, so the honest answer
+        /// is to refuse rather than bundle every family in the collection), and a file over the
+        /// submission cap. Returns whether the file is now bundled.
+        /// </summary>
+        private bool tryBundleFont(string family)
+        {
+            if (OsBundledFontFamilies.Contains(family))
+            {
+                notify($"'{family}' ships with an operating system and its licence does not allow bundling. Players who don't have it installed will see the built-in font.");
+                return false;
+            }
+
+            if (beatmaps == null)
+            {
+                notify("Bundling isn't available in this context.");
+                return false;
+            }
+
+            string? path = systemFontPath(family);
+
+            if (path == null)
+            {
+                notify($"Couldn't locate the file behind '{family}', so it can't be bundled. Players who don't have it installed will see the built-in font.");
+                return false;
+            }
+
+            string extension = Path.GetExtension(path);
+
+            if (string.Equals(extension, ".ttc", StringComparison.OrdinalIgnoreCase) || string.Equals(extension, ".otc", StringComparison.OrdinalIgnoreCase))
+            {
+                notify($"'{family}' lives inside a font collection ({extension}), which can't be bundled as a single face. Players who don't have it installed will see the built-in font.");
+                return false;
+            }
+
+            try
+            {
+                var source = new FileInfo(path);
+
+                if (source.Length > MAX_BUNDLED_FONT_BYTES)
+                {
+                    notify($"'{family}' is {source.Length / (1024.0 * 1024.0):0.#} MiB, over the {MAX_BUNDLED_FONT_BYTES / (1024 * 1024)} MiB cap a submitted map allows for a font.");
+                    return false;
+                }
+
+                string filename = $"lyricfont{extension.ToLowerInvariant()}";
+
+                using (var stream = source.OpenRead())
+                    beatmaps.AddFile(working.Value.BeatmapSetInfo, stream, filename);
+
+                Beatmap.Metadata.LyricFontFile = filename;
+
+                notify($"Bundled {source.Name} with the map. Make sure its licence allows redistribution (OFL and similar free licences do); that responsibility is yours as the mapper.");
+                return true;
+            }
+            catch (Exception e)
+            {
+                Logger.Error(e, $"Failed to bundle the font file for '{family}'.");
+                notify($"Couldn't copy the font file for '{family}': {e.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>Removes the currently bundled font file, if any. Returns whether anything changed.</summary>
+        private bool removeBundledFile()
+        {
+            string filename = Beatmap.Metadata.LyricFontFile;
+
+            if (string.IsNullOrEmpty(filename))
+                return false;
+
+            var file = working.Value.BeatmapSetInfo.GetFile(filename);
+
+            if (file != null && beatmaps != null)
+                beatmaps.DeleteFile(working.Value.BeatmapSetInfo, file);
+
+            Beatmap.Metadata.LyricFontFile = string.Empty;
+            return true;
+        }
+
+        /// <summary>
+        /// The regular face's file path for an installed family, via SixLabors (which read that
+        /// file to enumerate the family in the first place); null when it cannot be named.
+        /// </summary>
+        private static string? systemFontPath(string family)
+        {
+            try
+            {
+                if (!SixLabors.Fonts.SystemFonts.TryGet(family, out var fontFamily))
+                    return null;
+
+                var font = fontFamily.CreateFont(16);
+
+                return font.TryGetPath(out string? path) && !string.IsNullOrEmpty(path) ? path : null;
+            }
+            catch (Exception e)
+            {
+                Logger.Error(e, $"Failed to resolve the system font path for '{family}'.");
+                return null;
+            }
+        }
+
+        private void updateBundleNote(string family)
+        {
+            if (family == LYRIC_FONT_NONE)
+                bundleNote.Text = string.Empty;
+            else if (OsBundledFontFamilies.Contains(family))
+                bundleNote.Text = $"'{family}' ships with an operating system, so its file cannot be bundled: players on a platform without it will see the built-in font. Pick a freely licensed font to bundle one.";
+            else
+                bundleNote.Text = "Bundling copies the font file into the map. The font's licence is your responsibility as the mapper; OFL and similar free licences allow this.";
+        }
+
+        /// <summary>
+        /// Live preview: the pangram above re-renders in the picked family the moment it is chosen
+        /// (registered into the game font store on the spot, exactly as gameplay would). A family
+        /// that cannot load previews in the built-in font, which is also what a player would see.
+        /// </summary>
+        private void updateFontPreview(string family)
+        {
+            if (family != LYRIC_FONT_NONE && fontManager?.EnsureRegistered(family) == true)
+                fontPreview.Font = new FontUsage(family, 24);
+            else
+                fontPreview.Font = OsuFont.Default.With(size: 24);
         }
 
         private void notify(string message) => notifications?.Post(new SimpleNotification { Text = message });

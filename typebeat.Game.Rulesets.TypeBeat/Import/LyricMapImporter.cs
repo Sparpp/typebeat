@@ -316,7 +316,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         public static async Task<LyricImportResult> BuildOszAsync(
             string audioPath, string? lyricsPath, string artist, string title,
             string? configuredLyricLabPath, IEnumerable<string> startDirectories,
-            Action<string> progress, CancellationToken token, RemoteAligner? remoteAlign = null,
+            Action<string> progress, CancellationToken token,
             bool useAutomaticAlignment = true, IAudioTrackExtractor? audioExtractor = null)
         {
             if (!File.Exists(audioPath))
@@ -381,7 +381,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             }
 
             (LyricImportResult result, string? timing) = await ProduceTimingJsonAsync(
-                effectiveAudioPath, lyricsContent, artist, title, configuredLyricLabPath, startDirectories, progress, token, remoteAlign, useAutomaticAlignment).ConfigureAwait(false);
+                effectiveAudioPath, lyricsContent, artist, title, configuredLyricLabPath, startDirectories, progress, token, useAutomaticAlignment).ConfigureAwait(false);
 
             if (!result.Success || timing == null)
                 return result;
@@ -394,12 +394,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// Produces timing.json (v2) text from an audio file and raw lyrics WITHOUT packaging an
         /// .osz: the headless path the in-editor "align to this audio" import uses. With
         /// <paramref name="useAutomaticAlignment"/> the preference order is: local aligner
-        /// subprocess (word/syllable granularity) → server-side alignment via
-        /// <paramref name="remoteAlign"/> (same granularity, needs a signed-in session) →
-        /// line-granularity LRC fallback. Without it, the automatic aligners are skipped entirely
-        /// and only the LRC line-stamp path is used (instant, line granularity). Never triggers the
-        /// ~2 GB local bootstrap. The lyrics text is written to a temp file for the aligner and
-        /// cleaned up.
+        /// subprocess (word/syllable granularity) → line-granularity LRC fallback. Without it, the
+        /// aligner is skipped entirely and only the LRC line-stamp path is used (instant, line
+        /// granularity). Never triggers the ~2 GB local bootstrap. The lyrics text is written to a
+        /// temp file for the aligner and cleaned up.
+        ///
+        /// <para>There is no third rung: the server-side aligner this ladder used to offload to is
+        /// retired, so the LOCAL install (Settings &gt; Experimental) is the only automatic path and
+        /// [mm:ss.xx] line stamps are the only other source of timing.</para>
         ///
         /// <para>A TTML (<see cref="TtmlParser.LooksLikeTtml"/>) short-circuits the whole ladder:
         /// the file is already word-timed, so it is converted directly and neither the aligner nor
@@ -408,8 +410,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         public static async Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
             string? configuredLyricLabPath, IEnumerable<string> startDirectories,
-            Action<string> progress, CancellationToken token, RemoteAligner? remoteAlign = null,
-            bool useAutomaticAlignment = true)
+            Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true)
         {
             if (!File.Exists(audioPath))
                 return (LyricImportResult.Fail($"audio file not found: {audioPath}"), null);
@@ -436,8 +437,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 return (LyricImportResult.Ok(string.Empty), ttmlTiming);
             }
 
-            // Automatic alignment (the aligner, local or server) is opt-in: off by default so an
-            // import uses the user's own line stamps without a slow round-trip. When off, jump
+            // Automatic alignment (the local aligner subprocess) is opt-in: off by default so an
+            // import uses the user's own line stamps without a slow multi-minute run. When off, jump
             // straight to the LRC line-stamp path below.
             if (!useAutomaticAlignment)
             {
@@ -489,35 +490,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                     : $"local aligner environment not set up (run lyriclab/{SetupScriptName} for word timing)");
             }
 
-            // Server-side alignment: same word-level quality, no local Python/torch needed.
-            if (remoteAlign != null)
-            {
-                RemoteAlignOutcome outcome = await remoteAlign(audioPath, lyricsContent, artist, title, progress, token).ConfigureAwait(false);
-
-                if (outcome.Success && outcome.TimingJson != null)
-                {
-                    progress("server alignment complete");
-                    return (LyricImportResult.Ok(string.Empty), FlagFreestyleLines(outcome.TimingJson));
-                }
-
-                token.ThrowIfCancellationRequested();
-                progress($"server alignment unavailable ({outcome.Error}), trying line-timed fallback");
-            }
-
-            // LRC-only fallback: line-granularity timing straight from the line stamps. The
-            // failure hint depends on which aligners were even eligible: a dev build (no remote
-            // delegate) points at the local lyriclab setup; a shipped build points at the server.
+            // LRC-only fallback: line-granularity timing straight from the line stamps, and the last
+            // rung now that server-side alignment is retired. With nothing to fall back on, the hint
+            // names the two things the user can actually do: install the local aligner, or stamp the
+            // lines. It no longer offers signing in, which bought alignment and now buys nothing.
             if (!HasLineStamps(lyricsContent))
             {
-                string reason = remoteAlign != null
-                    ? "no aligner is available (locally or on the server) and the lyrics have no "
-                      + "[mm:ss.xx] line timestamps to fall back on. Sign in to type!beat for "
-                      + "server-side alignment, or add line stamps to the lyrics."
-                    : "no local aligner is available and the lyrics have no [mm:ss.xx] line "
-                      + $"timestamps to fall back on. Set up the aligner (lyriclab/{SetupScriptName}) or "
-                      + "add line stamps to the lyrics.";
-
-                return (LyricImportResult.Fail(reason), null);
+                return (LyricImportResult.Fail(
+                    "no auto-aligner is available and the lyrics have no [mm:ss.xx] line timestamps "
+                    + "to fall back on. Install the local auto-aligner (Settings > Experimental > "
+                    + "Install the local auto-aligner), or add [mm:ss.xx] line stamps to the lyrics."), null);
             }
 
             return synthesizeFromLrc(lyricsContent, progress);

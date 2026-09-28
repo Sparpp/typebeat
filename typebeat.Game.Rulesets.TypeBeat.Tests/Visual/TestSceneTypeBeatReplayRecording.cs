@@ -296,6 +296,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && frames[0].UnhalvedHardRockWindows
                 && playfield.Engine.UnhalvedHardRockWindows);
 
+            // The first line's head start (flags bit 16), stamped for EVERY stack on the same terms:
+            // where the first line opens is not a mod's business, and a replay written before it
+            // exists carries the bit clear so its first line re-derives on the old gate.
+            AddAssert("config frame records the first line's head start", () =>
+                frames[0].IsConfig
+                && frames[0].FirstLineLeadIn
+                && playfield.Engine.FirstLineLeadIn);
+
             // The recorded time IS the time the cell was judged at. Under the live rule that no
             // longer reads as "target + delta": 'z' OPENS its syllable, so since backlog 247 its
             // judged delta is the recorded time's distance from the span's start (here equal to the

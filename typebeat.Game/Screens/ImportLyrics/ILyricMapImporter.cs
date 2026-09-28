@@ -22,9 +22,9 @@ namespace typebeat.Game.Screens.ImportLyrics
 
         /// <summary>
         /// Runs the full import and packages the result as a self-contained .osz in a temp
-        /// directory. With <paramref name="useAutomaticAlignment"/> the automatic aligner (local
-        /// subprocess or server) provides word-level timing; without it only the line-stamp LRC
-        /// path is used. Progress lines stream through <paramref name="progress"/> on a background
+        /// directory. With <paramref name="useAutomaticAlignment"/> the local aligner subprocess
+        /// provides word-level timing; without it (or with no aligner installed) only the line-stamp
+        /// LRC path is used. Progress lines stream through <paramref name="progress"/> on a background
         /// thread; marshal to the update thread yourself. Cancelling kills any spawned process tree.
         ///
         /// <para><paramref name="lyricsPath"/> is optional: null (or a file holding only whitespace)

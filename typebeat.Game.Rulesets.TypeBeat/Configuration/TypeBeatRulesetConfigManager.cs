@@ -25,10 +25,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 
         /// <summary>
         /// Whether the locally installed lyriclab auto-aligner is used for imports. On by default:
-        /// when an installed environment exists the local aligner is preferred over the server one;
-        /// when off (or nothing is installed) imports use the server aligner / LRC fallback. This
-        /// only decides which aligner runs; it never triggers the multi-GB install, which stays an
-        /// explicit action (the first-run prompt and the Settings button).
+        /// when an installed environment exists it times the words; when off (or nothing is
+        /// installed) imports fall back to the lyrics' own [mm:ss.xx] line stamps, which since the
+        /// server-side aligner was retired is the ONLY other source of timing. The setting still
+        /// earns its keep as the gate on the installed environment (a user who has paid the multi-GB
+        /// install can still choose the instant line-stamp path per import without uninstalling); it
+        /// never triggers the install itself, which stays an explicit action (the first-run prompt
+        /// and the Settings button).
         /// </summary>
         LocalAlignerEnabled,
 
@@ -86,9 +89,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// next line's entry window opens.
         ///
         /// <para>It is the manual half of what <see cref="Gameplay.TypingEngine.BoundedRush"/> bounds:
-        /// the timing constraints on WHEN the next line may be entered still apply to the press (the
-        /// entry window opens 1500 ms before that line's cue), so this setting decides WHO asks, not
-        /// how early the answer may come. Reaching the live engine through
+        /// the press itself always lands, and the timing constraints on WHEN the next line may be
+        /// TYPED still apply to the line it lands on (it stays greyed until its entry window opens,
+        /// 1500 ms before its cue), so this setting decides WHO asks, not how early typing may
+        /// start. Reaching the live engine through
         /// <see cref="UI.TypeBeatPlayfield"/>'s load, like <see cref="SpaceSkipsWord"/>, because the
         /// replay CONFIG frame stamps whatever the engine holds at the first keystroke.</para>
         /// </summary>
@@ -105,6 +109,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// default. Only the typing surface is affected; the rest of the UI keeps its default fonts.
         /// </summary>
         LyricFont,
+
+        /// <summary>
+        /// Whether a map's own font choice (<c>[General] LyricFont</c>, backlog 291) is applied to
+        /// the typing surface. ON by default, in the spirit of osu's beatmap skin/hitsound toggles:
+        /// the mapper picked a look for their map and most players want to see it. It only matters
+        /// while <see cref="LyricFont"/> is the Default sentinel, because a player's own deliberate
+        /// font pick always beats the map's (see <c>UI.LyricFontResolution</c>). Display only, so it
+        /// never reaches the replay CONFIG frame.
+        /// </summary>
+        UseMapFonts,
 
         /// <summary>
         /// Whether a word left carrying an error, once the player has spaced past it, is marked with
@@ -278,6 +292,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.ManualNewlines, true);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
+            SetDefault(TypeBeatRulesetSetting.UseMapFonts, true);
             SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, true);
             SetDefault(TypeBeatRulesetSetting.ShowSyllableMarkers, true);
             SetDefault(TypeBeatRulesetSetting.ShowPaceColours, true);

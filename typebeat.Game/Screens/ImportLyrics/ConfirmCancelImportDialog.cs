@@ -11,9 +11,10 @@ namespace typebeat.Game.Screens.ImportLyrics
 {
     /// <summary>
     /// Confirms tearing down an in-flight lyric import. Shown when the user tries to leave
-    /// <see cref="ImportLyricsScreen"/> while an alignment is running, which, for server-side
-    /// alignment, is a multi-minute job a stray Esc would otherwise abandon silently (and, until
-    /// the cancel wired up alongside this dialog, leave running on the server for nobody).
+    /// <see cref="ImportLyricsScreen"/> while an alignment is running, which is a multi-minute
+    /// local aligner job (vocal separation, then forced alignment) that a stray Esc would otherwise
+    /// throw away silently. The dialog still guards that path: the server-side aligner is retired,
+    /// but the LOCAL run it fronted for is every bit as long, so the confirmation stays.
     /// </summary>
     public partial class ConfirmCancelImportDialog : PopupDialog
     {

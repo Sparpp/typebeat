@@ -51,6 +51,17 @@ namespace typebeat.Game.Beatmaps
         private readonly IResourceStore<byte[]> files;
         private readonly RealmAccess realm;
 
+        /// <summary>
+        /// The one track store that serves tracks with a map's own audio gain baked in (see
+        /// <see cref="ScaledAudioStore"/>). Built on first use and then kept: the audio manager registers
+        /// every store handed to <c>GetTrackStore</c> in a collection it only releases on disposal, so
+        /// one store per track load would root that store, its tracks and their audio for the rest of
+        /// the session.
+        /// </summary>
+        private ITrackStore gainedTrackStore;
+
+        private readonly object gainedTrackStoreLock = new object();
+
         [CanBeNull]
         private readonly GameHost host;
 
@@ -130,6 +141,19 @@ namespace typebeat.Game.Beatmaps
         TextureStore IBeatmapResourceProvider.LargeTextureStore => largeTextureStore;
         TextureStore IBeatmapResourceProvider.BeatmapPanelTextureStore => beatmapPanelTextureStore;
         ITrackStore IBeatmapResourceProvider.Tracks => trackStore;
+
+        ITrackStore IBeatmapResourceProvider.GainedTracks
+        {
+            get
+            {
+                if (audioManager == null)
+                    return null;
+
+                lock (gainedTrackStoreLock)
+                    return gainedTrackStore ??= audioManager.GetTrackStore(new ScaledAudioStore(files));
+            }
+        }
+
         IRenderer IStorageResourceProvider.Renderer => host?.Renderer ?? new DummyRenderer();
         AudioManager IStorageResourceProvider.AudioManager => audioManager;
         RealmAccess IStorageResourceProvider.RealmAccess => realm;
@@ -255,40 +279,34 @@ namespace typebeat.Game.Beatmaps
 
             /// <summary>
             /// The map's audio with its own track gain baked in (see
-            /// <see cref="BeatmapMetadata.AudioGain"/>): the song decoded, every sample scaled, anything
-            /// past full scale clamped, and the result handed to the framework as the audio this track
-            /// plays. The file on disk is never touched - the scaling lives in memory for as long as the
-            /// track does (see <see cref="ScaledAudio"/> for what that costs and for why the three
-            /// live-audio routes are not options).
+            /// <see cref="BeatmapMetadata.AudioGain"/>): every sample scaled and anything past full scale
+            /// clamped, as the audio this track plays. The file on disk is never touched, and NOTHING IS
+            /// DECODED HERE - the scaled samples are produced on demand by whoever reads the stream,
+            /// which for a track is the framework's own background reader (see <see cref="ScaledAudio"/>
+            /// and <see cref="ScaledAudioStream"/>, and for why the three live-audio routes are not
+            /// options, <see cref="Audio.Effects.AudioGain"/>).
             ///
             /// <para>Anything that goes wrong here falls back to the file as imported rather than failing
             /// the map: a gain is a nice thing to apply, and never a reason to lose a beatmap.</para>
             /// </summary>
-            private Track? getGainedTrack(string fileStorePath, double gain)
+            private Track getGainedTrack(string fileStorePath, double gain)
             {
-                var stopwatch = Stopwatch.StartNew();
-
                 try
                 {
-                    using var audio = GetStream(fileStorePath);
+                    var gained = resources.GainedTracks?.Get(ScaledAudioStore.Key(fileStorePath, gain));
 
-                    if (audio == null)
-                        return resources.Tracks.Get(fileStorePath);
-
-                    byte[]? scaled = ScaledAudio.Apply(audio, gain, out double sourcePeak, out double scaledPeak);
-
-                    if (scaled == null)
-                        return resources.Tracks.Get(fileStorePath);
-
-                    Logger.Log($@"Audio gain {gain:0.##}x applied: peaks {sourcePeak * 100:0}% -> {scaledPeak * 100:0}%, {audio.Length / 1024} KiB -> {scaled.Length / 1024} KiB in memory, decoded in {stopwatch.ElapsedMilliseconds} ms{ (scaledPeak > 1 ? " (clipped)" : string.Empty) }.");
-
-                    return resources.AudioManager!.GetTrackStore(new ScaledAudioStore(scaled, fileStorePath)).Get(fileStorePath);
+                    if (gained != null)
+                    {
+                        Logger.Log($@"Audio gain {gain:0.##}x applied to {fileStorePath}.");
+                        return gained;
+                    }
                 }
                 catch (Exception e)
                 {
                     Logger.Error(e, $@"Failed to apply the map's audio gain of {gain:0.##}x; playing the file as imported.");
-                    return resources.Tracks.Get(fileStorePath);
                 }
+
+                return resources.Tracks.Get(fileStorePath);
             }
 
             protected override Waveform GetWaveform()

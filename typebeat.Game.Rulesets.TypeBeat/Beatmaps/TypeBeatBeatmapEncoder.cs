@@ -54,7 +54,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 titleUnicode: metadata.TitleUnicode,
                 artistUnicode: metadata.ArtistUnicode,
                 language: metadata.Language.ToCanonicalName(),
-                audioGain: metadata.AudioGain);
+                audioGain: metadata.AudioGain,
+                lyricFont: metadata.LyricFont,
+                lyricFontFile: metadata.LyricFontFile);
 
             writer.Write(osu);
         }

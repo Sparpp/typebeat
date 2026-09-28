@@ -260,6 +260,231 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             assertReloadStable(editorBeatmap);
         }
 
+        /// <summary>
+        /// Gives one word of a line the SUB-WORD timing the fixture cannot express: subdivision
+        /// boundaries, an authored char split, authored rests. Written straight onto the model,
+        /// since the syllable ops have their own fixture.
+        /// </summary>
+        private static void subdivide(EditorBeatmap editorBeatmap, int lineIndex, int unitIndex,
+                                      double[]? boundaries = null, int[]? splits = null, WordPause[]? rests = null)
+        {
+            var hitObject = lineAt(editorBeatmap, lineIndex);
+            var lyric = hitObject.Line;
+            var units = lyric.Units.ToArray();
+            var unit = units[unitIndex];
+
+            units[unitIndex] = new TimedUnit
+            {
+                Text = unit.Text,
+                StartTime = unit.StartTime,
+                EndTime = unit.EndTime,
+                Source = TimingSource.Explicit,
+                Confidence = 1,
+                SyllableBoundaries = boundaries ?? Array.Empty<double>(),
+                SyllableSplits = splits ?? Array.Empty<int>(),
+                Pauses = rests ?? Array.Empty<WordPause>(),
+            };
+
+            hitObject.Line = new LyricLine
+            {
+                RawText = lyric.RawText,
+                StartTime = lyric.StartTime,
+                EndTime = lyric.EndTime,
+                SingEndTime = lyric.SingEndTime,
+                Units = units,
+            };
+        }
+
+        /// <summary>
+        /// The rigid word move carries the word's interior with it: boundaries, the authored split
+        /// and rests all arrive at the SAME OFFSETS into the new span, in both directions, with
+        /// nothing dropped and nothing left behind at its old absolute time (which is what the old
+        /// clamp regime did: a moved word's dividers stayed anchored in the song).
+        /// </summary>
+        [Test]
+        public void MoveUnitCarriesSubdivisionAndRestsAtTheSameOffsets()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 1); // "gamma delta", delta [4300, 5500]
+
+            subdivide(editorBeatmap, 1, 1,
+                boundaries: new[] { 4700d, 5100 },
+                splits: new[] { 2, 4 },
+                rests: new[] { new WordPause(4850, 4950, 3) });
+
+            // A map carrying a subdivision is Syllable by definition (InferGranularity), and the
+            // encoder only persists sub-word timing there, so the reload check runs at Syllable.
+            foreach (var o in TypeBeatEditorOperations.OrderedLines(editorBeatmap))
+                o.Granularity = TimingGranularity.Syllable;
+
+            TypeBeatEditorOperations.MoveUnit(editorBeatmap, line, 1, 4700); // +400, room to spare
+
+            var delta = line.Line.Units[1];
+
+            Assert.Multiple(() =>
+            {
+                Assert.That((delta.StartTime, delta.EndTime), Is.EqualTo((4700d, 5900d)));
+                Assert.That(delta.SyllableBoundaries, Is.EqualTo(new[] { 5100d, 5500 }), "boundaries rode the move");
+                Assert.That(delta.SyllableSplits, Is.EqualTo(new[] { 2, 4 }), "the authored split still names the same segments");
+                Assert.That(delta.Pauses, Is.EqualTo(new[] { new WordPause(5250, 5350, 3) }), "the rest rode the move");
+                Assert.That(line.Line.SingEndTime, Is.EqualTo(5900), "the last word's end still carries end_ms");
+            });
+
+            // And back left to exactly where it started: a move is lossless in both directions.
+            TypeBeatEditorOperations.MoveUnit(editorBeatmap, line, 1, 4300);
+            delta = line.Line.Units[1];
+
+            Assert.Multiple(() =>
+            {
+                Assert.That((delta.StartTime, delta.EndTime), Is.EqualTo((4300d, 5500d)));
+                Assert.That(delta.SyllableBoundaries, Is.EqualTo(new[] { 4700d, 5100 }));
+                Assert.That(delta.SyllableSplits, Is.EqualTo(new[] { 2, 4 }));
+                Assert.That(delta.Pauses, Is.EqualTo(new[] { new WordPause(4850, 4950, 3) }));
+            });
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>The multi-select drag's Move mode is MoveUnit's group face: every selected word translates rigidly, interior included.</summary>
+        [Test]
+        public void EditUnitGroupMoveCarriesEachWordsSubdivision()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 1); // gamma [3000,4200], delta [4300,5500]; line [3000,6000]
+
+            subdivide(editorBeatmap, 1, 0,
+                boundaries: new[] { 3400d, 3800 },
+                splits: new[] { 2, 4 },
+                rests: new[] { new WordPause(3550, 3650, 3) });
+            subdivide(editorBeatmap, 1, 1,
+                boundaries: new[] { 4700d },
+                splits: new[] { 2 },
+                rests: new[] { new WordPause(4900, 5000, 3) });
+
+            foreach (var o in TypeBeatEditorOperations.OrderedLines(editorBeatmap))
+                o.Granularity = TimingGranularity.Syllable;
+
+            int[] idx = { 0, 1 };
+            double[] os = { 3000, 4300 };
+            double[] oe = { 4200, 5500 };
+
+            TypeBeatEditorOperations.EditUnitGroup(editorBeatmap, line, idx, os, oe, 200, TypeBeatEditorOperations.UnitGroupEdit.Move);
+
+            var gamma = line.Line.Units[0];
+            var delta = line.Line.Units[1];
+
+            Assert.Multiple(() =>
+            {
+                Assert.That((gamma.StartTime, gamma.EndTime), Is.EqualTo((3200d, 4400d)));
+                Assert.That(gamma.SyllableBoundaries, Is.EqualTo(new[] { 3600d, 4000 }));
+                Assert.That(gamma.SyllableSplits, Is.EqualTo(new[] { 2, 4 }));
+                Assert.That(gamma.Pauses, Is.EqualTo(new[] { new WordPause(3750, 3850, 3) }));
+
+                Assert.That((delta.StartTime, delta.EndTime), Is.EqualTo((4500d, 5700d)));
+                Assert.That(delta.SyllableBoundaries, Is.EqualTo(new[] { 4900d }));
+                Assert.That(delta.SyllableSplits, Is.EqualTo(new[] { 2 }));
+                Assert.That(delta.Pauses, Is.EqualTo(new[] { new WordPause(5100, 5200, 3) }));
+            });
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>
+        /// The RESIZE regime is deliberately different and stays: dragging one edge re-times the
+        /// word AROUND its dividers, because the vocal events they mark did not move with the
+        /// mapper's hand. A divider the new span still holds keeps its own time; one it cannot
+        /// hold is dropped (and a dropped boundary takes the authored split down to derived).
+        /// </summary>
+        [Test]
+        public void ResizingAWordKeepsItsDividersAtTheirOwnTimes()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 1); // gamma [3000,4200]
+
+            subdivide(editorBeatmap, 1, 0,
+                boundaries: new[] { 3400d },
+                splits: new[] { 2 },
+                rests: new[] { new WordPause(3600, 3700, 3) });
+
+            // Pull the end down to 3500: the boundary (3400) still fits and stays AT 3400; the
+            // rest (3600..3700) no longer fits and is dropped, not dragged along with the edge.
+            TypeBeatEditorOperations.SetUnitTiming(editorBeatmap, line, 0, 3000, 3500);
+
+            var gamma = line.Line.Units[0];
+
+            Assert.Multiple(() =>
+            {
+                Assert.That((gamma.StartTime, gamma.EndTime), Is.EqualTo((3000d, 3500d)));
+                Assert.That(gamma.SyllableBoundaries, Is.EqualTo(new[] { 3400d }), "kept, at its own time");
+                Assert.That(gamma.SyllableSplits, Is.EqualTo(new[] { 2 }), "boundary count unchanged, split kept");
+                Assert.That(gamma.Pauses, Is.Empty, "a rest the span cannot hold is dropped");
+            });
+
+            // Push the start past the boundary: it is dropped and the split falls back to derived.
+            TypeBeatEditorOperations.SetUnitTiming(editorBeatmap, line, 0, 3450, 4200);
+            gamma = line.Line.Units[0];
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(gamma.SyllableBoundaries, Is.Empty);
+                Assert.That(gamma.SyllableSplits, Is.Empty);
+            });
+        }
+
+        /// <summary>
+        /// Undo and redo through the real editor change handler (states are the map through this
+        /// ruleset's own encoder): a moved word's subdivision comes back where it was on undo, and
+        /// the redo decoding the moved state back is the save round trip of the move itself.
+        /// </summary>
+        [Test]
+        public void UndoRestoresAMovedWordsSubdivision()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 1);
+
+            subdivide(editorBeatmap, 1, 1,
+                boundaries: new[] { 4700d, 5100 },
+                splits: new[] { 2, 4 },
+                rests: new[] { new WordPause(4850, 4950, 3) });
+
+            // Sub-word timing only survives the encoder round trip above Line granularity; a map
+            // that already carries a subdivision is Syllable by definition.
+            foreach (var o in TypeBeatEditorOperations.OrderedLines(editorBeatmap))
+                o.Granularity = TimingGranularity.Syllable;
+
+            var changeHandler = new RulesetBeatmapChangeHandler(editorBeatmap, new TypeBeatRuleset());
+
+            TypeBeatEditorOperations.MoveUnit(editorBeatmap, line, 1, 4700);
+
+            Assert.That(lineAt(editorBeatmap, 1).Line.Units[1].SyllableBoundaries, Is.EqualTo(new[] { 5100d, 5500 }), "moved");
+            Assert.That(changeHandler.CanUndo.Value, Is.True);
+
+            changeHandler.RestoreState(-1);
+
+            var restored = lineAt(editorBeatmap, 1).Line.Units[1];
+
+            Assert.Multiple(() =>
+            {
+                Assert.That((restored.StartTime, restored.EndTime), Is.EqualTo((4300d, 5500d)));
+                Assert.That(restored.SyllableBoundaries, Is.EqualTo(new[] { 4700d, 5100 }));
+                Assert.That(restored.SyllableSplits, Is.EqualTo(new[] { 2, 4 }));
+                Assert.That(restored.Pauses, Is.EqualTo(new[] { new WordPause(4850, 4950, 3) }));
+                Assert.That(lineAt(editorBeatmap, 1).Line.SingEndTime, Is.EqualTo(5500), "end_ms undone with it");
+            });
+
+            changeHandler.RestoreState(1);
+
+            var redone = lineAt(editorBeatmap, 1).Line.Units[1];
+
+            Assert.Multiple(() =>
+            {
+                Assert.That((redone.StartTime, redone.EndTime), Is.EqualTo((4700d, 5900d)));
+                Assert.That(redone.SyllableBoundaries, Is.EqualTo(new[] { 5100d, 5500 }));
+                Assert.That(redone.SyllableSplits, Is.EqualTo(new[] { 2, 4 }));
+                Assert.That(redone.Pauses, Is.EqualTo(new[] { new WordPause(5250, 5350, 3) }));
+            });
+        }
+
         [Test]
         public void TextEditSameTokenCountKeepsWordTiming()
         {

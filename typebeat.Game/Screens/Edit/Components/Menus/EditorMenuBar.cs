@@ -9,17 +9,25 @@ using osu.Framework.Graphics.Textures;
 using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Input.Events;
 using osu.Framework.Localisation;
+using osu.Framework.Utils;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Overlays;
-using osuTK;
 
 namespace typebeat.Game.Screens.Edit.Components.Menus
 {
     public partial class EditorMenuBar : OsuMenu
     {
-        private const float heading_area = 114;
+        private const float heading_padding = 8;
+
+        /// <summary>
+        /// The wordmark to the left of the menu items. It auto-sizes to the text rather than sitting in
+        /// a fixed-width box: osu's own heading read "osu!editor" next to a pencil icon and fitted in
+        /// 114 px, while "type!beat editor" does not, so the text used to run under the icon (the icon
+        /// is gone) and past the first menu item.
+        /// </summary>
+        private Container headingArea = null!;
 
         public EditorMenuBar()
             : base(Direction.Horizontal, true)
@@ -29,7 +37,6 @@ namespace typebeat.Game.Screens.Edit.Components.Menus
             MaskingContainer.CornerRadius = 0;
             ItemsContainer.Padding = new MarginPadding();
 
-            ContentContainer.Margin = new MarginPadding { Left = heading_area };
             ContentContainer.Masking = true;
         }
 
@@ -40,30 +47,17 @@ namespace typebeat.Game.Screens.Edit.Components.Menus
 
             TextFlowContainer text;
 
-            AddRangeInternal(new[]
+            AddInternal(headingArea = new Container
             {
-                new Container
+                RelativeSizeAxes = Axes.Y,
+                AutoSizeAxes = Axes.X,
+                Padding = new MarginPadding(heading_padding),
+                Child = text = new TextFlowContainer
                 {
-                    RelativeSizeAxes = Axes.Y,
-                    Width = heading_area,
-                    Padding = new MarginPadding(8),
-                    Children = new Drawable[]
-                    {
-                        new SpriteIcon
-                        {
-                            Size = new Vector2(26),
-                            Anchor = Anchor.CentreLeft,
-                            Origin = Anchor.CentreLeft,
-                            Icon = OsuIcon.EditCircle,
-                        },
-                        text = new TextFlowContainer
-                        {
-                            Anchor = Anchor.CentreRight,
-                            Origin = Anchor.CentreRight,
-                            AutoSizeAxes = Axes.Both,
-                        }
-                    }
-                },
+                    Anchor = Anchor.CentreLeft,
+                    Origin = Anchor.CentreLeft,
+                    AutoSizeAxes = Axes.Both,
+                }
             });
 
             text.AddText(@"type!beat", t => t.Font = OsuFont.TorusAlternate);
@@ -72,6 +66,22 @@ namespace typebeat.Game.Screens.Edit.Components.Menus
                 t.Font = OsuFont.TorusAlternate;
                 t.Colour = colourProvider.Highlight1;
             });
+        }
+
+        protected override void UpdateAfterChildren()
+        {
+            base.UpdateAfterChildren();
+
+            // Where the menu items start is the MEASURED width of the wordmark, not a constant: the
+            // text is loaded into the flow container a frame or more after construction, and its width
+            // moves with the UI scale and with whatever font the heading ends up rendering in.
+            //
+            // Reading it here cannot race. This runs after the children have updated, so the heading's
+            // auto-size for this frame is already resolved, and it runs every frame, so a heading that
+            // has not measured yet (width 0, items flush left) simply gets the margin on the frame it
+            // does measure. There is no one-shot callback to miss and no ordering to get wrong.
+            if (!Precision.AlmostEquals(ContentContainer.Margin.Left, headingArea.DrawWidth))
+                ContentContainer.Margin = new MarginPadding { Left = headingArea.DrawWidth };
         }
 
         protected override osu.Framework.Graphics.UserInterface.Menu CreateSubMenu() => new SubMenu

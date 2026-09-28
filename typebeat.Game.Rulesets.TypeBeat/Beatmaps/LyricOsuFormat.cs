@@ -103,13 +103,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// AudioGain line at all, for exactly the reason the language line above is conditional. Above
         /// 1 the song is amplified, below it attenuated, and the value is applied by the client's track
         /// mixer rather than by the server.</param>
+        /// <param name="lyricFont">The mapper-chosen typing font family
+        /// (<see cref="typebeat.Game.Beatmaps.BeatmapMetadata.LyricFont"/>), written as
+        /// <c>[General] LyricFont:</c>. Null/empty (no font chosen, which is every existing map)
+        /// writes NO line at all, on the same map-hash terms as the language line.</param>
+        /// <param name="lyricFontFile">The bundled font file's name inside the set
+        /// (<see cref="typebeat.Game.Beatmaps.BeatmapMetadata.LyricFontFile"/>), written as
+        /// <c>[General] LyricFontFile:</c> and only when set.</param>
         /// <exception cref="ArgumentException">When the timing.json is not a supported v2 document.</exception>
         public static string GenerateOsu(string artist, string title, string audioFilename, string creator, string timingJsonText,
                                          double previewTime = -1, double audioLeadIn = 0, double? beatdropMs = null,
                                          string? backgroundFilename = null, string? videoFilename = null, int videoOffsetMs = 0,
                                          int beatmapId = -1, int beatmapSetId = -1, string difficultyName = "type!beat",
                                          string tags = "", string? titleUnicode = null, string? artistUnicode = null,
-                                         string? language = null, double audioGain = 1)
+                                         string? language = null, double audioGain = 1,
+                                         string? lyricFont = null, string? lyricFontFile = null)
         {
             using var doc = JsonDocument.Parse(timingJsonText);
             JsonElement root = doc.RootElement;
@@ -168,6 +176,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             sb.AppendLine($"PreviewTime: {formatMs(previewTime)}");
             sb.AppendLine("Countdown: 0");
             sb.AppendLine("SampleSet: None");
+
+            // The mapper-chosen typing font (backlog 291). Both lines are conditional on the same
+            // terms as the [Metadata] Language/AudioGain lines: a map with no font chosen encodes
+            // byte for byte as it always did, so adding this key cannot demote a ranked map. The
+            // legacy .osu encoder behind the .osz export writes the same two keys.
+            if (!string.IsNullOrEmpty(lyricFont))
+                sb.AppendLine($"LyricFont: {lyricFont}");
+            if (!string.IsNullOrEmpty(lyricFontFile))
+                sb.AppendLine($"LyricFontFile: {lyricFontFile}");
+
             sb.AppendLine();
             sb.AppendLine("[Metadata]");
             sb.AppendLine($"Title:{title}");
@@ -191,10 +209,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // The map's own track gain, as a linear multiplier (see BeatmapMetadata.AudioGain).
             // Emitted ONLY when a mapper has moved it off 1, on the same terms as the language line
             // above: an untouched map has to encode byte for byte as it did, or every installed map
-            // would re-hash on its next save. Written with the round-trippable "R" format so a
-            // hundredth on the bar is a hundredth in the file.
-            if (audioGain != 1)
-                sb.AppendLine($"AudioGain:{audioGain.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}");
+            // would re-hash on its next save. The VALUE goes through BeatmapMetadata.EncodeAudioGain,
+            // which the legacy .osu encoder behind the .osz export shares, so a map that leaves through
+            // one and returns through the other returns at the gain it left with.
+            if (audioGain != typebeat.Game.Beatmaps.BeatmapMetadata.DEFAULT_AUDIO_GAIN)
+                sb.AppendLine($"AudioGain:{typebeat.Game.Beatmaps.BeatmapMetadata.EncodeAudioGain(audioGain)}");
 
             // Online IDs are stamped on submission; the server validates the embedded IDs
             // against the set being uploaded, and the inherited legacy [Metadata] parsing

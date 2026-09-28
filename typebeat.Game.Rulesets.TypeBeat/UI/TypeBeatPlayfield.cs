@@ -696,15 +696,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 if (replay != null)
                 {
+                    var frames = replay.Frames;
+
                     // The replay can be swapped mid-play (editor autoplay toggle); restart feeding.
                     if (!ReferenceEquals(replay, activeReplay))
                     {
                         activeReplay = replay;
                         nextFrameIndex = 0;
                         lastFedTime = double.NegativeInfinity;
-                    }
 
-                    var frames = replay.Frames;
+                        // Prime the judgement flags from the recorded CONFIG frame BEFORE the first
+                        // tick rather than when the frame's own time comes round. The playfield's
+                        // load put the WATCHER's settings on the engine (SpaceSkipsWord,
+                        // ManualNewlines), and ManualNewlines is read by Update itself (whether a
+                        // finished line is held open, whether the caret snaps onto a starting
+                        // line), so every tick between the song's start and the first keystroke
+                        // would otherwise run under the watcher's arm rather than the recorded one.
+                        // Apply on a CONFIG frame only sets flags and ticks nothing, and applying
+                        // it again at its own time below is idempotent, so it is not consumed here.
+                        for (int i = 0; i < frames.Count; i++)
+                        {
+                            if (frames[i] is TypeBeatReplayFrame { IsConfig: true } config)
+                            {
+                                ReplayEngineFeed.Apply(engine, config, clockRate);
+                                break;
+                            }
+                        }
+                    }
 
                     // BACKWARDS SEEK. Both this index and the engine only ever move forwards, so a
                     // clock that has gone back leaves every keystroke between the new time and the
@@ -742,7 +760,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 //
                 // A REPLAY-driven play declares nothing either: it re-enacts a run that was already
                 // played and scored, so its characters are the tape's to judge, not ours to grant.
-                if (engine.PlayStartTime is null && replay == null && gameplayClock != null)
+                //
+                // And ONLY the editor's gameplay test declares at all (DrawableRuleset
+                // .IsEditorGameplayTest, set by EditorPlayer). The declaration makes the seal grant
+                // every cell due before the start as a perfect hit, so on a play that submits a score
+                // it would be free accuracy for whatever the clock's start time happened to skip. A
+                // normal play, a spectated one and a replay start where the map does, and a late
+                // clock start there changes nothing about what the player is charged for.
+                if (engine.PlayStartTime is null && replay == null && gameplayClock != null && drawableRuleset?.IsEditorGameplayTest == true)
                     engine.SetPlayStart(gameplayClock.StartTime);
 
                 engine.Update(Time.Current, clockRate);

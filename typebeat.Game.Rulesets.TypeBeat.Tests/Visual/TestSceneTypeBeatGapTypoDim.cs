@@ -85,6 +85,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // a typo the player has already typed past.
             AddStep("word skipping off", () => config.SetValue(TypeBeatRulesetSetting.SpaceSkipsWord, false));
 
+            // Space error dot OFF, which is the arm this scene pins: the gap typo drawn AS the typed
+            // character, dimmed. The dot ships ON since PR 2, and with it on a dotted gap draws
+            // only the dot and never the character (LyricLineDisplay.GapGlyph, pinned by
+            // SpaceErrorDotTest), so there would be no typed glyph here to dim.
+            AddStep("space error dot off", () => config.SetValue(TypeBeatRulesetSetting.UseSpaceErrorDot, false));
+
             AddStep("create drawable ruleset", () =>
             {
                 var ruleset = new TypeBeatRuleset();

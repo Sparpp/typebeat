@@ -139,11 +139,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// whenever it has a row, so every map the catalogue already covers rates exactly as it
         /// always has; this switch is only about the maps it does not - a player's own import.
         ///
-        /// <para>OFF in the shipped game for now: turning it on gives every map outside the bundled
-        /// catalogue a typability adjustment it never had, which moves those ratings and the pins
-        /// built from them. <see cref="TypabilityModel"/> is complete and pinned against the lab's
-        /// own scores (see TypabilityModelTest); the pace/pp consolidation step is where this flips,
-        /// once the fixtures that price an unlisted map have been re-derived.</para>
+        /// <para>ON in the shipped game: a map outside the bundled catalogue (a player's own import,
+        /// a newly uploaded set) is scored in-client through <see cref="TypabilityModel"/>, the same
+        /// regression the table was generated from, so it takes the same typability adjustment a
+        /// catalogue map does rather than none. The server mirror runs the same code over the same
+        /// embedded table, so an unlisted map rates identically on both sides.</para>
         /// </summary>
         internal const bool compute_unlisted_lines = true;
 

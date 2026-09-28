@@ -49,6 +49,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public override void SetUpSteps()
         {
             AddStep("word skipping off", () => config.SetValue(Configuration.TypeBeatRulesetSetting.SpaceSkipsWord, false));
+
+            // Every test starts on the SHIPPED newline setting (manual, since PR 2): the config
+            // manager is shared across the fixture, so the one test that opts out below must not
+            // leave its arm standing for the next.
+            AddStep("manual newlines at the shipped default", () =>
+                config.SetValue(Configuration.TypeBeatRulesetSetting.ManualNewlines, config.GetBindable<bool>(Configuration.TypeBeatRulesetSetting.ManualNewlines).Default));
             base.SetUpSteps();
         }
 
@@ -173,10 +179,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         /// which a player who typed a character and then gave up is not, and the song's own window
         /// never closes here (the decoder's windows are contiguous). Both of those are asserted
         /// below, so the test cannot quietly start passing through some other door.</para>
+        ///
+        /// <para>Pinned on the AUTOMATIC hand-over, which is the arm where Enter parks the caret: under
+        /// manual newlines (the shipped default since PR 2) Enter is the newline and hands the caret
+        /// to the next line instead, so the same promise is kept through a different door, pinned by
+        /// <see cref="TestSpaceStillSkipsAfterAManualNewline"/> below.</para>
         /// </summary>
         [Test]
         public void TestSpaceStillSkipsAfterALineSkip()
         {
+            AddStep("manual newlines off", () => config.SetValue(Configuration.TypeBeatRulesetSetting.ManualNewlines, false));
+            AddStep("reload the player on that arm", () => LoadPlayer());
+            AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
+            AddAssert("the engine is on the automatic hand-over", () => !playfield.Engine.ManualNewlines);
+
             AddUntilStep("gameplay started", () => Player.GameplayClockContainer.CurrentTime > 0);
             AddUntilStep("line 0 active", () => playfield.Engine.ActiveLineIndex == 0);
 
@@ -208,6 +224,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // And the run carries on: the deferred roll hands the parked caret to line 1 at 12500,
             // and the line they gave up seals with its one missed cell, at its own deadline.
             AddUntilStep("line 1 becomes active", () => playfield.Engine.ActiveLineIndex == 1);
+            AddUntilStep("the abandoned cell is missed at the seal", () =>
+                playfield.Engine.Lines[0].Cells[1].State == CellState.Missed);
+            AddAssert("gameplay still live", () => !Player.GameplayState.HasFailed);
+        }
+
+        /// <summary>
+        /// The same promise on the SHIPPED arm, manual newlines: a player who presses Enter part way
+        /// through the line before a long instrumental must still be able to skip it. Here Enter is
+        /// the newline, so it gives the rest of line 0 up AND hands the caret to line 1, which waits
+        /// untouched for its entry window. Space then reaches the overlay through the handler's
+        /// narrow carve-out (an untouched line the song is not on), not the parked-caret arm the test
+        /// above drives.
+        /// </summary>
+        [Test]
+        public void TestSpaceStillSkipsAfterAManualNewline()
+        {
+            AddAssert("the engine is on the shipped manual newlines", () => playfield.Engine.ManualNewlines);
+
+            AddUntilStep("gameplay started", () => Player.GameplayClockContainer.CurrentTime > 0);
+            AddUntilStep("line 0 active", () => playfield.Engine.ActiveLineIndex == 0);
+
+            AddStep("type 'a'", () => InputManager.Key(Key.A));
+            AddStep("press Enter mid-line", () => InputManager.Key(Key.Enter));
+
+            AddAssert("the caret was handed to line 1, which waits untouched", () =>
+                playfield.Engine.ActiveLineIndex == 1
+                && playfield.Engine.CaretIndex == 0
+                && playfield.Engine.ActiveLineUntouched
+                && playfield.Engine.NextUnsealedLineIndex == 0
+                && playfield.Engine.Lines[0].Cells[1].State == CellState.Untyped);
+
+            AddUntilStep("overlay skip period open", () => instrumentalOverlay.InSkipPeriod);
+            AddUntilStep("overlay button shown", () => instrumentalOverlay.IsButtonVisible);
+
+            AddStep("press Space in the gap", () => InputManager.Key(Key.Space));
+            AddUntilStep("clock seeked past the gap", () => Player.GameplayClockContainer.CurrentTime >= 10900);
+            AddAssert("exactly one skip recorded", () => instrumentalOverlay.SkipCount == 1);
+            AddAssert("and the space typed nothing onto line 1", () => playfield.Engine.ActiveLineUntouched);
+
             AddUntilStep("the abandoned cell is missed at the seal", () =>
                 playfield.Engine.Lines[0].Cells[1].State == CellState.Missed);
             AddAssert("gameplay still live", () => !Player.GameplayState.HasFailed);

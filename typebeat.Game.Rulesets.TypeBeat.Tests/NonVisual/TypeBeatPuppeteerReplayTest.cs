@@ -226,6 +226,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// EVERY ERA BIT SURVIVES THE DERIVATION. The derived CONFIG frame is what the scorer and the
+        /// watch path judge the run under, so it has to say everything the stored one said except
+        /// bit 9, which it clears because the stream is track time now. Compared as the whole .osr
+        /// flags word, so a bit added later that the transform forgets to carry fails here rather
+        /// than re-deriving a run under the wrong rule (bits 14 and 15, the manual newlines, were
+        /// once dropped exactly that way).
+        /// </summary>
+        [Test]
+        public void EveryEraBitSurvivesTheDerivation()
+        {
+            var map = twoLineMap();
+            var mods = puppeteer(false);
+
+            var run = simulateLiveRun(map, mods, defaultKeys, anchor: -2000, frameMs: 16);
+
+            var storedConfig = TypeBeatReplayFrame.CreateConfigFrame(-2000, allowWrongInput: true, spaceSkipsWord: true, syllableTiming: true,
+                wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, flexibleLines: true, boundedRush: true,
+                firstCharTiming: true, wallClockFrames: true, backDatedSealBreak: true, losslessSkipReclaim: true,
+                foldsDisplacedClaim: true, unhalvedHardRockWindows: true, manualNewlines: true, newlineOnTypedLetter: true,
+                firstLineLeadIn: true);
+
+            // Built by hand rather than through this fixture's clone helper, which predates the newer
+            // bits and would strip them before the transform ever saw them.
+            var stored = new Replay();
+            stored.Frames.Add(storedConfig);
+
+            foreach (var frame in run.WallFrames.Skip(1))
+                stored.Frames.Add(new TypeBeatReplayFrame(frame.Time, frame.Character));
+
+            var derived = PuppeteerReplayTransform.Derive(map, mods, stored);
+
+            Assert.IsTrue(derived[0].IsConfig);
+            Assert.IsTrue(derived[0].ManualNewlines, "bit 14 carried");
+            Assert.IsTrue(derived[0].NewlineOnTypedLetter, "bit 15 carried");
+            Assert.IsTrue(derived[0].FirstLineLeadIn, "bit 16 carried");
+            Assert.AreEqual(storedConfig.ToLegacy(map).MouseY - 512, derived[0].ToLegacy(map).MouseY,
+                "every bit but the wall axis survives, and that one is cleared");
+        }
+
+        /// <summary>
         /// BIT-LEVEL DETERMINISM. The transform reads the frames, the beatmap and the mods and
         /// nothing else (no wall clock, no frame timing, no random), so the same stored run derives
         /// to the identical times twice. This is the property the whole era rests on: it is what

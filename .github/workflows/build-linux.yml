@@ -157,7 +157,9 @@ jobs:
       # names never collide with the Windows feed files already in the same directory, so the whole
       # feed lives side by side under /data/downloads/releases/. mainExe is the extensionless linux
       # apphost name; packId 'typebeat' matches the SimpleWebSource the installed game polls
-      # (https://typebeat.mingda.sh/releases).
+      # (https://typebeat.mingda.sh/releases). The icon is assets/typebeat.png, the type!beat icon,
+      # which is the same art typb.ico carries and build-macos.yml builds its .icns from; it used to
+      # be assets/lazer.png, osu!'s own logo, which is ppy's IP and must not ship in our packages.
       - name: Pack with Velopack
         run: |
           vpk pack \
@@ -166,7 +168,7 @@ jobs:
             --packDir "${GITHUB_WORKSPACE}/publish-linux" \
             --mainExe "type!beat" \
             --packTitle "type!beat" \
-            --icon "${GITHUB_WORKSPACE}/assets/lazer.png" \
+            --icon "${GITHUB_WORKSPACE}/assets/typebeat.png" \
             --outputDir "${GITHUB_WORKSPACE}/release-linux"
           echo "---- vpk output ----"
           ls -la "${GITHUB_WORKSPACE}/release-linux"

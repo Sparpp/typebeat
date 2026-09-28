@@ -582,12 +582,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         ///
         /// <para>The line's own <see cref="TypingLine.ActivationTime"/> is NOT moved by any of this,
         /// because the WPM clock is armed from it and a stored run's WPM must re-derive exactly as it
-        /// was played. Nothing stored can notice the widening either: a press made before a line opened
-        /// was INERT, and the recorder writes one frame per EFFECTIVE engine call, so no stored replay
-        /// carries one.</para>
+        /// was played.</para>
+        ///
+        /// <para>Always false unless <see cref="FirstLineLeadIn"/> is set, which is the era this head
+        /// start belongs to.</para>
         /// </summary>
         public bool FirstLineTypingOpensAt(double time)
-            => !isFinished && activeLineIndex == -1 && firstLineTypingWindowOpen(time);
+            => FirstLineLeadIn && !isFinished && activeLineIndex == -1 && firstLineTypingWindowOpen(time);
+
+        /// <summary>
+        /// Whether the map's first line takes the <see cref="FIRST_LINE_LEAD_MS"/> head start at all
+        /// (see <see cref="FirstLineTypingOpensAt"/>). Clear, the first line opens exactly as it did
+        /// before the head start existed: on its own <see cref="TypingLine.ActivationTime"/>, with a
+        /// press before that refused.
+        ///
+        /// <para>An ERA flag on CONFIG frame bit 16, like every other rule that decides whether a
+        /// keystroke is ACCEPTED: the live client sets it for every stack
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c>), and <c>ReplayEngineFeed.Apply</c> sets it
+        /// from the frame, so a bare engine and every replay stored before it keep the old gate. That
+        /// matters even though a press made before a line opened was inert and never recorded: a
+        /// frame's time is ROUNDED to the millisecond at capture, so a first keystroke made a fraction
+        /// after a fractional activation can be stored a fraction BEFORE it. The old gate refuses
+        /// that frame on re-derivation and the head start would accept it, which moves every
+        /// keystroke after it onto a different cell. With the bit carried, a stored run re-derives
+        /// under the gate it was played on, whichever that was.</para>
+        /// </summary>
+        public bool FirstLineLeadIn { get; set; }
 
         private bool firstLineTypingWindowOpen(double time)
             => nextSealIndex == 0
@@ -667,9 +687,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// granted rather than missed at the seal (<c>TypeBeatPlayfield</c> reads this same time), which
         /// is what keeps a test play from charging its player for the part of the map they skipped.</para>
         ///
-        /// <para>An ordinary play - one that starts at the map's own beginning, lead-in and all - reads
-        /// its first frame before any character is due, so it grants nothing and is untouched by
-        /// this.</para>
+        /// <para>An ordinary play never declares one at all: <c>TypeBeatPlayfield</c> declares only for
+        /// the editor's gameplay test (<c>DrawableRuleset.IsEditorGameplayTest</c>), so a normal play,
+        /// a spectated one and a replay are charged for every character of the map whatever their
+        /// clock's start time is.</para>
         /// </summary>
         public double? PlayStartTime { get; private set; }
 
@@ -3562,13 +3583,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// armed. Returns whether the caret moved, so a caller records a frame only for an effective
         /// press and lets a refused one fall through to whatever it would have done anyway.
         ///
-        /// <para>Deliberately the same three conditions the automatic roll uses, and no others: the
-        /// caret must be FINISHED (<c>caretIndex</c> past the last cell), there must be a next line,
-        /// and that line's entry window must be open (<see cref="entryPermitted"/>, i.e. within
-        /// <see cref="FLETCHER_DRAG_GRACE_MS"/> of its cue). "The timing constraints about when you
-        /// may move on still apply" is exactly that third clause, so pressing space seconds early is
-        /// refused rather than queued: the player presses again when the window opens, and if they
-        /// never do, the seal's drag cutoff takes them as it always did.</para>
+        /// <para>Two conditions, and deliberately NOT the automatic roll's third: the caret must be
+        /// FINISHED (<c>caretIndex</c> past the last cell) and there must be a next line. The entry
+        /// window (<see cref="entryPermitted"/>, within <see cref="FLETCHER_DRAG_GRACE_MS"/> of the
+        /// next cue) does not gate the press itself: the newline always lands, and the line it lands
+        /// on sits greyed and untypeable (<see cref="AwaitingEntry"/>) until its window opens, so
+        /// "the timing constraints about when you may move on still apply" to the TYPING rather
+        /// than to the press. A refused press read as the newline not working. If the player never
+        /// presses at all, the seal's drag cutoff takes them as it always did.</para>
         ///
         /// <para>No WPM clock work here, for the reason <see cref="ProcessEnter"/> gives: a newline is
         /// not typing, so the clock on the line being LANDED on arms lazily on its first real press

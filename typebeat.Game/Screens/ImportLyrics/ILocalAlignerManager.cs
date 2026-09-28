@@ -11,9 +11,10 @@ namespace typebeat.Game.Screens.ImportLyrics
 {
     /// <summary>
     /// Shell-side seam for managing the LOCAL lyriclab auto-aligner (the AI that times lyrics
-    /// word-by-word on the player's own machine, instead of the shared server queue). The concrete
-    /// implementation lives in the ruleset beside <see cref="ILyricMapImporter"/>; typebeat.Desktop
-    /// caches it so the first-run setup screen and the settings section can drive installs.
+    /// word-by-word on the player's own machine, and, since the server-side aligner was retired, the
+    /// only automatic timing path there is). The concrete implementation lives in the ruleset beside
+    /// <see cref="ILyricMapImporter"/>; typebeat.Desktop caches it so the first-run setup screen and
+    /// the settings section can drive installs.
     /// </summary>
     public interface ILocalAlignerManager
     {

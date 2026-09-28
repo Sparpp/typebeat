@@ -50,7 +50,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <see cref="UnhalvedHardRockWindows"/> (whether this run's Hard Rock left the judgement
     /// windows at their normal width instead of halving them, backlog 264) and bit 14
     /// <see cref="ManualNewlines"/> (whether a finished line was handed over by the player's own
-    /// space or Enter rather than automatically, the manual-newlines setting).
+    /// space or Enter rather than automatically, the manual-newlines setting) and bit 15
+    /// <see cref="NewlineOnTypedLetter"/> (whether typing the next line's first slot also handed a
+    /// finished line over) and bit 16 <see cref="FirstLineLeadIn"/> (whether a press shortly before
+    /// the map's first vocal opened the first line, rather than being refused until the line's own
+    /// activation).
     /// Other mods
     /// (Literate/Mashing/rate) travel in the score itself and need no frames.
     ///
@@ -71,7 +75,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// strict-spaces, bit 5 = flexible-lines, bit 6 = char-timed-stretch, bit 7 = bounded-rush,
     /// bit 8 = first-char-timing, bit 9 = wall-clock-frames, bit 10 = back-dated-seal-break,
     /// bit 11 = lossless-skip-reclaim, bit 12 = displaced-claim-fold,
-    /// bit 13 = unhalved-hard-rock-windows, bit 14 = manual-newlines; only
+    /// bit 13 = unhalved-hard-rock-windows, bit 14 = manual-newlines,
+    /// bit 15 = newline-on-typed-letter, bit 16 = first-line-lead-in; only
     /// meaningful on CONFIG frames),
     /// ButtonState = None, time = the integral frame time. A flags word of at most 16383 is as harmless
     /// to the encoder as the single bit was, and each new bit is appended ABOVE the existing ones,
@@ -91,6 +96,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// argument, which never depended on the
     /// word's size: the strip matches the POSITION PAIR (256, -500) exactly, and a CONFIG frame's
     /// MouseX is 0x00 with a MouseY that is never negative.</para>
+    ///
+    /// <para><b>Bit 16 is the LAST bit this carrier can hold.</b> The decoder parses MouseY with
+    /// <c>Parsing.ParseFloat(..., Parsing.MAX_COORDINATE_VALUE)</c>, which THROWS above 131072.
+    /// Bit 15 took the word to 32768 and its ceiling to 65535, and bit 16 takes them to 65536 and
+    /// 131071, one below that limit. A bit 17 would push a fully set word to 262143 and make the
+    /// replay undecodable, so the next era needs another carrier (or the decoder's limit raised for
+    /// this ruleset, the way MouseX's already is for mania) before it can be added here.</para>
     ///
     /// <para><b>The WALL-CLOCK axis (bit 9, backlog 256).</b> Ordinarily a frame's time is a lyric
     /// time and can be fed to the engine as it stands. Under the Puppeteer mod the song's position
@@ -377,6 +389,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool NewlineOnTypedLetter;
 
         /// <summary>
+        /// Whether the map's first line took its head start (see
+        /// <see cref="Gameplay.TypingEngine.FirstLineLeadIn"/>): a press up to
+        /// <see cref="Gameplay.TypingEngine.FIRST_LINE_LEAD_MS"/> before the first vocal opened the
+        /// line. Only meaningful on <see cref="CONFIG"/> frames, and the ERA carrier for the head
+        /// start: the live client records it true for every stack, and every replay stored before it
+        /// carries the bit clear, so those runs re-derive under the gate they were played on (a press
+        /// before the first line's own activation refused).
+        ///
+        /// <para>Its own bit because it decides whether a keystroke is ACCEPTED: a frame stored a
+        /// rounding fraction before a fractional activation is refused by the old gate and opens the
+        /// line under the new one, and every press after it then lands on different cells.</para>
+        /// </summary>
+        public bool FirstLineLeadIn;
+
+        /// <summary>
         /// The ANCHOR carried by a bit-9 CONFIG frame: the track position the tape was started at,
         /// which is also the origin of the wall axis every other frame in the run is stamped on. It
         /// is simply this frame's own <see cref="ReplayFrame.Time"/>, named here because that is a
@@ -425,9 +452,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <paramref name="losslessSkipReclaim"/> (bit 11) after that again,
         /// <paramref name="foldsDisplacedClaim"/> (bit 12) after that, and
         /// <paramref name="unhalvedHardRockWindows"/> (bit 13) after that, and
-        /// <paramref name="manualNewlines"/> (bit 14) last. Pass the newer ones by name.</para>
+        /// <paramref name="manualNewlines"/> (bit 14) after that,
+        /// <paramref name="newlineOnTypedLetter"/> (bit 15) after that, and
+        /// <paramref name="firstLineLeadIn"/> (bit 16) last. Pass the newer ones by name.</para>
         /// </summary>
-        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false, bool flexibleLines = false, bool boundedRush = false, bool firstCharTiming = false, bool wallClockFrames = false, bool backDatedSealBreak = false, bool losslessSkipReclaim = false, bool foldsDisplacedClaim = false, bool unhalvedHardRockWindows = false, bool manualNewlines = false, bool newlineOnTypedLetter = false) => new TypeBeatReplayFrame(time, CONFIG)
+        public static TypeBeatReplayFrame CreateConfigFrame(double time, bool allowWrongInput, bool spaceSkipsWord = false, bool syllableTiming = false, bool wrongInputOnWordGaps = false, bool strictSpaces = false, bool charTimedStretch = false, bool flexibleLines = false, bool boundedRush = false, bool firstCharTiming = false, bool wallClockFrames = false, bool backDatedSealBreak = false, bool losslessSkipReclaim = false, bool foldsDisplacedClaim = false, bool unhalvedHardRockWindows = false, bool manualNewlines = false, bool newlineOnTypedLetter = false, bool firstLineLeadIn = false) => new TypeBeatReplayFrame(time, CONFIG)
         {
             AllowWrongInput = allowWrongInput,
             SpaceSkipsWord = spaceSkipsWord,
@@ -445,6 +474,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             UnhalvedHardRockWindows = unhalvedHardRockWindows,
             ManualNewlines = manualNewlines,
             NewlineOnTypedLetter = newlineOnTypedLetter,
+            FirstLineLeadIn = firstLineLeadIn,
         };
 
         /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>
@@ -513,6 +543,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// typing the next line's first slot (see <see cref="NewlineOnTypedLetter"/>).</summary>
         private const int flag_newline_on_typed_letter = 32768;
 
+        /// <summary>Bit 16 of the CONFIG frame's flags word: a press shortly before the map's first
+        /// vocal opened the first line (see <see cref="FirstLineLeadIn"/>). The highest bit the .osr
+        /// carrier can hold (see the class summary).</summary>
+        private const int flag_first_line_lead_in = 65536;
+
         public void FromLegacy(LegacyReplayFrame currentFrame, IBeatmap beatmap, ReplayFrame? lastFrame = null)
         {
             Character = (char)(int)(currentFrame.MouseX ?? 0);
@@ -535,6 +570,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             UnhalvedHardRockWindows = (flags & flag_unhalved_hard_rock_windows) != 0;
             ManualNewlines = (flags & flag_manual_newlines) != 0;
             NewlineOnTypedLetter = (flags & flag_newline_on_typed_letter) != 0;
+            FirstLineLeadIn = (flags & flag_first_line_lead_in) != 0;
         }
 
         public LegacyReplayFrame ToLegacy(IBeatmap beatmap) =>
@@ -556,7 +592,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             | (FoldsDisplacedClaim ? flag_displaced_claim_fold : 0)
             | (UnhalvedHardRockWindows ? flag_unhalved_hard_rock_windows : 0)
             | (ManualNewlines ? flag_manual_newlines : 0)
-            | (NewlineOnTypedLetter ? flag_newline_on_typed_letter : 0);
+            | (NewlineOnTypedLetter ? flag_newline_on_typed_letter : 0)
+            | (FirstLineLeadIn ? flag_first_line_lead_in : 0);
 
         /// <summary>
         /// Never equivalent: every frame is a discrete keystroke. Two identical characters at the
