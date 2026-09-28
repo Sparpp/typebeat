@@ -84,6 +84,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void ReadAlignerVersionReadsTheConstantOffTheScript()
+        {
+            string lab = Path.Combine(tempRoot, "lab");
+            Directory.CreateDirectory(lab);
+
+            // A version-1 script predates the constant: null, which the manager reads as "update available".
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "#!/usr/bin/env python\nSAMPLE_RATE = 16000\n");
+            Assert.That(LyricMapImporter.ReadAlignerVersion(lab), Is.Null);
+
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "#!/usr/bin/env python\n# Bumped when the output changes.\nALIGNER_VERSION = \"2\"\n\nSAMPLE_RATE = 16000\n");
+            Assert.That(LyricMapImporter.ReadAlignerVersion(lab), Is.EqualTo("2"));
+
+            // Only the module-level assignment counts, not a mention inside a string or comment.
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "# ALIGNER_VERSION = \"9\" is documented above\n  ALIGNER_VERSION = \"3\"\n");
+            Assert.That(LyricMapImporter.ReadAlignerVersion(lab), Is.Null);
+
+            Assert.That(LyricMapImporter.ReadAlignerVersion(Path.Combine(tempRoot, "missing")), Is.Null);
+            Assert.That(LyricMapImporter.ReadAlignerVersion(null), Is.Null);
+
+            // The shipped component itself declares a version, so a build never offers "update to null".
+            string? vendored = LyricMapImporter.ResolveLyricLabDir(null, AppContext.BaseDirectory);
+            Assume.That(vendored, Is.Not.Null, "the vendored lyriclab component was not found beside the test binaries");
+            Assert.That(LyricMapImporter.ReadAlignerVersion(vendored), Is.Not.Null.And.Not.Empty);
+        }
+
+        [Test]
         public void ResolveLyricLabDirWalksUpFromStart()
         {
             // root/typebeat-lyriclab/align_lyrics.py  +  root/repo/(start)

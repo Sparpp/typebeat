@@ -124,6 +124,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         public static bool IsLyricLabDir(string dir)
             => !string.IsNullOrEmpty(dir) && File.Exists(Path.Combine(dir, aligner_script));
 
+        private static readonly Regex aligner_version_line = new Regex(@"^ALIGNER_VERSION\s*=\s*""([^""]+)""", RegexOptions.Multiline | RegexOptions.Compiled);
+
+        /// <summary>
+        /// The <c>ALIGNER_VERSION = "..."</c> the aligner script in <paramref name="lyricLabDir"/>
+        /// declares, read off the source text so no Python has to run. Null for a directory with no
+        /// script and for a version-1 script, which predates the constant.
+        /// </summary>
+        public static string? ReadAlignerVersion(string? lyricLabDir)
+        {
+            if (string.IsNullOrEmpty(lyricLabDir))
+                return null;
+
+            try
+            {
+                string path = Path.Combine(lyricLabDir, aligner_script);
+
+                if (!File.Exists(path))
+                    return null;
+
+                var match = aligner_version_line.Match(File.ReadAllText(path));
+                return match.Success ? match.Groups[1].Value : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         public static string PythonExeFor(string lyricLabDir)
             => OperatingSystem.IsWindows()
                 ? Path.Combine(lyricLabDir, ".venv", "Scripts", "python.exe")

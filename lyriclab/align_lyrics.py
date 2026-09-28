@@ -20,18 +20,41 @@ Pipeline:
   5. torchaudio.functional.forced_align of normalized lyric characters,
      with '*' wildcards between lines absorbing unlisted vocals
   6. anchoring:
-       --anchors ref   align each line inside its hand-stamped LRC window
+       --anchors ref   align each line inside EXACTLY its hand-stamped window
+                       [its stamp, next stamp): no slack either side, and the
+                       CTC path is kept however low its confidence (see below)
        --anchors auto  global pass -> high-margin lines anchor a local
-                       re-alignment of weak runs between them
+                       re-alignment of weak runs between them; lines with ~zero
+                       evidence are interpolated and flagged "estimated"
        --anchors none  single global pass
-     Lines whose acoustic evidence is ~zero (effects-heavy hooks etc.) fall
-     back to char-proportional interpolation and are flagged "estimated".
-  7. char spans -> syllables (pyphen + naive fallback) -> words -> lines;
-     end times extended through sustained voiced audio (RMS gate)
+  7. char spans -> syllables (authored hyphens first, else pyphen + naive
+     fallback) -> words -> lines; end times extended through sustained
+     voiced audio (RMS gate); a validator repairs/rejects impossible output
 
 Confidence: each word carries `score` = mean margin (0..1) between the
 aligned char and the model's argmax at those frames. High = the model
 actually hears this word here. `prob` = raw mean char probability.
+
+Version 2 (2026-09-28), decided on the ranked-map corpus (84 maps, 20.6k
+words, the maps' own timings as truth; see typebeat-lyriclab/bench):
+  - ref windows lost their 0.75 s / 0.5 s slack: with slack, a line whose
+    first syllables repeat the previous line's last ones latched onto that
+    tail. Word starts within 200 ms of the map: 85% -> 90% (exact stamps),
+    74% -> 87% (stamps 250 ms early, how mappers actually stamp).
+  - ref mode no longer replaces a low-margin line by even pacing; the CTC
+    path is kept. Even pacing was governing a third of all lines, most of
+    which had usable evidence. The five maps it loses on are screamed or
+    effect-heavy vocals; a detector for garbage paths is the follow-up.
+  - accented letters are folded (è -> e) instead of dropped (which made "è"
+    an untimed word and aligned "perché" as "perch").
+  - authored hyphens are syllable boundaries ("pa-pa-ta-ta" aligns and splits
+    at the hyphens); pyphen is only consulted for unhyphenated words.
+  - runs of three or more identical letters collapse to one for ALIGNMENT
+    only ("piiiiiii" -> "pi"); display text is untouched.
+  - CTC emissions are cached in the work dir, so a re-run after nudging a
+    stamp takes seconds instead of a model pass.
+  - "pin the first word to its stamp" was measured and REJECTED: it only
+    helps when stamps are exact acoustic onsets and hurts with human stamps.
 """
 
 import os
@@ -55,16 +78,25 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
+# Bumped when the output of the same inputs changes. The game compares the shipped copy's
+# version with the installed one and offers a reinstall; `--version` prints it.
+ALIGNER_VERSION = "2"
+
 SAMPLE_RATE = 16000
 FRAME_SAMPLES = 320          # wav2vec2 stride: 20 ms at 16 kHz
 FRAME_SEC = FRAME_SAMPLES / SAMPLE_RATE
 
 TS_RE = re.compile(r"\s*\[(\d+):(\d{1,2}(?:\.\d+)?)\]\s*")
 VOWELS = set("aeiouy")
+HYPHENS = "-‐‑‒–—"   # authored syllable boundaries inside a word
 
-REF_SLACK_BEFORE_S = 0.75    # line window opens this much before its stamp
-REF_SLACK_AFTER_S = 0.50     # ... and closes this much after the next stamp
-DEAD_MARGIN = 0.08           # below this a line is considered evidence-free
+# ref mode windows are EXACTLY [stamp, next stamp). The former 0.75 s / 0.5 s slack let a line
+# open onto the previous line's tail, where repeated syllables ("pata" after "patapim") gave the
+# CTC a cheaper path than the true onset; measured corpus-wide, zero slack is better under
+# exact and under early stamps alike (see the module docstring).
+REF_SLACK_BEFORE_S = 0.0
+REF_SLACK_AFTER_S = 0.0
+DEAD_MARGIN = 0.08           # auto mode: below this a line is considered evidence-free
 ANCHOR_MARGIN = 0.25         # auto mode: lines above this anchor their region
 MIN_ANCHOR_CHARS = 6
 
@@ -88,6 +120,7 @@ class Word:
     prob: float = 0.0            # raw mean char probability
     untimed: bool = False
     syllables: list = field(default_factory=list)  # list[dict]
+    authored: bool = False       # the display carries hyphens: tokens ARE the syllables
 
 
 @dataclass
@@ -126,9 +159,31 @@ def parse_lyrics(path: Path):
     return lines, ref_end_ms
 
 
+def fold_accents(text: str) -> str:
+    """è -> e, ñ -> n: decompose and drop the combining marks. The MMS_FA dictionary is a-z plus
+    apostrophe, so an accented letter that is not folded is DROPPED by the dictionary filter,
+    which used to make "è" an untimed word and align "perché" as "perch"."""
+    return "".join(ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch))
+
+
+def collapse_runs(text: str) -> str:
+    """Three or more identical letters in a row become one, for the ALIGNMENT text only: a
+    stretched "piiiiiii" is one sung vowel, and CTC would otherwise demand a blank between every
+    pair. Doubles are kept ("carry", "brr"): no word carries a triple, so nothing real is lost."""
+    return re.sub(r"(.)\1{2,}", r"\1", text)
+
+
+def split_fragments(display: str) -> list:
+    """The pieces an authored hyphen separates ("pa-ta-pim" -> ["pa", "ta", "pim"]); pieces with
+    no word character are dropped. A word without hyphens is one fragment."""
+    parts = [p for p in re.split(f"[{re.escape(HYPHENS)}]", display) if re.search(r"\w", p)]
+    return parts if len(parts) > 1 else [display]
+
+
 def normalize_word(display: str, dict_chars: set, num2words_fn) -> list:
     """Display word -> list of alignable tokens (letters/apostrophes only)."""
     w = unicodedata.normalize("NFKC", display).lower()
+    w = fold_accents(w)
     w = w.replace("’", "'").replace("‘", "'").replace("`", "'")
     tokens = []
     for part in re.split(r"(\d+)", w):
@@ -141,10 +196,46 @@ def normalize_word(display: str, dict_chars: set, num2words_fn) -> list:
             tokens.append(part)
     out = []
     for t in tokens:
-        t = "".join(ch for ch in t if ch in dict_chars)
+        t = collapse_runs("".join(ch for ch in t if ch in dict_chars))
         if t:
             out.append(t)
     return out
+
+
+def normalize_display(display: str, dict_chars: set, num2words_fn):
+    """A display word -> (tokens, authored). Authored hyphens make each fragment ONE token that
+    is also one syllable; otherwise the word normalizes as a whole and pyphen decides the split."""
+    frags = split_fragments(display)
+    if len(frags) == 1:
+        return normalize_word(display, dict_chars, num2words_fn), False
+    tokens = ["".join(normalize_word(f, dict_chars, num2words_fn)) for f in frags]
+    return [t for t in tokens if t], True
+
+
+# Pinned by `--self-test-normalize` (standard library only, like the syllable self-test).
+NORMALIZE_CASES = {
+    # accents fold instead of vanishing
+    "è": ["e"], "perché": ["perche"], "señor": ["senor"], "naïve": ["naive"],
+    # stretched vowels collapse; doubles survive
+    "piiiiiiiii": ["pi"], "brr": ["brr"], "carry": ["carry"], "Nooooo!": ["no"],
+    # authored hyphens are the syllables
+    "pa-ta-pim": ["pa", "ta", "pim"], "Patapi-pi,": ["patapi", "pi"], "well-known": ["well", "known"],
+    # everything else is unchanged
+    "don't": ["don't"], "Hello,": ["hello"],
+}
+
+
+def self_test_normalize() -> int:
+    dict_chars = set("abcdefghijklmnopqrstuvwxyz'")
+    failed = []
+    for word, want in NORMALIZE_CASES.items():
+        got, _ = normalize_display(word, dict_chars, lambda n: str(n))
+        if got != want:
+            failed.append((word, got, want))
+    for word, got, want in failed:
+        print(f"FAIL {word!r}: got {got}, expected {want}")
+    print(f"normalize self-test: {len(NORMALIZE_CASES) - len(failed)}/{len(NORMALIZE_CASES)}")
+    return 1 if failed else 0
 
 
 # --------------------------------------------------------------------------
@@ -567,6 +658,47 @@ def write_outputs(out_dir: Path, stem: str, audio_name: str, lines: list,
         json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
+def validate_and_repair(lines: list, song_end_ms: int) -> list:
+    """
+    The loader collapses a run of identical word spans into zero-length points, so an output must
+    never carry two timed words at the same start, a word that ends before it starts, or a time
+    outside the song. Trivial cases are repaired in place (a 1 ms nudge, a 20 ms minimum width)
+    and reported; a structural failure (lines out of order) raises, because the map it would
+    produce is wrong in a way no nudge fixes.
+    """
+    notes = []
+    prev_start = -1
+    for li, ln in enumerate(lines):
+        timed = [w for w in ln.words if not w.untimed]
+        for w in timed:
+            if w.start_ms <= prev_start:
+                notes.append(f"line {li + 1}: '{w.display}' started at/before the previous word; nudged +{prev_start + 1 - w.start_ms} ms")
+                w.start_ms = prev_start + 1
+            if w.end_ms < w.start_ms + 20:
+                w.end_ms = w.start_ms + 20
+            if w.syllables:
+                w.syllables[0]["start_ms"] = w.start_ms
+                for k in range(1, len(w.syllables)):
+                    if w.syllables[k]["start_ms"] <= w.syllables[k - 1]["start_ms"]:
+                        w.syllables[k]["start_ms"] = w.syllables[k - 1]["start_ms"] + 1
+                for k in range(len(w.syllables) - 1):
+                    w.syllables[k]["end_ms"] = w.syllables[k + 1]["start_ms"]
+                w.syllables[-1]["end_ms"] = max(w.syllables[-1]["end_ms"], w.end_ms)
+            if w.start_ms > song_end_ms:
+                raise RuntimeError(f"line {li + 1}: '{w.display}' is timed at {w.start_ms} ms, after the song ends ({song_end_ms} ms)")
+            prev_start = w.start_ms
+        if timed:
+            ln.start_ms = timed[0].start_ms
+            ln.end_ms = max(ln.end_ms, max(w.end_ms for w in timed))
+    # A line with no alignable characters at all ("...", a bare number the dictionary lost) carries
+    # no timing (0 ms, as it always has) and is dropped by the loader, so it takes no part here.
+    placed = [(i, ln) for i, ln in enumerate(lines) if any(not w.untimed for w in ln.words)]
+    for (pi, prev), (ci, cur) in zip(placed, placed[1:]):
+        if cur.start_ms < prev.start_ms:
+            raise RuntimeError(f"lines {pi + 1} and {ci + 1} are out of order ({prev.start_ms} ms then {cur.start_ms} ms)")
+    return notes
+
+
 def write_report(out_dir: Path, lines: list, voiced, mode: str):
     import numpy as np
 
@@ -689,7 +821,8 @@ def assemble(lines, per_word, voiced, offset_ms, pyphen_dic, n_frames_total):
         w.syllables = []
         base = 0
         for tok in w.tokens:
-            parts = syllabify_token(tok, pyphen_dic)
+            # An authored fragment IS a syllable; only unhyphenated words consult pyphen.
+            parts = [tok] if w.authored else syllabify_token(tok, pyphen_dic)
             off = 0
             for p in parts:
                 seg = ws[base + off: base + off + len(p)]
@@ -775,10 +908,12 @@ def align_ref_mode(lines, ref_end_ms, log_probs, dictionary, star_id, voiced,
     char_dur = median_char_dur_frames(per_word, lines)
     char_dur_holder.append(char_dur)
     for i, ln in enumerate(lines):
-        m = line_margin_of(per_word, lines, i)
-        if m >= DEAD_MARGIN:
+        # The CTC path is kept whatever its margin (version 2): even pacing used to replace a
+        # third of all lines, most of which had usable evidence, and lost corpus-wide. Only a line
+        # the aligner could not place at all (window too short for its characters) is paced
+        # from the stamp, the one thing known to be true about it.
+        if any((i, wi) in per_word for wi in range(len(ln.words))):
             continue
-        # evidence-free: pace chars from the stamp itself (human truth)
         f0 = int(stamps[i] / 1000.0 / FRAME_SEC)
         if i + 1 < len(lines):
             f1 = int(stamps[i + 1] / 1000.0 / FRAME_SEC)
@@ -957,7 +1092,7 @@ def main():
     dropped = set()
     for ln in lines:
         for w in ln.words:
-            w.tokens = normalize_word(w.display, dict_chars, num2words)
+            w.tokens, w.authored = normalize_display(w.display, dict_chars, num2words)
             w.norm = "".join(w.tokens)
             if not w.norm:
                 w.untimed = True
@@ -965,9 +1100,18 @@ def main():
     if dropped:
         log(f"untimed words (no alignable chars): {sorted(dropped)}")
 
-    # ---- emissions
-    log("computing emissions...")
-    log_probs = compute_emissions(model, wav, args.device, args.window_s, args.context_s)
+    # ---- emissions (cached: the model pass depends on the audio alone, not on the lyrics or
+    # the anchor mode, and it is the slow part of every re-run after a stamp is nudged)
+    import hashlib
+    audio_key = hashlib.sha256(wav.numpy().tobytes()).hexdigest()[:16]
+    emission_cache = work / f"emissions_{audio_key}_w{args.window_s:g}_c{args.context_s:g}_star.pt"
+    if emission_cache.exists():
+        log(f"emissions: cached ({emission_cache.name})")
+        log_probs = torch.load(emission_cache, weights_only=True)
+    else:
+        log("computing emissions...")
+        log_probs = compute_emissions(model, wav, args.device, args.window_s, args.context_s)
+        torch.save(log_probs, emission_cache)
     log(f"emissions: {log_probs.size(0)} frames x {log_probs.size(1)} labels")
 
     rms = frame_rms(wav)
@@ -990,12 +1134,17 @@ def main():
     assemble(lines, per_word, voiced, args.offset_ms, pyphen_dic, log_probs.size(0))
 
     song_end_ms = int(dur_s * 1000)
+    repairs = validate_and_repair(lines, song_end_ms)
+    for note in repairs:
+        log(f"validator: {note}")
     meta = {
         "separator": ("none" if args.no_separate else args.demucs_model),
         "aligner": "torchaudio MMS_FA (wav2vec2 CTC forced alignment)",
+        "aligner_version": ALIGNER_VERSION,
         "anchor_mode": mode,
         "language": args.language,
         "offset_ms": args.offset_ms,
+        "repairs": len(repairs),
     }
     write_outputs(out_dir, stem, args.audio.name, lines, song_end_ms, meta)
     report = write_report(out_dir, lines, voiced, mode)
@@ -1006,6 +1155,11 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--version" in sys.argv:
+        print(ALIGNER_VERSION)
+        sys.exit(0)
     if "--self-test-syllables" in sys.argv:
         sys.exit(self_test_syllables())
+    if "--self-test-normalize" in sys.argv:
+        sys.exit(self_test_normalize())
     main()

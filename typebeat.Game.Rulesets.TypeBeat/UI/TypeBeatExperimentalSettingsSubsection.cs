@@ -80,8 +80,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 },
                 installButton = new SettingsButton
                 {
-                    Text = alignerManager?.IsInstalled == true ? "Reinstall local auto-aligner" : "Install local auto-aligner (~2 GB)",
-                    TooltipText = "One-time download of the AI that times lyrics word-by-word on your own machine, recommended if you have a good GPU. Installs the GPU build automatically when an NVIDIA card is detected.",
+                    Text = InstallButtonText(alignerManager),
+                    TooltipText = alignerManager?.UpdateAvailable == true
+                        ? "This build ships a newer aligner than the one installed. Updating replaces the scripts and clears the old aligner's caches; the environment already downloaded is kept, so it takes seconds."
+                        : "One-time download of the AI that times lyrics word-by-word on your own machine, recommended if you have a good GPU. Installs the GPU build automatically when an NVIDIA card is detected.",
                     Action = startInstall,
                 },
             };
@@ -92,6 +94,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 installButton.Enabled.Value = false;
 
             return controls;
+        }
+
+        /// <summary>
+        /// What the one button offers: a first install, a plain reinstall, or, when the build ships
+        /// a newer aligner than the one installed, an update naming both versions so a player can
+        /// see why pressing it changes anything. Public static so the test can pin the three texts
+        /// without a manager to resolve.
+        /// </summary>
+        public static string InstallButtonText(ILocalAlignerManager? manager)
+        {
+            if (manager?.IsInstalled != true)
+                return "Install local auto-aligner (~2 GB)";
+
+            if (manager.UpdateAvailable)
+                return $"Update local auto-aligner (v{manager.InstalledVersion ?? "1"} → v{manager.ShippedVersion})";
+
+            return "Reinstall local auto-aligner";
         }
 
         private void startInstall()
@@ -137,7 +156,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     Schedule(() =>
                     {
                         if (result.Success)
-                            installButton.Text = "Reinstall local auto-aligner";
+                            installButton.Text = InstallButtonText(alignerManager);
 
                         installButton.Enabled.Value = true;
                     });

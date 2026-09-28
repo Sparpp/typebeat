@@ -73,7 +73,9 @@ namespace typebeat.Game.Overlays.FirstRunSetup
             {
                 installButton.Enabled.Value = false;
                 installButton.Complete();
-                statusText.Text = "The local auto-aligner is already installed.";
+                statusText.Text = alignerManager.UpdateAvailable
+                    ? "The local auto-aligner is installed, and this build ships a newer one: press Update in Settings > Experimental to refresh it (seconds; the downloaded environment is kept)."
+                    : "The local auto-aligner is already installed.";
                 return;
             }
 
