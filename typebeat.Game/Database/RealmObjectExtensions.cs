@@ -52,6 +52,9 @@ namespace typebeat.Game.Database
             c.CreateMap<BeatmapSetInfo, BeatmapSetInfo>()
              .ConstructUsing(_ => new BeatmapSetInfo(null))
              .ForMember(s => s.Beatmaps, cc => cc.Ignore())
+             // User data, like BeatmapInfo.UserSettings above: a detached copy taken before a song select
+             // toggle must not write the stale value back on an editor save.
+             .ForMember(s => s.IntroPoolInclusion, cc => cc.Ignore())
              .AfterMap((s, d) =>
              {
                  foreach (var beatmap in s.Beatmaps)

@@ -116,8 +116,12 @@ namespace typebeat.Game.Database
         ///                    typing font and its optionally bundled file). No migration body: unlike
         ///                    AudioGain, realm's own default for a required string column (empty)
         ///                    already means "no font chosen" for every existing row.
+        /// 58   2026-09-28    Added IntroPoolInclusion to BeatmapSetInfo: "Use on game intro" is a per-SET
+        ///                    toggle now. Each set's value is derived from the old per-difficulty
+        ///                    BeatmapUserSettings.IntroPoolInclusion (any true wins, all false stays out,
+        ///                    anything else follows the beatdrops); the old field stays, unread.
         /// </summary>
-        private const int schema_version = 57;
+        private const int schema_version = 58;
 
         /// <summary>
         /// Lock object which is held during <see cref="BlockAllOperations"/> sections, blocking realm retrieval during blocking periods.
@@ -1369,6 +1373,20 @@ namespace typebeat.Game.Database
                         if (selectBackToTypoBinding?.KeyCombination.Keys.SequenceEqual(new[] { InputKey.Control, InputKey.A }) == true)
                             realm.Remove(selectBackToTypoBinding);
                     }
+
+                    break;
+                }
+
+                case 58:
+                {
+                    // "Use on game intro" moved from each difficulty to the set. Carry every stored
+                    // per-difficulty override over to its set (see IntroBeatdropPool.DeriveSetInclusion
+                    // for the rule). The old BeatmapUserSettings field is left in place, unread.
+                    // The realm is held in a local for the reason given in case 56 above.
+                    Realm realm = migration.NewRealm;
+
+                    foreach (var set in realm.All<BeatmapSetInfo>())
+                        set.IntroPoolInclusion = Screens.Menu.IntroBeatdropPool.DeriveSetInclusion(set.Beatmaps.Select(b => b.UserSettings?.IntroPoolInclusion));
 
                     break;
                 }

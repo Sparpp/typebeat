@@ -125,24 +125,31 @@ namespace typebeat.Game.Screens.Menu
             // map that has since gone away resolves to nothing and falls straight through to the pool.
             var demo = IntroBeatdropDemo.Consume(storage);
 
-            var demoBeatmap = IntroBeatdropDemo.Resolve(demo, id => realm.Run(r =>
+            // The demo goes through the same set resolution as a real intro (IntroBeatdropPool.PickFromSet),
+            // so it plays what the pool would play for this set: the highest star difficulty that declares a
+            // beatdrop. The demoed difficulty's own beatdrop is taken from the handoff (the value that was on
+            // screen in the editor) rather than re-read from its file.
+            var demoPick = IntroBeatdropDemo.Resolve(demo, id => realm.Run(r =>
             {
                 var demoInfo = r.Find<BeatmapInfo>(id);
 
-                // GetWorkingBeatmap hands back the dummy rather than null for a map it cannot read.
-                var resolved = demoInfo == null ? null : beatmaps.GetWorkingBeatmap(demoInfo);
-                return resolved is DummyWorkingBeatmap ? null : resolved;
+                if (demoInfo?.BeatmapSet == null)
+                    return null;
+
+                // Membership is passed as an opt-in: a demo overrules the pool (see below).
+                var pick = pickFromSet(demoInfo.BeatmapSet, true, demoInfo.ID, demo!.DropTime);
+                return pick == null ? null : Tuple.Create(pick.Value.Difficulty, pick.Value.DropTime);
             }));
 
-            if (demoBeatmap != null)
+            if (demoPick != null)
             {
                 // A demo overrules everything the pool would have decided: intro pool membership
-                // (BeatmapUserSettings.IntroPoolInclusion, the song select "Use on game intro" toggle) is
+                // (BeatmapSetInfo.IntroPoolInclusion, the song select "Use on game intro" toggle) is
                 // neither read nor written, the anti-repeat history is left alone because a demo is not a
                 // real intro appearance, and MenuMusic is ignored because a silent demo demos nothing.
-                initialBeatmap = demoBeatmap;
-                beatdropTime = demo.DropTime;
-                Logger.Log($"Intro beatdrop demo: {initialBeatmap.Metadata.Artist} - {initialBeatmap.Metadata.Title} (drop at {beatdropTime:0}ms)");
+                initialBeatmap = demoPick.Item1;
+                beatdropTime = demoPick.Item2;
+                Logger.Log($"Intro beatdrop demo: {initialBeatmap.Metadata.Artist} - {initialBeatmap.Metadata.Title} [{initialBeatmap.BeatmapInfo.DifficultyName}] (drop at {beatdropTime:0}ms)");
             }
             // The intro is soundtracked by a random user beatmap from the intro pool (by default the
             // maps that declare an intro beatdrop, see IntroBeatdropPool): subclasses start the track
@@ -173,35 +180,18 @@ namespace typebeat.Game.Screens.Menu
 
                     foreach (var setInfo in ordered)
                     {
-                        foreach (var beatmapInfo in setInfo.Beatmaps)
-                        {
-                            bool? inclusion = beatmapInfo.UserSettings.IntroPoolInclusion;
+                        // Per SET: an explicit set-level false costs no decode; otherwise the set's
+                        // difficulties are decoded highest star first and the walk stops at the first
+                        // beatdrop, which is the one that plays (see IntroBeatdropPool.PickFromSet).
+                        var pick = pickFromSet(setInfo, setInfo.IntroPoolInclusion);
 
-                            // A map the user has explicitly kept out of the pool costs nothing: no decode.
-                            if (inclusion == false)
-                                continue;
+                        if (pick == null)
+                            continue;
 
-                            try
-                            {
-                                var working = beatmaps.GetWorkingBeatmap(beatmapInfo);
-                                double? drop = working.Beatmap.IntroBeatdropTime;
-
-                                if (!IntroBeatdropPool.IsCandidate(inclusion, drop.HasValue))
-                                    continue;
-
-                                initialBeatmap = working;
-                                beatdropTime = IntroBeatdropPool.ResolveDropTime(drop, beatmapInfo.Metadata.PreviewTime);
-                                selectedSetId = setInfo.ID;
-                                break;
-                            }
-                            catch
-                            {
-                                // an unreadable/corrupt map shouldn't block startup, try the next one.
-                            }
-                        }
-
-                        if (initialBeatmap != null)
-                            break;
+                        initialBeatmap = pick.Value.Difficulty;
+                        beatdropTime = pick.Value.DropTime;
+                        selectedSetId = setInfo.ID;
+                        break;
                     }
                 });
 
@@ -216,6 +206,36 @@ namespace typebeat.Game.Screens.Menu
 
             AddInternal(new GlobalScrollAdjustsVolume());
         }
+
+        /// <summary>
+        /// Resolves one set through <see cref="IntroBeatdropPool.PickFromSet{TIn,TOut}"/>, decoding its
+        /// difficulties through <see cref="beatmaps"/>. An unreadable or corrupt difficulty is skipped rather
+        /// than allowed to block startup.
+        /// </summary>
+        /// <param name="setInfo">The set, live in realm.</param>
+        /// <param name="inclusion">The set's intro pool override.</param>
+        /// <param name="overrideBeatmapId">A difficulty whose beatdrop is supplied by the caller rather than read from its file (the demo).</param>
+        /// <param name="overrideDropTime">That difficulty's beatdrop.</param>
+        private (WorkingBeatmap Difficulty, double DropTime)? pickFromSet(BeatmapSetInfo setInfo, bool? inclusion, Guid? overrideBeatmapId = null, double overrideDropTime = 0)
+            => IntroBeatdropPool.PickFromSet<BeatmapInfo, WorkingBeatmap>(setInfo.Beatmaps, b => b.StarRating, inclusion, beatmapInfo =>
+            {
+                try
+                {
+                    var working = beatmaps.GetWorkingBeatmap(beatmapInfo);
+
+                    // GetWorkingBeatmap hands back the dummy rather than null for a map it cannot read.
+                    if (working is DummyWorkingBeatmap)
+                        return null;
+
+                    double? drop = beatmapInfo.ID == overrideBeatmapId ? overrideDropTime : working.Beatmap.IntroBeatdropTime;
+                    return (working, drop, beatmapInfo.Metadata.PreviewTime);
+                }
+                catch
+                {
+                    // an unreadable/corrupt map shouldn't block startup, try the next one.
+                    return null;
+                }
+            });
 
         private const string beatdrop_history_filename = "intro_beatdrop_history.txt";
 

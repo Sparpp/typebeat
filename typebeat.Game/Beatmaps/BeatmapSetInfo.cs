@@ -63,6 +63,25 @@ namespace typebeat.Game.Beatmaps
         /// </summary>
         public bool Protected { get; set; }
 
+        /// <summary>
+        /// Whether this set may be picked to soundtrack the game intro, overriding the default (which is
+        /// "yes if ANY of its difficulties declares an intro beatdrop", see <see cref="IBeatmap.IntroBeatdropTime"/>).
+        /// <c>null</c> means no override: follow the beatdrops. <c>false</c> keeps a beatdrop-carrying set out
+        /// of the pool without touching any authored timestamp; <c>true</c> opts a set with no beatdrop in.
+        /// Decided by the "Use on game intro" song select context menu toggle on the set panel and read by
+        /// <see cref="Screens.Menu.IntroBeatdropPool"/>.
+        /// </summary>
+        /// <remarks>
+        /// This is user data, not map content: it lives in realm rather than in any beatmap file so that
+        /// toggling it never re-encodes (and never un-ranks) a map, and so that an accidental untick cannot
+        /// destroy a hand-found beatdrop timestamp. It replaced the per-difficulty
+        /// <see cref="BeatmapUserSettings.IntroPoolInclusion"/> at realm schema 58, whose migration derived
+        /// this value from the old per-difficulty overrides. It is deliberately NOT copied by the realm write
+        /// mapper (see <c>RealmObjectExtensions</c>): an editor save of a set detached before a toggle would
+        /// otherwise silently revert the toggle.
+        /// </remarks>
+        public bool? IntroPoolInclusion { get; set; }
+
         public double MaxStarDifficulty => Beatmaps.Count == 0 ? 0 : Beatmaps.Max(b => b.StarRating);
 
         public double MaxLength => Beatmaps.Count == 0 ? 0 : Beatmaps.Max(b => b.Length);
