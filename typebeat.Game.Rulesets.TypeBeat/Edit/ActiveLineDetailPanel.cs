@@ -87,8 +87,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             // thing that gets squeezed off the right edge.
                             actionRow("line", new[]
                             {
-                                actionButton("add @ playhead", addAtPlayhead, line_button_width),
-                                actionButton("split @ word (S)", splitAtSelectedWord, line_button_width),
+                                // Named for what they make; WHERE is in the tooltip (the playhead, the
+                                // selected word), since the "@" labels read as jargon (backlog 336).
+                                actionButton("add line", addAtPlayhead, line_button_width, "Adds a new line at the playhead"),
+                                actionButton("split line (S)", splitAtSelectedWord, line_button_width, "Splits the line in two at the selected word"),
                                 actionButton("merge next (M)", mergeNext, line_button_width),
                                 actionButton("delete line", deleteLine, line_button_width),
                             }, new Drawable[]
@@ -160,12 +162,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Width of the two mode toggles, which carry a smaller label font to match.</summary>
         private const float toggle_width = 92;
 
-        private static RoundedButton actionButton(string text, System.Action action, float width = 108) => new RoundedButton
+        private static RoundedButton actionButton(string text, System.Action action, float width = 108, string? tooltip = null) => new RoundedButton
         {
             Text = text,
             Action = action,
             Width = width,
             Height = 30,
+            TooltipText = tooltip ?? string.Empty,
         };
 
         /// <summary>
@@ -285,7 +288,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 // advice about something that does not exist: point at the two ways to author the
                 // very first line instead.
                 header.Text = editorBeatmap.HitObjects.Count == 0
-                    ? "no lyrics yet, press \"add @ playhead\" above (or double-click the timeline) to write the first line"
+                    ? "no lyrics yet, press \"add line\" above (or double-click the timeline) to write the first line"
                     : "no line, click one, or double-click a gap in the timeline to add";
                 timing.Text = string.Empty;
                 return;

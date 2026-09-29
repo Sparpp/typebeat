@@ -32,6 +32,12 @@ namespace typebeat.Game.Screens.Edit
 
         public double TrackLength => track.Value?.IsLoaded == true ? track.Value.Length : 60000;
 
+        /// <summary>
+        /// The track's real length, or null while no track is loaded (where <see cref="TrackLength"/>
+        /// answers a 60 second placeholder that must not be mistaken for the song's end).
+        /// </summary>
+        public double? LoadedTrackLength => track.Value?.IsLoaded == true && track.Value.Length > 0 ? track.Value.Length : null;
+
         public AudioAdjustments AudioAdjustments { get; } = new AudioAdjustments();
 
         public ControlPointInfo ControlPointInfo => Beatmap.ControlPointInfo;

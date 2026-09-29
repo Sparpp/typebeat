@@ -139,6 +139,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             base.LoadComplete();
 
+            // The last line has no following line to wall it, so the operations cap it at the song's
+            // end instead (backlog 336). Live, because the track can finish loading after this.
+            TypeBeatEditorOperations.SetTrackLengthSource(EditorBeatmap, () => editorClock.LoadedTrackLength);
+
             // CanPaste tracks whether the clipboard currently holds one of our timing payloads
             // (parse once per content change, not per frame). CanCopy is kept fresh in Update.
             clipboard.Content.BindValueChanged(content =>

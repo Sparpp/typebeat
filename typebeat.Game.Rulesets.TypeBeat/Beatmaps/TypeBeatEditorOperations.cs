@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using typebeat.Game.Screens.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
@@ -353,12 +354,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         public static void SetSingEnd(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, double newSingEnd)
         {
-            var ordered = orderedLines(editorBeatmap);
-            bool isLast = ordered.Count > 0 && ordered[^1] == hitObject;
+            bool isLast = isLastLine(editorBeatmap, hitObject);
 
             var line = hitObject.Line;
             double singEndMin = line.StartTime + MIN_SPAN_MS;
-            double singEndMax = isLast ? double.MaxValue : line.EndTime;
+            double singEndMax = isLast ? lastLineCap(editorBeatmap, line) : line.EndTime;
 
             // A non-last line shorter than MIN_SPAN_MS has no movable sung-end; no-op rather than
             // clamp into an inverted [min, max] (which would crash Math.Clamp).
@@ -369,8 +369,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             // The last line's typeable window is derived on reload as min(song_end, singEnd + tail),
             // so it must stay within [singEnd, singEnd + tail] or the reload clamps it differently
-            // than the editor showed.
-            double newEnd = isLast ? Math.Clamp(line.EndTime, newSingEnd, newSingEnd + LAST_LINE_TAIL_MS) : line.EndTime;
+            // than the editor showed. It follows the sung end with the tail it already had
+            // (backlog 336), the same derivation a word-timed last line gets.
+            double newEnd = isLast ? lastLineEnd(line, newSingEnd, singEndMax) : line.EndTime;
 
             editorBeatmap.BeginChange();
             hitObject.Line = rebuild(line,
@@ -397,7 +398,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return;
 
             double lower = unitIndex > 0 ? line.Units[unitIndex - 1].EndTime : line.StartTime;
-            double upper = unitIndex < line.Units.Count - 1 ? line.Units[unitIndex + 1].StartTime : line.EndTime;
+            double upper = unitCeiling(editorBeatmap, hitObject, unitIndex);
 
             // The neighbours (or the line window) leave this unit less than MIN_SPAN_MS of room;
             // there is nowhere to retime it to. No-op rather than clamp into an inverted range.
@@ -506,7 +507,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double duration = current.EndTime - current.StartTime;
 
             double lower = unitIndex > 0 ? line.Units[unitIndex - 1].EndTime : line.StartTime;
-            double upper = unitIndex < line.Units.Count - 1 ? line.Units[unitIndex + 1].StartTime : line.EndTime;
+            double upper = unitCeiling(editorBeatmap, hitObject, unitIndex);
 
             // No room to fit the word whole between its neighbours; stop rather than resize it.
             if (upper - lower < duration)
@@ -577,13 +578,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         // End edge moves, start fixed: bounded by MIN_SPAN width and the right
                         // neighbour's start (fixed in this mode).
                         low = (s + MIN_SPAN_MS) - e;
-                        high = (i < count - 1 ? line.Units[i + 1].StartTime : line.EndTime) - e;
+                        high = unitCeiling(editorBeatmap, hitObject, i) - e;
                         break;
 
                     default: // Move, bounded only by the nearest NON-selected neighbours, since the
                              // selected units all translate together and keep their relative spacing.
                         low = nearestNonSelectedEnd(line, selected, i) - s;
-                        high = nearestNonSelectedStart(line, selected, i) - e;
+                        high = nearestNonSelectedStart(editorBeatmap, hitObject, selected, i) - e;
                         break;
                 }
 
@@ -646,15 +647,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return line.StartTime;
         }
 
-        private static double nearestNonSelectedStart(LyricLine line, HashSet<int> selected, int i)
+        private static double nearestNonSelectedStart(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, HashSet<int> selected, int i)
         {
+            var line = hitObject.Line;
+
             for (int j = i + 1; j < line.Units.Count; j++)
             {
                 if (!selected.Contains(j))
                     return line.Units[j].StartTime;
             }
 
-            return line.EndTime;
+            // Every word to the right is in the group: the wall is the last word's ceiling, which
+            // for the LAST line is the song's end rather than its derived EndTime.
+            return unitCeiling(editorBeatmap, hitObject, line.Units.Count - 1);
         }
 
         /// <summary>Writes one unit's [start, end] back (Explicit, trusted), clearing Estimated and promoting granularity.
@@ -1291,7 +1296,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 var anchor = line.Units[insertAt - 1];
                 double anchorSpan = anchor.EndTime - anchor.StartTime;
                 double lo = anchor.EndTime;
-                double hi = insertAt < n ? line.Units[insertAt].StartTime : line.EndTime;
+                // An append at the tail of the LAST line is walled by the song, not by the line's
+                // derived EndTime, which then grows to take the new word (backlog 336).
+                double hi = insertAt < n ? line.Units[insertAt].StartTime : unitCeiling(editorBeatmap, hitObject, n - 1);
 
                 var rebuilt = line.Units.ToList();
                 double start, end;
@@ -1331,10 +1338,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             newTokens.Insert(insertAt, normalized);
             string rawText = string.Join(' ', newTokens);
 
+            // The clamp window for the carved units: the line's own for an interior line, but the
+            // appended word of the LAST line may sit past its current EndTime (the sync below then
+            // moves EndTime out to it), so it must not be clamped back in first.
+            double unitWindowEnd = Math.Max(line.EndTime, units.Count > 0 ? units[^1].EndTime : line.EndTime);
+
             editorBeatmap.BeginChange();
             hitObject.Line = rebuild(line,
                 rawText: rawText,
-                units: unitsFor(hitObject, rawText, units, line.StartTime, line.SingEndTime, line.EndTime));
+                units: unitsFor(hitObject, rawText, units, line.StartTime, line.SingEndTime, unitWindowEnd));
             editorBeatmap.Update(hitObject);
             // Bisecting the anchor can strip subdivisions that no longer fit inside its half.
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
@@ -1658,10 +1670,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             editorBeatmap.EndChange();
         }
 
+        /// <summary>The least span an APPENDED line (one with no following line) is given, see <see cref="AppendSpanFor"/>.</summary>
+        public const double DEFAULT_APPEND_SPAN_MS = 2000;
+
+        /// <summary>How much of an appended line's span each of its words claims, see <see cref="AppendSpanFor"/>.</summary>
+        public const double APPEND_SPAN_PER_WORD_MS = 400;
+
+        /// <summary>
+        /// The span an appended line is given for its text: <see cref="APPEND_SPAN_PER_WORD_MS"/> per
+        /// word, never less than <see cref="DEFAULT_APPEND_SPAN_MS"/>.
+        /// </summary>
+        public static double AppendSpanFor(string text)
+            => Math.Max(DEFAULT_APPEND_SPAN_MS, APPEND_SPAN_PER_WORD_MS * text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length);
+
         /// <summary>
         /// Inserts a new line at the given time with placeholder text. The predecessor's typeable
-        /// window shrinks to end at the new line's start (the boundary invariant); the new line
-        /// runs to where the old window ended (or a default span when appended at the end).
+        /// window shrinks to end at the new line's start (the boundary invariant).
+        ///
+        /// <para>A line INSIDE the map runs to the following line's start, as it always did. An
+        /// APPENDED line (nothing follows it) is the new last line, and the last line has no
+        /// right-hand wall (backlog 336): it gets at least <see cref="AppendSpanFor"/> its text, or the
+        /// window it inherits from the old last line when that reaches further, capped at the song's
+        /// end. Before this, an append INSIDE the old last line's window inherited only what was left of
+        /// that window (200 ms before its end gave a 200 ms line with its words squashed into it), while
+        /// one a few pixels later, past the window, got a full default span: two opposite results for
+        /// the same gesture.</para>
         /// </summary>
         public static TypeBeatHitObject? AddLine(EditorBeatmap editorBeatmap, double startTime, string text = "new line")
         {
@@ -1683,9 +1716,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             var previous = ordered.LastOrDefault(o => o.Line.StartTime < startTime);
             var following = ordered.FirstOrDefault(o => o.Line.StartTime > startTime);
 
-            // end == the true next line's start keeps the boundary invariant EndTime_i == StartTime_(i+1).
-            double end = following?.Line.StartTime ?? (previous?.Line.EndTime is double prevEnd && prevEnd > startTime + MIN_SPAN_MS ? prevEnd : startTime + 2000);
-            double singEnd = Math.Min(end, startTime + Math.Max(MIN_SPAN_MS, (end - startTime) * 0.8));
+            double end, singEnd;
+
+            if (following != null)
+            {
+                // end == the true next line's start keeps the boundary invariant EndTime_i == StartTime_(i+1).
+                end = following.Line.StartTime;
+                singEnd = Math.Min(end, startTime + Math.Max(MIN_SPAN_MS, (end - startTime) * 0.8));
+            }
+            else
+            {
+                // The new LAST line: a sensible span of its own, or the old last line's reach when
+                // that is further, capped at the song's end (never below MIN_SPAN_MS).
+                double inherited = previous?.Line.EndTime ?? double.NegativeInfinity;
+                double cap = Math.Max(startTime + MIN_SPAN_MS, TrackLengthOf(editorBeatmap));
+
+                end = Math.Min(Math.Max(startTime + AppendSpanFor(normalized), inherited), cap);
+                singEnd = Math.Min(end, startTime + Math.Max(MIN_SPAN_MS, (end - startTime) * 0.8));
+
+                // Reload derives a last line's window as min(song_end, singEnd + tail), so the tail
+                // may not exceed LAST_LINE_TAIL_MS or the reopened map shows a shorter line.
+                singEnd = Math.Max(singEnd, end - LAST_LINE_TAIL_MS);
+            }
 
             editorBeatmap.BeginChange();
 
@@ -2932,6 +2984,69 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>A line's last word end, or NaN when it has no units (so any comparison reads as "moved").</summary>
         private static double lastUnitEnd(LyricLine line) => line.Units.Count > 0 ? line.Units[^1].EndTime : double.NaN;
 
+        private static readonly ConditionalWeakTable<EditorBeatmap, Func<double?>> track_length_sources = new ConditionalWeakTable<EditorBeatmap, Func<double?>>();
+
+        /// <summary>
+        /// Tells the operations how long the song is for <paramref name="editorBeatmap"/>, as a live
+        /// source (the track may finish loading after the editor opens). The source answers null while
+        /// the length is unknown. The only thing that reads it is the LAST line, which has no following
+        /// line to wall it off and is therefore capped by the song itself (see
+        /// <see cref="lastLineCap"/>). Without a source the last line is uncapped.
+        /// </summary>
+        public static void SetTrackLengthSource(EditorBeatmap editorBeatmap, Func<double?> source)
+            => track_length_sources.AddOrUpdate(editorBeatmap, source);
+
+        /// <summary>The registered song length, or +infinity when none is known.</summary>
+        internal static double TrackLengthOf(EditorBeatmap editorBeatmap)
+            => track_length_sources.TryGetValue(editorBeatmap, out var source) && source() is double length && length > 0
+                ? length
+                : double.PositiveInfinity;
+
+        private static bool isLastLine(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject)
+        {
+            var ordered = orderedLines(editorBeatmap);
+            return ordered.Count > 0 && ordered[^1] == hitObject;
+        }
+
+        /// <summary>
+        /// How far the LAST line may reach (backlog 336): the song's end, never tighter than the
+        /// window the line already has (a map whose last line already runs past a shorter track is
+        /// not squeezed by an unrelated edit).
+        /// </summary>
+        private static double lastLineCap(EditorBeatmap editorBeatmap, LyricLine line)
+            => Math.Max(TrackLengthOf(editorBeatmap), line.EndTime);
+
+        /// <summary>
+        /// The latest a line's word <paramref name="unitIndex"/> may END: the next word's start, or,
+        /// for the line's last word, the line's end. The one exception is the last word of the LAST
+        /// line, whose right-hand wall is the song's end rather than the line's own EndTime: the last
+        /// line has no following line, so its EndTime is derived from its last word
+        /// (<see cref="syncSingEndToLastUnit"/>) and would otherwise be a wall that only ever
+        /// shrinks. An interior line keeps the next line's start as its wall.
+        /// </summary>
+        private static double unitCeiling(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < line.Units.Count - 1)
+                return line.Units[unitIndex + 1].StartTime;
+
+            return isLastLine(editorBeatmap, hitObject) ? lastLineCap(editorBeatmap, line) : line.EndTime;
+        }
+
+        /// <summary>
+        /// The LAST line's typeable end for a new sung end: the sung end plus the tail the line
+        /// already carried (EndTime - SingEndTime, kept inside [0, <see cref="LAST_LINE_TAIL_MS"/>]),
+        /// capped at <paramref name="cap"/>. Staying inside [singEnd, singEnd + tail] is what makes it
+        /// reload-stable: the decoder derives min(song_end_ms, end_ms + tail), and the encoder writes
+        /// song_end_ms from this very EndTime.
+        /// </summary>
+        private static double lastLineEnd(LyricLine line, double singEnd, double cap)
+        {
+            double tail = Math.Clamp(line.EndTime - line.SingEndTime, 0, LAST_LINE_TAIL_MS);
+            return Math.Max(singEnd, Math.Min(singEnd + tail, cap));
+        }
+
         /// <summary>
         /// Auto-derives a line's sung end (persisted as end_ms) from its LAST WORD's end. Backlog 246
         /// removed the editor's sung-end marker, so end_ms is no longer authored directly: it follows
@@ -2948,9 +3063,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// flag dragged before this rule existed) keeps that value verbatim until the last word is
         /// itself re-timed, at which point the mapper HAS made a content decision and end_ms follows.</para>
         ///
-        /// <para>The LAST line's typeable window is reload-derived as min(song_end, singEnd + tail),
-        /// so it is re-derived alongside the sung end here for the same reason
-        /// <see cref="SetSingEnd"/> does it.</para>
+        /// <para>The LAST line has no wall on its right (backlog 336). Its EndTime is not a boundary
+        /// with a following line, it is DERIVED: the last word's end plus the tail the line already
+        /// carried (<see cref="lastLineEnd"/>), capped at the song's end. So a last word dragged later
+        /// carries the whole window (and the timeline's grey map zone, which is drawn from the line
+        /// bands) with it, and one pulled earlier shrinks it by the same amount. An interior line keeps
+        /// the next line's start as its EndTime, exactly as before. Both stay reload-stable: the loader
+        /// derives the last line's window as min(song_end, singEnd + tail), and an untouched last line
+        /// never reaches this code at all (the guard above).</para>
         /// </summary>
         private static void syncSingEndToLastUnit(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, double previousLastUnitEnd)
         {
@@ -2965,11 +3085,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (moved == previousLastUnitEnd)
                 return;
 
-            double singEnd = Math.Clamp(moved, line.StartTime, line.EndTime);
-
-            var ordered = orderedLines(editorBeatmap);
-            bool isLast = ordered.Count > 0 && ordered[^1] == hitObject;
-            double end = isLast ? Math.Clamp(line.EndTime, singEnd, singEnd + LAST_LINE_TAIL_MS) : line.EndTime;
+            bool isLast = isLastLine(editorBeatmap, hitObject);
+            double cap = isLast ? lastLineCap(editorBeatmap, line) : line.EndTime;
+            double singEnd = Math.Clamp(moved, line.StartTime, Math.Max(line.StartTime, cap));
+            double end = isLast ? lastLineEnd(line, singEnd, cap) : line.EndTime;
 
             if (singEnd == line.SingEndTime && end == line.EndTime)
                 return;
