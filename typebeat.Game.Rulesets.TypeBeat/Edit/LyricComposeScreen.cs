@@ -464,40 +464,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         }
 
         /// <summary>
-        /// The WORD paste (backlog 343), which both paste gestures reach with a unit payload. It lands
-        /// on the selected word of the active line; with NO word selected it lands on the first word
-        /// of the active line spelled like the copied one
-        /// (<see cref="TypeBeatEditorOperations.UnitPasteAnchor"/>), and never falls back to word zero,
-        /// which re-timed an unrelated word and read as a paste that did nothing. With neither, and
-        /// when the run has no room to land in, it is refused with the panel's error flash.
+        /// The WORD paste, which both paste gestures reach with a unit payload
+        /// (<see cref="TypeBeatEditorOperations.PasteWords"/> holds the whole dispatch). With a word
+        /// of the active line selected it re-times that word and those after it (backlog 343); with
+        /// NO word selected the copied words are INSERTED at the playhead (backlog 344). It never
+        /// falls back to word zero. Every refusal (no room, the playhead outside the line, a payload
+        /// from an older build with no words in it, a line-timed map) changes nothing and flashes the
+        /// panel with its one-line reason.
         /// </summary>
         private void pasteUnitRun(LyricTimingClipboard.UnitTimingsPayload run)
         {
             if (state.ActiveLine.Value is not TypeBeatHitObject line)
                 return;
 
-            bool selected = state.SelectedUnitIndex.Value >= 0;
-            int anchor = TypeBeatEditorOperations.UnitPasteAnchor(line, state.SelectedUnitIndex.Value, run);
+            var result = TypeBeatEditorOperations.PasteWords(EditorBeatmap, line, state.SelectedUnitIndex.Value, editorClock.CurrentTime, run);
 
-            // No word to land on. This is the arm a playhead insertion of the copied word belongs in
-            // (backlog 344); until then it is refused.
-            if (anchor < 0)
+            switch (result.Outcome)
             {
-                refuse(run.Units[0].Text is string text
-                    ? $"Select a word to paste onto (no \"{text}\" on this line)"
-                    : "Select a word to paste onto");
-                return;
-            }
+                case WordPasteOutcome.Inserted:
+                    // The inserted run shows where it went.
+                    state.SelectUnitRange(result.FirstIndex, result.FirstIndex + result.Count - 1);
+                    break;
 
-            if (!TypeBeatEditorOperations.PasteUnitTimings(EditorBeatmap, line, anchor, run))
-            {
-                refuse("No room to paste the copied timing here");
-                return;
-            }
+                case WordPasteOutcome.RetimeNoRoom:
+                    refuse("No room to paste the copied timing here");
+                    break;
 
-            // A paste the text matching placed shows where it went.
-            if (!selected)
-                state.SelectUnit(anchor);
+                case WordPasteOutcome.InsertNoRoom:
+                    refuse("No room at the playhead for the copied word");
+                    break;
+
+                case WordPasteOutcome.OutsideLine:
+                    refuse("Put the playhead inside this line, or select a word, to paste onto it");
+                    break;
+
+                case WordPasteOutcome.NoText:
+                    refuse("This copy has no words to insert: select a word to paste its timing onto");
+                    break;
+
+                case WordPasteOutcome.LineGranularity:
+                    refuse("A line-timed map keeps no word timing: select a word to paste onto");
+                    break;
+            }
         }
 
         private void refuse(string message)

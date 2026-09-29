@@ -3479,31 +3479,166 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             => !string.IsNullOrEmpty(copied.Text) && string.Equals(copied.Text, target.Text, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
-        /// The word a copied run lands on in <paramref name="hitObject"/> (backlog 343), or -1 when
-        /// there is none. A selected word (<paramref name="selectedIndex"/> at or above 0) is the
-        /// anchor as is. With NO word selected it is the first word spelled like the run's first
-        /// copied word (<see cref="IsSameWord"/>), so pasting "apple" onto a line lands on its
-        /// "apple"; with no such word (or a payload carrying no text) there is nothing to anchor on,
-        /// and the caller decides (it refuses today; backlog 344 inserts at the playhead). It never
-        /// falls back to word zero, which is the defect this replaced.
+        /// THE WORD PASTE DISPATCH (backlogs 343 and 344), everything a word paste onto
+        /// <paramref name="hitObject"/> (the active line) decides, in one place so it can be pinned
+        /// without a screen:
+        ///
+        /// <list type="bullet">
+        /// <item>A word SELECTED on the line (<paramref name="selectedIndex"/> naming one of its
+        /// words): the run re-times the words from that one on (<see cref="PasteUnitTimings"/>).</item>
+        /// <item>NO word selected (or an index that names none): the copied words are INSERTED at
+        /// <paramref name="playhead"/> (<see cref="PasteWordsAtTime"/>), which refuses, with its
+        /// reason, when it cannot.</item>
+        /// </list>
+        ///
+        /// <para>It never falls back to word zero, which is the defect 343 replaced. And it no longer
+        /// looks for a word SPELLED like the copied one either: 343 landed a no-selection paste on the
+        /// first matching word as a stand-in for "no anchor", and 344 gives the no-selection gesture
+        /// its own meaning. Keeping both would make the same keystroke either re-time an existing word
+        /// or insert a new one depending on where the playhead happens to sit relative to a window the
+        /// mapper cannot see from the keyboard, and the re-time it would stand in for is one click
+        /// away since 343 (a click on another line's word selects that line and that word).</para>
         /// </summary>
-        public static int UnitPasteAnchor(TypeBeatHitObject hitObject, int selectedIndex, LyricTimingClipboard.UnitTimingsPayload payload)
+        public static WordPasteResult PasteWords(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int selectedIndex, double playhead,
+                                                 LyricTimingClipboard.UnitTimingsPayload payload)
         {
-            var units = hitObject.Line.Units;
+            int n = hitObject.Line.Units.Count;
 
-            if (selectedIndex >= 0)
-                return selectedIndex < units.Count ? selectedIndex : -1;
+            if (selectedIndex < 0 || selectedIndex >= n)
+                return PasteWordsAtTime(editorBeatmap, hitObject, playhead, payload);
 
-            if (payload.Units.Count == 0)
-                return -1;
+            return PasteUnitTimings(editorBeatmap, hitObject, selectedIndex, payload)
+                ? new WordPasteResult(WordPasteOutcome.Retimed, selectedIndex, Math.Min(payload.Units.Count, n - selectedIndex))
+                : new WordPasteResult(WordPasteOutcome.RetimeNoRoom);
+        }
 
-            for (int i = 0; i < units.Count; i++)
+        /// <summary>
+        /// The word paste with NO word selected (backlog 344): the copied words are INSERTED into the
+        /// line as new words at <paramref name="time"/> (the playhead). Each carries everything the
+        /// copy took (<see cref="CopyUnitTimings"/>): its text (added to <see cref="LyricLine.RawText"/>
+        /// at the matching position), its span, its subdivision boundaries, its authored split, its
+        /// rests and its ORIGINAL (backlog 330), all through the same validating path the line paste's
+        /// text arm uses (<see cref="pasteUnit"/> with the spelling travelling). One undo step.
+        ///
+        /// <para>PLACEMENT. No existing word moves (the rule 340 set for the line box and 343 for the
+        /// word paste). Every word that STARTS at or before the playhead stays in front of the run.
+        /// The run begins at the playhead, or, when the playhead is inside a word, at that word's END:
+        /// a word is never split, and the mapper's evident intent (the copied word goes HERE) is
+        /// honoured just after rather than refused. It may use the room up to the next word's start,
+        /// or at the tail of the line up to <see cref="unitCeiling"/> (the line's end, and for the LAST
+        /// line the song's end, so there the line grows with it, backlog 336).</para>
+        ///
+        /// <para>FIT. A run longer than its room is SCALED about its start by room / length, with
+        /// length the LARGEST copied end (343's rule and 343's exact arithmetic, multiply before
+        /// dividing); one that fits lands at its own size. The refusal threshold is
+        /// <see cref="MIN_SPAN_MS"/> of room PER copied word: that is what keeps the scale from
+        /// reaching the degenerate extreme (a 1200 ms word squeezed into a 50 ms gap is still
+        /// accepted, 30 is the floor), and below it the paste is refused rather than moving a
+        /// neighbour to make room.</para>
+        ///
+        /// <para>REFUSALS change nothing and open no undo step: a LINE-granularity map (it persists no
+        /// word timing, so an inserted word would be re-interpolated away on reload), a payload
+        /// without text (copied by a build before 343: there is nothing to insert), a playhead
+        /// outside the line's window, and no room. A line whose tokens and words are out of step is
+        /// refused as no room, as <see cref="AddWord"/> refuses it.</para>
+        ///
+        /// <para>The line's own ORIGINAL caption is left as it is, as every other word edit leaves it
+        /// (<see cref="AddWord"/>, <see cref="RemoveWord"/>): it is the author's text in the song's own
+        /// spelling and spacing, which no word edit can rebuild faithfully, while each inserted word
+        /// keeps its own original. An unromanised word keeps its place relative to the run: it goes
+        /// behind the run when it sits behind the run's start.</para>
+        /// </summary>
+        public static WordPasteResult PasteWordsAtTime(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, double time, LyricTimingClipboard.UnitTimingsPayload payload)
+        {
+            var line = hitObject.Line;
+
+            if (hitObject.Granularity == TimingGranularity.Line)
+                return new WordPasteResult(WordPasteOutcome.LineGranularity);
+
+            if (payload.Units.Count == 0 || payload.Units.Any(u => string.IsNullOrEmpty(u.Text) || u.Text.Contains(' ')))
+                return new WordPasteResult(WordPasteOutcome.NoText);
+
+            if (time < line.StartTime || time > line.EndTime)
+                return new WordPasteResult(WordPasteOutcome.OutsideLine);
+
+            int n = line.Units.Count;
+            string[] tokens = line.RawText.Split(' ');
+
+            if (n == 0 || tokens.Length != n)
+                return new WordPasteResult(WordPasteOutcome.InsertNoRoom);
+
+            // Every word starting at or before the playhead stays in front; the run starts at the
+            // playhead, or at the end of the word the playhead is inside.
+            int insertAt = 0;
+
+            while (insertAt < n && line.Units[insertAt].StartTime <= time)
+                insertAt++;
+
+            double from = insertAt > 0 ? Math.Max(time, line.Units[insertAt - 1].EndTime) : time;
+            double wall = insertAt < n ? line.Units[insertAt].StartTime : unitCeiling(editorBeatmap, hitObject, n - 1);
+            double room = wall - from;
+            int count = payload.Units.Count;
+
+            if (room < MIN_SPAN_MS * count)
+                return new WordPasteResult(WordPasteOutcome.InsertNoRoom);
+
+            double length = payload.Units.Max(s => s.End);
+            bool scaled = length > room;
+
+            // Multiply before dividing, so a whole-millisecond fit lands on whole milliseconds.
+            double fit(double offset) => scaled ? offset * room / length : offset;
+
+            var units = line.Units.ToList();
+            var newTokens = tokens.ToList();
+
+            for (int k = 0; k < count; k++)
             {
-                if (IsSameWord(payload.Units[0], units[i]))
-                    return i;
+                var span = payload.Units[k];
+
+                units.Insert(insertAt + k, pasteUnit(new TimedUnit { Text = span.Text!, Original = span.Original == span.Text ? null : span.Original, StartTime = from, EndTime = from },
+                    new LyricTimingClipboard.UnitSpan
+                    {
+                        Start = fit(span.Start),
+                        End = fit(span.End),
+                        Chars = span.Chars,
+                        Text = span.Text,
+                        Boundaries = span.Boundaries?.Select(fit).ToList(),
+                        Splits = span.Splits,
+                        Rests = span.Rests?.Select(r => new LyricTimingClipboard.RestSpan { Start = fit(r.Start), End = fit(r.End), SplitChar = r.SplitChar }).ToList(),
+                    }, from, spellingTravels: true));
+
+                newTokens.Insert(insertAt + k, span.Text!);
             }
 
-            return -1;
+            double previousLastEnd = lastUnitEnd(line);
+
+            // The run already fits, so the clamp moves nothing; it only guards the order. The LAST
+            // line's run may sit past its current EndTime (the sync below then moves EndTime out).
+            double windowEnd = Math.Max(line.EndTime, units[^1].EndTime);
+
+            editorBeatmap.BeginChange();
+            hitObject.Line = new LyricLine
+            {
+                RawText = string.Join(' ', newTokens),
+                StartTime = line.StartTime,
+                EndTime = line.EndTime,
+                SingEndTime = line.SingEndTime,
+                Units = clampUnits(units, line.StartTime, windowEnd),
+                SealGraceMs = line.SealGraceMs,
+                Estimated = false, // pasted hand timing is acoustic evidence, as the word paste's is.
+                Original = line.Original,
+                UnromanisedWords = line.UnromanisedWords
+                                       .Select(w => w.Position > insertAt || (w.Position == insertAt && w.StartTime >= from) ? w with { Position = w.Position + count } : w)
+                                       .ToArray(),
+            };
+            editorBeatmap.Update(hitObject);
+            // A pasted subdivision has to reach Syllable, as the word paste's does.
+            syncGranularity(editorBeatmap, keepAuthoredWords: true);
+            // A run at the tail gives the line a new last word, so its sung end follows.
+            syncSingEndToLastUnit(editorBeatmap, hitObject, previousLastEnd);
+            editorBeatmap.EndChange();
+
+            return new WordPasteResult(WordPasteOutcome.Inserted, insertAt, count);
         }
 
         /// <summary>
@@ -3843,5 +3978,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         #endregion
+    }
+
+    /// <summary>What a word paste did (<see cref="TypeBeatEditorOperations.PasteWords"/>).</summary>
+    public enum WordPasteOutcome
+    {
+        /// <summary>The selected word and those after it took the copied timing (backlog 343).</summary>
+        Retimed,
+
+        /// <summary>The copied words went in as new words at the playhead (backlog 344).</summary>
+        Inserted,
+
+        /// <summary>Refused: the selected word has no room to take the run.</summary>
+        RetimeNoRoom,
+
+        /// <summary>Refused: less than <see cref="TypeBeatEditorOperations.MIN_SPAN_MS"/> per copied word of room at the playhead.</summary>
+        InsertNoRoom,
+
+        /// <summary>Refused: nothing selected and the playhead is outside the line's window.</summary>
+        OutsideLine,
+
+        /// <summary>Refused: nothing selected and the payload carries no words to insert (copied before backlog 343).</summary>
+        NoText,
+
+        /// <summary>Refused: nothing selected on a LINE-granularity map, which persists no word timing.</summary>
+        LineGranularity,
+    }
+
+    /// <summary>
+    /// The result of a word paste: its <see cref="Outcome"/>, and for a paste that landed the words
+    /// it touched (<see cref="FirstIndex"/>, <see cref="Count"/>), so the caller can select them.
+    /// </summary>
+    public readonly record struct WordPasteResult(WordPasteOutcome Outcome, int FirstIndex = -1, int Count = 0)
+    {
+        public bool Landed => Outcome == WordPasteOutcome.Retimed || Outcome == WordPasteOutcome.Inserted;
     }
 }

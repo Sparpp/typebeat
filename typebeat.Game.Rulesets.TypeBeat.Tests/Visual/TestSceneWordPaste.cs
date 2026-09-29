@@ -1,9 +1,11 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
+using osu.Framework.Input;
 using osu.Framework.Testing;
 using osuTK;
 using osuTK.Input;
@@ -16,9 +18,10 @@ using typebeat.Game.Tests.Visual;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 {
     /// <summary>
-    /// The word paste's UI (backlog 343): one click on a word of ANOTHER line selects that line and
-    /// that word, so the paste lands there and not on word zero; a paste with no word selected lands
-    /// on the line's matching word; with no match it is refused with the panel's error flash.
+    /// The word paste's UI. Backlog 343: one click on a word of ANOTHER line selects that line and
+    /// that word, so the paste lands there and not on word zero. Backlog 344: with no word selected
+    /// the copied word is inserted at the playhead, and with the playhead outside the line it is
+    /// refused with the panel's error flash.
     /// </summary>
     public partial class TestSceneWordPaste : EditorTestScene
     {
@@ -120,41 +123,64 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("pie was not crushed", () => lineAt(1).Line.Units[2].StartTime == 4000 && lineAt(1).Line.Units[2].EndTime == 4600);
         }
 
+        /// <summary>
+        /// Backlog 344 end to end: Ctrl+C on a word, one click on the grey space of ANOTHER line
+        /// (which seeks the playhead there and selects the line with no word), Ctrl+V: the copied word
+        /// goes in at the playhead as a new word, and the line's own "apple" is not re-timed (the
+        /// no-selection text match of 343 is gone).
+        /// </summary>
         [Test]
-        public void TestAPasteWithNoWordSelectedLandsOnTheMatchingWord()
+        public void TestCtrlVWithNoWordSelectedInsertsTheCopiedWordAtThePlayhead()
         {
-            copyTheSourceApple();
-
-            AddStep("select line 1, no word", () => state().SelectedLine.Value = lineAt(1));
-            AddUntilStep("line 1 active, nothing selected", () => state().ActiveLine.Value == lineAt(1) && state().SelectedUnitIndex.Value == -1);
-
-            AddStep("paste", () => screen().Paste());
-
-            AddAssert("the apple took the cut", () => lineAt(1).Line.Units[1].SyllableBoundaries.SequenceEqual(new[] { 3580d }));
-            AddAssert("word zero was left alone", () => lineAt(1).Line.Units[0].StartTime == 3000 && lineAt(1).Line.Units[0].EndTime == 3400);
-            AddAssert("the pasted word is now selected", () => state().SelectedUnitIndex.Value == 1);
-        }
-
-        [Test]
-        public void TestAPasteWithNoWordSelectedAndNoMatchIsRefused()
-        {
-            int refusals = 0;
-            string before = string.Empty;
+            double playhead = 0;
 
             AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
-            AddStep("park the playhead", () =>
+            AddStep("park the playhead between the lines", () =>
             {
                 EditorClock.Stop();
                 EditorClock.Seek(3000);
             });
             AddStep("select line 0", () => state().SelectedLine.Value = lineAt(0));
             AddUntilStep("line 0 active", () => state().ActiveLine.Value == lineAt(0));
-            AddStep("copy its \"eat\"", () =>
+            AddStep("select its apple", () => state().SelectUnit(1));
+            AddStep("Ctrl+C", () => InputManager.Keys(PlatformAction.Copy));
+
+            AddUntilStep("strip sized", () => strip().IsLoaded && strip().DrawWidth > 0);
+            AddAssert("line 1's tail is on screen", () => strip().PositionOf(4800) > 0 && strip().PositionOf(4800) < strip().DrawWidth);
+
+            AddStep("click line 1's grey space after pie", () =>
             {
-                state().SelectUnit(0);
-                screen().Copy();
+                InputManager.MoveMouseTo(strip().ToScreenSpace(new Vector2(strip().PositionOf(4800), strip().DrawHeight / 2)));
+                InputManager.Click(MouseButton.Left);
             });
 
+            AddUntilStep("line 1 active, no word selected", () => state().ActiveLine.Value == lineAt(1) && state().SelectedUnitIndex.Value == -1);
+            AddUntilStep("the playhead reached the click", () => !EditorClock.IsSeeking && Math.Abs(EditorClock.CurrentTime - 4800) < 50);
+            AddStep("Ctrl+V", () =>
+            {
+                playhead = EditorClock.CurrentTime;
+                InputManager.Keys(PlatformAction.Paste);
+            });
+
+            AddAssert("the apple went in after pie", () => lineAt(1).Line.RawText == "red apple pie apple");
+            AddAssert("at the playhead", () => lineAt(1).Line.Units[3].StartTime == playhead);
+            AddAssert("with its cut", () => lineAt(1).Line.Units[3].SyllableBoundaries.Count == 1 && lineAt(1).Line.Units[3].SyllableSplits.SequenceEqual(new[] { 2 }));
+            AddAssert("the line's own apple was not re-timed", () => lineAt(1).Line.Units[1].StartTime == 3400 && lineAt(1).Line.Units[1].EndTime == 4000
+                                                                   && lineAt(1).Line.Units[1].SyllableBoundaries.Count == 0);
+            AddAssert("pie was not moved", () => lineAt(1).Line.Units[2].StartTime == 4000 && lineAt(1).Line.Units[2].EndTime == 4600);
+            AddAssert("the inserted word is selected", () => state().SelectedUnitIndex.Value == 3);
+        }
+
+        [Test]
+        public void TestAPasteWithNoWordSelectedAndThePlayheadOutsideTheLineIsRefused()
+        {
+            int refusals = 0;
+            string before = string.Empty;
+
+            copyTheSourceApple();
+
+            // Line 1 is selected from outside the strip, so the playhead stays inside line 0.
+            AddStep("move the playhead into line 0", () => EditorClock.Seek(2000));
             AddStep("select line 1, no word", () => state().SelectedLine.Value = lineAt(1));
             AddUntilStep("line 1 active, nothing selected", () => state().ActiveLine.Value == lineAt(1) && state().SelectedUnitIndex.Value == -1);
 
@@ -166,7 +192,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             });
 
             AddAssert("refused", () => refusals == 1);
-            AddAssert("line 1 unchanged", () => describe(lineAt(1).Line) == before);
+            AddAssert("line 1 unchanged, its own apple included", () => describe(lineAt(1).Line) == before);
         }
 
         private static string describe(LyricLine line)

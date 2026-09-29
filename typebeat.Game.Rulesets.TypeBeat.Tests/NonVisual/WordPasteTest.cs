@@ -13,7 +13,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// The WORD paste (backlog 343): a copied word carries its text and sub-word timing, the SAME
     /// word elsewhere takes that timing (a different word keeps the conservative span-only rule),
     /// the run is scaled into the room it has so no neighbour moves, and a paste with no word
-    /// selected lands on the matching word rather than word zero. Every paste is checked to reopen
+    /// selected never lands on word zero (backlog 344 inserts it at the playhead instead). Every paste is checked to reopen
     /// exactly as it was left.
     /// </summary>
     [TestFixture]
@@ -223,7 +223,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(old.Units[0].Text, Is.Null);
-                Assert.That(TypeBeatEditorOperations.UnitPasteAnchor(lineAt(editorBeatmap, 1), -1, old), Is.EqualTo(-1), "no text to match a word by");
+                Assert.That(TypeBeatEditorOperations.PasteWordsAtTime(editorBeatmap, lineAt(editorBeatmap, 1), 6500, old).Outcome,
+                    Is.EqualTo(WordPasteOutcome.NoText), "no words to insert (backlog 344)");
             });
 
             Assert.That(TypeBeatEditorOperations.PasteUnitTimings(editorBeatmap, lineAt(editorBeatmap, 1), 1, old), Is.True);
@@ -304,21 +305,57 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(reopened[1].Line.Units[1].SyllableSplits, Is.EqualTo(new[] { 2 }));
         }
 
+        /// <summary>
+        /// THE RECONCILED NO-SELECTION DISPATCH (backlog 344). 343 landed a no-selection paste on the
+        /// first word spelled like the copied one; 344 gives that gesture its own meaning, insertion at
+        /// the playhead, and the text match is DROPPED rather than kept as a fallback. Pinned both
+        /// ways: with the playhead inside the line the copy is inserted even though the line has its
+        /// own "apple" (which is not touched), and with the playhead outside the line the paste is
+        /// refused even though that "apple" is there to match.
+        /// </summary>
         [Test]
-        public void WithNoWordSelectedThePasteAnchorsOnTheMatchingWordOrNowhere()
+        public void WithNoWordSelectedTheCopyIsInsertedAndTheMatchingWordIsNotRetimed()
         {
             var editorBeatmap = createBeatmap();
             var apple = copyApple(editorBeatmap);
-            var eat = parse(LyricTimingClipboard.Serialize(TypeBeatEditorOperations.CopyUnitTimings(lineAt(editorBeatmap, 0), new[] { 0 })!));
             var target = lineAt(editorBeatmap, 1);
+            var before = target.Line;
+
+            var outside = TypeBeatEditorOperations.PasteWords(editorBeatmap, target, -1, 4000, apple);
 
             Assert.Multiple(() =>
             {
-                Assert.That(TypeBeatEditorOperations.UnitPasteAnchor(target, -1, apple), Is.EqualTo(1), "the line's own apple, not word zero");
-                Assert.That(TypeBeatEditorOperations.UnitPasteAnchor(target, -1, eat), Is.EqualTo(-1), "no eat on the line: nowhere");
-                Assert.That(TypeBeatEditorOperations.UnitPasteAnchor(target, 2, apple), Is.EqualTo(2), "a selected word wins");
-                Assert.That(TypeBeatEditorOperations.UnitPasteAnchor(target, 7, apple), Is.EqualTo(-1));
+                Assert.That(outside.Outcome, Is.EqualTo(WordPasteOutcome.OutsideLine), "no text match to fall back on");
+                Assert.That(target.Line, Is.SameAs(before));
             });
+
+            var inside = TypeBeatEditorOperations.PasteWords(editorBeatmap, target, -1, 6500, apple);
+            var pasted = target.Line;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(inside, Is.EqualTo(new WordPasteResult(WordPasteOutcome.Inserted, 3, 1)));
+                Assert.That(pasted.RawText, Is.EqualTo("red apple pie apple"));
+                Assert.That(span(pasted.Units[1]), Is.EqualTo((5300d, 5800d)), "the line's own apple was not re-timed");
+                Assert.That(pasted.Units[1].SyllableBoundaries, Is.Empty);
+                Assert.That(pasted.Units[1].Source, Is.EqualTo(TimingSource.Interpolated));
+                Assert.That(span(pasted.Units[3]), Is.EqualTo((6500d, 7700d)));
+            });
+        }
+
+        [Test]
+        public void ASelectedWordIsRetimedAndAStaleSelectionIsNoSelection()
+        {
+            var editorBeatmap = createBeatmap();
+            var apple = copyApple(editorBeatmap);
+            var target = lineAt(editorBeatmap, 1);
+
+            Assert.That(TypeBeatEditorOperations.PasteWords(editorBeatmap, target, 2, 4000, apple), Is.EqualTo(new WordPasteResult(WordPasteOutcome.Retimed, 2, 1)),
+                "a selected word wins, wherever the playhead is");
+            Assert.That(target.Line.RawText, Is.EqualTo("red apple pie"));
+
+            Assert.That(TypeBeatEditorOperations.PasteWords(editorBeatmap, target, 7, 4000, apple).Outcome, Is.EqualTo(WordPasteOutcome.OutsideLine),
+                "an index naming no word is no selection: the insertion arm, which refuses outside the line");
         }
 
         [Test]

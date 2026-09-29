@@ -103,10 +103,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             /// <summary>
             /// The source word's <see cref="TimedUnit.Original"/> (backlog 330), or null when it has
             /// none (and on every payload written before the field). Optional like every field here,
-            /// so an older build reads a payload carrying it and simply drops it. Only the text paste
-            /// (<see cref="TypeBeatEditorOperations.PasteLine"/>) reads it; a timing paste keeps the
-            /// target words' own originals, as it keeps their own text, and so does the word paste
-            /// (a unit payload carries it since backlog 343 so the copied word travels whole).
+            /// so an older build reads a payload carrying it and simply drops it. Only the pastes that
+            /// put the copied WORDS down read it: the text paste
+            /// (<see cref="TypeBeatEditorOperations.PasteLine"/>) and the word insertion
+            /// (<see cref="TypeBeatEditorOperations.PasteWordsAtTime"/>, backlog 344). A timing paste
+            /// keeps the target words' own originals, as it keeps their own text, and so does the word
+            /// re-time (a unit payload carries it since backlog 343 so the copied word travels whole).
             /// </summary>
             [JsonProperty("original", NullValueHandling = NullValueHandling.Ignore)]
             public string? Original;
