@@ -711,9 +711,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// a slot the player may fill with any key but space; each '|'
         /// (<see cref="Typeability.SPLIT_MARKER"/>) is READ as a syllable split and then stripped,
         /// so it never reaches the stored lyric. When the token count is unchanged, each word
-        /// keeps its timing; otherwise timings are redistributed (char-weighted) across the sung
-        /// window. Returns false (no change) when the text normalizes to empty; an empty line
-        /// cannot exist in the format; delete the line instead.
+        /// keeps its timing; when it changes, the words the mapper left alone still keep theirs and
+        /// only the added, removed or reworded words are placed (see
+        /// <see cref="placeChangedWords"/>). Returns false (no change) when the text normalizes to
+        /// empty; an empty line cannot exist in the format; delete the line instead. Single undo
+        /// step.
         ///
         /// <para>The pipe matrix, per word (see <see cref="splitsFromPipes"/> for the code). The
         /// rule behind all of it: the committed line box is AUTHORITATIVE for every word whose
@@ -752,11 +754,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// line the mapper did not actually re-split writes no <c>split_chars</c> at all.</item>
         /// </list>
         ///
-        /// <para>A word count change redistributes every span, but no longer drops every
-        /// subdivision: <see cref="alignSubdivisions"/> anchors the words that came back spelled
-        /// exactly as they were and rescales their boundaries into their new spans, so inserting or
-        /// deleting one word leaves the others subdivided. A REWORDED word re-derives, as it always
-        /// did.</para>
+        /// <para>A word count change is LOCAL (backlog 340): a word that came back spelled exactly
+        /// as it was keeps its span, source, subdivision and rests verbatim, an inserted word takes
+        /// the room <see cref="AddWord"/> would give it, a reworded run shares the span the old words
+        /// held, and a deleted word leaves a gap. A REWORDED word re-derives its subdivision, as it
+        /// always did. Only a rewrite with nothing left in common, or a change with no room for its
+        /// words, redistributes the whole line (<see cref="alignSubdivisions"/>).</para>
         /// </summary>
         public static bool SetLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText)
         {
@@ -823,28 +826,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
             else
             {
-                // Word count changed: every span is redistributed within the sung window, but the
-                // words that came back spelled exactly as they were are anchored first, so their
-                // subdivisions ride the redistribution instead of being thrown away with it. The
-                // pipes are then read over the result, so this commit's own cuts land too.
-                units = alignSubdivisions(line.Units, LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime));
+                // Word count changed: only the words that were added, removed or reworded are
+                // placed, and every other word keeps its unit verbatim (backlog 340). A line
+                // rewritten outright, or a change with no room for its words, redistributes every
+                // span within the sung window instead, anchoring the words that came back spelled
+                // exactly as they were so their subdivisions ride it. Either way the pipes are then
+                // read over the result, so this commit's own cuts land too.
+                units = placeChangedWords(editorBeatmap, hitObject, tokens)
+                        ?? alignSubdivisions(line.Units, LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime));
                 units = applyPipes(units, tokens, pipes, out authoredSubdivision);
             }
+
+            bool wordCountChanged = hitObject.Granularity != TimingGranularity.Line && tokens.Length != line.Units.Count;
 
             editorBeatmap.BeginChange();
             hitObject.Line = rebuild(line, rawText: normalized, units: units);
             editorBeatmap.Update(hitObject);
-            // A word-count change re-spreads the units across the line's EXISTING sung window, so the
-            // new last word lands exactly on the stored end_ms and this is a no-op; a same-count
-            // commit keeps every word's timing, so it is a no-op there too. Called anyway so the
-            // rule holds by construction rather than by a coincidence of how the units are built.
+            // The sung end follows the last word only when this commit moved it: a word typed on
+            // at the tail, or the tail word typed away. A same-count commit, and any change that
+            // leaves the last word alone, keeps the stored end_ms exactly.
             syncSingEndToLastUnit(editorBeatmap, hitObject, lastUnitEnd(line));
 
             // A pipe that just created a boundary needs the map to carry sub-word data at all, or
-            // the encoder would drop it on the next save (see AddSyllableBoundary's note). Only
-            // done when something was actually authored, so an ordinary text commit never moves a
-            // map's granularity in either direction.
-            if (authoredSubdivision)
+            // the encoder would drop it on the next save (see AddSyllableBoundary's note). A word
+            // count change can also take a boundary AWAY (a subdivided word typed out, or halved
+            // to make room), exactly as AddWord and RemoveWord can, so it re-syncs the same way.
+            // An ordinary same-count commit never moves a map's granularity in either direction.
+            if (authoredSubdivision || wordCountChanged)
                 syncGranularity(editorBeatmap, keepAuthoredWords: true);
 
             editorBeatmap.EndChange();
@@ -961,20 +969,150 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// Carries subdivisions across a WORD COUNT change. <paramref name="redistributed"/> is the
-        /// char-weighted re-interpolation of the new text (the span every new word takes, unchanged
-        /// by this method); this pairs those words with <paramref name="previous"/> by a two-pointer
-        /// walk over IDENTICAL token text, in order, and gives every paired word its old boundaries
-        /// RESCALED proportionally into its new span, with the authored split carried verbatim (the
-        /// text and the boundary count are identical, so it still describes the word).
+        /// A WORD COUNT change from the line box, applied LOCALLY (backlog 340): the words the mapper
+        /// did not touch keep their units exactly, and only the added, removed or reworded ones are
+        /// placed, so typing one word into a hand-timed line no longer re-times the other eleven.
         ///
-        /// <para>The walk is deliberately dumb and forward-only: for each new word it takes the
-        /// FIRST still-unclaimed old word with the same text, so inserting, appending or deleting
-        /// one word leaves every other word's subdivision alone, and ambiguity ("na na na") resolves
-        /// leftmost. Its limits are the price of that predictability, and they are by design: a
-        /// REWORDED word matches nothing and re-derives (there is no honest place to put the
-        /// syllables of a word that no longer exists), and REORDERING keeps only the words the
-        /// forward walk still meets in order.</para>
+        /// <para>The old units and the new tokens are aligned by LONGEST COMMON SUBSEQUENCE on token
+        /// text, which recognises as many unchanged words as the edit allows: "oh na na" retyped as
+        /// "na oh na na" keeps all three (a leftmost walk would pair the new first "na" with the old
+        /// second one and lose "oh"). Among equally long alignments the old word is matched as early
+        /// as possible, so a repeated word typed once more ("na na na" to "na na na na") is read as
+        /// appended after the ones it repeats: the text alone cannot say which copy is new, and that
+        /// reading moves nothing. Between two kept words lies one RUN of changes:</para>
+        /// <list type="bullet">
+        /// <item>a kept word keeps its unit VERBATIM: span, source, subdivision, split and rests
+        /// (the one exception is a neighbour halved to make room, below);</item>
+        /// <item>a pure INSERTION is placed by <see cref="carveAfter"/> after the word before it
+        /// (the tail wall is <see cref="unitCeiling"/>, so the last line may grow, backlog 336),
+        /// falling back to <see cref="carveBefore"/> on the word after it, which is also the rule
+        /// at the HEAD of the line where there is no word before;</item>
+        /// <item>a REWORDED run (old words out, new words in) spreads the new words char-weighted
+        /// over exactly the span the old ones held, first start to last end;</item>
+        /// <item>a pure DELETION leaves the deleted span as a gap, as <see cref="RemoveWord"/> does:
+        /// no neighbour is stretched over it;</item>
+        /// <item>every placed word is Explicit hand timing.</item>
+        /// </list>
+        /// <para>Returns null when nothing can be kept (the line was rewritten) or when a run has no
+        /// room for its words at <see cref="MIN_SPAN_MS"/> each; the caller then redistributes the
+        /// whole line as it always did (<see cref="alignSubdivisions"/>).</para>
+        /// </summary>
+        private static IReadOnlyList<TimedUnit>? placeChangedWords(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string[] tokens)
+        {
+            var line = hitObject.Line;
+            var old = line.Units;
+            int n = old.Count, m = tokens.Length;
+
+            if (n == 0)
+                return null;
+
+            // lcs[i, j]: the longest common subsequence of old[i..] and tokens[j..].
+            int[,] lcs = new int[n + 1, m + 1];
+
+            for (int i = n - 1; i >= 0; i--)
+            {
+                for (int j = m - 1; j >= 0; j--)
+                    lcs[i, j] = old[i].Text == tokens[j] ? lcs[i + 1, j + 1] + 1 : Math.Max(lcs[i + 1, j], lcs[i, j + 1]);
+            }
+
+            if (lcs[0, 0] == 0)
+                return null;
+
+            // Equal text on the diagonal is always an optimal step of the recurrence above.
+            bool keeps(int i, int j) => i < n && j < m && old[i].Text == tokens[j];
+
+            var result = new List<TimedUnit>(m);
+            // The next kept word as a head insertion left it (its first half given up), if it did.
+            TimedUnit? halvedFollower = null;
+            int oi = 0, ni = 0;
+
+            while (oi < n || ni < m)
+            {
+                if (keeps(oi, ni))
+                {
+                    result.Add(halvedFollower ?? old[oi]);
+                    halvedFollower = null;
+                    oi++;
+                    ni++;
+                    continue;
+                }
+
+                // The run: old words oi..oe-1 go, new words ni..ne-1 arrive.
+                int oe = oi, ne = ni;
+
+                while ((oe < n || ne < m) && !keeps(oe, ne))
+                {
+                    if (oe < n && (ne >= m || lcs[oe + 1, ne] >= lcs[oe, ne + 1]))
+                        oe++;
+                    else
+                        ne++;
+                }
+
+                int arriving = ne - ni;
+
+                if (arriving > 0)
+                {
+                    double start, end;
+
+                    if (oe > oi)
+                    {
+                        start = old[oi].StartTime;
+                        end = old[oe - 1].EndTime;
+
+                        if (end - start < MIN_SPAN_MS * arriving)
+                            return null;
+                    }
+                    else
+                    {
+                        // Runs are separated by kept words, so the word before a pure insertion is
+                        // a kept one (or there is none, at the head).
+                        TimedUnit? before = result.Count > 0 ? result[^1] : null;
+                        TimedUnit? after = oe < n ? old[oe] : null;
+                        double wall = after?.StartTime ?? unitCeiling(editorBeatmap, hitObject, n - 1);
+
+                        if (before != null && carveAfter(before, wall, arriving) is { } carved)
+                        {
+                            result[^1] = carved.Neighbour;
+                            (start, end) = (carved.Start, carved.End);
+                        }
+                        else if (after != null && carveBefore(after, before?.EndTime ?? line.StartTime, arriving) is { } yielded)
+                        {
+                            halvedFollower = yielded.Neighbour;
+                            (start, end) = (yielded.Start, yielded.End);
+                        }
+                        else
+                            return null;
+                    }
+
+                    foreach (var u in LrcParser.InterpolateUnits(string.Join(' ', tokens[ni..ne]), start, end))
+                        result.Add(placedWord(u.Text, u.StartTime, u.EndTime));
+                }
+
+                oi = oe;
+                ni = ne;
+            }
+
+            return result.Count == m ? result : null;
+        }
+
+        /// <summary>
+        /// Carries subdivisions across a WHOLE-LINE redistribution, the FALLBACK of a word count
+        /// change: since backlog 340 an ordinary insertion, deletion or rewording is placed locally
+        /// by <see cref="placeChangedWords"/>, which keeps unchanged words verbatim and never reaches
+        /// here. This runs only when that placement gives up (no word in common, or no room).
+        /// <paramref name="redistributed"/> is the char-weighted re-interpolation of the new text
+        /// (the span every new word takes, unchanged by this method); this pairs those words with
+        /// <paramref name="previous"/> by a two-pointer walk over IDENTICAL token text, in order, and
+        /// gives every paired word its old boundaries RESCALED proportionally into its new span, with
+        /// the authored split carried verbatim (the text and the boundary count are identical, so it
+        /// still describes the word).
+        ///
+        /// <para>The walk is deliberately dumb and forward-only (the local placement uses a longest
+        /// common subsequence instead, because there the pairing decides which words keep their
+        /// hand timing): for each new word it takes the FIRST still-unclaimed old word with the same
+        /// text, and ambiguity ("na na na") resolves leftmost. A REWORDED word matches nothing and
+        /// re-derives (there is no honest place to put the syllables of a word that no longer
+        /// exists), and REORDERING keeps only the words the forward walk still meets in order.</para>
         /// </summary>
         private static IReadOnlyList<TimedUnit> alignSubdivisions(IReadOnlyList<TimedUnit> previous, IReadOnlyList<TimedUnit> redistributed)
         {
@@ -1248,7 +1386,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// token: the mapper renames it by retyping the line text, which keeps every word's timing
         /// while the token count is unchanged (see <see cref="SetLineText"/>).
         ///
-        /// Timing is carved so no existing word moves where possible: the new word takes the free
+        /// Timing is carved so no existing word moves where possible (<see cref="carveAfter"/>, the
+        /// same rule the line box applies to a word typed into it): the new word takes the free
         /// gap after its anchor (the word it was inserted after), capped at the anchor's own
         /// duration so an append at the end of a line does not swallow the whole tail. When the
         /// words are packed edge to edge the anchor is BISECTED and the new word takes its second
@@ -1293,43 +1432,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 insertAt = afterUnitIndex >= 0 && afterUnitIndex < n ? afterUnitIndex + 1 : n;
 
-                var anchor = line.Units[insertAt - 1];
-                double anchorSpan = anchor.EndTime - anchor.StartTime;
-                double lo = anchor.EndTime;
                 // An append at the tail of the LAST line is walled by the song, not by the line's
                 // derived EndTime, which then grows to take the new word (backlog 336).
-                double hi = insertAt < n ? line.Units[insertAt].StartTime : unitCeiling(editorBeatmap, hitObject, n - 1);
+                double wall = insertAt < n ? line.Units[insertAt].StartTime : unitCeiling(editorBeatmap, hitObject, n - 1);
+
+                // Neither a gap nor an anchor wide enough to halve: nowhere to put a word.
+                if (carveAfter(line.Units[insertAt - 1], wall, 1) is not { } carve)
+                    return false;
 
                 var rebuilt = line.Units.ToList();
-                double start, end;
-
-                if (hi - lo >= MIN_SPAN_MS)
-                {
-                    start = lo;
-                    end = lo + Math.Min(hi - lo, Math.Max(MIN_SPAN_MS, anchorSpan));
-                }
-                else if (anchorSpan >= MIN_SPAN_MS * 2)
-                {
-                    double mid = (anchor.StartTime + anchor.EndTime) / 2;
-                    start = mid;
-                    end = anchor.EndTime;
-                    rebuilt[insertAt - 1] = retime(anchor, anchor.StartTime, mid);
-                }
-                else
-                {
-                    // Neither a gap nor an anchor wide enough to halve: nowhere to put a word.
-                    return false;
-                }
-
-                rebuilt.Insert(insertAt, new TimedUnit
-                {
-                    Text = normalized,
-                    StartTime = start,
-                    EndTime = end,
-                    // Editor-authored placement is hand timing: it must persist in words[] verbatim.
-                    Source = TimingSource.Explicit,
-                    Confidence = 1,
-                });
+                rebuilt[insertAt - 1] = carve.Neighbour;
+                rebuilt.Insert(insertAt, placedWord(normalized, carve.Start, carve.End));
 
                 units = rebuilt;
             }
@@ -1355,6 +1468,84 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             editorBeatmap.EndChange();
             return true;
         }
+
+        /// <summary>
+        /// Room carved for new words: the span they share, and what the neighbour that made the
+        /// room becomes (itself unchanged when the room was a free gap, its kept half when it was
+        /// bisected).
+        /// </summary>
+        private readonly record struct Carve(double Start, double End, TimedUnit Neighbour);
+
+        /// <summary>
+        /// THE word placement rule, shared by <see cref="AddWord"/> and a word typed into the line
+        /// box (<see cref="SetLineText"/>), for <paramref name="count"/> new words going in right
+        /// AFTER <paramref name="anchor"/>, with <paramref name="wall"/> the latest they may end (the
+        /// next word's start, or <see cref="unitCeiling"/> at the tail).
+        ///
+        /// <list type="number">
+        /// <item>A free gap of at least <see cref="MIN_SPAN_MS"/> per word: the words take it from
+        /// the anchor's end, capped at the anchor's own duration per word, so an append at the end
+        /// of a line does not swallow the whole tail. Nothing moves.</item>
+        /// <item>Packed edge to edge: the anchor is BISECTED and the words take its second half. The
+        /// anchor is RESIZED (<see cref="retime"/>), so a syllable boundary or rest of its own that
+        /// falls in the half it gives up goes with that half.</item>
+        /// <item>Neither (no gap and an anchor too short to halve into
+        /// <see cref="MIN_SPAN_MS"/> pieces): null.</item>
+        /// </list>
+        /// </summary>
+        private static Carve? carveAfter(TimedUnit anchor, double wall, int count)
+        {
+            double span = anchor.EndTime - anchor.StartTime;
+            double gap = wall - anchor.EndTime;
+
+            if (gap >= MIN_SPAN_MS * count)
+                return new Carve(anchor.EndTime, anchor.EndTime + Math.Min(gap, Math.Max(MIN_SPAN_MS, span) * count), anchor);
+
+            // The half given up must hold every new word at the minimum, and the half kept is the
+            // same width, so both sides stay at or above it.
+            if (span >= 2 * MIN_SPAN_MS * count)
+            {
+                double mid = (anchor.StartTime + anchor.EndTime) / 2;
+                return new Carve(mid, anchor.EndTime, retime(anchor, anchor.StartTime, mid));
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// The mirror of <see cref="carveAfter"/> for words going in right BEFORE
+        /// <paramref name="follower"/>, with <paramref name="floor"/> the earliest they may start:
+        /// the one case with no word before them (a word typed at the head of the line), and the
+        /// last resort mid-line when the word before is too short to halve. A free gap is taken from
+        /// its END, against the follower and capped at the follower's duration per word; otherwise
+        /// the follower gives up its FIRST half.
+        /// </summary>
+        private static Carve? carveBefore(TimedUnit follower, double floor, int count)
+        {
+            double span = follower.EndTime - follower.StartTime;
+            double gap = follower.StartTime - floor;
+
+            if (gap >= MIN_SPAN_MS * count)
+                return new Carve(follower.StartTime - Math.Min(gap, Math.Max(MIN_SPAN_MS, span) * count), follower.StartTime, follower);
+
+            if (span >= 2 * MIN_SPAN_MS * count)
+            {
+                double mid = (follower.StartTime + follower.EndTime) / 2;
+                return new Carve(follower.StartTime, mid, retime(follower, mid, follower.EndTime));
+            }
+
+            return null;
+        }
+
+        /// <summary>A word the editor placed: hand timing, so it persists in words[] verbatim.</summary>
+        private static TimedUnit placedWord(string text, double start, double end) => new TimedUnit
+        {
+            Text = text,
+            StartTime = start,
+            EndTime = end,
+            Source = TimingSource.Explicit,
+            Confidence = 1,
+        };
 
         /// <summary>
         /// Removes one word from a line: its token, its unit and its syllable subdivisions all go,
