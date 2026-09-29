@@ -169,7 +169,73 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// Latin diacritics stripped (FormD, combining marks dropped), curly
+        /// The Latin SPECIAL LETTERS <see cref="Normalize"/> spells out in ASCII (backlog 329, step
+        /// a): letters that are not a base letter plus a diacritic, so FormD has nothing to
+        /// decompose and, without this table, the char was simply DELETED ("straße" stored as
+        /// "strae"). Only letters Unicode gives no canonical decomposition belong here; å, ä, ö, é,
+        /// ñ and the rest already fold through FormD and are deliberately absent.
+        ///
+        /// <para>CASE IS PRESERVED, because the Literate mod types the stored line case-sensitively:
+        /// a capital maps to a capital. A two-letter spelling of a capital takes ONE fixed form,
+        /// capitalised first letter only (Þ "Th", Ŋ "Ng"), so the table stays a pure per-char map
+        /// with no look at the neighbours; that reads naturally at the head of a word, which is
+        /// where these capitals occur, and an all-caps line reads "ThU" rather than "THU". The
+        /// exceptions are ẞ and the ligatures Æ and Œ, which spell out in full capitals ("SS",
+        /// "AE", "OE"): capital sharp s exists precisely for all-caps text, and a capital ligature
+        /// is two capitals written as one glyph. ı and ĸ have no capital of their own.</para>
+        ///
+        /// <para>Applied AFTER the FormD decomposition, not before it, so a precomposed letter whose
+        /// canonical decomposition is one of these plus a mark (Ǿ = Ø + acute, ǽ = æ + acute, ǣ = æ +
+        /// macron) spells out as well instead of being deleted; for every letter in the table itself
+        /// the order makes no difference, since none of them decomposes.</para>
+        ///
+        /// <para>MIRRORED byte for byte in the server repo
+        /// (<c>src/Typebeat.Web/Packages/Lyrics/Typeability.cs</c>) and in the browser
+        /// (<c>SPECIAL_LETTERS</c> in <c>typebeat-core.js</c>), exactly as <see cref="PUNCTUATION"/>
+        /// is: all three decode the same stored [Lyrics] text, and an import stores the raw
+        /// aligner line, so a one-sided edit gives the clients different cells on one map.</para>
+        /// </summary>
+        public static readonly IReadOnlyDictionary<char, string> SPECIAL_LETTERS = new Dictionary<char, string>
+        {
+            ['ß'] = "ss", ['ẞ'] = "SS",
+            ['æ'] = "ae", ['Æ'] = "AE",
+            ['œ'] = "oe", ['Œ'] = "OE",
+            ['ø'] = "o", ['Ø'] = "O",
+            ['ł'] = "l", ['Ł'] = "L",
+            ['đ'] = "d", ['Đ'] = "D",
+            ['þ'] = "th", ['Þ'] = "Th",
+            ['ð'] = "d", ['Ð'] = "D",
+            ['ı'] = "i",
+            ['ŋ'] = "ng", ['Ŋ'] = "Ng",
+            ['ĸ'] = "k",
+        };
+
+        /// <summary>
+        /// Spells every <see cref="SPECIAL_LETTERS"/> letter in <paramref name="text"/> out in ASCII
+        /// and leaves every other char alone. Returns the input itself when it carries none.
+        /// </summary>
+        public static string SpellSpecialLetters(string text)
+        {
+            StringBuilder? sb = null;
+
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (!SPECIAL_LETTERS.TryGetValue(text[i], out string? spelled))
+                {
+                    sb?.Append(text[i]);
+                    continue;
+                }
+
+                sb ??= new StringBuilder(text, 0, i, text.Length + 8);
+                sb.Append(spelled);
+            }
+
+            return sb?.ToString() ?? text;
+        }
+
+        /// <summary>
+        /// Latin diacritics stripped (FormD, combining marks dropped), the Latin special letters
+        /// spelled out (<see cref="SPECIAL_LETTERS"/>: 'ß' -> "ss", 'Ø' -> "O"), curly
         /// quotes/apostrophes -> ASCII, en/em dash -> '-', NBSP -> space, then every char that is
         /// neither typeable nor one of the supported <see cref="PUNCTUATION"/> marks is REMOVED.
         /// Whitespace runs collapse to a single space, trimmed.
@@ -206,6 +272,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             {
                 // Invalid Unicode (broken surrogates); carry on undecomposed.
             }
+
+            // The letters FormD cannot reach ('ß', 'ø', 'ł', ...) are spelled out rather than
+            // dropped below as untypeable.
+            raw = SpellSpecialLetters(raw);
 
             var sb = new StringBuilder(raw.Length);
             bool pendingSpace = false;
