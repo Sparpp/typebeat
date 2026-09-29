@@ -13,10 +13,42 @@ namespace typebeat.Game.Utils
 {
     public static class FormatUtils
     {
+        /// <summary>
+        /// Added to the SCALED value before the floor in <see cref="FloorToDecimalDigits"/>, so that a value
+        /// within float noise of an exact step floors to that step rather than to the one below it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Without it, 4.1 floors to 4.09: the double nearest 4.1 times 100 is 409.99999999999994. Every
+        /// exact decimal step k / 10^d is stored as its nearest double (relative error at most 2^-53) and
+        /// the scaling multiply adds one more rounding of the same size, so the scaled value lies within
+        /// about 2 * 2^-53 * k (2.2e-16 * k) of the integer k. 1e-9 covers that for every k up to about
+        /// 4.5e6, which is far past any star rating (k = 100 * stars) and any accuracy (k at most 10^4).
+        /// </para>
+        /// <para>
+        /// It is also far too small to move a value that is genuinely short of a step: only values within
+        /// 1e-9 / 10^d of a step (1e-11 stars, 1e-13 of accuracy) are lifted. An accuracy is a ratio of
+        /// counts, and a ratio with a denominator under 10^9 cannot sit that close to a step without being
+        /// on it; a continuous star rating lands inside that sliver about once in 10^9 maps, and then only
+        /// reads one hundredth high. So the "a 6.9999 must never read as 7.00" rule below is untouched.
+        /// </para>
+        /// <para>
+        /// MIRRORED by the site's star equality (typebeat-web <c>BeatmapSearchSql</c>, backlog 342), which
+        /// evaluates <c>floor(x * 100 + 1e-9::float8) / 100</c> in Postgres float8: the same three
+        /// correctly rounded IEEE double operations in the same order, so the two agree bit for bit.
+        /// Change the constant in both places at once; WireCompat's <c>SearchOperatorParityTest</c> pins it.
+        /// </para>
+        /// </remarks>
+        public const double FLOOR_EPSILON = 1e-9;
+
+        /// <summary>
+        /// Floors <paramref name="value"/> to <paramref name="digits"/> decimal places, treating a value within
+        /// float noise of an exact step as that step (see <see cref="FLOOR_EPSILON"/>).
+        /// </summary>
         public static double FloorToDecimalDigits(this double value, uint digits)
         {
             double base10 = Math.Pow(10, digits);
-            return Math.Floor(value * base10) / base10;
+            return Math.Floor(value * base10 + FLOOR_EPSILON) / base10;
         }
 
         /// <summary>
