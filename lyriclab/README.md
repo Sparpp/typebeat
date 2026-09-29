@@ -2,12 +2,12 @@
 
 Automatic **word- and syllable-level lyric timing** for type!beat. Given a song
 (mp3) and its lyrics, produces LRC/JSON timing files. Lives outside the game
-repo on purpose: nothing here touches the game build.
+repo on purpose; nothing here touches the game build.
 
 ## Quickstart
 
 ```powershell
-cd path\to\typebeat-lyriclab   # this folder
+cd typebeat-lyriclab
 
 # Recommended workflow: lyrics.txt already has hand line-stamps ([mm:ss.xx] per line)
 .venv\Scripts\python.exe align_lyrics.py "<song.mp3>" "<lyrics.txt>" -o out\mysong
@@ -23,7 +23,7 @@ in `work/`). Re-runs take ~20 s. Everything is CPU-only.
 
 | file | contents |
 |---|---|
-| `<stem>.lrc` | line-level LRC: drop-in for the game's current `LrcParser` (incl. trailing end-marker) |
+| `<stem>.lrc` | line-level LRC; drop-in for the game's current `LrcParser` (incl. trailing end-marker) |
 | `<stem>.words.lrc` | enhanced LRC: `[line]<mm:ss.xx>word …` + trailing line-end tag |
 | `<stem>.syllables.lrc` | enhanced LRC with mid-word syllable tags (`<t>spec<t>ta<t>tor`), normalized text |
 | `<stem>.timing.json` | **richest**: lines → words → syllables with `start_ms`/`end_ms`, confidence `score` (0..1 acoustic margin), `prob`, `estimated` flags |
@@ -47,7 +47,7 @@ audio there. Words with dotted red underline = low confidence.
 mp3 ─ffmpeg→ wav ─Demucs htdemucs→ vocals ─16 kHz→ wav2vec2 (MMS_FA) CTC emissions
 lyrics ─normalize (lowercase, num2words, dict chars)→ char targets
         └────────── torchaudio forced_align (char level) ──────────┘
-char spans → syllables (spelling-rule count, pyphen placement) → words → lines
+char spans → syllables (pyphen + vowel-group fallback) → words → lines
            → end-times extended through voiced audio (RMS gate) → LRC/JSON
 ```
 
@@ -63,17 +63,87 @@ char spans → syllables (spelling-rule count, pyphen placement) → words → l
 ### Anchor modes (`--anchors`)
 
 - **`ref`** (default when every line has a `[mm:ss.xx]` stamp): each line is
-  aligned only inside `[its stamp − 0.75 s, next stamp + 0.5 s]`. Lines whose
-  audio carries no phonetic evidence (heavily effected hooks, screams,
-  vocoder) fall back to pacing chars from the stamp itself and are flagged
+  aligned only inside exactly `[its stamp, next stamp)`, and the model's word
+  positions are kept whatever their confidence. Version 2: the former
+  0.75 s / 0.5 s slack let repeated syllables latch onto the previous line's
+  tail, and the even-pacing fallback for low-confidence lines was replacing a
+  third of all lines; both lost on the ranked-map corpus (see below). Only a
+  line the aligner cannot place at all is paced from its stamp and flagged
   `"estimated": true`.
+- **Garbage-path detector (version 4)**: a `ref` path is also replaced when
+  its SHAPE says the model heard nothing: most words sung one letter per
+  frame (`crammed`), the whole line under 0.6x the song's median time per
+  letter (`fast`), or a stamped line whose path opens 0.8 s or more after its
+  stamp while running no slower than the median (`late`). The replacement is
+  paced at the song's median rate from the stamp plus the song's stamp lead
+  (how late the confident lines start after their stamps), flagged
+  `"estimated": true` and logged with its reason.
+  `python align_lyrics.py --self-test-garbage` pins the rules on synthetic
+  paths; `--self-test` runs every self-test.
+- **Sparse anchors (version 3)**: `ref` no longer needs every line stamped.
+  Stamp only the section starts: a stamped line opens a section, the
+  unstamped lines after it join it, and the whole section is aligned inside
+  exactly `[its stamp, next stamp)` as one CTC target with `*` between its
+  lines, so the model places the unstamped line starts itself. Lines before
+  the first stamp form a section that opens at 0. A fully stamped file gives
+  byte-identical output to version 2; `ref` is the default as soon as ONE
+  line is stamped.
 - **`auto`**: global pass → lines with margin ≥ 0.25 become anchors → each run
   of weak lines is re-aligned locally between its anchors → still-dead lines
   are interpolated char-proportionally across the voiced part of their window,
   flagged `estimated`.
 - **`none`**: single global pass (research baseline).
 
-## Accuracy (Friday Pilots Club – Spectator, 183 s, vs hand line stamps)
+## Accuracy, version 2 (ranked-map corpus, 2026-09-28)
+
+Truth = the word timings of the ranked maps on typebeat.mingda.sh (every set,
+one difficulty each; the 17 maps that were this aligner's own untouched output
+excluded as circular), 84 maps, 20,603 word starts. Input = the map's line
+starts ("exact") or those starts moved 250 ± 120 ms early ("human", how
+mappers actually stamp). Word starts within 200 ms of the map:
+
+| ref mode | exact stamps | human stamps | syllable boundaries | p90 error |
+|---|---|---|---|---|
+| version 1 (slack windows, even pacing under margin 0.08) | 85 % | 74 % | 87 % | 319 ms |
+| **version 2 (exact windows, CTC kept)** | **90 %** | **87 %** | **93 %** | **210 ms** |
+| `auto` (no stamps) | 67 % | – | 75 % | 10.4 s |
+
+Sparse anchors (version 3, same corpus, 85 maps, 20,783 words; stamps
+250 ± 120 ms early, a stamp dropped from all but every Nth line):
+
+| stamps | word starts within 200 ms | non-first words | lines within 1 s | p90 |
+|---|---|---|---|---|
+| every line | 88 % | 88 % | 97 % | 250 ms |
+| every 2nd line | 85 % | 86 % | 94 % | 342 ms |
+| every 4th line | 83 % | 84 % | 89 % | 590 ms |
+| none (`auto`) | 67 % | 69 % | 71 % | 10.9 s |
+
+Every map scores above `auto` with half its stamps; fully stamped and `auto`
+outputs are byte-identical to version 2 on all 101 maps.
+
+Better on 43 maps, within 3 points on 36, worse on 5 (all screamed or
+effect-heavy vocals, where even pacing from the stamp beat a garbage CTC path
+under EXACT stamps). Pinning the first word to its stamp was also measured and
+rejected: 76 % under human stamps. Bench scripts: `bench/` (build the corpus
+from the site, run variants, score).
+
+Garbage-path detector (version 4, same 85 maps, word starts within 200 ms):
+
+| stamps | version 3 | version 4 | lines replaced |
+|---|---|---|---|
+| every line, exact | 89.5 % | 90.2 % | 103 |
+| every line, human | 87.8 % | 88.0 % | 103 |
+| every 2nd line, exact | 86.5 % | 86.9 % | 146 |
+| every 2nd line, human | 85.5 % | 85.8 % | 152 |
+| none (`auto`, untouched) | 66.8 % | 66.8 % | – |
+
+Exact stamps: 18 maps up by a point or more, none down; Crimson Dance 66 % ->
+79 %. Human stamps: 10 up, 2 down by at most 2.5 points. Shinigiwa Satellite
+stays at 46 %: its wrong paths are spread at the song's own pace, so no shape
+rule sees them, and the margin rule that does (version 1's, margin < 0.08)
+costs 5 to 11 points corpus-wide under human stamps.
+
+## Accuracy, version 1 (Friday Pilots Club – Spectator, 183 s, vs hand line stamps)
 
 | mode | median \|Δ\| | max \|Δ\| | ≤ 0.5 s | ≤ 1 s |
 |---|---|---|---|---|
@@ -96,7 +166,8 @@ char spans → syllables (spelling-rule count, pyphen placement) → words → l
 ## Practical recipe for type!beat maps
 
 1. Author `lyrics.txt` as today: one `[mm:ss.xx]` stamp per line (fast, tap
-   along) + trailing end-marker.
+   along) + trailing end-marker. Short on time? Stamp only the first line of
+   each verse and chorus; the rest are placed between the stamps.
 2. Run the aligner (defaults to `ref` mode) → per-word/per-syllable timing.
 3. Open the demo page, click through low-confidence (underlined) words, nudge
    stamps if needed, re-run (20 s).
@@ -126,17 +197,7 @@ MMS_FA aligner + htdemucs).
 
 ## Known limitations / future work
 
-- **English-first**: `syllable_count` decides how many syllables a word has from
-  its spelling (vowel-group counting with silent final e / `-ed` / `-es`, the
-  consonant + `-le` exception, `y` as a glide or a nucleus, and syllabic `-sm` /
-  `-thm`); pyphen `en_US` only decides *where* the boundaries fall, falling back
-  to vowel-group splitting capped at that count. The count is authoritative
-  because pyphen returns a single part both for a real monosyllable and for any
-  word it has no pattern for. Check it with
-  `python align_lyrics.py --self-test-syllables`. Spelling cannot settle every
-  word: `every` counts 3 (often sung as 2), `fire`/`hour` count 1 (often sung as
-  2), and `rhythm` counts 2 but has no vowel to split on so it stays undivided.
-  For
+- **English-first**: syllabification is pyphen `en_US` + naive fallback. For
   Japanese maps, romanize first (pykakasi) and align romaji; MMS_FA is
   multilingual, and a typing game wants romaji anyway. Wire-up is ~30 lines.
 - `auto` mode can still misplace lines when near-identical hook lines repeat

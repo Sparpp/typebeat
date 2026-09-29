@@ -399,7 +399,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     var (result, timingJson) = await importer.ProduceTimingJsonAsync(
                         tempAudio, lyricsContent, artist, title,
                         reportProgress,
-                        token).ConfigureAwait(false);
+                        token,
+                        language: romanisationLanguage(lyricsContent)).ConfigureAwait(false);
 
                     if (!result.Success || timingJson == null)
                     {
@@ -692,7 +693,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// </summary>
         private void importTtml(FileInfo file, string content)
         {
-            if (!TtmlParser.TryParse(content, out IReadOnlyList<LyricLine> lines, out TtmlParser.TtmlMetadata metadata) || lines.Count == 0)
+            if (!TtmlParser.TryParse(content, out IReadOnlyList<LyricLine> lines, out TtmlParser.TtmlMetadata metadata, language: romanisationLanguage(content))
+                || lines.Count == 0)
             {
                 notify($"{file.Name} has no timed lyrics in it.");
                 return;
@@ -709,6 +711,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             notify(message);
         }
+
+        /// <summary>
+        /// The language non-Latin lyrics are romanised under (backlog 330): the map's own when the
+        /// mapper has set one, else the one the lyrics' script says.
+        /// </summary>
+        private string? romanisationLanguage(string lyrics) => LyricOriginals.RomanisationLanguage(Beatmap.Metadata.Language, new[] { lyrics });
 
         protected override void Dispose(bool isDisposing)
         {

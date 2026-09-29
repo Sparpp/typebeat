@@ -1,0 +1,7 @@
+# Romaniser fixtures (see cyrillic.tsv for the format). Scripts no table covers yet (tier 2):
+# the characters are kept VERBATIM in the text and listed, never silently deleted.
+thai	สวัสดี	สวัสดี	ส วั ดี
+japanese	君が好き	君ga好ki	君 好
+chinese	我爱你	我爱你	我 爱 你
+other	שלום	שלום	ש ל ו ם
+russian	Привет สวัสดี	Privet สวัสดี	ส วั ดี

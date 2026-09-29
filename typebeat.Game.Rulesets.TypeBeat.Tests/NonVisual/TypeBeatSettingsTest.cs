@@ -127,6 +127,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Keyboard layout",
                     "Space to skip current word",
                     "Manual newlines",
+                    "Lyric font size",
                     "Lyric line spacing",
                     "Typing font",
                     "Use map fonts",
@@ -134,6 +135,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Show syllable markers",
                     "Show word pace colours",
                 }));
+            }
+        }
+
+        /// <summary>
+        /// Backlog 334: the lyric font size slider sits directly above line spacing, steps by 1, and
+        /// is bound to its own setting (flip the setting and the slider follows).
+        /// </summary>
+        [Test]
+        public void TheLyricFontSizeSliderIsBoundToItsSetting()
+        {
+            var ruleset = new TypeBeatRuleset();
+            var subsection = (TypeBeatSettingsSubsection)ruleset.CreateSettings()!;
+
+            using (var config = new TypeBeatRulesetConfigManager(null, ruleset.RulesetInfo))
+            {
+                var sliders = subsection.BuildControls(config).OfType<SettingsSlider<float>>().ToList();
+                var size = sliders.Single(s => s.LabelText.ToString() == "Lyric font size");
+
+                Assert.That(sliders.IndexOf(size) + 1, Is.EqualTo(sliders.FindIndex(s => s.LabelText.ToString() == "Lyric line spacing")));
+                Assert.That(size.KeyboardStep, Is.EqualTo(1f));
+                Assert.That(size.TooltipText.ToString(), Is.EqualTo("Size of the lyric text during gameplay. Applies from the next play."));
+
+                var setting = config.GetBindable<float>(TypeBeatRulesetSetting.LyricFontSize);
+                Assert.That(size.Current.Value, Is.EqualTo(setting.Value));
+
+                setting.Value = 60f;
+                Assert.That(size.Current.Value, Is.EqualTo(60f));
             }
         }
     }

@@ -359,6 +359,9 @@ namespace typebeat.Game.Online.Leaderboards
                 case LeaderboardState.NoTeam:
                     return new MessagePlaceholder(LeaderboardStrings.NoTeam);
 
+                case LeaderboardState.LocalOnlyMods:
+                    return new MessagePlaceholder("Plays with these mods stay on this device. Switch to the local leaderboard to see them.");
+
                 case LeaderboardState.Retrieving:
                     return null;
 

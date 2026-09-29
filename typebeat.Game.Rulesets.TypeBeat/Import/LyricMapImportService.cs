@@ -56,8 +56,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
         public Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
-            Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true)
-            => LyricMapImporter.ProduceTimingJsonAsync(audioPath, lyricsContent, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token, useAutomaticAlignment);
+            Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true, string? language = null)
+            => LyricMapImporter.ProduceTimingJsonAsync(audioPath, lyricsContent, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token, useAutomaticAlignment,
+                language);
 
         private TypeBeatRulesetConfigManager? config()
         {
@@ -175,6 +176,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
         public bool GpuDetected => gpuDetected ??= detectNvidiaGpu();
 
+        public string? InstalledVersion => IsInstalled ? LyricMapImporter.ReadAlignerVersion(resolvedAlignerDir()) : null;
+
+        public string? ShippedVersion => LyricMapImporter.ReadAlignerVersion(LyricMapImporter.ResolveLyricLabDir(null, startDirectories()));
+
+        /// <summary>
+        /// An installed aligner whose script is older than the shipped one. Versions are small
+        /// integers in practice, but compared as strings when they do not parse, so a stray
+        /// non-numeric tag still reads as "different, refresh".
+        /// </summary>
+        public bool UpdateAvailable
+        {
+            get
+            {
+                if (!IsInstalled)
+                    return false;
+
+                string? shipped = ShippedVersion;
+
+                if (shipped == null)
+                    return false;
+
+                string? installed = InstalledVersion;
+
+                if (installed == null)
+                    return true; // a version-1 script, which predates the constant
+
+                if (int.TryParse(shipped, out int s) && int.TryParse(installed, out int i))
+                    return s > i;
+
+                return !string.Equals(shipped, installed, StringComparison.Ordinal);
+            }
+        }
+
         /// <summary>
         /// Best-effort NVIDIA detection: nvidia-smi ships with the driver and is on PATH on any
         /// machine with a working NVIDIA card. Absence (or failure) simply means the CPU flavour.
@@ -243,6 +277,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
                         if (File.Exists(from))
                             File.Copy(from, Path.Combine(target, name), overwrite: true);
+                    }
+
+                    // A reinstall is how an existing install picks up a newer aligner, so the OLD
+                    // one has to go with it: its cached model output (work/) was produced by the
+                    // previous script and would be trusted by the new one, and its per-import
+                    // outputs (out/) are stale. The environment (.venv) is the multi-GB part and
+                    // is deliberately kept; the device marker stays with it.
+                    foreach (string stale in new[] { "work", "out" })
+                    {
+                        string dir = Path.Combine(target, stale);
+
+                        if (Directory.Exists(dir))
+                        {
+                            progress($"clearing the previous aligner's {stale}/ cache...");
+                            Directory.Delete(dir, recursive: true);
+                        }
                     }
                 }
             }

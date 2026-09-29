@@ -44,6 +44,14 @@ namespace typebeat.Game.Overlays.Mods
         public BindableBool MatchingTextFilter { get; } = new BindableBool(true);
 
         /// <summary>
+        /// Whether the mod can be played on the beatmap the overlay is showing mods for
+        /// (<see cref="Mod.IsAvailableFor"/>, backlog 331). An unavailable mod stays VISIBLE, greyed
+        /// out and unselectable, with its reason as the tooltip; unlike <see cref="ValidForSelection"/>
+        /// it does not hide the panel, because the player has to be told why it cannot be picked here.
+        /// </summary>
+        public BindableBool AvailableForBeatmap { get; } = new BindableBool(true);
+
+        /// <summary>
         /// Whether the <see cref="Mod"/> matches all applicable filters and visible for the user to select.
         /// </summary>
         public bool Visible => MatchingTextFilter.Value && ValidForSelection.Value;

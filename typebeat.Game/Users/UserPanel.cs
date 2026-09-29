@@ -143,6 +143,19 @@ namespace typebeat.Game.Users
 
         protected UpdateableAvatar CreateAvatar() => new UpdateableAvatar(User, false);
 
+        /// <summary>
+        /// The avatar with the country flag badged onto its corner (hidden for an unknown country),
+        /// for the compact panels where a separate flag would cost the row width.
+        /// <paramref name="configureAvatar"/> styles the avatar itself (a corner radius, say), so
+        /// masking it never clips the badge.
+        /// </summary>
+        protected AvatarWithFlag CreateAvatarWithFlag(Action<UpdateableAvatar>? configureAvatar = null)
+        {
+            var avatar = CreateAvatar();
+            configureAvatar?.Invoke(avatar);
+            return new AvatarWithFlag(avatar, User.CountryCode);
+        }
+
         protected UpdateableFlag CreateFlag() => new UpdateableFlag(User.CountryCode)
         {
             Size = new Vector2(36, 26),

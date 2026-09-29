@@ -59,7 +59,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             bool subdivided = line.Units.Any(u => u.SyllableBoundaries.Count > 0);
             bool explicitWords = line.Units.Any(u => u.Source == TimingSource.Explicit);
 
-            if (!freestyle && !subdivided && !(wordTiming && explicitWords))
+            // THE ORIGINAL TEXT (backlog 330). An unromanised word lives only in words[], so a line
+            // holding one writes words[] whatever else it carries; an original of any kind moves the
+            // line off the plain shape so the key can be written. A line with neither is untouched.
+            bool unromanised = line.UnromanisedWords.Count > 0;
+            string? lineOriginal = TypeBeatBeatmapEncoder.LineOriginalToWrite(line);
+            bool originals = lineOriginal != null || line.Units.Any(u => u.Original != null);
+
+            if (!freestyle && !subdivided && !(wordTiming && explicitWords) && !unromanised && !originals)
             {
                 // The shape every pipe-free, ampersand-free LRC import has always had.
                 return new
@@ -73,27 +80,54 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             var json = new JsonObject
             {
                 ["text"] = line.RawText,
-                ["start_ms"] = line.StartTime,
-                ["end_ms"] = line.SingEndTime,
             };
+
+            if (lineOriginal != null)
+                json["original"] = lineOriginal;
+
+            json["start_ms"] = line.StartTime;
+            json["end_ms"] = line.SingEndTime;
 
             // '&' is an opt-in the decoder needs before it will read an ampersand as a freestyle
             // cell rather than as lyric punctuation.
             if (freestyle)
                 json["freestyle"] = true;
 
-            if (subdivided || (wordTiming && explicitWords))
+            if (subdivided || (wordTiming && explicitWords) || unromanised)
             {
                 var words = new JsonArray();
 
-                foreach (var unit in line.Units)
+                for (int u = 0; u <= line.Units.Count; u++)
                 {
+                    foreach (var pending in line.UnromanisedWords)
+                    {
+                        if (System.Math.Min(pending.Position, line.Units.Count) != u)
+                            continue;
+
+                        words.Add(new JsonObject
+                        {
+                            ["text"] = string.Empty,
+                            ["original"] = pending.Original,
+                            ["start_ms"] = pending.StartTime,
+                            ["end_ms"] = pending.EndTime,
+                        });
+                    }
+
+                    if (u == line.Units.Count)
+                        break;
+
+                    var unit = line.Units[u];
+
                     var word = new JsonObject
                     {
                         ["text"] = unit.Text,
-                        ["start_ms"] = unit.StartTime,
-                        ["end_ms"] = unit.EndTime,
                     };
+
+                    if (unit.Original != null && unit.Original != unit.Text)
+                        word["original"] = unit.Original;
+
+                    word["start_ms"] = unit.StartTime;
+                    word["end_ms"] = unit.EndTime;
 
                     if (unit.SyllableBoundaries.Count > 0)
                     {

@@ -9,9 +9,14 @@ using osu.Framework.Audio;
 using osu.Framework.Audio.Sample;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Input;
 using osu.Framework.Input.Bindings;
 using osu.Framework.Input.Events;
+using osu.Framework.Localisation;
+using osu.Framework.Platform;
+using typebeat.Game.Overlays;
+using typebeat.Game.Overlays.OSD;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.Edit;
@@ -32,11 +37,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// playhead, Enter stamps the active line's start, Delete removes what is selected (words
     /// within the active line, or the selected lines: see <see cref="deleteSelection"/>).
     ///
-    /// Clipboard (Ctrl+C/V via the editor's platform-action plumbing) carries TIMING patterns:
-    /// with two or more lines multi-selected, copy takes their internal line timings; otherwise a
-    /// word-unit selection copies its unit-run pattern; otherwise the active line's timings.
-    /// Paste dispatches on the payload: line timings apply to the current line selection
-    /// (broadcast/zip, rebased per target), a unit run applies at the focused word.
+    /// Clipboard (Ctrl+C/V via the editor's platform-action plumbing): with two or more lines
+    /// multi-selected, copy takes those LINES (their words and internal timing); otherwise a
+    /// word-unit selection copies its unit-run TIMING pattern; otherwise the active line. A copied
+    /// line also puts its plain lyric text on the OS clipboard. Paste dispatches on the payload: a
+    /// line payload is put down AS IS over the selected lines (broadcast/zip, rebased per target) or,
+    /// with no line selected, inserted as a new line at the playhead (see <see cref="Paste"/>);
+    /// Ctrl+Shift+V (<see cref="PasteTimings"/>) is the timing-only paste the clipboard was built
+    /// for, and a unit run applies at the focused word under either gesture.
     /// </summary>
     [Cached]
     public partial class LyricComposeScreen : EditorScreenWithTimeline, IKeyBindingHandler<PlatformAction>
@@ -58,6 +66,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         [Resolved]
         private EditorClipboard clipboard { get; set; } = null!;
+
+        /// <summary>
+        /// The OS clipboard, which a copied line also writes its plain lyric text to. Absent in
+        /// headless tests. It is a separate slot from <see cref="clipboard"/> (the editor's own, which
+        /// holds the JSON payload), so the two never compete.
+        /// </summary>
+        [Resolved(canBeNull: true)]
+        private Clipboard? osClipboard { get; set; }
+
+        [Resolved(canBeNull: true)]
+        private OnScreenDisplay? onScreenDisplay { get; set; }
 
         private LyricTimingClipboard.LineTimingsPayload? clipboardLines;
         private LyricTimingClipboard.UnitTimingsPayload? clipboardUnits;
@@ -133,12 +152,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             base.LoadComplete();
 
+            // The last line has no following line to wall it, so the operations cap it at the song's
+            // end instead (backlog 336). Live, because the track can finish loading after this.
+            TypeBeatEditorOperations.SetTrackLengthSource(EditorBeatmap, () => editorClock.LoadedTrackLength);
+
             // CanPaste tracks whether the clipboard currently holds one of our timing payloads
             // (parse once per content change, not per frame). CanCopy is kept fresh in Update.
             clipboard.Content.BindValueChanged(content =>
             {
                 (clipboardLines, clipboardUnits) = LyricTimingClipboard.TryParse(content.NewValue);
                 CanPaste.Value = clipboardLines != null || clipboardUnits != null;
+                CanPasteTimings.Value = CanPaste.Value;
             }, true);
 
             // The bottom bar's ruleset slot, immediately left of Test: tap timing. The editor owns
@@ -342,7 +366,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (state.MultiSelectedLines.Count >= 2)
             {
                 var ordered = TypeBeatEditorOperations.OrderedLines(EditorBeatmap).Where(state.MultiSelectedLines.Contains).ToList();
-                clipboard.Content.Value = LyricTimingClipboard.Serialize(TypeBeatEditorOperations.CopyLineTimings(ordered));
+                copyLines(ordered);
             }
             else if (active != null && state.SelectedUnitIndices.Count > 0)
             {
@@ -352,16 +376,77 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     clipboard.Content.Value = LyricTimingClipboard.Serialize(payload);
             }
             else if (active != null)
-                clipboard.Content.Value = LyricTimingClipboard.Serialize(TypeBeatEditorOperations.CopyLineTimings(new[] { active }));
+                copyLines(new[] { active });
         }
 
+        /// <summary>
+        /// Copies whole lines: the JSON payload (words and timing) into the editor's clipboard, and
+        /// the plain lyric text, one line per line, onto the OS clipboard so it pastes into a text
+        /// editor. The framework's OS clipboard has a single text slot, but it is not the slot the
+        /// payload lives in, so neither has to give way.
+        /// </summary>
+        private void copyLines(IEnumerable<TypeBeatHitObject> lines)
+        {
+            var payload = TypeBeatEditorOperations.CopyLineTimings(lines);
+            clipboard.Content.Value = LyricTimingClipboard.Serialize(payload);
+
+            if (payload.PlainText() is string text)
+                osClipboard?.SetText(text);
+        }
+
+        /// <summary>
+        /// The default paste ("Paste line", Ctrl+V). A LINE payload that carries its text is put down
+        /// AS IS (<see cref="TypeBeatEditorOperations.PasteLine"/>): over the multi-selection, else
+        /// over the explicitly selected line, and with NO line selected it is inserted as a new line at
+        /// the playhead (<see cref="TypeBeatEditorOperations.InsertCopiedLine"/>), refused with a
+        /// message when a line already starts there. A payload with no text (copied by an older build)
+        /// and a unit run paste exactly as <see cref="PasteTimings"/> does.
+        /// </summary>
         public override void Paste()
         {
-            if (clipboardUnits is LyricTimingClipboard.UnitTimingsPayload unitRun)
+            if (clipboardLines is not LyricTimingClipboard.LineTimingsPayload lines || !lines.CarriesText)
             {
-                if (state.ActiveLine.Value is TypeBeatHitObject line)
-                    TypeBeatEditorOperations.PasteUnitTimings(EditorBeatmap, line, Math.Max(state.SelectedUnitIndex.Value, 0), unitRun);
+                PasteTimings();
+                return;
             }
+
+            var targets = state.MultiSelectedLines.Count > 0
+                ? TypeBeatEditorOperations.OrderedLines(EditorBeatmap).Where(state.MultiSelectedLines.Contains).ToList()
+                : state.SelectedLine.Value is TypeBeatHitObject single ? new List<TypeBeatHitObject> { single } : new List<TypeBeatHitObject>();
+
+            if (targets.Count > 0)
+            {
+                TypeBeatEditorOperations.PasteLine(EditorBeatmap, targets, lines);
+                return;
+            }
+
+            // Nothing selected: the copied line goes in as a new one at the playhead. Several copied
+            // lines carry no spacing between them to lay them out by, so they need targets.
+            if (lines.Lines.Count > 1)
+            {
+                showStatus($"Select {lines.Lines.Count} lines to paste {lines.Lines.Count} copied lines onto");
+                return;
+            }
+
+            double time = editorClock.CurrentTime;
+
+            if (TypeBeatEditorOperations.InsertCopiedLine(EditorBeatmap, time, lines.Lines[0]) is TypeBeatHitObject added)
+                state.SelectedLine.Value = added;
+            else
+                showStatus("A line already starts at the playhead");
+        }
+
+        /// <summary>
+        /// The timing-only paste ("Paste timings", Ctrl+Shift+V), which is the paste this clipboard
+        /// was built for: a line payload lays its timing over the target lines' OWN words
+        /// (<see cref="TypeBeatEditorOperations.PasteLineTimings"/>, the repeated-chorus workflow) and
+        /// ignores any text it carries; a unit run is the word paste (<see cref="pasteUnitRun"/>).
+        /// Line targets are the multi-selection, else the active line.
+        /// </summary>
+        public override void PasteTimings()
+        {
+            if (clipboardUnits is LyricTimingClipboard.UnitTimingsPayload unitRun)
+                pasteUnitRun(unitRun);
             else if (clipboardLines is LyricTimingClipboard.LineTimingsPayload lines)
             {
                 var targets = state.MultiSelectedLines.Count > 0
@@ -369,6 +454,70 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     : state.ActiveLine.Value is TypeBeatHitObject single ? new List<TypeBeatHitObject> { single } : new List<TypeBeatHitObject>();
 
                 TypeBeatEditorOperations.PasteLineTimings(EditorBeatmap, targets, lines);
+            }
+        }
+
+        /// <summary>
+        /// The WORD paste, which both paste gestures reach with a unit payload
+        /// (<see cref="TypeBeatEditorOperations.PasteWords"/> holds the whole dispatch). With a word
+        /// of the active line selected it re-times that word and those after it (backlog 343); with
+        /// NO word selected the copied words are INSERTED at the playhead (backlog 344). It never
+        /// falls back to word zero. Every refusal (no room, the playhead outside the line, a payload
+        /// from an older build with no words in it, a line-timed map) changes nothing and flashes the
+        /// panel with its one-line reason.
+        /// </summary>
+        private void pasteUnitRun(LyricTimingClipboard.UnitTimingsPayload run)
+        {
+            if (state.ActiveLine.Value is not TypeBeatHitObject line)
+                return;
+
+            var result = TypeBeatEditorOperations.PasteWords(EditorBeatmap, line, state.SelectedUnitIndex.Value, editorClock.CurrentTime, run);
+
+            switch (result.Outcome)
+            {
+                case WordPasteOutcome.Inserted:
+                    // The inserted run shows where it went.
+                    state.SelectUnitRange(result.FirstIndex, result.FirstIndex + result.Count - 1);
+                    break;
+
+                case WordPasteOutcome.RetimeNoRoom:
+                    refuse("No room to paste the copied timing here");
+                    break;
+
+                case WordPasteOutcome.InsertNoRoom:
+                    refuse("No room at the playhead for the copied word");
+                    break;
+
+                case WordPasteOutcome.OutsideLine:
+                    refuse("Put the playhead inside this line, or select a word, to paste onto it");
+                    break;
+
+                case WordPasteOutcome.NoText:
+                    refuse("This copy has no words to insert: select a word to paste its timing onto");
+                    break;
+
+                case WordPasteOutcome.LineGranularity:
+                    refuse("A line-timed map keeps no word timing: select a word to paste onto");
+                    break;
+            }
+        }
+
+        private void refuse(string message)
+        {
+            state.Refuse();
+            showStatus(message);
+        }
+
+        public override LocalisableString PasteLabel => "Paste line";
+
+        private void showStatus(string message) => onScreenDisplay?.Display(new LyricEditorToast(message));
+
+        /// <summary>A one-line status message from the lyric editor.</summary>
+        private partial class LyricEditorToast : Toast
+        {
+            public LyricEditorToast(string message)
+                : base("Lyric editor", message)
+            {
             }
         }
 
@@ -556,8 +705,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 state.ActiveLine.Value = active;
 
-                // Reset word focus on line change; keep the list following along.
-                state.ClearUnitSelection();
+                // Reset word focus on line change (keeping a word one click on another line asked
+                // for, backlog 343); keep the list following along.
+                state.ResetUnitSelectionFor(active);
 
                 if (active != null && lastAutoScrolled != active)
                 {
@@ -573,6 +723,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // holds focus and normally eats these first; this is the belt-and-braces guard.
             if (tapOverlay.Active)
                 return base.OnKeyDown(e);
+
+            // Ctrl+Shift+V: the timing-only paste. Not a platform action (the framework binds only
+            // Ctrl+V), so it is read here. A text box that has focus (the line box, mid-edit) is left
+            // alone: a timing paste would land on the line the mapper is retyping.
+            if (e.Key == Key.V && e.ControlPressed && e.ShiftPressed && !e.AltPressed && !e.SuperPressed && !e.Repeat)
+            {
+                if (!CanPasteTimings.Value || GetContainingInputManager()?.FocusedDrawable is TextBox)
+                    return false;
+
+                PasteTimings();
+                return true;
+            }
 
             if (e.Repeat || e.ControlPressed || e.AltPressed || e.SuperPressed)
                 return base.OnKeyDown(e);

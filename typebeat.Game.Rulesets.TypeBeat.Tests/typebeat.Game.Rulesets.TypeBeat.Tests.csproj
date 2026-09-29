@@ -17,6 +17,11 @@
     <ProjectReference Include="..\typebeat.Game.Rulesets.TypeBeat\typebeat.Game.Rulesets.TypeBeat.csproj" />
     <ProjectReference Include="..\typebeat.Game\typebeat.Game.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The romaniser fixtures are shared with the server's WireCompat parity test, which links
+         this same folder into its own output. -->
+    <None Update="NonVisual\fixtures\romaniser\*.tsv" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
   <PropertyGroup Label="Project">
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0</TargetFramework>

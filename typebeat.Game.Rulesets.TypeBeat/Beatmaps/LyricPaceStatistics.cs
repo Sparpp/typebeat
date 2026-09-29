@@ -21,7 +21,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// characters and the inter-word spaces, but NOT freestyle slots. A freestyle slot takes any
     /// key, so no map can ask for a particular speed in one, and counting them would credit the
     /// map with typing it never demanded. The player's own readouts (<c>TypingEngine.LiveWpm</c>
-    /// and the results screen's WPM) count every cell they actually pressed, freestyle slots
+    /// and the whole-run <c>ResultsSummary.Wpm</c>) count every cell they actually pressed, freestyle slots
     /// included, so on a map that carries them the two figures part company: those answer "how
     /// fast did this player type", this one answers "how fast does this map ask to be typed".</para>
     ///

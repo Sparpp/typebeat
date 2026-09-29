@@ -89,11 +89,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <param name="metadata">The document's own timing facts; see <see cref="TtmlMetadata"/>.</param>
         /// <param name="offsetMs">Added to every produced time, line and word alike. 0 keeps the
         /// document's own timeline.</param>
-        public static bool TryParse(string? ttml, out IReadOnlyList<LyricLine> lines, out TtmlMetadata metadata, double offsetMs = 0)
+        /// <param name="language">The language to romanise non-Latin words under (backlog 330; see
+        /// <see cref="Romaniser"/>) when the document ships no transliteration of its own.</param>
+        public static bool TryParse(string? ttml, out IReadOnlyList<LyricLine> lines, out TtmlMetadata metadata, double offsetMs = 0, string? language = null)
         {
             lines = Array.Empty<LyricLine>();
 
-            if (!TryParseRaw(ttml, out IReadOnlyList<LyricLine> raw, out metadata, offsetMs))
+            if (!TryParseRaw(ttml, out IReadOnlyList<LyricLine> raw, out metadata, offsetMs, language))
                 return false;
 
             string timing = SynthesizedTimingJson.Write(raw, wordTiming: true, songEndMs: metadata.SongEndMs ?? raw[^1].SingEndTime);
@@ -110,7 +112,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// clamping it here would destroy that evidence before the loader ever sees it. Use
         /// <see cref="TryParse"/> for lines to play or edit.
         /// </summary>
-        public static bool TryParseRaw(string? ttml, out IReadOnlyList<LyricLine> lines, out TtmlMetadata metadata, double offsetMs = 0)
+        public static bool TryParseRaw(string? ttml, out IReadOnlyList<LyricLine> lines, out TtmlMetadata metadata, double offsetMs = 0, string? language = null)
         {
             lines = Array.Empty<LyricLine>();
             metadata = new TtmlMetadata();
@@ -141,13 +143,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             metadata = readMetadata(root);
 
+            var transliterations = readTransliterations(root);
             var built = new List<LyricLine>();
 
             // Descendants() is document order, so lines come out in song order whatever the
             // div/p nesting looks like.
             foreach (XElement paragraph in root.Descendants().Where(e => e.Name.LocalName == "p"))
             {
-                if (tryBuildLine(paragraph, out LyricLine line))
+                if (tryBuildLine(paragraph, transliterations, language, out LyricLine line))
                     built.Add(line);
             }
 
@@ -244,23 +247,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         private sealed class WordBuffer
         {
-            public readonly List<(string Text, double? Start, double? End)> Fragments = new List<(string, double?, double?)>();
+            /// <summary>Each fragment NORMALIZED (<see cref="Text"/>) beside its source text (<c>Raw</c>).</summary>
+            public readonly List<(string Text, double? Start, double? End, string Raw)> Fragments = new List<(string, double?, double?, string)>();
 
-            public string Text
-            {
-                get
-                {
-                    var sb = new StringBuilder();
+            public string Text => string.Concat(Fragments.Select(f => f.Text));
 
-                    foreach (var fragment in Fragments)
-                        sb.Append(fragment.Text);
-
-                    return sb.ToString();
-                }
-            }
+            /// <summary>The word as the document writes it (backlog 330).</summary>
+            public string Raw => string.Concat(Fragments.Select(f => f.Raw));
         }
 
-        private static bool tryBuildLine(XElement paragraph, out LyricLine line)
+        /// <summary>
+        /// One word of a line as the map will store it (backlog 330): its typed text and original, or
+        /// an unromanised word (<see cref="Flagged"/>, no text), with the fragments that time it and,
+        /// for a romanised word, where its syllable cuts land in the typed text.
+        /// </summary>
+        private sealed class ResolvedWord
+        {
+            public required string Text { get; init; }
+            public string? Original { get; init; }
+            public bool Flagged { get; init; }
+
+            /// <summary>The fragments that time the word (each fragment's Text is only used for its length when <see cref="Cuts"/> is null).</summary>
+            public required IReadOnlyList<(string Text, double? Start, double? End, string Raw)> Fragments { get; init; }
+
+            /// <summary>
+            /// For each fragment after the first, the char index in <see cref="Text"/> it starts at,
+            /// or null where the cut is not carried (see <see cref="LyricOriginals.RomanisedWord.MapSplits"/>).
+            /// Null as a whole for a word whose fragments ARE its text (a Latin word, a transliteration).
+            /// </summary>
+            public IReadOnlyList<int?>? Cuts { get; init; }
+        }
+
+        private static bool tryBuildLine(XElement paragraph, IReadOnlyDictionary<string, XElement> transliterations, string? language, out LyricLine line)
         {
             line = null!;
 
@@ -278,10 +296,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (words.Count == 0)
                 return false;
 
-            string text = string.Join(' ', words.Select(w => w.Text));
+            // THE ORIGINAL TEXT (backlog 330): the source's own transliteration when it ships one for
+            // this line, else the romaniser word by word. A line of plain ASCII resolves to exactly
+            // the words it always had.
+            string? key = readAttribute(paragraph, "key");
+            List<ResolvedWord> resolved = (key != null && transliterations.TryGetValue(key, out XElement? transliteration)
+                                              ? pairTransliteration(words, transliteration)
+                                              : null)
+                                          ?? words.Select(w => resolve(w, language)).ToList();
 
-            if (TimingJsonLoader.YieldsNoCells(text))
+            var typed = resolved.Where(r => !r.Flagged).ToList();
+            string text = string.Join(' ', typed.Select(w => w.Text));
+            bool anyFlagged = resolved.Count > typed.Count;
+
+            if (TimingJsonLoader.YieldsNoCells(text) && !anyFlagged)
                 return false;
+
+            string? lineOriginal = resolved.Any(r => r.Original != null) || anyFlagged
+                ? LyricOriginals.CollapseWhitespace(string.Concat(pieces.Select(p => p.Text)))
+                : null;
+
+            if (lineOriginal == text)
+                lineOriginal = null;
 
             // A line states its own span; the part's span covers a line that does not, and a word's
             // own stamp covers one the document left bare. With none of the three there is nothing
@@ -304,9 +340,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // spans and collapse every word after the first into a zero-length point. Such a line is
             // left LINE-LEVEL, and the loader's own interpolation spreads its words across the line -
             // which is exactly the shape a .lrc import has always produced.
-            IReadOnlyList<TimedUnit> units = pieces.Any(p => p.Start.HasValue || p.End.HasValue)
-                ? words.Select(w => buildUnit(w, start, singEnd)).ToArray()
-                : LrcParser.InterpolateUnits(text, start, singEnd);
+            IReadOnlyList<TimedUnit> units;
+            var pending = new List<UnromanisedWord>();
+
+            if (pieces.Any(p => p.Start.HasValue || p.End.HasValue))
+            {
+                var built = new List<TimedUnit>();
+
+                foreach (var word in resolved)
+                {
+                    TimedUnit unit = buildUnit(word, start, singEnd);
+
+                    if (word.Flagged)
+                        pending.Add(new UnromanisedWord(built.Count, word.Original!, unit.StartTime, unit.EndTime));
+                    else
+                        built.Add(unit);
+                }
+
+                units = built;
+            }
+            else if (anyFlagged)
+            {
+                var interpolated = LrcParser.InterpolateWords(resolved.Select(r => (r.Text, r.Flagged, r.Original ?? r.Text, r.Original)).ToList(), start, singEnd);
+                units = interpolated.Units;
+                pending.AddRange(interpolated.Pending);
+            }
+            else
+            {
+                units = LrcParser.InterpolateUnits(text, start, singEnd)
+                                 .Select((u, i) => i < typed.Count && typed[i].Original != null ? LrcParser.WithOriginal(u, typed[i].Original) : u)
+                                 .ToArray();
+            }
 
             line = new LyricLine
             {
@@ -318,9 +382,145 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 EndTime = singEnd,
                 SingEndTime = singEnd,
                 Units = units,
+                Original = lineOriginal,
+                UnromanisedWords = pending,
             };
 
             return true;
+        }
+
+        /// <summary>
+        /// One source word resolved by the ROMANISER (backlog 330). A word with nothing to romanise
+        /// is its normalized fragments exactly as before; a romanised word's fragment cuts are mapped
+        /// into its typed text through the romaniser's units.
+        /// </summary>
+        private static ResolvedWord resolve(WordBuffer word, string? language)
+        {
+            string raw = word.Raw;
+
+            if (!LyricOriginals.CarriesOriginal(raw) && !Romaniser.NeedsRomanising(raw, language))
+                return new ResolvedWord { Text = word.Text, Fragments = word.Fragments };
+
+            var romanised = LyricOriginals.RomaniseWord(raw, language);
+
+            if (romanised.Flagged)
+                return new ResolvedWord { Text = string.Empty, Original = romanised.Original, Flagged = true, Fragments = word.Fragments };
+
+            // The source cut at the start of each fragment after the first, in raw chars.
+            var sourceCuts = new List<int>();
+            int at = 0;
+
+            for (int i = 0; i < word.Fragments.Count; i++)
+            {
+                if (i > 0)
+                    sourceCuts.Add(at);
+
+                at += word.Fragments[i].Raw.Length;
+            }
+
+            var cuts = new int?[sourceCuts.Count];
+
+            foreach (var (sourceCut, textSplit) in romanised.MapSplits(sourceCuts))
+                cuts[sourceCut] = textSplit;
+
+            return new ResolvedWord { Text = romanised.Text, Original = romanised.Original, Fragments = word.Fragments, Cuts = cuts };
+        }
+
+        /// <summary>
+        /// Pairs a line's words with the document's own TRANSLITERATION of it (Apple's
+        /// <c>&lt;transliteration&gt;&lt;text for="key"&gt;</c>, backlog 330), which is preferred over
+        /// the automatic romanisation because it is the reading the song actually has (kanji
+        /// included). The transliteration's words become the typed words, timed by their own spans
+        /// and cut into syllables by their own pieces, and each takes as its original the source
+        /// text it transliterates:
+        /// <list type="bullet">
+        /// <item>the same number of words on both sides pairs them one for one;</item>
+        /// <item>otherwise (Japanese writes no spaces, its transliteration does) every source
+        /// fragment goes to the transliterated word whose span holds its start, which needs both
+        /// sides timed and every word to receive at least one fragment.</item>
+        /// </list>
+        /// Anything else returns null and the romaniser is used instead.
+        /// </summary>
+        private static List<ResolvedWord>? pairTransliteration(List<WordBuffer> words, XElement transliteration)
+        {
+            var pieces = new List<Piece>();
+            collectPieces(transliteration, null, null, pieces);
+
+            List<WordBuffer> latin = buildWords(pieces);
+
+            if (latin.Count == 0 || latin.Any(w => Romaniser.HasNonLatin(w.Raw) || w.Text.Length == 0))
+                return null;
+
+            if (latin.Count == words.Count)
+            {
+                return latin.Select((w, i) => new ResolvedWord
+                {
+                    Text = w.Text,
+                    Original = LyricOriginals.CarriesOriginal(words[i].Raw) && words[i].Raw != w.Text ? words[i].Raw : null,
+                    Fragments = w.Fragments.Any(f => f.Start.HasValue || f.End.HasValue) ? w.Fragments : words[i].Fragments,
+                    Cuts = w.Fragments.Any(f => f.Start.HasValue || f.End.HasValue) ? null : new int?[Math.Max(0, words[i].Fragments.Count - 1)],
+                }).ToList();
+            }
+
+            var sourceFragments = words.SelectMany(w => w.Fragments).ToList();
+
+            if (sourceFragments.Any(f => f.Start == null) || latin.Any(w => w.Fragments.Any(f => f.Start == null || f.End == null)))
+                return null;
+
+            var assigned = new StringBuilder[latin.Count];
+
+            foreach (var fragment in sourceFragments)
+            {
+                int owner = -1;
+
+                for (int i = 0; i < latin.Count; i++)
+                {
+                    double from = latin[i].Fragments.Min(f => f.Start!.Value);
+                    double to = latin[i].Fragments.Max(f => f.End!.Value);
+
+                    if (fragment.Start!.Value >= from && fragment.Start.Value < to)
+                    {
+                        owner = i;
+                        break;
+                    }
+                }
+
+                if (owner < 0)
+                    return null;
+
+                (assigned[owner] ??= new StringBuilder()).Append(fragment.Raw);
+            }
+
+            if (assigned.Any(a => a == null))
+                return null;
+
+            return latin.Select((w, i) => new ResolvedWord
+            {
+                Text = w.Text,
+                Original = assigned[i].ToString() is string source && LyricOriginals.CarriesOriginal(source) && source != w.Text ? source : null,
+                Fragments = w.Fragments,
+            }).ToList();
+        }
+
+        /// <summary>
+        /// The document's TRANSLITERATIONS by line key: Apple writes them under
+        /// <c>&lt;iTunesMetadata&gt;&lt;transliterations&gt;&lt;transliteration&gt;&lt;text for="L1"&gt;</c>
+        /// beside the lines they spell, keyed by each <c>&lt;p itunes:key&gt;</c>. The first one per key wins.
+        /// </summary>
+        private static Dictionary<string, XElement> readTransliterations(XElement root)
+        {
+            var byKey = new Dictionary<string, XElement>(StringComparer.Ordinal);
+
+            foreach (XElement transliteration in root.Descendants().Where(e => e.Name.LocalName == "transliteration"))
+            {
+                foreach (XElement text in transliteration.Elements().Where(e => e.Name.LocalName == "text"))
+                {
+                    if (readAttribute(text, "for") is string key && !byKey.ContainsKey(key))
+                        byKey[key] = text;
+                }
+            }
+
+            return byKey;
         }
 
         /// <summary>
@@ -393,12 +593,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     while (i < text.Length && !char.IsWhiteSpace(text[i]))
                         i++;
 
-                    string normalized = Typeability.Normalize(text.Substring(from, i - from));
+                    string raw = text.Substring(from, i - from);
+                    string normalized = Typeability.Normalize(raw);
 
                     // A fragment that normalizes away entirely (a bare "(", an unsupported glyph) is
                     // neither a word nor a word BREAK: it adds nothing and closes nothing, so the
-                    // pieces around it stay the one word they were written as.
-                    if (normalized.Length == 0)
+                    // pieces around it stay the one word they were written as. A fragment written in
+                    // a script Normalize deletes is NOT such a fragment (backlog 330): it is a word
+                    // the romaniser will spell, and is kept with its source text.
+                    if (normalized.Length == 0 && !LyricOriginals.CarriesOriginal(raw))
                         continue;
 
                     if (current == null)
@@ -407,7 +610,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         words.Add(current);
                     }
 
-                    current.Fragments.Add((normalized, piece.Start, piece.End));
+                    current.Fragments.Add((normalized, piece.Start, piece.End, raw));
                 }
             }
 
@@ -421,7 +624,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// of this exact word (strictly ascending, inside the token), which is the same contract the
         /// loader validates against.
         /// </summary>
-        private static TimedUnit buildUnit(WordBuffer word, double fallbackStart, double fallbackEnd)
+        private static TimedUnit buildUnit(ResolvedWord word, double fallbackStart, double fallbackEnd)
         {
             double start = fallbackStart;
             double end = fallbackEnd;
@@ -454,13 +657,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             {
                 var fragment = word.Fragments[i];
 
-                if (i > 0 && fragment.Start is double s && s > start && s < end)
+                // A ROMANISED word's cuts are the source's, carried through the romaniser's units
+                // (backlog 330): a cut the mapping does not carry takes its time boundary with it,
+                // so the syllable merges into the one before it.
+                int? cut = word.Cuts == null ? chars : i > 0 && i - 1 < word.Cuts.Count ? word.Cuts[i - 1] : null;
+
+                if (i > 0 && cut is int split && fragment.Start is double s && s > start && s < end)
                 {
                     boundaries.Add(s);
-                    splits.Add(chars);
+                    splits.Add(split);
                 }
 
                 chars += fragment.Text.Length;
+            }
+
+            // The cuts must stay a legal split of the typed word; a romanised word whose cuts do not
+            // is left undivided rather than cut wrongly.
+            if (word.Cuts != null && !Gameplay.SyllableSegments.IsAuthoredValid(word.Text, splits.Count + 1, splits))
+            {
+                boundaries.Clear();
+                splits.Clear();
             }
 
             return new TimedUnit
@@ -471,6 +687,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Source = TimingSource.Explicit,
                 SyllableBoundaries = boundaries,
                 SyllableSplits = splits,
+                Original = word.Original,
             };
         }
 
@@ -493,6 +710,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     SingEndTime = line.SingEndTime + deltaMs,
                     SealGraceMs = line.SealGraceMs,
                     Estimated = line.Estimated,
+                    Original = line.Original,
+                    UnromanisedWords = line.UnromanisedWords
+                                           .Select(w => w with { StartTime = w.StartTime + deltaMs, EndTime = w.EndTime + deltaMs })
+                                           .ToArray(),
                     Units = line.Units.Select(u => new TimedUnit
                     {
                         Text = u.Text,
@@ -504,6 +725,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                             ? u.SyllableBoundaries
                             : u.SyllableBoundaries.Select(b => b + deltaMs).ToArray(),
                         SyllableSplits = u.SyllableSplits,
+                        Original = u.Original,
                     }).ToArray(),
                 });
             }

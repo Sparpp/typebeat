@@ -83,10 +83,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 
         /// <summary>
         /// Whether the player must CLOSE a finished line themselves: with this on, space (on a line
-        /// whose last cell is typed) or Enter hands the caret to the next line, and nothing else
-        /// does until the song forces it (the line's seal, which is the drag cutoff). OFF by default,
-        /// so the shipped behaviour is unchanged: a finished line rolls on by itself as soon as the
-        /// next line's entry window opens.
+        /// whose last cell is typed), Enter or a typed letter hands the caret to the next line, and
+        /// nothing else does until the song forces it (the line's seal, which is the drag cutoff).
+        /// ON by default since PR 2, so the settings checkbox exists to turn it OFF, which restores
+        /// the automatic hand-over: a finished line rolls on by itself as soon as the next line's
+        /// entry window opens. As with <see cref="SpaceSkipsWord"/>, only this SHIPPED default
+        /// changed; the engine property (<see cref="Gameplay.TypingEngine.ManualNewlines"/>) still
+        /// defaults to off, so a stored replay decodes on the arm its CONFIG frame records.
         ///
         /// <para>It is the manual half of what <see cref="Gameplay.TypingEngine.BoundedRush"/> bounds:
         /// the press itself always lands, and the timing constraints on WHEN the next line may be
@@ -98,8 +101,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// </summary>
         ManualNewlines,
 
-        /// <summary>Vertical gap (px) between the three gameplay lyric lines.</summary>
+        /// <summary>Vertical gap (px) between the three gameplay lyric lines. The drawn row pitch is
+        /// never less than <see cref="UI.LyricStage.MIN_ROW_PITCH_RATIO"/> times the lyric font size,
+        /// so a large <see cref="LyricFontSize"/> cannot overlap rows; the stored value is untouched.</summary>
         LineSpacing,
+
+        /// <summary>
+        /// Size (px) of the gameplay lyric text (backlog 334), default
+        /// <see cref="UI.TypeBeatStyle.LYRIC_FONT_SIZE"/>. Read once when the lyric stage loads, so it
+        /// applies from the next play. Display only: every adornment beside the lyric row (carets,
+        /// rail, cues, markers, push warning, rejected-key letter) scales with it, and nothing about
+        /// judgement, a replay or an era bit does. Orthogonal to <see cref="LyricFont"/> and to map
+        /// fonts: the size applies to whichever family resolves.
+        /// </summary>
+        LyricFontSize,
 
         /// <summary>
         /// Family name of the font used for the gameplay typing surface (the lyric stack and typed
@@ -122,8 +137,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 
         /// <summary>
         /// Whether a word left carrying an error, once the player has spaced past it, is marked with
-        /// a small red dot centred in the gap after it (the TypeGG-style error indicator). OFF by
-        /// default. Purely visual: it decides nothing about judgement, scoring, the replay or the
+        /// a small red dot centred in the gap after it (the TypeGG-style error indicator). ON by
+        /// default since PR 2. Purely visual: it decides nothing about judgement, scoring, the replay or the
         /// wire, which is why it binds straight to the lyric displays and never reaches the replay
         /// CONFIG frame. See <see cref="UI.LyricLineDisplay.ComputeSpaceErrorDots"/> for the exact
         /// rule.
@@ -291,6 +306,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.SpaceSkipsWord, true);
             SetDefault(TypeBeatRulesetSetting.ManualNewlines, true);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
+            SetDefault(TypeBeatRulesetSetting.LyricFontSize, UI.TypeBeatStyle.LYRIC_FONT_SIZE, 24.0f, 72.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
             SetDefault(TypeBeatRulesetSetting.UseMapFonts, true);
             SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, true);

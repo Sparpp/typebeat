@@ -151,16 +151,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var editorBeatmap = createBeatmap();
 
-            // Pull the last line's sung end far earlier: the typeable window must cap at
-            // singEnd + tail or reload would shrink it.
+            // Pull the last line's sung end far earlier: since backlog 336 the last line's window
+            // is DERIVED, so it follows the sung end with the 1000 ms tail it carried (8000 - 7000).
             TypeBeatEditorOperations.SetSingEnd(editorBeatmap, lineAt(editorBeatmap, 2), 6200);
 
             Assert.That(lineAt(editorBeatmap, 2).Line.SingEndTime, Is.EqualTo(6200));
-            Assert.That(lineAt(editorBeatmap, 2).Line.EndTime, Is.EqualTo(8000)); // 8000 <= 6200 + 3000
+            Assert.That(lineAt(editorBeatmap, 2).Line.EndTime, Is.EqualTo(7200));
 
-            // 8000 stays within [6050, 6050 + tail]; no clamp needed, and reload agrees.
             TypeBeatEditorOperations.SetSingEnd(editorBeatmap, lineAt(editorBeatmap, 2), 6050);
-            Assert.That(lineAt(editorBeatmap, 2).Line.EndTime, Is.EqualTo(8000));
+            Assert.That(lineAt(editorBeatmap, 2).Line.EndTime, Is.EqualTo(7050));
 
             assertReloadStable(editorBeatmap);
         }
@@ -1114,8 +1113,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             beatmap.Metadata.Title = "Tight";
             beatmap.Metadata.AudioFile = "audio.mp3";
 
-            // Words packed edge to edge AND too short to halve into two MIN_SPAN words.
+            // Words packed edge to edge AND too short to halve into two MIN_SPAN words. A line
+            // follows, so the 20 ms tail really is all the room there is (the LAST line has no such
+            // wall since backlog 336, see AddWordAtTheTailOfTheLastLineGrowsTheLine).
             addLine(beatmap, 0, "a b", 1000, 1100, 1080, (1000, 1040), (1040, 1080));
+            addLine(beatmap, 1, "c", 1100, 3000, 2000, (1100, 2000));
 
             var editorBeatmap = new EditorBeatmap(beatmap);
             var line = lineAt(editorBeatmap, 0);
@@ -1540,10 +1542,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var editorBeatmap = createBeatmap();
             var line = lineAt(editorBeatmap, 2); // "omega" [6000, 7000], window to 8000
 
-            // 8000 sits inside [6200, 6200 + 3000], so the window is kept exactly as it is.
+            // The window follows the last word with the tail it carried (8000 - 7000), backlog 336.
             TypeBeatEditorOperations.SetUnitEnd(editorBeatmap, line, 0, 6000, 6200);
             Assert.That(line.Line.SingEndTime, Is.EqualTo(6200));
-            Assert.That(line.Line.EndTime, Is.EqualTo(8000));
+            Assert.That(line.Line.EndTime, Is.EqualTo(7200));
 
             assertReloadStable(editorBeatmap);
 
@@ -1686,6 +1688,628 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(4200));
             Assert.That(line.Line.Units[1].StartTime, Is.EqualTo(4300));
             Assert.That(line.Line.SingEndTime, Is.EqualTo(5800));
+        }
+
+        #endregion
+
+        #region The last line has no right-hand wall (backlog 336)
+
+        /// <summary>
+        /// The two-arm bug. createBeatmap's last line is [6000, 8000]: adding a line 200 ms before
+        /// its end used to inherit only what was LEFT of that window (a 200 ms line, 160 ms sung),
+        /// while one past 8000 got a full 2000. Now both get a real span, and the predecessor still
+        /// ends exactly at the new line's start.
+        /// </summary>
+        [Test]
+        public void AddLineJustBeforeTheLastLinesEndGetsAFullSpan()
+        {
+            var editorBeatmap = createBeatmap();
+
+            var added = TypeBeatEditorOperations.AddLine(editorBeatmap, 7800);
+
+            Assert.That(added, Is.Not.Null);
+            // "new line" is two words, so the 2000 ms floor applies: [7800, 9800], sung to 7800 + 1600.
+            Assert.That(added!.Line.EndTime - added.Line.StartTime, Is.GreaterThanOrEqualTo(TypeBeatEditorOperations.DEFAULT_APPEND_SPAN_MS));
+            Assert.That(added.Line.EndTime, Is.EqualTo(9800));
+            Assert.That(added.Line.SingEndTime, Is.EqualTo(9400));
+            Assert.That(added.Line.Units[^1].EndTime, Is.EqualTo(9400).Within(1e-6), "the words spread over the sung span, not squashed");
+
+            var predecessor = lineAt(editorBeatmap, 2);
+            Assert.That(predecessor.Line.EndTime, Is.EqualTo(7800), "the old last line ends where the new one starts");
+            Assert.That(lineAt(editorBeatmap, 3), Is.SameAs(added));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>Past the old end the result is what it always was, so the two arms now agree.</summary>
+        [Test]
+        public void AddLinePastTheEndIsUnchanged()
+        {
+            var editorBeatmap = createBeatmap();
+
+            var added = TypeBeatEditorOperations.AddLine(editorBeatmap, 9000);
+
+            Assert.That(added!.Line.StartTime, Is.EqualTo(9000));
+            Assert.That(added.Line.EndTime, Is.EqualTo(11000));
+            Assert.That(added.Line.SingEndTime, Is.EqualTo(10600));
+            Assert.That(lineAt(editorBeatmap, 2).Line.EndTime, Is.EqualTo(9000), "boundary invariant with the new line");
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>A line added INSIDE the map is still bounded by the line that follows it.</summary>
+        [Test]
+        public void AddLineBetweenTwoLinesIsStillBoundedByTheFollowingLine()
+        {
+            var editorBeatmap = createBeatmap();
+
+            var added = TypeBeatEditorOperations.AddLine(editorBeatmap, 5800);
+
+            Assert.That(added!.Line.EndTime, Is.EqualTo(6000), "walled by the next line's start, 200 ms or not");
+            Assert.That(lineAt(editorBeatmap, 1).Line.EndTime, Is.EqualTo(5800));
+            Assert.That(lineAt(editorBeatmap, 3).Line.StartTime, Is.EqualTo(6000));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>The appended span scales with the text (400 ms a word, 2000 ms floor) and stops at the song's end.</summary>
+        [Test]
+        public void AppendedSpanScalesWithTheTextAndIsCappedByTheTrack()
+        {
+            Assert.That(TypeBeatEditorOperations.AppendSpanFor("new line"), Is.EqualTo(2000));
+            Assert.That(TypeBeatEditorOperations.AppendSpanFor("one two three four five six seven"), Is.EqualTo(2800));
+
+            var editorBeatmap = createBeatmap();
+            var added = TypeBeatEditorOperations.AddLine(editorBeatmap, 9000, "one two three four five six seven");
+            Assert.That(added!.Line.EndTime, Is.EqualTo(11800));
+
+            var capped = createBeatmap();
+            TypeBeatEditorOperations.SetTrackLengthSource(capped, () => 9500);
+            var nearTheEnd = TypeBeatEditorOperations.AddLine(capped, 7800);
+            Assert.That(nearTheEnd!.Line.EndTime, Is.EqualTo(9500), "never past the song's end");
+
+            assertReloadStable(capped);
+        }
+
+        /// <summary>
+        /// When the old last line reaches further than the default span, the new line inherits that
+        /// reach, with its sung end pulled up so the tail stays inside what reload can derive.
+        /// </summary>
+        [Test]
+        public void AddLineInheritsALongerReachReloadStably()
+        {
+            var beatmap = new Beatmap();
+            beatmap.BeatmapInfo.Ruleset = new TypeBeatRuleset().RulesetInfo;
+            beatmap.Metadata.Artist = "Op";
+            beatmap.Metadata.Title = "Long";
+            beatmap.Metadata.AudioFile = "audio.mp3";
+            addLine(beatmap, 0, "alpha", 1000, 20000, 18000, (1000, 18000));
+
+            var editorBeatmap = new EditorBeatmap(beatmap);
+            var added = TypeBeatEditorOperations.AddLine(editorBeatmap, 2000);
+
+            Assert.That(added!.Line.EndTime, Is.EqualTo(20000));
+            Assert.That(added.Line.EndTime - added.Line.SingEndTime, Is.LessThanOrEqualTo(TypeBeatEditorOperations.LAST_LINE_TAIL_MS));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>
+        /// The derived-end rule. The last line [6000, 8000] sung to 7000 carries a 1000 ms tail;
+        /// its last word moved later carries the window out past 8000 (the old wall), moved earlier
+        /// shrinks it, and every step reloads to exactly what the editor showed.
+        /// </summary>
+        [Test]
+        public void TheLastLinesEndFollowsItsLastWordBothWays()
+        {
+            var editorBeatmap = createBeatmap();
+            var last = lineAt(editorBeatmap, 2);
+
+            TypeBeatEditorOperations.SetUnitEnd(editorBeatmap, last, 0, 6000, 9500);
+            Assert.That(last.Line.Units[0].EndTime, Is.EqualTo(9500), "no wall at the old EndTime");
+            Assert.That(last.Line.SingEndTime, Is.EqualTo(9500));
+            Assert.That(last.Line.EndTime, Is.EqualTo(10500));
+            assertReloadStable(editorBeatmap);
+
+            TypeBeatEditorOperations.MoveUnit(editorBeatmap, last, 0, 9000);
+            Assert.That(last.Line.Units[0].EndTime, Is.EqualTo(12500), "a rigid move is not walled either");
+            Assert.That(last.Line.EndTime, Is.EqualTo(13500));
+            assertReloadStable(editorBeatmap);
+
+            TypeBeatEditorOperations.SetUnitEnd(editorBeatmap, last, 0, 9000, 10000);
+            Assert.That(last.Line.SingEndTime, Is.EqualTo(10000));
+            Assert.That(last.Line.EndTime, Is.EqualTo(11000), "and it shrinks with the word");
+            assertReloadStable(editorBeatmap);
+
+            // Tap timing goes through the same ceiling: stamping the start past the word's end
+            // pushes the end to start + MIN_SPAN_MS, and the line follows.
+            TypeBeatEditorOperations.StampUnitStart(editorBeatmap, last, 0, 10500);
+            Assert.That(last.Line.Units[0].StartTime, Is.EqualTo(10500));
+            Assert.That(last.Line.Units[0].EndTime, Is.EqualTo(10530));
+            Assert.That(last.Line.EndTime, Is.EqualTo(11530));
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>The song's end is the one wall the last line has.</summary>
+        [Test]
+        public void TheLastLinesWordNeverPassesTheTrackLength()
+        {
+            var editorBeatmap = createBeatmap();
+            TypeBeatEditorOperations.SetTrackLengthSource(editorBeatmap, () => 12000);
+            var last = lineAt(editorBeatmap, 2);
+
+            TypeBeatEditorOperations.SetUnitEnd(editorBeatmap, last, 0, 6000, 15000);
+            Assert.That(last.Line.Units[0].EndTime, Is.EqualTo(12000));
+            Assert.That(last.Line.SingEndTime, Is.EqualTo(12000));
+            Assert.That(last.Line.EndTime, Is.EqualTo(12000), "the tail is cut by the song's end");
+
+            TypeBeatEditorOperations.MoveUnit(editorBeatmap, last, 0, 20000);
+            Assert.That(last.Line.Units[0].EndTime, Is.EqualTo(12000), "a move cannot push it past either");
+
+            assertReloadStable(editorBeatmap);
+
+            // An unknown length (null source) leaves the line uncapped, never capped at zero.
+            var unknown = createBeatmap();
+            TypeBeatEditorOperations.SetTrackLengthSource(unknown, () => null);
+            TypeBeatEditorOperations.SetUnitEnd(unknown, lineAt(unknown, 2), 0, 6000, 15000);
+            Assert.That(lineAt(unknown, 2).Line.Units[0].EndTime, Is.EqualTo(15000));
+        }
+
+        /// <summary>A group of words on the last line is not walled by the line's EndTime either.</summary>
+        [Test]
+        public void AGroupMoveOnTheLastLineCarriesItsEnd()
+        {
+            var editorBeatmap = createBeatmap();
+            var last = lineAt(editorBeatmap, 2);
+
+            TypeBeatEditorOperations.EditUnitGroup(editorBeatmap, last, new[] { 0 }, new[] { 6000.0 }, new[] { 7000.0 }, 2500,
+                TypeBeatEditorOperations.UnitGroupEdit.Move);
+
+            Assert.That(last.Line.Units[0].EndTime, Is.EqualTo(9500));
+            Assert.That(last.Line.EndTime, Is.EqualTo(10500));
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>An INTERIOR line keeps its wall: the next line's start.</summary>
+        [Test]
+        public void AnInteriorLinesWordStillStopsAtTheNextLine()
+        {
+            var editorBeatmap = createBeatmap();
+            var line = lineAt(editorBeatmap, 1); // "gamma delta", delta [4300, 5500], next line at 6000
+
+            TypeBeatEditorOperations.SetUnitEnd(editorBeatmap, line, 1, 4300, 7000);
+            Assert.That(line.Line.Units[1].EndTime, Is.EqualTo(6000));
+            Assert.That(line.Line.EndTime, Is.EqualTo(6000));
+
+            TypeBeatEditorOperations.MoveUnit(editorBeatmap, line, 1, 9000);
+            Assert.That(line.Line.Units[1].EndTime, Is.EqualTo(6000));
+            Assert.That(line.Line.EndTime, Is.EqualTo(6000));
+            Assert.That(lineAt(editorBeatmap, 2).Line.StartTime, Is.EqualTo(6000));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>
+        /// Add word at the tail of the LAST line: the old wall (20 ms of tail) refused it, now the
+        /// word is placed after the anchor and the line grows to take it.
+        /// </summary>
+        [Test]
+        public void AddWordAtTheTailOfTheLastLineGrowsTheLine()
+        {
+            var beatmap = new Beatmap();
+            beatmap.BeatmapInfo.Ruleset = new TypeBeatRuleset().RulesetInfo;
+            beatmap.Metadata.Artist = "Op";
+            beatmap.Metadata.Title = "Tight";
+            beatmap.Metadata.AudioFile = "audio.mp3";
+            addLine(beatmap, 0, "a b", 1000, 1100, 1080, (1000, 1040), (1040, 1080));
+
+            var editorBeatmap = new EditorBeatmap(beatmap);
+            var line = lineAt(editorBeatmap, 0);
+
+            Assert.That(TypeBeatEditorOperations.AddWord(editorBeatmap, line, -1), Is.True);
+            Assert.That(line.Line.RawText, Is.EqualTo("a b word"));
+            Assert.That(line.Line.Units[2].StartTime, Is.EqualTo(1080));
+            Assert.That(line.Line.Units[2].EndTime, Is.EqualTo(1120), "the anchor's own width, not clamped to the old end");
+            Assert.That(line.Line.SingEndTime, Is.EqualTo(1120));
+            Assert.That(line.Line.EndTime, Is.EqualTo(1140), "the 20 ms tail rides along");
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>
+        /// Save and reopen an appended (and then edited) last line, then save again: the second save
+        /// is byte-identical to the first, so the decoder derives nothing differently for it.
+        /// </summary>
+        [Test]
+        public void AnAppendedLineRoundTripsAsTheIdentity()
+        {
+            var editorBeatmap = createBeatmap();
+            var added = TypeBeatEditorOperations.AddLine(editorBeatmap, 7800);
+            TypeBeatEditorOperations.SetUnitEnd(editorBeatmap, added!, 1, added!.Line.Units[1].StartTime, 10200);
+            Assert.That(added.Line.EndTime, Is.GreaterThan(9800), "the edited last line grew");
+
+            assertReloadStable(editorBeatmap);
+
+            string first = encode(editorBeatmap);
+
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(first));
+            using var reader = new typebeat.Game.IO.LineBufferedReader(stream);
+            var decoded = typebeat.Game.Beatmaps.Formats.Decoder.GetDecoder<Beatmap>(reader).Decode(reader);
+
+            Assert.That(encode(new EditorBeatmap(decoded)), Is.EqualTo(first));
+        }
+
+        #endregion
+
+        #region Line box word count changes are local (backlog 340)
+
+        /// <summary>
+        /// One hand-timed line under test at [<paramref name="start"/>, 6000] and a following line
+        /// "next" [6000, 8000] (sung end 7000), so the line under test is INTERIOR and its tail wall
+        /// is 6000.
+        /// </summary>
+        private static EditorBeatmap createLocalEditBeatmap(string text, double start, double singEnd, params (double s, double e)[] words)
+        {
+            var beatmap = new Beatmap();
+            beatmap.BeatmapInfo.Ruleset = new TypeBeatRuleset().RulesetInfo;
+            beatmap.Metadata.Artist = "Op";
+            beatmap.Metadata.Title = "Test";
+            beatmap.Metadata.AudioFile = "audio.mp3";
+
+            addLine(beatmap, 0, text, start, 6000, singEnd, words);
+            addLine(beatmap, 1, "next", 6000, 8000, 7000, (6000, 7000));
+
+            return new EditorBeatmap(beatmap);
+        }
+
+        /// <summary>"i am the walrus": i [1000,1150], am [1400,1600], the [2500,2700], walrus [2750,3900].</summary>
+        private static EditorBeatmap createWalrusBeatmap()
+            => createLocalEditBeatmap("i am the walrus", 1000, 3900, (1000, 1150), (1400, 1600), (2500, 2700), (2750, 3900));
+
+        private static void assertWords(TypeBeatHitObject hitObject, params (string text, double start, double end, TimingSource source)[] expected)
+        {
+            var units = hitObject.Line.Units;
+
+            Assert.That(hitObject.Line.RawText, Is.EqualTo(string.Join(' ', expected.Select(w => w.text))));
+            Assert.That(units.Count, Is.EqualTo(expected.Length), "unit count");
+
+            Assert.Multiple(() =>
+            {
+                for (int i = 0; i < expected.Length; i++)
+                {
+                    Assert.That(units[i].Text, Is.EqualTo(expected[i].text), $"word {i} text");
+                    Assert.That(units[i].StartTime, Is.EqualTo(expected[i].start).Within(1e-6), $"word {i} ({expected[i].text}) start");
+                    Assert.That(units[i].EndTime, Is.EqualTo(expected[i].end).Within(1e-6), $"word {i} ({expected[i].text}) end");
+                    Assert.That(units[i].Source, Is.EqualTo(expected[i].source), $"word {i} ({expected[i].text}) source");
+                }
+            });
+        }
+
+        private const TimingSource explicit_timing = TimingSource.Explicit;
+
+        [Test]
+        public void LineBoxAppendPlacesOnlyTheNewWord()
+        {
+            var editorBeatmap = createWalrusBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            Assert.That(TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "i am the walrus yeah"), Is.True);
+
+            // The free gap after "walrus", capped at walrus's own 1150.
+            assertWords(line,
+                ("i", 1000, 1150, explicit_timing), ("am", 1400, 1600, explicit_timing),
+                ("the", 2500, 2700, explicit_timing), ("walrus", 2750, 3900, explicit_timing),
+                ("yeah", 3900, 5050, explicit_timing));
+            Assert.That(line.Line.SingEndTime, Is.EqualTo(5050), "a new last word carries the sung end");
+            Assert.That(line.Line.EndTime, Is.EqualTo(6000));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>The line box and the add-word button share one placement rule, so they agree.</summary>
+        [Test]
+        public void LineBoxAppendMatchesTheAddWordButton()
+        {
+            var typed = createWalrusBeatmap();
+            var clicked = createWalrusBeatmap();
+
+            TypeBeatEditorOperations.SetLineText(typed, lineAt(typed, 0), "i am the walrus yeah");
+            TypeBeatEditorOperations.AddWord(clicked, lineAt(clicked, 0), 3, "yeah");
+
+            Assert.That(encode(typed), Is.EqualTo(encode(clicked)));
+        }
+
+        [Test]
+        public void LineBoxAppendingTwoSharesTheCappedGap()
+        {
+            var editorBeatmap = createWalrusBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "i am the walrus yeah yeah");
+
+            // Cap is 2 x 1150 = 2300 but the wall is the line's end at 6000: 2100 split evenly.
+            assertWords(line,
+                ("i", 1000, 1150, explicit_timing), ("am", 1400, 1600, explicit_timing),
+                ("the", 2500, 2700, explicit_timing), ("walrus", 2750, 3900, explicit_timing),
+                ("yeah", 3900, 4950, explicit_timing), ("yeah", 4950, 6000, explicit_timing));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void LineBoxInsertionInTheMiddleTakesTheGapAfterItsAnchor()
+        {
+            var editorBeatmap = createWalrusBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "i am not the walrus");
+
+            assertWords(line,
+                ("i", 1000, 1150, explicit_timing), ("am", 1400, 1600, explicit_timing),
+                ("not", 1600, 1800, explicit_timing),
+                ("the", 2500, 2700, explicit_timing), ("walrus", 2750, 3900, explicit_timing));
+            Assert.That(line.Line.SingEndTime, Is.EqualTo(3900), "the last word did not move");
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>At the head there is no word before, and "i" starts on the line's start: it gives up its first half.</summary>
+        [Test]
+        public void LineBoxPrependHalvesTheFirstWord()
+        {
+            var editorBeatmap = createWalrusBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "oh i am the walrus");
+
+            assertWords(line,
+                ("oh", 1000, 1075, explicit_timing), ("i", 1075, 1150, explicit_timing),
+                ("am", 1400, 1600, explicit_timing), ("the", 2500, 2700, explicit_timing),
+                ("walrus", 2750, 3900, explicit_timing));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void LineBoxRewordedRunKeepsTheSpanTheOldWordHeld()
+        {
+            var editorBeatmap = createWalrusBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "i am a big walrus");
+
+            // "the" [2500, 2700] becomes "a big", char-weighted (weights 2 and 4) inside it.
+            assertWords(line,
+                ("i", 1000, 1150, explicit_timing), ("am", 1400, 1600, explicit_timing),
+                ("a", 2500, 2500 + 200.0 / 3, explicit_timing), ("big", 2500 + 200.0 / 3, 2700, explicit_timing),
+                ("walrus", 2750, 3900, explicit_timing));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void LineBoxDeletionLeavesAGapAndMovesNoNeighbour()
+        {
+            var editorBeatmap = createWalrusBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "i am the");
+
+            assertWords(line,
+                ("i", 1000, 1150, explicit_timing), ("am", 1400, 1600, explicit_timing),
+                ("the", 2500, 2700, explicit_timing));
+            Assert.That(line.Line.SingEndTime, Is.EqualTo(2700), "the tail word went, so the sung end follows the new last word");
+            Assert.That(line.Line.EndTime, Is.EqualTo(6000), "an interior line keeps its window");
+            assertReloadStable(editorBeatmap);
+
+            // And from the middle: the gap stays a gap.
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "i the");
+
+            assertWords(line, ("i", 1000, 1150, explicit_timing), ("the", 2500, 2700, explicit_timing));
+            assertReloadStable(editorBeatmap);
+        }
+
+        [Test]
+        public void LineBoxSameCountRewriteKeepsEverySpan()
+        {
+            var editorBeatmap = createWalrusBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "i am thee walrus");
+
+            assertWords(line,
+                ("i", 1000, 1150, explicit_timing), ("am", 1400, 1600, explicit_timing),
+                ("thee", 2500, 2700, explicit_timing), ("walrus", 2750, 3900, explicit_timing));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>Nothing in common with the old line: there is nothing to keep, so the whole line is redistributed as before.</summary>
+        [Test]
+        public void LineBoxWholeLineRewriteRedistributes()
+        {
+            var editorBeatmap = createWalrusBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            // Five words over four, so this is a word count change (four would keep every span).
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "we were all together now");
+
+            var expected = LrcParser.InterpolateUnits("we were all together now", 1000, 3900);
+
+            assertWords(line, expected.Select(u => (u.Text, u.StartTime, u.EndTime, u.Source)).ToArray());
+            Assert.That(line.Line.Units.All(u => u.Source != TimingSource.Explicit), Is.True, "nobody hand-timed these");
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>A change with no room for its words (no gap, neither neighbour wide enough to halve) also redistributes.</summary>
+        [Test]
+        public void LineBoxInsertionWithNoRoomRedistributes()
+        {
+            var editorBeatmap = createLocalEditBeatmap("a b", 1000, 1080, (1000, 1040), (1040, 1080));
+            var line = lineAt(editorBeatmap, 0);
+
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "a new b");
+
+            var expected = LrcParser.InterpolateUnits("a new b", 1000, 1080);
+            assertWords(line, expected.Select(u => (u.Text, u.StartTime, u.EndTime, u.Source)).ToArray());
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>
+        /// Repeated words: the alignment is a longest common subsequence, not a leftmost walk. A
+        /// "na" typed onto "na na na" is read as appended (all three keep their spans), and a "na"
+        /// typed in FRONT of "oh na na" keeps all three old words, where the leftmost walk would
+        /// pair the new first "na" with the old second one and lose "oh".
+        /// </summary>
+        [Test]
+        public void LineBoxRepeatedWordsKeepEveryOldWord()
+        {
+            var editorBeatmap = createLocalEditBeatmap("na na na", 1000, 1800, (1000, 1200), (1300, 1500), (1600, 1800));
+            var line = lineAt(editorBeatmap, 0);
+
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "na na na na");
+
+            assertWords(line,
+                ("na", 1000, 1200, explicit_timing), ("na", 1300, 1500, explicit_timing),
+                ("na", 1600, 1800, explicit_timing), ("na", 1800, 2000, explicit_timing));
+            assertReloadStable(editorBeatmap);
+
+            // The line opens 500 ms before "oh": a head insertion takes the END of that gap, next to
+            // the word it precedes, capped at that word's own 300.
+            editorBeatmap = createLocalEditBeatmap("oh na na", 500, 1800, (1000, 1300), (1300, 1500), (1600, 1800));
+            line = lineAt(editorBeatmap, 0);
+
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "na oh na na");
+
+            assertWords(line,
+                ("na", 700, 1000, explicit_timing), ("oh", 1000, 1300, explicit_timing),
+                ("na", 1300, 1500, explicit_timing), ("na", 1600, 1800, explicit_timing));
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>Packed edge to edge: the word before is bisected and the new words share its second half.</summary>
+        [Test]
+        public void LineBoxInsertionIntoAPackedLineBisectsTheAnchor()
+        {
+            var editorBeatmap = createLocalEditBeatmap("alpha beta", 1000, 2800, (1000, 1800), (1800, 2800));
+            var line = lineAt(editorBeatmap, 0);
+
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "alpha x y beta");
+
+            assertWords(line,
+                ("alpha", 1000, 1400, explicit_timing),
+                ("x", 1400, 1600, explicit_timing), ("y", 1600, 1800, explicit_timing),
+                ("beta", 1800, 2800, explicit_timing));
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>
+        /// A bisected anchor is RESIZED, as the add-word button's is: its boundary inside the half it
+        /// keeps stays at its own time, the one in the half it gave up goes with that half, and the
+        /// new word arrives with no subdivision of its own.
+        /// </summary>
+        [Test]
+        public void LineBoxInsertionAfterASubdividedAnchorDropsTheBoundaryItGaveUp()
+        {
+            var editorBeatmap = createLocalEditBeatmap("alpha beta", 1000, 2800, (1000, 1800), (1800, 2800));
+            var line = lineAt(editorBeatmap, 0);
+
+            subdivide(editorBeatmap, 0, 0, boundaries: new[] { 1200d, 1600 });
+
+            foreach (var o in TypeBeatEditorOperations.OrderedLines(editorBeatmap))
+                o.Granularity = TimingGranularity.Syllable;
+
+            // What the box shows, with a word typed in: the mapper commits alpha's pipes as seen.
+            string shown = TypeBeatEditorOperations.PipeDisplayText(line.Line);
+            Assert.That(shown, Does.EndWith(" beta"));
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, line, shown.Replace(" beta", " new beta"));
+
+            assertWords(line,
+                ("alpha", 1000, 1400, explicit_timing), ("new", 1400, 1800, explicit_timing), ("beta", 1800, 2800, explicit_timing));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(line.Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 1200d }), "kept at its own time");
+                Assert.That(line.Line.Units[1].SyllableBoundaries, Is.Empty);
+                Assert.That(line.Granularity, Is.EqualTo(TimingGranularity.Syllable), "alpha is still subdivided");
+            });
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>A kept word's subdivision is kept verbatim, not rescaled into a redistributed span.</summary>
+        [Test]
+        public void LineBoxInsertionKeepsAnUntouchedWordsSubdivisionVerbatim()
+        {
+            var editorBeatmap = createWalrusBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            subdivide(editorBeatmap, 0, 3, boundaries: new[] { 3100d }, splits: new[] { 2 },
+                rests: new[] { new WordPause(3300, 3400, 4) });
+
+            foreach (var o in TypeBeatEditorOperations.OrderedLines(editorBeatmap))
+                o.Granularity = TimingGranularity.Syllable;
+
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "oh " + TypeBeatEditorOperations.PipeDisplayText(line.Line));
+
+            var walrus = line.Line.Units[4];
+
+            Assert.Multiple(() =>
+            {
+                Assert.That((walrus.StartTime, walrus.EndTime), Is.EqualTo((2750d, 3900d)));
+                Assert.That(walrus.SyllableBoundaries, Is.EqualTo(new[] { 3100d }));
+                Assert.That(walrus.SyllableSplits, Is.EqualTo(new[] { 2 }));
+                Assert.That(walrus.Pauses, Is.EqualTo(new[] { new WordPause(3300, 3400, 4) }));
+            });
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>A pipe typed on the inserted word subdivides it in the span it was placed in.</summary>
+        [Test]
+        public void LineBoxPipeOnTheInsertedWordSubdividesIt()
+        {
+            var editorBeatmap = createWalrusBeatmap();
+            var line = lineAt(editorBeatmap, 0);
+
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "i am the walrus ye|ah");
+
+            assertWords(line,
+                ("i", 1000, 1150, explicit_timing), ("am", 1400, 1600, explicit_timing),
+                ("the", 2500, 2700, explicit_timing), ("walrus", 2750, 3900, explicit_timing),
+                ("yeah", 3900, 5050, explicit_timing));
+            Assert.That(line.Line.Units[4].SyllableBoundaries, Is.EqualTo(new[] { 4475d }), "cut into two equal halves");
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(line.Line), Does.EndWith(" ye|ah"));
+            Assert.That(line.Granularity, Is.EqualTo(TimingGranularity.Syllable), "promoted so the encoder keeps it");
+
+            assertReloadStable(editorBeatmap);
+        }
+
+        /// <summary>The whole local placement, sung end included, is one transaction and one undo step.</summary>
+        [Test]
+        public void LineBoxAppendIsOneUndoStep()
+        {
+            var editorBeatmap = createWalrusBeatmap();
+            var changeHandler = new RulesetBeatmapChangeHandler(editorBeatmap, new TypeBeatRuleset());
+
+            int changes = 0;
+            editorBeatmap.TransactionEnded += () => changes++;
+
+            TypeBeatEditorOperations.SetLineText(editorBeatmap, lineAt(editorBeatmap, 0), "i am the walrus yeah");
+
+            Assert.That(changes, Is.EqualTo(1), "one transaction");
+            Assert.That(lineAt(editorBeatmap, 0).Line.SingEndTime, Is.EqualTo(5050));
+
+            changeHandler.RestoreState(-1);
+
+            assertWords(lineAt(editorBeatmap, 0),
+                ("i", 1000, 1150, explicit_timing), ("am", 1400, 1600, explicit_timing),
+                ("the", 2500, 2700, explicit_timing), ("walrus", 2750, 3900, explicit_timing));
+            Assert.That(lineAt(editorBeatmap, 0).Line.SingEndTime, Is.EqualTo(3900), "the sung end came back with it");
+            Assert.That(changeHandler.CanUndo.Value, Is.False, "and that was the only step");
         }
 
         #endregion

@@ -17,6 +17,13 @@ namespace typebeat.Game.Screens.Select.Filter
         [LocalisableDescription(typeof(SongSelectStrings), nameof(SongSelectStrings.BPM))]
         BPM,
 
+        /// <summary>
+        /// By the stored target WPM (<see cref="Beatmaps.BeatmapInfo.TargetWpm"/>), like <see cref="BPM"/>; an unprocessed
+        /// map (-1) sorts lowest, as an uncalculated star rating does under <see cref="Difficulty"/>.
+        /// </summary>
+        [LocalisableDescription(typeof(SongSelectStrings), nameof(SongSelectStrings.Wpm))]
+        Wpm,
+
         [LocalisableDescription(typeof(SongSelectStrings), nameof(SongSelectStrings.DateAdded))]
         DateAdded,
 

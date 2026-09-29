@@ -763,6 +763,23 @@ namespace typebeat.Game
             beatmap.OldValue?.CancelAsyncLoad();
             beatmap.NewValue?.BeginAsyncLoad();
             updateWindowTitle();
+            dropModsUnavailableOnBeatmap();
+        }
+
+        /// <summary>
+        /// A selection carried over to another beatmap keeps only the mods that beatmap can carry
+        /// (<see cref="Mod.IsAvailableFor"/>, backlog 331), exactly as an incompatible mod drops out
+        /// of a selection. Run on every beatmap change and every selection change, so a preset or a
+        /// restored selection holding such a mod loses it too.
+        /// </summary>
+        private void dropModsUnavailableOnBeatmap()
+        {
+            // A lease may be taken on the mods bindable (gameplay), at which point the selection is not ours to change.
+            if (SelectedMods.Disabled)
+                return;
+
+            if (!ModUtils.CheckAvailableFor(SelectedMods.Value, Beatmap.Value, out var unavailable))
+                SelectedMods.Value = SelectedMods.Value.Except(unavailable).ToArray();
         }
 
         private void updateWindowTitle()
@@ -803,7 +820,10 @@ namespace typebeat.Game
             {
                 // ensure we always have a valid set of mods.
                 SelectedMods.Value = mods.NewValue.Except(invalid).ToArray();
+                return;
             }
+
+            dropModsUnavailableOnBeatmap();
         }
 
         #endregion

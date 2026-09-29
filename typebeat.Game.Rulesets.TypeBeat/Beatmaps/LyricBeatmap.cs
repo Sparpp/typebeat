@@ -120,6 +120,63 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         public static bool IsCell(char c) => IsTypeable(c) || IsFreestyle(c);
 
+        /// <summary>
+        /// A character the POLYGLOT mod (backlog 331) plays as a typed cell: a letter or a mark of
+        /// any script (Unicode categories L and M) or a decimal digit, so "Привет", "γειά", "こんにちは"
+        /// and the jamo of a hangul block are all typeable. Used ONLY by the Polyglot flattening
+        /// (<see cref="Gameplay.PolyglotLine"/>): <see cref="IsTypeable"/> stays ASCII, the invariant
+        /// every legacy path (the normalizer, the key map, the difficulty model, the pace figures and
+        /// the server) is built on. A surrogate half is never a cell: a frame stores one UTF-16 unit,
+        /// so a character outside the BMP cannot be played (see <see cref="Gameplay.PolyglotText"/>).
+        /// </summary>
+        public static bool IsPolyglotCell(char c)
+        {
+            switch (CharUnicodeInfo.GetUnicodeCategory(c))
+            {
+                case UnicodeCategory.UppercaseLetter:
+                case UnicodeCategory.LowercaseLetter:
+                case UnicodeCategory.TitlecaseLetter:
+                case UnicodeCategory.ModifierLetter:
+                case UnicodeCategory.OtherLetter:
+                case UnicodeCategory.NonSpacingMark:
+                case UnicodeCategory.SpacingCombiningMark:
+                case UnicodeCategory.EnclosingMark:
+                case UnicodeCategory.DecimalDigitNumber:
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// The Polyglot twin of <see cref="IsCell"/>: an ASCII cell (freestyle slots included, which a
+        /// romanised word with no original still carries) or a <see cref="IsPolyglotCell"/> character.
+        /// Identical to <see cref="IsCell"/> on every character a stored romanised lyric can hold.
+        /// </summary>
+        public static bool IsPolyglotTypeCell(char c) => IsCell(c) || IsPolyglotCell(c);
+
+        /// <summary>
+        /// A mark the Polyglot mod types under Literate: a supported <see cref="PUNCTUATION"/> mark or
+        /// any Unicode punctuation (、 。 « » ¿ and the rest), since an original is not normalised and
+        /// keeps its own script's marks.
+        /// </summary>
+        public static bool IsPolyglotPunctuation(char c) => IsPunctuation(c) || char.IsPunctuation(c);
+
+        /// <summary>
+        /// The Polyglot twin of <see cref="DefaultChar"/>: a hyphen is a word break, a cell folds to
+        /// lower case, and EVERY other character (any script's punctuation, a symbol) disappears from
+        /// the default stream. On a stored romanised lyric (ASCII letters, digits, spaces, freestyle
+        /// markers and the supported marks) it answers exactly what <see cref="DefaultChar"/> answers.
+        /// </summary>
+        public static char? PolyglotDefaultChar(char c)
+        {
+            if (c == WORD_BREAK || c == ' ')
+                return ' ';
+
+            return IsPolyglotTypeCell(c) ? Fold(c) : null;
+        }
+
         public static char Fold(char c) => char.ToLowerInvariant(c);
 
         /// <summary>
@@ -169,7 +226,73 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// Latin diacritics stripped (FormD, combining marks dropped), curly
+        /// The Latin SPECIAL LETTERS <see cref="Normalize"/> spells out in ASCII (backlog 329, step
+        /// a): letters that are not a base letter plus a diacritic, so FormD has nothing to
+        /// decompose and, without this table, the char was simply DELETED ("straße" stored as
+        /// "strae"). Only letters Unicode gives no canonical decomposition belong here; å, ä, ö, é,
+        /// ñ and the rest already fold through FormD and are deliberately absent.
+        ///
+        /// <para>CASE IS PRESERVED, because the Literate mod types the stored line case-sensitively:
+        /// a capital maps to a capital. A two-letter spelling of a capital takes ONE fixed form,
+        /// capitalised first letter only (Þ "Th", Ŋ "Ng"), so the table stays a pure per-char map
+        /// with no look at the neighbours; that reads naturally at the head of a word, which is
+        /// where these capitals occur, and an all-caps line reads "ThU" rather than "THU". The
+        /// exceptions are ẞ and the ligatures Æ and Œ, which spell out in full capitals ("SS",
+        /// "AE", "OE"): capital sharp s exists precisely for all-caps text, and a capital ligature
+        /// is two capitals written as one glyph. ı and ĸ have no capital of their own.</para>
+        ///
+        /// <para>Applied AFTER the FormD decomposition, not before it, so a precomposed letter whose
+        /// canonical decomposition is one of these plus a mark (Ǿ = Ø + acute, ǽ = æ + acute, ǣ = æ +
+        /// macron) spells out as well instead of being deleted; for every letter in the table itself
+        /// the order makes no difference, since none of them decomposes.</para>
+        ///
+        /// <para>MIRRORED byte for byte in the server repo
+        /// (<c>src/Typebeat.Web/Packages/Lyrics/Typeability.cs</c>) and in the browser
+        /// (<c>SPECIAL_LETTERS</c> in <c>typebeat-core.js</c>), exactly as <see cref="PUNCTUATION"/>
+        /// is: all three decode the same stored [Lyrics] text, and an import stores the raw
+        /// aligner line, so a one-sided edit gives the clients different cells on one map.</para>
+        /// </summary>
+        public static readonly IReadOnlyDictionary<char, string> SPECIAL_LETTERS = new Dictionary<char, string>
+        {
+            ['ß'] = "ss", ['ẞ'] = "SS",
+            ['æ'] = "ae", ['Æ'] = "AE",
+            ['œ'] = "oe", ['Œ'] = "OE",
+            ['ø'] = "o", ['Ø'] = "O",
+            ['ł'] = "l", ['Ł'] = "L",
+            ['đ'] = "d", ['Đ'] = "D",
+            ['þ'] = "th", ['Þ'] = "Th",
+            ['ð'] = "d", ['Ð'] = "D",
+            ['ı'] = "i",
+            ['ŋ'] = "ng", ['Ŋ'] = "Ng",
+            ['ĸ'] = "k",
+        };
+
+        /// <summary>
+        /// Spells every <see cref="SPECIAL_LETTERS"/> letter in <paramref name="text"/> out in ASCII
+        /// and leaves every other char alone. Returns the input itself when it carries none.
+        /// </summary>
+        public static string SpellSpecialLetters(string text)
+        {
+            StringBuilder? sb = null;
+
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (!SPECIAL_LETTERS.TryGetValue(text[i], out string? spelled))
+                {
+                    sb?.Append(text[i]);
+                    continue;
+                }
+
+                sb ??= new StringBuilder(text, 0, i, text.Length + 8);
+                sb.Append(spelled);
+            }
+
+            return sb?.ToString() ?? text;
+        }
+
+        /// <summary>
+        /// Latin diacritics stripped (FormD, combining marks dropped), the Latin special letters
+        /// spelled out (<see cref="SPECIAL_LETTERS"/>: 'ß' -> "ss", 'Ø' -> "O"), curly
         /// quotes/apostrophes -> ASCII, en/em dash -> '-', NBSP -> space, then every char that is
         /// neither typeable nor one of the supported <see cref="PUNCTUATION"/> marks is REMOVED.
         /// Whitespace runs collapse to a single space, trimmed.
@@ -206,6 +329,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             {
                 // Invalid Unicode (broken surrogates); carry on undecomposed.
             }
+
+            // The letters FormD cannot reach ('ß', 'ø', 'ł', ...) are spelled out rather than
+            // dropped below as untypeable.
+            raw = SpellSpecialLetters(raw);
 
             var sb = new StringBuilder(raw.Length);
             bool pendingSpace = false;
@@ -303,6 +430,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// exactly what you type, by construction rather than by agreement.</para>
         /// </summary>
         public static void ProjectDefault(string raw, StringBuilder text, List<int>? sourceIndices = null)
+            => ProjectDefault(raw, text, sourceIndices, DefaultChar);
+
+        /// <summary>
+        /// <see cref="ProjectDefault(string, StringBuilder, List{int})"/> through a caller's own
+        /// per-char rule (the Polyglot mod's <see cref="PolyglotDefaultChar"/>); the run handling is
+        /// the same one, so the two streams cannot disagree about spaces.
+        /// </summary>
+        public static void ProjectDefault(string raw, StringBuilder text, List<int>? sourceIndices, Func<char, char?> defaultChar)
         {
             if (string.IsNullOrEmpty(raw))
                 return;
@@ -312,7 +447,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             while (i < raw.Length)
             {
-                if (DefaultChar(raw[i]) is not char c)
+                if (defaultChar(raw[i]) is not char c)
                 {
                     i++;
                     continue;
@@ -335,7 +470,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 while (end < raw.Length)
                 {
-                    if (DefaultChar(raw[end]) is not char d)
+                    if (defaultChar(raw[end]) is not char d)
                     {
                         end++; // a deleted mark inside the run does not end it
                         continue;
@@ -358,7 +493,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     // Authored spaces only: emitted exactly as authored, one cell each.
                     for (int k = i; k < end; k++)
                     {
-                        if (DefaultChar(raw[k]) is not ' ')
+                        if (defaultChar(raw[k]) is not ' ')
                             continue;
 
                         text.Append(' ');
@@ -497,7 +632,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// never read back.</para>
         /// </summary>
         public IReadOnlyList<int> SyllableSplits { get; init; } = Array.Empty<int>();
+
+        /// <summary>
+        /// The word as the song WRITES it, in its own script (backlog 330): "Привет" over the
+        /// <see cref="Text"/> "Privet" the player types. Null for a word that has no other spelling,
+        /// which is every word of every map written before the field existed and every word whose
+        /// source text was plain ASCII. See <see cref="LyricOriginals"/> for when one is recorded.
+        ///
+        /// <para>DISPLAY AND AUTHORING DATA ONLY. Default play, the difficulty calculator, the pace
+        /// figures and the server all read <see cref="Text"/> alone, so a word gaining or losing an
+        /// original changes no cell, no target time and no rating. The Polyglot mod (backlog 331) is
+        /// the one reader that plays it. Persisted as the word object's optional <c>original</c>
+        /// key, written only when it differs from <see cref="Text"/>.</para>
+        /// </summary>
+        public string? Original { get; init; }
     }
+
+    /// <summary>
+    /// A word the romaniser could not spell (backlog 330): a kanji with no reading, a Tier 2 script
+    /// (hanzi, Thai, Hebrew, ...). It keeps its ORIGINAL text and its sung span, and has NO typed
+    /// text yet, so it is not a <see cref="TimedUnit"/> (a unit is one whitespace token of
+    /// <see cref="LyricLine.RawText"/>, and this word has none): it contributes no cell, no target
+    /// time and nothing to any rating until the mapper romanises it in the editor, which turns it
+    /// into an ordinary unit at <see cref="Position"/>.
+    ///
+    /// <para>On the wire it is a word object with an EMPTY <c>text</c> and an <c>original</c>, which
+    /// both loaders skip when pairing words[] with the line's tokens. A map carrying one can be
+    /// saved but not submitted (<see cref="LyricOriginals.SubmissionRefusal"/>).</para>
+    /// </summary>
+    /// <param name="Position">How many of the line's <see cref="LyricLine.Units"/> come before it,
+    /// 0..Units.Count: the slot the word takes once it has a romanisation.</param>
+    /// <param name="Original">The word's text in its own script, never empty.</param>
+    /// <param name="StartTime">The word's sung start (absolute ms).</param>
+    /// <param name="EndTime">The word's sung end (absolute ms).</param>
+    public readonly record struct UnromanisedWord(int Position, string Original, double StartTime, double EndTime);
 
     public sealed class LyricLine
     {
@@ -532,6 +700,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// stamps. Judged at the wider Line-granularity windows regardless of beatmap granularity.
         /// </summary>
         public bool Estimated { get; init; }
+
+        /// <summary>
+        /// The whole line as the song WRITES it, in its own script and spacing (backlog 330), or
+        /// null when it has no other spelling. The editor shows it as a caption over the romanised
+        /// line; nothing that plays or rates the map reads it. Persisted as the line object's
+        /// optional <c>original</c> key, written only when it differs from <see cref="RawText"/>.
+        /// </summary>
+        public string? Original { get; init; }
+
+        /// <summary>
+        /// The words of this line the romaniser could not spell, in order (see
+        /// <see cref="UnromanisedWord"/>). Empty for every line of every map that has none, which is
+        /// every map written before backlog 330.
+        ///
+        /// <para>A line made of NOTHING but such words has an empty <see cref="RawText"/> and no
+        /// <see cref="Units"/>: it has no cell to type, and it exists only so an import of a script
+        /// the romaniser cannot read yet keeps the lyric for the mapper to romanise instead of
+        /// dropping it (a line without an original that yields no cell is still dropped, exactly as
+        /// before). Such a line types nothing and judges nothing.</para>
+        /// </summary>
+        public IReadOnlyList<UnromanisedWord> UnromanisedWords { get; init; } = Array.Empty<UnromanisedWord>();
     }
 
     public sealed class LyricBeatmapMetadata

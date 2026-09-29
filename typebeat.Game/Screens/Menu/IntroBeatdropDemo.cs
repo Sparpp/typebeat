@@ -21,11 +21,16 @@ namespace typebeat.Game.Screens.Menu
     /// </summary>
     /// <remarks>
     /// The handoff exists because a plain restart would demo SOMEBODY ELSE'S map: a real startup picks from
-    /// <see cref="IntroBeatdropPool"/>, which is every beatdrop-carrying map the user owns, steered by an
-    /// anti-repeat history and overridable per map from song select ("Use on game intro",
-    /// <see cref="BeatmapUserSettings.IntroPoolInclusion"/>). A consumed handoff overrules all three: the
+    /// <see cref="IntroBeatdropPool"/>, which is every beatdrop-carrying set the user owns, steered by an
+    /// anti-repeat history and overridable per set from song select ("Use on game intro",
+    /// <see cref="BeatmapSetInfo.IntroPoolInclusion"/>). A consumed handoff overrules all three: the
     /// point is previewing the map in front of you whether or not it has been opted in, and a demo is not a
-    /// real intro appearance so it must not steer future ones either. With no beatdrop authored there is
+    /// real intro appearance so it must not steer future ones either. It does NOT overrule which difficulty
+    /// plays: the intro resolves a whole set to its highest star difficulty that declares a beatdrop
+    /// (<see cref="IntroBeatdropPool.PickFromSet{TIn,TOut}"/>), and the demo goes through that same resolution
+    /// (with the handoff's timestamp standing in for the demoed difficulty's own), so it plays exactly what a
+    /// real intro on this set would. Demoing a lower difficulty of a set whose harder difficulty also declares
+    /// a beatdrop therefore plays the harder one's. With no beatdrop authored there is
     /// nothing to demo (<see cref="CanDemo"/>) and nothing reboots at all, rather than the game restarting
     /// into an intro on some other map's timestamp that the user would hear as their own.
     /// </remarks>

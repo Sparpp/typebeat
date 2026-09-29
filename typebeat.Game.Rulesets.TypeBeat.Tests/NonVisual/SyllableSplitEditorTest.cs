@@ -295,7 +295,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var beatmap = createBeatmap();
 
             // "apple" [1000, 1400] carries its boundary at 1300, three quarters of the way through.
-            // Appending "plum" redistributes every span, but "apple" is still "apple".
+            // Appending "plum" changes the word count, but "apple" is still "apple" (and since
+            // backlog 340 it keeps its span too, so the relative position is its own).
             Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, lineAt(beatmap, 0), "app|le orange plum"), Is.True);
 
             var units = lineAt(beatmap, 0).Line.Units;
@@ -333,16 +334,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "ap|ple or|ange"), Is.True);
 
-            // "orange" is typed away; "apple" is the same word and keeps its cut through the
-            // redistribution that follows.
+            // "orange" is typed away; "apple" is the same word and keeps its cut (and, since
+            // backlog 340, its span: the deleted word just leaves a gap).
             Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "ap|ple"), Is.True);
 
             Assert.That(line.Line.RawText, Is.EqualTo("apple"));
             Assert.That(line.Line.Units, Has.Count.EqualTo(1));
             Assert.That(line.Line.Units[0].SyllableBoundaries.Count, Is.EqualTo(1));
 
-            // The kept boundary is the RESCALED old one (three quarters through the word), not the
-            // even halving a fresh authoring pipe would have produced.
+            // The kept boundary is the old one (three quarters through the word), not the even
+            // halving a fresh authoring pipe would have produced.
             var kept = line.Line.Units[0];
             Assert.That(kept.SyllableBoundaries[0],
                 Is.EqualTo(kept.StartTime + (kept.EndTime - kept.StartTime) * 0.75).Within(1e-6));
@@ -1052,8 +1053,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The timing clipboard carries word SPANS and nothing else, so a split never travels with a
-        /// paste: the target word keeps its own, dropped only if the pasted span cost it a boundary.
+        /// A word paste carries a split only onto the SAME word (backlog 343), so it never travels
+        /// between two different words: the target word keeps its own, dropped only if the pasted
+        /// span cost it a boundary.
         /// </summary>
         [Test]
         public void PastingUnitTimingsDoesNotMoveSplitsBetweenWords()

@@ -36,6 +36,7 @@ namespace typebeat.Game.Overlays.Mods
         {
             selectedMods.BindValueChanged(_ => updateIncompatibility(), true);
             incompatible.BindValueChanged(_ => Scheduler.AddOnce(UpdateState));
+            State.AvailableForBeatmap.BindValueChanged(_ => Scheduler.AddOnce(UpdateState));
             // base call will run `UpdateState()` first time and finish transforms.
             base.LoadComplete();
         }
@@ -47,13 +48,19 @@ namespace typebeat.Game.Overlays.Mods
                                  && !ModUtils.CheckCompatibleSet(selectedMods.Value.Append(Mod));
         }
 
-        protected override Colour4 BackgroundColour => incompatible.Value ? ColourProvider.Background6 : base.BackgroundColour;
-        protected override Colour4 ForegroundColour => incompatible.Value ? ColourProvider.Background5 : base.ForegroundColour;
+        /// <summary>
+        /// Greyed out: incompatible with the current selection, or unavailable on the current beatmap
+        /// (backlog 331). Both read the same, the second one refuses the click as well.
+        /// </summary>
+        private bool greyed => incompatible.Value || !State.AvailableForBeatmap.Value;
+
+        protected override Colour4 BackgroundColour => greyed ? ColourProvider.Background6 : base.BackgroundColour;
+        protected override Colour4 ForegroundColour => greyed ? ColourProvider.Background5 : base.ForegroundColour;
 
         protected override void UpdateState()
         {
             base.UpdateState();
-            SwitchContainer.FadeColour(incompatible.Value ? Colour4.Gray : Colour4.White, TRANSITION_DURATION, Easing.OutQuint);
+            SwitchContainer.FadeColour(greyed ? Colour4.Gray : Colour4.White, TRANSITION_DURATION, Easing.OutQuint);
         }
 
         #region IHasCustomTooltip

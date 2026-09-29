@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -62,6 +63,21 @@ namespace typebeat.Game.Beatmaps
 
                     beatmap.StarRating = calculator.Calculate().StarRating;
                     beatmap.UpdateStatisticsFromBeatmap(working.Beatmap);
+
+                    // Target WPM and intro beatdrop, stored for song select's grouping (see StoredBeatmapFacts).
+                    // Import and editor save both land here, so this is where a changed map re-derives them.
+                    try
+                    {
+                        StoredBeatmapFacts.Apply(beatmap, working);
+                    }
+                    catch (Exception e)
+                    {
+                        // Back to "unprocessed": readers that can decode fall back to it, and the background
+                        // pass retries it, as it does a star rating that failed to calculate.
+                        beatmap.TargetWpm = StoredBeatmapFacts.UNPROCESSED;
+                        beatmap.HasIntroBeatdrop = false;
+                        Logger.Log($"Failed to compute stored typing facts for {beatmap}: {e.Message}");
+                    }
                 }
 
                 // And invalidate again afterwards as re-fetching the most up-to-date database metadata will be required.

@@ -426,7 +426,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             bool literate = mods.Any(m => m is TypeBeatModLiterate);
 
-            var engine = new TypingEngine(lyricBeatmap, literate);
+            // POLYGLOT (backlog 331) is identified by the mod in the score, like Literate: no era bit.
+            bool polyglot = mods.Any(m => m is TypeBeatModPolyglot);
+
+            var engine = new TypingEngine(lyricBeatmap, literate, polyglot, polyglot ? TypeBeatModPolyglot.LanguageFor(playable) : null);
 
             // SyllableTiming is NOT selected here, and deliberately not: it is the one era axis
             // that travels in the replay itself (CONFIG frame, bit 2), so ReplayEngineFeed.Apply

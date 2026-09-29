@@ -340,9 +340,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private readonly List<(double time, double index)> sungPoints;
 
-        private TypingLine(LyricLine source, IReadOnlyList<TypingCell> cells, double sealGraceMs, SyllableGroup[] syllables, int[] cellSyllable, int[] syllableMarkerCells, WordGroup[] words, int[] cellWord, double lastUnitEnd)
+        private TypingLine(LyricLine source, IReadOnlyList<TypingCell> cells, double sealGraceMs, SyllableGroup[] syllables, int[] cellSyllable, int[] syllableMarkerCells, WordGroup[] words, int[] cellWord, double lastUnitEnd,
+                           int[]? jamoHead = null)
         {
             Source = source;
+            this.jamoHead = jamoHead;
             Syllables = syllables;
             SyllableMarkerCells = syllableMarkerCells;
             this.cellSyllable = cellSyllable;
@@ -460,6 +462,71 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// adds cells without moving any of the existing ones.</para>
         /// </summary>
         public static TypingLine FromLyricLine(LyricLine line, bool literate = false)
+            => build(line, literate, CellRules.Default, null, null);
+
+        /// <summary>
+        /// Flattens <paramref name="line"/> for a play that may carry the POLYGLOT mod (backlog 331).
+        /// Off, this is exactly <see cref="FromLyricLine"/>. On, every word that
+        /// records an original is played in it instead of its romanised text (see
+        /// <see cref="PolyglotLine"/>, which derives the line the cells are cut from, word times
+        /// unchanged), under the Polyglot character rules: any script's letters, marks and digits
+        /// are cells (<see cref="Typeability.IsPolyglotCell"/>), any script's punctuation is a
+        /// Literate cell, and the default stream drops every other character. On a line with no
+        /// original anywhere the cells are the romanised ones, byte for byte.
+        /// </summary>
+        /// <param name="line">The authored line.</param>
+        /// <param name="literate">The Literate mod: case and punctuation of whichever text is played.</param>
+        /// <param name="polyglot">The Polyglot mod.</param>
+        /// <param name="language">The language the map's originals are romanised under (see
+        /// <see cref="LyricOriginals.RomanisationLanguage"/>), which is what lets the romanised
+        /// syllable cuts be carried back onto the original.</param>
+        public static TypingLine ForMods(LyricLine line, bool literate, bool polyglot, string? language)
+        {
+            if (!polyglot)
+                return FromLyricLine(line, literate);
+
+            var derived = PolyglotLine.Derive(line, language);
+            return build(derived.Line, literate, CellRules.Polyglot, derived.NaturalSplits, derived.RawCluster);
+        }
+
+        /// <summary>
+        /// The per-character rules a flattening runs under: which chars are cells, which marks the
+        /// Literate mod types, and what the default stream makes of each char. The default rules are
+        /// the ones every play without the Polyglot mod has always used.
+        /// </summary>
+        internal sealed class CellRules
+        {
+            public static readonly CellRules Default = new CellRules(Typeability.IsCell, Typeability.IsPunctuation, Typeability.DefaultChar);
+
+            public static readonly CellRules Polyglot = new CellRules(Typeability.IsPolyglotTypeCell, Typeability.IsPolyglotPunctuation, Typeability.PolyglotDefaultChar);
+
+            public readonly Func<char, bool> IsCell;
+            public readonly Func<char, bool> IsLiteratePunctuation;
+            public readonly Func<char, char?> DefaultChar;
+
+            private CellRules(Func<char, bool> isCell, Func<char, bool> isLiteratePunctuation, Func<char, char?> defaultChar)
+            {
+                IsCell = isCell;
+                IsLiteratePunctuation = isLiteratePunctuation;
+                DefaultChar = defaultChar;
+            }
+        }
+
+        /// <summary>
+        /// Per display cell, the first cell of the HANGUL BLOCK it was cut from (a Polyglot play cuts a
+        /// block into the keys that type it, see <see cref="PolyglotText"/>), or null on every line
+        /// that has none. The display draws a block as one glyph over its keys.
+        /// </summary>
+        private readonly int[]? jamoHead;
+
+        /// <summary>
+        /// The first cell of the hangul block cell <paramref name="cellIndex"/> is a key of, or -1 for a
+        /// cell that is its own glyph (every cell of every line without the Polyglot mod).
+        /// </summary>
+        public int JamoBlockHead(int cellIndex)
+            => jamoHead != null && cellIndex >= 0 && cellIndex < jamoHead.Length ? jamoHead[cellIndex] : -1;
+
+        private static TypingLine build(LyricLine line, bool literate, CellRules rules, PolyglotLine.NaturalSplit?[]? naturalSplits, int[]? rawCluster)
         {
             string text = line.RawText;
             var units = line.Units;
@@ -497,13 +564,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 foreach (char ch in token)
                 {
-                    if (Typeability.IsCell(ch))
+                    if (rules.IsCell(ch))
                         k++;
                 }
 
                 // Per-typeable-cell targets for this token, which is where syllable subdivisions AND
                 // an authored pause warp the char-to-time mapping (see tokenCellTargets).
-                double[] ramp = tokenCellTargets(token, unitStart, unitEnd, unit, k);
+                double[] ramp = tokenCellTargets(token, unitStart, unitEnd, unit, k, rules.IsCell);
 
                 int j = 0;
 
@@ -511,7 +578,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 {
                     expected[pos] = ch;
 
-                    if (Typeability.IsCell(ch))
+                    if (rules.IsCell(ch))
                     {
                         isTypeable[pos] = true;
                         targets[pos] = ramp[j];
@@ -586,7 +653,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 cells = new TypingCell[n];
 
                 for (int i = 0; i < n; i++)
-                    cells[i] = new TypingCell(expected[i], isTypeable[i] || Typeability.IsPunctuation(expected[i]), targets[i]!.Value);
+                    cells[i] = new TypingCell(expected[i], isTypeable[i] || rules.IsLiteratePunctuation(expected[i]), targets[i]!.Value);
             }
             else
             {
@@ -595,7 +662,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // slot the hyphen held between the two letters it separated.
                 var sb = new System.Text.StringBuilder(n);
                 var sources = new List<int>(n);
-                Typeability.ProjectDefault(text, sb, sources);
+                Typeability.ProjectDefault(text, sb, sources, rules.DefaultChar);
                 defaultSources = sources;
 
                 cells = new TypingCell[sources.Count];
@@ -603,7 +670,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 for (int i = 0; i < sources.Count; i++)
                 {
                     int src = sources[i];
-                    cells[i] = new TypingCell(sb[i], Typeability.IsCell(sb[i]), targets[src]!.Value);
+                    cells[i] = new TypingCell(sb[i], rules.IsCell(sb[i]), targets[src]!.Value);
                 }
             }
 
@@ -622,10 +689,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 break;
             }
 
-            var (syllables, cellSyllable, markerCells) = buildSyllables(line, tokens, cells, defaultSources);
+            var (syllables, cellSyllable, markerCells) = buildSyllables(line, tokens, cells, defaultSources, naturalSplits);
             var (words, cellWord) = buildWords(line, tokens, cells, defaultSources);
 
-            return new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), syllables, cellSyllable, markerCells, words, cellWord, lastUnitEnd);
+            return new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), syllables, cellSyllable, markerCells, words, cellWord, lastUnitEnd,
+                buildJamoHeads(cells, defaultSources, rawCluster));
+        }
+
+        /// <summary>
+        /// Per cell, the first cell of its hangul block (see <see cref="JamoBlockHead"/>), read off the
+        /// derivation's per-raw-char block ids through the same projection that assigned the targets.
+        /// Null when the line carries no block at all.
+        /// </summary>
+        private static int[]? buildJamoHeads(TypingCell[] cells, List<int>? defaultSources, int[]? rawCluster)
+        {
+            if (rawCluster == null || Array.TrueForAll(rawCluster, c => c < 0))
+                return null;
+
+            int[] heads = new int[cells.Length];
+            var firstOfBlock = new Dictionary<int, int>();
+
+            for (int i = 0; i < cells.Length; i++)
+            {
+                int src = defaultSources?[i] ?? i;
+                int block = src >= 0 && src < rawCluster.Length ? rawCluster[src] : -1;
+
+                if (block < 0 || !cells[i].IsTypeable)
+                {
+                    heads[i] = -1;
+                    continue;
+                }
+
+                if (!firstOfBlock.TryGetValue(block, out int head))
+                    firstOfBlock[block] = head = i;
+
+                heads[i] = head;
+            }
+
+            return heads;
         }
 
         /// <summary>
@@ -782,7 +883,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// into cells and the word index cannot be recovered by counting spaces (the default stream
         /// turns a hyphen into a typed space cell, so "well-known" is one unit but two cell runs).</para>
         /// </summary>
-        private static (SyllableGroup[] groups, int[] cellSyllable, int[] markerCells) buildSyllables(LyricLine line, string[] tokens, TypingCell[] cells, List<int>? defaultSources)
+        private static (SyllableGroup[] groups, int[] cellSyllable, int[] markerCells) buildSyllables(LyricLine line, string[] tokens, TypingCell[] cells, List<int>? defaultSources,
+                                                                                                    PolyglotLine.NaturalSplit?[]? naturalSplits = null)
         {
             var units = line.Units;
             int[] rawGroup = new int[line.RawText.Length];
@@ -824,15 +926,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // nothing in the ramp.
                 var paused = unit != null ? PausedWord.Of(token, unitStart, unitEnd, unit) : null;
 
+                // A POLYGLOT word played in its original carries its natural split with it (the
+                // romanised word's own syllables carried back onto the original, see PolyglotLine):
+                // the English syllabifier has nothing to say about another script. Null for every
+                // token of every other play, which is the rule below untouched.
+                var natural = naturalSplits != null && m < naturalSplits.Length ? naturalSplits[m] : null;
+                bool naturallyGrouped = natural is PolyglotLine.NaturalSplit given ? given.Splits != null : Syllabifier.IsSyllabifiable(token);
+
                 // A stylised spelling gets no groups at all UNLESS the mapper subtimed it, in which
                 // case the hand-authored count wins over anything the rules would have guessed.
-                if (token.Length > 0 && (subtimed || paused != null || Syllabifier.IsSyllabifiable(token)))
+                if (token.Length > 0 && (subtimed || paused != null || naturallyGrouped))
                 {
                     IReadOnlyList<int> splits = paused != null
                         ? paused.Splits
                         : subtimed
                             ? SyllableSegments.SplitsFor(token, boundaries.Count + 1, unit?.SyllableSplits)
-                            : Syllabifier.SplitPoints(token);
+                            : natural?.Splits ?? Syllabifier.SplitPoints(token);
 
                     int groupBase = starts.Count;
                     int groupCount = splits.Count + 1;
@@ -1187,7 +1296,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// cannot honour - one whose edges have left the unit's span, whose split leaves every cell on one
         /// side of it, or that overlaps another - is ignored here, exactly as the loader drops it.</para>
         /// </summary>
-        private static double[] tokenCellTargets(string token, double unitStart, double unitEnd, TimedUnit? unit, int k)
+        private static double[] tokenCellTargets(string token, double unitStart, double unitEnd, TimedUnit? unit, int k, Func<char, bool>? isCell = null)
         {
             var ramp = new double[k];
 
@@ -1203,7 +1312,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             int[]? cellCuts = unit != null && SyllableSegments.IsAuthoredValid(token, boundaries.Count + 1, unit.SyllableSplits)
-                ? SyllableSegments.CellCuts(token, unit.SyllableSplits)
+                ? SyllableSegments.CellCuts(token, unit.SyllableSplits, isCell)
                 : null;
 
             for (int j = 0; j < k; j++)

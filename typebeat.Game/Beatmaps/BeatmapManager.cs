@@ -662,26 +662,26 @@ namespace typebeat.Game.Beatmaps
         });
 
         /// <summary>
-        /// The stored intro pool override for a beatmap (see <see cref="BeatmapUserSettings.IntroPoolInclusion"/>).
+        /// The stored intro pool override for a beatmap set (see <see cref="BeatmapSetInfo.IntroPoolInclusion"/>).
         /// Read through realm rather than off the passed instance, which is usually a detached copy that may
         /// predate a toggle made earlier in this session.
         /// </summary>
-        public bool? GetIntroPoolInclusion(BeatmapInfo beatmapInfo) => Realm.Run(r => r.Find<BeatmapInfo>(beatmapInfo.ID)?.UserSettings.IntroPoolInclusion);
+        public bool? GetIntroPoolInclusion(BeatmapSetInfo beatmapSetInfo) => Realm.Run(r => r.Find<BeatmapSetInfo>(beatmapSetInfo.ID)?.IntroPoolInclusion);
 
         /// <summary>
-        /// Stores the intro pool override for a beatmap. <c>null</c> clears it (membership then follows the
-        /// beatmap's intro beatdrop again). Never touches the beatdrop timestamp itself.
+        /// Stores the intro pool override for a beatmap set. <c>null</c> clears it (membership then follows the
+        /// set's intro beatdrops again). Never touches any beatdrop timestamp itself.
         /// </summary>
-        public void SetIntroPoolInclusion(BeatmapInfo beatmapInfo, bool? inclusion) => Realm.Run(r =>
+        public void SetIntroPoolInclusion(BeatmapSetInfo beatmapSetInfo, bool? inclusion) => Realm.Run(r =>
         {
-            var beatmap = r.Find<BeatmapInfo>(beatmapInfo.ID);
+            var beatmapSet = r.Find<BeatmapSetInfo>(beatmapSetInfo.ID);
 
-            if (beatmap == null)
+            if (beatmapSet == null)
                 return;
 
             using var transaction = r.BeginWrite();
 
-            beatmap.UserSettings.IntroPoolInclusion = inclusion;
+            beatmapSet.IntroPoolInclusion = inclusion;
 
             transaction.Commit();
         });

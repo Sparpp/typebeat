@@ -28,6 +28,7 @@ using typebeat.Game.Localisation;
 using typebeat.Game.Online.API;
 using typebeat.Game.Overlays;
 using typebeat.Game.Rulesets;
+using typebeat.Game.Screens.Menu;
 using osuTK;
 using osuTK.Graphics;
 using WebCommonStrings = typebeat.Game.Resources.Localisation.Web.CommonStrings;
@@ -251,6 +252,12 @@ namespace typebeat.Game.Screens.Select
 
                     items.Add(new OsuMenuItemSpacer());
                 }
+
+                // Sits directly under "Details..." (and outside the online-only block above: locally created
+                // maps, which have no online ID, are exactly the ones a user is most likely to want on the intro).
+                // A set-level toggle: the intro plays the set's highest star beatdrop, see IntroBeatdropPool.
+                items.Add(IntroBeatdropPool.CreateSetMenuItem(beatmaps, beatmapSet));
+                items.Add(new OsuMenuItemSpacer());
 
                 var collectionItems = realm.Realm.All<BeatmapCollection>()
                                            .OrderBy(c => c.Name)

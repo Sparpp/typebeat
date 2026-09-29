@@ -179,6 +179,7 @@ namespace typebeat.Game.Screens.ImportLyrics
             if (has(l, "starting import")
                 || has(l, "automatic alignment off")
                 || has(l, "no line stamps")
+                || has(l, "some lines are stamped")
                 || has(l, "aligner environment")
                 || has(l, "anchor mode")
                 || l.StartsWith("lyrics:", StringComparison.Ordinal)

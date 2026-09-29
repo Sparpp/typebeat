@@ -16,17 +16,14 @@ namespace typebeat.Game.Beatmaps
         public double Offset { get; set; }
 
         /// <summary>
-        /// Whether this beatmap may be picked to soundtrack the game intro, overriding the default
-        /// (which is "yes if the map declares an intro beatdrop", see <see cref="IBeatmap.IntroBeatdropTime"/>).
-        /// <c>null</c> means no override: follow the beatdrop. <c>false</c> keeps a beatdrop-carrying map
-        /// out of the pool without touching the authored timestamp; <c>true</c> opts a map with no
-        /// beatdrop in. Decided by the "Use on game intro" song select context menu toggle and read by
-        /// <see cref="Screens.Menu.IntroBeatdropPool"/>.
+        /// OBSOLETE, no longer read or written. This was the per-difficulty intro pool override (realm
+        /// schema 53 to 57). Since schema 58 the override is per SET, <see cref="BeatmapSetInfo.IntroPoolInclusion"/>,
+        /// and the 58 migration derived each set's value from these (any difficulty <c>true</c> gives
+        /// <c>true</c>, every difficulty <c>false</c> gives <c>false</c>, anything else <c>null</c>).
         /// </summary>
         /// <remarks>
-        /// This is user data, not map content: it lives here rather than in the beatmap file so that
-        /// toggling it never re-encodes (and never un-ranks) the map, and so that an accidental untick
-        /// cannot destroy a hand-found beatdrop timestamp.
+        /// Left in the schema rather than removed, because dropping a realm property is a migration of its
+        /// own. Not marked <see cref="System.ObsoleteAttribute"/> since the 58 migration still has to read it.
         /// </remarks>
         public bool? IntroPoolInclusion { get; set; }
     }

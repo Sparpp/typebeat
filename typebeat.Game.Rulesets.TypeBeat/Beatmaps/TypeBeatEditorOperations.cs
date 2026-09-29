@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using typebeat.Game.Screens.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
@@ -15,7 +16,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// <see cref="TimedUnit"/> model (every edit rebuilds instances) and go through
     /// <see cref="EditorBeatmap"/> transactions so they are undoable.
     /// </summary>
-    public static class TypeBeatEditorOperations
+    public static partial class TypeBeatEditorOperations
     {
         /// <summary>
         /// Shifts every stored line and word time by <paramref name="deltaMs"/> (positive = later),
@@ -57,9 +58,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             SingEndTime = line.SingEndTime + deltaMs,
             SealGraceMs = line.SealGraceMs,
             Estimated = line.Estimated,
+            Original = line.Original,
+            UnromanisedWords = line.UnromanisedWords.Select(w => w with { StartTime = w.StartTime + deltaMs, EndTime = w.EndTime + deltaMs }).ToArray(),
             Units = line.Units.Select(u => new TimedUnit
             {
                 Text = u.Text,
+                Original = u.Original,
                 StartTime = u.StartTime + deltaMs,
                 EndTime = u.EndTime + deltaMs,
                 Source = u.Source,
@@ -118,7 +122,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         {
             if (lines.Any(l => l.Units.Any(u => u.SyllableBoundaries.Count > 0)))
                 return TimingGranularity.Syllable;
-            if (lines.Any(l => l.Units.Any(u => u.Source == TimingSource.Explicit || u.Pauses.Count > 0)))
+            // An unromanised word (backlog 330) is written only inside words[], for the pause's reason.
+            if (lines.Any(l => l.UnromanisedWords.Count > 0 || l.Units.Any(u => u.Source == TimingSource.Explicit || u.Pauses.Count > 0)))
                 return TimingGranularity.Word;
             return TimingGranularity.Line;
         }
@@ -134,18 +139,77 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         #region Single-line rebuild helpers (model is init-only: every edit builds new instances)
 
+        /// <remarks>
+        /// The line's ORIGINAL TEXT (backlog 330) rides along untouched unless
+        /// <paramref name="originals"/> replaces it; its unromanised words keep their places, clamped
+        /// to the new word count.
+        /// </remarks>
         private static LyricLine rebuild(LyricLine line, string? rawText = null, double? start = null, double? end = null,
-                                         double? singEnd = null, IReadOnlyList<TimedUnit>? units = null, double? sealGrace = null)
-            => new LyricLine
+                                         double? singEnd = null, IReadOnlyList<TimedUnit>? units = null, double? sealGrace = null,
+                                         (string? Original, IReadOnlyList<UnromanisedWord> Pending)? originals = null)
+        {
+            var newUnits = units ?? line.Units;
+
+            return new LyricLine
             {
                 RawText = rawText ?? line.RawText,
                 StartTime = start ?? line.StartTime,
                 EndTime = end ?? line.EndTime,
                 SingEndTime = singEnd ?? line.SingEndTime,
-                Units = units ?? line.Units,
+                Units = newUnits,
                 SealGraceMs = sealGrace ?? line.SealGraceMs,
                 Estimated = line.Estimated,
+                Original = originals.HasValue ? originals.Value.Original : line.Original,
+                UnromanisedWords = clampPending(originals.HasValue ? originals.Value.Pending : line.UnromanisedWords, newUnits.Count),
             };
+        }
+
+        /// <summary>Unromanised words with every position clamped into 0..<paramref name="unitCount"/> (backlog 330).</summary>
+        private static IReadOnlyList<UnromanisedWord> clampPending(IReadOnlyList<UnromanisedWord> pending, int unitCount)
+            => pending.Count == 0 || pending.All(w => w.Position <= unitCount)
+                ? pending
+                : pending.Select(w => w with { Position = Math.Min(w.Position, unitCount) }).ToArray();
+
+        /// <summary>
+        /// The ORIGINALS (backlog 330) of the part of <paramref name="line"/> holding units
+        /// [<paramref name="from"/>, <paramref name="to"/>), for an edit that cuts a line apart: the
+        /// unromanised words sung inside [<paramref name="startTime"/>, <paramref name="endTime"/>)
+        /// with their places re-based, and a line original rebuilt from that part's own words (their
+        /// originals where they have one), or none when the part has no original at all.
+        /// </summary>
+        private static (string? Original, IReadOnlyList<UnromanisedWord> Pending) originalsOfRange(LyricLine line, int from, int to, double startTime, double endTime)
+        {
+            var pending = line.UnromanisedWords
+                              .Where(w => w.StartTime >= startTime && w.StartTime < endTime)
+                              .Select(w => w with { Position = Math.Clamp(w.Position - from, 0, to - from) })
+                              .ToArray();
+
+            var units = line.Units.Skip(from).Take(to - from).ToArray();
+
+            if (pending.Length == 0 && units.All(u => u.Original == null))
+                return (null, pending);
+
+            return (JoinedOriginal(units, pending), pending);
+        }
+
+        /// <summary>
+        /// A line original spelled from its words (backlog 330): each unromanised word and each
+        /// unit's original (its text where it has none), in order, joined by spaces.
+        /// </summary>
+        public static string JoinedOriginal(IReadOnlyList<TimedUnit> units, IReadOnlyList<UnromanisedWord> pending)
+        {
+            var parts = new List<string>();
+
+            for (int u = 0; u <= units.Count; u++)
+            {
+                parts.AddRange(pending.Where(w => Math.Min(w.Position, units.Count) == u).Select(w => w.Original));
+
+                if (u < units.Count)
+                    parts.Add(units[u].Original ?? units[u].Text);
+            }
+
+            return string.Join(' ', parts);
+        }
 
         /// <summary>
         /// One word's unit rebuilt over a new span. Two regimes, split by <paramref name="translate"/>:
@@ -165,7 +229,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// pattern carries its sub-word timing at the same offsets); leaving the dividers at their
         /// absolute times here anchored them in the song while the word left, which dropped or staled
         /// them. The flag is explicit rather than inferred from an unchanged duration so the unit-run
-        /// paste (whose documented rule is that the target keeps its own dividers, re-clamped) cannot
+        /// paste (whose documented rule is that a DIFFERENT target word keeps its own dividers, re-clamped) cannot
         /// drift onto this path when a pasted span happens to equal a word's width.</para>
         /// </summary>
         private static TimedUnit retime(TimedUnit unit, double start, double end, TimingSource? source = null, double? confidence = null, bool translate = false)
@@ -177,6 +241,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return new TimedUnit
                 {
                     Text = unit.Text,
+                    Original = unit.Original,
                     StartTime = start,
                     EndTime = end,
                     Source = source ?? unit.Source,
@@ -198,6 +263,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return new TimedUnit
             {
                 Text = unit.Text,
+                Original = unit.Original,
                 StartTime = start,
                 EndTime = end,
                 Source = source ?? unit.Source,
@@ -353,12 +419,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         public static void SetSingEnd(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, double newSingEnd)
         {
-            var ordered = orderedLines(editorBeatmap);
-            bool isLast = ordered.Count > 0 && ordered[^1] == hitObject;
+            bool isLast = isLastLine(editorBeatmap, hitObject);
 
             var line = hitObject.Line;
             double singEndMin = line.StartTime + MIN_SPAN_MS;
-            double singEndMax = isLast ? double.MaxValue : line.EndTime;
+            double singEndMax = isLast ? lastLineCap(editorBeatmap, line) : line.EndTime;
 
             // A non-last line shorter than MIN_SPAN_MS has no movable sung-end; no-op rather than
             // clamp into an inverted [min, max] (which would crash Math.Clamp).
@@ -369,8 +434,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             // The last line's typeable window is derived on reload as min(song_end, singEnd + tail),
             // so it must stay within [singEnd, singEnd + tail] or the reload clamps it differently
-            // than the editor showed.
-            double newEnd = isLast ? Math.Clamp(line.EndTime, newSingEnd, newSingEnd + LAST_LINE_TAIL_MS) : line.EndTime;
+            // than the editor showed. It follows the sung end with the tail it already had
+            // (backlog 336), the same derivation a word-timed last line gets.
+            double newEnd = isLast ? lastLineEnd(line, newSingEnd, singEndMax) : line.EndTime;
 
             editorBeatmap.BeginChange();
             hitObject.Line = rebuild(line,
@@ -397,7 +463,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return;
 
             double lower = unitIndex > 0 ? line.Units[unitIndex - 1].EndTime : line.StartTime;
-            double upper = unitIndex < line.Units.Count - 1 ? line.Units[unitIndex + 1].StartTime : line.EndTime;
+            double upper = unitCeiling(editorBeatmap, hitObject, unitIndex);
 
             // The neighbours (or the line window) leave this unit less than MIN_SPAN_MS of room;
             // there is nowhere to retime it to. No-op rather than clamp into an inverted range.
@@ -506,7 +572,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double duration = current.EndTime - current.StartTime;
 
             double lower = unitIndex > 0 ? line.Units[unitIndex - 1].EndTime : line.StartTime;
-            double upper = unitIndex < line.Units.Count - 1 ? line.Units[unitIndex + 1].StartTime : line.EndTime;
+            double upper = unitCeiling(editorBeatmap, hitObject, unitIndex);
 
             // No room to fit the word whole between its neighbours; stop rather than resize it.
             if (upper - lower < duration)
@@ -577,13 +643,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         // End edge moves, start fixed: bounded by MIN_SPAN width and the right
                         // neighbour's start (fixed in this mode).
                         low = (s + MIN_SPAN_MS) - e;
-                        high = (i < count - 1 ? line.Units[i + 1].StartTime : line.EndTime) - e;
+                        high = unitCeiling(editorBeatmap, hitObject, i) - e;
                         break;
 
                     default: // Move, bounded only by the nearest NON-selected neighbours, since the
                              // selected units all translate together and keep their relative spacing.
                         low = nearestNonSelectedEnd(line, selected, i) - s;
-                        high = nearestNonSelectedStart(line, selected, i) - e;
+                        high = nearestNonSelectedStart(editorBeatmap, hitObject, selected, i) - e;
                         break;
                 }
 
@@ -628,6 +694,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Units = units,
                 SealGraceMs = line.SealGraceMs,
                 Estimated = false,
+                Original = line.Original,
+                UnromanisedWords = line.UnromanisedWords,
             };
             editorBeatmap.Update(hitObject);
             promoteToWordGranularity(editorBeatmap);
@@ -646,15 +714,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return line.StartTime;
         }
 
-        private static double nearestNonSelectedStart(LyricLine line, HashSet<int> selected, int i)
+        private static double nearestNonSelectedStart(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, HashSet<int> selected, int i)
         {
+            var line = hitObject.Line;
+
             for (int j = i + 1; j < line.Units.Count; j++)
             {
                 if (!selected.Contains(j))
                     return line.Units[j].StartTime;
             }
 
-            return line.EndTime;
+            // Every word to the right is in the group: the wall is the last word's ceiling, which
+            // for the LAST line is the song's end rather than its derived EndTime.
+            return unitCeiling(editorBeatmap, hitObject, line.Units.Count - 1);
         }
 
         /// <summary>Writes one unit's [start, end] back (Explicit, trusted), clearing Estimated and promoting granularity.
@@ -676,6 +748,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Units = units,
                 SealGraceMs = line.SealGraceMs,
                 Estimated = false, // hand timing IS acoustic evidence; judge at full granularity again.
+                Original = line.Original,
+                UnromanisedWords = line.UnromanisedWords,
             };
             editorBeatmap.Update(hitObject);
             promoteToWordGranularity(editorBeatmap);
@@ -706,9 +780,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// a slot the player may fill with any key but space; each '|'
         /// (<see cref="Typeability.SPLIT_MARKER"/>) is READ as a syllable split and then stripped,
         /// so it never reaches the stored lyric. When the token count is unchanged, each word
-        /// keeps its timing; otherwise timings are redistributed (char-weighted) across the sung
-        /// window. Returns false (no change) when the text normalizes to empty; an empty line
-        /// cannot exist in the format; delete the line instead.
+        /// keeps its timing; when it changes, the words the mapper left alone still keep theirs and
+        /// only the added, removed or reworded words are placed (see
+        /// <see cref="placeChangedWords"/>). Returns false (no change) when the text normalizes to
+        /// empty; an empty line cannot exist in the format; delete the line instead. Single undo
+        /// step.
         ///
         /// <para>The pipe matrix, per word (see <see cref="splitsFromPipes"/> for the code). The
         /// rule behind all of it: the committed line box is AUTHORITATIVE for every word whose
@@ -747,13 +823,95 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// line the mapper did not actually re-split writes no <c>split_chars</c> at all.</item>
         /// </list>
         ///
-        /// <para>A word count change redistributes every span, but no longer drops every
-        /// subdivision: <see cref="alignSubdivisions"/> anchors the words that came back spelled
-        /// exactly as they were and rescales their boundaries into their new spans, so inserting or
-        /// deleting one word leaves the others subdivided. A REWORDED word re-derives, as it always
-        /// did.</para>
+        /// <para>A word count change is LOCAL (backlog 340): a word that came back spelled exactly
+        /// as it was keeps its span, source, subdivision and rests verbatim, an inserted word takes
+        /// the room <see cref="AddWord"/> would give it, a reworded run shares the span the old words
+        /// held, and a deleted word leaves a gap. A REWORDED word re-derives its subdivision, as it
+        /// always did. Only a rewrite with nothing left in common, or a change with no room for its
+        /// words, redistributes the whole line (<see cref="alignSubdivisions"/>).</para>
         /// </summary>
         public static bool SetLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText)
+        {
+            // THE ORIGINAL TEXT (backlog 330): text in any other script (or with any letter the typed
+            // text must respell) is romanised first and kept as the line's original.
+            if (LyricOriginals.CarriesOriginal(rawUserText) || Romaniser.NeedsRomanising(rawUserText))
+                return setOriginalLineText(editorBeatmap, hitObject, rawUserText);
+
+            return setLineText(editorBeatmap, hitObject, rawUserText, null);
+        }
+
+        /// <summary>
+        /// What a line box commit of text needing ROMANISATION does (backlog 330): the input becomes
+        /// the line's ORIGINAL, each of its words is romanised (under the map's language, or the one
+        /// its script says when the map has none) and the romanisation is committed exactly as if the
+        /// mapper had typed it, through the same placement (<see cref="setLineText"/>), so an edit to
+        /// a hand-timed line moves only the words it changed. Each word keeps its source as its own
+        /// original. A word the romaniser cannot spell takes its place in the line all the same, and
+        /// is then set aside as an <see cref="UnromanisedWord"/> with the span it was given, for the
+        /// mapper to romanise in the word editor (<see cref="SetWordText"/>). The romanisation is
+        /// only a PROPOSAL: the mapper overwrites any word of it by typing Latin over it in this same
+        /// box, which keeps the originals (a same-count commit keeps every word's original by place),
+        /// or per word in the word editor.
+        /// </summary>
+        private static bool setOriginalLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText)
+        {
+            string? language = LyricOriginals.RomanisationLanguage(editorBeatmap.BeatmapInfo.Metadata.Language, new[] { rawUserText });
+            var romanised = LyricOriginals.RomaniseLine(rawUserText, language, keepMarkers: true);
+
+            // The words the placement sees: each romanised word as it will be typed, and each word the
+            // romaniser could not spell as a PLACEHOLDER token no real word can match, so it is placed
+            // like any new word and then taken back out.
+            var sources = new List<LyricOriginals.RomanisedWord>();
+            var placeholders = new Dictionary<string, LyricOriginals.RomanisedWord>();
+            var tokens = new List<string>();
+
+            foreach (var word in romanised.Words)
+            {
+                if (word.Flagged)
+                {
+                    string placeholder = $"unromanised{placeholders.Count}x{hitObject.LineIndex}q";
+                    placeholders[placeholder] = word;
+                    tokens.Add(placeholder);
+                    sources.Add(word);
+                }
+                else if (word.Text.Length > 0)
+                {
+                    tokens.Add(word.Text);
+                    sources.Add(word);
+                }
+            }
+
+            if (tokens.Count == 0)
+                return false;
+
+            return setLineText(editorBeatmap, hitObject, string.Join(' ', tokens), units =>
+            {
+                var kept = new List<TimedUnit>();
+                var pending = new List<UnromanisedWord>();
+
+                for (int i = 0; i < units.Count; i++)
+                {
+                    if (placeholders.TryGetValue(units[i].Text, out var flagged))
+                    {
+                        pending.Add(new UnromanisedWord(kept.Count, flagged.Original!, units[i].StartTime, units[i].EndTime));
+                        continue;
+                    }
+
+                    kept.Add(LrcParser.WithOriginal(units[i], i < sources.Count ? sources[i].Original : null));
+                }
+
+                return (string.Join(' ', kept.Select(u => u.Text)), kept, (romanised.Original, pending));
+            });
+        }
+
+        /// <summary>
+        /// The body of <see cref="SetLineText"/>. For a commit that romanised its input
+        /// (<see cref="setOriginalLineText"/>), the finishing step turns the placed units into the
+        /// line's final text, units and originals; it is null for plain text, which keeps the line's
+        /// originals as they are.
+        /// </summary>
+        private static bool setLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText,
+                                        Func<IReadOnlyList<TimedUnit>, (string Text, IReadOnlyList<TimedUnit> Units, (string? Original, IReadOnlyList<UnromanisedWord> Pending) Originals)>? finish)
         {
             // Both authoring seams survive Normalize here; every other untypeable char is stripped.
             // No backing-vocal strip (backlog 255): what the mapper typed is what the line stores,
@@ -787,14 +945,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             if (hitObject.Granularity == TimingGranularity.Line)
             {
-                if (textUnchanged && !anyPipes && !anyRemoval)
+                if (textUnchanged && !anyPipes && !anyRemoval && finish == null)
                     return true;
 
                 // Line-granularity maps persist no word data; units are always the loader's
                 // interpolation, which is text-weight-dependent, so re-derive with the new text.
                 // The pipes then subdivide those fresh units exactly as they would on a word map
-                // (and a deleted pipe simply does not come back through the re-derivation).
+                // (and a deleted pipe simply does not come back through the re-derivation). A word
+                // keeps its ORIGINAL (backlog 330) by place when the count is unchanged.
                 units = LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime);
+
+                if (units.Count == line.Units.Count)
+                    units = units.Select((u, i) => LrcParser.WithOriginal(u, line.Units[i].Original)).ToArray();
 
                 if (anyPipes && tokens.Length == units.Count)
                     units = applyPipes(units, tokens, pipes, out authoredSubdivision);
@@ -809,7 +971,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // no authored splits does not start carrying them just because a box lost focus.
                 // A pipe that moved a word's REST is a change like any other, so the comparison is
                 // over every cut the box can author, not only the syllable splits.
-                if (textUnchanged && !authoredSubdivision && !anyRemoval
+                if (textUnchanged && !authoredSubdivision && !anyRemoval && finish == null
                     && !units.Where((u, i) => !sameSplits(u.SyllableSplits, line.Units[i].SyllableSplits)
                                               || !u.Pauses.SequenceEqual(line.Units[i].Pauses)).Any())
                 {
@@ -818,28 +980,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
             else
             {
-                // Word count changed: every span is redistributed within the sung window, but the
-                // words that came back spelled exactly as they were are anchored first, so their
-                // subdivisions ride the redistribution instead of being thrown away with it. The
-                // pipes are then read over the result, so this commit's own cuts land too.
-                units = alignSubdivisions(line.Units, LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime));
+                // Word count changed: only the words that were added, removed or reworded are
+                // placed, and every other word keeps its unit verbatim (backlog 340). A line
+                // rewritten outright, or a change with no room for its words, redistributes every
+                // span within the sung window instead, anchoring the words that came back spelled
+                // exactly as they were so their subdivisions ride it. Either way the pipes are then
+                // read over the result, so this commit's own cuts land too.
+                units = placeChangedWords(editorBeatmap, hitObject, tokens)
+                        ?? alignSubdivisions(line.Units, LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime));
                 units = applyPipes(units, tokens, pipes, out authoredSubdivision);
             }
 
+            bool wordCountChanged = hitObject.Granularity != TimingGranularity.Line && tokens.Length != line.Units.Count;
+
             editorBeatmap.BeginChange();
-            hitObject.Line = rebuild(line, rawText: normalized, units: units);
+
+            if (finish != null)
+            {
+                var (text, finalUnits, originals) = finish(units);
+                hitObject.Line = rebuild(line, rawText: text, units: finalUnits, originals: originals);
+
+                // An unromanised word lives only in words[], so the map has to carry them.
+                wordCountChanged |= originals.Pending.Count > 0 || line.UnromanisedWords.Count > 0;
+            }
+            else
+            {
+                hitObject.Line = rebuild(line, rawText: normalized, units: units);
+            }
+
             editorBeatmap.Update(hitObject);
-            // A word-count change re-spreads the units across the line's EXISTING sung window, so the
-            // new last word lands exactly on the stored end_ms and this is a no-op; a same-count
-            // commit keeps every word's timing, so it is a no-op there too. Called anyway so the
-            // rule holds by construction rather than by a coincidence of how the units are built.
+            // The sung end follows the last word only when this commit moved it: a word typed on
+            // at the tail, or the tail word typed away. A same-count commit, and any change that
+            // leaves the last word alone, keeps the stored end_ms exactly.
             syncSingEndToLastUnit(editorBeatmap, hitObject, lastUnitEnd(line));
 
             // A pipe that just created a boundary needs the map to carry sub-word data at all, or
-            // the encoder would drop it on the next save (see AddSyllableBoundary's note). Only
-            // done when something was actually authored, so an ordinary text commit never moves a
-            // map's granularity in either direction.
-            if (authoredSubdivision)
+            // the encoder would drop it on the next save (see AddSyllableBoundary's note). A word
+            // count change can also take a boundary AWAY (a subdivided word typed out, or halved
+            // to make room), exactly as AddWord and RemoveWord can, so it re-syncs the same way.
+            // An ordinary same-count commit never moves a map's granularity in either direction.
+            if (authoredSubdivision || wordCountChanged)
                 syncGranularity(editorBeatmap, keepAuthoredWords: true);
 
             editorBeatmap.EndChange();
@@ -871,6 +1051,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     return new TimedUnit
                     {
                         Text = tokens[i],
+                        Original = u.Original,
                         StartTime = u.StartTime,
                         EndTime = u.EndTime,
                         // Un-subdividing a word IS a timing decision, exactly as subdividing it is,
@@ -900,6 +1081,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     return new TimedUnit
                     {
                         Text = tokens[i],
+                        Original = u.Original,
                         StartTime = u.StartTime,
                         EndTime = u.EndTime,
                         // A hand-placed subdivision IS hand timing, exactly as it is when the
@@ -915,6 +1097,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return new TimedUnit
                 {
                     Text = tokens[i],
+                    Original = u.Original,
                     StartTime = u.StartTime,
                     EndTime = u.EndTime,
                     Source = u.Source,
@@ -956,20 +1139,150 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// Carries subdivisions across a WORD COUNT change. <paramref name="redistributed"/> is the
-        /// char-weighted re-interpolation of the new text (the span every new word takes, unchanged
-        /// by this method); this pairs those words with <paramref name="previous"/> by a two-pointer
-        /// walk over IDENTICAL token text, in order, and gives every paired word its old boundaries
-        /// RESCALED proportionally into its new span, with the authored split carried verbatim (the
-        /// text and the boundary count are identical, so it still describes the word).
+        /// A WORD COUNT change from the line box, applied LOCALLY (backlog 340): the words the mapper
+        /// did not touch keep their units exactly, and only the added, removed or reworded ones are
+        /// placed, so typing one word into a hand-timed line no longer re-times the other eleven.
         ///
-        /// <para>The walk is deliberately dumb and forward-only: for each new word it takes the
-        /// FIRST still-unclaimed old word with the same text, so inserting, appending or deleting
-        /// one word leaves every other word's subdivision alone, and ambiguity ("na na na") resolves
-        /// leftmost. Its limits are the price of that predictability, and they are by design: a
-        /// REWORDED word matches nothing and re-derives (there is no honest place to put the
-        /// syllables of a word that no longer exists), and REORDERING keeps only the words the
-        /// forward walk still meets in order.</para>
+        /// <para>The old units and the new tokens are aligned by LONGEST COMMON SUBSEQUENCE on token
+        /// text, which recognises as many unchanged words as the edit allows: "oh na na" retyped as
+        /// "na oh na na" keeps all three (a leftmost walk would pair the new first "na" with the old
+        /// second one and lose "oh"). Among equally long alignments the old word is matched as early
+        /// as possible, so a repeated word typed once more ("na na na" to "na na na na") is read as
+        /// appended after the ones it repeats: the text alone cannot say which copy is new, and that
+        /// reading moves nothing. Between two kept words lies one RUN of changes:</para>
+        /// <list type="bullet">
+        /// <item>a kept word keeps its unit VERBATIM: span, source, subdivision, split and rests
+        /// (the one exception is a neighbour halved to make room, below);</item>
+        /// <item>a pure INSERTION is placed by <see cref="carveAfter"/> after the word before it
+        /// (the tail wall is <see cref="unitCeiling"/>, so the last line may grow, backlog 336),
+        /// falling back to <see cref="carveBefore"/> on the word after it, which is also the rule
+        /// at the HEAD of the line where there is no word before;</item>
+        /// <item>a REWORDED run (old words out, new words in) spreads the new words char-weighted
+        /// over exactly the span the old ones held, first start to last end;</item>
+        /// <item>a pure DELETION leaves the deleted span as a gap, as <see cref="RemoveWord"/> does:
+        /// no neighbour is stretched over it;</item>
+        /// <item>every placed word is Explicit hand timing.</item>
+        /// </list>
+        /// <para>Returns null when nothing can be kept (the line was rewritten) or when a run has no
+        /// room for its words at <see cref="MIN_SPAN_MS"/> each; the caller then redistributes the
+        /// whole line as it always did (<see cref="alignSubdivisions"/>).</para>
+        /// </summary>
+        private static IReadOnlyList<TimedUnit>? placeChangedWords(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string[] tokens)
+        {
+            var line = hitObject.Line;
+            var old = line.Units;
+            int n = old.Count, m = tokens.Length;
+
+            if (n == 0)
+                return null;
+
+            // lcs[i, j]: the longest common subsequence of old[i..] and tokens[j..].
+            int[,] lcs = new int[n + 1, m + 1];
+
+            for (int i = n - 1; i >= 0; i--)
+            {
+                for (int j = m - 1; j >= 0; j--)
+                    lcs[i, j] = old[i].Text == tokens[j] ? lcs[i + 1, j + 1] + 1 : Math.Max(lcs[i + 1, j], lcs[i, j + 1]);
+            }
+
+            if (lcs[0, 0] == 0)
+                return null;
+
+            // Equal text on the diagonal is always an optimal step of the recurrence above.
+            bool keeps(int i, int j) => i < n && j < m && old[i].Text == tokens[j];
+
+            var result = new List<TimedUnit>(m);
+            // The next kept word as a head insertion left it (its first half given up), if it did.
+            TimedUnit? halvedFollower = null;
+            int oi = 0, ni = 0;
+
+            while (oi < n || ni < m)
+            {
+                if (keeps(oi, ni))
+                {
+                    result.Add(halvedFollower ?? old[oi]);
+                    halvedFollower = null;
+                    oi++;
+                    ni++;
+                    continue;
+                }
+
+                // The run: old words oi..oe-1 go, new words ni..ne-1 arrive.
+                int oe = oi, ne = ni;
+
+                while ((oe < n || ne < m) && !keeps(oe, ne))
+                {
+                    if (oe < n && (ne >= m || lcs[oe + 1, ne] >= lcs[oe, ne + 1]))
+                        oe++;
+                    else
+                        ne++;
+                }
+
+                int arriving = ne - ni;
+
+                if (arriving > 0)
+                {
+                    double start, end;
+
+                    if (oe > oi)
+                    {
+                        start = old[oi].StartTime;
+                        end = old[oe - 1].EndTime;
+
+                        if (end - start < MIN_SPAN_MS * arriving)
+                            return null;
+                    }
+                    else
+                    {
+                        // Runs are separated by kept words, so the word before a pure insertion is
+                        // a kept one (or there is none, at the head).
+                        TimedUnit? before = result.Count > 0 ? result[^1] : null;
+                        TimedUnit? after = oe < n ? old[oe] : null;
+                        double wall = after?.StartTime ?? unitCeiling(editorBeatmap, hitObject, n - 1);
+
+                        if (before != null && carveAfter(before, wall, arriving) is { } carved)
+                        {
+                            result[^1] = carved.Neighbour;
+                            (start, end) = (carved.Start, carved.End);
+                        }
+                        else if (after != null && carveBefore(after, before?.EndTime ?? line.StartTime, arriving) is { } yielded)
+                        {
+                            halvedFollower = yielded.Neighbour;
+                            (start, end) = (yielded.Start, yielded.End);
+                        }
+                        else
+                            return null;
+                    }
+
+                    foreach (var u in LrcParser.InterpolateUnits(string.Join(' ', tokens[ni..ne]), start, end))
+                        result.Add(placedWord(u.Text, u.StartTime, u.EndTime));
+                }
+
+                oi = oe;
+                ni = ne;
+            }
+
+            return result.Count == m ? result : null;
+        }
+
+        /// <summary>
+        /// Carries subdivisions across a WHOLE-LINE redistribution, the FALLBACK of a word count
+        /// change: since backlog 340 an ordinary insertion, deletion or rewording is placed locally
+        /// by <see cref="placeChangedWords"/>, which keeps unchanged words verbatim and never reaches
+        /// here. This runs only when that placement gives up (no word in common, or no room).
+        /// <paramref name="redistributed"/> is the char-weighted re-interpolation of the new text
+        /// (the span every new word takes, unchanged by this method); this pairs those words with
+        /// <paramref name="previous"/> by a two-pointer walk over IDENTICAL token text, in order, and
+        /// gives every paired word its old boundaries RESCALED proportionally into its new span, with
+        /// the authored split carried verbatim (the text and the boundary count are identical, so it
+        /// still describes the word).
+        ///
+        /// <para>The walk is deliberately dumb and forward-only (the local placement uses a longest
+        /// common subsequence instead, because there the pairing decides which words keep their
+        /// hand timing): for each new word it takes the FIRST still-unclaimed old word with the same
+        /// text, and ambiguity ("na na na") resolves leftmost. A REWORDED word matches nothing and
+        /// re-derives (there is no honest place to put the syllables of a word that no longer
+        /// exists), and REORDERING keeps only the words the forward walk still meets in order.</para>
         /// </summary>
         private static IReadOnlyList<TimedUnit> alignSubdivisions(IReadOnlyList<TimedUnit> previous, IReadOnlyList<TimedUnit> redistributed)
         {
@@ -1008,6 +1321,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 units[i] = new TimedUnit
                 {
                     Text = units[i].Text,
+                    Original = old.Original,
                     // Only the SUBDIVISION travels: the span is the redistribution's, and so is the
                     // Source, because nobody hand-timed where this word now sits.
                     StartTime = units[i].StartTime,
@@ -1171,6 +1485,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return new TimedUnit
             {
                 Text = unit.Text,
+                Original = unit.Original,
                 StartTime = unit.StartTime,
                 EndTime = unit.EndTime,
                 Source = unit.Source,
@@ -1243,7 +1558,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// token: the mapper renames it by retyping the line text, which keeps every word's timing
         /// while the token count is unchanged (see <see cref="SetLineText"/>).
         ///
-        /// Timing is carved so no existing word moves where possible: the new word takes the free
+        /// Timing is carved so no existing word moves where possible (<see cref="carveAfter"/>, the
+        /// same rule the line box applies to a word typed into it): the new word takes the free
         /// gap after its anchor (the word it was inserted after), capped at the anchor's own
         /// duration so an append at the end of a line does not swallow the whole tail. When the
         /// words are packed edge to edge the anchor is BISECTED and the new word takes its second
@@ -1288,41 +1604,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 insertAt = afterUnitIndex >= 0 && afterUnitIndex < n ? afterUnitIndex + 1 : n;
 
-                var anchor = line.Units[insertAt - 1];
-                double anchorSpan = anchor.EndTime - anchor.StartTime;
-                double lo = anchor.EndTime;
-                double hi = insertAt < n ? line.Units[insertAt].StartTime : line.EndTime;
+                // An append at the tail of the LAST line is walled by the song, not by the line's
+                // derived EndTime, which then grows to take the new word (backlog 336).
+                double wall = insertAt < n ? line.Units[insertAt].StartTime : unitCeiling(editorBeatmap, hitObject, n - 1);
+
+                // Neither a gap nor an anchor wide enough to halve: nowhere to put a word.
+                if (carveAfter(line.Units[insertAt - 1], wall, 1) is not { } carve)
+                    return false;
 
                 var rebuilt = line.Units.ToList();
-                double start, end;
-
-                if (hi - lo >= MIN_SPAN_MS)
-                {
-                    start = lo;
-                    end = lo + Math.Min(hi - lo, Math.Max(MIN_SPAN_MS, anchorSpan));
-                }
-                else if (anchorSpan >= MIN_SPAN_MS * 2)
-                {
-                    double mid = (anchor.StartTime + anchor.EndTime) / 2;
-                    start = mid;
-                    end = anchor.EndTime;
-                    rebuilt[insertAt - 1] = retime(anchor, anchor.StartTime, mid);
-                }
-                else
-                {
-                    // Neither a gap nor an anchor wide enough to halve: nowhere to put a word.
-                    return false;
-                }
-
-                rebuilt.Insert(insertAt, new TimedUnit
-                {
-                    Text = normalized,
-                    StartTime = start,
-                    EndTime = end,
-                    // Editor-authored placement is hand timing: it must persist in words[] verbatim.
-                    Source = TimingSource.Explicit,
-                    Confidence = 1,
-                });
+                rebuilt[insertAt - 1] = carve.Neighbour;
+                rebuilt.Insert(insertAt, placedWord(normalized, carve.Start, carve.End));
 
                 units = rebuilt;
             }
@@ -1331,10 +1623,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             newTokens.Insert(insertAt, normalized);
             string rawText = string.Join(' ', newTokens);
 
+            // The clamp window for the carved units: the line's own for an interior line, but the
+            // appended word of the LAST line may sit past its current EndTime (the sync below then
+            // moves EndTime out to it), so it must not be clamped back in first.
+            double unitWindowEnd = Math.Max(line.EndTime, units.Count > 0 ? units[^1].EndTime : line.EndTime);
+
             editorBeatmap.BeginChange();
             hitObject.Line = rebuild(line,
                 rawText: rawText,
-                units: unitsFor(hitObject, rawText, units, line.StartTime, line.SingEndTime, line.EndTime));
+                units: unitsFor(hitObject, rawText, units, line.StartTime, line.SingEndTime, unitWindowEnd),
+                // An unromanised word (backlog 330) behind the new one keeps its place after it.
+                originals: (line.Original, line.UnromanisedWords.Select(w => w.Position >= insertAt ? w with { Position = w.Position + 1 } : w).ToArray()));
             editorBeatmap.Update(hitObject);
             // Bisecting the anchor can strip subdivisions that no longer fit inside its half.
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
@@ -1343,6 +1642,84 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             editorBeatmap.EndChange();
             return true;
         }
+
+        /// <summary>
+        /// Room carved for new words: the span they share, and what the neighbour that made the
+        /// room becomes (itself unchanged when the room was a free gap, its kept half when it was
+        /// bisected).
+        /// </summary>
+        private readonly record struct Carve(double Start, double End, TimedUnit Neighbour);
+
+        /// <summary>
+        /// THE word placement rule, shared by <see cref="AddWord"/> and a word typed into the line
+        /// box (<see cref="SetLineText"/>), for <paramref name="count"/> new words going in right
+        /// AFTER <paramref name="anchor"/>, with <paramref name="wall"/> the latest they may end (the
+        /// next word's start, or <see cref="unitCeiling"/> at the tail).
+        ///
+        /// <list type="number">
+        /// <item>A free gap of at least <see cref="MIN_SPAN_MS"/> per word: the words take it from
+        /// the anchor's end, capped at the anchor's own duration per word, so an append at the end
+        /// of a line does not swallow the whole tail. Nothing moves.</item>
+        /// <item>Packed edge to edge: the anchor is BISECTED and the words take its second half. The
+        /// anchor is RESIZED (<see cref="retime"/>), so a syllable boundary or rest of its own that
+        /// falls in the half it gives up goes with that half.</item>
+        /// <item>Neither (no gap and an anchor too short to halve into
+        /// <see cref="MIN_SPAN_MS"/> pieces): null.</item>
+        /// </list>
+        /// </summary>
+        private static Carve? carveAfter(TimedUnit anchor, double wall, int count)
+        {
+            double span = anchor.EndTime - anchor.StartTime;
+            double gap = wall - anchor.EndTime;
+
+            if (gap >= MIN_SPAN_MS * count)
+                return new Carve(anchor.EndTime, anchor.EndTime + Math.Min(gap, Math.Max(MIN_SPAN_MS, span) * count), anchor);
+
+            // The half given up must hold every new word at the minimum, and the half kept is the
+            // same width, so both sides stay at or above it.
+            if (span >= 2 * MIN_SPAN_MS * count)
+            {
+                double mid = (anchor.StartTime + anchor.EndTime) / 2;
+                return new Carve(mid, anchor.EndTime, retime(anchor, anchor.StartTime, mid));
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// The mirror of <see cref="carveAfter"/> for words going in right BEFORE
+        /// <paramref name="follower"/>, with <paramref name="floor"/> the earliest they may start:
+        /// the one case with no word before them (a word typed at the head of the line), and the
+        /// last resort mid-line when the word before is too short to halve. A free gap is taken from
+        /// its END, against the follower and capped at the follower's duration per word; otherwise
+        /// the follower gives up its FIRST half.
+        /// </summary>
+        private static Carve? carveBefore(TimedUnit follower, double floor, int count)
+        {
+            double span = follower.EndTime - follower.StartTime;
+            double gap = follower.StartTime - floor;
+
+            if (gap >= MIN_SPAN_MS * count)
+                return new Carve(follower.StartTime - Math.Min(gap, Math.Max(MIN_SPAN_MS, span) * count), follower.StartTime, follower);
+
+            if (span >= 2 * MIN_SPAN_MS * count)
+            {
+                double mid = (follower.StartTime + follower.EndTime) / 2;
+                return new Carve(follower.StartTime, mid, retime(follower, mid, follower.EndTime));
+            }
+
+            return null;
+        }
+
+        /// <summary>A word the editor placed: hand timing, so it persists in words[] verbatim.</summary>
+        private static TimedUnit placedWord(string text, double start, double end) => new TimedUnit
+        {
+            Text = text,
+            StartTime = start,
+            EndTime = end,
+            Source = TimingSource.Explicit,
+            Confidence = 1,
+        };
 
         /// <summary>
         /// Removes one word from a line: its token, its unit and its syllable subdivisions all go,
@@ -1384,7 +1761,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             editorBeatmap.BeginChange();
             hitObject.Line = rebuild(line,
                 rawText: rawText,
-                units: unitsFor(hitObject, rawText, units, line.StartTime, line.SingEndTime, line.EndTime));
+                units: unitsFor(hitObject, rawText, units, line.StartTime, line.SingEndTime, line.EndTime),
+                // An unromanised word (backlog 330) behind the removed one moves up a place.
+                originals: (line.Original, line.UnromanisedWords.Select(w => w.Position > unitIndex ? w with { Position = w.Position - 1 } : w).ToArray()));
             editorBeatmap.Update(hitObject);
             // The removed word may have carried the map's last syllable subdivisions.
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
@@ -1394,8 +1773,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return true;
         }
 
-        /// <summary>Words in a line: one per whitespace token (the unit list mirrors them).</summary>
-        public static int WordCount(LyricLine line) => line.RawText.Split(' ').Length;
+        /// <summary>
+        /// Words in a line: one per whitespace token (the unit list mirrors them). A line of nothing
+        /// but unromanised words (backlog 330) has an empty text and NO typed word, not one empty one.
+        /// </summary>
+        public static int WordCount(LyricLine line) => line.RawText.Length == 0 ? 0 : line.RawText.Split(' ').Length;
 
         /// <summary>
         /// Removes several words of one line as a SINGLE undo step: <see cref="RemoveWord"/> per
@@ -1533,7 +1915,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             editorBeatmap.BeginChange();
 
-            hitObject.Line = rebuild(line, rawText: string.Join(' ', tokens), units: units.ToArray());
+            // The ORIGINAL (backlog 330) has no cut that corresponds to this one in general, so the two
+            // halves carry none of their own (the line keeps its original as the caption), and an
+            // unromanised word behind the split word moves back a place.
+            hitObject.Line = rebuild(line, rawText: string.Join(' ', tokens), units: units.ToArray(),
+                originals: (line.Original ?? (unit.Original != null ? JoinedOriginal(line.Units, line.UnromanisedWords) : null),
+                    line.UnromanisedWords.Select(w => w.Position > unitIndex ? w with { Position = w.Position + 1 } : w).ToArray()));
             editorBeatmap.Update(hitObject);
 
             // A word whose only subdivision this was leaves none behind, so the line's granularity has
@@ -1606,7 +1993,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 end: boundary,
                 singEnd: firstSingEnd,
                 units: unitsFor(hitObject, firstText, firstUnits, line.StartTime, firstSingEnd, boundary),
-                sealGrace: 0);
+                sealGrace: 0,
+                originals: originalsOfRange(line, 0, firstUnitOfSecondLine, double.NegativeInfinity, boundary));
             editorBeatmap.Update(hitObject);
 
             editorBeatmap.Add(new TypeBeatHitObject
@@ -1616,7 +2004,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     rawText: secondText,
                     start: boundary,
                     singEnd: secondSingEnd,
-                    units: unitsFor(hitObject, secondText, secondUnits, boundary, secondSingEnd, line.EndTime)),
+                    units: unitsFor(hitObject, secondText, secondUnits, boundary, secondSingEnd, line.EndTime),
+                    originals: originalsOfRange(line, firstUnitOfSecondLine, line.Units.Count, boundary, double.PositiveInfinity)),
                 Granularity = hitObject.Granularity,
             });
 
@@ -1650,6 +2039,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Units = unitsFor(hitObject, mergedText, a.Units.Concat(b.Units).ToArray(), a.StartTime, b.SingEndTime, b.EndTime),
                 SealGraceMs = b.SealGraceMs,
                 Estimated = a.Estimated || b.Estimated,
+                // The originals (backlog 330) join as the texts do; the second line's unromanised
+                // words move behind the first line's words.
+                Original = a.Original == null && b.Original == null ? null : (a.Original ?? a.RawText) + " " + (b.Original ?? b.RawText),
+                UnromanisedWords = a.UnromanisedWords.Concat(b.UnromanisedWords.Select(w => w with { Position = w.Position + a.Units.Count })).ToArray(),
             };
             editorBeatmap.Update(hitObject);
             editorBeatmap.Remove(next);
@@ -1658,10 +2051,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             editorBeatmap.EndChange();
         }
 
+        /// <summary>The least span an APPENDED line (one with no following line) is given, see <see cref="AppendSpanFor"/>.</summary>
+        public const double DEFAULT_APPEND_SPAN_MS = 2000;
+
+        /// <summary>How much of an appended line's span each of its words claims, see <see cref="AppendSpanFor"/>.</summary>
+        public const double APPEND_SPAN_PER_WORD_MS = 400;
+
+        /// <summary>
+        /// The span an appended line is given for its text: <see cref="APPEND_SPAN_PER_WORD_MS"/> per
+        /// word, never less than <see cref="DEFAULT_APPEND_SPAN_MS"/>.
+        /// </summary>
+        public static double AppendSpanFor(string text)
+            => Math.Max(DEFAULT_APPEND_SPAN_MS, APPEND_SPAN_PER_WORD_MS * text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length);
+
         /// <summary>
         /// Inserts a new line at the given time with placeholder text. The predecessor's typeable
-        /// window shrinks to end at the new line's start (the boundary invariant); the new line
-        /// runs to where the old window ended (or a default span when appended at the end).
+        /// window shrinks to end at the new line's start (the boundary invariant).
+        ///
+        /// <para>A line INSIDE the map runs to the following line's start, as it always did. An
+        /// APPENDED line (nothing follows it) is the new last line, and the last line has no
+        /// right-hand wall (backlog 336): it gets at least <see cref="AppendSpanFor"/> its text, or the
+        /// window it inherits from the old last line when that reaches further, capped at the song's
+        /// end. Before this, an append INSIDE the old last line's window inherited only what was left of
+        /// that window (200 ms before its end gave a 200 ms line with its words squashed into it), while
+        /// one a few pixels later, past the window, got a full default span: two opposite results for
+        /// the same gesture.</para>
         /// </summary>
         public static TypeBeatHitObject? AddLine(EditorBeatmap editorBeatmap, double startTime, string text = "new line")
         {
@@ -1683,9 +2097,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             var previous = ordered.LastOrDefault(o => o.Line.StartTime < startTime);
             var following = ordered.FirstOrDefault(o => o.Line.StartTime > startTime);
 
-            // end == the true next line's start keeps the boundary invariant EndTime_i == StartTime_(i+1).
-            double end = following?.Line.StartTime ?? (previous?.Line.EndTime is double prevEnd && prevEnd > startTime + MIN_SPAN_MS ? prevEnd : startTime + 2000);
-            double singEnd = Math.Min(end, startTime + Math.Max(MIN_SPAN_MS, (end - startTime) * 0.8));
+            double end, singEnd;
+
+            if (following != null)
+            {
+                // end == the true next line's start keeps the boundary invariant EndTime_i == StartTime_(i+1).
+                end = following.Line.StartTime;
+                singEnd = Math.Min(end, startTime + Math.Max(MIN_SPAN_MS, (end - startTime) * 0.8));
+            }
+            else
+            {
+                // The new LAST line: a sensible span of its own, or the old last line's reach when
+                // that is further, capped at the song's end (never below MIN_SPAN_MS).
+                double inherited = previous?.Line.EndTime ?? double.NegativeInfinity;
+                double cap = Math.Max(startTime + MIN_SPAN_MS, TrackLengthOf(editorBeatmap));
+
+                end = Math.Min(Math.Max(startTime + AppendSpanFor(normalized), inherited), cap);
+                singEnd = Math.Min(end, startTime + Math.Max(MIN_SPAN_MS, (end - startTime) * 0.8));
+
+                // Reload derives a last line's window as min(song_end, singEnd + tail), so the tail
+                // may not exceed LAST_LINE_TAIL_MS or the reopened map shows a shorter line.
+                singEnd = Math.Max(singEnd, end - LAST_LINE_TAIL_MS);
+            }
 
             editorBeatmap.BeginChange();
 
@@ -2102,6 +2535,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             units[unitIndex] = new TimedUnit
             {
                 Text = unit.Text,
+                Original = unit.Original,
                 StartTime = unit.StartTime,
                 EndTime = unit.EndTime,
                 Source = unit.Source,
@@ -2230,6 +2664,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             units[unitIndex] = new TimedUnit
             {
                 Text = unit.Text,
+                Original = unit.Original,
                 StartTime = unit.StartTime,
                 EndTime = unit.EndTime,
                 Source = TimingSource.Explicit,
@@ -2252,6 +2687,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Units = units,
                 SealGraceMs = line.SealGraceMs,
                 Estimated = false,
+                Original = line.Original,
+                UnromanisedWords = line.UnromanisedWords,
             };
             editorBeatmap.Update(hitObject);
             syncGranularity(editorBeatmap);
@@ -2555,6 +2992,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             units[unitIndex] = new TimedUnit
             {
                 Text = unit.Text,
+                Original = unit.Original,
                 StartTime = unit.StartTime,
                 EndTime = unit.EndTime,
                 Source = TimingSource.Explicit,
@@ -2607,16 +3045,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// line-relative offsets, exactly like the span), its authored char split and its authored
         /// rests, plus the source word's character COUNT, which is what
         /// <see cref="PasteLineTimings"/> gates the two char-indexed ones on. A word carrying none of
-        /// that writes none of the fields, so a plain word-timed line serializes exactly as before.</para>
+        /// that writes none of the sub-word fields.</para>
+        ///
+        /// <para>Since backlog 339 the payload also carries the TEXT (each word's
+        /// <see cref="TimedUnit.Text"/>, stamped <see cref="LyricTimingClipboard.TEXT_VERSION"/>) and
+        /// the line facts a text paste takes from its source (seal grace, the Estimated flag, the
+        /// granularity), which is what lets <see cref="PasteLine"/> put the line down as is. The
+        /// timing-only paste reads none of it.</para>
         /// </summary>
         public static LyricTimingClipboard.LineTimingsPayload CopyLineTimings(IEnumerable<TypeBeatHitObject> lines)
         {
-            var payload = new LyricTimingClipboard.LineTimingsPayload();
+            var payload = new LyricTimingClipboard.LineTimingsPayload { Version = LyricTimingClipboard.TEXT_VERSION };
 
             foreach (var hitObject in lines)
             {
                 var line = hitObject.Line;
-                var entry = new LyricTimingClipboard.LineTimings { SingEndOffset = line.SingEndTime - line.StartTime };
+                var entry = new LyricTimingClipboard.LineTimings
+                {
+                    SingEndOffset = line.SingEndTime - line.StartTime,
+                    SealGraceMs = line.SealGraceMs,
+                    Estimated = line.Estimated,
+                    Granularity = hitObject.Granularity,
+                    // The caption travels whole: a line with unromanised words has one even when it
+                    // stored none of its own, so the pasted line still spells them out.
+                    Original = OriginalCaption(line),
+                };
 
                 foreach (var unit in line.Units)
                 {
@@ -2625,6 +3078,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         Start = unit.StartTime - line.StartTime,
                         End = unit.EndTime - line.StartTime,
                         Chars = unit.Text.Length,
+                        Text = unit.Text,
+                        Original = unit.Original,
                         Boundaries = unit.SyllableBoundaries.Count == 0
                             ? null
                             : unit.SyllableBoundaries.Select(b => b - line.StartTime).ToList(),
@@ -2759,6 +3214,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     Units = clampUnits(units, line.StartTime, end),
                     SealGraceMs = line.SealGraceMs,
                     Estimated = false, // pasted hand timing is acoustic evidence, same as a drag.
+                    Original = line.Original,
+                    UnromanisedWords = line.UnromanisedWords,
                 };
                 editorBeatmap.Update(target);
             }
@@ -2775,9 +3232,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// One pasted word: the TARGET word's text and the SOURCE span's timing, sub-word timing
         /// included, per the policy in <see cref="PasteLineTimings"/>'s remarks. Offsets in
         /// <paramref name="span"/> are relative to <paramref name="lineStart"/>.
+        ///
+        /// <para><paramref name="spellingTravels"/> is the TEXT paste (<see cref="PasteLine"/>): the
+        /// word IS the source word, so the char-count gate has nothing to protect and the source's
+        /// split and rests are taken as authored (still re-validated, since the clamp can cost a
+        /// boundary).</para>
         /// </summary>
         private static TimedUnit pasteUnit(TimedUnit target, LyricTimingClipboard.UnitSpan span, double lineStart,
-                                           TimingSource source = TimingSource.Explicit, double confidence = 1)
+                                           TimingSource source = TimingSource.Explicit, double confidence = 1, bool spellingTravels = false)
         {
             double start = lineStart + span.Start;
             double end = lineStart + span.End;
@@ -2792,7 +3254,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             // The gate on the two CHAR-INDEXED halves. The payload carries no text, only a length, so
             // equal lengths is the most it can know about the cut landing on the same character.
-            bool sameShape = span.Chars == target.Text.Length;
+            bool sameShape = spellingTravels || span.Chars == target.Text.Length;
 
             var splits = sameShape && span.Splits != null
                          && SyllableSegments.IsAuthoredValid(target.Text, boundaries.Count + 1, span.Splits)
@@ -2810,6 +3272,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return new TimedUnit
             {
                 Text = target.Text,
+                Original = target.Original,
                 StartTime = start,
                 EndTime = end,
                 Source = source,
@@ -2821,11 +3284,155 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// Snapshots the given word units' spans (in ascending index order, gaps collapsed) as
-        /// offsets from the FIRST selected unit's start. Pair with <see cref="PasteUnitTimings"/>.
+        /// The DEFAULT line paste (backlog 339): the copied line goes down AS IS, words and timing in
+        /// one step. With a payload that carries its text (<see cref="LyricTimingClipboard.LineTimingsPayload.CarriesText"/>)
+        /// every target line's words are REPLACED by the copied words, each taking the copied timing
+        /// exactly (span, subdivision boundaries, split, rests) rebased onto the target's own start.
+        /// Any other payload (one written before the text existed) falls through to
+        /// <see cref="PasteLineTimings"/> unchanged, so an old clipboard still pastes as timings.
         ///
-        /// <para>The copied subdivision boundaries and rests use the same anchor as the word spans.
-        /// Source spelling travels only to map character cuts when the target word differs.</para>
+
+        /// <list type="bullet">
+        /// <item>The target keeps its StartTime. An interior target keeps its EndTime too: the next
+        /// line's start is the wall, so the boundary invariant holds and nothing cascades. A pattern
+        /// longer than the window clamps monotonically into it, exactly as the timing paste clamps.</item>
+        /// <item>The LAST line has no wall on its right (backlog 336): its words may run to the song's
+        /// end and its EndTime then follows them (the sung end plus the tail it already carried).</item>
+        /// <item>The char-count gate and the derived-split fallback of the timing paste do not apply:
+        /// the spelling travels with the indices, so they always describe the word they land on.</item>
+        /// <item>Seal grace and the Estimated flag are the SOURCE line's. So is the granularity, in the
+        /// only form it can take per line: a source that was hand-timed (Word or Syllable) lands as
+        /// Explicit hand timing, a LINE-granularity source lands interpolated, and the map's
+        /// granularity is then re-synced from its units as every paste does.</item>
+        /// <item>One copied line broadcasts to every target; several zip positionally (extra targets
+        /// are left untouched). The whole paste is ONE undo step.</item>
+        /// </list>
+        /// </summary>
+        public static void PasteLine(EditorBeatmap editorBeatmap, IReadOnlyList<TypeBeatHitObject> targets, LyricTimingClipboard.LineTimingsPayload payload)
+        {
+            if (!payload.CarriesText)
+            {
+                PasteLineTimings(editorBeatmap, targets, payload);
+                return;
+            }
+
+            if (targets.Count == 0)
+                return;
+
+            bool broadcast = payload.Lines.Count == 1;
+            int pairCount = broadcast ? targets.Count : Math.Min(targets.Count, payload.Lines.Count);
+
+            editorBeatmap.BeginChange();
+
+            for (int t = 0; t < pairCount; t++)
+            {
+                if (editorBeatmap.HitObjects.Contains(targets[t]))
+                    replaceWithCopiedLine(editorBeatmap, targets[t], payload.Lines[broadcast ? 0 : t]);
+            }
+
+            syncGranularity(editorBeatmap, keepAuthoredWords: true);
+            editorBeatmap.EndChange();
+        }
+
+        /// <summary>
+        /// The line paste with NO target line selected (backlog 339): the copied line is inserted as a
+        /// NEW line at <paramref name="time"/> (the playhead), by <see cref="AddLine"/>, and then takes
+        /// the copied words and timing exactly as a <see cref="PasteLine"/> target would. One undo step.
+        ///
+        /// <para>Returns null, changing nothing, when the line carries no text or when
+        /// <see cref="AddLine"/> refuses the time (an existing line starts within
+        /// <see cref="MIN_SPAN_MS"/> of it).</para>
+        /// </summary>
+        public static TypeBeatHitObject? InsertCopiedLine(EditorBeatmap editorBeatmap, double time, LyricTimingClipboard.LineTimings source)
+        {
+            if (!source.HasText || !CanAddLineAt(editorBeatmap, time))
+                return null;
+
+            editorBeatmap.BeginChange();
+
+            // A stand-in with the copied word COUNT, since that is all AddLine reads off the text (the
+            // appended span); the copied words replace it straight away. The stand-in also keeps the
+            // copied spelling away from AddLine's Normalize, which would strip a freestyle marker.
+            var added = AddLine(editorBeatmap, time, string.Join(' ', Enumerable.Repeat("x", source.Units.Count)));
+
+            if (added != null)
+            {
+                replaceWithCopiedLine(editorBeatmap, added, source);
+                syncGranularity(editorBeatmap, keepAuthoredWords: true);
+            }
+
+            editorBeatmap.EndChange();
+            return added;
+        }
+
+        /// <summary>
+        /// Whether <see cref="AddLine"/> would accept <paramref name="time"/>: no existing line starts
+        /// within <see cref="MIN_SPAN_MS"/> of it.
+        /// </summary>
+        public static bool CanAddLineAt(EditorBeatmap editorBeatmap, double time)
+            => !orderedLines(editorBeatmap).Any(o => Math.Abs(o.Line.StartTime - time) < MIN_SPAN_MS);
+
+        /// <summary>
+        /// One target of the text paste: its words become <paramref name="source"/>'s, timed as the
+        /// source timed them relative to its start and rebased onto the target's. See
+        /// <see cref="PasteLine"/> for the rules; the caller owns the transaction and the granularity sync.
+        /// </summary>
+        private static void replaceWithCopiedLine(EditorBeatmap editorBeatmap, TypeBeatHitObject target, LyricTimingClipboard.LineTimings source)
+        {
+            var line = target.Line;
+            double start = line.StartTime;
+            bool isLast = isLastLine(editorBeatmap, target);
+
+            // The wall the words may run to: the next line's start, or for the last line the song's end.
+            double wall = isLast ? lastLineCap(editorBeatmap, line) : line.EndTime;
+
+            bool handTimed = source.Granularity != TimingGranularity.Line;
+
+            var units = clampUnits(source.Units.Select(span => pasteUnit(new TimedUnit { Text = span.Text!, Original = span.Original, StartTime = start, EndTime = start }, span, start,
+                handTimed ? TimingSource.Explicit : TimingSource.Interpolated, handTimed ? 1 : 0.5, spellingTravels: true)).ToArray(), start, wall);
+
+            double singEnd, end;
+
+            if (isLast)
+            {
+                // The end follows the pasted words (backlog 336): never short of the last word.
+                singEnd = Math.Clamp(Math.Max(start + source.SingEndOffset, units[^1].EndTime), start + MIN_SPAN_MS, Math.Max(start + MIN_SPAN_MS, wall));
+                end = lastLineEnd(line, singEnd, wall);
+            }
+            else
+            {
+                // As the timing paste does: the sung end rebased into the window the target keeps.
+                singEnd = Math.Clamp(start + source.SingEndOffset, start + MIN_SPAN_MS, line.EndTime);
+                end = line.EndTime;
+            }
+
+            target.Line = new LyricLine
+            {
+                RawText = source.RawText!,
+                StartTime = start,
+                EndTime = end,
+                SingEndTime = singEnd,
+                Units = units,
+                SealGraceMs = source.SealGraceMs ?? line.SealGraceMs,
+                Estimated = source.Estimated ?? false,
+                // The copied line's ORIGINAL (backlog 330) comes with its words; the target's own goes.
+                Original = source.Original == source.RawText ? null : source.Original,
+            };
+            editorBeatmap.Update(target);
+        }
+
+        /// <summary>
+        /// Snapshots the given word units (in ascending index order, gaps collapsed) as offsets from
+        /// the FIRST selected unit's start. Pair with <see cref="PasteUnitTimings"/>.
+        ///
+        /// <para>Since backlog 343 each word travels WHOLE, as a line payload's words do
+        /// (<see cref="CopyLineTimings"/>): its span, its TEXT (the existing
+        /// <see cref="LyricTimingClipboard.UnitSpan.Text"/>, the author's form) and ORIGINAL (backlog
+        /// 330, where it has one), its character count, and its sub-word timing (subdivision
+        /// boundaries and rests as offsets from the same anchor, the authored split verbatim). The
+        /// text is what lets a paste recognise the SAME word and carry that sub-word timing onto it;
+        /// see <see cref="PasteUnitTimings"/> for the policy.</para>
+
         /// </summary>
         public static LyricTimingClipboard.UnitTimingsPayload? CopyUnitTimings(TypeBeatHitObject hitObject, IEnumerable<int> indices)
         {
@@ -2839,39 +3446,288 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             var payload = new LyricTimingClipboard.UnitTimingsPayload();
 
             foreach (int i in sorted)
-                payload.Units.Add(copyTiming(line.Units[i], anchor));
+
+            {
+                var unit = line.Units[i];
+
+                payload.Units.Add(new LyricTimingClipboard.UnitSpan
+                {
+                    Start = unit.StartTime - anchor,
+                    End = unit.EndTime - anchor,
+                    Chars = unit.Text.Length,
+                    Text = unit.Text,
+                    Original = unit.Original,
+                    Boundaries = unit.SyllableBoundaries.Count == 0 ? null : unit.SyllableBoundaries.Select(b => b - anchor).ToList(),
+                    Splits = unit.SyllableSplits.Count == 0 ? null : unit.SyllableSplits.ToList(),
+                    Rests = unit.Pauses.Count == 0
+                        ? null
+                        : unit.Pauses.Select(p => new LyricTimingClipboard.RestSpan
+                        {
+                            Start = p.StartTime - anchor,
+                            End = p.EndTime - anchor,
+                            SplitChar = p.SplitChar,
+                        }).ToList(),
+                });
+            }
+
 
             return payload;
         }
 
         /// <summary>
-        /// Applies a copied unit-run pattern to consecutive words starting at
-        /// <paramref name="anchorIndex"/>, anchored at that word's CURRENT start (the phrase stays
-        /// where it sits; its internal rhythm is overwritten). Spans past the end of the line's
-        /// word list are dropped; the result is clamped monotonically into the line window (words
-        /// after the pasted run are pushed, never reordered). Single undo step.
-        ///
-        /// <para>Subdivision and rest times travel at their copied offsets. Authored character
-        /// splits travel when the target word matches the source spelling; otherwise subdivisions
-        /// use derived splits and rest cuts are mapped among the target's typeable letters.</para>
+
+        /// Whether a copied word and a target word are the SAME word (backlog 343): both spelled out
+        /// and equal ignoring case. The one gate on a word paste's sub-word timing; a payload written
+        /// before the text travelled has none and is never the same word.
+
         /// </summary>
-        public static void PasteUnitTimings(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int anchorIndex, LyricTimingClipboard.UnitTimingsPayload payload)
+        public static bool IsSameWord(LyricTimingClipboard.UnitSpan copied, TimedUnit target)
+            => !string.IsNullOrEmpty(copied.Text) && string.Equals(copied.Text, target.Text, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// THE WORD PASTE DISPATCH (backlogs 343 and 344), everything a word paste onto
+        /// <paramref name="hitObject"/> (the active line) decides, in one place so it can be pinned
+        /// without a screen:
+        ///
+        /// <list type="bullet">
+        /// <item>A word SELECTED on the line (<paramref name="selectedIndex"/> naming one of its
+        /// words): the run re-times the words from that one on (<see cref="PasteUnitTimings"/>).</item>
+        /// <item>NO word selected (or an index that names none): the copied words are INSERTED at
+        /// <paramref name="playhead"/> (<see cref="PasteWordsAtTime"/>), which refuses, with its
+        /// reason, when it cannot.</item>
+        /// </list>
+        ///
+        /// <para>It never falls back to word zero, which is the defect 343 replaced. And it no longer
+        /// looks for a word SPELLED like the copied one either: 343 landed a no-selection paste on the
+        /// first matching word as a stand-in for "no anchor", and 344 gives the no-selection gesture
+        /// its own meaning. Keeping both would make the same keystroke either re-time an existing word
+        /// or insert a new one depending on where the playhead happens to sit relative to a window the
+        /// mapper cannot see from the keyboard, and the re-time it would stand in for is one click
+        /// away since 343 (a click on another line's word selects that line and that word).</para>
+        /// </summary>
+        public static WordPasteResult PasteWords(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int selectedIndex, double playhead,
+                                                 LyricTimingClipboard.UnitTimingsPayload payload)
+        {
+            int n = hitObject.Line.Units.Count;
+
+            if (selectedIndex < 0 || selectedIndex >= n)
+                return PasteWordsAtTime(editorBeatmap, hitObject, playhead, payload);
+
+            return PasteUnitTimings(editorBeatmap, hitObject, selectedIndex, payload)
+                ? new WordPasteResult(WordPasteOutcome.Retimed, selectedIndex, Math.Min(payload.Units.Count, n - selectedIndex))
+                : new WordPasteResult(WordPasteOutcome.RetimeNoRoom);
+        }
+
+        /// <summary>
+        /// The word paste with NO word selected (backlog 344): the copied words are INSERTED into the
+        /// line as new words at <paramref name="time"/> (the playhead). Each carries everything the
+        /// copy took (<see cref="CopyUnitTimings"/>): its text (added to <see cref="LyricLine.RawText"/>
+        /// at the matching position), its span, its subdivision boundaries, its authored split, its
+        /// rests and its ORIGINAL (backlog 330), all through the same validating path the line paste's
+        /// text arm uses (<see cref="pasteUnit"/> with the spelling travelling). One undo step.
+        ///
+        /// <para>PLACEMENT. No existing word moves (the rule 340 set for the line box and 343 for the
+        /// word paste). Every word that STARTS at or before the playhead stays in front of the run.
+        /// The run begins at the playhead, or, when the playhead is inside a word, at that word's END:
+        /// a word is never split, and the mapper's evident intent (the copied word goes HERE) is
+        /// honoured just after rather than refused. It may use the room up to the next word's start,
+        /// or at the tail of the line up to <see cref="unitCeiling"/> (the line's end, and for the LAST
+        /// line the song's end, so there the line grows with it, backlog 336).</para>
+        ///
+        /// <para>FIT. A run longer than its room is SCALED about its start by room / length, with
+        /// length the LARGEST copied end (343's rule and 343's exact arithmetic, multiply before
+        /// dividing); one that fits lands at its own size. The refusal threshold is
+        /// <see cref="MIN_SPAN_MS"/> of room PER copied word: that is what keeps the scale from
+        /// reaching the degenerate extreme (a 1200 ms word squeezed into a 50 ms gap is still
+        /// accepted, 30 is the floor), and below it the paste is refused rather than moving a
+        /// neighbour to make room.</para>
+        ///
+        /// <para>REFUSALS change nothing and open no undo step: a LINE-granularity map (it persists no
+        /// word timing, so an inserted word would be re-interpolated away on reload), a payload
+        /// without text (copied by a build before 343: there is nothing to insert), a playhead
+        /// outside the line's window, and no room. A line whose tokens and words are out of step is
+        /// refused as no room, as <see cref="AddWord"/> refuses it.</para>
+        ///
+        /// <para>The line's own ORIGINAL caption is left as it is, as every other word edit leaves it
+        /// (<see cref="AddWord"/>, <see cref="RemoveWord"/>): it is the author's text in the song's own
+        /// spelling and spacing, which no word edit can rebuild faithfully, while each inserted word
+        /// keeps its own original. An unromanised word keeps its place relative to the run: it goes
+        /// behind the run when it sits behind the run's start.</para>
+        /// </summary>
+        public static WordPasteResult PasteWordsAtTime(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, double time, LyricTimingClipboard.UnitTimingsPayload payload)
+        {
+            var line = hitObject.Line;
+
+            if (hitObject.Granularity == TimingGranularity.Line)
+                return new WordPasteResult(WordPasteOutcome.LineGranularity);
+
+            if (payload.Units.Count == 0 || payload.Units.Any(u => string.IsNullOrEmpty(u.Text) || u.Text.Contains(' ')))
+                return new WordPasteResult(WordPasteOutcome.NoText);
+
+            if (time < line.StartTime || time > line.EndTime)
+                return new WordPasteResult(WordPasteOutcome.OutsideLine);
+
+            int n = line.Units.Count;
+            string[] tokens = line.RawText.Split(' ');
+
+            if (n == 0 || tokens.Length != n)
+                return new WordPasteResult(WordPasteOutcome.InsertNoRoom);
+
+            // Every word starting at or before the playhead stays in front; the run starts at the
+            // playhead, or at the end of the word the playhead is inside.
+            int insertAt = 0;
+
+            while (insertAt < n && line.Units[insertAt].StartTime <= time)
+                insertAt++;
+
+            double from = insertAt > 0 ? Math.Max(time, line.Units[insertAt - 1].EndTime) : time;
+            double wall = insertAt < n ? line.Units[insertAt].StartTime : unitCeiling(editorBeatmap, hitObject, n - 1);
+            double room = wall - from;
+            int count = payload.Units.Count;
+
+            if (room < MIN_SPAN_MS * count)
+                return new WordPasteResult(WordPasteOutcome.InsertNoRoom);
+
+            double length = payload.Units.Max(s => s.End);
+            bool scaled = length > room;
+
+            // Multiply before dividing, so a whole-millisecond fit lands on whole milliseconds.
+            double fit(double offset) => scaled ? offset * room / length : offset;
+
+            var units = line.Units.ToList();
+            var newTokens = tokens.ToList();
+
+            for (int k = 0; k < count; k++)
+            {
+                var span = payload.Units[k];
+
+                units.Insert(insertAt + k, pasteUnit(new TimedUnit { Text = span.Text!, Original = span.Original == span.Text ? null : span.Original, StartTime = from, EndTime = from },
+                    new LyricTimingClipboard.UnitSpan
+                    {
+                        Start = fit(span.Start),
+                        End = fit(span.End),
+                        Chars = span.Chars,
+                        Text = span.Text,
+                        Boundaries = span.Boundaries?.Select(fit).ToList(),
+                        Splits = span.Splits,
+                        Rests = span.Rests?.Select(r => new LyricTimingClipboard.RestSpan { Start = fit(r.Start), End = fit(r.End), SplitChar = r.SplitChar }).ToList(),
+                    }, from, spellingTravels: true));
+
+                newTokens.Insert(insertAt + k, span.Text!);
+            }
+
+            double previousLastEnd = lastUnitEnd(line);
+
+            // The run already fits, so the clamp moves nothing; it only guards the order. The LAST
+            // line's run may sit past its current EndTime (the sync below then moves EndTime out).
+            double windowEnd = Math.Max(line.EndTime, units[^1].EndTime);
+
+            editorBeatmap.BeginChange();
+            hitObject.Line = new LyricLine
+            {
+                RawText = string.Join(' ', newTokens),
+                StartTime = line.StartTime,
+                EndTime = line.EndTime,
+                SingEndTime = line.SingEndTime,
+                Units = clampUnits(units, line.StartTime, windowEnd),
+                SealGraceMs = line.SealGraceMs,
+                Estimated = false, // pasted hand timing is acoustic evidence, as the word paste's is.
+                Original = line.Original,
+                UnromanisedWords = line.UnromanisedWords
+                                       .Select(w => w.Position > insertAt || (w.Position == insertAt && w.StartTime >= from) ? w with { Position = w.Position + count } : w)
+                                       .ToArray(),
+            };
+            editorBeatmap.Update(hitObject);
+            // A pasted subdivision has to reach Syllable, as the word paste's does.
+            syncGranularity(editorBeatmap, keepAuthoredWords: true);
+            // A run at the tail gives the line a new last word, so its sung end follows.
+            syncSingEndToLastUnit(editorBeatmap, hitObject, previousLastEnd);
+            editorBeatmap.EndChange();
+
+            return new WordPasteResult(WordPasteOutcome.Inserted, insertAt, count);
+        }
+
+        /// <summary>
+        /// Applies a copied word run to consecutive words starting at <paramref name="anchorIndex"/>,
+        /// anchored at that word's CURRENT start (the phrase stays where it sits; its internal rhythm
+        /// is overwritten). Spans past the end of the line's word list are dropped. Single undo step.
+        /// Returns false, changing nothing, when there is nothing to paste or no room to paste into.
+        ///
+        /// <para>THE SAME WORD TAKES ITS SUB-WORD TIMING (backlog 343). A target word spelled like the
+        /// copied word (<see cref="IsSameWord"/>) takes the source's subdivision boundaries, authored
+        /// split and rests, rebased onto the anchor and validated through the same path the line
+        /// paste's text arm uses (<see cref="pasteUnit"/> with the spelling travelling): the split
+        /// is re-checked against the boundaries that survive, the rests through
+        /// <see cref="PausedWord.UsableRests"/>. The word keeps its own text and original.</para>
+        ///
+        /// <para>A DIFFERENT WORD keeps the conservative rule: its own boundaries, re-clamped into
+        /// the pasted span, and its own split, dropped to derived only when the clamp cost it a
+        /// boundary. The anchor is wherever the mapper points, so a split copied off "apple" landing
+        /// on "pie" would cut it somewhere meaningless; that reasoning is sound for a different word
+        /// and was wrong only for the same one. A payload written before the text travelled pastes
+        /// every word this way.</para>
+        ///
+        /// <para>THE RUN IS FITTED INTO THE ROOM IT HAS, and no neighbour moves (backlog 343, the
+        /// rule 340 set for the line box). The room runs from the anchor to the start of the first
+        /// UNTOUCHED word after the run, or for a run reaching the line's last word to
+        /// <see cref="unitCeiling"/> (the line's end, and for the LAST line the song's end, so there
+        /// the line grows, backlog 336). A pattern longer than the room is SCALED by room / length
+        /// about the anchor, every span, boundary and rest with it, so its rhythm survives in
+        /// proportion; one that fits lands at its own size. Laying it down full length pushed the
+        /// next word to zero width, which is the crush this replaced.</para>
+        /// </summary>
+        public static bool PasteUnitTimings(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int anchorIndex, LyricTimingClipboard.UnitTimingsPayload payload)
         {
             var line = hitObject.Line;
 
             if (anchorIndex < 0 || anchorIndex >= line.Units.Count || payload.Units.Count == 0)
-                return;
+                return false;
 
+            int count = Math.Min(payload.Units.Count, line.Units.Count - anchorIndex);
             double anchor = line.Units[anchorIndex].StartTime;
+            double room = unitCeiling(editorBeatmap, hitObject, anchorIndex + count - 1) - anchor;
+
+            // No room to land in (the next word starts right at the anchor): nowhere to put it.
+            if (room < MIN_SPAN_MS)
+                return false;
+
+            double length = payload.Units.Take(count).Max(s => s.End);
+            bool scaled = length > room;
+
+            // Multiply before dividing, so a whole-millisecond fit lands on whole milliseconds.
+            double fit(double offset) => scaled ? offset * room / length : offset;
+
             var units = line.Units.ToArray();
 
-            for (int k = 0; k < payload.Units.Count && anchorIndex + k < units.Length; k++)
+            for (int k = 0; k < count; k++)
             {
-                units[anchorIndex + k] = pasteTiming(retime(units[anchorIndex + k],
-                    anchor + payload.Units[k].Start,
-                    anchor + payload.Units[k].End,
-                    TimingSource.Explicit, 1), payload.Units[k], anchor);
+
+                var span = payload.Units[k];
+                var target = units[anchorIndex + k];
+
+                if (IsSameWord(span, target))
+                {
+                    units[anchorIndex + k] = pasteUnit(target, new LyricTimingClipboard.UnitSpan
+                    {
+                        Start = fit(span.Start),
+                        End = fit(span.End),
+                        Chars = span.Chars,
+                        Text = span.Text,
+                        Boundaries = span.Boundaries?.Select(fit).ToList(),
+                        Splits = span.Splits,
+                        Rests = span.Rests?.Select(r => new LyricTimingClipboard.RestSpan { Start = fit(r.Start), End = fit(r.End), SplitChar = r.SplitChar }).ToList(),
+                    }, anchor, spellingTravels: true);
+                }
+                else
+                    units[anchorIndex + k] = retime(target, anchor + fit(span.Start), anchor + fit(span.End), TimingSource.Explicit, 1);
+
             }
+
+            double previousLastEnd = lastUnitEnd(line);
+
+            // The run already fits, so the clamp moves nothing after it; it only guards the order.
+            // The LAST line's wall is the song's end (its EndTime then follows the last word below).
+            double wall = isLastLine(editorBeatmap, hitObject) ? lastLineCap(editorBeatmap, line) : line.EndTime;
 
             editorBeatmap.BeginChange();
             hitObject.Line = new LyricLine
@@ -2880,15 +3736,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 StartTime = line.StartTime,
                 EndTime = line.EndTime,
                 SingEndTime = line.SingEndTime,
-                Units = clampUnits(units, line.StartTime, line.EndTime),
+                Units = clampUnits(units, line.StartTime, wall),
                 SealGraceMs = line.SealGraceMs,
                 Estimated = false,
+                Original = line.Original,
+                UnromanisedWords = line.UnromanisedWords,
             };
             editorBeatmap.Update(hitObject);
+
+            promoteToWordGranularity(editorBeatmap);
+            // A pasted subdivision has to reach Syllable (and one pasted over the map's last
+            // subdivided word with an undivided pattern falls back to Word), as the line paste does.
+
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
             // A pasted run that reaches the last word overwrites its end, so the sung end follows.
-            syncSingEndToLastUnit(editorBeatmap, hitObject, lastUnitEnd(line));
+            syncSingEndToLastUnit(editorBeatmap, hitObject, previousLastEnd);
             editorBeatmap.EndChange();
+            return true;
         }
 
         private static LyricTimingClipboard.UnitSpan copyTiming(TimedUnit unit, double origin) => new LyricTimingClipboard.UnitSpan
@@ -2997,13 +3861,84 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// load, so the editor must derive them the same way or unit times drift on reload.
         /// Word maps persist units verbatim; they are preserved, clamped into the new window.
         /// </summary>
+        /// <remarks>A re-interpolated word keeps its ORIGINAL (backlog 330) when the word count is unchanged.</remarks>
         private static IReadOnlyList<TimedUnit> unitsFor(TypeBeatHitObject hitObject, string rawText, IReadOnlyList<TimedUnit> currentUnits, double start, double singEnd, double end)
-            => hitObject.Granularity == TimingGranularity.Line
-                ? LrcParser.InterpolateUnits(rawText, start, singEnd)
-                : clampUnits(currentUnits, start, end);
+        {
+            if (hitObject.Granularity != TimingGranularity.Line)
+                return clampUnits(currentUnits, start, end);
+
+            var interpolated = LrcParser.InterpolateUnits(rawText, start, singEnd);
+
+            return interpolated.Count == currentUnits.Count && currentUnits.Any(u => u.Original != null)
+                ? interpolated.Select((u, i) => LrcParser.WithOriginal(u, currentUnits[i].Original)).ToArray()
+                : interpolated;
+        }
 
         /// <summary>A line's last word end, or NaN when it has no units (so any comparison reads as "moved").</summary>
         private static double lastUnitEnd(LyricLine line) => line.Units.Count > 0 ? line.Units[^1].EndTime : double.NaN;
+
+        private static readonly ConditionalWeakTable<EditorBeatmap, Func<double?>> track_length_sources = new ConditionalWeakTable<EditorBeatmap, Func<double?>>();
+
+        /// <summary>
+        /// Tells the operations how long the song is for <paramref name="editorBeatmap"/>, as a live
+        /// source (the track may finish loading after the editor opens). The source answers null while
+        /// the length is unknown. The only thing that reads it is the LAST line, which has no following
+        /// line to wall it off and is therefore capped by the song itself (see
+        /// <see cref="lastLineCap"/>). Without a source the last line is uncapped.
+        /// </summary>
+        public static void SetTrackLengthSource(EditorBeatmap editorBeatmap, Func<double?> source)
+            => track_length_sources.AddOrUpdate(editorBeatmap, source);
+
+        /// <summary>The registered song length, or +infinity when none is known.</summary>
+        internal static double TrackLengthOf(EditorBeatmap editorBeatmap)
+            => track_length_sources.TryGetValue(editorBeatmap, out var source) && source() is double length && length > 0
+                ? length
+                : double.PositiveInfinity;
+
+        private static bool isLastLine(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject)
+        {
+            var ordered = orderedLines(editorBeatmap);
+            return ordered.Count > 0 && ordered[^1] == hitObject;
+        }
+
+        /// <summary>
+        /// How far the LAST line may reach (backlog 336): the song's end, never tighter than the
+        /// window the line already has (a map whose last line already runs past a shorter track is
+        /// not squeezed by an unrelated edit).
+        /// </summary>
+        private static double lastLineCap(EditorBeatmap editorBeatmap, LyricLine line)
+            => Math.Max(TrackLengthOf(editorBeatmap), line.EndTime);
+
+        /// <summary>
+        /// The latest a line's word <paramref name="unitIndex"/> may END: the next word's start, or,
+        /// for the line's last word, the line's end. The one exception is the last word of the LAST
+        /// line, whose right-hand wall is the song's end rather than the line's own EndTime: the last
+        /// line has no following line, so its EndTime is derived from its last word
+        /// (<see cref="syncSingEndToLastUnit"/>) and would otherwise be a wall that only ever
+        /// shrinks. An interior line keeps the next line's start as its wall.
+        /// </summary>
+        private static double unitCeiling(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < line.Units.Count - 1)
+                return line.Units[unitIndex + 1].StartTime;
+
+            return isLastLine(editorBeatmap, hitObject) ? lastLineCap(editorBeatmap, line) : line.EndTime;
+        }
+
+        /// <summary>
+        /// The LAST line's typeable end for a new sung end: the sung end plus the tail the line
+        /// already carried (EndTime - SingEndTime, kept inside [0, <see cref="LAST_LINE_TAIL_MS"/>]),
+        /// capped at <paramref name="cap"/>. Staying inside [singEnd, singEnd + tail] is what makes it
+        /// reload-stable: the decoder derives min(song_end_ms, end_ms + tail), and the encoder writes
+        /// song_end_ms from this very EndTime.
+        /// </summary>
+        private static double lastLineEnd(LyricLine line, double singEnd, double cap)
+        {
+            double tail = Math.Clamp(line.EndTime - line.SingEndTime, 0, LAST_LINE_TAIL_MS);
+            return Math.Max(singEnd, Math.Min(singEnd + tail, cap));
+        }
 
         /// <summary>
         /// Auto-derives a line's sung end (persisted as end_ms) from its LAST WORD's end. Backlog 246
@@ -3021,9 +3956,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// flag dragged before this rule existed) keeps that value verbatim until the last word is
         /// itself re-timed, at which point the mapper HAS made a content decision and end_ms follows.</para>
         ///
-        /// <para>The LAST line's typeable window is reload-derived as min(song_end, singEnd + tail),
-        /// so it is re-derived alongside the sung end here for the same reason
-        /// <see cref="SetSingEnd"/> does it.</para>
+        /// <para>The LAST line has no wall on its right (backlog 336). Its EndTime is not a boundary
+        /// with a following line, it is DERIVED: the last word's end plus the tail the line already
+        /// carried (<see cref="lastLineEnd"/>), capped at the song's end. So a last word dragged later
+        /// carries the whole window (and the timeline's grey map zone, which is drawn from the line
+        /// bands) with it, and one pulled earlier shrinks it by the same amount. An interior line keeps
+        /// the next line's start as its EndTime, exactly as before. Both stay reload-stable: the loader
+        /// derives the last line's window as min(song_end, singEnd + tail), and an untouched last line
+        /// never reaches this code at all (the guard above).</para>
         /// </summary>
         private static void syncSingEndToLastUnit(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, double previousLastUnitEnd)
         {
@@ -3038,11 +3978,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (moved == previousLastUnitEnd)
                 return;
 
-            double singEnd = Math.Clamp(moved, line.StartTime, line.EndTime);
-
-            var ordered = orderedLines(editorBeatmap);
-            bool isLast = ordered.Count > 0 && ordered[^1] == hitObject;
-            double end = isLast ? Math.Clamp(line.EndTime, singEnd, singEnd + LAST_LINE_TAIL_MS) : line.EndTime;
+            bool isLast = isLastLine(editorBeatmap, hitObject);
+            double cap = isLast ? lastLineCap(editorBeatmap, line) : line.EndTime;
+            double singEnd = Math.Clamp(moved, line.StartTime, Math.Max(line.StartTime, cap));
+            double end = isLast ? lastLineEnd(line, singEnd, cap) : line.EndTime;
 
             if (singEnd == line.SingEndTime && end == line.EndTime)
                 return;
@@ -3139,5 +4078,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         #endregion
+    }
+
+    /// <summary>What a word paste did (<see cref="TypeBeatEditorOperations.PasteWords"/>).</summary>
+    public enum WordPasteOutcome
+    {
+        /// <summary>The selected word and those after it took the copied timing (backlog 343).</summary>
+        Retimed,
+
+        /// <summary>The copied words went in as new words at the playhead (backlog 344).</summary>
+        Inserted,
+
+        /// <summary>Refused: the selected word has no room to take the run.</summary>
+        RetimeNoRoom,
+
+        /// <summary>Refused: less than <see cref="TypeBeatEditorOperations.MIN_SPAN_MS"/> per copied word of room at the playhead.</summary>
+        InsertNoRoom,
+
+        /// <summary>Refused: nothing selected and the playhead is outside the line's window.</summary>
+        OutsideLine,
+
+        /// <summary>Refused: nothing selected and the payload carries no words to insert (copied before backlog 343).</summary>
+        NoText,
+
+        /// <summary>Refused: nothing selected on a LINE-granularity map, which persists no word timing.</summary>
+        LineGranularity,
+    }
+
+    /// <summary>
+    /// The result of a word paste: its <see cref="Outcome"/>, and for a paste that landed the words
+    /// it touched (<see cref="FirstIndex"/>, <see cref="Count"/>), so the caller can select them.
+    /// </summary>
+    public readonly record struct WordPasteResult(WordPasteOutcome Outcome, int FirstIndex = -1, int Count = 0)
+    {
+        public bool Landed => Outcome == WordPasteOutcome.Retimed || Outcome == WordPasteOutcome.Inserted;
     }
 }

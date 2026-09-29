@@ -304,6 +304,78 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("a third line was added", () => EditorBeatmap.HitObjects.Count == 3);
         }
 
+        /// <summary>
+        /// Backlog 336, the visual check: the grey map zone is the run of line bands, so it ends where
+        /// the LAST line ends, and the last line has no wall of its own. Dragging its last word's end
+        /// past the old end carries the zone out with it, where it used to stop dead at 5000.
+        /// </summary>
+        [Test]
+        public void TestDraggingTheLastWordGrowsTheMapZone()
+        {
+            LyricTimeline timeline = null!;
+            TypeBeatHitObject last = null!;
+
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("park the playhead on the last line's end", () =>
+            {
+                timeline = Editor.ChildrenOfType<LyricTimeline>().Single();
+                last = TypeBeatEditorOperations.OrderedLines(EditorBeatmap)[^1];
+
+                // This scene's fixture gives each Line-granularity line ONE unit carrying the whole
+                // text. The first edit re-interpolates it into one block per word, and the strip then
+                // rebuilds its blocks and drops a drag in flight, so settle that up front: a no-op
+                // re-spread over the line's own sung end.
+                TypeBeatEditorOperations.SetSingEnd(EditorBeatmap, last, last.Line.SingEndTime);
+
+                EditorClock.Stop();
+                EditorClock.Seek(5000);
+            });
+            AddUntilStep("timeline present + sized", () => timeline.IsLoaded && timeline.DrawWidth > 0);
+            AddUntilStep("the zone ends at the last line's end", () => timeline.DrawnBandEndTime(last) is double end && Math.Abs(end - 5000) < 1);
+
+            // The strip's zoom is its own, so every target is taken as a fraction of its width:
+            // 0.9 across is past the old end (the playhead, and the old end, sit at 0.5).
+            double grownTo = 0, shrunkTo = 0;
+
+            AddStep("grab the last word's end", () =>
+            {
+                InputManager.MoveMouseTo(stripPoint(timeline, 5000, -2));
+                InputManager.PressButton(MouseButton.Left);
+            });
+            AddStep("drag it right", () => InputManager.MoveMouseTo(stripFraction(timeline, 0.7f)));
+            AddStep("drag it further right", () =>
+            {
+                grownTo = timeline.TimeAt(timeline.DrawWidth * 0.9f);
+                InputManager.MoveMouseTo(stripFraction(timeline, 0.9f));
+            });
+            AddUntilStep("the zone follows the word while it is dragged", () => timeline.DrawnBandEndTime(last) is double end && Math.Abs(end - grownTo) < 5);
+            AddStep("release", () => InputManager.ReleaseButton(MouseButton.Left));
+
+            AddAssert("it went past the old wall", () => last.Line.EndTime > 5000 + 1);
+            AddAssert("and the line ends where its last word does", () => Math.Abs(last.Line.EndTime - last.Line.Units[^1].EndTime) < 1e-6);
+
+            AddStep("grab it again", () =>
+            {
+                InputManager.MoveMouseTo(stripPoint(timeline, last.Line.Units[^1].EndTime, -2));
+                InputManager.PressButton(MouseButton.Left);
+            });
+            AddStep("drag it left", () => InputManager.MoveMouseTo(stripFraction(timeline, 0.6f)));
+            AddStep("drag it back inside the old end", () =>
+            {
+                shrunkTo = timeline.TimeAt(timeline.DrawWidth * 0.4f);
+                InputManager.MoveMouseTo(stripFraction(timeline, 0.4f));
+            });
+            AddStep("release", () => InputManager.ReleaseButton(MouseButton.Left));
+            AddUntilStep("and the zone shrinks with it", () => timeline.DrawnBandEndTime(last) is double end && Math.Abs(end - shrunkTo) < 5 && end < 5000);
+
+            static Vector2 stripPoint(LyricTimeline strip, double time, float nudge = 0)
+                => strip.ToScreenSpace(new Vector2(strip.PositionOf(time) + nudge, strip.DrawHeight / 2));
+
+            static Vector2 stripFraction(LyricTimeline strip, float fraction)
+                => strip.ToScreenSpace(new Vector2(strip.DrawWidth * fraction, strip.DrawHeight / 2));
+        }
+
         [Test]
         public void TestDoubleClickEmptyBandAddsLine()
         {

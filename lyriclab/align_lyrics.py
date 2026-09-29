@@ -20,18 +20,90 @@ Pipeline:
   5. torchaudio.functional.forced_align of normalized lyric characters,
      with '*' wildcards between lines absorbing unlisted vocals
   6. anchoring:
-       --anchors ref   align each line inside its hand-stamped LRC window
+       --anchors ref   align each line inside EXACTLY its hand-stamped window
+                       [its stamp, next stamp): no slack either side, and the
+                       CTC path is kept however low its confidence (see below)
+                       unless its shape is garbage (version 4); unstamped
+                       lines share the window of the stamped line above them
+                       (sparse anchors, version 3); a soft even-pacing prior
+                       settles paths the model barely prefers (version 5)
        --anchors auto  global pass -> high-margin lines anchor a local
-                       re-alignment of weak runs between them
+                       re-alignment of weak runs between them; lines with ~zero
+                       evidence are interpolated and flagged "estimated"
        --anchors none  single global pass
-     Lines whose acoustic evidence is ~zero (effects-heavy hooks etc.) fall
-     back to char-proportional interpolation and are flagged "estimated".
-  7. char spans -> syllables (pyphen + naive fallback) -> words -> lines;
-     end times extended through sustained voiced audio (RMS gate)
+  7. char spans -> syllables (authored hyphens first, else pyphen + naive
+     fallback) -> words -> lines; end times extended through sustained
+     voiced audio (RMS gate); a validator repairs/rejects impossible output
 
 Confidence: each word carries `score` = mean margin (0..1) between the
 aligned char and the model's argmax at those frames. High = the model
 actually hears this word here. `prob` = raw mean char probability.
+
+Version 2 (2026-09-28), decided on the ranked-map corpus (84 maps, 20.6k
+words, the maps' own timings as truth; see typebeat-lyriclab/bench):
+  - ref windows lost their 0.75 s / 0.5 s slack: with slack, a line whose
+    first syllables repeat the previous line's last ones latched onto that
+    tail. Word starts within 200 ms of the map: 85% -> 90% (exact stamps),
+    74% -> 87% (stamps 250 ms early, how mappers actually stamp).
+  - ref mode no longer replaces a low-margin line by even pacing; the CTC
+    path is kept. Even pacing was governing a third of all lines, most of
+    which had usable evidence. The five maps it loses on are screamed or
+    effect-heavy vocals; a detector for garbage paths is the follow-up.
+  - accented letters are folded (è -> e) instead of dropped (which made "è"
+    an untimed word and aligned "perché" as "perch").
+  - authored hyphens are syllable boundaries ("pa-pa-ta-ta" aligns and splits
+    at the hyphens); pyphen is only consulted for unhyphenated words.
+  - runs of three or more identical letters collapse to one for ALIGNMENT
+    only ("piiiiiii" -> "pi"); display text is untouched.
+  - CTC emissions are cached in the work dir, so a re-run after nudging a
+    stamp takes seconds instead of a model pass.
+  - "pin the first word to its stamp" was measured and REJECTED: it only
+    helps when stamps are exact acoustic onsets and hurts with human stamps.
+
+Version 3 (2026-09-28): sparse anchors. ref mode no longer needs EVERY line
+stamped (it used to fall back to auto on a single missing stamp): a stamped
+line opens a section, the unstamped lines after it join that section, and the
+section is aligned inside exactly [its stamp, the next stamp) as one CTC
+target with '*' between its lines. A fully stamped file gives byte-identical
+output to version 2. Ranked corpus (85 maps, 20.8k words), word starts within
+200 ms with stamps 250 ms early: every line 88%, every second line 85%, every
+fourth line 83%, no stamps (auto) 67%.
+
+Version 4 (2026-09-28): garbage-path detector. ref mode still keeps the CTC
+path, unless its SHAPE says the model found nothing (garbage_reasons): most
+words sung one letter per frame ("crammed"), the whole line under 0.6x the
+song's median time per letter ("fast"), or a stamped line whose path opens
+0.8 s or more after its stamp while no slower than the median ("late", every
+word piled at the far end of the window). Such a line is paced at the song's
+median rate from its stamp PLUS the song's stamp lead (how late confident
+lines start after their stamps: ~0 for exact stamps, ~250 ms for a mapper who
+taps early) and flagged estimated. Without the lead, even pacing from an early
+stamp lost on every map, the five effect-heavy ones included. A margin
+threshold was measured and rejected again: at 0.03 it costs 1 point with exact
+stamps and 2 to 6 with human ones. Shinigiwa Satellite (the worst of the five)
+is NOT recovered: its wrong paths look like singing, spread at the song's pace.
+Ranked corpus, word starts within 200 ms: exact 89.5% -> 90.2%, human 87.8% ->
+88.0%, every second stamp 86.5% -> 86.9% (exact) / 85.5% -> 85.8% (human).
+
+Version 5 (2026-09-29): soft even-pacing prior (backlog 325). After the unbiased pass has measured
+the song's pace and stamp lead, every stamped section is aligned again with a log-prior on each
+letter: free within 0.1 s of where even pacing from the stamp (plus the lead) puts it, then 0.5
+nats per frame per second further, saturating 1 s beyond (realign_with_pacing_prior). The model's
+evidence still wins wherever it is clear; the prior only settles paths the emissions barely
+prefer, which is what Shinigiwa-class lines are: their wrong paths have a normal shape and a
+margin a threshold cannot separate (backlog 302), but they sit inside a near-flat ridge of the
+emissions. The prior runs on the per-position emission matrix (prior_columns): same Viterbi,
+prob and margin still read off the unbiased emissions. Weight 0 reproduces version 4 exactly.
+Ranked corpus (85 maps, 20.8k words), word starts within 200 ms: exact 90.2% -> 90.8%, human
+88.0% -> 89.0%, every second stamp 86.9% -> 88.2% (exact) / 85.8% -> 86.7% (human), auto
+byte-identical; a two-fold split by set tunes to the same setting and gains out of fold on every
+variant. Shinigiwa Satellite 46% -> 51% (exact) / 46% -> 50% (human, where even pacing itself
+tops out at 52%). REJECTED on the same data: a heavy prior recovers Shinigiwa (63% at weight 8,
+76% when pacing fills the window) but costs 12 points or more corpus-wide, because most songs
+sing unevenly and their evidence is just as quiet; gating the heavy prior by line margin, by song
+margin or by how many nats it costs the path trades lines both ways again (the best gate reaches
+Shinigiwa 56% for less corpus gain than no gate, and does not survive the split). An uncapped
+prior wrecks slow choral maps (Locus Iste 54% -> 17%), hence the cap.
 """
 
 import os
@@ -55,18 +127,46 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
+# Bumped when the output of the same inputs changes. The game compares the shipped copy's
+# version with the installed one and offers a reinstall; `--version` prints it.
+ALIGNER_VERSION = "5"
+
 SAMPLE_RATE = 16000
 FRAME_SAMPLES = 320          # wav2vec2 stride: 20 ms at 16 kHz
 FRAME_SEC = FRAME_SAMPLES / SAMPLE_RATE
 
 TS_RE = re.compile(r"\s*\[(\d+):(\d{1,2}(?:\.\d+)?)\]\s*")
 VOWELS = set("aeiouy")
+HYPHENS = "-‐‑‒–—"   # authored syllable boundaries inside a word
 
-REF_SLACK_BEFORE_S = 0.75    # line window opens this much before its stamp
-REF_SLACK_AFTER_S = 0.50     # ... and closes this much after the next stamp
-DEAD_MARGIN = 0.08           # below this a line is considered evidence-free
+# ref mode windows are EXACTLY [stamp, next stamp). The former 0.75 s / 0.5 s slack let a line
+# open onto the previous line's tail, where repeated syllables ("pata" after "patapim") gave the
+# CTC a cheaper path than the true onset; measured corpus-wide, zero slack is better under
+# exact and under early stamps alike (see the module docstring).
+REF_SLACK_BEFORE_S = 0.0
+REF_SLACK_AFTER_S = 0.0
+DEAD_MARGIN = 0.08           # auto mode: below this a line is considered evidence-free
 ANCHOR_MARGIN = 0.25         # auto mode: lines above this anchor their region
 MIN_ANCHOR_CHARS = 6
+
+# ref mode garbage-path detector (version 4). A path is judged by its SHAPE, never by its margin
+# alone (a margin threshold trades lines evenly both ways; see the module docstring). Measured on
+# the ranked-map corpus; a flagged line is paced from its stamp and marked estimated.
+GARBAGE_CRAMMED_FRAC = 2 / 3   # this share of a line's multi-letter words sung one letter per frame
+GARBAGE_SUB_MEDIAN = 0.6       # whole path shorter than this x the song's median time per letter
+GARBAGE_LATE_S = 0.8           # a stamped line whose path opens this long after the stamp ...
+GARBAGE_LATE_RATE = 1.0        # ... while no slower than the song's median pace
+LEAD_MARGIN = 0.3              # lines this confident measure how early the stamps sit
+
+# ref mode even-pacing prior (version 5). The forced alignment of each stamped section is run
+# again with a log-prior per letter and frame: 0 within PACING_PRIOR_TOL_S of where even pacing
+# from the stamp puts the letter, then PACING_PRIOR_WEIGHT nats per frame for every further second,
+# saturating PACING_PRIOR_CAP_S beyond the tolerance (so a slow choral line the song's median pace
+# cannot describe is not dragged seconds early). 0 weight reproduces version 4 exactly. Measured on
+# the ranked-map corpus; the whole plateau 0.25..1 x 0.05..0.5 s x 0.75..2 s gains.
+PACING_PRIOR_WEIGHT = 0.5
+PACING_PRIOR_TOL_S = 0.1
+PACING_PRIOR_CAP_S = 1.0
 
 
 def log(msg: str) -> None:
@@ -88,6 +188,7 @@ class Word:
     prob: float = 0.0            # raw mean char probability
     untimed: bool = False
     syllables: list = field(default_factory=list)  # list[dict]
+    authored: bool = False       # the display carries hyphens: tokens ARE the syllables
 
 
 @dataclass
@@ -126,9 +227,31 @@ def parse_lyrics(path: Path):
     return lines, ref_end_ms
 
 
+def fold_accents(text: str) -> str:
+    """è -> e, ñ -> n: decompose and drop the combining marks. The MMS_FA dictionary is a-z plus
+    apostrophe, so an accented letter that is not folded is DROPPED by the dictionary filter,
+    which used to make "è" an untimed word and align "perché" as "perch"."""
+    return "".join(ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch))
+
+
+def collapse_runs(text: str) -> str:
+    """Three or more identical letters in a row become one, for the ALIGNMENT text only: a
+    stretched "piiiiiii" is one sung vowel, and CTC would otherwise demand a blank between every
+    pair. Doubles are kept ("carry", "brr"): no word carries a triple, so nothing real is lost."""
+    return re.sub(r"(.)\1{2,}", r"\1", text)
+
+
+def split_fragments(display: str) -> list:
+    """The pieces an authored hyphen separates ("pa-ta-pim" -> ["pa", "ta", "pim"]); pieces with
+    no word character are dropped. A word without hyphens is one fragment."""
+    parts = [p for p in re.split(f"[{re.escape(HYPHENS)}]", display) if re.search(r"\w", p)]
+    return parts if len(parts) > 1 else [display]
+
+
 def normalize_word(display: str, dict_chars: set, num2words_fn) -> list:
     """Display word -> list of alignable tokens (letters/apostrophes only)."""
     w = unicodedata.normalize("NFKC", display).lower()
+    w = fold_accents(w)
     w = w.replace("’", "'").replace("‘", "'").replace("`", "'")
     tokens = []
     for part in re.split(r"(\d+)", w):
@@ -141,10 +264,46 @@ def normalize_word(display: str, dict_chars: set, num2words_fn) -> list:
             tokens.append(part)
     out = []
     for t in tokens:
-        t = "".join(ch for ch in t if ch in dict_chars)
+        t = collapse_runs("".join(ch for ch in t if ch in dict_chars))
         if t:
             out.append(t)
     return out
+
+
+def normalize_display(display: str, dict_chars: set, num2words_fn):
+    """A display word -> (tokens, authored). Authored hyphens make each fragment ONE token that
+    is also one syllable; otherwise the word normalizes as a whole and pyphen decides the split."""
+    frags = split_fragments(display)
+    if len(frags) == 1:
+        return normalize_word(display, dict_chars, num2words_fn), False
+    tokens = ["".join(normalize_word(f, dict_chars, num2words_fn)) for f in frags]
+    return [t for t in tokens if t], True
+
+
+# Pinned by `--self-test-normalize` (standard library only, like the syllable self-test).
+NORMALIZE_CASES = {
+    # accents fold instead of vanishing
+    "è": ["e"], "perché": ["perche"], "señor": ["senor"], "naïve": ["naive"],
+    # stretched vowels collapse; doubles survive
+    "piiiiiiiii": ["pi"], "brr": ["brr"], "carry": ["carry"], "Nooooo!": ["no"],
+    # authored hyphens are the syllables
+    "pa-ta-pim": ["pa", "ta", "pim"], "Patapi-pi,": ["patapi", "pi"], "well-known": ["well", "known"],
+    # everything else is unchanged
+    "don't": ["don't"], "Hello,": ["hello"],
+}
+
+
+def self_test_normalize() -> int:
+    dict_chars = set("abcdefghijklmnopqrstuvwxyz'")
+    failed = []
+    for word, want in NORMALIZE_CASES.items():
+        got, _ = normalize_display(word, dict_chars, lambda n: str(n))
+        if got != want:
+            failed.append((word, got, want))
+    for word, got, want in failed:
+        print(f"FAIL {word!r}: got {got}, expected {want}")
+    print(f"normalize self-test: {len(NORMALIZE_CASES) - len(failed)}/{len(NORMALIZE_CASES)}")
+    return 1 if failed else 0
 
 
 # --------------------------------------------------------------------------
@@ -461,6 +620,98 @@ def align_window(log_probs, f0, f1, char_ids, owners):
     return out
 
 
+def prior_columns(char_ids):
+    """
+    One emission column per maximal run of identical adjacent targets, so a position-dependent
+    prior can ride on the emission matrix: target k becomes column cols[k] (1-based, 0 stays the
+    blank). A run shares its column so CTC still demands a blank between doubled letters, exactly
+    as with the original ids. Standard library only.
+    """
+    cols, c = [], 0
+    for k, cid in enumerate(char_ids):
+        if k == 0 or cid != char_ids[k - 1]:
+            c += 1
+        cols.append(c)
+    return cols
+
+
+def align_window_prior(log_probs, f0, f1, char_ids, owners, prior):
+    """
+    align_window with a log-prior added per (frame, target position): `prior` is a [f1-f0, S]
+    tensor (S = len(char_ids)), 0 where a position is unconstrained. The Viterbi runs on a
+    per-position emission matrix; the reported prob and margin are read off the UNBIASED
+    emissions, so a line's confidence still says what the model heard.
+    """
+    import torch
+    import torchaudio.functional as taf
+
+    window = log_probs[f0:f1]
+    cols = prior_columns(char_ids)
+    n_cols = cols[-1] + 1 if cols else 1
+    em = torch.empty((window.size(0), n_cols), dtype=window.dtype)
+    em[:, 0] = window[:, 0]
+    k = 0
+    while k < len(char_ids):
+        j = k
+        while j < len(char_ids) and cols[j] == cols[k]:
+            j += 1
+        em[:, cols[k]] = window[:, char_ids[k]] + prior[:, k:j].max(dim=1).values
+        k = j
+    targets = torch.tensor([cols], dtype=torch.int32)
+    alignments, _ = taf.forced_align(em.unsqueeze(0), targets, blank=0)
+    spans = taf.merge_tokens(alignments[0], torch.zeros(alignments.size(1)), blank=0)
+    if len(spans) != len(char_ids):
+        raise RuntimeError(f"got {len(spans)} spans for {len(char_ids)} chars")
+    frame_max = window.max(dim=-1).values
+    out = {}
+    for k, sp in enumerate(spans):
+        if owners[k] is None:
+            continue
+        lp = window[sp.start: sp.end, char_ids[k]]
+        prob = float(lp.exp().mean())
+        margin = float((lp - frame_max[sp.start: sp.end]).exp().mean())
+        out.setdefault(owners[k], []).append((sp.start + f0, sp.end + f0, prob, margin))
+    return out
+
+
+def even_letter_frames(line, f0, f1, char_dur_f) -> list:
+    """
+    Where even pacing from frame f0 puts each alignable letter of `line` (the start frame of each,
+    in target order): synthesize_line_spans' layout (the song's median letter length, 80 ms between
+    words, squeezed into [f0, f1) when the line would not fit). Standard library only.
+    """
+    n_chars = sum(len(w.norm) for w in line.words if not w.untimed)
+    n_words = sum(1 for w in line.words if not w.untimed)
+    if n_chars == 0:
+        return []
+    gap_f = 4
+    want = n_chars * char_dur_f + max(0, n_words - 1) * gap_f
+    scale = min(max(f1 - f0, 10), want) / want
+    pos, out = float(f0), []
+    for w in line.words:
+        if w.untimed:
+            continue
+        for _ in w.norm:
+            out.append(pos)
+            pos += char_dur_f * scale
+        pos += gap_f * scale
+    return out
+
+
+def pacing_penalty(t_f: float, expect_f: float, weight: float = None, tol_s: float = None,
+                   cap_s: float = None) -> float:
+    """
+    The log-prior of a letter at frame t_f that even pacing expects at expect_f (per frame the
+    letter occupies): 0 inside the tolerance, then -weight per second beyond it, flat once it is
+    cap_s beyond. realign_with_pacing_prior computes exactly this over a tensor. Standard library
+    only, so the self-test runs without the venv.
+    """
+    weight = PACING_PRIOR_WEIGHT if weight is None else weight
+    tol_s = PACING_PRIOR_TOL_S if tol_s is None else tol_s
+    cap_s = PACING_PRIOR_CAP_S if cap_s is None else cap_s
+    return -weight * min(cap_s, max(0.0, abs(t_f - expect_f) * FRAME_SEC - tol_s))
+
+
 # --------------------------------------------------------------------------
 # Voiced-region gate
 # --------------------------------------------------------------------------
@@ -565,6 +816,47 @@ def write_outputs(out_dir: Path, stem: str, audio_name: str, lines: list,
     }
     (out_dir / f"{stem}.timing.json").write_text(
         json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def validate_and_repair(lines: list, song_end_ms: int) -> list:
+    """
+    The loader collapses a run of identical word spans into zero-length points, so an output must
+    never carry two timed words at the same start, a word that ends before it starts, or a time
+    outside the song. Trivial cases are repaired in place (a 1 ms nudge, a 20 ms minimum width)
+    and reported; a structural failure (lines out of order) raises, because the map it would
+    produce is wrong in a way no nudge fixes.
+    """
+    notes = []
+    prev_start = -1
+    for li, ln in enumerate(lines):
+        timed = [w for w in ln.words if not w.untimed]
+        for w in timed:
+            if w.start_ms <= prev_start:
+                notes.append(f"line {li + 1}: '{w.display}' started at/before the previous word; nudged +{prev_start + 1 - w.start_ms} ms")
+                w.start_ms = prev_start + 1
+            if w.end_ms < w.start_ms + 20:
+                w.end_ms = w.start_ms + 20
+            if w.syllables:
+                w.syllables[0]["start_ms"] = w.start_ms
+                for k in range(1, len(w.syllables)):
+                    if w.syllables[k]["start_ms"] <= w.syllables[k - 1]["start_ms"]:
+                        w.syllables[k]["start_ms"] = w.syllables[k - 1]["start_ms"] + 1
+                for k in range(len(w.syllables) - 1):
+                    w.syllables[k]["end_ms"] = w.syllables[k + 1]["start_ms"]
+                w.syllables[-1]["end_ms"] = max(w.syllables[-1]["end_ms"], w.end_ms)
+            if w.start_ms > song_end_ms:
+                raise RuntimeError(f"line {li + 1}: '{w.display}' is timed at {w.start_ms} ms, after the song ends ({song_end_ms} ms)")
+            prev_start = w.start_ms
+        if timed:
+            ln.start_ms = timed[0].start_ms
+            ln.end_ms = max(ln.end_ms, max(w.end_ms for w in timed))
+    # A line with no alignable characters at all ("...", a bare number the dictionary lost) carries
+    # no timing (0 ms, as it always has) and is dropped by the loader, so it takes no part here.
+    placed = [(i, ln) for i, ln in enumerate(lines) if any(not w.untimed for w in ln.words)]
+    for (pi, prev), (ci, cur) in zip(placed, placed[1:]):
+        if cur.start_ms < prev.start_ms:
+            raise RuntimeError(f"lines {pi + 1} and {ci + 1} are out of order ({prev.start_ms} ms then {cur.start_ms} ms)")
+    return notes
 
 
 def write_report(out_dir: Path, lines: list, voiced, mode: str):
@@ -689,7 +981,8 @@ def assemble(lines, per_word, voiced, offset_ms, pyphen_dic, n_frames_total):
         w.syllables = []
         base = 0
         for tok in w.tokens:
-            parts = syllabify_token(tok, pyphen_dic)
+            # An authored fragment IS a syllable; only unhyphenated words consult pyphen.
+            parts = [tok] if w.authored else syllabify_token(tok, pyphen_dic)
             off = 0
             for p in parts:
                 seg = ws[base + off: base + off + len(p)]
@@ -749,46 +1042,333 @@ def line_margin_of(per_word, lines, li) -> float:
     return float(np.average(vals, weights=weights)) if vals else 0.0
 
 
+def ref_sections(lines) -> list:
+    """
+    Sparse anchors (version 3): a stamped line opens a SECTION and every unstamped line after it
+    joins that section, so a lyrics file may stamp only its section starts. Lines before the first
+    stamp form a leading section that opens at the top of the song. With every line stamped, each
+    section is one line and ref mode is exactly what it was.
+    """
+    sections = []
+    for i, ln in enumerate(lines):
+        if ln.ref_ms is not None or not sections:
+            sections.append([i])
+        else:
+            sections[-1].append(i)
+    return sections
+
+
+def self_test_sections() -> int:
+    """Pins ref_sections (standard library only, like the other self-tests). None = unstamped."""
+    cases = [
+        ([0, 1000, 2000], [[0], [1], [2]]),                  # fully stamped: one line each, as in v2
+        ([0, None, None, 5000, None], [[0, 1, 2], [3, 4]]),  # section starts only
+        ([None, None, 3000, None], [[0, 1], [2, 3]]),        # leading unstamped lines open at 0
+        ([0, None, None], [[0, 1, 2]]),                      # one stamp is enough
+        ([], []),
+    ]
+    failed = 0
+    for stamps, want in cases:
+        got = ref_sections([Line(display="x", words=[], ref_ms=s) for s in stamps])
+        if got != want:
+            failed += 1
+            print(f"FAIL {stamps}: got {got}, expected {want}")
+    print(f"sections self-test: {len(cases) - failed}/{len(cases)}")
+    return 1 if failed else 0
+
+
+def path_shape(word_spans, char_dur: float) -> dict:
+    """
+    The shape of one line's CTC path. `word_spans` is the line's placed words in order, each a
+    list of char spans (start_f, end_f, ...); `char_dur` is the song's median frames per letter.
+
+      crammed  share of the multi-letter words whose letters sit in consecutive frames (the word
+               spans at most letters + 1 frames): nobody sings a word at 20 ms a letter, the
+               path parked the word on whatever frames were left
+      rate     frames from the first letter to the last, over letters x char_dur: 1.0 is the
+               song's own median pace, 0.4 is the line squeezed into 40% of the time it needs
+      start_f  the frame the path opens on
+    Standard library only, so the self-test runs without the venv.
+    """
+    multi = [spans for spans in word_spans if len(spans) >= 2]
+    crammed = (sum(1 for s in multi if s[-1][1] - s[0][0] <= len(s) + 1) / len(multi)) if multi else 0.0
+    letters = sum(len(s) for s in word_spans)
+    extent = word_spans[-1][-1][1] - word_spans[0][0][0]
+    return {"crammed": crammed, "rate": extent / max(1e-6, letters * char_dur),
+            "start_f": word_spans[0][0][0]}
+
+
+def garbage_reasons(shape: dict, late_f=None) -> list:
+    """
+    Why a ref-mode path is garbage, empty when it is kept. `late_f` is how many frames after the
+    line's expected onset (its stamp plus the song's stamp lead) the path opens, or None for a
+    line that does not open its section (its stamp, if any, says nothing about where it starts).
+
+      crammed  most words sung one letter per frame (GARBAGE_CRAMMED_FRAC)
+      fast     the whole line far faster than the song's median pace (GARBAGE_SUB_MEDIAN)
+      late     the words piled at the far end of the window: the path skips the stamp by more
+               than GARBAGE_LATE_S while running no slower than the median, so it is not a
+               slow line that merely starts late
+    """
+    reasons = []
+    if shape["crammed"] >= GARBAGE_CRAMMED_FRAC - 1e-9:
+        reasons.append("crammed")
+    if shape["rate"] < GARBAGE_SUB_MEDIAN:
+        reasons.append("fast")
+    if late_f is not None and late_f * FRAME_SEC >= GARBAGE_LATE_S - 1e-9 and shape["rate"] < GARBAGE_LATE_RATE:
+        reasons.append("late")
+    return reasons
+
+
+def self_test_pacing() -> int:
+    """Pins the even-pacing prior's pure parts (standard library only)."""
+    failed = []
+
+    def check(name, got, want):
+        if got != want:
+            failed.append(name)
+            print(f"FAIL {name}: got {got}, expected {want}")
+
+    # doubled letters share a column (CTC still needs a blank between them), across words too
+    check("columns: distinct", prior_columns([5, 6, 7]), [1, 2, 3])
+    check("columns: a double", prior_columns([9, 3, 3, 4]), [1, 2, 2, 3])
+    check("columns: a triple across words", prior_columns([1, 12, 12, 12, 2]), [1, 2, 2, 2, 3])
+    check("columns: a star either side", prior_columns([30, 5, 30]), [1, 2, 3])
+    check("columns: empty", prior_columns([]), [])
+
+    def line(*norms):
+        return Line(display="x", words=[Word(display=n, norm=n) for n in norms])
+
+    # 4 frames a letter, 4 frames between words; a window too short squeezes, a long one does not stretch
+    check("even: roomy window", even_letter_frames(line("ab", "c"), 10, 100, 4.0), [10.0, 14.0, 22.0])
+    check("even: squeezed to half", even_letter_frames(line("ab", "c"), 0, 14, 8.0), [0.0, 4.0, 10.0])
+    check("even: never under 10 frames", even_letter_frames(line("ab", "c"), 0, 4, 4.0), [0.0, 2.5, 7.5])
+    check("even: untimed words skipped", even_letter_frames(
+        Line(display="x", words=[Word(display="ab", norm="ab"), Word(display="?", untimed=True), Word(display="c", norm="c")]),
+        0, 100, 4.0), [0.0, 4.0, 12.0])
+    check("even: nothing alignable", even_letter_frames(line(""), 0, 100, 4.0), [])
+
+    # 20 ms frames: 0.1 s tolerance = 5 frames; 0.5 nats a second after; flat 1 s beyond
+    check("penalty: on time", pacing_penalty(100, 100, 0.5, 0.1, 1.0), 0.0)
+    check("penalty: inside the tolerance", pacing_penalty(95, 100, 0.5, 0.1, 1.0), 0.0)
+    check("penalty: 0.5 s early", round(pacing_penalty(75, 100, 0.5, 0.1, 1.0), 9), -0.2)
+    check("penalty: 0.5 s late, symmetric", round(pacing_penalty(125, 100, 0.5, 0.1, 1.0), 9), -0.2)
+    check("penalty: saturates", round(pacing_penalty(400, 100, 0.5, 0.1, 1.0), 9), -0.5)
+    check("penalty: weight 0 is no prior", pacing_penalty(400, 100, 0.0, 0.1, 1.0), 0.0)
+    n = 5 + 5 + 6
+    print(f"pacing self-test: {n - len(failed)}/{n}")
+    return 1 if failed else 0
+
+
+def self_test_garbage() -> int:
+    """Pins the shape detector on synthetic paths (standard library only)."""
+    def word(start, letters, step):
+        return [(start + k * step, start + k * step + 1, 0.0, 0.0) for k in range(letters)]
+
+    def line(starts_letters, step):
+        return [word(s, n, step) for s, n in starts_letters]
+
+    cd = 4.0                                            # song median: 4 frames (80 ms) a letter
+    sung = line([(0, 4), (20, 5), (44, 3)], 4)          # letters 4 frames apart: rate 53/48 = 1.10
+    crammed = line([(0, 4), (20, 5), (44, 3)], 1)       # every word in consecutive frames, spread out: rate 0.98
+    two_of_three = [word(0, 4, 1), word(6, 5, 1), word(22, 3, 4)]   # rate 31/48 = 0.65
+    one_of_three = [word(0, 4, 1), word(20, 5, 4), word(44, 3, 4)]  # a single crammed word is kept
+    fast = line([(0, 4), (9, 5), (20, 3)], 2)           # blanks between letters, but rate 25/48 = 0.52
+    brisk = line([(0, 4), (16, 5), (36, 3)], 3)         # rate 43/48 = 0.90: not fast, not slow
+    slow = line([(0, 4), (40, 5), (80, 3)], 6)          # rate 93/48 = 1.94: a drawn-out line
+    cases = [
+        ("sung at the song's pace", sung, None, []),
+        ("crammed words", crammed, None, ["crammed"]),
+        ("two of three crammed", two_of_three, None, ["crammed"]),
+        ("one crammed word", one_of_three, None, []),
+        ("sub-median pace", fast, None, ["fast"]),
+        ("piled late after its stamp", brisk, 50, ["late"]),
+        ("late by exactly 0.8 s", brisk, 40, ["late"]),
+        ("late by less than 0.8 s", brisk, 39, []),
+        ("late but slow", slow, 50, []),
+        ("late at the song's pace", sung, 50, []),
+        ("late, not a section opener", brisk, None, []),
+        ("crammed, fast and late", fast[:1] + [word(9, 5, 1), word(20, 3, 1)], 60, ["crammed", "fast", "late"]),
+    ]
+    failed = 0
+    for name, path, late, want in cases:
+        got = garbage_reasons(path_shape(path, cd), late)
+        if got != want:
+            failed += 1
+            print(f"FAIL {name}: got {got}, expected {want} (shape {path_shape(path, cd)})")
+    print(f"garbage self-test: {len(cases) - failed}/{len(cases)}")
+    return 1 if failed else 0
+
+
 def align_ref_mode(lines, ref_end_ms, log_probs, dictionary, star_id, voiced,
                    char_dur_holder):
-    """Each line aligned inside its own hand-stamped window."""
+    """
+    Each section (see ref_sections) aligned inside exactly [its stamp, the next section's stamp).
+    A one-line section is the version 2 per-line window. A longer one is a single CTC target with
+    '*' before, between and after its lines (the same star layout the global pass uses), so the
+    model places the unstamped line starts and the gaps between them freely inside the window.
+    """
     T = log_probs.size(0)
     per_word = {}
-    stamps = [ln.ref_ms for ln in lines]
-    for i, ln in enumerate(lines):
-        w0 = stamps[i] / 1000.0 - REF_SLACK_BEFORE_S
-        if i + 1 < len(lines):
-            w1 = stamps[i + 1] / 1000.0 + REF_SLACK_AFTER_S
+    sections = ref_sections(lines)
+
+    def window_ms(k):
+        """[start, end) in ms of section k; the leading unstamped section opens at 0."""
+        head = lines[sections[k][0]].ref_ms
+        start = head if head is not None else 0.0
+        if k + 1 < len(sections):
+            end = lines[sections[k + 1][0]].ref_ms
         elif ref_end_ms is not None:
-            w1 = ref_end_ms / 1000.0 + REF_SLACK_AFTER_S
+            end = ref_end_ms
         else:
-            w1 = stamps[i] / 1000.0 + 12.0
-        f0 = max(0, int(w0 / FRAME_SEC))
-        f1 = min(T, max(f0 + 25, int(w1 / FRAME_SEC)))
-        char_ids, owners = build_targets([(i, ln)], dictionary, star_id)
+            end = start + 12000.0 * len(sections[k])
+        return start, end
+
+    windows = []
+    for k, sec in enumerate(sections):
+        s_ms, e_ms = window_ms(k)
+        f0 = max(0, int((s_ms / 1000.0 - REF_SLACK_BEFORE_S) / FRAME_SEC))
+        f1 = min(T, max(f0 + 25, int((e_ms / 1000.0 + REF_SLACK_AFTER_S) / FRAME_SEC)))
+        windows.append((f0, f1))
+        char_ids, owners = build_targets([(i, lines[i]) for i in sec], dictionary, star_id)
         try:
             got = align_window(log_probs, f0, f1, char_ids, owners)
             per_word.update(got)
         except RuntimeError as exc:
-            log(f"line {i + 1}: local align failed ({exc}); will interpolate")
+            where = f"line {sec[0] + 1}" if len(sec) == 1 else f"lines {sec[0] + 1}..{sec[-1] + 1}"
+            log(f"{where}: local align failed ({exc}); will interpolate")
+
+    if PACING_PRIOR_WEIGHT > 0:
+        realign_with_pacing_prior(lines, sections, windows, per_word, log_probs, dictionary, star_id)
 
     char_dur = median_char_dur_frames(per_word, lines)
     char_dur_holder.append(char_dur)
-    for i, ln in enumerate(lines):
-        m = line_margin_of(per_word, lines, i)
-        if m >= DEAD_MARGIN:
-            continue
-        # evidence-free: pace chars from the stamp itself (human truth)
-        f0 = int(stamps[i] / 1000.0 / FRAME_SEC)
-        if i + 1 < len(lines):
-            f1 = int(stamps[i + 1] / 1000.0 / FRAME_SEC)
-        elif ref_end_ms is not None:
-            f1 = int(ref_end_ms / 1000.0 / FRAME_SEC)
-        else:
-            f1 = min(T, f0 + 500)
-        f0s, f1s = shrink_to_voiced(voiced, f0, f1)
-        synthesize_line_spans(ln, i, max(f0, f0s), f1, char_dur, per_word)
+    replace_garbage_paths(lines, sections, windows, per_word, char_dur)
     return per_word
+
+
+def realign_with_pacing_prior(lines, sections, windows, per_word, log_probs, dictionary, star_id):
+    """
+    Version 5: re-run each stamped section's forced alignment with a soft log-prior (see
+    pacing_penalty) that pulls every letter toward where even pacing puts it: from the stamp plus
+    the song's stamp lead, at the song's median letter length, the section's lines sharing its
+    window by letter count. Pace and lead come from the unbiased first pass. The model's evidence
+    still decides wherever it is clear; the prior only settles paths the emissions barely prefer.
+    """
+    import torch
+
+    char_dur = median_char_dur_frames(per_word, lines)
+    lead = stamp_lead_frames(lines, sections, windows, per_word)
+    for (f0, f1), sec in zip(windows, sections):
+        if lines[sec[0]].ref_ms is None:
+            continue   # a leading unstamped section has no stamp to pace from
+        start = min(f0 + lead, f1 - 10)
+        counts = [max(1, sum(len(w.norm) for w in lines[i].words if not w.untimed)) for i in sec]
+        expect, at = [], float(start)
+        for i, n in zip(sec, counts):
+            nxt = at + (f1 - start) * n / sum(counts)
+            expect.extend(even_letter_frames(lines[i], at, nxt, char_dur))
+            at = nxt
+        char_ids, owners = build_targets([(i, lines[i]) for i in sec], dictionary, star_id)
+        letters = [k for k, own in enumerate(owners) if own is not None]
+        if len(letters) != len(expect):
+            continue
+        t = torch.arange(f0, f1, dtype=torch.float64).unsqueeze(1)
+        e = torch.tensor(expect, dtype=torch.float64).unsqueeze(0)
+        excess = ((t - e).abs() * FRAME_SEC - PACING_PRIOR_TOL_S).clamp(min=0.0, max=PACING_PRIOR_CAP_S)
+        prior = torch.zeros((f1 - f0, len(char_ids)), dtype=log_probs.dtype)
+        prior[:, letters] = (-PACING_PRIOR_WEIGHT * excess).to(prior.dtype)
+        try:
+            got = align_window_prior(log_probs, f0, f1, char_ids, owners, prior)
+        except RuntimeError as exc:
+            log(f"lines {sec[0] + 1}..{sec[-1] + 1}: paced align failed ({exc}); first pass kept")
+            continue
+        for i in sec:
+            for wi in range(len(lines[i].words)):
+                per_word.pop((i, wi), None)
+        per_word.update(got)
+
+
+def line_word_spans(per_word, lines, i) -> list:
+    """Line i's placed words in order, each its list of char spans."""
+    return [per_word[(i, wi)] for wi in range(len(lines[i].words)) if (i, wi) in per_word]
+
+
+def stamp_lead_frames(lines, sections, windows, per_word) -> float:
+    """
+    How far after its stamp a confidently heard section opener starts, median over the song
+    (frames). About 0 for exact stamps and about 12 (250 ms) for a mapper who taps early. A
+    replaced line is paced from its stamp PLUS this lead: pacing from an early stamp put every
+    word of the replacement early, which is why version 1's even pacing lost under human stamps.
+    """
+    leads = []
+    for (f0, _), sec in zip(windows, sections):
+        if lines[sec[0]].ref_ms is None:
+            continue
+        ws = line_word_spans(per_word, lines, sec[0])
+        chars = [sp for spans in ws for sp in spans]
+        if chars and sum(sp[3] for sp in chars) / len(chars) >= LEAD_MARGIN:
+            leads.append(ws[0][0][0] - f0)
+    leads.sort()
+    return float(leads[len(leads) // 2]) if leads else 0.0
+
+
+def replace_garbage_paths(lines, sections, windows, per_word, char_dur) -> None:
+    """
+    Version 4: the CTC path of each ref-mode line is kept (version 2) UNLESS its shape says it is
+    garbage (see garbage_reasons) or the aligner could not place it at all. Those lines are paced
+    at the song's median rate from the one thing known to be true about them, and flagged
+    estimated: a section opener from its stamp plus the song's stamp lead, a line inside a sparse
+    section from the end of the kept line before it. A run of replaced lines shares the room up
+    to the next kept line (or the section's end) by character count.
+    """
+    lead = stamp_lead_frames(lines, sections, windows, per_word)
+    replaced = 0
+    for (f0, f1), sec in zip(windows, sections):
+        stamped = lines[sec[0]].ref_ms is not None   # False only for a leading unstamped section
+        bad = {}
+        for pos, i in enumerate(sec):
+            if not any(not w.untimed for w in lines[i].words):
+                continue
+            ws = line_word_spans(per_word, lines, i)
+            if not ws:
+                bad[i] = ["unplaced"]
+                continue
+            late = ws[0][0][0] - (f0 + lead) if pos == 0 and stamped else None
+            reasons = garbage_reasons(path_shape(ws, char_dur), late)
+            if reasons:
+                bad[i] = reasons
+        pos = 0
+        while pos < len(sec):
+            if sec[pos] not in bad:
+                pos += 1
+                continue
+            end = pos
+            while end < len(sec) and sec[end] in bad:
+                end += 1
+            run = sec[pos:end]
+            for i in run:
+                for wi in range(len(lines[i].words)):
+                    per_word.pop((i, wi), None)
+            # the room: from the kept (or already paced) line before the run, or the stamp plus
+            # the lead, to the next kept line, or the section's end
+            before = [sp[1] for i in sec[:pos] for spans in line_word_spans(per_word, lines, i) for sp in spans]
+            after = [sp[0] for i in sec[end:] if i not in bad for spans in line_word_spans(per_word, lines, i) for sp in spans]
+            lo = max(before) if before else f0
+            start = lo if before or not stamped else f0 + lead
+            stop = min(after) if after else f1
+            start = max(lo, min(start, stop - 10))
+            counts = [max(1, sum(len(w.norm) for w in lines[i].words if not w.untimed)) for i in run]
+            at = float(start)
+            for i, n in zip(run, counts):
+                nxt = at + (stop - start) * n / sum(counts)
+                synthesize_line_spans(lines[i], i, int(round(at)), int(round(nxt)), char_dur, per_word)
+                log(f"line {i + 1}: {'+'.join(bad[i])} path replaced by even pacing (estimated)")
+                at = nxt
+            replaced += len(run)
+            pos = end
+    if replaced:
+        log(f"garbage paths replaced: {replaced} line(s); stamp lead {lead * FRAME_SEC * 1000:.0f} ms")
 
 
 def align_auto_mode(lines, log_probs, dictionary, star_id, voiced,
@@ -888,9 +1468,10 @@ def main():
     ap.add_argument("--offset-ms", type=float, default=0.0,
                     help="constant added to all output times")
     ap.add_argument("--anchors", choices=["auto", "ref", "none"], default=None,
-                    help="ref: align inside hand-stamped line windows; "
+                    help="ref: align inside hand-stamped windows (a stamped line opens a "
+                         "section, unstamped lines join the section above them); "
                          "auto: two-pass margin anchoring; none: single pass. "
-                         "Default: ref when the lyrics file has timestamps, else auto.")
+                         "Default: ref when any line has a timestamp, else auto.")
     ap.add_argument("--language", default="en_US", help="pyphen hyphenation language")
     args = ap.parse_args()
 
@@ -920,12 +1501,16 @@ def main():
     # ---- lyrics
     lines, ref_end_ms = parse_lyrics(args.lyrics)
     n_words = sum(len(ln.words) for ln in lines)
-    has_ref = all(ln.ref_ms is not None for ln in lines) and lines
+    # Sparse anchors (version 3): ONE stamped line is enough for ref mode; the unstamped lines are
+    # placed inside their section's window (see ref_sections).
+    n_stamped = sum(1 for ln in lines if ln.ref_ms is not None)
+    has_ref = n_stamped > 0
     mode = args.anchors or ("ref" if has_ref else "auto")
     if mode == "ref" and not has_ref:
-        log("WARNING: --anchors ref requested but not all lines have stamps; using auto")
+        log("WARNING: --anchors ref requested but no line has a stamp; using auto")
         mode = "auto"
-    log(f"lyrics: {len(lines)} lines, {n_words} words; anchor mode: {mode}")
+    stamped = f" ({n_stamped} of {len(lines)} lines stamped)" if mode == "ref" and n_stamped < len(lines) else ""
+    log(f"lyrics: {len(lines)} lines, {n_words} words; anchor mode: {mode}{stamped}")
 
     # ---- audio prep
     song_wav = work / f"{stem}.wav"
@@ -957,7 +1542,7 @@ def main():
     dropped = set()
     for ln in lines:
         for w in ln.words:
-            w.tokens = normalize_word(w.display, dict_chars, num2words)
+            w.tokens, w.authored = normalize_display(w.display, dict_chars, num2words)
             w.norm = "".join(w.tokens)
             if not w.norm:
                 w.untimed = True
@@ -965,9 +1550,18 @@ def main():
     if dropped:
         log(f"untimed words (no alignable chars): {sorted(dropped)}")
 
-    # ---- emissions
-    log("computing emissions...")
-    log_probs = compute_emissions(model, wav, args.device, args.window_s, args.context_s)
+    # ---- emissions (cached: the model pass depends on the audio alone, not on the lyrics or
+    # the anchor mode, and it is the slow part of every re-run after a stamp is nudged)
+    import hashlib
+    audio_key = hashlib.sha256(wav.numpy().tobytes()).hexdigest()[:16]
+    emission_cache = work / f"emissions_{audio_key}_w{args.window_s:g}_c{args.context_s:g}_star.pt"
+    if emission_cache.exists():
+        log(f"emissions: cached ({emission_cache.name})")
+        log_probs = torch.load(emission_cache, weights_only=True)
+    else:
+        log("computing emissions...")
+        log_probs = compute_emissions(model, wav, args.device, args.window_s, args.context_s)
+        torch.save(log_probs, emission_cache)
     log(f"emissions: {log_probs.size(0)} frames x {log_probs.size(1)} labels")
 
     rms = frame_rms(wav)
@@ -990,12 +1584,17 @@ def main():
     assemble(lines, per_word, voiced, args.offset_ms, pyphen_dic, log_probs.size(0))
 
     song_end_ms = int(dur_s * 1000)
+    repairs = validate_and_repair(lines, song_end_ms)
+    for note in repairs:
+        log(f"validator: {note}")
     meta = {
         "separator": ("none" if args.no_separate else args.demucs_model),
         "aligner": "torchaudio MMS_FA (wav2vec2 CTC forced alignment)",
+        "aligner_version": ALIGNER_VERSION,
         "anchor_mode": mode,
         "language": args.language,
         "offset_ms": args.offset_ms,
+        "repairs": len(repairs),
     }
     write_outputs(out_dir, stem, args.audio.name, lines, song_end_ms, meta)
     report = write_report(out_dir, lines, voiced, mode)
@@ -1006,6 +1605,20 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--version" in sys.argv:
+        print(ALIGNER_VERSION)
+        sys.exit(0)
     if "--self-test-syllables" in sys.argv:
         sys.exit(self_test_syllables())
+    if "--self-test-normalize" in sys.argv:
+        sys.exit(self_test_normalize())
+    if "--self-test-sections" in sys.argv:
+        sys.exit(self_test_sections())
+    if "--self-test-garbage" in sys.argv:
+        sys.exit(self_test_garbage())
+    if "--self-test-pacing" in sys.argv:
+        sys.exit(self_test_pacing())
+    if "--self-test" in sys.argv:
+        sys.exit(max(self_test_syllables(), self_test_normalize(), self_test_sections(), self_test_garbage(),
+                     self_test_pacing()))
     main()

@@ -148,7 +148,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// The character fed to the engine (layout-remapped, Shift-cased), or a sentinel
         /// (<see cref="BACKSPACE"/>/<see cref="ENTER"/>/<see cref="CONFIG"/>). Never a sentinel value for real typing:
         /// the typeable surface is a-z/A-Z/0-9/space, widened under the Literate mod by the
-        /// supported punctuation marks, all of them printable ASCII.
+        /// supported punctuation marks, all of them printable ASCII. Under the Polyglot mod (backlog
+        /// 331) it is any character of the original script, which the legacy frame's MouseX float holds
+        /// exactly across the whole BMP (every value up to 0xFFFF, far below the decoder's coordinate
+        /// limit); a character outside the BMP is never fed, so no frame carries half a surrogate pair.
+        /// A Polyglot run is identified by the mod in its score, and carries no CONFIG bit.
         /// </summary>
         public char Character;
 

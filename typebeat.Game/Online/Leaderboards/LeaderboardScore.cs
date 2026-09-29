@@ -146,7 +146,7 @@ namespace typebeat.Game.Online.Leaderboards
                             Padding = new MarginPadding(edge_margin),
                             Children = new[]
                             {
-                                avatar = new DelayedLoadWrapper(
+                                avatar = new AvatarWithFlag(new DelayedLoadWrapper(
                                     innerAvatar = new ClickableAvatar(user)
                                     {
                                         RelativeSizeAxes = Axes.Both,
@@ -158,9 +158,8 @@ namespace typebeat.Game.Online.Leaderboards
                                             Radius = 1,
                                             Colour = Color4.Black.Opacity(0.2f),
                                         },
-                                    })
+                                    }), user.CountryCode)
                                 {
-                                    RelativeSizeAxes = Axes.None,
                                     Size = new Vector2(HEIGHT - edge_margin * 2, HEIGHT - edge_margin * 2),
                                 },
                                 new Container
@@ -193,12 +192,6 @@ namespace typebeat.Game.Online.Leaderboards
                                                     Masking = true,
                                                     Children = new Drawable[]
                                                     {
-                                                        new UpdateableFlag(user.CountryCode)
-                                                        {
-                                                            Anchor = Anchor.CentreLeft,
-                                                            Origin = Anchor.CentreLeft,
-                                                            Size = new Vector2(28, 20),
-                                                        },
                                                         new UpdateableTeamFlag(user.Team)
                                                         {
                                                             Anchor = Anchor.CentreLeft,

@@ -5,6 +5,7 @@
 // Constant names restyled; nullable annotations added for the fork's hard-error nullability.
 
 using System;
+using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Extensions.ObjectExtensions;
@@ -31,11 +32,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     public partial class LyricStage : CompositeDrawable
     {
         // Vertical gap between the three lyric lines; user-adjustable (TypeBeatRulesetSetting.LineSpacing),
-        // so a live change re-runs the layout by invalidating laidOutFocus.
+        // so a live change re-runs the layout by invalidating laidOutFocus. Always the EFFECTIVE pitch
+        // (see EffectiveRowPitch), never less than the font size allows.
         private float lineGap = 96f;
         private readonly BindableFloat lineSpacing = new BindableFloat(96f);
 
-        // The optional space error dot (TypeBeatRulesetSetting.UseSpaceErrorDot, off by default), a
+        /// <summary>
+        /// The lyric font size this stage was built at (TypeBeatRulesetSetting.LyricFontSize,
+        /// backlog 334), read ONCE at load: every display is constructed at it and every adornment
+        /// the stage draws beside the lyric row is sized from it, so a change applies from the next
+        /// play. A stage built with no config (every bare test scene) keeps the default.
+        /// </summary>
+        public float FontSize { get; private set; } = TypeBeatStyle.LYRIC_FONT_SIZE;
+
+        /// <summary><see cref="FontSize"/> as a multiple of the default; exactly 1 at the default, so
+        /// every "value at the default size" literal below is unchanged there.</summary>
+        private float sizeRatio => LyricLineDisplay.SizeRatioFor(FontSize);
+
+        /// <summary>
+        /// The smallest row pitch the stack may be drawn at, as a multiple of the lyric font size.
+        /// A row is the glyph row plus the sweep rail beneath it (about 1.21 times the size at every
+        /// size, the rail's drop and thickness being ratios of it too), so this leaves a clear band
+        /// between one row's rail and the next row's glyphs.
+        /// </summary>
+        public const float MIN_ROW_PITCH_RATIO = 1.3f;
+
+        /// <summary>
+        /// The pitch the three rows are actually drawn at: the player's line spacing, raised to
+        /// <see cref="MIN_ROW_PITCH_RATIO"/> times the font size when that is larger, so a large font
+        /// cannot overlap rows. The spacing setting itself is never rewritten, so shrinking the font
+        /// back hands the player exactly the spacing they chose. Pure, so it is unit-testable.
+        /// </summary>
+        public static float EffectiveRowPitch(float lineSpacing, float fontSize) => Math.Max(lineSpacing, fontSize * MIN_ROW_PITCH_RATIO);
+
+        // The optional space error dot (TypeBeatRulesetSetting.UseSpaceErrorDot, on by default since PR 2), a
         // display-only marker the lyric displays draw themselves. Held here so a live change reaches
         // every display; see the binding in load() for why it never touches the replay CONFIG frame.
         private readonly Bindable<bool> spaceErrorDot = new Bindable<bool>();
@@ -62,8 +92,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // bar). Each spans its final lead-in (TypingEngine.CUE_LEAD_MS). Sized/positioned by
         // direct per-frame sets (no transforms; must behave under frozen/scrubbed clocks).
         private const double approach_lead_ms = TypingEngine.CUE_LEAD_MS;
+        // Values at the DEFAULT font size; each is drawn times sizeRatio (backlog 334).
         private const float approach_bar_max_width = 140;
         private const float approach_bar_height = 4;
+
+        /// <summary>Drop from the bottom of a glyph row to the top of a cue bar (and of the push
+        /// warning) at the default font size, 1/7 of it: the same band as the sweep rail
+        /// (<see cref="LyricLineDisplay.SWEEP_RAIL_OFFSET"/>). Drawn times the size ratio.</summary>
+        public const float CUE_BAR_OFFSET = 6;
+
+        // The rejected-key letter at the default font size: its own size, where it pops up beside
+        // the caret, and the two legs of its flight. Drawn times sizeRatio.
+        private const float rejected_letter_size = 30;
+        private static readonly Vector2 rejected_letter_offset = new Vector2(34, -4);
+        private static readonly Vector2 rejected_letter_rise = new Vector2(18, -30);
+        private static readonly Vector2 rejected_letter_fall = new Vector2(12, 110);
 
         // How long the push warning takes to reach its full strength once its window opens. It is a
         // warning the player did not ask for, so it announces itself instead of appearing at half
@@ -189,11 +232,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // the displays fall back to the built-in lyric font.
             string? lyricFont = resolveLyricFont(config, fontManager);
 
+            // POLYGLOT (backlog 331): the lines are drawn in their original script, which the lyric
+            // font may not cover. Every character they can show (the cells and the originals, a hangul
+            // block drawn over its keys included) gets a system face registered as a fallback when no
+            // loaded font can draw it, so a missing glyph never renders as a blank cell.
+            if (engine.Polyglot)
+            {
+                fontManager?.EnsureCoverage(lines.SelectMany(l => l.Cells.Select(c => c.Expected))
+                                                 .Concat(lines.SelectMany(l => l.Source.Units.SelectMany(u => PolyglotText.ToNfc(u.Original)))));
+            }
+
+            // The lyric SIZE (backlog 334) is read once, like the font: a display measures its glyphs
+            // at load and cannot be re-sized in place, so the slider applies from the next play.
+            if (config != null)
+                FontSize = config.Get<float>(TypeBeatRulesetSetting.LyricFontSize);
+
             lineContainer = new Container { RelativeSizeAxes = Axes.Both };
 
             for (int i = 0; i < lines.Count; i++)
             {
-                var d = new LyricLineDisplay(lines[i], fontFamily: lyricFont, paceBands: paceBands[i])
+                var d = new LyricLineDisplay(lines[i], FontSize, lyricFont, paceBands[i])
                 {
                     Anchor = Anchor.Centre,
                     Origin = Anchor.Centre,
@@ -217,14 +275,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 Anchor = Anchor.TopLeft,
                 Origin = Anchor.TopCentre,
-                Height = TypeBeatStyle.LYRIC_FONT_SIZE,
+                Height = FontSize,
                 Alpha = 0f,
             };
             sungCaret = new Caret(TypeBeatStyle.SungAccent, TypeBeatStyle.SUNG_DAMP_HALF_TIME, blinks: false)
             {
                 Anchor = Anchor.TopLeft,
                 Origin = Anchor.TopCentre,
-                Height = TypeBeatStyle.LYRIC_FONT_SIZE,
+                Height = FontSize,
                 Alpha = 0f,
             };
 
@@ -297,7 +355,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             config?.BindWith(TypeBeatRulesetSetting.LineSpacing, lineSpacing);
             lineSpacing.BindValueChanged(e =>
             {
-                lineGap = e.NewValue;
+                lineGap = EffectiveRowPitch(e.NewValue, FontSize);
                 laidOutFocus = int.MinValue;
             }, true);
 
@@ -306,7 +364,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 Anchor = Anchor.TopLeft,
                 Origin = Anchor.TopLeft,
                 Colour = TypeBeatStyle.SungAccent,
-                Height = approach_bar_height,
+                Height = approach_bar_height * sizeRatio,
                 Alpha = 0f,
             };
 
@@ -315,7 +373,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 Anchor = Anchor.TopLeft,
                 Origin = Anchor.TopLeft,
                 Colour = TypeBeatStyle.SungAccent,
-                Height = approach_bar_height,
+                Height = approach_bar_height * sizeRatio,
                 Alpha = 0f,
             };
 
@@ -329,7 +387,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 Anchor = Anchor.TopLeft,
                 Origin = Anchor.TopRight,
                 Colour = TypeBeatStyle.ErrorChar,
-                Height = approach_bar_height,
+                Height = approach_bar_height * sizeRatio,
                 Alpha = 0f,
             };
 
@@ -337,7 +395,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             // boundaryBar after approachBar → the solid boundary cue draws on top of the
             // translucent first-word cue where they overlap.
-            InternalChildren = new Drawable[] { lineContainer, approachBar, boundaryBar, pushBar, sungCaret, playerCaret, wrongKeyLayer };
+            imeCompositionText = new OsuSpriteText
+            {
+                Anchor = Anchor.TopLeft,
+                Origin = Anchor.BottomCentre,
+                Font = TypeBeatStyle.Lyric(FontSize * 0.75f, lyricFont),
+                Colour = TypeBeatStyle.UntypedChar,
+                Alpha = 0f,
+                ShadowColour = TypeBeatStyle.TextShadow,
+                ShadowOffset = TypeBeatStyle.TEXT_SHADOW_OFFSET,
+            };
+
+            InternalChildren = new Drawable[] { lineContainer, approachBar, boundaryBar, pushBar, sungCaret, playerCaret, wrongKeyLayer, imeCompositionText };
         }
 
         /// <summary>
@@ -423,6 +492,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
+        /// The live IME COMPOSITION of a Polyglot play (backlog 331), drawn just above the caret while the
+        /// player composes a hanzi or kanji. Display only: it judges nothing, and only the committed
+        /// characters reach the engine.
+        /// </summary>
+        private OsuSpriteText imeCompositionText = null!;
+
+        /// <summary>Shows <paramref name="composition"/> above the caret, or hides it when empty.</summary>
+        public void SetImeComposition(string composition)
+        {
+            if (imeCompositionText.IsNull())
+                return;
+
+            imeCompositionText.Text = composition;
+            imeCompositionText.Alpha = string.IsNullOrEmpty(composition) ? 0f : 1f;
+            imeCompositionText.Position = playerCaret.Position;
+        }
+
+        /// <summary>The composition currently shown (empty when none).</summary>
+        public string ImeComposition => imeCompositionText.IsNotNull() && imeCompositionText.Alpha > 0 ? imeCompositionText.Text.ToString() : string.Empty;
+
+        /// <summary>
         /// A rejected wrong key never enters the line; instead the offending letter pops up
         /// beside the caret (alternating sides), falls away and fades. Purely cosmetic juice;
         /// transforms run on the gameplay clock like every other stage animation.
@@ -436,19 +526,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 Anchor = Anchor.TopLeft,
                 Origin = Anchor.Centre,
-                Font = TypeBeatStyle.Mono(30),
+                Font = TypeBeatStyle.Mono(rejected_letter_size * sizeRatio),
                 Colour = TypeBeatStyle.ErrorChar,
                 Text = (c == ' ' ? '_' : c).ToString(),
-                Position = playerCaret.Position + new Vector2(dir * 34, -4),
+                Position = playerCaret.Position + new Vector2(dir * rejected_letter_offset.X, rejected_letter_offset.Y) * sizeRatio,
                 ShadowColour = TypeBeatStyle.TextShadow,
                 ShadowOffset = TypeBeatStyle.TEXT_SHADOW_OFFSET,
             };
 
             wrongKeyLayer.Add(letter);
 
-            letter.MoveToOffset(new Vector2(dir * 18, -30), 140, Easing.OutQuint)
+            letter.MoveToOffset(new Vector2(dir * rejected_letter_rise.X, rejected_letter_rise.Y) * sizeRatio, 140, Easing.OutQuint)
                   .Then()
-                  .MoveToOffset(new Vector2(dir * 12, 110), 460, Easing.InQuad);
+                  .MoveToOffset(new Vector2(dir * rejected_letter_fall.X, rejected_letter_fall.Y) * sizeRatio, 460, Easing.InQuad);
             letter.RotateTo(dir * 18, 600, Easing.OutQuint);
             letter.Delay(140).FadeOut(460, Easing.InQuad);
             letter.Expire();
@@ -794,7 +884,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 {
                     var d = displays[upcoming];
                     Vector2 point = d.ToSpaceOfOtherDrawable(d.PositionOfCell(firstCell), this);
-                    var barPos = new Vector2(point.X, point.Y + d.LineHeight + 6);
+                    var barPos = new Vector2(point.X, point.Y + d.LineHeight + CUE_BAR_OFFSET * sizeRatio);
 
                     // First-word cue (50% opaque) lands on the first word. The SOLID boundary cue lands on
                     // the line's StartTime, which a mapper may set earlier than the word - and it is
@@ -881,7 +971,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // the last character rather than off the caret, which is somewhere mid-line by
                 // definition while the player is dragging.
                 Vector2 end = d.ToSpaceOfOtherDrawable(d.PositionOfCell(d.Line.Cells.Count), this);
-                var barPos = new Vector2(end.X, end.Y + d.LineHeight + 6);
+                var barPos = new Vector2(end.X, end.Y + d.LineHeight + CUE_BAR_OFFSET * sizeRatio);
                 double opensAt = pushWarningOpensAt(active, cutoff);
                 double closesAt = opensAt + approach_lead_ms;
 
@@ -896,7 +986,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     float fadeIn = (float)Math.Clamp((Time.Current - opensAt) / push_fade_in_ms, 0d, 1d);
 
                     pushBar.Position = barPos;
-                    pushBar.Width = approach_bar_max_width * progress;
+                    pushBar.Width = approach_bar_max_width * sizeRatio * progress;
                     pushBar.Alpha = arrivalAlpha(progress) * fadeIn;
                     pushWarningTargetLine = active;
                     return;
@@ -952,7 +1042,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 float progress = (float)(remaining / approach_lead_ms); // 1 -> 0 as it lands
                 bar.Position = pos;
-                bar.Width = approach_bar_max_width * progress;
+                bar.Width = approach_bar_max_width * sizeRatio * progress;
                 bar.Alpha = arrivalAlpha(progress) * opacityScale; // brightens as it arrives
                 return true;
             }
@@ -1407,6 +1497,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public Vector2 PushWarningScreenLeftEdge => pushBar.IsNotNull() ? pushBar.ScreenSpaceDrawQuad.TopLeft : Vector2.Zero;
 
         public Vector2 PushWarningScreenRightEdge => pushBar.IsNotNull() ? pushBar.ScreenSpaceDrawQuad.TopRight : Vector2.Zero;
+
+        /// <summary>Screen-space quads of the two carets and the first-word cue bar as DRAWN; test
+        /// support for the lyric size scene (backlog 334), which pins each against the text.</summary>
+        public osu.Framework.Graphics.Primitives.Quad PlayerCaretScreenQuad => playerCaret.IsNotNull() ? playerCaret.ScreenSpaceDrawQuad : default;
+
+        public osu.Framework.Graphics.Primitives.Quad SungCaretScreenQuad => sungCaret.IsNotNull() ? sungCaret.ScreenSpaceDrawQuad : default;
+
+        public osu.Framework.Graphics.Primitives.Quad FirstWordCueScreenQuad => approachBar.IsNotNull() ? approachBar.ScreenSpaceDrawQuad : default;
+
+        /// <summary>The row pitch the stack is currently laid out at (see <see cref="EffectiveRowPitch"/>).</summary>
+        public float RowPitch => lineGap;
 
         public LyricLineDisplay? DisplayAt(int index) => index >= 0 && index < displays.Length ? displays[index] : null;
 

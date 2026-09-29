@@ -38,6 +38,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
         /// </summary>
         public bool Literate { get; set; }
 
+        /// <summary>
+        /// Polyglot mod (backlog 331): flatten this line in its ORIGINAL script instead of its romanised
+        /// text (see <see cref="Gameplay.PolyglotLine"/>), for the same index-for-index reason as
+        /// <see cref="Literate"/>. Stamped by <see cref="Mods.TypeBeatModPolyglot"/> in the same
+        /// window. Play-time only, never persisted.
+        /// </summary>
+        public bool Polyglot { get; set; }
+
+        /// <summary>
+        /// The language the map's originals romanise under, stamped with <see cref="Polyglot"/> so
+        /// the nested objects carry the romanised syllable cuts back exactly as the engine does.
+        /// </summary>
+        public string? PolyglotLanguage { get; set; }
+
         /// <summary>The line remains typeable until EndTime + SealGraceMs; osu sees that as the object's end.</summary>
         public double EndTime => Line.EndTime + Line.SealGraceMs;
 
@@ -57,7 +71,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
 
             // The engine's flattening (TypingLine.FromLyricLine) is the single source of truth for
             // per-cell target times; the nested objects mirror its typeable cells.
-            var typingLine = TypingLine.FromLyricLine(Line, Literate);
+            var typingLine = TypingLine.ForMods(Line, Literate, Polyglot, PolyglotLanguage);
 
             for (int i = 0; i < typingLine.Cells.Count; i++)
             {

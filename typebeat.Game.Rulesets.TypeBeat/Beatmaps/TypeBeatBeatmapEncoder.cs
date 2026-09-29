@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -66,7 +67,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // Word/Syllable granularity carries explicit per-word units; Line granularity has no
             // authored word timing (units are interpolated on load), so omit words[] to keep the
             // decoded granularity Line.
-            bool wordGranularity = lines.Count > 0 && lines[0].Granularity != TimingGranularity.Line;
+            // An unromanised word (backlog 330) lives ONLY in words[], so a map holding one writes
+            // words[] whatever its granularity says, rather than silently losing the word.
+            bool wordGranularity = lines.Count > 0
+                                   && (lines[0].Granularity != TimingGranularity.Line || lines.Any(h => h.Line.UnromanisedWords.Count > 0));
 
             // song_end_ms clamps the last line's derived EndTime on decode; emit the current value
             // so the last line's window survives the round-trip.
@@ -87,6 +91,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                     json.WriteStartObject();
                     json.WriteString("text", line.RawText);
+
+                    // THE ORIGINAL TEXT (backlog 330), straight after the text it spells and ONLY
+                    // when it says something the text does not, so a map without originals encodes
+                    // byte for byte as it always has. A line holding an unromanised word always
+                    // writes one, since that word's script is nowhere else on the line.
+                    if (LineOriginalToWrite(line) is string lineOriginal)
+                        json.WriteString("original", lineOriginal);
+
                     json.WriteNumber("start_ms", line.StartTime);
                     json.WriteNumber("end_ms", line.SingEndTime);
 
@@ -109,10 +121,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     {
                         json.WriteStartArray("words");
 
-                        foreach (var unit in line.Units)
+                        for (int u = 0; u <= line.Units.Count; u++)
                         {
+                            // The UNROMANISED words sitting in front of unit u (backlog 330): an empty
+                            // text beside the original, which both loaders set aside when they pair
+                            // words[] with the line's tokens.
+                            foreach (var pending in line.UnromanisedWords)
+                            {
+                                if (Math.Min(pending.Position, line.Units.Count) != u)
+                                    continue;
+
+                                json.WriteStartObject();
+                                json.WriteString("text", string.Empty);
+                                json.WriteString("original", pending.Original);
+                                json.WriteNumber("start_ms", pending.StartTime);
+                                json.WriteNumber("end_ms", pending.EndTime);
+                                json.WriteEndObject();
+                            }
+
+                            if (u == line.Units.Count)
+                                break;
+
+                            var unit = line.Units[u];
+
                             json.WriteStartObject();
                             json.WriteString("text", unit.Text);
+
+                            if (unit.Original != null && unit.Original != unit.Text)
+                                json.WriteString("original", unit.Original);
+
                             json.WriteNumber("start_ms", unit.StartTime);
                             json.WriteNumber("end_ms", unit.EndTime);
                             json.WriteNumber("score", unit.Confidence);
@@ -171,6 +208,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
 
             return Encoding.UTF8.GetString(ms.ToArray());
+        }
+
+        /// <summary>
+        /// The line-level <c>original</c> the encoder writes: the line's own original when it
+        /// differs from the text, else, for a line holding unromanised words but no original of its
+        /// own, the words' originals and texts joined in order so the line's script is still on the
+        /// line. Null when there is nothing to write.
+        /// </summary>
+        public static string? LineOriginalToWrite(LyricLine line)
+        {
+            if (line.Original != null && line.Original != line.RawText)
+                return line.Original;
+
+            if (line.UnromanisedWords.Count == 0)
+                return null;
+
+            var parts = new List<string>();
+
+            for (int u = 0; u <= line.Units.Count; u++)
+            {
+                foreach (var pending in line.UnromanisedWords)
+                {
+                    if (Math.Min(pending.Position, line.Units.Count) == u)
+                        parts.Add(pending.Original);
+                }
+
+                if (u < line.Units.Count)
+                    parts.Add(line.Units[u].Original ?? line.Units[u].Text);
+            }
+
+            return string.Join(' ', parts);
         }
 
         /// <summary>

@@ -349,6 +349,14 @@ namespace typebeat.Game.Rulesets
         /// </summary>
         public virtual bool NativeEncodingsEquivalentForStatus(string encodedA, string encodedB) => encodedA == encodedB;
 
+        /// <summary>
+        /// Why <paramref name="beatmap"/> may be saved but not SUBMITTED yet, or null when nothing
+        /// stands in the way as far as this ruleset is concerned. The editor asks before it starts a
+        /// submission and shows the message instead. type!beat refuses a map that still holds words
+        /// its romaniser could not spell.
+        /// </summary>
+        public virtual string? GetSubmissionRefusal(IBeatmap beatmap) => null;
+
         public virtual Drawable CreateIcon() => new SpriteIcon { Icon = FontAwesome.Solid.QuestionCircle };
 
         public virtual IResourceStore<byte[]> CreateResourceStore() => new NamespacedResourceStore<byte[]>(new DllResourceStore(GetType().Assembly), @"Resources");

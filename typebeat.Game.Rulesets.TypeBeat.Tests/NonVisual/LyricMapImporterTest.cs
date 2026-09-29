@@ -66,6 +66,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void AnyStampedLineRunsTheAlignerInRefMode()
+        {
+            // Every line stamped: ref, as before.
+            Assert.That(LyricMapImporter.AlignerAnchorMode("[00:01.00] hello\n[00:02.00] world\n[00:03.00]\n"), Is.EqualTo("ref"));
+
+            // Only the section starts stamped (sparse anchors): still ref, where it used to be auto.
+            const string sparse = "[00:01.00] hello\nworld\nagain\n[00:09.00] second verse\nmore\n[00:15.00]\n";
+            Assert.That(LyricMapImporter.HasLineStamps(sparse), Is.False, "the LRC fallback still needs every line");
+            Assert.That(LyricMapImporter.HasAnyLineStamp(sparse), Is.True);
+            Assert.That(LyricMapImporter.AlignerAnchorMode(sparse), Is.EqualTo("ref"));
+
+            // A single stamp, even on a later line, is enough.
+            Assert.That(LyricMapImporter.AlignerAnchorMode("hello\n[00:05.00] world\n"), Is.EqualTo("ref"));
+
+            // Bare text, metadata tags or a lone end marker carry no line stamp: auto.
+            Assert.That(LyricMapImporter.AlignerAnchorMode("hello\nworld\n"), Is.EqualTo("auto"));
+            Assert.That(LyricMapImporter.AlignerAnchorMode("[ar:Artist]\n[Lyrics]\nhello\n"), Is.EqualTo("auto"));
+            Assert.That(LyricMapImporter.AlignerAnchorMode("hello\nworld\n[00:30.00]\n"), Is.EqualTo("auto"));
+            Assert.That(LyricMapImporter.HasAnyLineStamp(""), Is.False);
+        }
+
+        [Test]
         public void SanitizeFolderNameRemovesInvalidChars()
         {
             Assert.That(LyricMapImporter.SanitizeFolderName("AC/DC - T.N.T."), Is.EqualTo("AC DC - T.N.T"));
@@ -81,6 +103,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Is.EqualTo(("Friday Pilots Club", "Spectator Official Audio")));
             Assert.That(LyricMapImporter.GuessArtistTitle(@"X:\music\untitled.mp3"),
                 Is.EqualTo(("Unknown", "untitled")));
+        }
+
+        [Test]
+        public void ReadAlignerVersionReadsTheConstantOffTheScript()
+        {
+            string lab = Path.Combine(tempRoot, "lab");
+            Directory.CreateDirectory(lab);
+
+            // A version-1 script predates the constant: null, which the manager reads as "update available".
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "#!/usr/bin/env python\nSAMPLE_RATE = 16000\n");
+            Assert.That(LyricMapImporter.ReadAlignerVersion(lab), Is.Null);
+
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "#!/usr/bin/env python\n# Bumped when the output changes.\nALIGNER_VERSION = \"2\"\n\nSAMPLE_RATE = 16000\n");
+            Assert.That(LyricMapImporter.ReadAlignerVersion(lab), Is.EqualTo("2"));
+
+            // Only the module-level assignment counts, not a mention inside a string or comment.
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "# ALIGNER_VERSION = \"9\" is documented above\n  ALIGNER_VERSION = \"3\"\n");
+            Assert.That(LyricMapImporter.ReadAlignerVersion(lab), Is.Null);
+
+            Assert.That(LyricMapImporter.ReadAlignerVersion(Path.Combine(tempRoot, "missing")), Is.Null);
+            Assert.That(LyricMapImporter.ReadAlignerVersion(null), Is.Null);
+
+            // The shipped component itself declares a version, so a build never offers "update to null".
+            string? vendored = LyricMapImporter.ResolveLyricLabDir(null, AppContext.BaseDirectory);
+            Assume.That(vendored, Is.Not.Null, "the vendored lyriclab component was not found beside the test binaries");
+            Assert.That(LyricMapImporter.ReadAlignerVersion(vendored), Is.Not.Null.And.Not.Empty);
         }
 
         [Test]

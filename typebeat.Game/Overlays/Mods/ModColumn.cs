@@ -228,7 +228,7 @@ namespace typebeat.Game.Overlays.Mods
         {
             pendingSelectionOperations.Clear();
 
-            foreach (var button in availableMods.Where(b => !b.Active.Value && b.Visible))
+            foreach (var button in availableMods.Where(b => !b.Active.Value && b.Visible && b.AvailableForBeatmap.Value))
                 pendingSelectionOperations.Enqueue(() => button.Active.Value = true);
         }
 

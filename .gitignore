@@ -343,7 +343,6 @@ inspectcode
 FodyWeavers.xsd
 
 .idea/.idea.typebeat.Desktop/.idea/misc.xml
-.idea/.idea.osu.Android/.idea/deploymentTargetDropDown.xml
 
 # ── type!beat fork-specific ignores ──────────────────────────────────────────
 # JetBrains user-state files can live under nested .idea/ dirs (e.g. typebeat.Game/.idea/…),

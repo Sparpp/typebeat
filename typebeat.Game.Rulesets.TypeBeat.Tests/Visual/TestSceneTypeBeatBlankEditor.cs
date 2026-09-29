@@ -76,7 +76,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
 
             AddUntilStep("detail panel explains how to start", () => detailHeader().Contains("no lyrics yet"));
-            AddAssert("it names the add affordance", () => detailHeader().Contains("add @ playhead"));
+            AddAssert("it names the add affordance", () => detailHeader().Contains("add line"));
         }
 
         [Test]
@@ -86,7 +86,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("park the playhead", () => EditorClock.Seek(1500));
 
             // Click the real button, so the affordance is proven reachable and not just the operation.
-            AddStep("press \"add @ playhead\"", () => addAtPlayheadButton().TriggerClick());
+            AddStep("press \"add line\"", () => addAtPlayheadButton().TriggerClick());
 
             AddUntilStep("a first line exists", () => EditorBeatmap.HitObjects.Count == 1);
             AddUntilStep("the line list grew a row", () =>
@@ -114,7 +114,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("remove word greyed out", () => !panelButton("remove word").Enabled.Value);
 
             AddStep("park the playhead", () => EditorClock.Seek(1500));
-            AddStep("press \"add @ playhead\"", () => addAtPlayheadButton().TriggerClick());
+            AddStep("press \"add line\"", () => addAtPlayheadButton().TriggerClick());
             AddUntilStep("a first line exists", () => EditorBeatmap.HitObjects.Count == 1);
 
             // "new line" is two words, so both actions become possible.
@@ -166,7 +166,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private string detailHeader()
             => Editor.ChildrenOfType<ActiveLineDetailPanel>().Single().ChildrenOfType<FreestyleTextFlow>().First().Text;
 
-        private RoundedButton addAtPlayheadButton() => panelButton("add @ playhead");
+        private RoundedButton addAtPlayheadButton() => panelButton("add line");
 
         private RoundedButton panelButton(string text)
             => Editor.ChildrenOfType<ActiveLineDetailPanel>().Single().ChildrenOfType<RoundedButton>()

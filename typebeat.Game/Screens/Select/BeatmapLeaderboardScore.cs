@@ -239,18 +239,17 @@ namespace typebeat.Game.Screens.Select
                                                 Masking = true,
                                                 Children = new Drawable[]
                                                 {
-                                                    new DelayedLoadWrapper(innerAvatar = new ClickableAvatar(Score.User)
+                                                    new AvatarWithFlag(new DelayedLoadWrapper(innerAvatar = new ClickableAvatar(Score.User)
                                                     {
                                                         Anchor = Anchor.Centre,
                                                         Origin = Anchor.Centre,
                                                         Scale = new Vector2(1.1f),
                                                         Shear = sheared ? -OsuGame.SHEAR : Vector2.Zero,
                                                         RelativeSizeAxes = Axes.Both,
-                                                    })
+                                                    }), Score.User.CountryCode)
                                                     {
-                                                        RelativeSizeAxes = Axes.None,
-                                                        Size = new Vector2(HEIGHT)
-                                                    },
+                                                        Size = new Vector2(HEIGHT),
+                                                    }.With(a => a.Badge.Shear = sheared ? -OsuGame.SHEAR : Vector2.Zero),
                                                     rankLabelOverlay = new Container
                                                     {
                                                         RelativeSizeAxes = Axes.Both,
@@ -291,12 +290,6 @@ namespace typebeat.Game.Screens.Select
                                                         Masking = true,
                                                         Children = new Drawable[]
                                                         {
-                                                            new UpdateableFlag(Score.User.CountryCode)
-                                                            {
-                                                                Anchor = Anchor.CentreLeft,
-                                                                Origin = Anchor.CentreLeft,
-                                                                Size = new Vector2(20, 14),
-                                                            },
                                                             new UpdateableTeamFlag(Score.User.Team)
                                                             {
                                                                 Anchor = Anchor.CentreLeft,

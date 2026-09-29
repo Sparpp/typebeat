@@ -4,10 +4,6 @@
 #
 # ---------------------------------------------------------------------------------------------
 # REQUIRED GITHUB SECRETS (repo Settings -> Secrets and variables -> Actions)
-#   SUBMODULE_TOKEN   Fine-grained PAT with read-only Contents on Sparpp/type-beat-assets
-#                     (private). Used to clone the assets repo so typebeat.Game.Resources can be
-#                     packed at the exact version the game demands. This is the SAME secret name
-#                     typebeat-web's CI uses; reuse the same token.
 #   DEPLOY_SSH_KEY_B64  Single-line base64 of the deploy SSH private key (root@46.62.142.5).
 #                     Base64 (not raw multiline) because Windows-pasted PEMs arrive CRLF-mangled
 #                     -> "error in libcrypto". Same secret typebeat-web's deploy uses. If it is
@@ -83,29 +79,9 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      # typebeat.Game references typebeat.Game.Resources (art/audio/fonts, ~116 MB), which is not on
-      # nuget.org and is not a submodule here. The game's nuget.config expects it in a sibling
-      # ../type-beat-assets/artifacts feed, so clone the assets repo to exactly that sibling path and
-      # pack the package at the version the game csproj pins — then restore just works, unchanged.
-      - name: Clone assets repo (typebeat.Game.Resources source)
-        run: |
-          git clone --depth 1 \
-            "https://x-access-token:${{ secrets.SUBMODULE_TOKEN }}@github.com/Sparpp/type-beat-assets.git" \
-            "${GITHUB_WORKSPACE}/../type-beat-assets"
-
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-
-      - name: Pack typebeat.Game.Resources into the local feed
-        run: |
-          # sed (not grep -P) for locale portability; guard the empty match — an empty -p:Version
-          # fails the pack with an opaque MSB4044.
-          VER=$(sed -n 's/.*Include="typebeat.Game.Resources" Version="\([^"]*\)".*/\1/p' typebeat.Game/typebeat.Game.csproj)
-          if [ -z "$VER" ]; then echo "::error::could not read typebeat.Game.Resources version from the game csproj"; exit 1; fi
-          echo "game requires typebeat.Game.Resources $VER"
-          dotnet pack ../type-beat-assets/typebeat.Game.Resources/typebeat.Game.Resources.csproj \
-            -c Release -o ../type-beat-assets/artifacts -p:PackageVersion="$VER" -p:Version="$VER"
 
       # typebeat.Desktop/Bundled/ (the fresh-install beatmap payload) is gitignored: the packages
       # carry real, non-redistributable audio and must never be committed. So actions/checkout

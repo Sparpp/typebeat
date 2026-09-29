@@ -369,6 +369,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void TheDemoPlaysWhatTheSetResolutionPlays()
+        {
+            // IntroScreen resolves a consumed handoff through the same IntroBeatdropPool.PickFromSet the real
+            // intro uses, passing the set as opted in (the demo overrules membership) and substituting the
+            // handoff's drop for the demoed difficulty's own. Editing the set's hardest beatdrop map demos the
+            // on-screen timestamp; editing a lower one while a harder one declares a beatdrop demos the harder
+            // one's, because that is what a real intro on this set would play.
+            var set = new (string name, double stars, double? fileBeatdrop)[] { ("normal", 2.0, 10000), ("hard", 4.0, 20000) };
+
+            (string Difficulty, double DropTime)? demoOf(string edited, double onScreen) =>
+                IntroBeatdropPool.PickFromSet<(string name, double stars, double? fileBeatdrop), string>(set, d => d.stars, true,
+                    d => (d.name, d.name == edited ? onScreen : d.fileBeatdrop, -1));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(demoOf("hard", 21000), Is.EqualTo(("hard", 21000.0)));
+                Assert.That(demoOf("normal", 11000), Is.EqualTo(("hard", 20000.0)));
+            });
+        }
+
+        [Test]
         public void TheDemoDoesNotFallBackToAPreviewPointTheWayThePoolDoes()
         {
             // A map opted into the pool without a beatdrop starts the intro at its preview point instead.

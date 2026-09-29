@@ -53,7 +53,7 @@ namespace typebeat.Desktop.Windows
 
         private static readonly UriAssociation[] uri_associations =
         {
-            new UriAssociation(@"typebeat", WindowsAssociationManagerStrings.OsuProtocol, Icons.Lazer),
+            new UriAssociation(@"typebeat", WindowsAssociationManagerStrings.OsuProtocol, Icons.App),
         };
 
         /// <summary>

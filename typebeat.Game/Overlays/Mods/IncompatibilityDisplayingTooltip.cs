@@ -6,6 +6,7 @@ using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets;
@@ -24,6 +25,12 @@ namespace typebeat.Game.Overlays.Mods
         [Resolved]
         private Bindable<RulesetInfo> ruleset { get; set; } = null!;
 
+        /// <summary>The game's current beatmap, which the song select mod overlay is showing mods for.</summary>
+        [Resolved(canBeNull: true)]
+        private IBindable<WorkingBeatmap>? beatmap { get; set; }
+
+        private readonly ModDisplay incompatibleDisplay;
+
         public IncompatibilityDisplayingTooltip(OverlayColourProvider colourProvider)
             : base(colourProvider)
         {
@@ -36,7 +43,7 @@ namespace typebeat.Game.Overlays.Mods
                     Font = OsuFont.GetFont(weight: FontWeight.Regular),
                     Text = "Incompatible with:"
                 },
-                new ModDisplay
+                incompatibleDisplay = new ModDisplay
                 {
                     Current = incompatibleMods,
                     ExpansionMode = ExpansionMode.AlwaysExpanded,
@@ -55,6 +62,14 @@ namespace typebeat.Game.Overlays.Mods
 
             incompatibleMods.Value = allMods.Where(m => m.GetType() != mod.GetType() && incompatibleTypes.Any(t => t.IsInstanceOfType(m))).Select(m => m.CreateInstance()).ToList();
             incompatibleText.Text = incompatibleMods.Value.Any() ? "Incompatible with:" : "Compatible with all mods";
+            incompatibleDisplay.Show();
+
+            // A mod the beatmap cannot carry (backlog 331) says why instead: that is the reason it is greyed.
+            if (beatmap != null && !mod.IsAvailableFor(beatmap.Value))
+            {
+                incompatibleText.Text = mod.UnavailableReason;
+                incompatibleDisplay.Hide();
+            }
         }
     }
 }

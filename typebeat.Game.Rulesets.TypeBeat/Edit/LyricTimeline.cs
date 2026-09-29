@@ -159,6 +159,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         internal float PromotionPreviewWidth
             => handleLayer.OfType<SyllableHandle>().Select(handle => handle.PromotionBandWidth).DefaultIfEmpty(0).Max();
 
+        /// <summary>
+        /// The song time at which the grey band of <paramref name="hitObject"/>'s line currently ENDS on
+        /// screen, or null when no band is drawn for it. A test seam in the same spirit as
+        /// <see cref="PauseRegionCount"/>: the map zone is the run of line bands, so this is what shows
+        /// the last line's zone following its last word (backlog 336) rather than only the model.
+        /// </summary>
+        internal double? DrawnBandEndTime(TypeBeatHitObject hitObject)
+            => bandLayer.OfType<LineBand>().FirstOrDefault(band => band.HitObject == hitObject) is LineBand drawn
+                ? TimeAt(drawn.X + drawn.Width)
+                : null;
+
         /// <summary>How opaque that preview currently is (see <see cref="PromotionPreviewWidth"/>).</summary>
         internal float PromotionPreviewAlpha
             => handleLayer.OfType<SyllableHandle>().Select(handle => handle.PromotionBandAlpha).DefaultIfEmpty(0).Max();
@@ -461,6 +472,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             [Resolved]
             private LyricEditState state { get; set; } = null!;
 
+            public TypeBeatHitObject HitObject => hitObject;
+
             public LineBand(LyricTimeline strip, TypeBeatHitObject hitObject, int lineIndex)
             {
                 this.strip = strip;
@@ -709,11 +722,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnClick(ClickEvent e)
             {
-                // A block on another line first pulls selection to that line (unit selection is
-                // scoped to the active line and is cleared by the line change).
+                // A block on another line selects that line AND this word in one click (backlog
+                // 343). Unit selection is scoped to the active line and cleared by the line change,
+                // so the word is held until the line is active rather than selected here and lost.
                 if (state.ActiveLine.Value != hitObject)
                 {
-                    state.SelectedLine.Value = hitObject;
+                    state.SelectLineAtWord(hitObject, index);
                     return true;
                 }
 

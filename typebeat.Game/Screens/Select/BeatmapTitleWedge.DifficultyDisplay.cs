@@ -56,6 +56,12 @@ namespace typebeat.Game.Screens.Select
             private OsuHoverContainer mapperLink = null!;
             private OsuSpriteText mapperText = null!;
 
+            /// <summary>
+            /// What a selected mod says about the figures shown (<see cref="Mod.RatingNote"/>, backlog 331):
+            /// under Polyglot the star rating and the WPM are the ROMANISED map's, and say so here.
+            /// </summary>
+            private OsuSpriteText ratingNoteText = null!;
+
             private GridContainer ratingAndNameContainer = null!;
             private DifficultyStatisticsDisplay countStatisticsDisplay = null!;
             private DifficultyStatisticsDisplay difficultyStatisticsDisplay = null!;
@@ -144,6 +150,13 @@ namespace typebeat.Game.Screens.Select
                                                         Font = OsuFont.Style.Body.With(weight: FontWeight.SemiBold),
                                                     },
                                                 },
+                                                ratingNoteText = new OsuSpriteText
+                                                {
+                                                    Anchor = Anchor.BottomLeft,
+                                                    Origin = Anchor.BottomLeft,
+                                                    Font = OsuFont.Style.Caption1,
+                                                    Colour = colourProvider.Content2,
+                                                },
                                             },
                                         },
                                     }
@@ -219,6 +232,9 @@ namespace typebeat.Game.Screens.Select
                 {
                     settingChangeTracker?.Dispose();
 
+                    string? note = m.NewValue.Select(mod => mod.RatingNote.ToString()).FirstOrDefault(n => !string.IsNullOrEmpty(n));
+                    ratingNoteText.Text = string.IsNullOrEmpty(note) ? string.Empty : $"  ({note})";
+
                     // A mod that rewrites the converted beatmap (Literate) moves the count
                     // statistics' OWN numbers (Words / Average WPM / Target WPM / Chars per word),
                     // so those have to be recomputed from a beatmap converted with the new mod
@@ -277,8 +293,8 @@ namespace typebeat.Game.Screens.Select
 
             /// <summary>
             /// Whether the given mod list carries a mod that rewrites the converted beatmap.
-            /// Literate is the only one this ruleset ships and it carries no setting, so the
-            /// presence of a shaping mod is the whole of the state the count statistics depend on.
+            /// Literate and Polyglot are the ones this ruleset ships and neither carries a setting, so
+            /// the presence of a shaping mod is the whole of the state the count statistics depend on.
             /// </summary>
             private static bool shapesBeatmap(IEnumerable<Mod> mods)
                 => ModUtils.BeatmapShapingMods(mods).Count > 0;

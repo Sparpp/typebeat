@@ -253,6 +253,13 @@ namespace typebeat.Game.Screens.ImportLyrics
                 {
                     Schedule(() => report("importing beatmap"));
                     await game.Import(result.OszPath).ConfigureAwait(false);
+
+                    // The import SUMMARY (backlog 330): words the romaniser could not spell. The
+                    // screen slides away on success, so it is raised as a notification that outlives
+                    // it rather than as a line on the progress panel alone.
+                    if (!string.IsNullOrEmpty(result.Notice))
+                        Logger.Log($@"[import] {result.Notice}", LoggingTarget.Runtime, LogLevel.Important);
+
                     Schedule(finishSuccess);
                 }
                 else

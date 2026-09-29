@@ -27,6 +27,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [TestCase("[12:35:20] audio: 269.1s at 16k mono (Some Artist - A Song.vocals16k.wav)", ImportStage.Preparing)]
         [TestCase("automatic alignment off, using your line timestamps", ImportStage.Preparing)]
         [TestCase("no line stamps found, using fully automatic alignment (less accurate)", ImportStage.Preparing)]
+        [TestCase("some lines are stamped, aligning the unstamped ones inside their sections", ImportStage.Preparing)]
         [TestCase("no local aligner environment found", ImportStage.Preparing)]
         [TestCase("local aligner environment not set up (run lyriclab/setup.ps1 for word timing)", ImportStage.Preparing)]
         [TestCase("[12:34:57] separation: running demucs (htdemucs) on cuda ...", ImportStage.SeparatingVocals)]

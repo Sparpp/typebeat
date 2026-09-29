@@ -92,7 +92,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
 
             foreach (var lineObject in lineObjects)
             {
-                var line = TypingLine.FromLyricLine(lineObject.Line, literate);
+                // A Polyglot play (backlog 331) is stamped on the line objects by the mod, so the frames
+                // follow the original-script cells the engine will judge.
+                var line = TypingLine.ForMods(lineObject.Line, literate, lineObject.Polyglot, lineObject.PolyglotLanguage);
 
                 // The line is typeable in [ActivationTime, EndTime + SealGraceMs); keep a margin
                 // before the deadline so a boundary-pinned target is still pressed while typeable.

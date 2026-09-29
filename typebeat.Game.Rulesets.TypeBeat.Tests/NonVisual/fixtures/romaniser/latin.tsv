@@ -1,0 +1,10 @@
+# Romaniser fixtures (see cyrillic.tsv for the format). Latin letters Normalize cannot spell,
+# fullwidth forms, and text that must come through exactly as Normalize leaves it.
+english	Ħaġar Qim	Hagar Qim
+english	ſun and ƒire	sun and fire
+english	Ŧŧ	Tt
+english	Azərbaycan	Azerbaycan
+english	Ｈｅｌｌｏ　Ｗｏｒｌｄ１２３	Hello World123
+english	«Привет»	"Privet"
+english	Hawaiʻi	Hawai'i
+english	café Straße	cafe Strasse

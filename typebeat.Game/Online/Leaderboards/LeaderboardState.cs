@@ -16,5 +16,6 @@ namespace typebeat.Game.Online.Leaderboards
         NotLoggedIn = LeaderboardFailState.NotLoggedIn,
         NotSupporter = LeaderboardFailState.NotSupporter,
         NoTeam = LeaderboardFailState.NoTeam,
+        LocalOnlyMods = LeaderboardFailState.LocalOnlyMods,
     }
 }

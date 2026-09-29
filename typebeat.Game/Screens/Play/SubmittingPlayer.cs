@@ -4,6 +4,7 @@
 #nullable disable
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
@@ -22,6 +23,7 @@ using typebeat.Game.Online.Rooms;
 using typebeat.Game.Online.Spectator;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Notifications;
+using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Scoring;
 using typebeat.Game.Screens.Ranking;
@@ -108,6 +110,15 @@ namespace typebeat.Game.Screens.Play
                 return false;
             }
 
+            // A LOCAL-ONLY mod (backlog 331) takes the very same path: no token is ever requested, so
+            // nothing can be submitted, and the play is still imported into the local score list with
+            // its replay by Player, which never looks at the token.
+            if (IsLocalOnly(Mods.Value))
+            {
+                handleTokenFailure(new InvalidOperationException("Local-only mod selected."));
+                return false;
+            }
+
             if (!api.IsLoggedIn || api.State.Value == APIState.Failing)
             {
                 handleTokenFailure(new InvalidOperationException("Online functionality is not available."), displayNotification: api.State.Value == APIState.Failing);
@@ -171,6 +182,12 @@ namespace typebeat.Game.Screens.Play
                 }
             }
         }
+
+        /// <summary>
+        /// Whether a play under <paramref name="mods"/> stays on this device (<see cref="Mod.LocalOnly"/>):
+        /// it requests no token and submits nothing.
+        /// </summary>
+        public static bool IsLocalOnly(IEnumerable<Mod> mods) => mods.Any(m => m.LocalOnly);
 
         /// <summary>
         /// Run one token request through to completion, populating <see cref="token"/> on success.

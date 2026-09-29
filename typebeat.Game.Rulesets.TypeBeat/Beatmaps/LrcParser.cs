@@ -7,6 +7,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
@@ -28,7 +29,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         public const double MAX_MS_PER_TYPEABLE_CHAR = 350;
         public const double DEFAULT_LAST_LINE_DURATION_MS = 5000;
 
-        public static IReadOnlyList<LyricLine> Parse(string lrcContent)
+        /// <param name="lrcContent">The .lrc text.</param>
+        /// <param name="language">The language to romanise non-Latin lines under (backlog 330; see
+        /// <see cref="Romaniser"/>). Only a line that needs romanising reads it, so a Latin LRC parses
+        /// exactly as it always has whatever it says.</param>
+        public static IReadOnlyList<LyricLine> Parse(string lrcContent, string? language = null)
         {
             var result = new List<LyricLine>();
             if (string.IsNullOrEmpty(lrcContent))
@@ -51,11 +56,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             // Second pass: collect every timestamped entry (empty text allowed; those are
             // pure boundary/terminator markers).
-            var entries = new List<(double Time, string Text)>();
+            var entries = new List<(double Time, string Text, LyricOriginals.RomanisedLine? Romanised)>();
 
             foreach (string raw in rawLines)
             {
-                extractEntries(raw, offset, entries);
+                extractEntries(raw, offset, entries, language);
             }
 
             if (entries.Count == 0)
@@ -64,12 +69,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // Stable sort by time so duplicated leading tags keep insertion order at ties.
             entries.Sort((a, b) => a.Time.CompareTo(b.Time));
 
-            // Indices of entries that carry real (non-empty normalized) text.
+            // Indices of entries that carry real (non-empty normalized) text, or an ORIGINAL the
+            // romaniser could not spell (backlog 330), which is a lyric line and not a terminator.
             var emitted = new List<int>();
 
             for (int i = 0; i < entries.Count; i++)
             {
-                if (entries[i].Text.Length > 0)
+                if (entries[i].Text.Length > 0 || entries[i].Romanised?.Original != null)
                     emitted.Add(i);
             }
 
@@ -78,7 +84,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 int idx = emitted[e];
                 double start = entries[idx].Time;
                 string text = entries[idx].Text;
-                int typeable = Typeability.TypeableCount(text);
+                var romanised = entries[idx].Romanised;
+
+                // An unromanised word sings for as long as its letters take, so it counts toward the
+                // line's sung length as if typed; a line without one counts exactly as before.
+                int typeable = Typeability.TypeableCount(text) + (romanised == null ? 0 : unromanisedWeight(romanised));
 
                 double end;
 
@@ -110,6 +120,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 double singEnd = start + Math.Min(end - start, MAX_MS_PER_TYPEABLE_CHAR * typeable);
 
+                if (romanised != null)
+                {
+                    result.Add(romanisedLine(romanised, text, start, end, singEnd));
+                    continue;
+                }
+
                 result.Add(new LyricLine
                 {
                     // The pipes TIME the units (below) but are authoring marks, so the stored
@@ -124,6 +140,125 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             return result;
         }
+
+        /// <summary>The letters of a line's unromanised words, the weight they take in its timing.</summary>
+        private static int unromanisedWeight(LyricOriginals.RomanisedLine romanised)
+        {
+            int weight = 0;
+
+            foreach (var word in romanised.Words)
+            {
+                if (word.Flagged)
+                    weight += System.Globalization.StringInfo.ParseCombiningCharacters(word.Source).Length;
+            }
+
+            return weight;
+        }
+
+        /// <summary>
+        /// A line whose source needed ROMANISING (backlog 330): the stored text is the romanisation,
+        /// the source is kept as the line's and each word's original, and a word the romaniser could
+        /// not spell becomes an <see cref="UnromanisedWord"/> holding its share of the line. The
+        /// words are spread over the sung span char-weighted exactly as <see cref="InterpolateUnits"/>
+        /// spreads them (an unromanised word weighs its letter count, as if it were typed), so a line
+        /// with none interpolates identically to the romanised text alone.
+        /// </summary>
+        private static LyricLine romanisedLine(LyricOriginals.RomanisedLine romanised, string text, double start, double end, double singEnd)
+        {
+            string stored = SplitMarkers.Carries(text) ? SplitMarkers.Strip(text).Text : text;
+            var words = romanised.Words.Where(w => w.Flagged || w.Text.Length > 0).ToList();
+
+            List<TimedUnit> units;
+            IReadOnlyList<UnromanisedWord> pending;
+
+            if (!romanised.AnyFlagged)
+            {
+                units = InterpolateUnits(text, start, singEnd).ToList();
+                pending = Array.Empty<UnromanisedWord>();
+
+                var typed = words.Where(w => !w.Flagged).ToList();
+
+                if (typed.Count == units.Count)
+                {
+                    for (int i = 0; i < units.Count; i++)
+                    {
+                        if (typed[i].Original is string original)
+                            units[i] = WithOriginal(units[i], original);
+                    }
+                }
+            }
+            else
+            {
+                (units, pending) = InterpolateWords(words.Select(w => (w.Text, w.Flagged, w.Source, w.Original)).ToList(), start, singEnd);
+            }
+
+            return new LyricLine
+            {
+                RawText = stored,
+                StartTime = start,
+                EndTime = end,
+                SingEndTime = singEnd,
+                Units = units,
+                Original = romanised.Original,
+                UnromanisedWords = pending,
+            };
+        }
+
+        /// <summary>
+        /// Spreads a line's words over [<paramref name="start"/>, <paramref name="end"/>] char-weighted,
+        /// the <see cref="InterpolateUnits"/> rule, with the UNROMANISED words (backlog 330) taking a
+        /// share too (their letter count, as if typed) and coming back as
+        /// <see cref="UnromanisedWord"/>s at their place instead of as units. Each typed word keeps
+        /// its original.
+        /// </summary>
+        internal static (List<TimedUnit> Units, IReadOnlyList<UnromanisedWord> Pending) InterpolateWords(
+            IReadOnlyList<(string Text, bool Flagged, string Source, string? Original)> words, double start, double end)
+        {
+            var units = new List<TimedUnit>();
+            var pending = new List<UnromanisedWord>();
+
+            if (words.Count == 0)
+                return (units, pending);
+
+            double[] weights = words.Select(w => w.Flagged
+                ? StringInfo.ParseCombiningCharacters(w.Source).Length + 1.0
+                : Typeability.TypeableCount(w.Text) + 1.0).ToArray();
+
+            double total = weights.Sum();
+            double cumulative = 0;
+
+            for (int i = 0; i < words.Count; i++)
+            {
+                double from = start + (end - start) * (cumulative / total);
+                cumulative += weights[i];
+                double to = start + (end - start) * (cumulative / total);
+
+                if (words[i].Flagged)
+                {
+                    pending.Add(new UnromanisedWord(units.Count, LyricOriginals.CollapseWhitespace(words[i].Source), from, to));
+                    continue;
+                }
+
+                foreach (var u in InterpolateUnits(words[i].Text, from, to))
+                    units.Add(WithOriginal(u, words[i].Original));
+            }
+
+            return (units, pending);
+        }
+
+        /// <summary><paramref name="unit"/> with <paramref name="original"/> as its original, everything else kept.</summary>
+        internal static TimedUnit WithOriginal(TimedUnit unit, string? original) => new TimedUnit
+        {
+            Text = unit.Text,
+            StartTime = unit.StartTime,
+            EndTime = unit.EndTime,
+            Source = unit.Source,
+            Confidence = unit.Confidence,
+            SyllableBoundaries = unit.SyllableBoundaries,
+            SyllableSplits = unit.SyllableSplits,
+            Pauses = unit.Pauses,
+            Original = original,
+        };
 
         /// <summary>Parses "mm:ss.xx" and "mm:ss.xxx" (also tolerates "m:ss.x").</summary>
         public static bool TryParseTimestamp(string token, out double milliseconds)
@@ -284,7 +419,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return false;
         }
 
-        private static void extractEntries(string rawLine, double offset, List<(double Time, string Text)> entries)
+        private static void extractEntries(string rawLine, double offset, List<(double Time, string Text, LyricOriginals.RomanisedLine? Romanised)> entries,
+                                           string? language)
         {
             if (string.IsNullOrEmpty(rawLine))
                 return;
@@ -314,9 +450,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             string rawText = rawLine.Substring(idx);
 
+            // THE ORIGINAL TEXT (backlog 330). A line written in a script Normalize would delete (or
+            // with any letter it would have to respell) is romanised word by word first, and its
+            // source kept as the original, instead of being thrown away. A plain ASCII line never
+            // takes this branch, so it parses character for character as before.
+            string unbracketed = Typeability.StripBackingVocals(rawText);
+
+            if (LyricOriginals.CarriesOriginal(unbracketed) || Romaniser.NeedsRomanising(unbracketed, language))
+            {
+                var romanised = LyricOriginals.RomaniseLine(unbracketed, language, keepMarkers: true);
+                string romanisedText = romanised.Text;
+                string romanisedStored = SplitMarkers.Carries(romanisedText) ? SplitMarkers.Strip(romanisedText).Text : romanisedText;
+
+                // Nothing typed and nothing left to romanise by hand (a line of symbols): the same
+                // vanishing a Latin line of punctuation gets below.
+                if (Typeability.ToDefaultStream(romanisedStored).Length == 0 && !romanised.AnyFlagged)
+                    return;
+
+                foreach (double t in times)
+                    entries.Add((t, romanisedText, romanised));
+
+                return;
+            }
+
             // Both authoring marks survive here (backlog 202): '&' becomes a freestyle cell of the
             // stored lyric, '|' subdivides its word and is stripped once its position is read.
-            string text = Typeability.Normalize(Typeability.StripBackingVocals(rawText),
+            string text = Typeability.Normalize(unbracketed,
                 keepFreestyleMarkers: true, keepSplitMarkers: true);
 
             // Emptiness is judged on what will actually be STORED, so a token of nothing but pipes
@@ -340,7 +499,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
 
             foreach (double t in times)
-                entries.Add((t, text));
+                entries.Add((t, text, null));
         }
     }
 }

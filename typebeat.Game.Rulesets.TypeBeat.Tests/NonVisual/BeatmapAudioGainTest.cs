@@ -114,7 +114,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(decode(baseline.Replace("Tags:", "AudioGain: 400\nTags:")).Metadata.AudioGain,
                     Is.EqualTo(BeatmapMetadata.MAX_AUDIO_GAIN));
                 Assert.That(decode(baseline.Replace("Tags:", "AudioGain: -3\nTags:")).Metadata.AudioGain, Is.Zero);
+
+                // The spelled infinities are numbers to TryParse and clamp like any other out-of-range
+                // value, at whichever end they overshoot.
+                Assert.That(decode(baseline.Replace("Tags:", "AudioGain: Infinity\nTags:")).Metadata.AudioGain,
+                    Is.EqualTo(BeatmapMetadata.MAX_AUDIO_GAIN));
+                Assert.That(decode(baseline.Replace("Tags:", "AudioGain: -Infinity\nTags:")).Metadata.AudioGain, Is.Zero);
             });
+        }
+
+        [Test]
+        public void ANaNValueFallsBackInsteadOfPlayingSilenceOfNaN()
+        {
+            // double.TryParse accepts the literal "NaN", and Math.Clamp passes a NaN input straight
+            // through, so a hostile or corrupted file could otherwise hand the mixer a NaN multiplier
+            // and play the track as a stream of NaN samples. Treated the same as any other unparseable
+            // value: the default survives. Mirrors what the browser's parseAudioGain has always done.
+            string baseline = encode(buildBeatmap(BeatmapMetadata.DEFAULT_AUDIO_GAIN));
+
+            Assert.That(decode(baseline.Replace("Tags:", "AudioGain: NaN\nTags:")).Metadata.AudioGain,
+                Is.EqualTo(BeatmapMetadata.DEFAULT_AUDIO_GAIN));
         }
 
         [Test]

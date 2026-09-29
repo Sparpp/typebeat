@@ -29,6 +29,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// key but space. The flag is what makes the marker unambiguous: without it an ampersand is ordinary
     /// untypeable lyric punctuation and is stripped on decode, so lyrics that merely contain "&amp;"
     /// (and every map written before the feature existed) are unaffected.</item>
+    /// <item><c>"original"</c> (backlog 330), on a line object and on a word object: the text as the
+    /// song writes it, in its own script, written straight after <c>"text"</c> and only when it
+    /// differs from it. Display and authoring data only; a word with an EMPTY text and an original is
+    /// one the romaniser could not spell. See <see cref="LyricOriginals"/>.</item>
     /// </list>
     /// </summary>
     public static class LyricOsuFormat
@@ -305,6 +309,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// start of a line so a lyric that happens to contain "Video,12," is left alone.</para>
         /// </summary>
         public static string StripVideoOffset(string osu) => video_offset_field.Replace(osu, "Video,0,");
+
+        private static readonly System.Text.RegularExpressions.Regex original_field =
+            new System.Text.RegularExpressions.Regex(@",""original"":""(?:[^""\\]|\\.)*""", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>
+        /// Removes every <c>"original"</c> key (backlog 330, line and word alike) from a type!beat
+        /// .osu, so two encodings that differ only by the ORIGINAL-SCRIPT text compare equal. Same
+        /// purpose as <see cref="StripBeatdrop"/>: the original is display and authoring data, never
+        /// typed and never rated, so adding a map's source script (or correcting it) must not demote
+        /// a ranked map. The server's gameplay fingerprint strips the same key with the same pattern.
+        ///
+        /// <para>Every writer puts the key straight after <c>"text"</c>, so the leading comma is what
+        /// is stripped, and a JSON string cannot hide an unescaped quote, so the pattern cannot reach
+        /// inside a lyric. What it deliberately does NOT normalise is an unromanised word's EMPTY
+        /// text: turning one into a romanised word changes the cells, and that is a real edit.</para>
+        /// </summary>
+        public static string StripOriginals(string osu) => original_field.Replace(osu, string.Empty);
 
         private static readonly System.Text.RegularExpressions.Regex format_version_field =
             new System.Text.RegularExpressions.Regex(@"^" + System.Text.RegularExpressions.Regex.Escape(LyricBeatmapDecoder.MAGIC) + "[0-9]+",

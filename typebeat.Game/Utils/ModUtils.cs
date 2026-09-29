@@ -7,6 +7,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using osu.Framework.Extensions.LocalisationExtensions;
 using osu.Framework.Localisation;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.Rooms;
 using typebeat.Game.Rulesets;
@@ -126,6 +127,19 @@ namespace typebeat.Game.Utils
 
             return checkValid(mods, m => m.HasImplementation, out invalidMods);
         }
+
+        /// <summary>
+        /// Checks that every mod in <paramref name="mods"/> can be played on <paramref name="beatmap"/>
+        /// (<see cref="Mod.IsAvailableFor"/>, backlog 331). The one test every path that RESTORES a
+        /// selection goes through (a mod preset, a selection carried over to another beatmap), so a mod
+        /// the map cannot carry drops out of it exactly the way an incompatible mod does.
+        /// </summary>
+        /// <param name="mods">The mods to check.</param>
+        /// <param name="beatmap">The beatmap the selection is for, or null when none is known.</param>
+        /// <param name="unavailableMods">The mods the beatmap cannot carry, if any. Null when all can.</param>
+        /// <returns>Whether every mod is available on the beatmap.</returns>
+        public static bool CheckAvailableFor(IEnumerable<Mod> mods, IWorkingBeatmap? beatmap, [NotNullWhen(false)] out List<Mod>? unavailableMods)
+            => checkValid(mods.ToArray(), m => m.IsAvailableFor(beatmap), out unavailableMods);
 
         /// <summary>
         /// Checks whether the given combination of mods may be set as the <see cref="MultiplayerPlaylistItem.RequiredMods">required mods</see> of a multiplayer playlist item.

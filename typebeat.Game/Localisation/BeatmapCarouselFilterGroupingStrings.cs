@@ -70,6 +70,26 @@ namespace typebeat.Game.Localisation
         public static LocalisableString OverBPM(int bpm) => new TranslatableString(getKey(@"over_bpm"), @"Over {0} BPM", bpm);
 
         /// <summary>
+        /// "Under {0} WPM"
+        /// </summary>
+        public static LocalisableString UnderWpm(int wpm) => new TranslatableString(getKey(@"under_wpm"), @"Under {0} WPM", wpm);
+
+        /// <summary>
+        /// "{0} to {1} WPM"
+        /// </summary>
+        public static LocalisableString RangeWpm(int minWpm, int maxWpm) => new TranslatableString(getKey(@"range_wpm"), @"{0} to {1} WPM", minWpm, maxWpm);
+
+        /// <summary>
+        /// "{0} WPM and over"
+        /// </summary>
+        public static LocalisableString AndOverWpm(int wpm) => new TranslatableString(getKey(@"and_over_wpm"), @"{0} WPM and over", wpm);
+
+        /// <summary>
+        /// "Unknown"
+        /// </summary>
+        public static LocalisableString UnknownWpm => new TranslatableString(getKey(@"unknown_wpm"), @"Unknown");
+
+        /// <summary>
         /// "Below {0} star|Below {0} stars"
         /// </summary>
         public static LocalisableString BelowStars(int quantity) => new PluralisableString(new TranslatableString(getKey(@"below_stars"), @"Below {0} star|Below {0} stars", quantity), quantity, '|');
@@ -119,6 +139,16 @@ namespace typebeat.Game.Localisation
         /// "Favourites"
         /// </summary>
         public static LocalisableString Favourites => new TranslatableString(getKey(@"favourites"), @"Favourites");
+
+        /// <summary>
+        /// "Enabled on intro"
+        /// </summary>
+        public static LocalisableString EnabledOnIntro => new TranslatableString(getKey(@"enabled_on_intro"), @"Enabled on intro");
+
+        /// <summary>
+        /// "Not on intro"
+        /// </summary>
+        public static LocalisableString NotOnIntro => new TranslatableString(getKey(@"not_on_intro"), @"Not on intro");
 
         private static string getKey(string key) => $@"{prefix}:{key}";
     }

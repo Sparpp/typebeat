@@ -180,8 +180,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             string normalized = Typeability.Normalize(stripBackingVocals ? Typeability.StripBackingVocals(raw) : raw,
                 keepFreestyleMarkers: freestyle, keepSplitMarkers: true);
 
+            // THE ORIGINAL TEXT (backlog 330): the line as the song writes it, in its own script.
+            // Display and authoring data only, never typed, never rated (see LyricOriginals).
+            string? lineOriginal = readOriginal(lineElement);
+
             // A line with nothing to TYPE is dropped, and the previous line extends over its span.
-            if (YieldsNoCells(normalized))
+            // The one exception is a line that carries an ORIGINAL (backlog 330): an import of a
+            // script the romaniser cannot spell yet writes such a line with an empty text so the
+            // lyric reaches the editor to be romanised by hand rather than vanishing. No map written
+            // before that carries the key, so every one of them is dropped exactly as before.
+            if (YieldsNoCells(normalized) && lineOriginal == null && !carriesUnromanisedWord(lineElement))
                 return false;
 
             if (!lineElement.TryGetProperty("start_ms", out JsonElement startElement)
@@ -207,6 +215,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // word tuple rather than inside it so every existing RawLine construction still compiles.
             var wordSplits = new List<List<int>>();
             var wordPauses = new List<List<(double Start, double End, int Split)>>();
+            var wordOriginals = new List<string?>();
 
             if (lineElement.TryGetProperty("words", out JsonElement wordsElement)
                 && wordsElement.ValueKind == JsonValueKind.Array)
@@ -262,6 +271,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                     words.Add((wordText, ws, we, score, syllables));
                     wordSplits.Add(splitChars);
+                    wordOriginals.Add(readOriginal(wordElement));
 
                     // THE AUTHORED PAUSES (type!beat editor extension): the rests inside the word, read
                     // RAW here and validated against the CLAMPED word in buildExplicitUnits, exactly as
@@ -311,9 +321,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             rawLine = new RawLine(normalized, startMs, endMs, estimated, words, sealGraceMs,
                 wordSplits.Exists(s => s.Count > 0) ? wordSplits : null,
-                wordPauses.Exists(p => p.Count > 0) ? wordPauses : null);
+                wordPauses.Exists(p => p.Count > 0) ? wordPauses : null,
+                lineOriginal,
+                wordOriginals.Exists(o => o != null) ? wordOriginals : null);
             return true;
         }
+
+        /// <summary>Whether any of the line's words[] is an unromanised word (see <see cref="IsUnromanisedWord"/>).</summary>
+        private static bool carriesUnromanisedWord(JsonElement lineElement)
+        {
+            if (!lineElement.TryGetProperty("words", out JsonElement wordsElement) || wordsElement.ValueKind != JsonValueKind.Array)
+                return false;
+
+            foreach (JsonElement word in wordsElement.EnumerateArray())
+            {
+                if (word.ValueKind == JsonValueKind.Object
+                    && readOriginal(word) != null
+                    && word.TryGetProperty("text", out JsonElement text) && text.ValueKind == JsonValueKind.String
+                    && text.GetString()?.Length == 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>The object's optional <c>original</c> string (backlog 330), or null when absent, empty or not a string.</summary>
+        private static string? readOriginal(JsonElement element)
+            => element.TryGetProperty("original", out JsonElement originalElement)
+               && originalElement.ValueKind == JsonValueKind.String
+               && originalElement.GetString() is { Length: > 0 } original
+                ? original
+                : null;
+
+        /// <summary>
+        /// Whether word <paramref name="index"/> of <paramref name="line"/> is UNROMANISED (backlog
+        /// 330): an EMPTY text beside an original, the shape an import writes for a word the
+        /// romaniser could not spell. Such a word has no token in the line text, so it is taken out
+        /// of the words[]/token pairing; the server's parse applies the same rule.
+        /// </summary>
+        public static bool IsUnromanisedWord(RawLine line, int index)
+            => line.WordOriginals != null && index < line.WordOriginals.Count && line.WordOriginals[index] != null
+               && line.Words[index].Text.Length == 0;
 
         /// <summary>
         /// Resolves per-line End/SingEnd/SealGrace and word units for a full ordered set of
@@ -369,15 +419,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 string[] tokens = storedText.Split(' ');
                 IReadOnlyList<TimedUnit> units;
 
-                if (tokens.Length == line.Words.Count && tokens.Length > 0)
+                // UNROMANISED WORDS (backlog 330) have no token, so they are taken out of the
+                // pairing and set aside with the number of paired words before each. A line without
+                // one pairs exactly as it always has: the filter below is then the identity.
+                var unromanised = new List<(int Before, int Index)>();
+                var paired = pairedWords(line, unromanised);
+
+                if (tokens.Length == paired.Words.Count && tokens.Length > 0)
                 {
-                    units = buildExplicitUnits(tokens, line.Words, line.WordSplits, line.WordPauses, pipes, start, end);
+                    units = buildExplicitUnits(tokens, paired.Words, paired.WordSplits, paired.WordPauses, pipes, start, end, paired.WordOriginals);
                 }
                 else
                 {
                     // Per-line fallback: char-weighted interpolation across [start, singEnd], which
                     // reads the pipes itself (LrcParser.InterpolateUnits) and so subdivides there too.
-                    units = LrcParser.InterpolateUnits(line.Text, start, singEnd);
+                    units = withDerivedOriginals(LrcParser.InterpolateUnits(line.Text, start, singEnd), line.Original);
                 }
 
                 result.Add(new LyricLine
@@ -388,11 +444,90 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     SingEndTime = singEnd,
                     Units = units,
                     SealGraceMs = sealGrace,
-                    Estimated = line.Estimated
+                    Estimated = line.Estimated,
+                    Original = line.Original,
+                    UnromanisedWords = unromanised.Count == 0
+                        ? Array.Empty<UnromanisedWord>()
+                        : unromanised.Select(u => new UnromanisedWord(
+                            Math.Min(u.Before, units.Count),
+                            line.WordOriginals![u.Index]!,
+                            Math.Clamp(line.Words[u.Index].Start, start, end),
+                            Math.Clamp(line.Words[u.Index].End, Math.Clamp(line.Words[u.Index].Start, start, end), end))).ToArray(),
                 });
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// The line's words[] with its UNROMANISED words taken out (see <see cref="IsUnromanisedWord"/>),
+        /// every parallel list filtered in step; each removed word is reported in
+        /// <paramref name="unromanised"/> with the number of kept words before it. A line with no
+        /// such word comes back with its own lists, untouched.
+        /// </summary>
+        private static (List<(string Text, double Start, double End, double Score, List<double> Syllables)> Words,
+            List<List<int>>? WordSplits, List<List<(double Start, double End, int Split)>>? WordPauses, List<string?>? WordOriginals)
+            pairedWords(RawLine line, List<(int Before, int Index)> unromanised)
+        {
+            bool any = false;
+
+            for (int i = 0; i < line.Words.Count && !any; i++)
+                any = IsUnromanisedWord(line, i);
+
+            if (!any)
+                return (line.Words, line.WordSplits, line.WordPauses, line.WordOriginals);
+
+            var words = new List<(string Text, double Start, double End, double Score, List<double> Syllables)>();
+            var splits = line.WordSplits == null ? null : new List<List<int>>();
+            var pauses = line.WordPauses == null ? null : new List<List<(double Start, double End, int Split)>>();
+            var originals = new List<string?>();
+
+            for (int i = 0; i < line.Words.Count; i++)
+            {
+                if (IsUnromanisedWord(line, i))
+                {
+                    unromanised.Add((words.Count, i));
+                    continue;
+                }
+
+                words.Add(line.Words[i]);
+                splits?.Add(i < line.WordSplits!.Count ? line.WordSplits[i] : new List<int>());
+                pauses?.Add(i < line.WordPauses!.Count ? line.WordPauses[i] : new List<(double, double, int)>());
+                originals.Add(line.WordOriginals![i]);
+            }
+
+            return (words, splits, pauses, originals);
+        }
+
+        /// <summary>
+        /// Interpolated units given their originals from the LINE's original, when the line has no
+        /// words[] to carry them (a line-granularity map): the original's whitespace tokens pair with
+        /// the units one for one when, and only when, the two counts agree.
+        /// </summary>
+        private static IReadOnlyList<TimedUnit> withDerivedOriginals(IReadOnlyList<TimedUnit> units, string? lineOriginal)
+        {
+            if (lineOriginal == null || units.Count == 0)
+                return units;
+
+            string[] originals = LyricOriginals.CollapseWhitespace(lineOriginal).Split(' ');
+
+            if (originals.Length != units.Count)
+                return units;
+
+            return units.Select((u, i) => LyricOriginals.OriginalFor(originals[i], u.Text) is string original
+                ? new TimedUnit
+                {
+                    Text = u.Text,
+                    StartTime = u.StartTime,
+                    EndTime = u.EndTime,
+                    Source = u.Source,
+                    Confidence = u.Confidence,
+                    SyllableBoundaries = u.SyllableBoundaries,
+                    SyllableSplits = u.SyllableSplits,
+                    Pauses = u.Pauses,
+                    Original = original,
+                }
+                : u).ToArray();
         }
 
         /// <summary>
@@ -422,7 +557,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             List<List<(double Start, double End, int Split)>>? wordPauses,
             IReadOnlyList<IReadOnlyList<int>> pipes,
             double lineStart,
-            double lineEnd)
+            double lineEnd,
+            List<string?>? wordOriginals = null)
         {
             var units = new List<TimedUnit>(tokens.Length);
             double prevEnd = lineStart;
@@ -496,6 +632,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     SyllableBoundaries = boundaries.Length == 0 ? System.Array.Empty<double>() : boundaries,
                     SyllableSplits = keptSplits,
                     Pauses = keptPauses,
+                    // Display data only (backlog 330); kept exactly as written.
+                    Original = wordOriginals != null && m < wordOriginals.Count && wordOriginals[m] != tokens[m] ? wordOriginals[m] : null,
                 });
 
                 prevEnd = we;
@@ -548,6 +686,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             List<(string Text, double Start, double End, double Score, List<double> Syllables)> Words,
             double? SealGraceMs = null,
             List<List<int>>? WordSplits = null,
-            List<List<(double Start, double End, int Split)>>? WordPauses = null);
+            List<List<(double Start, double End, int Split)>>? WordPauses = null,
+            string? Original = null,
+            List<string?>? WordOriginals = null);
     }
 }

@@ -1,0 +1,34 @@
+# Romaniser fixtures, SHARED by the game's RomaniserTest and the server's
+# WireCompat RomaniserParityTest. Columns, tab separated:
+#   language  source  expected text  [expected unromanised, space separated]
+# An empty language column means none (the default). Lines starting with # are comments.
+# Real lyric lines (folk songs and anthems) plus word lists for the special letters.
+russian	Расцветали яблони и груши	Rastsvetali yabloni i grushi
+russian	Поплыли туманы над рекой	Poplyli tumany nad rekoy
+russian	Выходила на берег Катюша	Vykhodila na bereg Katyusha
+russian	Не слышны в саду даже шорохи	Ne slyshny v sadu dazhe shorokhi
+russian	Всё здесь замерло до утра	Vsyo zdes zamerlo do utra
+russian	Ой, мороз, мороз, не морозь меня	Oy, moroz, moroz, ne moroz menya
+russian	Подъезд и щука	Podezd i shchuka
+	Эх, дороги	Ekh, dorogi
+russian	Україна	Ukrayina
+ukrainian	Щедрик, щедрик, щедрівочка	Shchedryk, shchedryk, shchedrivochka
+ukrainian	Прилетіла ластівочка	Pryletila lastivochka
+ukrainian	Ой у лузі червона калина	Oi u luzi chervona kalyna
+ukrainian	Їжак і Євген згадали Україну	Yizhak i Yevhen zghadaly Ukrainu
+ukrainian	м'ясо ґанок	miaso ganok
+belarusian	Купалінка, купалінка	Kupalinka, kupalinka
+belarusian	Гэта воўк, Беларусь	Heta vowk, Belarus
+bulgarian	Мила Родино, ти си земен рай	Mila Rodino, ti si zemen ray
+bulgarian	Горда Стара планина	Gorda Stara planina
+bulgarian	щастие, път, шофьор, хубаво	shtastie, pat, shofyor, hubavo
+serbian	Боже правде, ти што спасе	Boze pravde, ti sto spase
+serbian	од пропасти до сад нас	od propasti do sad nas
+serbian	Џеп, ђак, ћуприја, љубав, њега	Dzep, dak, cuprija, ljubav, njega
+serbian	Хвала, цар, чаша, жена	Hvala, car, casa, zena
+macedonian	Денес над Македонија	Denes nad Makedonija
+macedonian	се раѓа, ќе, ѕвезда, џеб	se ragja, kje, dzvezda, djeb
+kazakh	Менің Қазақстаным	Mening Qazaqstanym
+kazakh	Әнім	Anim
+mongolian	Монгол улс, жаргал	Mongol uls, jargal
+mongolian	Ерөнхий Өнөөдөр	Yeronkhii Onoodor

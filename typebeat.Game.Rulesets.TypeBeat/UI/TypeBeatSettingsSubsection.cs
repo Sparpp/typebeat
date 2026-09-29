@@ -108,8 +108,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsCheckbox
                 {
                     LabelText = "Manual newlines",
+
                     TooltipText = "After finishing a line, press Space or Enter, or start typing the next line, to move on. You can move early, but the next line stays grey and ignores typing until its entry window opens; an early letter must be pressed again. If you wait, the song moves you on when the push warning ends. With this off, finished lines advance automatically. Enter also skips an unfinished line. This setting has no effect with a pinned caret. Applies from the next play.",
+
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ManualNewlines),
+                },
+                new SettingsSlider<float>
+                {
+                    LabelText = "Lyric font size",
+                    TooltipText = "Size of the lyric text during gameplay. Applies from the next play.",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.LyricFontSize),
+                    KeyboardStep = 1f,
                 },
                 new SettingsSlider<float>
                 {

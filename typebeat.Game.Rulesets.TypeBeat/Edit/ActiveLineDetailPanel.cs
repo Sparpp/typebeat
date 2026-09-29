@@ -4,6 +4,7 @@
 using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
+using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
@@ -25,7 +26,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// line view (index, text, start / sung end / window end, granularity, estimated badge),
     /// then the interactive fine-timing surface (<see cref="LyricTimeline"/>), and WORD-level
     /// actions on the bottom (add word, remove word, subdivide, unsubdivide, insert pause) right
-    /// beside the word blocks they act on.
+    /// beside the word blocks they act on. A line with an ORIGINAL text (backlog 330) also gets the
+    /// two-row word editor (<see cref="WordScriptEditor"/>) between the readouts and the strip.
     /// </summary>
     public partial class ActiveLineDetailPanel : CompositeDrawable
     {
@@ -42,10 +44,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private OsuSpriteText timing = null!;
         private RoundedButton addWordButton = null!;
         private RoundedButton removeWordButton = null!;
+        private Box background = null!;
 
         public ActiveLineDetailPanel()
         {
             RelativeSizeAxes = Axes.Both;
+        }
+
+        protected override void LoadComplete()
+        {
+            base.LoadComplete();
+            state.ActionRefused += flashRefusal;
+        }
+
+        /// <summary>The panel's error flash, for an action the editor refused (see <see cref="LyricEditState.Refuse"/>).</summary>
+        private void flashRefusal() => background.FlashColour(TypeBeatStyle.ErrorChar, 400, Easing.OutQuint);
+
+        protected override void Dispose(bool isDisposing)
+        {
+            base.Dispose(isDisposing);
+
+            if (state.IsNotNull())
+                state.ActionRefused -= flashRefusal;
         }
 
         [BackgroundDependencyLoader]
@@ -53,7 +73,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             InternalChildren = new Drawable[]
             {
-                new Box
+                background = new Box
                 {
                     RelativeSizeAxes = Axes.Both,
                     Colour = TypeBeatStyle.Background,
@@ -70,6 +90,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         // word buttons sit right under the word blocks they act on).
                         new Dimension(GridSizeMode.Absolute, 30),
                         new Dimension(GridSizeMode.Absolute, 52),
+                        // The two-row word editor for the original text (backlog 330): no room at all
+                        // on a line without one.
+                        new Dimension(GridSizeMode.AutoSize),
                         new Dimension(),
                         new Dimension(GridSizeMode.Absolute, 30),
                     },
@@ -84,8 +107,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             // Keep line actions beside the caret magnet.
                             actionRow("line", new[]
                             {
-                                actionButton("add @ playhead", addAtPlayhead, line_button_width),
-                                actionButton("split @ word (S)", splitAtSelectedWord, line_button_width),
+                                // Named for what they make; WHERE is in the tooltip (the playhead, the
+                                // selected word), since the "@" labels read as jargon (backlog 336).
+                                actionButton("add line", addAtPlayhead, line_button_width, "Adds a new line at the playhead"),
+                                actionButton("split line (S)", splitAtSelectedWord, line_button_width, "Splits the line in two at the selected word"),
                                 actionButton("merge next (M)", mergeNext, line_button_width),
                                 actionButton("delete line", deleteLine, line_button_width),
                             }, new Drawable[]
@@ -116,6 +141,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                     },
                                 },
                             },
+                        },
+                        new Drawable[]
+                        {
+                            new WordScriptEditor(),
                         },
                         new Drawable[]
                         {
@@ -155,12 +184,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Width of the two mode toggles, which carry a smaller label font to match.</summary>
         private const float toggle_width = 92;
 
-        private static RoundedButton actionButton(string text, System.Action action, float width = 108) => new RoundedButton
+        private static RoundedButton actionButton(string text, System.Action action, float width = 108, string? tooltip = null) => new RoundedButton
         {
             Text = text,
             Action = action,
             Width = width,
             Height = 30,
+            TooltipText = tooltip ?? string.Empty,
         };
 
         /// <summary>
@@ -280,7 +310,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 // advice about something that does not exist: point at the two ways to author the
                 // very first line instead.
                 header.Text = editorBeatmap.HitObjects.Count == 0
-                    ? "no lyrics yet, press \"add @ playhead\" above (or double-click the timeline) to write the first line"
+                    ? "no lyrics yet, press \"add line\" above (or double-click the timeline) to write the first line"
                     : "no line, click one, or double-click a gap in the timeline to add";
                 timing.Text = string.Empty;
                 return;

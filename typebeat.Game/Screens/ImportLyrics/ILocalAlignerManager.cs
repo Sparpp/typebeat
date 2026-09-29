@@ -28,11 +28,27 @@ namespace typebeat.Game.Screens.ImportLyrics
         bool GpuDetected { get; }
 
         /// <summary>
+        /// The <c>ALIGNER_VERSION</c> of the aligner script the importer would actually run; null
+        /// when nothing is installed or the script predates versioning.
+        /// </summary>
+        string? InstalledVersion { get; }
+
+        /// <summary>The <c>ALIGNER_VERSION</c> of the component this build ships; null when the build carries none.</summary>
+        string? ShippedVersion { get; }
+
+        /// <summary>
+        /// True when an installed aligner is older than the one this build ships, so a reinstall
+        /// (which refreshes the scripts and keeps the multi-GB environment) would change results.
+        /// </summary>
+        bool UpdateAvailable { get; }
+
+        /// <summary>
         /// Installs (or repairs) the local aligner: copies the shipped component into the game's
         /// data directory, builds its Python environment (a one-time multi-GB download; CUDA build
         /// when <see cref="GpuDetected"/>), and points the importer at it. Progress lines stream on
         /// a background thread; marshal to the update thread yourself. Safe to call when already
-        /// installed (refreshes scripts, keeps the environment).
+        /// installed: the scripts are replaced by the shipped copy and the aligner's caches are
+        /// cleared, while the environment is kept.
         /// </summary>
         Task<LyricImportResult> InstallAsync(Action<string> progress, CancellationToken token);
     }

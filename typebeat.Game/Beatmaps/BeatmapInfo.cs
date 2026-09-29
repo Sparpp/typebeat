@@ -94,6 +94,25 @@ namespace typebeat.Game.Beatmaps
         /// </summary>
         public double StarRating { get; set; } = -1;
 
+        /// <summary>
+        /// The map's target typing pace in WPM (<see cref="TypingPaceProfile.TargetWpm"/> at rate 1.0 with no mods,
+        /// the same headline figure song select's wedge and the website card show), stored so song select can group
+        /// by it without decoding the map. 0 when the map has nothing typeable to measure.
+        /// </summary>
+        /// <remarks>
+        /// Defaults to -1, meaning NOT YET PROCESSED, and that marker gates <see cref="HasIntroBeatdrop"/> too
+        /// (a bool has no sentinel of its own): see <see cref="StoredBeatmapFacts"/>, which is the one place both
+        /// are written and the one place their readers ask whether a row can be trusted.
+        /// </remarks>
+        public double TargetWpm { get; set; } = StoredBeatmapFacts.UNPROCESSED;
+
+        /// <summary>
+        /// Whether this difficulty's file declares an intro beatdrop (<see cref="IBeatmap.IntroBeatdropTime"/>), stored so
+        /// song select can group by intro membership without decoding. Only meaningful once <see cref="TargetWpm"/> is
+        /// non-negative (see <see cref="StoredBeatmapFacts.IsProcessed"/>); an unprocessed row reads <c>false</c>.
+        /// </summary>
+        public bool HasIntroBeatdrop { get; set; }
+
         [Indexed]
         public string MD5Hash { get; set; } = string.Empty;
 

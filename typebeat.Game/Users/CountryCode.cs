@@ -662,6 +662,9 @@ namespace typebeat.Game.Users
         [Description("Suriname")]
         SR,
 
+        [Description("South Sudan")]
+        SS,
+
         [Description("Sao Tome and Principe")]
         ST,
 
