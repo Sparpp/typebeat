@@ -372,32 +372,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return DetectLanguage(texts);
         }
 
-        private static string? scriptOf(char c)
+        /// <summary>The script a character is a letter of, by Unicode block (code points, so the ranges read as the blocks they are).</summary>
+        private static string? scriptOf(char ch)
         {
-            if (c < 'Ͱ')
+            int c = ch;
+
+            if (c < 0x0370)
                 return null;
 
-            if (c <= 'Ͽ' || (c >= 'ἀ' && c <= '῿'))
+            if (c <= 0x03FF || (c >= 0x1F00 && c <= 0x1FFF))
                 return "greek";
-            if (c >= 'Ѐ' && c <= 'ԯ')
+            if (c >= 0x0400 && c <= 0x052F)
                 return "cyrillic";
-            if (c >= '԰' && c <= '֏')
+            if (c >= 0x0530 && c <= 0x058F)
                 return "armenian";
-            if (c >= '֐' && c <= '׿')
+            if (c >= 0x0590 && c <= 0x05FF)
                 return "hebrew";
-            if (c >= '؀' && c <= 'ۿ')
+            if (c >= 0x0600 && c <= 0x06FF)
                 return "arabic";
-            if (c >= 'ऀ' && c <= 'ॿ')
+            if (c >= 0x0900 && c <= 0x097F)
                 return "hindi";
-            if (c >= '฀' && c <= '๿')
+            if (c >= 0x0E00 && c <= 0x0E7F)
                 return "thai";
-            if ((c >= 'Ⴀ' && c <= 'ჿ') || (c >= 'Ა' && c <= 'Ჿ'))
+            if ((c >= 0x10A0 && c <= 0x10FF) || (c >= 0x1C90 && c <= 0x1CBF))
                 return "georgian";
-            if ((c >= 'ᄀ' && c <= 'ᇿ') || (c >= '㄰' && c <= '㆏') || (c >= '가' && c <= '힯'))
+            if ((c >= 0x1100 && c <= 0x11FF) || (c >= 0x3130 && c <= 0x318F) || (c >= 0xAC00 && c <= 0xD7AF))
                 return "hangul";
-            if ((c >= 'ぁ' && c <= 'ヿ' && c != '・') || (c >= 'ㇰ' && c <= 'ㇿ') || (c >= 'ｦ' && c <= 'ﾟ'))
+            // Hiragana and katakana (the katakana middle dot, 0x30FB, is punctuation), the phonetic
+            // extensions and halfwidth katakana.
+            if ((c >= 0x3041 && c <= 0x30FF && c != 0x30FB) || (c >= 0x31F0 && c <= 0x31FF) || (c >= 0xFF66 && c <= 0xFF9F))
                 return "kana";
-            if ((c >= '一' && c <= '鿿') || (c >= '㐀' && c <= '䶿') || (c >= '豈' && c <= '﫿'))
+            if ((c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF) || (c >= 0xF900 && c <= 0xFAFF))
                 return "han";
 
             return null;
@@ -459,9 +464,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         public static bool HasOriginals(IBeatmap beatmap)
             => HasOriginals(beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line));
 
-        /// <summary>Every unromanised word's original across these lines, in order.</summary>
+        /// <summary>
+        /// Every unromanised word's original across these lines, in order, and for a line with
+        /// nothing typed and no unromanised word of its own (an import that romanised a whole line
+        /// and could spell none of it), the line's original. Exactly what the server's parse lists
+        /// (<c>LyricTiming.Header.Unromanised</c>) and refuses to store.
+        /// </summary>
         public static IReadOnlyList<string> UnromanisedWords(IEnumerable<LyricLine> lines)
-            => lines.SelectMany(l => l.UnromanisedWords).Select(w => w.Original).ToList();
+            => lines.SelectMany(l => l.UnromanisedWords.Count == 0 && l.Units.Count == 0 && l.Original != null
+                ? new[] { l.Original }
+                : l.UnromanisedWords.Select(w => w.Original)).ToList();
 
         /// <summary>
         /// Why a map may not be SUBMITTED yet, or null when it may: a map with words the romaniser

@@ -261,6 +261,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             hitObject.Line = rebuild(line, rawText: rawText, units: units, originals: (lineOriginal, pending));
             editorBeatmap.Update(hitObject);
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
+
+            // A LINE-granularity map writes no words[], so its words' originals persist only through
+            // the line's own original, which the decode splits back over the words. Rebuilt from the
+            // words here, or a word's new original would not survive the save.
+            if (hitObject.Granularity == TimingGranularity.Line && hitObject.Line.Units.Any(u => u.Original != null))
+            {
+                hitObject.Line = rebuild(hitObject.Line, originals: (JoinedOriginal(hitObject.Line.Units, hitObject.Line.UnromanisedWords), hitObject.Line.UnromanisedWords));
+                editorBeatmap.Update(hitObject);
+            }
+
             syncSingEndToLastUnit(editorBeatmap, hitObject, lastUnitEnd(line));
             editorBeatmap.EndChange();
         }

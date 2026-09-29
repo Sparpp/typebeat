@@ -252,6 +252,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(lineAt(editorBeatmap, 0).Line.Units.Select(u => u.Original), Is.EqualTo(new[] { "Привет", "мир" }));
         }
 
+        /// <summary>
+        /// A LINE-granularity map writes no words[], so a word's original set in the word editor must
+        /// persist through the line's original, which the decode splits back over the words.
+        /// </summary>
+        [Test]
+        public void AWordOriginalSurvivesTheSaveOfALineGranularityMap()
+        {
+            var editorBeatmap = createBeatmap();
+
+            foreach (var h in TypeBeatEditorOperations.OrderedLines(editorBeatmap))
+            {
+                h.Granularity = TimingGranularity.Line;
+                h.Line = new LyricLine
+                {
+                    RawText = h.Line.RawText,
+                    StartTime = h.Line.StartTime,
+                    EndTime = h.Line.EndTime,
+                    SingEndTime = h.Line.SingEndTime,
+                    Units = LrcParser.InterpolateUnits(h.Line.RawText, h.Line.StartTime, h.Line.SingEndTime),
+                };
+            }
+
+            var line = lineAt(editorBeatmap, 1);
+            Assert.That(TypeBeatEditorOperations.SetWordOriginal(editorBeatmap, line, 0, "гамма"), Is.True);
+            Assert.That(line.Granularity, Is.EqualTo(TimingGranularity.Line), "the proposal spelled the word as it was, so nothing was hand timed");
+
+            var saved = reloaded(editorBeatmap, 1);
+            Assert.That(saved.Units.Select(u => u.Original), Is.EqualTo(new[] { "гамма", null }));
+            Assert.That(saved.Original, Is.EqualTo("гамма delta"));
+        }
+
         /// <summary>A plain Latin commit on a line without originals stores none (nothing moved).</summary>
         [Test]
         public void ALatinEditStoresNoOriginal()

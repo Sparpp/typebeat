@@ -292,6 +292,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(refusal, Does.Contain("我爱你"));
         }
 
+        /// <summary>
+        /// An aligner line with no words[] that the romaniser cannot spell at all keeps only its
+        /// original: it still survives, is listed, and still blocks submission, exactly as the
+        /// server's parse lists and refuses it.
+        /// </summary>
+        [Test]
+        public void AWordlessLineTheRomaniserCannotSpellIsStillListed()
+        {
+            const string json = "{\"version\":2,\"lines\":[{\"text\":\"我爱你\",\"start_ms\":0,\"end_ms\":900},{\"text\":\"yeah\",\"start_ms\":1000,\"end_ms\":1900}]}";
+
+            var lines = load(LyricMapImporter.RomaniseLines(json, "chinese"));
+
+            Assert.That(lines.Select(l => l.RawText), Is.EqualTo(new[] { string.Empty, "yeah" }));
+            Assert.That(lines[0].Original, Is.EqualTo("我爱你"));
+            Assert.That(lines[0].UnromanisedWords, Is.Empty);
+            Assert.That(LyricOriginals.UnromanisedWords(lines), Is.EqualTo(new[] { "我爱你" }));
+
+            var (result, beatmap, _) = package(LyricMapImporter.RomaniseLines(json, "chinese"), "chinese");
+            Assert.That(result.Notice, Does.Contain("我爱你"));
+            Assert.That(new TypeBeatRuleset().GetSubmissionRefusal(beatmap), Does.Contain("我爱你"));
+        }
+
         [Test]
         public void AMapWithoutFlaggedWordsMaySubmit()
             => Assert.That(new TypeBeatRuleset().GetSubmissionRefusal(package(LyricMapImporter.SynthesizeTimingJsonFromLrc(russian_lrc, "russian")!, "russian").Beatmap), Is.Null);
