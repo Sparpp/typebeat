@@ -870,8 +870,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         /// and only an unpinned caret has anywhere to be moved to, so the two Enter tests pick the
         /// stack the gesture exists on. LoadPlayer is the same per-test idiom the push-warning scene
         /// uses for the same reason.
+        ///
+        /// <para>The wait is part of the reload, not an optional extra (backlog 341): LoadPlayer swaps
+        /// <c>Player</c> for a NEW instance synchronously but loads it asynchronously, and that
+        /// instance's <c>DrawableRuleset</c> stays null until its load has run. Without the wait the
+        /// very next read of <see cref="engine"/> (the first poll of <see cref="waitForLine"/>) raced
+        /// the load and threw from <see cref="playfield"/> whenever the machine was busy enough for
+        /// the load to lose. Same wait as <see cref="SetUpSteps"/> and every other scene's reload.</para>
         /// </summary>
-        private void reloadWithoutFletcher() => AddStep("load player without Fletcher (unpinned caret)", () => LoadPlayer());
+        private void reloadWithoutFletcher()
+        {
+            AddStep("load player without Fletcher (unpinned caret)", () => LoadPlayer());
+            AddUntilStep("player loaded", () => Player.IsLoaded && Player.Alpha == 1);
+        }
 
         private TypingCell cell(int index) => engine.Lines[0].Cells[index];
 
