@@ -1,18 +1,12 @@
 # Contributing Guidelines
 
-Thank you for showing interest in the development of type!beat. We aim to provide a good collaborating environment for everyone involved, and as such have decided to list some of the most important things to keep in mind in the process. The guidelines below have been chosen based on past experience.
+Thanks for wanting to help out type!beat. This is a personal, for fun project that I made in a weekend and maintain out of pocket. It warms my heart to see people engaging with the game and even being interested in its development!
 
 ## Foreword on AI usage
 
-Our team believes in **human contributions**. Any contribution – be it an issue report or a pull request – which is created by, documented by, or aided by AI/LLM usage will typically be **closed and locked without further discussion**.
+AI use is *allowed* with caveats. Any contribution assisted by AI/LLMs in any way must be disclosed upfront, code should be reviewed and at the very least the functionality should be tested if you're not confident with coding. This project is not that serious, but we still want to keep the game playable for players and easily maintainable for contributors!
 
-## Table of contents
-
-1. [Reporting bugs](#reporting-bugs)
-2. [Providing general feedback](#providing-general-feedback)
-3. [Issue or discussion?](#issue-or-discussion)
-4. [Submitting pull requests](#submitting-pull-requests)
-5. [Resources](#resources)
+The below text is inherited from osu!lazer, check them out [here!](https://github.com/ppy/osu)
 
 ## Reporting bugs
 
@@ -57,38 +51,8 @@ When in doubt, it's probably best to start with a discussion first. We will esca
 
 ## Submitting pull requests
 
-While pull requests from unaffiliated contributors are welcome, please note that due to significant community interest and limited review throughput, the core team's primary focus is on the issues which are currently [on the roadmap](https://github.com/orgs/ppy/projects/7/views/6). Reviewing PRs that fall outside of the scope of the roadmap is done on a best-effort basis, so please be aware that it may take a while before a core maintainer gets around to review your change.
+While pull requests from unaffiliated contributors are welcome.
 
-The [issue tracker](https://github.com/ppy/osu/issues) should provide plenty of issues to start with. In the case of simple issues, a direct PR is okay. However, if you decide to work on an existing issue which doesn't seem trivial, **please ask us first**. This way we can try to estimate if it is a good fit for you and provide the correct direction on how to address it. In addition, note that while we do not rule out external contributors from working on roadmapped issues, we will generally prefer to handle them ourselves unless they're not very time sensitive.
+The [issue tracker](https://github.com/Sparpp/typebeat/issues) should provide plenty of issues to start with. 
 
-If you'd like to propose a subjective change to one of the visual aspects of the game, or there is a bigger task you'd like to work on, but there is no corresponding issue or discussion thread yet for it, **please open a discussion or issue first** to avoid wasted effort. This in particular applies if you want to work on [one of the available designs from the type!beat Figma master library](https://www.figma.com/file/VIkXMYNPMtQem2RJg9k2iQ/Master-Library).
-
-Aside from the above, below is a brief checklist of things to watch out when you're preparing your code changes:
-
-- Make sure you're comfortable with the principles of object-oriented programming, the syntax of C\# and your development environment.
-- Make sure you are familiar with [git](https://git-scm.com/) and [the pull request workflow](https://help.github.com/en/github/collaborating-with-issues-and-pull-requests/proposing-changes-to-your-work-with-pull-requests).
-- Please do not make code changes via the GitHub web interface.
-- Please add tests for your changes. We expect most new features and bugfixes to have test coverage, unless the effort of adding them is prohibitive. The visual testing methodology we use is described in more detail [here](https://github.com/ppy/osu-framework/wiki/Development-and-Testing).
-- Please run tests and code style analysis (via `InspectCode.{ps1,sh}` scripts in the root of this repository) before opening the PR. This is particularly important if you're a first-time contributor, as CI will not run for your PR until we allow it to do so.
-- **Do not run the game in release configuration at any point during your testing** (the sole exception to this being benchmarks). Using release is an unnecessary and harmful practice, and can even lead to you losing your local realm database if you start making changes to the schema. The debug configuration has a completely separated full-stack environment, including a development website instance at https://dev.ppy.sh/. It is permitted to register an account on that development instance for testing purposes and not worry about multi-accounting infractions.
-
-After you're done with your changes and you wish to open the PR, please observe the following recommendations:
-
-- Please submit the pull request from a [topic branch](https://git-scm.com/book/en/v2/Git-Branching-Branching-Workflows#_topic_branch) (not `master`), and keep the *Allow edits from maintainers* check box selected, so that we can push fixes to your PR if necessary.
-- Please pick the following target branch for your pull request:
-    - `pp-dev`, if the change impacts star rating or performance points calculations for any of the rulesets,
-    - `master`, otherwise.
-- Please avoid pushing untested or incomplete code.
-- Please do not force-push or rebase unless we ask you to.
-- Please do not merge `master` continually if there are no conflicts to resolve. We will do this for you when the change is ready for merge.
-
-We are highly committed to quality when it comes to the type!beat project. This means that contributions from less experienced community members can take multiple rounds of review to get to a mergeable state. We try our utmost best to never conflate a person with the code they authored, and to keep the discussion focused on the code at all times. Please consider our comments and requests a learning experience.
-
-If you're uncertain about some part of the codebase or some inner workings of the game and framework, please reach out either by leaving a comment in the relevant issue, discussion, or PR thread, or by posting a message in the [development Discord server](https://discord.gg/ppy). We will try to help you as much as we can.
-
-## Resources
-
-- [Development roadmap](https://github.com/orgs/ppy/projects/7/views/6): What the core team is currently working on
-- [`ppy/osu-framework` wiki](https://github.com/ppy/osu-framework/wiki): Contains introductory information about type!beatframework, the bespoke 2D game framework we use for the game
-- [`ppy/osu` wiki](https://github.com/ppy/osu/wiki): Contains articles about various technical aspects of the game
-- [Figma master library](https://www.figma.com/file/VIkXMYNPMtQem2RJg9k2iQ/Master-Library): Contains finished and draft designs for type!beat
+If you'd like to propose a subjective change to one of the visual aspects of the game, or there is a bigger task you'd like to work on, but there is no corresponding issue or discussion thread yet for it, **please open a discussion or issue first** to avoid wasted effort.
