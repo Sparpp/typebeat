@@ -125,6 +125,14 @@ namespace typebeat.Game.Online.Leaderboards
                         return;
                     }
 
+                    // A selection holding a LOCAL-ONLY mod (backlog 331) has no online board: no play under
+                    // it was ever submitted, so asking the server for one could only ever come back empty.
+                    if (newCriteria.ExactMods?.Any(m => m.LocalOnly) == true)
+                    {
+                        scores.Value = LeaderboardScores.Failure(LeaderboardFailState.LocalOnlyMods);
+                        return;
+                    }
+
                     IReadOnlyList<Mod>? requestMods = null;
 
                     if (newCriteria.ExactMods != null)
@@ -307,6 +315,7 @@ namespace typebeat.Game.Online.Leaderboards
         NoneSelected = -4,
         NotLoggedIn = -5,
         NotSupporter = -6,
-        NoTeam = -7
+        NoTeam = -7,
+        LocalOnlyMods = -8,
     }
 }

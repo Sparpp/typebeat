@@ -191,6 +191,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 return kept;
             }
+
+            /// <summary>
+            /// THE REVERSE of <see cref="MapSplits"/> (backlog 331): the index in <see cref="Source"/>
+            /// at which the source unit that opens <see cref="Text"/> at <paramref name="textSplit"/>
+            /// starts, or null when no unit's text starts exactly there (a cut inside one unit's run,
+            /// the "y" of the "kya" one mora produced) or the word carries no unit mapping. A unit that
+            /// produced no text never answers: the cut belongs to the unit whose letters follow it.
+            /// </summary>
+            public int? SourceIndexOfTextSplit(int textSplit)
+            {
+                if (Flagged || result == null || textIndex == null || textSplit <= 0 || textSplit >= Text.Length)
+                    return null;
+
+                foreach (var unit in result.Units)
+                {
+                    if (unit.TextLength <= 0)
+                        continue;
+
+                    int at = textIndex[Math.Min(unit.TextStart, textIndex.Length - 1)];
+
+                    if (at == textSplit)
+                        return unit.SourceStart;
+
+                    if (at > textSplit)
+                        break;
+                }
+
+                return null;
+            }
         }
 
         /// <summary>

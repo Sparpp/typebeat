@@ -217,7 +217,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // era flag and stamps no CONFIG bit; the mod itself says why.
             bool anyOrderWithinWord = Mods?.Any(m => m is TypeBeatModDyslexia) == true;
 
-            return new TypingEngine(lyricBeatmap, literate)
+            // POLYGLOT (backlog 331) changes the cell list exactly as Literate does, so it is read here for
+            // the same reason; the language is asked of the same function the mod stamps the hit
+            // objects with, so the engine and the nested scoring objects cut the same cells.
+            bool polyglot = Mods?.Any(m => m is TypeBeatModPolyglot) == true;
+            string? polyglotLanguage = polyglot ? TypeBeatModPolyglot.LanguageFor(Beatmap) : null;
+
+            return new TypingEngine(lyricBeatmap, literate, polyglot, polyglotLanguage)
             {
                 // THE live judgement rule since backlog 179, for every player and (since backlog
                 // 180) every mod stack but Hard Rock: a character typed while its syllable is being

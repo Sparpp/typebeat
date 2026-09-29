@@ -11,6 +11,7 @@ using System.Linq;
 using osu.Framework.IO.Stores;
 using osu.Framework.Logging;
 using osu.Framework.Platform;
+using osu.Framework.Text;
 using SixLabors.Fonts;
 
 namespace typebeat.Game.Graphics.Fonts
@@ -194,6 +195,130 @@ namespace typebeat.Game.Graphics.Fonts
                 return ok;
             }
         }
+
+        #region Script coverage (backlog 331)
+
+        /// <summary>The key prefix a script-coverage fallback face is registered under.</summary>
+        public const string COVERAGE_FALLBACK_PREFIX = "LyricCoverage-";
+
+        /// <summary>
+        /// Faces tried first when a character has no glyph anywhere in the font store, in order: the
+        /// platform faces that each carry a whole script family (Segoe UI's Greek, Cyrillic, Georgian and
+        /// Armenian, Nirmala UI's Indic scripts, the CJK and hangul UI faces, the macOS and Linux
+        /// equivalents). Every other installed face is tried after them, alphabetically.
+        /// </summary>
+        public static readonly IReadOnlyList<string> PREFERRED_COVERAGE_FAMILIES = new[]
+        {
+            "Segoe UI", "Nirmala UI", "Leelawadee UI", "Malgun Gothic", "Yu Gothic UI", "Microsoft YaHei UI", "Microsoft JhengHei UI",
+            "Sylfaen", "Ebrima", "Gadugi", "Segoe UI Historic", "Arial Unicode MS",
+            "Helvetica Neue", "Hiragino Sans", "Apple SD Gothic Neo", "PingFang SC", "Noto Sans", "Noto Sans CJK JP", "DejaVu Sans", "Arial",
+        };
+
+        private readonly Dictionary<string, RuntimeFontGlyphStore> coverageProbes = new Dictionary<string, RuntimeFontGlyphStore>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Makes every character in <paramref name="characters"/> drawable by the lyric stack (the
+        /// Polyglot mod plays originals in any script): a character no store in the game's font store
+        /// can draw has an installed system face that can registered as a FALLBACK, which the framework
+        /// reaches for any glyph the lyric font itself lacks. Returns the characters no installed face
+        /// covers either; those draw as the framework's fallback glyph, never as a blank cell.
+        /// </summary>
+        public IReadOnlyList<char> EnsureCoverage(IEnumerable<char> characters)
+        {
+            var missing = new List<char>();
+
+            if (fonts == null)
+                return missing;
+
+            lock (sync)
+            {
+                foreach (char c in characters.Distinct())
+                {
+                    if (char.IsWhiteSpace(c) || char.IsControl(c) || char.IsSurrogate(c) || isCovered(c))
+                        continue;
+
+                    string? family = ChooseCoverageFamily(c, coverageCandidates(), familyHasGlyph);
+
+                    if (family == null || !registerCoverage(family))
+                        missing.Add(c);
+                }
+            }
+
+            if (missing.Count > 0)
+                Logger.Log($"No installed font can draw the lyric characters {string.Concat(missing)}; they show as the fallback glyph.");
+
+            return missing;
+        }
+
+        /// <summary>
+        /// THE CHOICE, pure so it is pinned by tests: the first of <paramref name="candidates"/> that
+        /// <paramref name="hasGlyph"/> says draws <paramref name="character"/>, or null when none does.
+        /// </summary>
+        public static string? ChooseCoverageFamily(char character, IEnumerable<string> candidates, Func<string, char, bool> hasGlyph)
+            => candidates.FirstOrDefault(family => hasGlyph(family, character));
+
+        private IEnumerable<string> coverageCandidates()
+        {
+            var installed = GetSystemFontFamilies();
+            var set = new HashSet<string>(installed, StringComparer.OrdinalIgnoreCase);
+
+            return PREFERRED_COVERAGE_FAMILIES.Where(set.Contains).Concat(installed.Where(f => !PREFERRED_COVERAGE_FAMILIES.Contains(f, StringComparer.OrdinalIgnoreCase)));
+        }
+
+        private bool isCovered(char c)
+        {
+            try
+            {
+                return ((ITexturedGlyphLookupStore)fonts!).Get(string.Empty, c) != null;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private bool familyHasGlyph(string family, char c)
+        {
+            try
+            {
+                if (!coverageProbes.TryGetValue(family, out var probe))
+                {
+                    var resolved = resolveSystemFamily(family);
+
+                    if (resolved == null)
+                        return false;
+
+                    coverageProbes[family] = probe = new RuntimeFontGlyphStore(resolved.Value, COVERAGE_FALLBACK_PREFIX + family);
+                }
+
+                return probe.HasGlyph(c);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private bool registerCoverage(string family)
+        {
+            string key = COVERAGE_FALLBACK_PREFIX + family;
+
+            if (registered.TryGetValue(key, out bool already))
+                return already;
+
+            bool ok = coverageProbes.TryGetValue(family, out var store);
+
+            if (ok)
+            {
+                fonts!.AddTextureSource(store!);
+                Logger.Log($"Registered '{family}' as a lyric font fallback for script coverage.");
+            }
+
+            registered[key] = ok;
+            return ok;
+        }
+
+        #endregion
 
         private FontFamily? resolveSystemFamily(string family)
             => SystemFonts.TryGet(family, out var f) ? f : null;

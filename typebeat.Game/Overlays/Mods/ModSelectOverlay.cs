@@ -224,6 +224,8 @@ namespace typebeat.Game.Overlays.Mods
 
             State.BindValueChanged(_ => samplePlaybackDisabled.Value = State.Value == Visibility.Hidden, true);
 
+            Beatmap.BindValueChanged(_ => updateAvailability());
+
             // This is an optimisation to prevent refreshing the available settings controls when it can be
             // reasonably assumed that the settings panel is never to be displayed (e.g. FreeModSelectOverlay).
             if (AllowCustomisation)
@@ -364,9 +366,21 @@ namespace typebeat.Game.Overlays.Mods
 
             AvailableMods.Value = newLocalAvailableMods;
             filterMods();
+            updateAvailability();
 
             foreach (var column in columnFlow.Columns.OfType<ModColumn>())
                 column.AvailableMods = AvailableMods.Value.GetValueOrDefault(column.ModType, Array.Empty<ModState>());
+        }
+
+        /// <summary>
+        /// Marks every mod the current beatmap cannot carry (<see cref="Mod.IsAvailableFor"/>, backlog
+        /// 331) as unavailable, which greys its panel and refuses its click. Nothing is deselected here:
+        /// the game drops an unavailable mod from the global selection itself, on the same beatmap change.
+        /// </summary>
+        private void updateAvailability()
+        {
+            foreach (var modState in AllAvailableMods)
+                modState.AvailableForBeatmap.Value = modState.Mod.IsAvailableFor(Beatmap.Value);
         }
 
         private void filterMods()

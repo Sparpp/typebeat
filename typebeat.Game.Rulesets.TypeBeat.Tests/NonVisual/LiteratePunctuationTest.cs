@@ -1255,18 +1255,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void LiterateIsTheOnlyBeatmapShapingModAndAPresetStillShowsIt()
+        public void LiterateAndPolyglotAreTheOnlyBeatmapShapingModsAndAPresetStillShowsThem()
         {
             // The filter the display surfaces convert with, and the one they use to decide whether a
-            // mod toggle has to convert AGAIN rather than re-read a clock rate. Literate is the
-            // ruleset's only mod that rewrites the hit objects, so it has to be the only one in the
-            // result; a rate mod moves the clock and nothing else.
+            // mod toggle has to convert AGAIN rather than re-read a clock rate. Literate and (since
+            // backlog 331) Polyglot are the ruleset's only mods that rewrite the hit objects, so they
+            // have to be the only ones in the result; a rate mod moves the clock and nothing else.
             var mods = new TypeBeatRuleset().AllMods.OfType<Mod>().ToList();
 
             var literate = mods.Single(m => m is TypeBeatModLiterate);
+            var polyglot = mods.Single(m => m is TypeBeatModPolyglot);
             CollectionAssert.AreEqual(new[] { literate }, ModUtils.BeatmapShapingMods(new[] { literate }));
+            CollectionAssert.AreEqual(new[] { polyglot }, ModUtils.BeatmapShapingMods(new[] { polyglot }));
 
-            CollectionAssert.IsEmpty(ModUtils.BeatmapShapingMods(mods.Where(m => m is not TypeBeatModLiterate)));
+            CollectionAssert.IsEmpty(ModUtils.BeatmapShapingMods(mods.Where(m => m is not TypeBeatModLiterate and not TypeBeatModPolyglot)));
 
             // And a preset wrapper neither hides the child from the filter nor rides along beside
             // it, which is what keeps the child from being applied twice.

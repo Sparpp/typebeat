@@ -5,6 +5,7 @@
 // Constant names restyled; nullable annotations added for the fork's hard-error nullability.
 
 using System;
+using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Extensions.ObjectExtensions;
@@ -232,6 +233,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // the displays fall back to the built-in lyric font.
             string? lyricFont = resolveLyricFont(config, fontManager);
 
+            // POLYGLOT (backlog 331): the lines are drawn in their original script, which the lyric
+            // font may not cover. Every character they can show (the cells and the originals, a hangul
+            // block drawn over its keys included) gets a system face registered as a fallback when no
+            // loaded font can draw it, so a missing glyph never renders as a blank cell.
+            if (engine.Polyglot)
+            {
+                fontManager?.EnsureCoverage(lines.SelectMany(l => l.Cells.Select(c => c.Expected))
+                                                 .Concat(lines.SelectMany(l => l.Source.Units.SelectMany(u => PolyglotText.ToNfc(u.Original)))));
+            }
+
             // The lyric SIZE (backlog 334) is read once, like the font: a display measures its glyphs
             // at load and cannot be re-sized in place, so the slider applies from the next play.
             if (config != null)
@@ -377,7 +388,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             // boundaryBar after approachBar → the solid boundary cue draws on top of the
             // translucent first-word cue where they overlap.
-            InternalChildren = new Drawable[] { lineContainer, approachBar, boundaryBar, pushBar, sungCaret, playerCaret, wrongKeyLayer };
+            imeCompositionText = new OsuSpriteText
+            {
+                Anchor = Anchor.TopLeft,
+                Origin = Anchor.BottomCentre,
+                Font = TypeBeatStyle.Lyric(FontSize * 0.75f, lyricFont),
+                Colour = TypeBeatStyle.UntypedChar,
+                Alpha = 0f,
+                ShadowColour = TypeBeatStyle.TextShadow,
+                ShadowOffset = TypeBeatStyle.TEXT_SHADOW_OFFSET,
+            };
+
+            InternalChildren = new Drawable[] { lineContainer, approachBar, boundaryBar, pushBar, sungCaret, playerCaret, wrongKeyLayer, imeCompositionText };
         }
 
         /// <summary>
@@ -461,6 +483,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             foreach (int cellIndex in abandoned.CellIndices)
                 d.RefreshCell(cellIndex);
         }
+
+        /// <summary>
+        /// The live IME COMPOSITION of a Polyglot play (backlog 331), drawn just above the caret while the
+        /// player composes a hanzi or kanji. Display only: it judges nothing, and only the committed
+        /// characters reach the engine.
+        /// </summary>
+        private OsuSpriteText imeCompositionText = null!;
+
+        /// <summary>Shows <paramref name="composition"/> above the caret, or hides it when empty.</summary>
+        public void SetImeComposition(string composition)
+        {
+            if (imeCompositionText.IsNull())
+                return;
+
+            imeCompositionText.Text = composition;
+            imeCompositionText.Alpha = string.IsNullOrEmpty(composition) ? 0f : 1f;
+            imeCompositionText.Position = playerCaret.Position;
+        }
+
+        /// <summary>The composition currently shown (empty when none).</summary>
+        public string ImeComposition => imeCompositionText.IsNotNull() && imeCompositionText.Alpha > 0 ? imeCompositionText.Text.ToString() : string.Empty;
 
         /// <summary>
         /// A rejected wrong key never enters the line; instead the offending letter pops up

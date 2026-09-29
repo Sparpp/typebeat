@@ -925,6 +925,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool Literate { get; }
 
         /// <summary>
+        /// Polyglot mod (backlog 331): the lines are played in their ORIGINAL script (see
+        /// <see cref="PolyglotLine"/>), fixed at construction for the reason <see cref="Literate"/>
+        /// is, and a press is matched against a cell in Unicode NFC (see
+        /// <see cref="PolyglotText.Matches"/>). The input path is the OS's committed TEXT rather than
+        /// <see cref="KeyCharMap"/>, which only the playfield has to know. A MOD and not an era: a
+        /// score carries it in its mod list, and no stored run can carry a mod that did not exist.
+        /// </summary>
+        public bool Polyglot { get; }
+
+        /// <summary>
+        /// Whether a press of <paramref name="c"/> satisfies a cell expecting
+        /// <paramref name="expected"/>: the Literate exact-case rule or the default fold, and under
+        /// <see cref="Polyglot"/> the same comparison in NFC. Every play without the mod runs the
+        /// original expression, character for character.
+        /// </summary>
+        private bool charMatches(char c, char expected)
+        {
+            if (Polyglot)
+                return PolyglotText.Matches(c, expected, CaseSensitive);
+
+            return CaseSensitive ? c == expected : Typeability.Fold(c) == Typeability.Fold(expected);
+        }
+
+        /// <summary>
         /// The DEFAULT typing model (backlog 107): wrong (non-space) characters are typed through
         /// and marked red instead of rejected, and can be backspaced, which is what every typing
         /// site does. ON by default; the <see cref="Mods.TypeBeatModGatekeeper"/> mod turns it off
@@ -1641,7 +1665,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         private SpaceTimingRule spaceTiming = SpaceTimingRule.Untimed;
 
-        public TypingEngine(LyricBeatmap beatmap, bool literate = false)
+        public TypingEngine(LyricBeatmap beatmap, bool literate = false, bool polyglot = false, string? polyglotLanguage = null)
         {
             Beatmap = beatmap ?? throw new ArgumentNullException(nameof(beatmap));
 
@@ -1653,11 +1677,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             Literate = literate;
             CaseSensitive = literate;
+            Polyglot = polyglot;
 
             lines = new List<TypingLine>(beatmap.Lines.Count);
 
             foreach (var line in beatmap.Lines)
-                lines.Add(TypingLine.FromLyricLine(line, literate));
+                lines.Add(TypingLine.ForMods(line, literate, polyglot, polyglotLanguage));
 
             lineSealed = new bool[lines.Count];
             lineAbandoned = new bool[lines.Count];
@@ -2805,7 +2830,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // Literate mod folds nothing: the typed char must match the target's exact case.
             // Default gameplay is case-insensitive (both sides lower-cased through Fold).
             bool matched = (cell.IsFreestyle && c != ' ')
-                           || (CaseSensitive ? c == cell.Expected : Typeability.Fold(c) == Typeability.Fold(cell.Expected));
+                           || charMatches(c, cell.Expected);
 
             if (!matched)
             {
@@ -4101,7 +4126,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 if (!cell.IsTypeable || cell.IsFreestyle || cell.State != CellState.Untyped)
                     continue;
 
-                if (CaseSensitive ? c == cell.Expected : Typeability.Fold(c) == Typeability.Fold(cell.Expected))
+                if (charMatches(c, cell.Expected))
                     return i;
             }
 

@@ -25,6 +25,9 @@ namespace typebeat.Game.Overlays.Mods
 
         private readonly ModState modState;
 
+        /// <summary>The state this panel shows.</summary>
+        protected ModState State => modState;
+
         public ModPanel(ModState modState)
         {
             this.modState = modState;
@@ -78,6 +81,10 @@ namespace typebeat.Game.Overlays.Mods
 
         protected override void Select()
         {
+            // A mod the beatmap cannot carry (Mod.IsAvailableFor, backlog 331) is not selected by clicking it.
+            if (!modState.AvailableForBeatmap.Value)
+                return;
+
             modState.PendingConfiguration = Mod.RequiresConfiguration;
             Active.Value = true;
         }

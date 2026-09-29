@@ -580,6 +580,9 @@ namespace typebeat.Game.Screens.Select
                 case LeaderboardState.NoTeam:
                     return new MessagePlaceholder(LeaderboardStrings.NoTeam);
 
+                case LeaderboardState.LocalOnlyMods:
+                    return new MessagePlaceholder("Plays with these mods stay on this device. Switch to the local leaderboard to see them.");
+
                 case LeaderboardState.Retrieving:
                     return null;
 

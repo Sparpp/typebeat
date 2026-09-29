@@ -107,9 +107,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// interpolation, never by the per-word spread) rides inside whichever segment surrounds
         /// it without spending a slot.</para>
         /// </summary>
-        public static int[] CellCuts(string token, IReadOnlyList<int> splits)
+        public static int[] CellCuts(string token, IReadOnlyList<int> splits, Func<char, bool>? isCell = null)
         {
             token ??= string.Empty;
+            isCell ??= Typeability.IsCell;
             int[] cuts = new int[splits.Count + 2];
             int cells = 0;
             int next = 0;
@@ -119,7 +120,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 while (next < splits.Count && splits[next] == i)
                     cuts[++next] = cells;
 
-                if (Typeability.IsCell(token[i]))
+                if (isCell(token[i]))
                     cells++;
             }
 

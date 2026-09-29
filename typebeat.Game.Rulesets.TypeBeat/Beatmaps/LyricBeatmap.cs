@@ -120,6 +120,63 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         public static bool IsCell(char c) => IsTypeable(c) || IsFreestyle(c);
 
+        /// <summary>
+        /// A character the POLYGLOT mod (backlog 331) plays as a typed cell: a letter or a mark of
+        /// any script (Unicode categories L and M) or a decimal digit, so "Привет", "γειά", "こんにちは"
+        /// and the jamo of a hangul block are all typeable. Used ONLY by the Polyglot flattening
+        /// (<see cref="Gameplay.PolyglotLine"/>): <see cref="IsTypeable"/> stays ASCII, the invariant
+        /// every legacy path (the normalizer, the key map, the difficulty model, the pace figures and
+        /// the server) is built on. A surrogate half is never a cell: a frame stores one UTF-16 unit,
+        /// so a character outside the BMP cannot be played (see <see cref="Gameplay.PolyglotText"/>).
+        /// </summary>
+        public static bool IsPolyglotCell(char c)
+        {
+            switch (CharUnicodeInfo.GetUnicodeCategory(c))
+            {
+                case UnicodeCategory.UppercaseLetter:
+                case UnicodeCategory.LowercaseLetter:
+                case UnicodeCategory.TitlecaseLetter:
+                case UnicodeCategory.ModifierLetter:
+                case UnicodeCategory.OtherLetter:
+                case UnicodeCategory.NonSpacingMark:
+                case UnicodeCategory.SpacingCombiningMark:
+                case UnicodeCategory.EnclosingMark:
+                case UnicodeCategory.DecimalDigitNumber:
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// The Polyglot twin of <see cref="IsCell"/>: an ASCII cell (freestyle slots included, which a
+        /// romanised word with no original still carries) or a <see cref="IsPolyglotCell"/> character.
+        /// Identical to <see cref="IsCell"/> on every character a stored romanised lyric can hold.
+        /// </summary>
+        public static bool IsPolyglotTypeCell(char c) => IsCell(c) || IsPolyglotCell(c);
+
+        /// <summary>
+        /// A mark the Polyglot mod types under Literate: a supported <see cref="PUNCTUATION"/> mark or
+        /// any Unicode punctuation (、 。 « » ¿ and the rest), since an original is not normalised and
+        /// keeps its own script's marks.
+        /// </summary>
+        public static bool IsPolyglotPunctuation(char c) => IsPunctuation(c) || char.IsPunctuation(c);
+
+        /// <summary>
+        /// The Polyglot twin of <see cref="DefaultChar"/>: a hyphen is a word break, a cell folds to
+        /// lower case, and EVERY other character (any script's punctuation, a symbol) disappears from
+        /// the default stream. On a stored romanised lyric (ASCII letters, digits, spaces, freestyle
+        /// markers and the supported marks) it answers exactly what <see cref="DefaultChar"/> answers.
+        /// </summary>
+        public static char? PolyglotDefaultChar(char c)
+        {
+            if (c == WORD_BREAK || c == ' ')
+                return ' ';
+
+            return IsPolyglotTypeCell(c) ? Fold(c) : null;
+        }
+
         public static char Fold(char c) => char.ToLowerInvariant(c);
 
         /// <summary>
@@ -373,6 +430,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// exactly what you type, by construction rather than by agreement.</para>
         /// </summary>
         public static void ProjectDefault(string raw, StringBuilder text, List<int>? sourceIndices = null)
+            => ProjectDefault(raw, text, sourceIndices, DefaultChar);
+
+        /// <summary>
+        /// <see cref="ProjectDefault(string, StringBuilder, List{int})"/> through a caller's own
+        /// per-char rule (the Polyglot mod's <see cref="PolyglotDefaultChar"/>); the run handling is
+        /// the same one, so the two streams cannot disagree about spaces.
+        /// </summary>
+        public static void ProjectDefault(string raw, StringBuilder text, List<int>? sourceIndices, Func<char, char?> defaultChar)
         {
             if (string.IsNullOrEmpty(raw))
                 return;
@@ -382,7 +447,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             while (i < raw.Length)
             {
-                if (DefaultChar(raw[i]) is not char c)
+                if (defaultChar(raw[i]) is not char c)
                 {
                     i++;
                     continue;
@@ -405,7 +470,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 while (end < raw.Length)
                 {
-                    if (DefaultChar(raw[end]) is not char d)
+                    if (defaultChar(raw[end]) is not char d)
                     {
                         end++; // a deleted mark inside the run does not end it
                         continue;
@@ -428,7 +493,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     // Authored spaces only: emitted exactly as authored, one cell each.
                     for (int k = i; k < end; k++)
                     {
-                        if (DefaultChar(raw[k]) is not ' ')
+                        if (defaultChar(raw[k]) is not ' ')
                             continue;
 
                         text.Append(' ');

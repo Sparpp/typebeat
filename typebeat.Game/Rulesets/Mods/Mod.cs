@@ -12,6 +12,7 @@ using osu.Framework.Bindables;
 using osu.Framework.Extensions.TypeExtensions;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Localisation;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Configuration;
 using typebeat.Game.Extensions;
 using typebeat.Game.Utils;
@@ -129,6 +130,41 @@ namespace typebeat.Game.Rulesets.Mods
 
         [JsonIgnore]
         public virtual bool Ranked => false;
+
+        /// <summary>
+        /// Whether a play carrying this mod stays on this device (backlog 331): it never requests a
+        /// score submission token and is never submitted (the path a non-user-playable mod already
+        /// takes in <c>SubmittingPlayer</c>), no online leaderboard is fetched for a selection holding
+        /// it, and the play is still saved to the local score list with its replay. Unlike
+        /// <see cref="Ranked"/>, which only says what a submitted score is worth, this keeps the
+        /// score off the server entirely.
+        /// </summary>
+        [JsonIgnore]
+        public virtual bool LocalOnly => false;
+
+        /// <summary>
+        /// Whether this mod can be played on <paramref name="beatmap"/> (backlog 331): the per-beatmap
+        /// hook a mod whose meaning depends on the map's CONTENT overrides. True by default, and never
+        /// touches the beatmap then, so asking costs nothing for every other mod. The mod select overlay
+        /// greys an unavailable mod out (with <see cref="UnavailableReason"/> as its tooltip), and every
+        /// path that restores a selection (a preset, a selection carried over to another beatmap) drops
+        /// it the way it drops an incompatible mod.
+        /// </summary>
+        /// <param name="beatmap">The beatmap about to be played, or null when none is known (answered
+        /// as available: there is nothing to refuse it on).</param>
+        public virtual bool IsAvailableFor(IWorkingBeatmap? beatmap) => true;
+
+        /// <summary>
+        /// A note song select shows beside the star rating while this mod is selected, when the figures
+        /// shown are not the ones the mod plays (backlog 331: Polyglot is rated on the romanised lyric).
+        /// Empty for every mod whose figures say what they mean.
+        /// </summary>
+        [JsonIgnore]
+        public virtual LocalisableString RatingNote => default;
+
+        /// <summary>Why <see cref="IsAvailableFor"/> refused a beatmap, shown on the greyed panel.</summary>
+        [JsonIgnore]
+        public virtual LocalisableString UnavailableReason => default;
 
         /// <summary>
         /// The mods this mod cannot be enabled with.

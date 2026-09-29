@@ -354,7 +354,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 var cell = new OsuSpriteText
                 {
                     Font = TypeBeatStyle.Lyric(requestedFontSize, fontFamily),
-                    Text = Line.Cells[i].Expected.ToString(),
+                    Text = InitialGlyph(Line, i),
                     Colour = TypeBeatStyle.UntypedChar,
                     Anchor = Anchor.TopLeft,
                     Origin = Anchor.Centre,
@@ -699,9 +699,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             for (int i = 0; i < n; i++)
             {
-                float a = cells[i].DrawWidth > 0.1f
-                    ? cells[i].DrawWidth
-                    : Line.Cells[i].Expected == ' ' ? refAdvance * 0.55f : refAdvance;
+                int block = Line.JamoBlockHead(i);
+
+                // A hangul block (Polyglot, backlog 331) is ONE glyph drawn on its first key's cell; the
+                // keys after it take no room of their own.
+                float a = block >= 0 && block != i
+                    ? 0f
+                    : cells[i].DrawWidth > 0.1f
+                        ? cells[i].DrawWidth
+                        : Line.Cells[i].Expected == ' ' ? refAdvance * 0.55f : refAdvance;
                 cellX[i] = x;
                 advances[i] = a;
                 x += a;
@@ -1049,6 +1055,51 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// right of the caret at the instant of a mistake, which is the worst possible moment to
         /// move the text a player is reading.</para>
         /// </summary>
+        /// <summary>
+        /// The text a cell is built with: its own character, except under the Polyglot mod (backlog 331)
+        /// where the keys of a hangul block draw as the one block on the first key's cell
+        /// (<see cref="BlockGlyph"/>) and as nothing on the others.
+        /// </summary>
+        public static string InitialGlyph(TypingLine line, int cellIndex)
+        {
+            int head = line.JamoBlockHead(cellIndex);
+
+            if (head < 0)
+                return line.Cells[cellIndex].Expected.ToString();
+
+            return head == cellIndex ? BlockGlyph(line, head) : string.Empty;
+        }
+
+        /// <summary>
+        /// The glyph of the hangul block starting at <paramref name="head"/>: the block recomposed from
+        /// the keys TYPED into it so far, in order up to the first one still untyped (a wrong key shows
+        /// as typed, so the block does not pretend it was right), or the whole block while none is.
+        /// </summary>
+        public static string BlockGlyph(TypingLine line, int head)
+        {
+            var expected = new List<char>();
+            var typed = new List<char>();
+            bool prefix = true;
+
+            for (int i = head; i < line.Cells.Count && line.JamoBlockHead(i) == head; i++)
+            {
+                var cell = line.Cells[i];
+                expected.Add(cell.Expected);
+
+                if (!prefix)
+                    continue;
+
+                if (cell.State == CellState.Correct)
+                    typed.Add(cell.TypedChar ?? cell.Expected);
+                else if (cell.State == CellState.Wrong && cell.TypedChar is char wrong)
+                    typed.Add(wrong);
+                else
+                    prefix = false;
+            }
+
+            return PolyglotText.Compose(typed.Count > 0 ? typed : expected);
+        }
+
         public static char CellGlyph(char expected, CellState state, char? typedChar)
             => expected == ' ' && state == CellState.Wrong && typedChar is char typo ? typo : expected;
 
@@ -1363,6 +1414,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 refreshFreestyleCell(cellIndex, cell, source);
                 return;
             }
+
+            // A hangul block recomposes AS TYPED (Polyglot, backlog 331): its glyph is whatever the keys
+            // typed into it so far spell, and the whole block again once they are all erased.
+            int blockHead = Line.JamoBlockHead(cellIndex);
+
+            if (blockHead >= 0)
+                cells[blockHead].Text = BlockGlyph(Line, blockHead);
 
             // The classic Correct colour is tinted by how in sync the press was (see
             // CorrectCharColour). Two properties of the delta this reads are load-bearing:

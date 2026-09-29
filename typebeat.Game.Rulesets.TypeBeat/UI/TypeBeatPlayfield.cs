@@ -11,7 +11,9 @@ using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Shapes;
+using osu.Framework.Input;
 using osu.Framework.Input.Bindings;
 using osu.Framework.Input.Events;
 using osu.Framework.Platform;
@@ -99,6 +101,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             if (selection is RetypeSelection current)
                 stage.DisplayAt(current.LineIndex)?.SetSelection(current.StartCell, current.EndCell);
         }
+
+        /// <summary>
+        /// Shows <paramref name="composition"/> (a Polyglot play's live IME composition, backlog 331) at
+        /// the caret, or clears it when empty. Display only: nothing is judged until the IME commits.
+        /// </summary>
+        private void setImeComposition(string composition)
+        {
+            if (stage.IsNotNull())
+                stage.SetImeComposition(composition);
+        }
+
+        /// <summary>Where the IME's candidate window should sit: the typing caret, in screen space.</summary>
+        private RectangleF imeRectangle => stage.IsNotNull() ? stage.PlayerCaretScreenQuad.AABBFloat : default;
 
         /// <summary>Screen-space centre of the typing caret when it is visible: the Flashlight mod's
         /// reveal point. Returns false while no line is active (caret hidden), so the mod can fade.</summary>
@@ -912,10 +927,124 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 base.LoadComplete();
                 rulesetInput = this.FindClosestParent<TypeBeatInputManager>();
+
+                if (engine.Polyglot)
+                    activateTextInput();
             }
+
+            #region Polyglot text input (backlog 331)
+
+            /// <summary>
+            /// The framework's TEXT INPUT source, the path text boxes use. Under the Polyglot mod the
+            /// characters come from here rather than from <see cref="KeyCharMap"/>: whatever the player's
+            /// OS layout commits (a dead key's "é", Cyrillic, Greek, Georgian, Armenian, direct kana, a
+            /// hangul key) is the character judged, and an IME (hanzi, kanji) composes before it commits.
+            /// Null in a bare test scene that caches none.
+            /// </summary>
+            [Resolved]
+            private TextInputSource? textInput { get; set; }
+
+            private bool textInputActive;
+
+            /// <summary>The live IME composition, empty when none. Backspace, space and enter belong to the IME while it is not.</summary>
+            private string imeComposition = string.Empty;
+
+            private void activateTextInput()
+            {
+                // A replay's characters are the tape's, not the keyboard's: nothing is activated for playback.
+                if (textInput == null || drawableRuleset?.ReplayScore != null)
+                    return;
+
+                textInput.OnTextInput += onTextCommitted;
+                textInput.OnImeResult += onTextCommitted;
+                textInput.OnImeComposition += onImeComposition;
+                textInput.Activate(new TextInputProperties(TextInputType.Text, true), playfield.imeRectangle);
+                textInputActive = true;
+            }
+
+            private void deactivateTextInput()
+            {
+                if (!textInputActive || textInput == null)
+                    return;
+
+                textInput.OnTextInput -= onTextCommitted;
+                textInput.OnImeResult -= onTextCommitted;
+                textInput.OnImeComposition -= onImeComposition;
+                textInput.Deactivate();
+                textInputActive = false;
+            }
+
+            protected override void Update()
+            {
+                base.Update();
+
+                // The IME's candidate window follows the caret while a composition is open.
+                if (textInputActive && imeComposition.Length > 0)
+                    textInput?.SetImeRectangle(playfield.imeRectangle);
+            }
+
+            protected override void Dispose(bool isDisposing)
+            {
+                deactivateTextInput();
+                base.Dispose(isDisposing);
+            }
+
+            private void onImeComposition(string text, int selectionStart, int selectionLength) => Schedule(() =>
+            {
+                imeComposition = text ?? string.Empty;
+                playfield.setImeComposition(imeComposition);
+            });
+
+            private void onTextCommitted(string text) => Schedule(() =>
+            {
+                imeComposition = string.Empty;
+                playfield.setImeComposition(imeComposition);
+                TypeCommittedText(text, Math.Round(Time.Current));
+            });
+
+            /// <summary>
+            /// Types a piece of COMMITTED text under the Polyglot mod: every character it carries
+            /// (<see cref="PolyglotText.InputCharacters"/>: NFC, a hangul block cut into its keys,
+            /// nothing outside the BMP) is one ordinary <see cref="TypingEngine.ProcessKey"/> call at
+            /// the one timestamp the commit arrived at, recorded exactly as a key press is, so a
+            /// multi-character commit replays as the same run of frames. A SPACE from text input is
+            /// ignored: the spacebar is a gesture and arrives through <see cref="OnKeyDown"/>.
+            /// </summary>
+            internal void TypeCommittedText(string text, double time)
+            {
+                // Nothing while paused (the ruleset input manager hands the key path nothing then either),
+                // and nothing while another control holds focus (a chat box has activated text input too).
+                if (!engine.Polyglot || drawableRuleset?.ReplayScore != null || drawableRuleset?.IsPaused.Value == true || !HasFocus)
+                    return;
+
+                engine.Update(time, wpmClockRate(gameplayClock));
+
+                if (!engine.LineIsActive && !engine.FirstLineTypingOpensAt(time))
+                    return;
+
+                foreach (char c in PolyglotText.InputCharacters(text))
+                {
+                    if (c == ' ')
+                        continue;
+
+                    collapseSelection(time);
+
+                    if (engine.ProcessKey(c, time))
+                        drawableRuleset?.RecordTypingInput(c, time);
+                }
+            }
+
+            #endregion
 
             protected override bool OnKeyDown(KeyDownEvent e)
             {
+                // POLYGLOT (backlog 331): while an IME composition is open, the keys that edit it are the
+                // IME's (a backspace shortens the composition, a space converts it, enter commits it), so
+                // the engine sees none of them. Swallowed, so none reaches a global binding either.
+                if (engine.Polyglot && imeComposition.Length > 0
+                                    && (e.Key == Key.BackSpace || e.Key == Key.Space || e.Key == Key.Enter || e.Key == Key.KeypadEnter || e.Key == Key.Escape))
+                    return true;
+
                 // Which word-level gesture (if any) this press triggers under the user's CURRENT
                 // bindings (backlog 183; backlog 182 hardcoded Ctrl+Backspace and Ctrl+A here).
                 // Resolved before anything else, so a gesture rebound onto a key this handler would
@@ -1145,6 +1274,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     }
 
                     return false;
+                }
+
+                // POLYGLOT (backlog 331): characters arrive as committed TEXT (see TypeCommittedText), so a
+                // character key does nothing here; it is swallowed while it would type, exactly as it is
+                // without the mod, so a letter never reaches a global binding mid-line. The SPACEBAR is
+                // the one typing key that stays a key, because it is the word gesture every layout and
+                // IME agrees on.
+                if (engine.Polyglot)
+                {
+                    if (e.Key == Key.Space)
+                    {
+                        if (!e.Repeat)
+                        {
+                            collapseSelection(time);
+
+                            if (engine.ProcessKey(' ', time))
+                                drawableRuleset?.RecordTypingInput(' ', time);
+                        }
+
+                        return true;
+                    }
+
+                    return KeyCharMap.TryMap(e.Key, keyboardLayout.Value, e.ShiftPressed, true, capsLockEnabled, out _);
                 }
 
                 // Pass Shift AND the Caps Lock toggle through so either route to a capital works,
