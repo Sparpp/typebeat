@@ -3,16 +3,15 @@
     <TargetFramework>net8.0</TargetFramework>
     <OutputType>WinExe</OutputType>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <Description>A free-to-win rhythm game. Rhythm is just a *click* away!</Description>
+    <Description>A lyric-typing rhythm game.</Description>
     <AssemblyName>type!beat</AssemblyName>
     <AssemblyTitle>type!beat</AssemblyTitle>
     <Title>type!beat</Title>
     <Product>type!beat</Product>
-    <!-- The Windows PE resource icon. Despite the inherited file name this carries the type!beat
-         icon, not osu!'s: lazer.ico, typb.ico and beatmap.ico are byte identical (backlog 163), and
-         assets/typebeat.png is extracted from their 256x256 frame, so the exe, the window, the
+    <!-- The Windows PE resource icon: typebeat.ico, typb.ico and beatmap.ico are byte identical
+         (backlog 163), and assets/typebeat.png is extracted from their 256x256 frame, so the exe, the window, the
          Linux package and the macOS bundle all show the same art. -->
-    <ApplicationIcon>lazer.ico</ApplicationIcon>
+    <ApplicationIcon>typebeat.ico</ApplicationIcon>
     <Version>0.0.0</Version>
     <FileVersion>0.0.0</FileVersion>
   </PropertyGroup>
