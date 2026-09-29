@@ -89,12 +89,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             /// a payload that carries no text: every payload written before backlog 339, and (until
             /// backlog 343) every UNIT payload. Set by <see cref="TypeBeatEditorOperations.CopyLineTimings"/>.
             ///
-            /// <para>Room is left beside it for the word's ORIGINAL-script spelling (backlog 330) as a
-            /// sibling optional field on this same object, so a romanised word and its source script
-            /// travel together.</para>
+            /// <para>The word's ORIGINAL-script spelling (backlog 330) travels beside it in
+            /// <see cref="Original"/>, so a romanised word and its source script move together.</para>
             /// </summary>
             [JsonProperty("text", NullValueHandling = NullValueHandling.Ignore)]
             public string? Text;
+
+            /// <summary>
+            /// The source word's <see cref="TimedUnit.Original"/> (backlog 330), or null when it has
+            /// none (and on every payload written before the field). Optional like every field here,
+            /// so an older build reads a payload carrying it and simply drops it. Only the text paste
+            /// (<see cref="TypeBeatEditorOperations.PasteLine"/>) reads it; a timing paste keeps the
+            /// target words' own originals, as it keeps their own text.
+            /// </summary>
+            [JsonProperty("original", NullValueHandling = NullValueHandling.Ignore)]
+            public string? Original;
 
             /// <summary>
             /// <see cref="TimedUnit.SyllableBoundaries"/> as offsets from the payload's reference
@@ -139,6 +148,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             /// </summary>
             [JsonProperty("granularity", NullValueHandling = NullValueHandling.Ignore)]
             public TimingGranularity? Granularity;
+
+            /// <summary>
+            /// The source line's own <see cref="LyricLine.Original"/> (backlog 330), or null. Read by
+            /// the text paste alone. The line's unromanised words do not travel: they have no text to
+            /// paste, and the original here still spells them out.
+            /// </summary>
+            [JsonProperty("original", NullValueHandling = NullValueHandling.Ignore)]
+            public string? Original;
 
             /// <summary>
             /// Whether this line spells out every word: at least one word, and each one's

@@ -160,8 +160,14 @@ namespace typebeat.Game.Rulesets.TypeBeat
         public override bool NativeEncodingsEquivalentForStatus(string encodedA, string encodedB) =>
             normaliseForStatus(encodedA) == normaliseForStatus(encodedB);
 
+        /// <summary>
+        /// A map holding words the romaniser could not spell (backlog 330) is saved and played
+        /// locally but not submitted: see <see cref="LyricOriginals.SubmissionRefusal"/>.
+        /// </summary>
+        public override string? GetSubmissionRefusal(IBeatmap beatmap) => LyricOriginals.SubmissionRefusal(beatmap);
+
         private static string normaliseForStatus(string encoded) =>
-            LyricOsuFormat.StripFormatVersion(LyricOsuFormat.StripVideoOffset(LyricOsuFormat.StripBeatdrop(encoded)));
+            LyricOsuFormat.StripOriginals(LyricOsuFormat.StripFormatVersion(LyricOsuFormat.StripVideoOffset(LyricOsuFormat.StripBeatdrop(encoded))));
 
         /// <summary>Compose mode is type!beat's own lyric surface, not a circle composer.</summary>
         public override typebeat.Game.Screens.Edit.EditorScreen CreateEditorComposeScreen() => new LyricComposeScreen();

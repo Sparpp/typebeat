@@ -1373,6 +1373,18 @@ namespace typebeat.Game.Screens.Edit
                 return;
             }
 
+            // The ruleset's own veto (type!beat: words its romaniser could not spell, backlog 330).
+            // Checked on the LIVE editor state, so a mapper who has just romanised the last word is
+            // let through without saving first; the save prompt below still follows.
+            if (editorBeatmap.BeatmapInfo.Ruleset.CreateInstance().GetSubmissionRefusal(editorBeatmap) is string refusal)
+            {
+                notifications?.Post(new SimpleNotification
+                {
+                    Text = refusal,
+                });
+                return;
+            }
+
             if (HasUnsavedChanges)
             {
                 dialogOverlay.Push(new SaveRequiredPopupDialog(() => attemptMutationOperation(() =>

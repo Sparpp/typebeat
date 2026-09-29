@@ -25,7 +25,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// line view (index, text, start / sung end / window end, granularity, estimated badge),
     /// then the interactive fine-timing surface (<see cref="LyricTimeline"/>), and WORD-level
     /// actions on the bottom (add word, remove word, subdivide, unsubdivide, insert pause) right
-    /// beside the word blocks they act on.
+    /// beside the word blocks they act on. A line with an ORIGINAL text (backlog 330) also gets the
+    /// two-row word editor (<see cref="WordScriptEditor"/>) between the readouts and the strip.
     /// </summary>
     public partial class ActiveLineDetailPanel : CompositeDrawable
     {
@@ -70,6 +71,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         // word buttons sit right under the word blocks they act on).
                         new Dimension(GridSizeMode.Absolute, 30),
                         new Dimension(GridSizeMode.Absolute, 52),
+                        // The two-row word editor for the original text (backlog 330): no room at all
+                        // on a line without one.
+                        new Dimension(GridSizeMode.AutoSize),
                         new Dimension(),
                         new Dimension(GridSizeMode.Absolute, 30),
                     },
@@ -123,6 +127,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                     },
                                 },
                             },
+                        },
+                        new Drawable[]
+                        {
+                            new WordScriptEditor(),
                         },
                         new Drawable[]
                         {

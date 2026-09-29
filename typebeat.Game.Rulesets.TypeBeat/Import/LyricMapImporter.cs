@@ -23,6 +23,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Screens.ImportLyrics;
@@ -434,14 +435,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 return PackageOsz(oszPath, artist, title, effectiveAudioPath, BLANK_TIMING_JSON, string.Empty, videoSourcePath);
             }
 
+            // THE LANGUAGE (backlog 330). A new import has no map metadata yet, so the language the
+            // romaniser reads is detected from the lyrics' own script, and the same value is OFFERED
+            // as the map's Language (written into the .osu, changeable in song setup). Text with no
+            // non-Latin letter detects nothing and writes no Language line, exactly as before.
+            string? language = LyricOriginals.DetectLanguage(new[] { lyricsContent });
+
             (LyricImportResult result, string? timing) = await ProduceTimingJsonAsync(
-                effectiveAudioPath, lyricsContent, artist, title, configuredLyricLabPath, startDirectories, progress, token, useAutomaticAlignment).ConfigureAwait(false);
+                effectiveAudioPath, lyricsContent, artist, title, configuredLyricLabPath, startDirectories, progress, token, useAutomaticAlignment,
+                language).ConfigureAwait(false);
 
             if (!result.Success || timing == null)
                 return result;
 
             progress("packaging map");
-            return PackageOsz(oszPath, artist, title, effectiveAudioPath, timing, lyricsContent, videoSourcePath);
+            return PackageOsz(oszPath, artist, title, effectiveAudioPath, timing, lyricsContent, videoSourcePath, language, progress);
         }
 
         /// <summary>
@@ -461,11 +469,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// the file is already word-timed, so it is converted directly and neither the aligner nor
         /// the audio is consulted. See <see cref="SynthesizeTimingJsonFromTtml"/>.</para>
         /// </summary>
+        /// <remarks>The optional language is the one non-Latin lyrics are romanised under (backlog
+        /// 330): the map's own when the caller has one, else null to detect it from the lyrics'
+        /// script.</remarks>
         public static async Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
             string? configuredLyricLabPath, IEnumerable<string> startDirectories,
-            Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true)
+            Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true,
+            string? language = null)
         {
+            language ??= LyricOriginals.DetectLanguage(new[] { lyricsContent });
+
             if (!File.Exists(audioPath))
                 return (LyricImportResult.Fail($"audio file not found: {audioPath}"), null);
 
@@ -482,7 +496,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             // as if it were a lyrics file, which is exactly the mistake this replaces.
             if (TtmlParser.LooksLikeTtml(lyricsContent))
             {
-                string? ttmlTiming = SynthesizeTimingJsonFromTtml(lyricsContent);
+                string? ttmlTiming = SynthesizeTimingJsonFromTtml(lyricsContent, language: language);
 
                 if (ttmlTiming == null)
                     return (LyricImportResult.Fail("the .ttml produced no usable lyric lines."), null);
@@ -506,7 +520,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                         : "these lyrics have no [mm:ss.xx] line timestamps. Add line stamps, or turn on "
                           + "\"automatic alignment\" to have the words timed for you."), null);
 
-                return synthesizeFromLrc(lyricsContent, progress);
+                return synthesizeFromLrc(lyricsContent, progress, language);
             }
 
             string? lyricLabDir = ResolveLyricLabDir(configuredLyricLabPath, startDirectories);
@@ -526,7 +540,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                     if (alignerResult.Success && timingJson != null)
                     {
                         progress("alignment complete");
-                        return (LyricImportResult.Ok(string.Empty), FlagFreestyleLines(timingJson));
+                        return (LyricImportResult.Ok(string.Empty), RomaniseLines(FlagFreestyleLines(timingJson), language));
                     }
 
                     if (token.IsCancellationRequested)
@@ -563,13 +577,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                     + "Install the local auto-aligner), or add [mm:ss.xx] line stamps to the lyrics."), null);
             }
 
-            return synthesizeFromLrc(lyricsContent, progress);
+            return synthesizeFromLrc(lyricsContent, progress, language);
         }
 
         /// <summary>Line-granularity timing straight from [mm:ss.xx] line stamps (no word timing).</summary>
-        private static (LyricImportResult Result, string? TimingJson) synthesizeFromLrc(string lyricsContent, Action<string> progress)
+        private static (LyricImportResult Result, string? TimingJson) synthesizeFromLrc(string lyricsContent, Action<string> progress, string? language)
         {
-            string? fallbackTiming = SynthesizeTimingJsonFromLrc(lyricsContent);
+            string? fallbackTiming = SynthesizeTimingJsonFromLrc(lyricsContent, language);
 
             if (fallbackTiming == null)
                 return (LyricImportResult.Fail("the line-stamped lyrics produced no usable lines."), null);
@@ -668,9 +682,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// timing, and Line granularity persists none.</item>
         /// </list>
         /// </summary>
-        public static string? SynthesizeTimingJsonFromLrc(string lyricsContent)
+        public static string? SynthesizeTimingJsonFromLrc(string lyricsContent, string? language = null)
         {
-            var lines = LrcParser.Parse(lyricsContent);
+            var lines = LrcParser.Parse(lyricsContent, language);
 
             if (lines.Count == 0)
                 return null;
@@ -690,12 +704,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// <see cref="TtmlParser"/> and are NOT applied here (see its remarks), and
         /// <paramref name="offsetMs"/> is the caller's own correction for a rip that needs one.</para>
         /// </summary>
-        public static string? SynthesizeTimingJsonFromTtml(string ttmlContent, double offsetMs = 0)
+        public static string? SynthesizeTimingJsonFromTtml(string ttmlContent, double offsetMs = 0, string? language = null)
         {
             // The RAW reading, deliberately: this document is the map's stored provenance, and a
             // word that overruns its line boundary has to survive into it so the decode can derive
             // the line's seal grace (exactly as it does for an aligner document).
-            if (!TtmlParser.TryParseRaw(ttmlContent, out IReadOnlyList<LyricLine> lines, out TtmlParser.TtmlMetadata metadata, offsetMs)
+            if (!TtmlParser.TryParseRaw(ttmlContent, out IReadOnlyList<LyricLine> lines, out TtmlParser.TtmlMetadata metadata, offsetMs, language)
                 || lines.Count == 0)
             {
                 return null;
@@ -744,6 +758,213 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             catch (Exception)
             {
                 return timingJson;
+            }
+        }
+
+        /// <summary>
+        /// THE ORIGINAL TEXT for an ALIGNER-produced timing.json (backlog 330): every line (and word)
+        /// whose text needs romanising gets the romanisation as its <c>text</c> and the source as its
+        /// <c>original</c>, instead of reaching the decode raw and being deleted there. The LRC and
+        /// TTML paths romanise as they parse (<see cref="LrcParser.Parse"/>,
+        /// <see cref="TtmlParser.TryParseRaw"/>); this is the same rule for the one document that
+        /// arrives already written.
+        ///
+        /// <para>With words[], a line whose source tokens match its words one for one pairs them
+        /// (the line text is authoritative for spelling, as the decode's pairing is), and otherwise
+        /// each word is romanised from its own text; the line's text is then the romanised words
+        /// joined, so the pairing still holds. A word the romaniser cannot spell is written with an
+        /// empty text beside its original and its syllables dropped. A word whose syllables spell
+        /// its source exactly carries its cuts into the romanisation through the romaniser's units
+        /// (see <see cref="LyricOriginals.RomanisedWord.MapSplits"/>), merging the syllables whose
+        /// cut does not carry. Without words[] the line is romanised as a whole and an unspellable
+        /// word survives only in the line's original. A document with nothing to romanise is
+        /// returned VERBATIM, and any parse problem returns the input unchanged.</para>
+        /// </summary>
+        public static string RomaniseLines(string timingJson, string? language)
+        {
+            if (string.IsNullOrEmpty(timingJson))
+                return timingJson;
+
+            try
+            {
+                if (JsonNode.Parse(timingJson) is not JsonObject root || root["lines"] is not JsonArray lines)
+                    return timingJson;
+
+                bool changed = false;
+
+                foreach (JsonNode? node in lines)
+                {
+                    if (node is not JsonObject line || line["text"] is not JsonValue textValue || !textValue.TryGetValue(out string? text))
+                        continue;
+
+                    var words = line["words"] as JsonArray;
+
+                    bool needs(string? s) => LyricOriginals.CarriesOriginal(s) || Romaniser.NeedsRomanising(s, language);
+
+                    if (!needs(text) && (words == null || !words.OfType<JsonObject>().Any(w => w["text"] is JsonValue v && v.TryGetValue(out string? t) && needs(t))))
+                        continue;
+
+                    changed = true;
+                    string[] sourceTokens = LyricOriginals.CollapseWhitespace(text).Split(' ');
+
+                    if (words == null || words.Count == 0)
+                    {
+                        var romanisedLine = LyricOriginals.RomaniseLine(text, language);
+                        line["text"] = romanisedLine.Text;
+
+                        if (romanisedLine.Original != null)
+                            setAfterText(line, romanisedLine.Original);
+
+                        continue;
+                    }
+
+                    bool byLineTokens = words.Count == sourceTokens.Length;
+                    var typed = new List<string>();
+                    bool anyFlagged = false;
+
+                    for (int i = 0; i < words.Count; i++)
+                    {
+                        if (words[i] is not JsonObject word)
+                            continue;
+
+                        string source = byLineTokens
+                            ? sourceTokens[i]
+                            : word["text"] is JsonValue wv && wv.TryGetValue(out string? wt) ? wt ?? string.Empty : string.Empty;
+
+                        var romanised = LyricOriginals.RomaniseWord(source, language);
+
+                        if (romanised.Flagged)
+                        {
+                            anyFlagged = true;
+                            word["text"] = string.Empty;
+                            setAfterText(word, romanised.Original);
+                            word.Remove("syllables");
+                            word.Remove("split_chars");
+                            continue;
+                        }
+
+                        word["text"] = romanised.Text;
+
+                        if (romanised.Original != null)
+                            setAfterText(word, romanised.Original);
+
+                        carrySyllables(word, romanised);
+
+                        if (romanised.Text.Length > 0)
+                            typed.Add(romanised.Text);
+                    }
+
+                    line["text"] = string.Join(' ', typed);
+
+                    string collapsed = LyricOriginals.CollapseWhitespace(text);
+
+                    if ((anyFlagged || LyricOriginals.CarriesOriginal(collapsed)) && collapsed != string.Join(' ', typed))
+                        setAfterText(line, collapsed);
+                }
+
+                return changed ? root.ToJsonString() : timingJson;
+            }
+            catch (Exception)
+            {
+                return timingJson;
+            }
+        }
+
+        /// <summary>
+        /// Sets <c>"original"</c> on <paramref name="node"/> straight after its <c>"text"</c>, the
+        /// position every writer of the format puts it in (see <see cref="LyricOriginals"/>).
+        /// </summary>
+        private static void setAfterText(JsonObject node, string? original)
+        {
+            var entries = node.Where(kv => kv.Key != "original").ToList();
+            node.Clear();
+
+            foreach (var (key, value) in entries)
+            {
+                node[key] = value;
+
+                if (key == "text")
+                    node["original"] = original;
+            }
+        }
+
+        /// <summary>
+        /// A romanised aligner word's syllables (see <see cref="RomaniseLines"/>): when the syllable
+        /// texts spell the word's source exactly, the source cuts between them are carried into the
+        /// romanisation as <c>split_chars</c>, a syllable whose cut does not carry merging into the
+        /// one before it (its end becomes that syllable's end). Otherwise the syllables' times are
+        /// left alone and the split is derived at decode, as for any word without one.
+        /// </summary>
+        private static void carrySyllables(JsonObject word, LyricOriginals.RomanisedWord romanised)
+        {
+            if (word["syllables"] is not JsonArray syllables || syllables.Count < 2)
+                return;
+
+            var texts = new List<string>();
+
+            foreach (JsonNode? syllable in syllables)
+            {
+                if (syllable is not JsonObject s || s["text"] is not JsonValue v || !v.TryGetValue(out string? t) || t == null)
+                    return;
+
+                texts.Add(t);
+            }
+
+            if (string.Concat(texts) != romanised.Source)
+                return;
+
+            var cuts = new List<int>();
+            int at = 0;
+
+            for (int i = 0; i < texts.Count - 1; i++)
+            {
+                at += texts[i].Length;
+                cuts.Add(at);
+            }
+
+            var kept = romanised.MapSplits(cuts);
+            var keptCuts = new HashSet<int>(kept.Select(k => k.SourceCut));
+            var merged = new JsonArray();
+            JsonObject? current = null;
+
+            for (int i = 0; i < syllables.Count; i++)
+            {
+                var syllable = (JsonObject)syllables[i]!.DeepClone();
+
+                // Syllable i starts at cut i - 1; a cut that did not carry folds it into the one before.
+                if (current != null && !keptCuts.Contains(i - 1))
+                {
+                    current["end_ms"] = syllable["end_ms"]?.DeepClone();
+                    continue;
+                }
+
+                merged.Add(syllable);
+                current = syllable;
+            }
+
+            // The syllable texts now spell the romanisation, cut where the kept splits say.
+            var splits = kept.Select(k => k.TextSplit).ToList();
+            var segmentStarts = new List<int> { 0 };
+            segmentStarts.AddRange(splits);
+            segmentStarts.Add(romanised.Text.Length);
+
+            for (int i = 0; i < merged.Count && i + 1 < segmentStarts.Count; i++)
+                ((JsonObject)merged[i]!)["text"] = romanised.Text.Substring(segmentStarts[i], segmentStarts[i + 1] - segmentStarts[i]);
+
+            word["syllables"] = merged;
+
+            if (splits.Count > 0)
+            {
+                var array = new JsonArray();
+
+                foreach (int split in splits)
+                    array.Add(split);
+
+                word["split_chars"] = array;
+            }
+            else
+            {
+                word.Remove("split_chars");
             }
         }
 
@@ -846,11 +1067,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// line is written at offset 0: an extraction is sample-accurate, so there is nothing to
         /// correct, and 0 is the byte-identical legacy <c>Video,0,"file"</c> form.</para>
         /// </summary>
+        /// <remarks>
+        /// The optional language is the DETECTED one (backlog 330, see
+        /// <see cref="LyricOriginals.DetectLanguage"/>), OFFERED as the map's Language: written into
+        /// the .osu when the map actually carries originals, and never for a map without any, which
+        /// therefore packages byte for byte as before. The optional progress callback receives the
+        /// import summary line (the words that could not be romanised), which also comes back as
+        /// <see cref="LyricImportResult.Notice"/>.
+        /// </remarks>
         public static LyricImportResult PackageOsz(string oszPath, string artist, string title, string audioSourcePath, string timingJson, string lyricsContent,
-                                                   string? videoSourcePath = null)
+                                                   string? videoSourcePath = null, string? language = null, Action<string>? progress = null)
         {
             try
             {
+                // THE IMPORT SUMMARY (backlog 330): what the stored map will decode to, read through
+                // the loader itself, so the words listed are exactly the ones the editor will show
+                // as unromanised.
+                string? notice = null;
+                bool anyOriginals = false;
+
+                if (TimingJsonLoader.TryParse(timingJson, out IReadOnlyList<LyricLine> decodedLines))
+                {
+                    anyOriginals = LyricOriginals.HasOriginals(decodedLines);
+                    notice = LyricOriginals.ImportSummary(LyricOriginals.UnromanisedWords(decodedLines).ToList());
+
+                    if (notice != null)
+                        progress?.Invoke(notice);
+                }
+
+                string? offeredLanguage = anyOriginals ? LyricOriginals.OfferedLanguage(language).ToCanonicalName() : null;
+
                 string audioFilename = Path.GetFileName(audioSourcePath);
 
                 // Deliberately the UNSTRIPPED document: preview point and lead-in are read off the
@@ -864,7 +1110,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 // into the stored map, because the decode now reads a bracket as a literal mark.
                 // The provenance timing.json written below keeps the aligner's text untouched.
                 string osuText = LyricOsuFormat.GenerateOsu(artist, title, audioFilename, CREATOR, StripBackingVocalLines(timingJson),
-                    previewTime, audioLeadIn, videoFilename: videoFilename);
+                    previewTime, audioLeadIn, videoFilename: videoFilename, language: string.IsNullOrEmpty(offeredLanguage) ? null : offeredLanguage);
 
                 if (File.Exists(oszPath))
                     File.Delete(oszPath);
@@ -893,7 +1139,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                         writer.Write(lyricsContent);
                 }
 
-                return LyricImportResult.Ok(oszPath);
+                return LyricImportResult.Ok(oszPath) with { Notice = notice };
             }
             catch (ArgumentException e)
             {

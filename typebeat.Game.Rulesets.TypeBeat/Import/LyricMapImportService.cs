@@ -56,8 +56,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
         public Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
-            Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true)
-            => LyricMapImporter.ProduceTimingJsonAsync(audioPath, lyricsContent, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token, useAutomaticAlignment);
+            Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true, string? language = null)
+            => LyricMapImporter.ProduceTimingJsonAsync(audioPath, lyricsContent, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token, useAutomaticAlignment,
+                language);
 
         private TypeBeatRulesetConfigManager? config()
         {

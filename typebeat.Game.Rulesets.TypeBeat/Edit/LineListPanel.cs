@@ -127,22 +127,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private EditorClock editorClock { get; set; } = null!;
 
             private readonly Box background;
+            private readonly FillFlowContainer body;
             private OsuSpriteText indexText = null!;
             private OsuSpriteText timeText = null!;
             private OsuTextBox textBox = null!;
+            private OsuSpriteText originalCaption = null!;
+
+            /// <summary>The caption over the text box: the line's ORIGINAL text (backlog 330), or empty.</summary>
+            public string OriginalCaptionText => originalCaption.Text.ToString();
 
             public LineRow(TypeBeatHitObject hitObject)
             {
                 HitObject = hitObject;
 
                 RelativeSizeAxes = Axes.X;
-                Height = 34;
+                AutoSizeAxes = Axes.Y;
                 Masking = true;
                 CornerRadius = 4;
 
                 InternalChild = new Container
                 {
-                    RelativeSizeAxes = Axes.Both,
+                    RelativeSizeAxes = Axes.X,
+                    AutoSizeAxes = Axes.Y,
                     Children = new Drawable[]
                     {
                         background = new Box
@@ -151,6 +157,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             Colour = TypeBeatStyle.Background,
                             Alpha = 0.9f,
                         },
+                        body = new FillFlowContainer
+                        {
+                            RelativeSizeAxes = Axes.X,
+                            AutoSizeAxes = Axes.Y,
+                            Direction = FillDirection.Vertical,
+                        },
                     },
                 };
             }
@@ -158,9 +170,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             [BackgroundDependencyLoader]
             private void load()
             {
-                ((Container)InternalChild).Add(new GridContainer
+                // THE ORIGINAL TEXT (backlog 330) as a caption over the romanised line, aligned with
+                // the text box, so the mapper can check the romanisation against the source word by
+                // word. Absent (and taking no room) on a line without one.
+                body.Add(originalCaption = new OsuSpriteText
                 {
-                    RelativeSizeAxes = Axes.Both,
+                    Margin = new MarginPadding { Left = 34 + 76 + 4, Top = 3 },
+                    Font = TypeBeatStyle.Lyric(13),
+                    Colour = TypeBeatStyle.SungAccent,
+                    Alpha = 0,
+                });
+
+                body.Add(new GridContainer
+                {
+                    RelativeSizeAxes = Axes.X,
+                    Height = 34,
                     ColumnDimensions = new[]
                     {
                         new Dimension(GridSizeMode.Absolute, 34),
@@ -232,6 +256,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 if (!textBox.HasFocus && textBox.Text != display)
                     textBox.Text = display;
 
+                string caption = captionFor(HitObject.Line);
+
+                if (originalCaption.Text != caption)
+                {
+                    originalCaption.Text = caption;
+                    originalCaption.Alpha = caption.Length > 0 ? 1 : 0;
+                }
+
                 bool active = state.ActiveLine.Value == HitObject;
                 bool multiSelected = state.MultiSelectedLines.Contains(HitObject);
                 background.Colour = active
@@ -239,6 +271,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     : multiSelected
                         ? TypeBeatStyle.PanelBackground.Lighten(0.25f)
                         : TypeBeatStyle.Background;
+            }
+
+            /// <summary>
+            /// The caption for a line (backlog 330): its original, with a line of nothing but
+            /// unromanised words saying so, since its text box is then empty. Empty for a line with
+            /// no original at all.
+            /// </summary>
+            private static string captionFor(LyricLine line)
+            {
+                string? original = TypeBeatEditorOperations.OriginalCaption(line);
+
+                if (original == null)
+                    return string.Empty;
+
+                int unromanised = line.UnromanisedWords.Count;
+
+                return unromanised == 0
+                    ? original
+                    : $"{original}   ({unromanised} word{(unromanised == 1 ? string.Empty : "s")} to romanise)";
             }
 
             private static string formatTime(double ms)

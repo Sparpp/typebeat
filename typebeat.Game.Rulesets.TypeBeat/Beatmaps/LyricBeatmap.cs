@@ -567,7 +567,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// never read back.</para>
         /// </summary>
         public IReadOnlyList<int> SyllableSplits { get; init; } = Array.Empty<int>();
+
+        /// <summary>
+        /// The word as the song WRITES it, in its own script (backlog 330): "Привет" over the
+        /// <see cref="Text"/> "Privet" the player types. Null for a word that has no other spelling,
+        /// which is every word of every map written before the field existed and every word whose
+        /// source text was plain ASCII. See <see cref="LyricOriginals"/> for when one is recorded.
+        ///
+        /// <para>DISPLAY AND AUTHORING DATA ONLY. Default play, the difficulty calculator, the pace
+        /// figures and the server all read <see cref="Text"/> alone, so a word gaining or losing an
+        /// original changes no cell, no target time and no rating. The Polyglot mod (backlog 331) is
+        /// the one reader that plays it. Persisted as the word object's optional <c>original</c>
+        /// key, written only when it differs from <see cref="Text"/>.</para>
+        /// </summary>
+        public string? Original { get; init; }
     }
+
+    /// <summary>
+    /// A word the romaniser could not spell (backlog 330): a kanji with no reading, a Tier 2 script
+    /// (hanzi, Thai, Hebrew, ...). It keeps its ORIGINAL text and its sung span, and has NO typed
+    /// text yet, so it is not a <see cref="TimedUnit"/> (a unit is one whitespace token of
+    /// <see cref="LyricLine.RawText"/>, and this word has none): it contributes no cell, no target
+    /// time and nothing to any rating until the mapper romanises it in the editor, which turns it
+    /// into an ordinary unit at <see cref="Position"/>.
+    ///
+    /// <para>On the wire it is a word object with an EMPTY <c>text</c> and an <c>original</c>, which
+    /// both loaders skip when pairing words[] with the line's tokens. A map carrying one can be
+    /// saved but not submitted (<see cref="LyricOriginals.SubmissionRefusal"/>).</para>
+    /// </summary>
+    /// <param name="Position">How many of the line's <see cref="LyricLine.Units"/> come before it,
+    /// 0..Units.Count: the slot the word takes once it has a romanisation.</param>
+    /// <param name="Original">The word's text in its own script, never empty.</param>
+    /// <param name="StartTime">The word's sung start (absolute ms).</param>
+    /// <param name="EndTime">The word's sung end (absolute ms).</param>
+    public readonly record struct UnromanisedWord(int Position, string Original, double StartTime, double EndTime);
 
     public sealed class LyricLine
     {
@@ -602,6 +635,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// stamps. Judged at the wider Line-granularity windows regardless of beatmap granularity.
         /// </summary>
         public bool Estimated { get; init; }
+
+        /// <summary>
+        /// The whole line as the song WRITES it, in its own script and spacing (backlog 330), or
+        /// null when it has no other spelling. The editor shows it as a caption over the romanised
+        /// line; nothing that plays or rates the map reads it. Persisted as the line object's
+        /// optional <c>original</c> key, written only when it differs from <see cref="RawText"/>.
+        /// </summary>
+        public string? Original { get; init; }
+
+        /// <summary>
+        /// The words of this line the romaniser could not spell, in order (see
+        /// <see cref="UnromanisedWord"/>). Empty for every line of every map that has none, which is
+        /// every map written before backlog 330.
+        ///
+        /// <para>A line made of NOTHING but such words has an empty <see cref="RawText"/> and no
+        /// <see cref="Units"/>: it has no cell to type, and it exists only so an import of a script
+        /// the romaniser cannot read yet keeps the lyric for the mapper to romanise instead of
+        /// dropping it (a line without an original that yields no cell is still dropped, exactly as
+        /// before). Such a line types nothing and judges nothing.</para>
+        /// </summary>
+        public IReadOnlyList<UnromanisedWord> UnromanisedWords { get; init; } = Array.Empty<UnromanisedWord>();
     }
 
     public sealed class LyricBeatmapMetadata

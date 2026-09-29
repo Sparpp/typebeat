@@ -42,13 +42,20 @@ namespace typebeat.Game.Screens.ImportLyrics
         /// <see cref="BuildOszAsync"/>. The timing.json text is returned as the tuple's second
         /// element; <see cref="LyricImportResult.OszPath"/> is unused on this path.
         /// </summary>
+        /// <remarks>The optional language is the map's, which non-Latin lyrics are romanised under;
+        /// null detects it from the lyrics' own script.</remarks>
         Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
-            Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true);
+            Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true,
+            string? language = null);
     }
 
-    /// <summary>Outcome of <see cref="ILyricMapImporter.BuildOszAsync"/>.</summary>
-    public readonly record struct LyricImportResult(bool Success, string? OszPath, string? Error)
+    /// <summary>
+    /// Outcome of <see cref="ILyricMapImporter.BuildOszAsync"/>. <see cref="Notice"/> is a
+    /// successful import's summary for the user, when it has one: the words the romaniser could not
+    /// spell, which the map carries with no typed text until the mapper romanises them.
+    /// </summary>
+    public readonly record struct LyricImportResult(bool Success, string? OszPath, string? Error, string? Notice = null)
     {
         public static LyricImportResult Ok(string oszPath) => new LyricImportResult(true, oszPath, null);
         public static LyricImportResult Fail(string error) => new LyricImportResult(false, null, error);

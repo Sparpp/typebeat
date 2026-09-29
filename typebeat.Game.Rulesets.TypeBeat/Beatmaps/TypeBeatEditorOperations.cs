@@ -16,7 +16,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// <see cref="TimedUnit"/> model (every edit rebuilds instances) and go through
     /// <see cref="EditorBeatmap"/> transactions so they are undoable.
     /// </summary>
-    public static class TypeBeatEditorOperations
+    public static partial class TypeBeatEditorOperations
     {
         /// <summary>
         /// Shifts every stored line and word time by <paramref name="deltaMs"/> (positive = later),
@@ -58,9 +58,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             SingEndTime = line.SingEndTime + deltaMs,
             SealGraceMs = line.SealGraceMs,
             Estimated = line.Estimated,
+            Original = line.Original,
+            UnromanisedWords = line.UnromanisedWords.Select(w => w with { StartTime = w.StartTime + deltaMs, EndTime = w.EndTime + deltaMs }).ToArray(),
             Units = line.Units.Select(u => new TimedUnit
             {
                 Text = u.Text,
+                Original = u.Original,
                 StartTime = u.StartTime + deltaMs,
                 EndTime = u.EndTime + deltaMs,
                 Source = u.Source,
@@ -119,7 +122,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         {
             if (lines.Any(l => l.Units.Any(u => u.SyllableBoundaries.Count > 0)))
                 return TimingGranularity.Syllable;
-            if (lines.Any(l => l.Units.Any(u => u.Source == TimingSource.Explicit || u.Pauses.Count > 0)))
+            // An unromanised word (backlog 330) is written only inside words[], for the pause's reason.
+            if (lines.Any(l => l.UnromanisedWords.Count > 0 || l.Units.Any(u => u.Source == TimingSource.Explicit || u.Pauses.Count > 0)))
                 return TimingGranularity.Word;
             return TimingGranularity.Line;
         }
@@ -135,18 +139,77 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         #region Single-line rebuild helpers (model is init-only: every edit builds new instances)
 
+        /// <remarks>
+        /// The line's ORIGINAL TEXT (backlog 330) rides along untouched unless
+        /// <paramref name="originals"/> replaces it; its unromanised words keep their places, clamped
+        /// to the new word count.
+        /// </remarks>
         private static LyricLine rebuild(LyricLine line, string? rawText = null, double? start = null, double? end = null,
-                                         double? singEnd = null, IReadOnlyList<TimedUnit>? units = null, double? sealGrace = null)
-            => new LyricLine
+                                         double? singEnd = null, IReadOnlyList<TimedUnit>? units = null, double? sealGrace = null,
+                                         (string? Original, IReadOnlyList<UnromanisedWord> Pending)? originals = null)
+        {
+            var newUnits = units ?? line.Units;
+
+            return new LyricLine
             {
                 RawText = rawText ?? line.RawText,
                 StartTime = start ?? line.StartTime,
                 EndTime = end ?? line.EndTime,
                 SingEndTime = singEnd ?? line.SingEndTime,
-                Units = units ?? line.Units,
+                Units = newUnits,
                 SealGraceMs = sealGrace ?? line.SealGraceMs,
                 Estimated = line.Estimated,
+                Original = originals.HasValue ? originals.Value.Original : line.Original,
+                UnromanisedWords = clampPending(originals.HasValue ? originals.Value.Pending : line.UnromanisedWords, newUnits.Count),
             };
+        }
+
+        /// <summary>Unromanised words with every position clamped into 0..<paramref name="unitCount"/> (backlog 330).</summary>
+        private static IReadOnlyList<UnromanisedWord> clampPending(IReadOnlyList<UnromanisedWord> pending, int unitCount)
+            => pending.Count == 0 || pending.All(w => w.Position <= unitCount)
+                ? pending
+                : pending.Select(w => w with { Position = Math.Min(w.Position, unitCount) }).ToArray();
+
+        /// <summary>
+        /// The ORIGINALS (backlog 330) of the part of <paramref name="line"/> holding units
+        /// [<paramref name="from"/>, <paramref name="to"/>), for an edit that cuts a line apart: the
+        /// unromanised words sung inside [<paramref name="startTime"/>, <paramref name="endTime"/>)
+        /// with their places re-based, and a line original rebuilt from that part's own words (their
+        /// originals where they have one), or none when the part has no original at all.
+        /// </summary>
+        private static (string? Original, IReadOnlyList<UnromanisedWord> Pending) originalsOfRange(LyricLine line, int from, int to, double startTime, double endTime)
+        {
+            var pending = line.UnromanisedWords
+                              .Where(w => w.StartTime >= startTime && w.StartTime < endTime)
+                              .Select(w => w with { Position = Math.Clamp(w.Position - from, 0, to - from) })
+                              .ToArray();
+
+            var units = line.Units.Skip(from).Take(to - from).ToArray();
+
+            if (pending.Length == 0 && units.All(u => u.Original == null))
+                return (null, pending);
+
+            return (JoinedOriginal(units, pending), pending);
+        }
+
+        /// <summary>
+        /// A line original spelled from its words (backlog 330): each unromanised word and each
+        /// unit's original (its text where it has none), in order, joined by spaces.
+        /// </summary>
+        public static string JoinedOriginal(IReadOnlyList<TimedUnit> units, IReadOnlyList<UnromanisedWord> pending)
+        {
+            var parts = new List<string>();
+
+            for (int u = 0; u <= units.Count; u++)
+            {
+                parts.AddRange(pending.Where(w => Math.Min(w.Position, units.Count) == u).Select(w => w.Original));
+
+                if (u < units.Count)
+                    parts.Add(units[u].Original ?? units[u].Text);
+            }
+
+            return string.Join(' ', parts);
+        }
 
         /// <summary>
         /// One word's unit rebuilt over a new span. Two regimes, split by <paramref name="translate"/>:
@@ -178,6 +241,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return new TimedUnit
                 {
                     Text = unit.Text,
+                    Original = unit.Original,
                     StartTime = start,
                     EndTime = end,
                     Source = source ?? unit.Source,
@@ -199,6 +263,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return new TimedUnit
             {
                 Text = unit.Text,
+                Original = unit.Original,
                 StartTime = start,
                 EndTime = end,
                 Source = source ?? unit.Source,
@@ -629,6 +694,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Units = units,
                 SealGraceMs = line.SealGraceMs,
                 Estimated = false,
+                Original = line.Original,
+                UnromanisedWords = line.UnromanisedWords,
             };
             editorBeatmap.Update(hitObject);
             promoteToWordGranularity(editorBeatmap);
@@ -681,6 +748,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Units = units,
                 SealGraceMs = line.SealGraceMs,
                 Estimated = false, // hand timing IS acoustic evidence; judge at full granularity again.
+                Original = line.Original,
+                UnromanisedWords = line.UnromanisedWords,
             };
             editorBeatmap.Update(hitObject);
             promoteToWordGranularity(editorBeatmap);
@@ -763,6 +832,87 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         public static bool SetLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText)
         {
+            // THE ORIGINAL TEXT (backlog 330): text in any other script (or with any letter the typed
+            // text must respell) is romanised first and kept as the line's original.
+            if (LyricOriginals.CarriesOriginal(rawUserText) || Romaniser.NeedsRomanising(rawUserText))
+                return setOriginalLineText(editorBeatmap, hitObject, rawUserText);
+
+            return setLineText(editorBeatmap, hitObject, rawUserText, null);
+        }
+
+        /// <summary>
+        /// What a line box commit of text needing ROMANISATION does (backlog 330): the input becomes
+        /// the line's ORIGINAL, each of its words is romanised (under the map's language, or the one
+        /// its script says when the map has none) and the romanisation is committed exactly as if the
+        /// mapper had typed it, through the same placement (<see cref="setLineText"/>), so an edit to
+        /// a hand-timed line moves only the words it changed. Each word keeps its source as its own
+        /// original. A word the romaniser cannot spell takes its place in the line all the same, and
+        /// is then set aside as an <see cref="UnromanisedWord"/> with the span it was given, for the
+        /// mapper to romanise in the word editor (<see cref="SetWordText"/>). The romanisation is
+        /// only a PROPOSAL: the mapper overwrites any word of it by typing Latin over it in this same
+        /// box, which keeps the originals (a same-count commit keeps every word's original by place),
+        /// or per word in the word editor.
+        /// </summary>
+        private static bool setOriginalLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText)
+        {
+            string? language = LyricOriginals.RomanisationLanguage(editorBeatmap.BeatmapInfo.Metadata.Language, new[] { rawUserText });
+            var romanised = LyricOriginals.RomaniseLine(rawUserText, language, keepMarkers: true);
+
+            // The words the placement sees: each romanised word as it will be typed, and each word the
+            // romaniser could not spell as a PLACEHOLDER token no real word can match, so it is placed
+            // like any new word and then taken back out.
+            var sources = new List<LyricOriginals.RomanisedWord>();
+            var placeholders = new Dictionary<string, LyricOriginals.RomanisedWord>();
+            var tokens = new List<string>();
+
+            foreach (var word in romanised.Words)
+            {
+                if (word.Flagged)
+                {
+                    string placeholder = $"unromanised{placeholders.Count}x{hitObject.LineIndex}q";
+                    placeholders[placeholder] = word;
+                    tokens.Add(placeholder);
+                    sources.Add(word);
+                }
+                else if (word.Text.Length > 0)
+                {
+                    tokens.Add(word.Text);
+                    sources.Add(word);
+                }
+            }
+
+            if (tokens.Count == 0)
+                return false;
+
+            return setLineText(editorBeatmap, hitObject, string.Join(' ', tokens), units =>
+            {
+                var kept = new List<TimedUnit>();
+                var pending = new List<UnromanisedWord>();
+
+                for (int i = 0; i < units.Count; i++)
+                {
+                    if (placeholders.TryGetValue(units[i].Text, out var flagged))
+                    {
+                        pending.Add(new UnromanisedWord(kept.Count, flagged.Original!, units[i].StartTime, units[i].EndTime));
+                        continue;
+                    }
+
+                    kept.Add(LrcParser.WithOriginal(units[i], i < sources.Count ? sources[i].Original : null));
+                }
+
+                return (string.Join(' ', kept.Select(u => u.Text)), kept, (romanised.Original, pending));
+            });
+        }
+
+        /// <summary>
+        /// The body of <see cref="SetLineText"/>. For a commit that romanised its input
+        /// (<see cref="setOriginalLineText"/>), the finishing step turns the placed units into the
+        /// line's final text, units and originals; it is null for plain text, which keeps the line's
+        /// originals as they are.
+        /// </summary>
+        private static bool setLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText,
+                                        Func<IReadOnlyList<TimedUnit>, (string Text, IReadOnlyList<TimedUnit> Units, (string? Original, IReadOnlyList<UnromanisedWord> Pending) Originals)>? finish)
+        {
             // Both authoring seams survive Normalize here; every other untypeable char is stripped.
             // No backing-vocal strip (backlog 255): what the mapper typed is what the line stores,
             // so "hello (oh) now" commits verbatim and the brackets are ordinary lyric marks.
@@ -795,14 +945,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             if (hitObject.Granularity == TimingGranularity.Line)
             {
-                if (textUnchanged && !anyPipes && !anyRemoval)
+                if (textUnchanged && !anyPipes && !anyRemoval && finish == null)
                     return true;
 
                 // Line-granularity maps persist no word data; units are always the loader's
                 // interpolation, which is text-weight-dependent, so re-derive with the new text.
                 // The pipes then subdivide those fresh units exactly as they would on a word map
-                // (and a deleted pipe simply does not come back through the re-derivation).
+                // (and a deleted pipe simply does not come back through the re-derivation). A word
+                // keeps its ORIGINAL (backlog 330) by place when the count is unchanged.
                 units = LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime);
+
+                if (units.Count == line.Units.Count)
+                    units = units.Select((u, i) => LrcParser.WithOriginal(u, line.Units[i].Original)).ToArray();
 
                 if (anyPipes && tokens.Length == units.Count)
                     units = applyPipes(units, tokens, pipes, out authoredSubdivision);
@@ -817,7 +971,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // no authored splits does not start carrying them just because a box lost focus.
                 // A pipe that moved a word's REST is a change like any other, so the comparison is
                 // over every cut the box can author, not only the syllable splits.
-                if (textUnchanged && !authoredSubdivision && !anyRemoval
+                if (textUnchanged && !authoredSubdivision && !anyRemoval && finish == null
                     && !units.Where((u, i) => !sameSplits(u.SyllableSplits, line.Units[i].SyllableSplits)
                                               || !u.Pauses.SequenceEqual(line.Units[i].Pauses)).Any())
                 {
@@ -840,7 +994,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             bool wordCountChanged = hitObject.Granularity != TimingGranularity.Line && tokens.Length != line.Units.Count;
 
             editorBeatmap.BeginChange();
-            hitObject.Line = rebuild(line, rawText: normalized, units: units);
+
+            if (finish != null)
+            {
+                var (text, finalUnits, originals) = finish(units);
+                hitObject.Line = rebuild(line, rawText: text, units: finalUnits, originals: originals);
+
+                // An unromanised word lives only in words[], so the map has to carry them.
+                wordCountChanged |= originals.Pending.Count > 0 || line.UnromanisedWords.Count > 0;
+            }
+            else
+            {
+                hitObject.Line = rebuild(line, rawText: normalized, units: units);
+            }
+
             editorBeatmap.Update(hitObject);
             // The sung end follows the last word only when this commit moved it: a word typed on
             // at the tail, or the tail word typed away. A same-count commit, and any change that
@@ -884,6 +1051,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     return new TimedUnit
                     {
                         Text = tokens[i],
+                        Original = u.Original,
                         StartTime = u.StartTime,
                         EndTime = u.EndTime,
                         // Un-subdividing a word IS a timing decision, exactly as subdividing it is,
@@ -913,6 +1081,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     return new TimedUnit
                     {
                         Text = tokens[i],
+                        Original = u.Original,
                         StartTime = u.StartTime,
                         EndTime = u.EndTime,
                         // A hand-placed subdivision IS hand timing, exactly as it is when the
@@ -928,6 +1097,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return new TimedUnit
                 {
                     Text = tokens[i],
+                    Original = u.Original,
                     StartTime = u.StartTime,
                     EndTime = u.EndTime,
                     Source = u.Source,
@@ -1151,6 +1321,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 units[i] = new TimedUnit
                 {
                     Text = units[i].Text,
+                    Original = old.Original,
                     // Only the SUBDIVISION travels: the span is the redistribution's, and so is the
                     // Source, because nobody hand-timed where this word now sits.
                     StartTime = units[i].StartTime,
@@ -1314,6 +1485,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return new TimedUnit
             {
                 Text = unit.Text,
+                Original = unit.Original,
                 StartTime = unit.StartTime,
                 EndTime = unit.EndTime,
                 Source = unit.Source,
@@ -1459,7 +1631,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             editorBeatmap.BeginChange();
             hitObject.Line = rebuild(line,
                 rawText: rawText,
-                units: unitsFor(hitObject, rawText, units, line.StartTime, line.SingEndTime, unitWindowEnd));
+                units: unitsFor(hitObject, rawText, units, line.StartTime, line.SingEndTime, unitWindowEnd),
+                // An unromanised word (backlog 330) behind the new one keeps its place after it.
+                originals: (line.Original, line.UnromanisedWords.Select(w => w.Position >= insertAt ? w with { Position = w.Position + 1 } : w).ToArray()));
             editorBeatmap.Update(hitObject);
             // Bisecting the anchor can strip subdivisions that no longer fit inside its half.
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
@@ -1587,7 +1761,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             editorBeatmap.BeginChange();
             hitObject.Line = rebuild(line,
                 rawText: rawText,
-                units: unitsFor(hitObject, rawText, units, line.StartTime, line.SingEndTime, line.EndTime));
+                units: unitsFor(hitObject, rawText, units, line.StartTime, line.SingEndTime, line.EndTime),
+                // An unromanised word (backlog 330) behind the removed one moves up a place.
+                originals: (line.Original, line.UnromanisedWords.Select(w => w.Position > unitIndex ? w with { Position = w.Position - 1 } : w).ToArray()));
             editorBeatmap.Update(hitObject);
             // The removed word may have carried the map's last syllable subdivisions.
             syncGranularity(editorBeatmap, keepAuthoredWords: true);
@@ -1597,8 +1773,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return true;
         }
 
-        /// <summary>Words in a line: one per whitespace token (the unit list mirrors them).</summary>
-        public static int WordCount(LyricLine line) => line.RawText.Split(' ').Length;
+        /// <summary>
+        /// Words in a line: one per whitespace token (the unit list mirrors them). A line of nothing
+        /// but unromanised words (backlog 330) has an empty text and NO typed word, not one empty one.
+        /// </summary>
+        public static int WordCount(LyricLine line) => line.RawText.Length == 0 ? 0 : line.RawText.Split(' ').Length;
 
         /// <summary>
         /// Removes several words of one line as a SINGLE undo step: <see cref="RemoveWord"/> per
@@ -1736,7 +1915,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             editorBeatmap.BeginChange();
 
-            hitObject.Line = rebuild(line, rawText: string.Join(' ', tokens), units: units.ToArray());
+            // The ORIGINAL (backlog 330) has no cut that corresponds to this one in general, so the two
+            // halves carry none of their own (the line keeps its original as the caption), and an
+            // unromanised word behind the split word moves back a place.
+            hitObject.Line = rebuild(line, rawText: string.Join(' ', tokens), units: units.ToArray(),
+                originals: (line.Original ?? (unit.Original != null ? JoinedOriginal(line.Units, line.UnromanisedWords) : null),
+                    line.UnromanisedWords.Select(w => w.Position > unitIndex ? w with { Position = w.Position + 1 } : w).ToArray()));
             editorBeatmap.Update(hitObject);
 
             // A word whose only subdivision this was leaves none behind, so the line's granularity has
@@ -1809,7 +1993,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 end: boundary,
                 singEnd: firstSingEnd,
                 units: unitsFor(hitObject, firstText, firstUnits, line.StartTime, firstSingEnd, boundary),
-                sealGrace: 0);
+                sealGrace: 0,
+                originals: originalsOfRange(line, 0, firstUnitOfSecondLine, double.NegativeInfinity, boundary));
             editorBeatmap.Update(hitObject);
 
             editorBeatmap.Add(new TypeBeatHitObject
@@ -1819,7 +2004,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     rawText: secondText,
                     start: boundary,
                     singEnd: secondSingEnd,
-                    units: unitsFor(hitObject, secondText, secondUnits, boundary, secondSingEnd, line.EndTime)),
+                    units: unitsFor(hitObject, secondText, secondUnits, boundary, secondSingEnd, line.EndTime),
+                    originals: originalsOfRange(line, firstUnitOfSecondLine, line.Units.Count, boundary, double.PositiveInfinity)),
                 Granularity = hitObject.Granularity,
             });
 
@@ -1853,6 +2039,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Units = unitsFor(hitObject, mergedText, a.Units.Concat(b.Units).ToArray(), a.StartTime, b.SingEndTime, b.EndTime),
                 SealGraceMs = b.SealGraceMs,
                 Estimated = a.Estimated || b.Estimated,
+                // The originals (backlog 330) join as the texts do; the second line's unromanised
+                // words move behind the first line's words.
+                Original = a.Original == null && b.Original == null ? null : (a.Original ?? a.RawText) + " " + (b.Original ?? b.RawText),
+                UnromanisedWords = a.UnromanisedWords.Concat(b.UnromanisedWords.Select(w => w with { Position = w.Position + a.Units.Count })).ToArray(),
             };
             editorBeatmap.Update(hitObject);
             editorBeatmap.Remove(next);
@@ -2345,6 +2535,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             units[unitIndex] = new TimedUnit
             {
                 Text = unit.Text,
+                Original = unit.Original,
                 StartTime = unit.StartTime,
                 EndTime = unit.EndTime,
                 Source = unit.Source,
@@ -2473,6 +2664,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             units[unitIndex] = new TimedUnit
             {
                 Text = unit.Text,
+                Original = unit.Original,
                 StartTime = unit.StartTime,
                 EndTime = unit.EndTime,
                 Source = TimingSource.Explicit,
@@ -2495,6 +2687,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Units = units,
                 SealGraceMs = line.SealGraceMs,
                 Estimated = false,
+                Original = line.Original,
+                UnromanisedWords = line.UnromanisedWords,
             };
             editorBeatmap.Update(hitObject);
             syncGranularity(editorBeatmap);
@@ -2798,6 +2992,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             units[unitIndex] = new TimedUnit
             {
                 Text = unit.Text,
+                Original = unit.Original,
                 StartTime = unit.StartTime,
                 EndTime = unit.EndTime,
                 Source = TimingSource.Explicit,
@@ -2871,6 +3066,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     SealGraceMs = line.SealGraceMs,
                     Estimated = line.Estimated,
                     Granularity = hitObject.Granularity,
+                    // The caption travels whole: a line with unromanised words has one even when it
+                    // stored none of its own, so the pasted line still spells them out.
+                    Original = OriginalCaption(line),
                 };
 
                 foreach (var unit in line.Units)
@@ -2881,6 +3079,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         End = unit.EndTime - line.StartTime,
                         Chars = unit.Text.Length,
                         Text = unit.Text,
+                        Original = unit.Original,
                         Boundaries = unit.SyllableBoundaries.Count == 0
                             ? null
                             : unit.SyllableBoundaries.Select(b => b - line.StartTime).ToList(),
@@ -3015,6 +3214,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     Units = clampUnits(units, line.StartTime, end),
                     SealGraceMs = line.SealGraceMs,
                     Estimated = false, // pasted hand timing is acoustic evidence, same as a drag.
+                    Original = line.Original,
+                    UnromanisedWords = line.UnromanisedWords,
                 };
                 editorBeatmap.Update(target);
             }
@@ -3071,6 +3272,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return new TimedUnit
             {
                 Text = target.Text,
+                Original = target.Original,
                 StartTime = start,
                 EndTime = end,
                 Source = source,
@@ -3185,7 +3387,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             bool handTimed = source.Granularity != TimingGranularity.Line;
 
-            var units = clampUnits(source.Units.Select(span => pasteUnit(new TimedUnit { Text = span.Text!, StartTime = start, EndTime = start }, span, start,
+            var units = clampUnits(source.Units.Select(span => pasteUnit(new TimedUnit { Text = span.Text!, Original = span.Original, StartTime = start, EndTime = start }, span, start,
                 handTimed ? TimingSource.Explicit : TimingSource.Interpolated, handTimed ? 1 : 0.5, spellingTravels: true)).ToArray(), start, wall);
 
             double singEnd, end;
@@ -3212,6 +3414,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Units = units,
                 SealGraceMs = source.SealGraceMs ?? line.SealGraceMs,
                 Estimated = source.Estimated ?? false,
+                // The copied line's ORIGINAL (backlog 330) comes with its words; the target's own goes.
+                Original = source.Original == source.RawText ? null : source.Original,
             };
             editorBeatmap.Update(target);
         }
@@ -3296,6 +3500,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Units = clampUnits(units, line.StartTime, line.EndTime),
                 SealGraceMs = line.SealGraceMs,
                 Estimated = false,
+                Original = line.Original,
+                UnromanisedWords = line.UnromanisedWords,
             };
             editorBeatmap.Update(hitObject);
             promoteToWordGranularity(editorBeatmap);
@@ -3320,10 +3526,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// load, so the editor must derive them the same way or unit times drift on reload.
         /// Word maps persist units verbatim; they are preserved, clamped into the new window.
         /// </summary>
+        /// <remarks>A re-interpolated word keeps its ORIGINAL (backlog 330) when the word count is unchanged.</remarks>
         private static IReadOnlyList<TimedUnit> unitsFor(TypeBeatHitObject hitObject, string rawText, IReadOnlyList<TimedUnit> currentUnits, double start, double singEnd, double end)
-            => hitObject.Granularity == TimingGranularity.Line
-                ? LrcParser.InterpolateUnits(rawText, start, singEnd)
-                : clampUnits(currentUnits, start, end);
+        {
+            if (hitObject.Granularity != TimingGranularity.Line)
+                return clampUnits(currentUnits, start, end);
+
+            var interpolated = LrcParser.InterpolateUnits(rawText, start, singEnd);
+
+            return interpolated.Count == currentUnits.Count && currentUnits.Any(u => u.Original != null)
+                ? interpolated.Select((u, i) => LrcParser.WithOriginal(u, currentUnits[i].Original)).ToArray()
+                : interpolated;
+        }
 
         /// <summary>A line's last word end, or NaN when it has no units (so any comparison reads as "moved").</summary>
         private static double lastUnitEnd(LyricLine line) => line.Units.Count > 0 ? line.Units[^1].EndTime : double.NaN;
