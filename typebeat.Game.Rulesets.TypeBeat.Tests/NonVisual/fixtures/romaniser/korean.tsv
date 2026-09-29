@@ -1,0 +1,10 @@
+# Romaniser fixtures (see cyrillic.tsv for the format). Korean, Revised Romanisation per block,
+# with NO inter-syllable sound changes (so 한국어 is hangukeo, not hangugeo).
+korean	아리랑 아리랑 아라리요	arirang arirang arariyo
+korean	사랑해	saranghae
+korean	안녕하세요	annyeonghaseyo
+korean	한국어	hangukeo
+korean	닭 없어 읽다	dak eopeo ikda
+korean	꽃 좋아	kkot jota
+korean	ㅋㅋㅋ	kkk
+korean	우리 사랑은 영원히	uri sarangeun yeongwonhi
