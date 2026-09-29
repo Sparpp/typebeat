@@ -16,19 +16,20 @@ Requires the [.NET SDK](https://dotnet.microsoft.com/download); see
 [`global.json`](global.json) for the pinned version.
 
 ```
+git clone https://github.com/Sparpp/typebeat
+cd typebeat
 dotnet run --project typebeat.Desktop
 ```
 
 Or open `typebeat.sln` (`typebeat.Desktop.slnf` for the desktop-only subset) in
 your IDE.
 
-> **Resources package.** The game's art/audio/fonts ship in a separate
-> `typebeat.Game.Resources` NuGet package that is not published publicly.
-> `typebeat.Game` references it, so no project restores without it.
-> [`nuget.config`](nuget.config) looks for it in a sibling
-> `../type-beat-assets/artifacts` folder, at the version pinned in
-> `typebeat.Game/typebeat.Game.csproj`; point that source at your own local
-> package feed if you're building outside the original setup.
+The game's art, audio and fonts come from the
+[`typebeat.Game.Resources`](https://www.nuget.org/packages/typebeat.Game.Resources)
+NuGet package. You don't need to download it yourself: the first build (or
+`dotnet restore`) fetches it from nuget.org along with the other dependencies,
+at the version in
+[`typebeat.Game/typebeat.Game.csproj`](typebeat.Game/typebeat.Game.csproj).
 
 ## Layout
 
