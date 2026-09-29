@@ -187,9 +187,10 @@ namespace typebeat.Game.Screens.Play.HUD
                         Padding = new MarginPadding(1.3f),
                         // negative left margin to place the avatar's center directly at the edge of the left layer.
                         Margin = new MarginPadding { Left = -avatar_size / 2 },
-                        Child = new Container
+                        // The flag is badged onto the avatar's corner rather than given a slot of its
+                        // own, and counter-sheared like the avatar so it reads upright.
+                        Child = new AvatarWithFlag(new Container
                         {
-                            RelativeSizeAxes = Axes.Both,
                             CornerRadius = corner_radius,
                             Masking = true,
                             Child = new ScoreAvatar(User)
@@ -201,7 +202,10 @@ namespace typebeat.Game.Screens.Play.HUD
                                 // extra scaling to cover the entire sheared area.
                                 Scale = new Vector2(1.1f),
                             },
-                        },
+                        }, User?.CountryCode ?? CountryCode.Unknown)
+                        {
+                            RelativeSizeAxes = Axes.Both,
+                        }.With(a => a.Badge.Shear = -OsuGame.SHEAR),
                     },
                     rightLayer = new Container
                     {

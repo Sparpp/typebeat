@@ -53,16 +53,11 @@ namespace typebeat.Game.Users
                         Spacing = new Vector2(10, 0),
                         Children = new[]
                         {
-                            CreateAvatar().With(avatar =>
+                            CreateAvatarWithFlag().With(avatar =>
                             {
                                 avatar.Anchor = Anchor.CentreLeft;
                                 avatar.Origin = Anchor.CentreLeft;
                                 avatar.Size = new Vector2(40);
-                            }),
-                            CreateFlag().With(flag =>
-                            {
-                                flag.Anchor = Anchor.CentreLeft;
-                                flag.Origin = Anchor.CentreLeft;
                             }),
                             CreateTeamLogo().With(flag =>
                             {

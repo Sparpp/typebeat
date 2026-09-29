@@ -53,11 +53,13 @@ namespace typebeat.Game.Users
                 {
                     new Drawable[]
                     {
-                        CreateAvatar().With(avatar =>
+                        CreateAvatarWithFlag(inner =>
+                        {
+                            inner.Masking = true;
+                            inner.CornerRadius = 6;
+                        }).With(avatar =>
                         {
                             avatar.Size = new Vector2(60);
-                            avatar.Masking = true;
-                            avatar.CornerRadius = 6;
                             avatar.Margin = new MarginPadding { Bottom = margin };
                         }),
                         new GridContainer
@@ -84,7 +86,6 @@ namespace typebeat.Game.Users
                                         Spacing = new Vector2(6),
                                         Children = new[]
                                         {
-                                            CreateFlag(),
                                             CreateTeamLogo(),
                                             // supporter icon is being added later
                                         }
