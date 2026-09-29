@@ -202,6 +202,9 @@ namespace typebeat.Game.Screens.Select
                 case GroupMode.BPM:
                     return getGroupsBy(b => defineGroupByBPM(FormatUtils.RoundBPM(b.BPM)), items);
 
+                case GroupMode.Wpm:
+                    return getGroupsBy(b => DefineGroupByWpm(b.TargetWpm), items);
+
                 case GroupMode.Difficulty:
                     return getGroupsBy(b => defineGroupByStars(b.StarRating), items);
 
@@ -231,6 +234,9 @@ namespace typebeat.Game.Screens.Select
                     var favouriteBeatmapSets = GetFavouriteBeatmapSets();
                     return getGroupsBy(b => defineGroupByFavourites(b, favouriteBeatmapSets), items);
                 }
+
+                case GroupMode.EnabledOnIntro:
+                    return getGroupsBy(b => DefineGroupByIntro(b.BeatmapSet!), items);
 
                 case GroupMode.Variant:
                 {
@@ -361,6 +367,53 @@ namespace typebeat.Game.Screens.Select
             }
 
             return new GroupDefinition(301, BeatmapCarouselFilterGroupingStrings.OverBPM(300)).Yield();
+        }
+
+        /// <summary>
+        /// The WPM bucket for a difficulty's stored target WPM (<see cref="BeatmapInfo.TargetWpm"/>): under 60, then
+        /// steps of 20 up to 200 and over, and "Unknown" last for a row the background pass has not reached (-1) or a
+        /// map with nothing typeable to measure (0).
+        /// </summary>
+        /// <remarks>
+        /// The figure is rounded to a whole WPM first, the way <c>defineGroupByBPM</c> rounds its BPM and for the
+        /// same reason: the wedge shows this figure as <c>{wpm:0}</c> (half away from zero), so a map it displays as
+        /// "60 WPM" must not sit under "Under 60 WPM".
+        /// </remarks>
+        internal static IEnumerable<GroupDefinition> DefineGroupByWpm(double targetWpm)
+        {
+            if (!(targetWpm > 0))
+                return new GroupDefinition(int.MaxValue, BeatmapCarouselFilterGroupingStrings.UnknownWpm).Yield();
+
+            double wpm = Math.Round(targetWpm, MidpointRounding.AwayFromZero);
+
+            if (wpm < 60)
+                return new GroupDefinition(60, BeatmapCarouselFilterGroupingStrings.UnderWpm(60)).Yield();
+
+            for (int i = 80; i <= 200; i += 20)
+            {
+                if (wpm < i)
+                    return new GroupDefinition(i, BeatmapCarouselFilterGroupingStrings.RangeWpm(i - 20, i)).Yield();
+            }
+
+            return new GroupDefinition(201, BeatmapCarouselFilterGroupingStrings.AndOverWpm(200)).Yield();
+        }
+
+        /// <summary>
+        /// Whether a whole SET is in the game intro's pool: <see cref="Menu.IntroBeatdropPool.IsCandidate"/> over the set's
+        /// override and its difficulties' stored beatdrops, the exact rule the intro and the "Use on game intro" toggle
+        /// use, so this grouping cannot disagree with them. Every difficulty of a set lands in the same group.
+        /// </summary>
+        /// <remarks>
+        /// Grouping cannot decode, so a difficulty whose stored facts are not yet computed counts as declaring no
+        /// beatdrop (see <see cref="StoredBeatmapFacts"/>) until the background pass reaches it.
+        /// </remarks>
+        internal static IEnumerable<GroupDefinition> DefineGroupByIntro(BeatmapSetInfo set)
+        {
+            bool enabled = Menu.IntroBeatdropPool.IsCandidate(set.IntroPoolInclusion, StoredBeatmapFacts.AnyIntroBeatdrop(set.Beatmaps) == true);
+
+            return enabled
+                ? new GroupDefinition(0, BeatmapCarouselFilterGroupingStrings.EnabledOnIntro).Yield()
+                : new GroupDefinition(1, BeatmapCarouselFilterGroupingStrings.NotOnIntro).Yield();
         }
 
         private IEnumerable<GroupDefinition> defineGroupByStars(double stars)

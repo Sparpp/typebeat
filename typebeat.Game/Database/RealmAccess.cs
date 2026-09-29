@@ -120,8 +120,13 @@ namespace typebeat.Game.Database
         ///                    toggle now. Each set's value is derived from the old per-difficulty
         ///                    BeatmapUserSettings.IntroPoolInclusion (any true wins, all false stays out,
         ///                    anything else follows the beatdrops); the old field stays, unread.
+        /// 59   2026-09-29    Added TargetWpm and HasIntroBeatdrop to BeatmapInfo (song select's "Group by WPM"
+        ///                    and "Enabled on intro"), filled in as "not yet processed" (TargetWpm -1, the
+        ///                    StarRating sentinel, which also gates HasIntroBeatdrop) on every existing row:
+        ///                    the column's realm default (0) would otherwise read as a processed paceless map.
+        ///                    BackgroundDataStoreProcessor backfills both. See StoredBeatmapFacts.
         /// </summary>
-        private const int schema_version = 58;
+        private const int schema_version = 59;
 
         /// <summary>
         /// Lock object which is held during <see cref="BlockAllOperations"/> sections, blocking realm retrieval during blocking periods.
@@ -1387,6 +1392,21 @@ namespace typebeat.Game.Database
 
                     foreach (var set in realm.All<BeatmapSetInfo>())
                         set.IntroPoolInclusion = Screens.Menu.IntroBeatdropPool.DeriveSetInclusion(set.Beatmaps.Select(b => b.UserSettings?.IntroPoolInclusion));
+
+                    break;
+                }
+
+                case 59:
+                {
+                    // A new double column reads realm's default (0) on every existing row, which StoredBeatmapFacts
+                    // would take for "processed, nothing typeable". Mark every row unprocessed instead, so the
+                    // background pass computes both facts and the menu and intro decode in the meantime.
+                    // HasIntroBeatdrop's default (false) is already the right unprocessed value.
+                    // The realm is held in a local for the reason given in case 56 above.
+                    Realm realm = migration.NewRealm;
+
+                    foreach (var beatmap in realm.All<BeatmapInfo>())
+                        beatmap.TargetWpm = StoredBeatmapFacts.UNPROCESSED;
 
                     break;
                 }

@@ -452,7 +452,14 @@ namespace typebeat.Game.Screens.Select
                             // hidden changed, needs re-filter
                             oldBeatmap.Hidden == newBeatmap.Hidden &&
                             // might be used for grouping, returning from gameplay
-                            oldBeatmap.LastPlayed == newBeatmap.LastPlayed;
+                            oldBeatmap.LastPlayed == newBeatmap.LastPlayed &&
+                            // "Group by WPM" and "Sort by WPM" (see StoredBeatmapFacts); written by save and by the
+                            // background backfill, which churns only once, after the realm schema 59 migration
+                            oldBeatmap.TargetWpm.Equals(newBeatmap.TargetWpm) &&
+                            // "Group by enabled on intro": the stored beatdrop, and the set's own override, which the
+                            // "Use on game intro" toggle writes and which must move the set the moment it is toggled
+                            oldBeatmap.HasIntroBeatdrop == newBeatmap.HasIntroBeatdrop &&
+                            oldBeatmap.BeatmapSet?.IntroPoolInclusion == newBeatmap.BeatmapSet?.IntroPoolInclusion;
 
                         if (equalForDisplayPurposes)
                             return false;

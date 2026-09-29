@@ -314,6 +314,7 @@ namespace typebeat.Game.Screens.Select
                 // This makes things very slow when typing a text search, and we probably want to consider a way to optimise things going forward.
                 case SortMode.LastPlayed:
                 case SortMode.BPM:
+                case SortMode.Wpm:
                 case SortMode.Length:
                 case SortMode.Difficulty:
                     return true;

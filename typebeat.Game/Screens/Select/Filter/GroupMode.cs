@@ -20,6 +20,12 @@ namespace typebeat.Game.Screens.Select.Filter
         [LocalisableDescription(typeof(SongSelectStrings), nameof(SongSelectStrings.BPM))]
         BPM,
 
+        /// <summary>
+        /// Per difficulty, by the stored target WPM (<see cref="Beatmaps.BeatmapInfo.TargetWpm"/>) in buckets of 20.
+        /// </summary>
+        [LocalisableDescription(typeof(SongSelectStrings), nameof(SongSelectStrings.Wpm))]
+        Wpm,
+
         [LocalisableDescription(typeof(SongSelectStrings), nameof(SongSelectStrings.Collections))]
         Collections,
 
@@ -34,6 +40,12 @@ namespace typebeat.Game.Screens.Select.Filter
 
         [LocalisableDescription(typeof(SongSelectStrings), nameof(SongSelectStrings.Favourites))]
         Favourites,
+
+        /// <summary>
+        /// Per set, by whether the game intro may pick it (<see cref="Menu.IntroBeatdropPool.IsCandidate"/>).
+        /// </summary>
+        [LocalisableDescription(typeof(SongSelectStrings), nameof(SongSelectStrings.EnabledOnIntro))]
+        EnabledOnIntro,
 
         [LocalisableDescription(typeof(SongSelectStrings), nameof(SongSelectStrings.LastPlayed))]
         LastPlayed,

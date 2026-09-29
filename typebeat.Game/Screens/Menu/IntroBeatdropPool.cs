@@ -38,6 +38,20 @@ namespace typebeat.Game.Screens.Menu
         public static bool IsCandidate(bool? inclusion, bool anyDifficultyHasBeatdrop) => inclusion ?? anyDifficultyHasBeatdrop;
 
         /// <summary>
+        /// <see cref="IsCandidate"/> answered from what realm already stores, without decoding anything: the override when
+        /// there is one, otherwise the difficulties' stored beatdrops (<see cref="StoredBeatmapFacts.AnyIntroBeatdrop"/>).
+        /// <c>null</c> when that cannot be known without a decode (no override, no stored beatdrop, and a difficulty
+        /// whose facts are not computed yet).
+        /// </summary>
+        public static bool? StoredCandidacy(bool? inclusion, IEnumerable<BeatmapInfo> difficulties)
+        {
+            if (inclusion.HasValue)
+                return inclusion.Value;
+
+            return StoredBeatmapFacts.AnyIntroBeatdrop(difficulties);
+        }
+
+        /// <summary>
         /// The point in the song (ms) the intro should land on the menu reveal, for ONE difficulty.
         /// </summary>
         /// <remarks>
@@ -198,14 +212,15 @@ namespace typebeat.Game.Screens.Menu
         /// which stands for its set when difficulties are not grouped), wired to <paramref name="beatmaps"/>.
         /// </summary>
         /// <remarks>
-        /// Whether any difficulty declares a beatdrop needs decodes (the timestamp lives in the beatmap files, not
-        /// realm), so it is read once as the context menu is built rather than bound live; the menu is rebuilt on
-        /// every open, and a beatdrop can only change from the editor in the meantime. The walk stops at the first
-        /// difficulty that declares one.
+        /// Whether any difficulty declares a beatdrop is read once as the context menu is built rather than bound live;
+        /// the menu is rebuilt on every open, and a beatdrop can only change from the editor in the meantime. Each
+        /// difficulty answers from its stored <see cref="BeatmapInfo.HasIntroBeatdrop"/> (written at import, on editor
+        /// save and by the background pass), and only a difficulty whose stored facts are not computed yet
+        /// (<see cref="StoredBeatmapFacts.IsProcessed"/>) is decoded. The walk stops at the first that declares one.
         /// </remarks>
         public static ToggleMenuItem CreateSetMenuItem(BeatmapManager beatmaps, BeatmapSetInfo beatmapSet)
         {
-            bool anyDifficultyHasBeatdrop = beatmapSet.Beatmaps.Any(b => hasIntroBeatdrop(beatmaps, b));
+            bool anyDifficultyHasBeatdrop = beatmapSet.Beatmaps.Any(b => StoredBeatmapFacts.IsProcessed(b) ? b.HasIntroBeatdrop : hasIntroBeatdrop(beatmaps, b));
 
             return CreateMenuItem(
                 beatmaps.GetIntroPoolInclusion(beatmapSet),

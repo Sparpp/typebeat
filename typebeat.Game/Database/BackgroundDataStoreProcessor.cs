@@ -89,6 +89,7 @@ namespace typebeat.Game.Database
 
                 clearOutdatedStarRatings();
                 populateMissingStarRatings();
+                populateMissingTypingFacts();
                 processOnlineBeatmapSetsWithNoUpdate();
                 // Note that the previous method will also update these on a fresh run.
                 processBeatmapsWithMissingObjectCounts();
@@ -136,6 +137,9 @@ namespace typebeat.Game.Database
                             if (b.Ruleset.ShortName == ruleset.ShortName)
                             {
                                 b.StarRating = -1;
+                                // The stored target WPM is a reading of the same converted map, so a ruleset
+                                // bump that re-derives the stars re-derives it too (see StoredBeatmapFacts).
+                                b.TargetWpm = StoredBeatmapFacts.UNPROCESSED;
                                 countReset++;
                             }
                         }
@@ -220,6 +224,78 @@ namespace typebeat.Game.Database
                 catch (Exception e)
                 {
                     Logger.Log($"Background processing failed on {beatmap}: {e}");
+                    ++failedCount;
+                }
+            }
+
+            completeNotification(notification, processedCount, beatmapIds.Count, failedCount);
+        }
+
+        /// <summary>
+        /// Fills <see cref="BeatmapInfo.TargetWpm"/> and <see cref="BeatmapInfo.HasIntroBeatdrop"/> on every row still
+        /// marked unprocessed (see <see cref="StoredBeatmapFacts"/>): a library that predates realm schema 59, or a
+        /// map whose facts failed to compute last time. Strictly local, like the star rating pass above.
+        /// </summary>
+        private void populateMissingTypingFacts()
+        {
+            HashSet<Guid> beatmapIds = new HashSet<Guid>();
+
+            Logger.Log("Querying for beatmaps with missing typing facts...");
+
+            realmAccess.Run(r =>
+            {
+                foreach (var b in r.All<BeatmapInfo>().Where(b => b.TargetWpm < 0 && b.BeatmapSet != null))
+                    beatmapIds.Add(b.ID);
+            });
+
+            if (beatmapIds.Count == 0)
+                return;
+
+            Logger.Log($"Found {beatmapIds.Count} beatmaps which require typing fact processing.");
+
+            var notification = showProgressNotification(beatmapIds.Count, "Measuring typing pace for beatmaps", "beatmaps' typing pace has been measured");
+
+            int processedCount = 0;
+            int failedCount = 0;
+
+            foreach (Guid id in beatmapIds)
+            {
+                if (notification?.State == ProgressNotificationState.Cancelled)
+                    break;
+
+                updateNotificationProgress(notification, processedCount, beatmapIds.Count);
+
+                sleepIfRequired();
+
+                var beatmap = realmAccess.Run(r => r.Find<BeatmapInfo>(id)?.Detach());
+
+                if (beatmap == null)
+                    continue;
+
+                try
+                {
+                    var working = beatmapManager.GetWorkingBeatmap(beatmap);
+
+                    // A map the store cannot read comes back as the dummy, whose "facts" would be fiction.
+                    if (working is DummyWorkingBeatmap)
+                        throw new InvalidOperationException("beatmap file could not be read");
+
+                    var (targetWpm, hasIntroBeatdrop) = StoredBeatmapFacts.Compute(working);
+
+                    realmAccess.Write(r =>
+                    {
+                        if (r.Find<BeatmapInfo>(id) is BeatmapInfo liveBeatmapInfo)
+                        {
+                            liveBeatmapInfo.TargetWpm = targetWpm;
+                            liveBeatmapInfo.HasIntroBeatdrop = hasIntroBeatdrop;
+                        }
+                    });
+
+                    ++processedCount;
+                }
+                catch (Exception e)
+                {
+                    Logger.Log($"Background typing fact processing failed on {beatmap}: {e}");
                     ++failedCount;
                 }
             }

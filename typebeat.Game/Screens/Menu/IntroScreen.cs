@@ -180,6 +180,12 @@ namespace typebeat.Game.Screens.Menu
 
                     foreach (var setInfo in ordered)
                     {
+                        // A set the stored facts already rule out (a set-level false, or every difficulty
+                        // processed and none declaring a beatdrop) costs no decode at all. Only a set that
+                        // may be a member, or cannot be known without one, goes on to be decoded.
+                        if (IntroBeatdropPool.StoredCandidacy(setInfo.IntroPoolInclusion, setInfo.Beatmaps) == false)
+                            continue;
+
                         // Per SET: an explicit set-level false costs no decode; otherwise the set's
                         // difficulties are decoded highest star first and the walk stops at the first
                         // beatdrop, which is the one that plays (see IntroBeatdropPool.PickFromSet).

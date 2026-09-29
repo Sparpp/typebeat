@@ -104,6 +104,13 @@ namespace typebeat.Game.Screens.Select
                         comparison = a.BPM.CompareTo(b.BPM);
                     break;
 
+                case SortMode.Wpm:
+                    if (aggregate)
+                        comparison = compareUsingAggregateMax(a, b, static b => b.TargetWpm);
+                    else
+                        comparison = a.TargetWpm.CompareTo(b.TargetWpm);
+                    break;
+
                 case SortMode.Length:
                     if (aggregate)
                         comparison = compareUsingAggregateMax(a, b, static b => b.Length);

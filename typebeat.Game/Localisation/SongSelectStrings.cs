@@ -195,6 +195,16 @@ namespace typebeat.Game.Localisation
         public static LocalisableString BPM => new TranslatableString(getKey(@"bpm"), @"BPM");
 
         /// <summary>
+        /// "WPM"
+        /// </summary>
+        public static LocalisableString Wpm => new TranslatableString(getKey(@"wpm"), @"WPM");
+
+        /// <summary>
+        /// "Enabled on intro"
+        /// </summary>
+        public static LocalisableString EnabledOnIntro => new TranslatableString(getKey(@"enabled_on_intro"), @"Enabled on intro");
+
+        /// <summary>
         /// "Date Submitted"
         /// </summary>
         public static LocalisableString DateSubmitted => new TranslatableString(getKey(@"date_submitted"), @"Date Submitted");
