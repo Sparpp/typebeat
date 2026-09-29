@@ -101,8 +101,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// </summary>
         ManualNewlines,
 
-        /// <summary>Vertical gap (px) between the three gameplay lyric lines.</summary>
+        /// <summary>Vertical gap (px) between the three gameplay lyric lines. The drawn row pitch is
+        /// never less than <see cref="UI.LyricStage.MIN_ROW_PITCH_RATIO"/> times the lyric font size,
+        /// so a large <see cref="LyricFontSize"/> cannot overlap rows; the stored value is untouched.</summary>
         LineSpacing,
+
+        /// <summary>
+        /// Size (px) of the gameplay lyric text (backlog 334), default
+        /// <see cref="UI.TypeBeatStyle.LYRIC_FONT_SIZE"/>. Read once when the lyric stage loads, so it
+        /// applies from the next play. Display only: every adornment beside the lyric row (carets,
+        /// rail, cues, markers, push warning, rejected-key letter) scales with it, and nothing about
+        /// judgement, a replay or an era bit does. Orthogonal to <see cref="LyricFont"/> and to map
+        /// fonts: the size applies to whichever family resolves.
+        /// </summary>
+        LyricFontSize,
 
         /// <summary>
         /// Family name of the font used for the gameplay typing surface (the lyric stack and typed
@@ -288,6 +300,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.SpaceSkipsWord, true);
             SetDefault(TypeBeatRulesetSetting.ManualNewlines, true);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
+            SetDefault(TypeBeatRulesetSetting.LyricFontSize, UI.TypeBeatStyle.LYRIC_FONT_SIZE, 24.0f, 72.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
             SetDefault(TypeBeatRulesetSetting.UseMapFonts, true);
             SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, true);

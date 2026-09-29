@@ -158,6 +158,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// boot and is then pinned to whatever it said (the reasoning on
         /// <see cref="TheTwoCaretHeadsHaveSeparateDefaults"/>'s playhead half, verbatim).
         /// </summary>
+        /// <summary>
+        /// The lyric font size (backlog 334) defaults to exactly the size the game always drew at, so
+        /// nothing changes for anyone until they move the slider, and its range is 24 to 72 in steps
+        /// of 1.
+        /// </summary>
+        [Test]
+        public void LyricFontSizeDefaultsToTheOldConstant()
+        {
+            using (var rulesetConfig = new TypeBeatRulesetConfigManager(null, new TypeBeatRuleset().RulesetInfo))
+            {
+                var size = (osu.Framework.Bindables.BindableFloat)rulesetConfig.GetBindable<float>(TypeBeatRulesetSetting.LyricFontSize);
+
+                Assert.That(size.Default, Is.EqualTo(42f));
+                Assert.That(size.Default, Is.EqualTo(TypeBeatStyle.LYRIC_FONT_SIZE));
+                Assert.That(size.MinValue, Is.EqualTo(24f));
+                Assert.That(size.MaxValue, Is.EqualTo(72f));
+                Assert.That(size.Precision, Is.EqualTo(1f));
+            }
+        }
+
+        /// <summary>
+        /// The row pitch is the player's spacing, floored at 1.3 times the font size so a large font
+        /// cannot overlap rows; the floor never lowers a spacing the player chose. Worked values: at
+        /// the default 96 spacing it binds nowhere in the size range (72 x 1.3 = 93.6); at the
+        /// minimum 40 spacing it binds from size 31 up (at 24, 24 x 1.3 = 31.2, so 40 stands).
+        /// </summary>
+        [TestCase(96f, 42f, 96f)]
+        [TestCase(96f, 72f, 96f)]
+        [TestCase(40f, 24f, 40f)]
+        [TestCase(40f, 42f, 54.6f)]
+        [TestCase(40f, 72f, 93.6f)]
+        [TestCase(200f, 72f, 200f)]
+        public void RowPitchIsTheSpacingFlooredByTheFontSize(float spacing, float fontSize, float expected)
+            => Assert.That(LyricStage.EffectiveRowPitch(spacing, fontSize), Is.EqualTo(expected).Within(1e-4));
+
         [Test]
         public void SyncMetricDefaultsToOff()
         {

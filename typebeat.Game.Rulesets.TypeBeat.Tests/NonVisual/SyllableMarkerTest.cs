@@ -335,8 +335,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// The one geometry rule, pure so it needs no drawable: a mark hangs from the BOTTOM of the
         /// glyph row and clears the sung sweep rail below it. That band is what makes it read as
         /// typography sitting under the word rather than as a widget drawn over the line, and the
-        /// clearance is what stops it merging into the rail at large font sizes (the band is
-        /// absolute, the mark scales, so the clamp is the binding rule up there).
+        /// clearance is what stops it merging into the rail when the glyph row is tall for the
+        /// band (the band scales with the requested font size since backlog 334, the mark with the
+        /// glyph row the font actually measures, so the clamp binds where the two part company).
         /// </summary>
         [TestCase(1f)]
         [TestCase(12f)]
@@ -364,6 +365,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.That(LyricLineDisplay.SyllableMarkerGeometry(4000f).Height,
                 Is.EqualTo(LyricLineDisplay.SWEEP_RAIL_OFFSET - 1f).Within(1e-6), "clamped, never through the rail");
+        }
+
+        /// <summary>
+        /// Backlog 334: the band the mark lives in scales with the lyric FONT SIZE, so at the
+        /// largest size the rail drops 6 x 72/42 (about 10.3) under the glyphs and the mark keeps its
+        /// clear pixel against THAT rail, not against the default-size one.
+        /// </summary>
+        [TestCase(24f)]
+        [TestCase(42f)]
+        [TestCase(72f)]
+        public void TheMarkClearsTheRailAtEveryLyricSize(float fontSize)
+        {
+            float railOffset = LyricLineDisplay.SWEEP_RAIL_OFFSET * LyricLineDisplay.SizeRatioFor(fontSize);
+            var (top, _, height) = LyricLineDisplay.SyllableMarkerGeometry(fontSize, railOffset);
+
+            Assert.That(top, Is.EqualTo(fontSize));
+            Assert.That(top + height, Is.LessThanOrEqualTo(fontSize + railOffset - 1f));
+            Assert.That(height, Is.EqualTo(fontSize * LyricLineDisplay.SYLLABLE_MARKER_HEIGHT).Within(1e-5),
+                "a glyph row of the requested size is never clamped: the mark keeps its proportion");
         }
 
         #endregion

@@ -113,6 +113,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 },
                 new SettingsSlider<float>
                 {
+                    LabelText = "Lyric font size",
+                    TooltipText = "Size of the lyric text during gameplay. Applies from the next play.",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.LyricFontSize),
+                    KeyboardStep = 1f,
+                },
+                new SettingsSlider<float>
+                {
                     LabelText = "Lyric line spacing",
                     Current = config.GetBindable<float>(TypeBeatRulesetSetting.LineSpacing),
                     KeyboardStep = 2f,

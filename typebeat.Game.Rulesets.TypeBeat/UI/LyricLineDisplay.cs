@@ -102,6 +102,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private readonly float requestedFontSize;
 
+        /// <summary>
+        /// The requested font size as a multiple of the default (<see cref="TypeBeatStyle.LYRIC_FONT_SIZE"/>).
+        /// Every pixel literal in this display that was tuned by eye against the default size (the
+        /// sweep rail's drop and thickness, the glow's width, the wrong-character shake) is written as
+        /// "its value at the default size" times this, so the whole row keeps its proportions at any
+        /// size (backlog 334) and is byte-identical at the default, where it is exactly 1.
+        /// </summary>
+        public float SizeRatio => SizeRatioFor(requestedFontSize);
+
+        /// <summary>The font size this display was built for, before the auto-shrink scale.</summary>
+        public float FontSize => requestedFontSize;
+
+        /// <summary><paramref name="fontSize"/> as a multiple of <see cref="TypeBeatStyle.LYRIC_FONT_SIZE"/>;
+        /// exactly 1 at the default, so a literal multiplied by it is unchanged there.</summary>
+        public static float SizeRatioFor(float fontSize) => fontSize / TypeBeatStyle.LYRIC_FONT_SIZE;
+
         /// <summary>Resolved gameplay-font family (null/empty = the built-in lyric font). Set at construction;
         /// the owning stage decides the value and guarantees the family is registered before it is used.</summary>
         private readonly string? fontFamily;
@@ -286,14 +302,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             sweepFill = new Box
             {
                 Colour = TypeBeatStyle.SungAccent.Opacity(0.60f),
-                Height = 3,
+                Height = SWEEP_RAIL_HEIGHT * SizeRatio,
                 Width = 0,
             };
             sweepGlow = new Box
             {
                 Colour = TypeBeatStyle.SungAccent,
-                Height = 3,
-                Width = 6,
+                Height = SWEEP_RAIL_HEIGHT * SizeRatio,
+                Width = SWEEP_GLOW_WIDTH * SizeRatio,
                 Origin = Anchor.TopCentre,
                 Alpha = 0,
             };
@@ -432,7 +448,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 sweepTracks[k] = new Box
                 {
                     Colour = trackBands[k].Colour,
-                    Height = 3,
+                    Height = SWEEP_RAIL_HEIGHT * SizeRatio,
                     Anchor = Anchor.TopLeft,
                     Origin = Anchor.TopLeft,
                     AlwaysPresent = true,
@@ -578,6 +594,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             base.Update();
 
+            // A resized window changes the width the line has to fit in; re-fit (a scale change
+            // only, the measured layout stands) so the stage reads the new geometry this frame.
+            if (IsLoaded && Math.Abs(availableWidth - fittedWidth) > 0.5f)
+                applyFit();
+
             // Once per frame at most, and only when a cell actually repainted: the stage refreshes
             // every visible cell every frame, and the dot rule is a whole-line read, so doing it
             // inside RefreshCell would make it quadratic for nothing.
@@ -688,11 +709,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             cellX[n] = x;
 
-            // Auto-shrink guard: keep the rendered line within 90% of the design width.
-            float total = cellX[n];
-            float maxWidth = design_width * max_width_fraction;
-            contentScale = total > maxWidth && total > 0f ? maxWidth / total : 1f;
-            content.Scale = new Vector2(contentScale);
+            applyFit();
 
             for (int i = 0; i < n; i++)
                 cells[i].Position = new Vector2(cellX[i] + advances[i] * 0.5f, glyphHeight * 0.5f);
@@ -711,7 +728,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             // Each pace band spans exactly its own cells' x-extent, off the same measured edges the
             // glyphs sit on; the bands tile the line, so the union is still cellX[n] wide.
-            float railY = glyphHeight + SWEEP_RAIL_OFFSET;
+            float railOffset = SWEEP_RAIL_OFFSET * SizeRatio;
+            float railY = glyphHeight + railOffset;
 
             for (int k = 0; k < sweepTracks.Length; k++)
             {
@@ -729,7 +747,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // the inter-character gap the boundary falls in (the marker is drawn Origin.TopCentre,
             // so the gap is its axis), and the vertical band is the one geometry rule below. Placed
             // after the rail so the two read together: the marks live in the gap above it.
-            var markerGeometry = SyllableMarkerGeometry(glyphHeight);
+            var markerGeometry = SyllableMarkerGeometry(glyphHeight, railOffset);
 
             for (int k = 0; k < markerCells.Length; k++)
             {
@@ -738,6 +756,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
 
             applySyllableMarkers(animate: false);
+        }
+
+        /// <summary>
+        /// The width the line has to fit in: the design width, or the width the stage actually gives
+        /// the stack when that is narrower (a 4:3 window, or a test browser with a side panel).
+        /// </summary>
+        private float availableWidth => Parent is Drawable parent && parent.DrawWidth > 0 ? Math.Min(design_width, parent.DrawWidth) : design_width;
+
+        /// <summary>The <see cref="availableWidth"/> the current <see cref="contentScale"/> was fitted to.</summary>
+        private float fittedWidth = -1f;
+
+        /// <summary>
+        /// Auto-shrink guard: keep the rendered line within 90% of the available width by scaling the
+        /// whole content down, never clipping it. It bounds the WIDTH whatever size the line was
+        /// requested at, so a long line at the largest lyric size (backlog 334) shrinks exactly as far
+        /// as it has to. Until backlog 334 the bound was the fixed design width alone, which a stack
+        /// narrower than 1366 (any 4:3 window) overflowed at every size; the design width is still the
+        /// ceiling, so a 16:9 window lays out exactly as before.
+        /// </summary>
+        private void applyFit()
+        {
+            fittedWidth = availableWidth;
+
+            float total = cellX[^1];
+            float maxWidth = fittedWidth * max_width_fraction;
+            contentScale = total > maxWidth && total > 0f ? maxWidth / total : 1f;
+            content.Scale = new Vector2(contentScale);
         }
 
         /// <summary>
@@ -750,14 +795,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// the glyph row so it hugs the baseline and reads as typography rather than as a widget,
         /// and clamped to leave a clear pixel above the rail so the two marks never touch. The size
         /// scales off the glyph height (like <see cref="SPACE_ERROR_DOT_RADIUS"/>) so it tracks the
-        /// font size and the auto-shrink for free, but the band does NOT scale (the rail offset is
-        /// absolute), which is why the clamp is the binding rule at large font sizes.</para>
+        /// font size and the auto-shrink for free. The band scales with the FONT SIZE (the display
+        /// passes <see cref="SWEEP_RAIL_OFFSET"/> times its <see cref="SizeRatio"/>, backlog 334) but
+        /// not with the glyph row the font happens to measure, so the clamp can still bind for a face
+        /// whose glyph row is tall for its size.</para>
         ///
-        /// <para>Pure and static so the band can be pinned without standing up a drawable.</para>
+        /// <para>Pure and static so the band can be pinned without standing up a drawable.
+        /// <paramref name="railOffset"/> defaults to the default-size drop.</para>
         /// </summary>
-        public static (float Top, float Width, float Height) SyllableMarkerGeometry(float glyphHeight)
+        public static (float Top, float Width, float Height) SyllableMarkerGeometry(float glyphHeight, float railOffset = SWEEP_RAIL_OFFSET)
         {
-            float height = Math.Clamp(glyphHeight * SYLLABLE_MARKER_HEIGHT, 1f, SWEEP_RAIL_OFFSET - 1f);
+            float height = Math.Clamp(glyphHeight * SYLLABLE_MARKER_HEIGHT, 1f, Math.Max(1f, railOffset - 1f));
             return (glyphHeight, height * SYLLABLE_MARKER_ASPECT, height);
         }
 
@@ -1052,11 +1100,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
-        /// Content-local drop from the bottom of the glyph row to the sung sweep rail. Absolute, not
-        /// a fraction of the font size, which is why <see cref="SyllableMarkerGeometry"/> has to
-        /// clamp against it rather than merely scale beside it.
+        /// Content-local drop from the bottom of the glyph row to the sung sweep rail AT THE DEFAULT
+        /// FONT SIZE. Since backlog 334 the drawn drop is this times <see cref="SizeRatio"/> (1/7 of
+        /// the font size), so the rail keeps its distance from the text at every lyric size.
         /// </summary>
         public const float SWEEP_RAIL_OFFSET = 6f;
+
+        /// <summary>Thickness of the sweep rail, its fill and its glow at the default font size
+        /// (1/14 of it); drawn times <see cref="SizeRatio"/>.</summary>
+        public const float SWEEP_RAIL_HEIGHT = 3f;
+
+        /// <summary>Width of the glow at the sweep's leading edge at the default font size (1/7 of
+        /// it); drawn times <see cref="SizeRatio"/>.</summary>
+        public const float SWEEP_GLOW_WIDTH = 6f;
+
+        /// <summary>Half-amplitude of the wrong-character shake at the default font size (1/21 of
+        /// it); drawn times <see cref="SizeRatio"/>.</summary>
+        public const float WRONG_CHAR_SHAKE = 2f;
 
         /// <summary>
         /// Height of a syllable marker as a fraction of the glyph row height. Tiny on purpose, and
@@ -1433,8 +1493,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             else if (judgement.Type == JudgementType.WrongChar)
             {
                 float baseX = cellX[i] + advances[i] * 0.5f;
-                cell.MoveToX(baseX - 2f, 25)
-                    .Then().MoveToX(baseX + 2f, 25)
+                float shake = WRONG_CHAR_SHAKE * SizeRatio;
+                cell.MoveToX(baseX - shake, 25)
+                    .Then().MoveToX(baseX + shake, 25)
                     .Then().MoveToX(baseX, 15, Easing.OutQuint);
 
                 // AND THE GAP'S OWN DOT BOUNCES, on EVERY mistype - the same character twice included.
@@ -1929,6 +1990,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// move as the flashlight window changes.</summary>
         public Vector2 CellScreenPosition(int index) =>
             index >= 0 && index < cells.Length ? cells[index].ScreenSpaceDrawQuad.Centre : Vector2.Zero;
+
+        /// <summary>Screen-space quad of a cell's glyph sprite; test support for the lyric size scene
+        /// (backlog 334), which pins every adornment against the text it belongs to.</summary>
+        public osu.Framework.Graphics.Primitives.Quad CellScreenQuad(int index) =>
+            index >= 0 && index < cells.Length ? cells[index].ScreenSpaceDrawQuad : default;
+
+        /// <summary>Screen-space quad of the sweep rail's first band (every band shares its Y and
+        /// thickness); test support for the lyric size scene.</summary>
+        public osu.Framework.Graphics.Primitives.Quad RailScreenQuad => sweepTracks.Length > 0 ? sweepTracks[0].ScreenSpaceDrawQuad : default;
+
+        /// <summary>Screen-space quad of the syllable marker at <paramref name="cellIndex"/>, or the
+        /// default quad when no marker sits there; test support for the lyric size scene.</summary>
+        public osu.Framework.Graphics.Primitives.Quad SyllableMarkerScreenQuad(int cellIndex) =>
+            markerIndexAt(cellIndex) is int k ? syllableMarkers[k].ScreenSpaceDrawQuad : default;
 
         /// <summary>First cell of the painted retype selection (see <see cref="SetSelection"/>).</summary>
         public int SelectionStart { get; private set; }
