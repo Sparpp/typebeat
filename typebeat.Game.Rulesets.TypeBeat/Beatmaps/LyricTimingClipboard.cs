@@ -3,14 +3,14 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Newtonsoft.Json;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
-    /// The lyric editor's clipboard payloads: TIMING patterns only, never text. Serialized as
-    /// JSON into the editor's string clipboard (<c>EditorClipboard.Content</c>), discriminated by
-    /// <c>type</c> so paste can dispatch:
+    /// The lyric editor's clipboard payloads, serialized as JSON into the editor's string clipboard
+    /// (<c>EditorClipboard.Content</c>), discriminated by <c>type</c> so paste can dispatch:
     ///
     ///  - <see cref="LineTimingsPayload"/>: one entry per copied line, each holding its units'
     ///    offsets and sung-end RELATIVE TO THE LINE START. Pasting rebases the pattern onto each
@@ -27,14 +27,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// why. Every one of those fields is OPTIONAL, so a payload written before they existed still
     /// parses and simply carries no sub-word timing.</para>
     ///
-    /// <para>Still TIMING ONLY: <see cref="UnitSpan.Chars"/> is a character COUNT, not text, and it
-    /// is there because a split and a rest are char INDICES, which only mean anything against the
-    /// spelling they were authored for.</para>
+    /// <para>TEXT (backlog 339). From <see cref="TEXT_VERSION"/> a LINE payload also carries the
+    /// line's words, the author's form per word in <see cref="UnitSpan.Text"/>, so the default paste
+    /// can put the copied line down AS IS (<see cref="TypeBeatEditorOperations.PasteLine"/>). The
+    /// type discriminator is unchanged and every new field is optional, so the two builds exchange
+    /// clipboards: an old build reads a new payload as timings (it ignores the fields it does not
+    /// know), and a new build reads an old payload as timing-only under both paste gestures
+    /// (<see cref="LineTimingsPayload.CarriesText"/> is false for it). The timing-only paste
+    /// (<see cref="TypeBeatEditorOperations.PasteLineTimings"/>) never reads the text.</para>
+    ///
+    /// <para>The per-word <c>text</c> lives on <see cref="UnitSpan"/>, beside the char-indexed fields
+    /// it spells out, so a UNIT payload can carry it the same way (backlog 343) without a second
+    /// shape. <see cref="UnitSpan.Chars"/> stays: it is the gate the timing-only paste still uses.</para>
     /// </summary>
     public static class LyricTimingClipboard
     {
         private const string line_type = "typebeat-line-timings";
         private const string unit_type = "typebeat-unit-timings";
+
+        /// <summary>
+        /// The <see cref="LineTimingsPayload.Version"/> from which a line payload carries its words'
+        /// text. A payload without the field reads as 0 (the timing-only payload every earlier build
+        /// wrote).
+        /// </summary>
+        public const int TEXT_VERSION = 2;
 
         /// <summary>One authored rest inside a word: its [start, end] as offsets from the payload's
         /// reference point, plus the character index it sits after (see <see cref="WordPause"/>).</summary>
@@ -68,6 +84,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             public int Chars;
 
             /// <summary>
+            /// The source word's text in the AUTHOR'S form (<see cref="TimedUnit.Text"/>, the token of
+            /// <see cref="LyricLine.RawText"/> the map stores, freestyle markers included), or null on
+            /// a payload that carries no text: every payload written before backlog 339, and (until
+            /// backlog 343) every UNIT payload. Set by <see cref="TypeBeatEditorOperations.CopyLineTimings"/>.
+            ///
+            /// <para>Room is left beside it for the word's ORIGINAL-script spelling (backlog 330) as a
+            /// sibling optional field on this same object, so a romanised word and its source script
+            /// travel together.</para>
+            /// </summary>
+            [JsonProperty("text", NullValueHandling = NullValueHandling.Ignore)]
+            public string? Text;
+
+            /// <summary>
             /// <see cref="TimedUnit.SyllableBoundaries"/> as offsets from the payload's reference
             /// point, or null for an undivided word (and for any payload predating the field).
             /// </summary>
@@ -94,6 +123,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             [JsonProperty("units")]
             public List<UnitSpan> Units = new List<UnitSpan>();
+
+            /// <summary>The source line's <see cref="LyricLine.SealGraceMs"/>, or null on a payload predating the field.</summary>
+            [JsonProperty("seal_grace", NullValueHandling = NullValueHandling.Ignore)]
+            public double? SealGraceMs;
+
+            /// <summary>The source line's <see cref="LyricLine.Estimated"/>, or null on a payload predating the field.</summary>
+            [JsonProperty("estimated", NullValueHandling = NullValueHandling.Ignore)]
+            public bool? Estimated;
+
+            /// <summary>
+            /// The source line's <see cref="Objects.TypeBeatHitObject.Granularity"/>, or null on a payload
+            /// predating the field. A LINE-granularity source holds interpolated words, and the text
+            /// paste keeps them interpolated rather than promoting the target map on their account.
+            /// </summary>
+            [JsonProperty("granularity", NullValueHandling = NullValueHandling.Ignore)]
+            public TimingGranularity? Granularity;
+
+            /// <summary>
+            /// Whether this line spells out every word: at least one word, and each one's
+            /// <see cref="UnitSpan.Text"/> a single non-empty token.
+            /// </summary>
+            [JsonIgnore]
+            public bool HasText => Units.Count > 0 && Units.All(u => !string.IsNullOrEmpty(u.Text) && !u.Text.Contains(' '));
+
+            /// <summary>The line as the map stores it (the words joined by single spaces), or null without <see cref="HasText"/>.</summary>
+            [JsonIgnore]
+            public string? RawText => HasText ? string.Join(' ', Units.Select(u => u.Text)) : null;
         }
 
         public class LineTimingsPayload
@@ -101,8 +157,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             [JsonProperty("type")]
             public string Type = line_type;
 
+            /// <summary>
+            /// 0 (absent) for the timing-only payload; <see cref="TEXT_VERSION"/> once the lines carry
+            /// their words. The marker, together with every line actually spelling its words out, is
+            /// what the default paste dispatches on.
+            /// </summary>
+            [JsonProperty("version", DefaultValueHandling = DefaultValueHandling.Ignore)]
+            public int Version;
+
             [JsonProperty("lines")]
             public List<LineTimings> Lines = new List<LineTimings>();
+
+            /// <summary>
+            /// Whether the default paste can put these lines down AS IS (words and timing together):
+            /// the payload is at least <see cref="TEXT_VERSION"/> and every line has its text. Anything
+            /// else pastes timing-only, whichever gesture asked.
+            /// </summary>
+            [JsonIgnore]
+            public bool CarriesText => Version >= TEXT_VERSION && Lines.Count > 0 && Lines.All(l => l.HasText);
+
+            /// <summary>
+            /// The copied lyrics as plain text, one line per copied line, for the OS clipboard (so a
+            /// copied line pastes into a text editor). Null when the payload carries no text.
+            /// </summary>
+            public string? PlainText() => CarriesText ? string.Join('\n', Lines.Select(l => l.RawText)) : null;
         }
 
         public class UnitTimingsPayload

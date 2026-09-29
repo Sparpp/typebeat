@@ -13,9 +13,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
     /// The timing clipboard: copying a line's (or word run's) internal timing and pasting it
-    /// elsewhere REBASED: the repeated-chorus workflow. Boundaries must never move, pastes are
-    /// timings-only (text stays the target's), overwrite applies regardless of word match, and
-    /// every result stays monotonic inside the target window.
+    /// elsewhere REBASED: the repeated-chorus workflow. Boundaries must never move, the TIMING
+    /// paste keeps the target's text, overwrite applies regardless of word match, and every result
+    /// stays monotonic inside the target window. Since backlog 339 the default LINE paste puts the
+    /// copied words down too (<see cref="TypeBeatEditorOperations.PasteLine"/>), which the last
+    /// section covers.
     /// </summary>
     [TestFixture]
     public class LyricTimingClipboardTest
@@ -661,6 +663,399 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 Assert.That(line(editorBeatmap, 1).Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3500d }));
                 Assert.That(line(editorBeatmap, 1).Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 1 }));
+            });
+        }
+
+        // ---- backlog 339: the line paste carries the words ----
+
+        /// <summary>The fixture's words and spans of one line, for whole-line comparisons.</summary>
+        private static (string, double, double)[] shape(LyricLine lyric) => lyric.Units.Select(u => (u.Text, u.StartTime, u.EndTime)).ToArray();
+
+        /// <summary>Replaces one line's text and words outright (the fixture cannot express a freestyle token).</summary>
+        private static void setWords(EditorBeatmap editorBeatmap, int lineIndex, params (string text, double s, double e)[] words)
+        {
+            var hitObject = line(editorBeatmap, lineIndex);
+            var lyric = hitObject.Line;
+
+            hitObject.Line = new LyricLine
+            {
+                RawText = string.Join(' ', words.Select(w => w.text)),
+                StartTime = lyric.StartTime,
+                EndTime = lyric.EndTime,
+                SingEndTime = words[^1].e,
+                Units = words.Select(w => new TimedUnit { Text = w.text, StartTime = w.s, EndTime = w.e, Source = TimingSource.Explicit, Confidence = 1 }).ToArray(),
+            };
+        }
+
+        private const string old_payload = "{\"type\":\"typebeat-line-timings\",\"lines\":[{\"sing_end\":1800,\"units\":[{\"start\":0,\"end\":800,\"chars\":5},{\"start\":900,\"end\":1800,\"chars\":4}]}]}";
+
+        [Test]
+        public void LinePayloadCarriesTheWordsBehindAVersionMarker()
+        {
+            var editorBeatmap = createBeatmap();
+            line(editorBeatmap, 0).Line = new LyricLine
+            {
+                RawText = line(editorBeatmap, 0).Line.RawText,
+                StartTime = 1000,
+                EndTime = 3000,
+                SingEndTime = 2800,
+                Units = line(editorBeatmap, 0).Line.Units,
+                SealGraceMs = 250,
+                Estimated = true,
+            };
+
+            string json = LyricTimingClipboard.Serialize(TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) }));
+            var (parsed, _) = LyricTimingClipboard.TryParse(json);
+
+            Assert.Multiple(() =>
+            {
+                // Same discriminator as ever: an older build still reads it as timings.
+                Assert.That(json, Does.StartWith("{\"type\":\"typebeat-line-timings\",\"version\":2,"));
+                Assert.That(parsed!.CarriesText, Is.True);
+                Assert.That(parsed.Lines[0].Units.Select(u => u.Text), Is.EqualTo(new[] { "alpha", "beta" }));
+                Assert.That(parsed.Lines[0].RawText, Is.EqualTo("alpha beta"));
+                Assert.That(parsed.Lines[0].SealGraceMs, Is.EqualTo(250));
+                Assert.That(parsed.Lines[0].Estimated, Is.True);
+                Assert.That(parsed.Lines[0].Granularity, Is.EqualTo(TimingGranularity.Word));
+                Assert.That(parsed.PlainText(), Is.EqualTo("alpha beta"));
+
+                // A payload from before the text existed carries none, and neither does one that has
+                // words but no version marker.
+                var (old, _) = LyricTimingClipboard.TryParse(old_payload);
+                Assert.That(old!.CarriesText, Is.False);
+                Assert.That(old.PlainText(), Is.Null);
+
+                var (unmarked, _) = LyricTimingClipboard.TryParse(json.Replace("\"version\":2,", string.Empty));
+                Assert.That(unmarked!.CarriesText, Is.False);
+            });
+        }
+
+        [Test]
+        public void PasteLine_ReplacesTheWordsAndTakesTheCopiedTimingExactly()
+        {
+            var editorBeatmap = createBeatmap();
+
+            // "al|pha" [1000..1800] cut at 1300 after "al"; "beta" [1900..2800] with a rest after "be".
+            subdivide(editorBeatmap, 0, 0, boundaries: new[] { 1300d }, splits: new[] { 2 });
+            subdivide(editorBeatmap, 0, 1, rests: new[] { new WordPause(2200, 2350, 2) });
+
+            var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) });
+            TypeBeatEditorOperations.PasteLine(editorBeatmap, new[] { line(editorBeatmap, 1) }, payload);
+
+            var target = line(editorBeatmap, 1).Line;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(target.RawText, Is.EqualTo("alpha beta"));
+                Assert.That(target.StartTime, Is.EqualTo(3000), "start kept");
+                Assert.That(target.EndTime, Is.EqualTo(6000), "interior end kept: the next line's start is the wall");
+                Assert.That(line(editorBeatmap, 2).Line.StartTime, Is.EqualTo(6000), "nothing cascades");
+
+                // Rebased by +2000 (source start 1000, target start 3000).
+                Assert.That(shape(target), Is.EqualTo(new[] { ("alpha", 3000d, 3800d), ("beta", 3900d, 4800d) }));
+                Assert.That(target.SingEndTime, Is.EqualTo(4800));
+                Assert.That(target.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3300d }));
+                Assert.That(target.Units[0].SyllableSplits, Is.EqualTo(new[] { 2 }));
+                Assert.That(target.Units[1].Pauses.Select(p => (p.StartTime, p.EndTime, p.SplitChar)), Is.EqualTo(new[] { (4200d, 4350d, 2) }));
+                Assert.That(target.Units.All(u => u.Source == TimingSource.Explicit), Is.True);
+            });
+        }
+
+        [Test]
+        public void PasteLine_ADifferentWordCountReplacesTheWholeWordList()
+        {
+            var editorBeatmap = createBeatmap();
+
+            // One word ("omega", rel 0..1000) over two, and two words over one (the LAST line).
+            var one = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 2) });
+            var two = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) });
+
+            TypeBeatEditorOperations.PasteLine(editorBeatmap, new[] { line(editorBeatmap, 1) }, one);
+            TypeBeatEditorOperations.PasteLine(editorBeatmap, new[] { line(editorBeatmap, 2) }, two);
+
+            var second = line(editorBeatmap, 1).Line;
+            var last = line(editorBeatmap, 2).Line;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(second.RawText, Is.EqualTo("omega"));
+                Assert.That(shape(second), Is.EqualTo(new[] { ("omega", 3000d, 4000d) }));
+                Assert.That((second.StartTime, second.SingEndTime, second.EndTime), Is.EqualTo((3000d, 4000d, 6000d)));
+
+                // The last line's end follows the pasted words (backlog 336): sung end 6000 + 1800,
+                // plus the 1000 ms tail the line already carried (8000 - 7000).
+                Assert.That(last.RawText, Is.EqualTo("alpha beta"));
+                Assert.That(shape(last), Is.EqualTo(new[] { ("alpha", 6000d, 6800d), ("beta", 6900d, 7800d) }));
+                Assert.That((last.StartTime, last.SingEndTime, last.EndTime), Is.EqualTo((6000d, 7800d, 8800d)));
+            });
+        }
+
+        [Test]
+        public void PasteLine_ALongerPatternClampsMonotonicallyIntoTheWindow()
+        {
+            var editorBeatmap = createBeatmap();
+
+            // "gamma delta" (rel 0..1200, 1300..2500, sung end 2500) onto line 0's 1000..3000.
+            var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 1) });
+            TypeBeatEditorOperations.PasteLine(editorBeatmap, new[] { line(editorBeatmap, 0) }, payload);
+
+            var target = line(editorBeatmap, 0).Line;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(target.RawText, Is.EqualTo("gamma delta"));
+                Assert.That(shape(target), Is.EqualTo(new[] { ("gamma", 1000d, 2200d), ("delta", 2300d, 3000d) }));
+                Assert.That((target.StartTime, target.SingEndTime, target.EndTime), Is.EqualTo((1000d, 3000d, 3000d)));
+                Assert.That(line(editorBeatmap, 1).Line.StartTime, Is.EqualTo(3000), "the wall did not move");
+            });
+        }
+
+        [Test]
+        public void PasteLine_BroadcastsOneLineToThreeTargets()
+        {
+            var editorBeatmap = createBeatmap();
+
+            var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) });
+            TypeBeatEditorOperations.PasteLine(editorBeatmap, TypeBeatEditorOperations.OrderedLines(editorBeatmap), payload);
+
+            var lines = TypeBeatEditorOperations.OrderedLines(editorBeatmap).Select(o => o.Line).ToArray();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(lines.Select(l => l.RawText), Is.All.EqualTo("alpha beta"));
+                Assert.That(shape(lines[0]), Is.EqualTo(new[] { ("alpha", 1000d, 1800d), ("beta", 1900d, 2800d) }));
+                Assert.That(shape(lines[1]), Is.EqualTo(new[] { ("alpha", 3000d, 3800d), ("beta", 3900d, 4800d) }));
+                Assert.That(shape(lines[2]), Is.EqualTo(new[] { ("alpha", 6000d, 6800d), ("beta", 6900d, 7800d) }));
+                Assert.That(lines.Select(l => l.StartTime), Is.EqualTo(new[] { 1000d, 3000d, 6000d }));
+                Assert.That(lines[0].EndTime, Is.EqualTo(3000));
+                Assert.That(lines[1].EndTime, Is.EqualTo(6000));
+            });
+        }
+
+        [Test]
+        public void PasteLine_ZipsTwoLinesOntoTwo()
+        {
+            var editorBeatmap = createBeatmap();
+
+            var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 1), line(editorBeatmap, 2) });
+            TypeBeatEditorOperations.PasteLine(editorBeatmap, new[] { line(editorBeatmap, 0), line(editorBeatmap, 1) }, payload);
+
+            var first = line(editorBeatmap, 0).Line;
+            var second = line(editorBeatmap, 1).Line;
+            var untouched = line(editorBeatmap, 2).Line;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(first.RawText, Is.EqualTo("gamma delta"));
+                Assert.That(shape(first), Is.EqualTo(new[] { ("gamma", 1000d, 2200d), ("delta", 2300d, 3000d) }));
+                Assert.That(second.RawText, Is.EqualTo("omega"));
+                Assert.That(shape(second), Is.EqualTo(new[] { ("omega", 3000d, 4000d) }));
+                Assert.That(untouched.RawText, Is.EqualTo("omega"));
+                Assert.That(shape(untouched), Is.EqualTo(new[] { ("omega", 6000d, 7000d) }));
+            });
+        }
+
+        [Test]
+        public void PasteLine_IsOneUndoStepRestoringWordsAndTimingTogether()
+        {
+            var editorBeatmap = createBeatmap();
+            var changeHandler = new RulesetBeatmapChangeHandler(editorBeatmap, new TypeBeatRuleset());
+
+            var before = line(editorBeatmap, 1).Line;
+            var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 2) });
+            TypeBeatEditorOperations.PasteLine(editorBeatmap, new[] { line(editorBeatmap, 1), line(editorBeatmap, 0) }, payload);
+
+            Assert.That(line(editorBeatmap, 1).Line.RawText, Is.EqualTo("omega"), "pasted");
+
+            changeHandler.RestoreState(-1);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(changeHandler.CanUndo.Value, Is.False, "the whole paste was one step");
+                Assert.That(line(editorBeatmap, 0).Line.RawText, Is.EqualTo("alpha beta"));
+                Assert.That(line(editorBeatmap, 1).Line.RawText, Is.EqualTo(before.RawText));
+                Assert.That(shape(line(editorBeatmap, 1).Line), Is.EqualTo(shape(before)));
+                Assert.That(line(editorBeatmap, 1).Line.SingEndTime, Is.EqualTo(before.SingEndTime));
+            });
+        }
+
+        [Test]
+        public void AnOldPayloadWithoutTextPastesTimingOnlyUnderBothGestures()
+        {
+            var (old, _) = LyricTimingClipboard.TryParse(old_payload);
+
+            var viaDefault = createBeatmap();
+            TypeBeatEditorOperations.PasteLine(viaDefault, new[] { line(viaDefault, 1) }, old!);
+
+            var viaTimings = createBeatmap();
+            TypeBeatEditorOperations.PasteLineTimings(viaTimings, new[] { line(viaTimings, 1) }, old!);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(line(viaDefault, 1).Line.RawText, Is.EqualTo("gamma delta"), "the target keeps its words");
+                Assert.That(shape(line(viaDefault, 1).Line), Is.EqualTo(new[] { ("gamma", 3000d, 3800d), ("delta", 3900d, 4800d) }));
+                Assert.That(shape(line(viaDefault, 1).Line), Is.EqualTo(shape(line(viaTimings, 1).Line)));
+                Assert.That(line(viaDefault, 1).Line.SingEndTime, Is.EqualTo(line(viaTimings, 1).Line.SingEndTime));
+
+                // And with nothing selected it cannot become a line of its own: it has no words.
+                Assert.That(TypeBeatEditorOperations.InsertCopiedLine(viaDefault, 9000, old!.Lines[0]), Is.Null);
+                Assert.That(TypeBeatEditorOperations.OrderedLines(viaDefault), Has.Count.EqualTo(3));
+            });
+        }
+
+        [Test]
+        public void TheTimingPasteIgnoresTheTextANewPayloadCarries()
+        {
+            var editorBeatmap = createBeatmap();
+
+            var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 2) });
+            Assert.That(payload.CarriesText, Is.True, "fixture");
+
+            TypeBeatEditorOperations.PasteLineTimings(editorBeatmap, new[] { line(editorBeatmap, 1) }, payload);
+
+            var target = line(editorBeatmap, 1).Line;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(target.RawText, Is.EqualTo("gamma delta"));
+                Assert.That(target.Units.Select(u => u.Text), Is.EqualTo(new[] { "gamma", "delta" }));
+                Assert.That((target.Units[0].StartTime, target.Units[0].EndTime), Is.EqualTo((3000d, 4000d)));
+            });
+        }
+
+        [Test]
+        public void WithNoTargetTheCopiedLineIsInsertedAtThePlayhead()
+        {
+            var editorBeatmap = createBeatmap();
+            var changeHandler = new RulesetBeatmapChangeHandler(editorBeatmap, new TypeBeatRuleset());
+
+            var source = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) }).Lines[0];
+
+            // Inside line 1's window: the new line takes 4500..6000 and line 1 now ends at 4500.
+            var added = TypeBeatEditorOperations.InsertCopiedLine(editorBeatmap, 4500, source);
+            var lines = TypeBeatEditorOperations.OrderedLines(editorBeatmap);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(added, Is.Not.Null);
+                Assert.That(lines, Has.Count.EqualTo(4));
+                Assert.That(lines[2], Is.SameAs(added));
+                Assert.That(lines[1].Line.EndTime, Is.EqualTo(4500), "the boundary invariant: the previous line ends where it starts");
+                Assert.That(added!.Line.RawText, Is.EqualTo("alpha beta"));
+                Assert.That((added.Line.StartTime, added.Line.EndTime), Is.EqualTo((4500d, 6000d)));
+
+                // Rebased by +3500; "beta" (6400..7300) clamps against the next line's start.
+                Assert.That(shape(added.Line), Is.EqualTo(new[] { ("alpha", 4500d, 5300d), ("beta", 5400d, 6000d) }));
+                Assert.That(added.Line.SingEndTime, Is.EqualTo(6000));
+                Assert.That(lines.Select(o => o.LineIndex), Is.EqualTo(new[] { 0, 1, 2, 3 }));
+            });
+
+            changeHandler.RestoreState(-1);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(changeHandler.CanUndo.Value, Is.False, "insert and paste were one step");
+                Assert.That(TypeBeatEditorOperations.OrderedLines(editorBeatmap), Has.Count.EqualTo(3));
+                Assert.That(line(editorBeatmap, 1).Line.EndTime, Is.EqualTo(6000));
+            });
+        }
+
+        [Test]
+        public void AnAppendedCopiedLineBecomesTheLastLineAndItsEndFollowsItsWords()
+        {
+            var editorBeatmap = createBeatmap();
+
+            var source = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) }).Lines[0];
+            var added = TypeBeatEditorOperations.InsertCopiedLine(editorBeatmap, 9000, source);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(TypeBeatEditorOperations.OrderedLines(editorBeatmap)[^1], Is.SameAs(added));
+                Assert.That(line(editorBeatmap, 2).Line.EndTime, Is.EqualTo(9000));
+                Assert.That(shape(added!.Line), Is.EqualTo(new[] { ("alpha", 9000d, 9800d), ("beta", 9900d, 10800d) }));
+                Assert.That(added.Line.SingEndTime, Is.EqualTo(10800));
+                Assert.That(added.Line.EndTime, Is.GreaterThanOrEqualTo(added.Line.SingEndTime));
+                Assert.That(added.Line.EndTime, Is.LessThanOrEqualTo(added.Line.SingEndTime + TypeBeatEditorOperations.LAST_LINE_TAIL_MS));
+            });
+        }
+
+        [TestCase(3000)]
+        [TestCase(3010)]
+        [TestCase(2980)]
+        public void AnInsertTooCloseToALineStartIsRefusedAndChangesNothing(double time)
+        {
+            var editorBeatmap = createBeatmap();
+            var changeHandler = new RulesetBeatmapChangeHandler(editorBeatmap, new TypeBeatRuleset());
+
+            var source = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) }).Lines[0];
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(TypeBeatEditorOperations.CanAddLineAt(editorBeatmap, time), Is.False);
+                Assert.That(TypeBeatEditorOperations.InsertCopiedLine(editorBeatmap, time, source), Is.Null);
+                Assert.That(TypeBeatEditorOperations.OrderedLines(editorBeatmap), Has.Count.EqualTo(3));
+                Assert.That(changeHandler.CanUndo.Value, Is.False);
+            });
+        }
+
+        [Test]
+        public void FreestyleCellsAndAuthoredRestsRoundTripThroughThePaste()
+        {
+            var editorBeatmap = createBeatmap();
+
+            setWords(editorBeatmap, 0, ("yeah", 1000, 1400), ("&&&", 1500, 2100), ("please", 2200, 2800));
+            subdivide(editorBeatmap, 0, 2, rests: new[] { new WordPause(2400, 2500, 2) });
+
+            var source = line(editorBeatmap, 0).Line;
+            string json = LyricTimingClipboard.Serialize(TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) }));
+            var (payload, _) = LyricTimingClipboard.TryParse(json);
+
+            TypeBeatEditorOperations.PasteLine(editorBeatmap, new[] { line(editorBeatmap, 1) }, payload!);
+            var added = TypeBeatEditorOperations.InsertCopiedLine(editorBeatmap, 9000, payload!.Lines[0]);
+
+            var pasted = line(editorBeatmap, 1).Line;
+
+            Assert.Multiple(() =>
+            {
+                // The freestyle token survives verbatim on both paths (AddLine's Normalize never sees it).
+                Assert.That(payload.PlainText(), Is.EqualTo("yeah &&& please"));
+                Assert.That(pasted.RawText, Is.EqualTo(source.RawText));
+                Assert.That(added!.Line.RawText, Is.EqualTo(source.RawText));
+                Assert.That(shape(pasted), Is.EqualTo(source.Units.Select(u => (u.Text, u.StartTime + 2000, u.EndTime + 2000)).ToArray()));
+                Assert.That(shape(added.Line), Is.EqualTo(source.Units.Select(u => (u.Text, u.StartTime + 8000, u.EndTime + 8000)).ToArray()));
+
+                // The rest travels with its word, rebased like the span.
+                Assert.That(pasted.Units[2].Pauses.Select(p => (p.StartTime, p.EndTime, p.SplitChar)), Is.EqualTo(new[] { (4400d, 4500d, 2) }));
+                Assert.That(added.Line.Units[2].Pauses.Select(p => (p.StartTime, p.EndTime, p.SplitChar)), Is.EqualTo(new[] { (10400d, 10500d, 2) }));
+            });
+        }
+
+        [Test]
+        public void ALineGranularitySourceLandsInterpolatedAndDoesNotPromoteTheMap()
+        {
+            var editorBeatmap = createBeatmap();
+
+            foreach (var o in TypeBeatEditorOperations.OrderedLines(editorBeatmap))
+            {
+                o.Granularity = TimingGranularity.Line;
+                o.Line = new LyricLine
+                {
+                    RawText = o.Line.RawText,
+                    StartTime = o.Line.StartTime,
+                    EndTime = o.Line.EndTime,
+                    SingEndTime = o.Line.SingEndTime,
+                    Units = o.Line.Units.Select(u => new TimedUnit { Text = u.Text, StartTime = u.StartTime, EndTime = u.EndTime, Source = TimingSource.Interpolated }).ToArray(),
+                };
+            }
+
+            var payload = TypeBeatEditorOperations.CopyLineTimings(new[] { line(editorBeatmap, 0) });
+            TypeBeatEditorOperations.PasteLine(editorBeatmap, new[] { line(editorBeatmap, 1) }, payload);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(line(editorBeatmap, 1).Line.RawText, Is.EqualTo("alpha beta"));
+                Assert.That(line(editorBeatmap, 1).Line.Units.All(u => u.Source == TimingSource.Interpolated), Is.True);
+                Assert.That(TypeBeatEditorOperations.OrderedLines(editorBeatmap).Select(o => o.Granularity), Is.All.EqualTo(TimingGranularity.Line));
             });
         }
     }

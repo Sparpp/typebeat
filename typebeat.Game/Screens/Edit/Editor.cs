@@ -387,6 +387,10 @@ namespace typebeat.Game.Screens.Edit
                                             cutMenuItem = new EditorMenuItem(CommonStrings.Cut, MenuItemType.Standard, Cut) { Hotkey = new Hotkey(PlatformAction.Cut) },
                                             copyMenuItem = new EditorMenuItem(CommonStrings.Copy, MenuItemType.Standard, Copy) { Hotkey = new Hotkey(PlatformAction.Copy) },
                                             pasteMenuItem = new EditorMenuItem(CommonStrings.Paste, MenuItemType.Standard, Paste) { Hotkey = new Hotkey(PlatformAction.Paste) },
+                                            pasteTimingsMenuItem = new EditorMenuItem("Paste timings", MenuItemType.Standard, PasteTimings)
+                                            {
+                                                Hotkey = new Hotkey(new KeyCombination(InputKey.Control, InputKey.Shift, InputKey.V)),
+                                            },
                                             cloneMenuItem = new EditorMenuItem(CommonStrings.Clone, MenuItemType.Standard, Clone) { Hotkey = new Hotkey(GlobalAction.EditorCloneSelection) },
                                         }
                                     },
@@ -985,10 +989,12 @@ namespace typebeat.Game.Screens.Edit
         private EditorMenuItem copyMenuItem;
         private EditorMenuItem cloneMenuItem;
         private EditorMenuItem pasteMenuItem;
+        private EditorMenuItem pasteTimingsMenuItem;
 
         private readonly BindableWithCurrent<bool> canCut = new BindableWithCurrent<bool>();
         private readonly BindableWithCurrent<bool> canCopy = new BindableWithCurrent<bool>();
         private readonly BindableWithCurrent<bool> canPaste = new BindableWithCurrent<bool>();
+        private readonly BindableWithCurrent<bool> canPasteTimings = new BindableWithCurrent<bool>();
 
         private void setUpClipboardActionAvailability()
         {
@@ -999,6 +1005,7 @@ namespace typebeat.Game.Screens.Edit
                 cloneMenuItem.Action.Disabled = !copy.NewValue;
             }, true);
             canPaste.Current.BindValueChanged(paste => pasteMenuItem.Action.Disabled = !paste.NewValue, true);
+            canPasteTimings.Current.BindValueChanged(paste => pasteTimingsMenuItem.Action.Disabled = !paste.NewValue, true);
         }
 
         private void rebindClipboardBindables()
@@ -1006,6 +1013,8 @@ namespace typebeat.Game.Screens.Edit
             canCut.Current = currentScreen.CanCut;
             canCopy.Current = currentScreen.CanCopy;
             canPaste.Current = currentScreen.CanPaste;
+            canPasteTimings.Current = currentScreen.CanPasteTimings;
+            pasteMenuItem.Text.Value = currentScreen.PasteLabel;
         }
 
         protected void Cut() => currentScreen?.Cut();
@@ -1028,6 +1037,8 @@ namespace typebeat.Game.Screens.Edit
         }
 
         protected void Paste() => currentScreen?.Paste();
+
+        protected void PasteTimings() => currentScreen?.PasteTimings();
 
         #endregion
 

@@ -6,7 +6,9 @@ using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Cursor;
+using osu.Framework.Localisation;
 using osu.Framework.Screens;
+using typebeat.Game.Localisation;
 
 namespace typebeat.Game.Screens.Edit
 {
@@ -77,6 +79,29 @@ namespace typebeat.Game.Screens.Edit
         /// Implementors are responsible for checking <see cref="CanPaste"/> themselves.
         /// </remarks>
         public virtual void Paste()
+        {
+        }
+
+        /// <summary>
+        /// The Edit menu's label for <see cref="Paste"/> while this screen is current. A screen whose
+        /// default paste does something more specific than "paste" names it here.
+        /// </summary>
+        public virtual LocalisableString PasteLabel => CommonStrings.Paste;
+
+        /// <summary>
+        /// Whether <see cref="PasteTimings"/> applies. Stays false on every screen that has no
+        /// timing-only paste, which keeps the Edit menu's item disabled there.
+        /// </summary>
+        public BindableBool CanPasteTimings { get; } = new BindableBool();
+
+        /// <summary>
+        /// A paste that transfers TIMING only (Ctrl+Shift+V), for a screen whose default paste also
+        /// carries content: the lyric editor, where <see cref="Paste"/> puts a copied line down as is.
+        /// </summary>
+        /// <remarks>
+        /// Implementors are responsible for checking <see cref="CanPasteTimings"/> themselves.
+        /// </remarks>
+        public virtual void PasteTimings()
         {
         }
 

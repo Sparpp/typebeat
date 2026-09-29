@@ -2850,16 +2850,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// line-relative offsets, exactly like the span), its authored char split and its authored
         /// rests, plus the source word's character COUNT, which is what
         /// <see cref="PasteLineTimings"/> gates the two char-indexed ones on. A word carrying none of
-        /// that writes none of the fields, so a plain word-timed line serializes exactly as before.</para>
+        /// that writes none of the sub-word fields.</para>
+        ///
+        /// <para>Since backlog 339 the payload also carries the TEXT (each word's
+        /// <see cref="TimedUnit.Text"/>, stamped <see cref="LyricTimingClipboard.TEXT_VERSION"/>) and
+        /// the line facts a text paste takes from its source (seal grace, the Estimated flag, the
+        /// granularity), which is what lets <see cref="PasteLine"/> put the line down as is. The
+        /// timing-only paste reads none of it.</para>
         /// </summary>
         public static LyricTimingClipboard.LineTimingsPayload CopyLineTimings(IEnumerable<TypeBeatHitObject> lines)
         {
-            var payload = new LyricTimingClipboard.LineTimingsPayload();
+            var payload = new LyricTimingClipboard.LineTimingsPayload { Version = LyricTimingClipboard.TEXT_VERSION };
 
             foreach (var hitObject in lines)
             {
                 var line = hitObject.Line;
-                var entry = new LyricTimingClipboard.LineTimings { SingEndOffset = line.SingEndTime - line.StartTime };
+                var entry = new LyricTimingClipboard.LineTimings
+                {
+                    SingEndOffset = line.SingEndTime - line.StartTime,
+                    SealGraceMs = line.SealGraceMs,
+                    Estimated = line.Estimated,
+                    Granularity = hitObject.Granularity,
+                };
 
                 foreach (var unit in line.Units)
                 {
@@ -2868,6 +2880,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         Start = unit.StartTime - line.StartTime,
                         End = unit.EndTime - line.StartTime,
                         Chars = unit.Text.Length,
+                        Text = unit.Text,
                         Boundaries = unit.SyllableBoundaries.Count == 0
                             ? null
                             : unit.SyllableBoundaries.Select(b => b - line.StartTime).ToList(),
@@ -3018,9 +3031,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// One pasted word: the TARGET word's text and the SOURCE span's timing, sub-word timing
         /// included, per the policy in <see cref="PasteLineTimings"/>'s remarks. Offsets in
         /// <paramref name="span"/> are relative to <paramref name="lineStart"/>.
+        ///
+        /// <para><paramref name="spellingTravels"/> is the TEXT paste (<see cref="PasteLine"/>): the
+        /// word IS the source word, so the char-count gate has nothing to protect and the source's
+        /// split and rests are taken as authored (still re-validated, since the clamp can cost a
+        /// boundary).</para>
         /// </summary>
         private static TimedUnit pasteUnit(TimedUnit target, LyricTimingClipboard.UnitSpan span, double lineStart,
-                                           TimingSource source = TimingSource.Explicit, double confidence = 1)
+                                           TimingSource source = TimingSource.Explicit, double confidence = 1, bool spellingTravels = false)
         {
             double start = lineStart + span.Start;
             double end = lineStart + span.End;
@@ -3035,7 +3053,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             // The gate on the two CHAR-INDEXED halves. The payload carries no text, only a length, so
             // equal lengths is the most it can know about the cut landing on the same character.
-            bool sameShape = span.Chars == target.Text.Length;
+            bool sameShape = spellingTravels || span.Chars == target.Text.Length;
 
             var splits = sameShape && span.Splits != null
                          && SyllableSegments.IsAuthoredValid(target.Text, boundaries.Count + 1, span.Splits)
@@ -3061,6 +3079,141 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 SyllableSplits = splits,
                 Pauses = rests,
             };
+        }
+
+        /// <summary>
+        /// The DEFAULT line paste (backlog 339): the copied line goes down AS IS, words and timing in
+        /// one step. With a payload that carries its text (<see cref="LyricTimingClipboard.LineTimingsPayload.CarriesText"/>)
+        /// every target line's words are REPLACED by the copied words, each taking the copied timing
+        /// exactly (span, subdivision boundaries, split, rests) rebased onto the target's own start.
+        /// Any other payload (one written before the text existed) falls through to
+        /// <see cref="PasteLineTimings"/> unchanged, so an old clipboard still pastes as timings.
+        ///
+        /// <list type="bullet">
+        /// <item>The target keeps its StartTime. An interior target keeps its EndTime too: the next
+        /// line's start is the wall, so the boundary invariant holds and nothing cascades. A pattern
+        /// longer than the window clamps monotonically into it, exactly as the timing paste clamps.</item>
+        /// <item>The LAST line has no wall on its right (backlog 336): its words may run to the song's
+        /// end and its EndTime then follows them (the sung end plus the tail it already carried).</item>
+        /// <item>The char-count gate and the derived-split fallback of the timing paste do not apply:
+        /// the spelling travels with the indices, so they always describe the word they land on.</item>
+        /// <item>Seal grace and the Estimated flag are the SOURCE line's. So is the granularity, in the
+        /// only form it can take per line: a source that was hand-timed (Word or Syllable) lands as
+        /// Explicit hand timing, a LINE-granularity source lands interpolated, and the map's
+        /// granularity is then re-synced from its units as every paste does.</item>
+        /// <item>One copied line broadcasts to every target; several zip positionally (extra targets
+        /// are left untouched). The whole paste is ONE undo step.</item>
+        /// </list>
+        /// </summary>
+        public static void PasteLine(EditorBeatmap editorBeatmap, IReadOnlyList<TypeBeatHitObject> targets, LyricTimingClipboard.LineTimingsPayload payload)
+        {
+            if (!payload.CarriesText)
+            {
+                PasteLineTimings(editorBeatmap, targets, payload);
+                return;
+            }
+
+            if (targets.Count == 0)
+                return;
+
+            bool broadcast = payload.Lines.Count == 1;
+            int pairCount = broadcast ? targets.Count : Math.Min(targets.Count, payload.Lines.Count);
+
+            editorBeatmap.BeginChange();
+
+            for (int t = 0; t < pairCount; t++)
+            {
+                if (editorBeatmap.HitObjects.Contains(targets[t]))
+                    replaceWithCopiedLine(editorBeatmap, targets[t], payload.Lines[broadcast ? 0 : t]);
+            }
+
+            syncGranularity(editorBeatmap, keepAuthoredWords: true);
+            editorBeatmap.EndChange();
+        }
+
+        /// <summary>
+        /// The line paste with NO target line selected (backlog 339): the copied line is inserted as a
+        /// NEW line at <paramref name="time"/> (the playhead), by <see cref="AddLine"/>, and then takes
+        /// the copied words and timing exactly as a <see cref="PasteLine"/> target would. One undo step.
+        ///
+        /// <para>Returns null, changing nothing, when the line carries no text or when
+        /// <see cref="AddLine"/> refuses the time (an existing line starts within
+        /// <see cref="MIN_SPAN_MS"/> of it).</para>
+        /// </summary>
+        public static TypeBeatHitObject? InsertCopiedLine(EditorBeatmap editorBeatmap, double time, LyricTimingClipboard.LineTimings source)
+        {
+            if (!source.HasText || !CanAddLineAt(editorBeatmap, time))
+                return null;
+
+            editorBeatmap.BeginChange();
+
+            // A stand-in with the copied word COUNT, since that is all AddLine reads off the text (the
+            // appended span); the copied words replace it straight away. The stand-in also keeps the
+            // copied spelling away from AddLine's Normalize, which would strip a freestyle marker.
+            var added = AddLine(editorBeatmap, time, string.Join(' ', Enumerable.Repeat("x", source.Units.Count)));
+
+            if (added != null)
+            {
+                replaceWithCopiedLine(editorBeatmap, added, source);
+                syncGranularity(editorBeatmap, keepAuthoredWords: true);
+            }
+
+            editorBeatmap.EndChange();
+            return added;
+        }
+
+        /// <summary>
+        /// Whether <see cref="AddLine"/> would accept <paramref name="time"/>: no existing line starts
+        /// within <see cref="MIN_SPAN_MS"/> of it.
+        /// </summary>
+        public static bool CanAddLineAt(EditorBeatmap editorBeatmap, double time)
+            => !orderedLines(editorBeatmap).Any(o => Math.Abs(o.Line.StartTime - time) < MIN_SPAN_MS);
+
+        /// <summary>
+        /// One target of the text paste: its words become <paramref name="source"/>'s, timed as the
+        /// source timed them relative to its start and rebased onto the target's. See
+        /// <see cref="PasteLine"/> for the rules; the caller owns the transaction and the granularity sync.
+        /// </summary>
+        private static void replaceWithCopiedLine(EditorBeatmap editorBeatmap, TypeBeatHitObject target, LyricTimingClipboard.LineTimings source)
+        {
+            var line = target.Line;
+            double start = line.StartTime;
+            bool isLast = isLastLine(editorBeatmap, target);
+
+            // The wall the words may run to: the next line's start, or for the last line the song's end.
+            double wall = isLast ? lastLineCap(editorBeatmap, line) : line.EndTime;
+
+            bool handTimed = source.Granularity != TimingGranularity.Line;
+
+            var units = clampUnits(source.Units.Select(span => pasteUnit(new TimedUnit { Text = span.Text!, StartTime = start, EndTime = start }, span, start,
+                handTimed ? TimingSource.Explicit : TimingSource.Interpolated, handTimed ? 1 : 0.5, spellingTravels: true)).ToArray(), start, wall);
+
+            double singEnd, end;
+
+            if (isLast)
+            {
+                // The end follows the pasted words (backlog 336): never short of the last word.
+                singEnd = Math.Clamp(Math.Max(start + source.SingEndOffset, units[^1].EndTime), start + MIN_SPAN_MS, Math.Max(start + MIN_SPAN_MS, wall));
+                end = lastLineEnd(line, singEnd, wall);
+            }
+            else
+            {
+                // As the timing paste does: the sung end rebased into the window the target keeps.
+                singEnd = Math.Clamp(start + source.SingEndOffset, start + MIN_SPAN_MS, line.EndTime);
+                end = line.EndTime;
+            }
+
+            target.Line = new LyricLine
+            {
+                RawText = source.RawText!,
+                StartTime = start,
+                EndTime = end,
+                SingEndTime = singEnd,
+                Units = units,
+                SealGraceMs = source.SealGraceMs ?? line.SealGraceMs,
+                Estimated = source.Estimated ?? false,
+            };
+            editorBeatmap.Update(target);
         }
 
         /// <summary>
