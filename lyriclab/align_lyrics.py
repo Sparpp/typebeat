@@ -25,7 +25,8 @@ Pipeline:
                        CTC path is kept however low its confidence (see below)
                        unless its shape is garbage (version 4); unstamped
                        lines share the window of the stamped line above them
-                       (sparse anchors, version 3)
+                       (sparse anchors, version 3); a soft even-pacing prior
+                       settles paths the model barely prefers (version 5)
        --anchors auto  global pass -> high-margin lines anchor a local
                        re-alignment of weak runs between them; lines with ~zero
                        evidence are interpolated and flagged "estimated"
@@ -83,6 +84,26 @@ stamps and 2 to 6 with human ones. Shinigiwa Satellite (the worst of the five)
 is NOT recovered: its wrong paths look like singing, spread at the song's pace.
 Ranked corpus, word starts within 200 ms: exact 89.5% -> 90.2%, human 87.8% ->
 88.0%, every second stamp 86.5% -> 86.9% (exact) / 85.5% -> 85.8% (human).
+
+Version 5 (2026-09-29): soft even-pacing prior (backlog 325). After the unbiased pass has measured
+the song's pace and stamp lead, every stamped section is aligned again with a log-prior on each
+letter: free within 0.1 s of where even pacing from the stamp (plus the lead) puts it, then 0.5
+nats per frame per second further, saturating 1 s beyond (realign_with_pacing_prior). The model's
+evidence still wins wherever it is clear; the prior only settles paths the emissions barely
+prefer, which is what Shinigiwa-class lines are: their wrong paths have a normal shape and a
+margin a threshold cannot separate (backlog 302), but they sit inside a near-flat ridge of the
+emissions. The prior runs on the per-position emission matrix (prior_columns): same Viterbi,
+prob and margin still read off the unbiased emissions. Weight 0 reproduces version 4 exactly.
+Ranked corpus (85 maps, 20.8k words), word starts within 200 ms: exact 90.2% -> 90.8%, human
+88.0% -> 89.0%, every second stamp 86.9% -> 88.2% (exact) / 85.8% -> 86.7% (human), auto
+byte-identical; a two-fold split by set tunes to the same setting and gains out of fold on every
+variant. Shinigiwa Satellite 46% -> 51% (exact) / 46% -> 50% (human, where even pacing itself
+tops out at 52%). REJECTED on the same data: a heavy prior recovers Shinigiwa (63% at weight 8,
+76% when pacing fills the window) but costs 12 points or more corpus-wide, because most songs
+sing unevenly and their evidence is just as quiet; gating the heavy prior by line margin, by song
+margin or by how many nats it costs the path trades lines both ways again (the best gate reaches
+Shinigiwa 56% for less corpus gain than no gate, and does not survive the split). An uncapped
+prior wrecks slow choral maps (Locus Iste 54% -> 17%), hence the cap.
 """
 
 import os
@@ -108,7 +129,7 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 
 # Bumped when the output of the same inputs changes. The game compares the shipped copy's
 # version with the installed one and offers a reinstall; `--version` prints it.
-ALIGNER_VERSION = "4"
+ALIGNER_VERSION = "5"
 
 SAMPLE_RATE = 16000
 FRAME_SAMPLES = 320          # wav2vec2 stride: 20 ms at 16 kHz
@@ -136,6 +157,16 @@ GARBAGE_SUB_MEDIAN = 0.6       # whole path shorter than this x the song's media
 GARBAGE_LATE_S = 0.8           # a stamped line whose path opens this long after the stamp ...
 GARBAGE_LATE_RATE = 1.0        # ... while no slower than the song's median pace
 LEAD_MARGIN = 0.3              # lines this confident measure how early the stamps sit
+
+# ref mode even-pacing prior (version 5). The forced alignment of each stamped section is run
+# again with a log-prior per letter and frame: 0 within PACING_PRIOR_TOL_S of where even pacing
+# from the stamp puts the letter, then PACING_PRIOR_WEIGHT nats per frame for every further second,
+# saturating PACING_PRIOR_CAP_S beyond the tolerance (so a slow choral line the song's median pace
+# cannot describe is not dragged seconds early). 0 weight reproduces version 4 exactly. Measured on
+# the ranked-map corpus; the whole plateau 0.25..1 x 0.05..0.5 s x 0.75..2 s gains.
+PACING_PRIOR_WEIGHT = 0.5
+PACING_PRIOR_TOL_S = 0.1
+PACING_PRIOR_CAP_S = 1.0
 
 
 def log(msg: str) -> None:
@@ -589,6 +620,98 @@ def align_window(log_probs, f0, f1, char_ids, owners):
     return out
 
 
+def prior_columns(char_ids):
+    """
+    One emission column per maximal run of identical adjacent targets, so a position-dependent
+    prior can ride on the emission matrix: target k becomes column cols[k] (1-based, 0 stays the
+    blank). A run shares its column so CTC still demands a blank between doubled letters, exactly
+    as with the original ids. Standard library only.
+    """
+    cols, c = [], 0
+    for k, cid in enumerate(char_ids):
+        if k == 0 or cid != char_ids[k - 1]:
+            c += 1
+        cols.append(c)
+    return cols
+
+
+def align_window_prior(log_probs, f0, f1, char_ids, owners, prior):
+    """
+    align_window with a log-prior added per (frame, target position): `prior` is a [f1-f0, S]
+    tensor (S = len(char_ids)), 0 where a position is unconstrained. The Viterbi runs on a
+    per-position emission matrix; the reported prob and margin are read off the UNBIASED
+    emissions, so a line's confidence still says what the model heard.
+    """
+    import torch
+    import torchaudio.functional as taf
+
+    window = log_probs[f0:f1]
+    cols = prior_columns(char_ids)
+    n_cols = cols[-1] + 1 if cols else 1
+    em = torch.empty((window.size(0), n_cols), dtype=window.dtype)
+    em[:, 0] = window[:, 0]
+    k = 0
+    while k < len(char_ids):
+        j = k
+        while j < len(char_ids) and cols[j] == cols[k]:
+            j += 1
+        em[:, cols[k]] = window[:, char_ids[k]] + prior[:, k:j].max(dim=1).values
+        k = j
+    targets = torch.tensor([cols], dtype=torch.int32)
+    alignments, _ = taf.forced_align(em.unsqueeze(0), targets, blank=0)
+    spans = taf.merge_tokens(alignments[0], torch.zeros(alignments.size(1)), blank=0)
+    if len(spans) != len(char_ids):
+        raise RuntimeError(f"got {len(spans)} spans for {len(char_ids)} chars")
+    frame_max = window.max(dim=-1).values
+    out = {}
+    for k, sp in enumerate(spans):
+        if owners[k] is None:
+            continue
+        lp = window[sp.start: sp.end, char_ids[k]]
+        prob = float(lp.exp().mean())
+        margin = float((lp - frame_max[sp.start: sp.end]).exp().mean())
+        out.setdefault(owners[k], []).append((sp.start + f0, sp.end + f0, prob, margin))
+    return out
+
+
+def even_letter_frames(line, f0, f1, char_dur_f) -> list:
+    """
+    Where even pacing from frame f0 puts each alignable letter of `line` (the start frame of each,
+    in target order): synthesize_line_spans' layout (the song's median letter length, 80 ms between
+    words, squeezed into [f0, f1) when the line would not fit). Standard library only.
+    """
+    n_chars = sum(len(w.norm) for w in line.words if not w.untimed)
+    n_words = sum(1 for w in line.words if not w.untimed)
+    if n_chars == 0:
+        return []
+    gap_f = 4
+    want = n_chars * char_dur_f + max(0, n_words - 1) * gap_f
+    scale = min(max(f1 - f0, 10), want) / want
+    pos, out = float(f0), []
+    for w in line.words:
+        if w.untimed:
+            continue
+        for _ in w.norm:
+            out.append(pos)
+            pos += char_dur_f * scale
+        pos += gap_f * scale
+    return out
+
+
+def pacing_penalty(t_f: float, expect_f: float, weight: float = None, tol_s: float = None,
+                   cap_s: float = None) -> float:
+    """
+    The log-prior of a letter at frame t_f that even pacing expects at expect_f (per frame the
+    letter occupies): 0 inside the tolerance, then -weight per second beyond it, flat once it is
+    cap_s beyond. realign_with_pacing_prior computes exactly this over a tensor. Standard library
+    only, so the self-test runs without the venv.
+    """
+    weight = PACING_PRIOR_WEIGHT if weight is None else weight
+    tol_s = PACING_PRIOR_TOL_S if tol_s is None else tol_s
+    cap_s = PACING_PRIOR_CAP_S if cap_s is None else cap_s
+    return -weight * min(cap_s, max(0.0, abs(t_f - expect_f) * FRAME_SEC - tol_s))
+
+
 # --------------------------------------------------------------------------
 # Voiced-region gate
 # --------------------------------------------------------------------------
@@ -997,6 +1120,46 @@ def garbage_reasons(shape: dict, late_f=None) -> list:
     return reasons
 
 
+def self_test_pacing() -> int:
+    """Pins the even-pacing prior's pure parts (standard library only)."""
+    failed = []
+
+    def check(name, got, want):
+        if got != want:
+            failed.append(name)
+            print(f"FAIL {name}: got {got}, expected {want}")
+
+    # doubled letters share a column (CTC still needs a blank between them), across words too
+    check("columns: distinct", prior_columns([5, 6, 7]), [1, 2, 3])
+    check("columns: a double", prior_columns([9, 3, 3, 4]), [1, 2, 2, 3])
+    check("columns: a triple across words", prior_columns([1, 12, 12, 12, 2]), [1, 2, 2, 2, 3])
+    check("columns: a star either side", prior_columns([30, 5, 30]), [1, 2, 3])
+    check("columns: empty", prior_columns([]), [])
+
+    def line(*norms):
+        return Line(display="x", words=[Word(display=n, norm=n) for n in norms])
+
+    # 4 frames a letter, 4 frames between words; a window too short squeezes, a long one does not stretch
+    check("even: roomy window", even_letter_frames(line("ab", "c"), 10, 100, 4.0), [10.0, 14.0, 22.0])
+    check("even: squeezed to half", even_letter_frames(line("ab", "c"), 0, 14, 8.0), [0.0, 4.0, 10.0])
+    check("even: never under 10 frames", even_letter_frames(line("ab", "c"), 0, 4, 4.0), [0.0, 2.5, 7.5])
+    check("even: untimed words skipped", even_letter_frames(
+        Line(display="x", words=[Word(display="ab", norm="ab"), Word(display="?", untimed=True), Word(display="c", norm="c")]),
+        0, 100, 4.0), [0.0, 4.0, 12.0])
+    check("even: nothing alignable", even_letter_frames(line(""), 0, 100, 4.0), [])
+
+    # 20 ms frames: 0.1 s tolerance = 5 frames; 0.5 nats a second after; flat 1 s beyond
+    check("penalty: on time", pacing_penalty(100, 100, 0.5, 0.1, 1.0), 0.0)
+    check("penalty: inside the tolerance", pacing_penalty(95, 100, 0.5, 0.1, 1.0), 0.0)
+    check("penalty: 0.5 s early", round(pacing_penalty(75, 100, 0.5, 0.1, 1.0), 9), -0.2)
+    check("penalty: 0.5 s late, symmetric", round(pacing_penalty(125, 100, 0.5, 0.1, 1.0), 9), -0.2)
+    check("penalty: saturates", round(pacing_penalty(400, 100, 0.5, 0.1, 1.0), 9), -0.5)
+    check("penalty: weight 0 is no prior", pacing_penalty(400, 100, 0.0, 0.1, 1.0), 0.0)
+    n = 5 + 5 + 6
+    print(f"pacing self-test: {n - len(failed)}/{n}")
+    return 1 if failed else 0
+
+
 def self_test_garbage() -> int:
     """Pins the shape detector on synthetic paths (standard library only)."""
     def word(start, letters, step):
@@ -1075,10 +1238,55 @@ def align_ref_mode(lines, ref_end_ms, log_probs, dictionary, star_id, voiced,
             where = f"line {sec[0] + 1}" if len(sec) == 1 else f"lines {sec[0] + 1}..{sec[-1] + 1}"
             log(f"{where}: local align failed ({exc}); will interpolate")
 
+    if PACING_PRIOR_WEIGHT > 0:
+        realign_with_pacing_prior(lines, sections, windows, per_word, log_probs, dictionary, star_id)
+
     char_dur = median_char_dur_frames(per_word, lines)
     char_dur_holder.append(char_dur)
     replace_garbage_paths(lines, sections, windows, per_word, char_dur)
     return per_word
+
+
+def realign_with_pacing_prior(lines, sections, windows, per_word, log_probs, dictionary, star_id):
+    """
+    Version 5: re-run each stamped section's forced alignment with a soft log-prior (see
+    pacing_penalty) that pulls every letter toward where even pacing puts it: from the stamp plus
+    the song's stamp lead, at the song's median letter length, the section's lines sharing its
+    window by letter count. Pace and lead come from the unbiased first pass. The model's evidence
+    still decides wherever it is clear; the prior only settles paths the emissions barely prefer.
+    """
+    import torch
+
+    char_dur = median_char_dur_frames(per_word, lines)
+    lead = stamp_lead_frames(lines, sections, windows, per_word)
+    for (f0, f1), sec in zip(windows, sections):
+        if lines[sec[0]].ref_ms is None:
+            continue   # a leading unstamped section has no stamp to pace from
+        start = min(f0 + lead, f1 - 10)
+        counts = [max(1, sum(len(w.norm) for w in lines[i].words if not w.untimed)) for i in sec]
+        expect, at = [], float(start)
+        for i, n in zip(sec, counts):
+            nxt = at + (f1 - start) * n / sum(counts)
+            expect.extend(even_letter_frames(lines[i], at, nxt, char_dur))
+            at = nxt
+        char_ids, owners = build_targets([(i, lines[i]) for i in sec], dictionary, star_id)
+        letters = [k for k, own in enumerate(owners) if own is not None]
+        if len(letters) != len(expect):
+            continue
+        t = torch.arange(f0, f1, dtype=torch.float64).unsqueeze(1)
+        e = torch.tensor(expect, dtype=torch.float64).unsqueeze(0)
+        excess = ((t - e).abs() * FRAME_SEC - PACING_PRIOR_TOL_S).clamp(min=0.0, max=PACING_PRIOR_CAP_S)
+        prior = torch.zeros((f1 - f0, len(char_ids)), dtype=log_probs.dtype)
+        prior[:, letters] = (-PACING_PRIOR_WEIGHT * excess).to(prior.dtype)
+        try:
+            got = align_window_prior(log_probs, f0, f1, char_ids, owners, prior)
+        except RuntimeError as exc:
+            log(f"lines {sec[0] + 1}..{sec[-1] + 1}: paced align failed ({exc}); first pass kept")
+            continue
+        for i in sec:
+            for wi in range(len(lines[i].words)):
+                per_word.pop((i, wi), None)
+        per_word.update(got)
 
 
 def line_word_spans(per_word, lines, i) -> list:
@@ -1408,6 +1616,9 @@ if __name__ == "__main__":
         sys.exit(self_test_sections())
     if "--self-test-garbage" in sys.argv:
         sys.exit(self_test_garbage())
+    if "--self-test-pacing" in sys.argv:
+        sys.exit(self_test_pacing())
     if "--self-test" in sys.argv:
-        sys.exit(max(self_test_syllables(), self_test_normalize(), self_test_sections(), self_test_garbage()))
+        sys.exit(max(self_test_syllables(), self_test_normalize(), self_test_sections(), self_test_garbage(),
+                     self_test_pacing()))
     main()
