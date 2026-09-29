@@ -229,7 +229,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// pattern carries its sub-word timing at the same offsets); leaving the dividers at their
         /// absolute times here anchored them in the song while the word left, which dropped or staled
         /// them. The flag is explicit rather than inferred from an unchanged duration so the unit-run
-        /// paste (whose documented rule is that the target keeps its own dividers, re-clamped) cannot
+        /// paste (whose documented rule is that a DIFFERENT target word keeps its own dividers, re-clamped) cannot
         /// drift onto this path when a pasted span happens to equal a word's width.</para>
         /// </summary>
         private static TimedUnit retime(TimedUnit unit, double start, double end, TimingSource? source = null, double? confidence = null, bool translate = false)
@@ -3421,12 +3421,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// Snapshots the given word units' spans (in ascending index order, gaps collapsed) as
-        /// offsets from the FIRST selected unit's start. Pair with <see cref="PasteUnitTimings"/>.
+        /// Snapshots the given word units (in ascending index order, gaps collapsed) as offsets from
+        /// the FIRST selected unit's start. Pair with <see cref="PasteUnitTimings"/>.
         ///
-        /// <para>Spans ONLY: the shared <see cref="LyricTimingClipboard.UnitSpan"/>'s sub-word fields
-        /// are left unset here on purpose, since <see cref="PasteUnitTimings"/> would not read them
-        /// (its remarks say why).</para>
+        /// <para>Since backlog 343 each word travels WHOLE, as a line payload's words do
+        /// (<see cref="CopyLineTimings"/>): its span, its TEXT (the existing
+        /// <see cref="LyricTimingClipboard.UnitSpan.Text"/>, the author's form) and ORIGINAL (backlog
+        /// 330, where it has one), its character count, and its sub-word timing (subdivision
+        /// boundaries and rests as offsets from the same anchor, the authored split verbatim). The
+        /// text is what lets a paste recognise the SAME word and carry that sub-word timing onto it;
+        /// see <see cref="PasteUnitTimings"/> for the policy.</para>
         /// </summary>
         public static LyricTimingClipboard.UnitTimingsPayload? CopyUnitTimings(TypeBeatHitObject hitObject, IEnumerable<int> indices)
         {
@@ -3441,10 +3445,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             foreach (int i in sorted)
             {
+                var unit = line.Units[i];
+
                 payload.Units.Add(new LyricTimingClipboard.UnitSpan
                 {
-                    Start = line.Units[i].StartTime - anchor,
-                    End = line.Units[i].EndTime - anchor,
+                    Start = unit.StartTime - anchor,
+                    End = unit.EndTime - anchor,
+                    Chars = unit.Text.Length,
+                    Text = unit.Text,
+                    Original = unit.Original,
+                    Boundaries = unit.SyllableBoundaries.Count == 0 ? null : unit.SyllableBoundaries.Select(b => b - anchor).ToList(),
+                    Splits = unit.SyllableSplits.Count == 0 ? null : unit.SyllableSplits.ToList(),
+                    Rests = unit.Pauses.Count == 0
+                        ? null
+                        : unit.Pauses.Select(p => new LyricTimingClipboard.RestSpan
+                        {
+                            Start = p.StartTime - anchor,
+                            End = p.EndTime - anchor,
+                            SplitChar = p.SplitChar,
+                        }).ToList(),
                 });
             }
 
@@ -3452,43 +3471,120 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// Applies a copied unit-run pattern to consecutive words starting at
-        /// <paramref name="anchorIndex"/>, anchored at that word's CURRENT start (the phrase stays
-        /// where it sits; its internal rhythm is overwritten). Spans past the end of the line's
-        /// word list are dropped; the result is clamped monotonically into the line window (words
-        /// after the pasted run are pushed, never reordered). Single undo step.
-        ///
-        /// <para>SYLLABLE SPLITS DO NOT TRAVEL, and neither do subdivision boundaries or rests: the
-        /// payload is word SPANS only. Each target word keeps its own boundaries (re-clamped into the
-        /// pasted span) and therefore its own split, dropped to derived only when the clamp cost it
-        /// a boundary. That is the only defensible choice HERE, where the anchor is wherever the
-        /// caret happens to sit: the payload carries no text, so a split copied off "apple" would
-        /// land on whatever word sits at that position in the target line and cut it somewhere
-        /// meaningless.</para>
-        ///
-        /// <para>This is the one place the two pastes diverge, deliberately.
-        /// <see cref="PasteLineTimings"/> DOES carry sub-word timing, because there the
-        /// correspondence is positional across two whole lines that the chorus workflow means to be
-        /// the same words sung again, and because the loss of it is the bug that workflow reported.
-        /// A unit run has no such correspondence to lean on, so the conservative rule stays.</para>
+        /// Whether a copied word and a target word are the SAME word (backlog 343): both spelled out
+        /// and equal ignoring case. The one gate on a word paste's sub-word timing; a payload written
+        /// before the text travelled has none and is never the same word.
         /// </summary>
-        public static void PasteUnitTimings(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int anchorIndex, LyricTimingClipboard.UnitTimingsPayload payload)
+        public static bool IsSameWord(LyricTimingClipboard.UnitSpan copied, TimedUnit target)
+            => !string.IsNullOrEmpty(copied.Text) && string.Equals(copied.Text, target.Text, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// The word a copied run lands on in <paramref name="hitObject"/> (backlog 343), or -1 when
+        /// there is none. A selected word (<paramref name="selectedIndex"/> at or above 0) is the
+        /// anchor as is. With NO word selected it is the first word spelled like the run's first
+        /// copied word (<see cref="IsSameWord"/>), so pasting "apple" onto a line lands on its
+        /// "apple"; with no such word (or a payload carrying no text) there is nothing to anchor on,
+        /// and the caller decides (it refuses today; backlog 344 inserts at the playhead). It never
+        /// falls back to word zero, which is the defect this replaced.
+        /// </summary>
+        public static int UnitPasteAnchor(TypeBeatHitObject hitObject, int selectedIndex, LyricTimingClipboard.UnitTimingsPayload payload)
+        {
+            var units = hitObject.Line.Units;
+
+            if (selectedIndex >= 0)
+                return selectedIndex < units.Count ? selectedIndex : -1;
+
+            if (payload.Units.Count == 0)
+                return -1;
+
+            for (int i = 0; i < units.Count; i++)
+            {
+                if (IsSameWord(payload.Units[0], units[i]))
+                    return i;
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// Applies a copied word run to consecutive words starting at <paramref name="anchorIndex"/>,
+        /// anchored at that word's CURRENT start (the phrase stays where it sits; its internal rhythm
+        /// is overwritten). Spans past the end of the line's word list are dropped. Single undo step.
+        /// Returns false, changing nothing, when there is nothing to paste or no room to paste into.
+        ///
+        /// <para>THE SAME WORD TAKES ITS SUB-WORD TIMING (backlog 343). A target word spelled like the
+        /// copied word (<see cref="IsSameWord"/>) takes the source's subdivision boundaries, authored
+        /// split and rests, rebased onto the anchor and validated through the same path the line
+        /// paste's text arm uses (<see cref="pasteUnit"/> with the spelling travelling): the split
+        /// is re-checked against the boundaries that survive, the rests through
+        /// <see cref="PausedWord.UsableRests"/>. The word keeps its own text and original.</para>
+        ///
+        /// <para>A DIFFERENT WORD keeps the conservative rule: its own boundaries, re-clamped into
+        /// the pasted span, and its own split, dropped to derived only when the clamp cost it a
+        /// boundary. The anchor is wherever the mapper points, so a split copied off "apple" landing
+        /// on "pie" would cut it somewhere meaningless; that reasoning is sound for a different word
+        /// and was wrong only for the same one. A payload written before the text travelled pastes
+        /// every word this way.</para>
+        ///
+        /// <para>THE RUN IS FITTED INTO THE ROOM IT HAS, and no neighbour moves (backlog 343, the
+        /// rule 340 set for the line box). The room runs from the anchor to the start of the first
+        /// UNTOUCHED word after the run, or for a run reaching the line's last word to
+        /// <see cref="unitCeiling"/> (the line's end, and for the LAST line the song's end, so there
+        /// the line grows, backlog 336). A pattern longer than the room is SCALED by room / length
+        /// about the anchor, every span, boundary and rest with it, so its rhythm survives in
+        /// proportion; one that fits lands at its own size. Laying it down full length pushed the
+        /// next word to zero width, which is the crush this replaced.</para>
+        /// </summary>
+        public static bool PasteUnitTimings(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int anchorIndex, LyricTimingClipboard.UnitTimingsPayload payload)
         {
             var line = hitObject.Line;
 
             if (anchorIndex < 0 || anchorIndex >= line.Units.Count || payload.Units.Count == 0)
-                return;
+                return false;
 
+            int count = Math.Min(payload.Units.Count, line.Units.Count - anchorIndex);
             double anchor = line.Units[anchorIndex].StartTime;
+            double room = unitCeiling(editorBeatmap, hitObject, anchorIndex + count - 1) - anchor;
+
+            // No room to land in (the next word starts right at the anchor): nowhere to put it.
+            if (room < MIN_SPAN_MS)
+                return false;
+
+            double length = payload.Units.Take(count).Max(s => s.End);
+            bool scaled = length > room;
+
+            // Multiply before dividing, so a whole-millisecond fit lands on whole milliseconds.
+            double fit(double offset) => scaled ? offset * room / length : offset;
+
             var units = line.Units.ToArray();
 
-            for (int k = 0; k < payload.Units.Count && anchorIndex + k < units.Length; k++)
+            for (int k = 0; k < count; k++)
             {
-                units[anchorIndex + k] = retime(units[anchorIndex + k],
-                    anchor + payload.Units[k].Start,
-                    anchor + payload.Units[k].End,
-                    TimingSource.Explicit, 1);
+                var span = payload.Units[k];
+                var target = units[anchorIndex + k];
+
+                if (IsSameWord(span, target))
+                {
+                    units[anchorIndex + k] = pasteUnit(target, new LyricTimingClipboard.UnitSpan
+                    {
+                        Start = fit(span.Start),
+                        End = fit(span.End),
+                        Chars = span.Chars,
+                        Text = span.Text,
+                        Boundaries = span.Boundaries?.Select(fit).ToList(),
+                        Splits = span.Splits,
+                        Rests = span.Rests?.Select(r => new LyricTimingClipboard.RestSpan { Start = fit(r.Start), End = fit(r.End), SplitChar = r.SplitChar }).ToList(),
+                    }, anchor, spellingTravels: true);
+                }
+                else
+                    units[anchorIndex + k] = retime(target, anchor + fit(span.Start), anchor + fit(span.End), TimingSource.Explicit, 1);
             }
+
+            double previousLastEnd = lastUnitEnd(line);
+
+            // The run already fits, so the clamp moves nothing after it; it only guards the order.
+            // The LAST line's wall is the song's end (its EndTime then follows the last word below).
+            double wall = isLastLine(editorBeatmap, hitObject) ? lastLineCap(editorBeatmap, line) : line.EndTime;
 
             editorBeatmap.BeginChange();
             hitObject.Line = new LyricLine
@@ -3497,7 +3593,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 StartTime = line.StartTime,
                 EndTime = line.EndTime,
                 SingEndTime = line.SingEndTime,
-                Units = clampUnits(units, line.StartTime, line.EndTime),
+                Units = clampUnits(units, line.StartTime, wall),
                 SealGraceMs = line.SealGraceMs,
                 Estimated = false,
                 Original = line.Original,
@@ -3505,9 +3601,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             };
             editorBeatmap.Update(hitObject);
             promoteToWordGranularity(editorBeatmap);
+            // A pasted subdivision has to reach Syllable (and one pasted over the map's last
+            // subdivided word with an undivided pattern falls back to Word), as the line paste does.
+            syncGranularity(editorBeatmap, keepAuthoredWords: true);
             // A pasted run that reaches the last word overwrites its end, so the sung end follows.
-            syncSingEndToLastUnit(editorBeatmap, hitObject, lastUnitEnd(line));
+            syncSingEndToLastUnit(editorBeatmap, hitObject, previousLastEnd);
             editorBeatmap.EndChange();
+            return true;
         }
 
         #endregion

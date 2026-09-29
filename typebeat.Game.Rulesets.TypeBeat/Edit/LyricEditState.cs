@@ -238,6 +238,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             SelectedUnitIndex.Value = -1;
         }
 
+        /// <summary>
+        /// A word waiting for its line to become active (backlog 343): set by
+        /// <see cref="SelectLineAtWord"/>, applied or discarded by <see cref="ResetUnitSelectionFor"/>.
+        /// </summary>
+        private (TypeBeatHitObject line, int index)? pendingUnit;
+
+        /// <summary>
+        /// One click on a word of ANOTHER line (backlog 343): selects that line, and that word once
+        /// the line has become active. Word selection is scoped to the active line and the line change
+        /// clears it (<see cref="ResetUnitSelectionFor"/>), so the word is held until then rather than
+        /// selected now and wiped a frame later, which left the next paste anchored on word zero.
+        /// </summary>
+        public void SelectLineAtWord(TypeBeatHitObject line, int index)
+        {
+            pendingUnit = (line, index);
+            SelectedLine.Value = line;
+        }
+
+        /// <summary>
+        /// The word-selection reset every ACTIVE LINE change performs: the old line's words are
+        /// cleared, and a word <see cref="SelectLineAtWord"/> is holding for <paramref name="active"/>
+        /// is selected. A held word for any other line is dropped (playback took the surface elsewhere).
+        /// </summary>
+        public void ResetUnitSelectionFor(TypeBeatHitObject? active)
+        {
+            ClearUnitSelection();
+
+            if (pendingUnit is (TypeBeatHitObject line, int index) && line == active && index >= 0 && index < line.Line.Units.Count)
+                SelectUnit(index);
+
+            pendingUnit = null;
+        }
+
+        /// <summary>
+        /// Raised when an editor action is REFUSED (backlog 343: a word paste with nowhere to land),
+        /// so the detail panel can flash its error colour.
+        /// </summary>
+        public event Action? ActionRefused;
+
+        /// <summary>Reports a refused action to whoever shows it (<see cref="ActionRefused"/>).</summary>
+        public void Refuse() => ActionRefused?.Invoke();
+
         private int interactionLocks;
 
         /// <summary>True while a drag or text edit is live; playhead-follow is frozen.</summary>

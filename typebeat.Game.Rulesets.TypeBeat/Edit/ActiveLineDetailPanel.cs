@@ -4,6 +4,7 @@
 using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
+using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
@@ -43,10 +44,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private OsuSpriteText timing = null!;
         private RoundedButton addWordButton = null!;
         private RoundedButton removeWordButton = null!;
+        private Box background = null!;
 
         public ActiveLineDetailPanel()
         {
             RelativeSizeAxes = Axes.Both;
+        }
+
+        protected override void LoadComplete()
+        {
+            base.LoadComplete();
+            state.ActionRefused += flashRefusal;
+        }
+
+        /// <summary>The panel's error flash, for an action the editor refused (see <see cref="LyricEditState.Refuse"/>).</summary>
+        private void flashRefusal() => background.FlashColour(TypeBeatStyle.ErrorChar, 400, Easing.OutQuint);
+
+        protected override void Dispose(bool isDisposing)
+        {
+            base.Dispose(isDisposing);
+
+            if (state.IsNotNull())
+                state.ActionRefused -= flashRefusal;
         }
 
         [BackgroundDependencyLoader]
@@ -54,7 +73,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             InternalChildren = new Drawable[]
             {
-                new Box
+                background = new Box
                 {
                     RelativeSizeAxes = Axes.Both,
                     Colour = TypeBeatStyle.Background,

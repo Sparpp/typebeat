@@ -722,11 +722,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnClick(ClickEvent e)
             {
-                // A block on another line first pulls selection to that line (unit selection is
-                // scoped to the active line and is cleared by the line change).
+                // A block on another line selects that line AND this word in one click (backlog
+                // 343). Unit selection is scoped to the active line and cleared by the line change,
+                // so the word is held until the line is active rather than selected here and lost.
                 if (state.ActiveLine.Value != hitObject)
                 {
-                    state.SelectedLine.Value = hitObject;
+                    state.SelectLineAtWord(hitObject, index);
                     return true;
                 }
 

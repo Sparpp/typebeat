@@ -23,9 +23,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// <para>A line payload carries a word's SUB-WORD timing too (subdivision boundaries, the
     /// authored char split, the authored rests), because a chorus line's internal rhythm is the
     /// whole point of the gesture: see <see cref="TypeBeatEditorOperations.PasteLineTimings"/> for
-    /// the transfer policy. A UNIT payload deliberately does not, and the same method's remarks say
-    /// why. Every one of those fields is OPTIONAL, so a payload written before they existed still
-    /// parses and simply carries no sub-word timing.</para>
+    /// the transfer policy. Since backlog 343 a UNIT payload carries it too, with each word's text,
+    /// and the paste gives it only to the SAME word (see
+    /// <see cref="TypeBeatEditorOperations.PasteUnitTimings"/>). Every one of those fields is
+    /// OPTIONAL, so a payload written before they existed still parses and simply carries no
+    /// sub-word timing (and, for a unit payload, pastes as spans only).</para>
     ///
     /// <para>TEXT (backlog 339). From <see cref="TEXT_VERSION"/> a LINE payload also carries the
     /// line's words, the author's form per word in <see cref="UnitSpan.Text"/>, so the default paste
@@ -86,8 +88,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             /// <summary>
             /// The source word's text in the AUTHOR'S form (<see cref="TimedUnit.Text"/>, the token of
             /// <see cref="LyricLine.RawText"/> the map stores, freestyle markers included), or null on
-            /// a payload that carries no text: every payload written before backlog 339, and (until
-            /// backlog 343) every UNIT payload. Set by <see cref="TypeBeatEditorOperations.CopyLineTimings"/>.
+            /// a payload that carries no text: every payload written before backlog 339, and every
+            /// UNIT payload written before backlog 343. Set by
+            /// <see cref="TypeBeatEditorOperations.CopyLineTimings"/> and
+            /// <see cref="TypeBeatEditorOperations.CopyUnitTimings"/>; on a unit payload it is what
+            /// tells the paste a target is the SAME word (<see cref="TypeBeatEditorOperations.IsSameWord"/>).
             ///
             /// <para>The word's ORIGINAL-script spelling (backlog 330) travels beside it in
             /// <see cref="Original"/>, so a romanised word and its source script move together.</para>
@@ -100,7 +105,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             /// none (and on every payload written before the field). Optional like every field here,
             /// so an older build reads a payload carrying it and simply drops it. Only the text paste
             /// (<see cref="TypeBeatEditorOperations.PasteLine"/>) reads it; a timing paste keeps the
-            /// target words' own originals, as it keeps their own text.
+            /// target words' own originals, as it keeps their own text, and so does the word paste
+            /// (a unit payload carries it since backlog 343 so the copied word travels whole).
             /// </summary>
             [JsonProperty("original", NullValueHandling = NullValueHandling.Ignore)]
             public string? Original;

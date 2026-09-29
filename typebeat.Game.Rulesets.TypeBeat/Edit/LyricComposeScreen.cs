@@ -446,16 +446,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// The timing-only paste ("Paste timings", Ctrl+Shift+V), which is the paste this clipboard
         /// was built for: a line payload lays its timing over the target lines' OWN words
         /// (<see cref="TypeBeatEditorOperations.PasteLineTimings"/>, the repeated-chorus workflow) and
-        /// ignores any text it carries; a unit run applies at the focused word. Targets are the
-        /// multi-selection, else the active line.
+        /// ignores any text it carries; a unit run is the word paste (<see cref="pasteUnitRun"/>).
+        /// Line targets are the multi-selection, else the active line.
         /// </summary>
         public override void PasteTimings()
         {
             if (clipboardUnits is LyricTimingClipboard.UnitTimingsPayload unitRun)
-            {
-                if (state.ActiveLine.Value is TypeBeatHitObject line)
-                    TypeBeatEditorOperations.PasteUnitTimings(EditorBeatmap, line, Math.Max(state.SelectedUnitIndex.Value, 0), unitRun);
-            }
+                pasteUnitRun(unitRun);
             else if (clipboardLines is LyricTimingClipboard.LineTimingsPayload lines)
             {
                 var targets = state.MultiSelectedLines.Count > 0
@@ -464,6 +461,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 TypeBeatEditorOperations.PasteLineTimings(EditorBeatmap, targets, lines);
             }
+        }
+
+        /// <summary>
+        /// The WORD paste (backlog 343), which both paste gestures reach with a unit payload. It lands
+        /// on the selected word of the active line; with NO word selected it lands on the first word
+        /// of the active line spelled like the copied one
+        /// (<see cref="TypeBeatEditorOperations.UnitPasteAnchor"/>), and never falls back to word zero,
+        /// which re-timed an unrelated word and read as a paste that did nothing. With neither, and
+        /// when the run has no room to land in, it is refused with the panel's error flash.
+        /// </summary>
+        private void pasteUnitRun(LyricTimingClipboard.UnitTimingsPayload run)
+        {
+            if (state.ActiveLine.Value is not TypeBeatHitObject line)
+                return;
+
+            bool selected = state.SelectedUnitIndex.Value >= 0;
+            int anchor = TypeBeatEditorOperations.UnitPasteAnchor(line, state.SelectedUnitIndex.Value, run);
+
+            // No word to land on. This is the arm a playhead insertion of the copied word belongs in
+            // (backlog 344); until then it is refused.
+            if (anchor < 0)
+            {
+                refuse(run.Units[0].Text is string text
+                    ? $"Select a word to paste onto (no \"{text}\" on this line)"
+                    : "Select a word to paste onto");
+                return;
+            }
+
+            if (!TypeBeatEditorOperations.PasteUnitTimings(EditorBeatmap, line, anchor, run))
+            {
+                refuse("No room to paste the copied timing here");
+                return;
+            }
+
+            // A paste the text matching placed shows where it went.
+            if (!selected)
+                state.SelectUnit(anchor);
+        }
+
+        private void refuse(string message)
+        {
+            state.Refuse();
+            showStatus(message);
         }
 
         public override LocalisableString PasteLabel => "Paste line";
@@ -663,8 +703,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 state.ActiveLine.Value = active;
 
-                // Reset word focus on line change; keep the list following along.
-                state.ClearUnitSelection();
+                // Reset word focus on line change (keeping a word one click on another line asked
+                // for, backlog 343); keep the list following along.
+                state.ResetUnitSelectionFor(active);
 
                 if (active != null && lastAutoScrolled != active)
                 {

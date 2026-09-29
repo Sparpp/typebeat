@@ -302,12 +302,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void UnitRun_OvershootClampsInsideTheLineWindow()
+        public void UnitRun_OvershootIsScaledToFitTheLineWindow()
         {
             var editorBeatmap = createBeatmap();
 
             // line1's wide pattern (spans (0,1200),(1300,2500)) pasted into line0 at word 0
-            // (anchor 1000): raw ends at 3500, past line0's window end 3000.
+            // (anchor 1000): raw ends at 3500, past line0's window end 3000. The room is 2000 for a
+            // 2500 pattern, so every offset is scaled by 0.8 (backlog 343) rather than the last word
+            // being cut short at the wall.
             var run = TypeBeatEditorOperations.CopyUnitTimings(line(editorBeatmap, 1), new[] { 0, 1 })!;
             TypeBeatEditorOperations.PasteUnitTimings(editorBeatmap, line(editorBeatmap, 0), 0, run);
 
@@ -315,8 +317,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That((target.Units[0].StartTime, target.Units[0].EndTime), Is.EqualTo((1000d, 2200d)));
-                Assert.That((target.Units[1].StartTime, target.Units[1].EndTime), Is.EqualTo((2300d, 3000d))); // end clamped to window
+                Assert.That((target.Units[0].StartTime, target.Units[0].EndTime), Is.EqualTo((1000d, 1960d)));
+                Assert.That((target.Units[1].StartTime, target.Units[1].EndTime), Is.EqualTo((2040d, 3000d)));
+                Assert.That(target.EndTime, Is.EqualTo(3000), "the window is untouched");
+                Assert.That(line(editorBeatmap, 1).Line.StartTime, Is.EqualTo(3000));
             });
         }
 
@@ -642,7 +646,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void UnitRunPayloadStillCarriesNoSubWordTiming()
+        public void UnitRunPayloadCarriesTheWordsButADifferentWordKeepsItsOwnSubWordTiming()
         {
             var editorBeatmap = createBeatmap();
 
@@ -650,14 +654,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var run = TypeBeatEditorOperations.CopyUnitTimings(line(editorBeatmap, 0), new[] { 0, 1 })!;
 
-            // Deliberate divergence from the LINE paste: a unit run is anchored wherever the caret
-            // sits, so there is no positional correspondence to justify moving a char index.
             Assert.Multiple(() =>
             {
-                Assert.That(run.Units.All(u => u.Boundaries == null && u.Splits == null && u.Rests == null && u.Chars == 0), Is.True);
+                // Since backlog 343 the run carries each word whole: text, length and sub-word timing
+                // as offsets from the run's anchor (1000).
+                Assert.That(run.Units.Select(u => u.Text), Is.EqualTo(new[] { "alpha", "beta" }));
+                Assert.That(run.Units.Select(u => u.Chars), Is.EqualTo(new[] { 5, 4 }));
+                Assert.That(run.Units[0].Boundaries, Is.EqualTo(new[] { 300d }));
+                Assert.That(run.Units[0].Splits, Is.EqualTo(new[] { 2 }));
+                Assert.That(run.Units[1].Boundaries, Is.Null);
 
-                // And the target word keeps its own, re-clamped: "gamma" 3000..4200 with a boundary at
-                // 3500 takes the pattern's 3000..3800, which still holds it.
+                // But only the SAME word takes it. "gamma" 3000..4200 with a boundary at 3500 is a
+                // different word, so it keeps its own, re-clamped into the pattern's 3000..3800 (which
+                // still holds it), and "alpha"'s cut does not land on it.
                 subdivide(editorBeatmap, 1, 0, boundaries: new[] { 3500d }, splits: new[] { 1 });
                 TypeBeatEditorOperations.PasteUnitTimings(editorBeatmap, line(editorBeatmap, 1), 0, run);
 

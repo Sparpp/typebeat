@@ -1053,8 +1053,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The timing clipboard carries word SPANS and nothing else, so a split never travels with a
-        /// paste: the target word keeps its own, dropped only if the pasted span cost it a boundary.
+        /// A word paste carries a split only onto the SAME word (backlog 343), so it never travels
+        /// between two different words: the target word keeps its own, dropped only if the pasted
+        /// span cost it a boundary.
         /// </summary>
         [Test]
         public void PastingUnitTimingsDoesNotMoveSplitsBetweenWords()
