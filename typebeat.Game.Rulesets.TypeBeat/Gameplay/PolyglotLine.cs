@@ -13,8 +13,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// <summary>
     /// THE POLYGLOT DERIVATION (backlog 331): the line a Polyglot play is cut into cells from. Each
     /// word is played in its ORIGINAL (<see cref="TimedUnit.Original"/>) instead of its romanised
-    /// text, with the word's start and end times UNCHANGED; the per-cell targets are re-spread over
-    /// the new cell count by the ordinary flattening (<see cref="TypingLine"/>), which is handed the
+    /// text. Japanese words are joined where the original lyric has no space; their timed gap
+    /// becomes a pause, or their shared edge becomes a subdivision. The per-cell targets are
+    /// re-spread by the ordinary flattening (<see cref="TypingLine"/>), which is handed the
     /// derived line and knows nothing else about the mod.
     ///
     /// <list type="bullet">
@@ -98,7 +99,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (wordLevel)
                 pieces = wordPieces(line, language);
             else if (line.Original != null && units.Count > 0)
-                pieces = linePieces(line);
+                pieces = linePieces(line, language);
             else
                 return new Result(line, null, null);
 
@@ -106,6 +107,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             if (pieces.Count == 0)
                 return new Result(line, null, null);
+
+            if (isJapanese(language))
+                pieces = joinJapaneseWords(line, pieces);
 
             var rawCluster = new List<int>();
             int nextBlock = 0;
@@ -182,7 +186,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private static Piece plainPiece(TimedUnit unit, string token)
             => new Piece { Unit = unit, TextOverride = token, Natural = null, Cluster = Enumerable.Repeat(-1, token.Length).ToArray() };
 
-        private static List<Piece> linePieces(LyricLine line)
+        private static List<Piece> linePieces(LyricLine line, string? language)
         {
             var units = line.Units;
             string[] words = LyricOriginals.CollapseWhitespace(line.Original).Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -192,6 +196,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // The original tokenises the way the romanised line does: word i over unit i.
                 return words.Select((w, i) => originalPiece(w, units[i].StartTime, units[i].EndTime, units[i], null, carryCuts: false)).ToList();
             }
+
+            // An older line may only store its original on the line. If Kawazu's words match
+            // the romanised units, keep those units' times before removing untyped spaces.
+            if (isJapanese(language) && words.Length == 1 && JapaneseReading.Segment(words[0], language) is { } segments
+                && segments.Count == units.Count)
+                return segments.Select((w, i) => originalPiece(w, units[i].StartTime, units[i].EndTime, units[i], language, carryCuts: false)).ToList();
 
             // It does not: spread the whole original over the line's sung span by character count.
             double start = units[0].StartTime;
@@ -210,6 +220,152 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             return pieces;
+        }
+
+        private static bool isJapanese(string? language)
+            => string.Equals(language, "japanese", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(language, "ja", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// The romanised words of Japanese do not imply typed spaces in the original script.
+        /// Only whitespace present between the matching original pieces keeps a space cell.
+        /// If the originals cannot be matched to the line, preserve the existing word breaks.
+        /// </summary>
+        private static List<Piece> joinJapaneseWords(LyricLine line, List<Piece> pieces)
+        {
+            bool[]? spaces = originalSpaces(line.Original, pieces);
+
+            if (spaces == null)
+                return pieces;
+
+            var joined = new List<Piece>();
+            int from = 0;
+
+            for (int i = 0; i < spaces.Length; i++)
+            {
+                if (!spaces[i])
+                    continue;
+
+                joined.Add(mergeJapaneseRun(pieces.GetRange(from, i - from + 1)));
+                from = i + 1;
+            }
+
+            joined.Add(mergeJapaneseRun(pieces.GetRange(from, pieces.Count - from)));
+            return joined;
+        }
+
+        private static bool[]? originalSpaces(string? original, IReadOnlyList<Piece> pieces)
+        {
+            if (original == null)
+                return null;
+
+            string source = LyricOriginals.CollapseWhitespace(original);
+            var spaces = new bool[Math.Max(0, pieces.Count - 1)];
+            int at = 0;
+
+            for (int i = 0; i < pieces.Count; i++)
+            {
+                if (i > 0)
+                {
+                    while (at < source.Length && char.IsWhiteSpace(source[at]))
+                    {
+                        spaces[i - 1] = true;
+                        at++;
+                    }
+                }
+
+                string text = pieces[i].Unit.Original ?? pieces[i].Text;
+
+                if (!source.AsSpan(at).StartsWith(text.AsSpan(), StringComparison.Ordinal))
+                    return null;
+
+                at += text.Length;
+            }
+
+            return at == source.Length ? spaces : null;
+        }
+
+        /// <summary>
+        /// Joins original-script words into one typing token. A sung gap is an untyped pause;
+        /// adjacent words meet at a subdivision. Their existing syllable cuts keep their times.
+        /// </summary>
+        private static Piece mergeJapaneseRun(IReadOnlyList<Piece> run)
+        {
+            if (run.Count == 1)
+                return run[0];
+
+            string text = string.Concat(run.Select(p => p.Text));
+            double start = run.Min(p => p.Unit.StartTime);
+            double end = run.Max(p => p.Unit.EndTime);
+            var boundaries = new List<double>();
+            var splits = new List<int>();
+            var pauses = new List<WordPause>();
+            int offset = 0;
+
+            void addBoundary(double time, int split)
+            {
+                if (time <= start || time >= end || split <= 0 || split >= text.Length
+                    || boundaries.Count > 0 && time <= boundaries[^1]
+                    || splits.Count > 0 && split <= splits[^1])
+                    return;
+
+                boundaries.Add(time);
+                splits.Add(split);
+            }
+
+            for (int i = 0; i < run.Count; i++)
+            {
+                Piece piece = run[i];
+
+                if (i > 0)
+                {
+                    double previousEnd = run[i - 1].Unit.EndTime;
+
+                    if (piece.Unit.StartTime > previousEnd && previousEnd > start && piece.Unit.StartTime < end)
+                        pauses.Add(new WordPause(previousEnd, piece.Unit.StartTime, offset));
+                    else
+                        addBoundary(piece.Unit.StartTime, offset);
+                }
+
+                if (piece.Unit.SyllableBoundaries.Count > 0)
+                {
+                    IReadOnlyList<int> cuts = SyllableSegments.SplitsFor(piece.Unit);
+
+                    for (int j = 0; j < cuts.Count && j < piece.Unit.SyllableBoundaries.Count; j++)
+                        addBoundary(piece.Unit.SyllableBoundaries[j], offset + cuts[j]);
+                }
+                else if (piece.Natural is NaturalSplit natural && natural.Splits != null)
+                {
+                    int cells = piece.Text.Count(Typeability.IsPolyglotTypeCell);
+
+                    foreach (int cut in natural.Splits)
+                    {
+                        if (cells == 0)
+                            break;
+
+                        int before = piece.Text.Take(cut).Count(Typeability.IsPolyglotTypeCell);
+                        double time = piece.Unit.StartTime + (piece.Unit.EndTime - piece.Unit.StartTime) * before / cells;
+                        addBoundary(time, offset + cut);
+                    }
+                }
+
+                offset += piece.Text.Length;
+            }
+
+            var unit = new TimedUnit
+            {
+                Text = text,
+                StartTime = start,
+                EndTime = end,
+                Source = run.All(p => p.Unit.Source == TimingSource.Explicit) ? TimingSource.Explicit : TimingSource.Interpolated,
+                Confidence = run.Min(p => p.Unit.Confidence),
+                SyllableBoundaries = boundaries,
+                SyllableSplits = splits,
+                Pauses = pauses,
+                Original = string.Concat(run.Select(p => p.Unit.Original ?? p.Text)),
+            };
+
+            return new Piece { Unit = unit, Natural = null, Cluster = run.SelectMany(p => p.Cluster).ToArray() };
         }
 
         /// <summary>

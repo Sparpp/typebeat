@@ -10,12 +10,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// <summary>
     /// Typing-pace statistics for a lyric map, in two deliberate shapes.
     ///
-    /// <para><see cref="AverageWpm"/> is the WHOLE-MAP rate with only the pauses BETWEEN lines
-    /// taken out: every counted line's cells over its full start-to-vocal-end span. This includes
-    /// every pause within a line, however long. A line's <see cref="LyricLine.EndTime"/> is the NEXT
-    /// line's start, so using that boundary would also charge the player for the instrumental
-    /// after its vocals end. Because the spans are summed, a line is weighted by its duration
-    /// rather than given one vote like the per-line mean below.</para>
+    /// <para><see cref="AverageWpm"/> is the WHOLE-MAP rate. Sung word spans count in full; each
+    /// pause inside a line, inside a word, or between lines contributes up to one second of playback
+    /// time. This gives every pause some weight without letting an instrumental dominate the
+    /// denominator. A line is weighted by its duration rather than given one vote like the per-line
+    /// mean below.</para>
     ///
     /// <para>WHAT IS A CELL here is narrower than the engine's: <see cref="Typeability.IsTypeable"/>
     /// characters and the inter-word spaces, but NOT freestyle slots. A freestyle slot takes any
@@ -75,15 +74,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         /// <summary>
         /// <see cref="AverageCpm"/> / <see cref="CHARS_PER_WORD"/>, the whole-map rate in words:
-        /// total typeable cells over the summed line spans, derived from the CPM rather than accumulated
+        /// total typeable cells over the sung spans and capped pauses, derived from CPM rather than accumulated
         /// separately so the two can never drift apart by a rounding step.
         /// </summary>
         public double AverageWpm => AverageCpm / CHARS_PER_WORD;
 
         /// <summary>
-        /// The whole-map rate: total typeable cells over the summed spans from each line's
-        /// <see cref="LyricLine.StartTime"/> to its <see cref="LyricLine.SingEndTime"/>. All pauses
-        /// inside a line count; the gap between its vocal end and the next line does not.
+        /// The whole-map rate: total typeable cells over sung spans plus up to one second for each
+        /// pause between words, inside words, and between lines, measured at the playback rate.
         ///
         /// <para>The cell stream is the one <see cref="Compute"/> was asked for: the default stream
         /// (marks deleted, a hyphen a word break) unless the caller opted into the Literate one, in
@@ -140,8 +138,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         ///
         /// <para>A map total, not a mean of per-line ratios, so it is the length of the average
         /// word the player types rather than the average of the lines' averages. WPM and CPM
-        /// instead divide the map's cell total by its summed line spans, excluding the gaps
-        /// between those spans.</para>
+        /// instead divide the map's cell total by its sung spans and capped pauses.</para>
         /// </summary>
         public double AverageCharsPerWord => WordCount == 0 ? 0 : (double)TypeableCellCount / WordCount;
 
@@ -153,6 +150,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         /// <summary>Guards degenerate data (zero/near-zero windows) from exploding the rate.</summary>
         private const double min_line_window_ms = 500;
+
+        /// <summary>Maximum playback time charged for one pause.</summary>
+        private const double max_pause_ms = 1000;
 
         /// <summary>
         /// Whether a target below the whole-map average is raised to it, the lab's own presentation
@@ -173,6 +173,54 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private const bool pace_floor_target = true;
 
         /// <summary>
+        /// Sung time in a line, with each gap and authored word rest capped separately. A line
+        /// without unit timings has no known internal pauses, so its vocal span is charged whole.
+        /// All times here are authored milliseconds; the cap is scaled to the playback clock.
+        /// </summary>
+        private static double chargedLineMs(LyricLine line, double pauseCapMs)
+        {
+            double lineEnd = Math.Max(line.StartTime, line.SingEndTime);
+
+            if (line.Units.Count == 0)
+                return lineEnd - line.StartTime;
+
+            double charged = 0;
+            double cursor = line.StartTime;
+
+            foreach (TimedUnit unit in line.Units.OrderBy(u => u.StartTime))
+            {
+                double start = Math.Clamp(unit.StartTime, line.StartTime, lineEnd);
+                double end = Math.Clamp(unit.EndTime, start, lineEnd);
+
+                if (start > cursor)
+                    charged += Math.Min(start - cursor, pauseCapMs);
+
+                double sungStart = Math.Max(start, cursor);
+
+                if (end > sungStart)
+                {
+                    charged += end - sungStart;
+                    double restCursor = sungStart;
+
+                    foreach (WordPause rest in unit.Pauses.OrderBy(p => p.StartTime))
+                    {
+                        double restStart = Math.Clamp(Math.Max(rest.StartTime, restCursor), sungStart, end);
+                        double restEnd = Math.Clamp(rest.EndTime, restStart, end);
+                        charged -= Math.Max(0, restEnd - restStart - pauseCapMs);
+                        restCursor = restEnd;
+                    }
+                }
+
+                cursor = Math.Max(cursor, end);
+            }
+
+            if (lineEnd > cursor)
+                charged += Math.Min(lineEnd - cursor, pauseCapMs);
+
+            return charged;
+        }
+
+        /// <summary>
         /// The pace figures for <paramref name="lines"/>.
         ///
         /// <para><paramref name="literate"/> selects the cell stream, exactly as
@@ -184,8 +232,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         /// <param name="rate">
         /// The CLOCK the map is read at: 1 for no rate mod, 1.5 for DoubleTime, 0.75 for HalfTime, and
-        /// whatever a custom rate mod asks for. The two whole-map rates are cells over TIME, so they
-        /// scale with it exactly; the TARGET is not, because the fixed reading duration it is
+        /// whatever a custom rate mod asks for. The pause cap is one second at this playback rate,
+        /// so the whole-map average is recomputed rather than simply scaled. The TARGET is also
+        /// recomputed because the fixed reading duration it is
         /// re-expressed at is a duration the faster clock also shortens - so it is recomputed through
         /// the difficulty model at this rate rather than multiplied (see <see cref="TargetWpm"/>).
         /// </param>
@@ -193,16 +242,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         {
             // Materialised because the target below reads the same lines again through the
             // difficulty model, and a caller is free to hand in a lazy sequence.
-            List<LyricLine> lineList = lines as List<LyricLine> ?? lines.ToList();
+            List<LyricLine> lineList = lines.ToList();
 
             int totalCells = 0;
             int totalWords = 0;
             int lineCount = 0;
             double cpmSum = 0;
-            double vocalMinutes = 0;
+            double chargedMs = 0;
+            double pauseCapMs = max_pause_ms * rate;
+            double? previousVocalEnd = null;
             var lineCpms = new List<double>();
 
-            foreach (var line in lineList)
+            foreach (var line in lineList.OrderBy(l => l.StartTime))
             {
                 // Cell arithmetic mirrors TypingLine.FromLyricLine: every typeable char is a
                 // cell, plus one typeable space cell per token gap.
@@ -248,9 +299,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // second sum could only introduce a way for the two to disagree.
                 double lineCpm = cells / windowMinutes;
 
-                // Count the whole line, including its internal pauses. The span stops at vocal end
-                // rather than the next line's boundary, excluding only the pause between lines.
-                vocalMinutes += Math.Max(line.SingEndTime - line.StartTime, min_line_window_ms) / 60000.0;
+                // Count the pause since the previous vocal end, then this line's sung spans and
+                // capped internal gaps. The final line contributes no silence after its vocal end.
+                if (previousVocalEnd.HasValue)
+                    chargedMs += Math.Min(Math.Max(0, line.StartTime - previousVocalEnd.Value), pauseCapMs);
+
+                chargedMs += Math.Max(chargedLineMs(line, pauseCapMs), min_line_window_ms);
+                previousVocalEnd = Math.Max(previousVocalEnd ?? line.StartTime, Math.Max(line.StartTime, line.SingEndTime));
 
                 cpmSum += lineCpm;
                 lineCpms.Add(lineCpm);
@@ -263,7 +318,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (lineCount == 0)
                 return default;
 
-            double averageCpm = vocalMinutes > 0 ? totalCells / vocalMinutes : 0;
+            double averageCpm = chargedMs > 0 ? totalCells * 60000.0 * rate / chargedMs : 0;
 
             // THE TARGET. Read from the difficulty model, which is where the window schedule, the
             // density prefix and the capability curve live: this statistic has no second copy of
@@ -292,9 +347,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             {
                 targetWpm = 0;
             }
-
-            // The two whole-map rates scale with the clock; the target is already read at it.
-            averageCpm *= rate;
 
             if (pace_floor_target && averageCpm / CHARS_PER_WORD > targetWpm)
                 targetWpm = averageCpm / CHARS_PER_WORD;

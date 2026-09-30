@@ -102,19 +102,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// THE POINT OF THE WHOLE-MAP RATE: a break in the song is not typing time.
-        ///
-        /// <para>A line's <see cref="LyricLine.EndTime"/> is the NEXT line's start, so a map with a long
-        /// instrumental after a line hands that pause to the line's own boundary window. The per-line
-        /// mean then charges the player for it, one pause at a time; the whole-map rate sums
-        /// <see cref="LyricLine.SingEndTime"/> − <see cref="LyricLine.StartTime"/> instead and never
-        /// sees it.</para>
+        /// The whole-map rate charges up to one second for a pause between lines, rather than
+        /// dropping it or charging the entire instrumental. The line mean is still boundary-based.
         /// </summary>
         [Test]
-        public void TheWholeMapAverageLeavesTheSongsBreaksOutOfTheDenominator()
+        public void TheWholeMapAverageCapsTheBreakBetweenLines()
         {
-            // Two 5-cell lines, each sung for 4 s but bounded for 20 s (a 16 s instrumental after each):
-            //   whole map = 10 cells / (4000 + 4000 ms) = 10 / 0.1333 =  75 CPM = 15 WPM
+            // Two 5-cell lines, each sung for 4 s and separated by a 16 s instrumental.
+            // The one pause contributes 1 s: 10 cells / (4 + 1 + 4 s) = 66.667 CPM.
             //   line mean = each line 5 cells / 20 s     =             15 CPM =  3 WPM
             var pace = LyricPaceStatistics.Compute(new[]
             {
@@ -123,28 +118,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
 
             Assert.AreEqual(10, pace.TypeableCellCount);
-            Assert.AreEqual(75.0, pace.AverageCpm, 1e-9);
-            Assert.AreEqual(15.0, pace.AverageWpm, 1e-9);
+            Assert.AreEqual(10.0 / (9000 / 60000.0), pace.AverageCpm, 1e-9);
+            Assert.AreEqual(10.0 / (9000 / 60000.0) / 5, pace.AverageWpm, 1e-9);
 
-            // The figure it replaced reads five times slower on the same map, because every one of those
-            // 16-second silences is sitting inside a line's own vote.
+            // The per-line mean still includes each line's entire 20-second boundary window.
             Assert.AreEqual(15.0, pace.LineAverageCpm, 1e-9);
             Assert.AreEqual(3.0, pace.LineAverageWpm, 1e-9);
 
             // "ab cd" is five cells over two words, so the map types 2.5 cells per word; the two
-            // averages differ ONLY by where the windows stop, which is the point of the fixture.
+            // averages differ by how the long inter-line pause is charged.
             Assert.AreEqual(2.5, pace.AverageCharsPerWord, 1e-9);
         }
 
         /// <summary>
-        /// Pauses inside a line count regardless of length; pauses between lines do not. The line
-        /// mean still reads the boundary window, so it includes both kinds.
-        ///
-        /// <para>Every fixture below has five cells. The first two share a 10 s boundary window,
-        /// but their vocal spans differ because the pause between words differs.</para>
+        /// Pauses between words are capped at one second just like pauses between lines. A gap
+        /// after the final line's vocal end is outside the map's measured typing time.
         /// </summary>
         [Test]
-        public void InternalPausesCountAndGapsAfterTheLineDoNot()
+        public void InternalPausesAreCappedAndFinalTrailingSilenceIsNotCounted()
         {
             // One second between the two words is inside the line; the 5 s after it is not.
             var breath = LyricPaceStatistics.Compute(new[]
@@ -155,15 +146,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(60.0, breath.AverageCpm, 1e-9);
             Assert.AreEqual(12.0, breath.AverageWpm, 1e-9);
 
-            // Four seconds between the words also counts, even though it is a long pause.
+            // Four seconds between the words contributes only one second.
             var longInternalPause = LyricPaceStatistics.Compute(new[]
             {
                 makeLine("ab cd", 0, 10000, singEnd: 8000, (0, 2000), (6000, 8000)),
             });
 
-            Assert.AreEqual(37.5, longInternalPause.AverageCpm, 1e-9);
+            Assert.AreEqual(60.0, longInternalPause.AverageCpm, 1e-9);
 
-            // Both one-second and slightly longer gaps after the vocal end are excluded.
+            // A gap after the final vocal end has no following lyric to separate from it.
             var shortTail = LyricPaceStatistics.Compute(new[]
             {
                 makeLine("ab cd", 0, 6000, singEnd: 5000, (0, 2000), (3000, 5000)),
@@ -351,8 +342,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <paramref name="windowsMs"/> lines of "a b c", one per boundary window given. The line
         /// holds exactly 5 cells (three tokens, three chars, two inter-word spaces), so its rate is
         /// 5 * 60000 / window CPM and the whole distribution is hand-computable. Line times are laid
-        /// out end to end with a 500 ms rest between them, which nothing here reads: a per-line mean
-        /// cannot see the gaps.
+        /// out with a 500 ms rest between them, which the whole-map rate counts but the per-line
+        /// mean cannot see.
         ///
         /// <para>THREE tokens rather than the single "abcde" this used to write, so the fixture reads
         /// as ordinary lyric text; cell for cell it is the same 5, so every pinned CPM and WPM below

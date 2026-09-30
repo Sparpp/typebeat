@@ -23,6 +23,7 @@ using typebeat.Game.Configuration;
 using typebeat.Game.Rulesets.Objects.Drawables;
 using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects.Drawables;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
@@ -252,7 +253,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         // replay feeder when a replay score is attached.
                         new EngineTicker(Engine, drawableRuleset),
                         stage = new LyricStage(Engine),
-                        new TypeBeatHudOverlay(Engine),
+                        new TypeBeatHudOverlay(drawableRuleset?.Ruleset.RulesetInfo),
                         new TypeBeatKeyHandler(Engine, keyboardLayout, drawableRuleset, this),
                     },
                 },
@@ -368,12 +369,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // a FIXED typo costing exactly what it did before: nothing beyond what the corrected
             // retype earns.
 
-            // Fletcher's rush cap breaks combo on a press that is still judged Great/Ok/Meh, so the
-            // hit result alone (a Great/Ok/Meh, which INCREMENTS osu's combo) cannot carry the break.
-            // Mirror the engine's own combo by hand, after the result has been applied, exactly as
-            // onMistyped does for a wrong keypress. Gated on the mod so the default path is untouched:
-            // there every ComboAfter == 0 judgement either maps to a Miss (which breaks osu's combo
-            // itself) or is a WrongChar, whose break onMistyped has already carried.
+            // Older replays can still use Fletcher's rush cap. It breaks combo on a press judged
+            // Great/Ok/Meh, whose hit result would otherwise increment osu's combo. Mirror the
+            // engine's combo after applying that result. New live plays bypass the cap.
             if (Engine.FletcherEnabled && judgement.ComboAfter == 0 && scoreProcessor != null)
                 scoreProcessor.Combo.Value = 0;
         }
@@ -701,6 +699,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         nextFrameIndex = 0;
                         lastFedTime = double.NegativeInfinity;
 
+                        // A replay without a CONFIG header predates the no-cap rule too.
+                        engine.RushCapExempt = engine.RushCapExemptFromMod;
+
                         // Prime the judgement flags from the recorded CONFIG frame BEFORE the first
                         // tick rather than when the frame's own time comes round. The playfield's
                         // load put the WATCHER's settings on the engine (SpaceSkipsWord,
@@ -715,6 +716,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                             if (frames[i] is TypeBeatReplayFrame { IsConfig: true } config)
                             {
                                 ReplayEngineFeed.Apply(engine, config, clockRate);
+
+                                // The rush-cap era uses a second header frame because the
+                                // CONFIG flags word has no room for another bit.
+                                if (i + 1 < frames.Count && frames[i + 1] is TypeBeatReplayFrame { IsRushCapRemoved: true } rushCapRemoved)
+                                    ReplayEngineFeed.Apply(engine, rushCapRemoved, clockRate);
+
                                 break;
                             }
                         }
@@ -864,6 +871,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             [Resolved]
             private GameHost? host { get; set; }
 
+
             /// <summary>
             /// Whether Caps Lock is currently ON, or false wherever that cannot be read.
             ///
@@ -928,6 +936,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (engine.Polyglot)
                     activateTextInput();
             }
+
 
             #region Polyglot text input (backlog 331)
 
@@ -1041,6 +1050,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (engine.Polyglot && imeComposition.Length > 0
                                     && (e.Key == Key.BackSpace || e.Key == Key.Space || e.Key == Key.Enter || e.Key == Key.KeypadEnter || e.Key == Key.Escape))
                     return true;
+
 
                 // Which word-level gesture (if any) this press triggers under the user's CURRENT
                 // bindings (backlog 183; backlog 182 hardcoded Ctrl+Backspace and Ctrl+A here).

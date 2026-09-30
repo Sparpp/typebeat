@@ -50,6 +50,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         CaretStyle,
 
         /// <summary>
+        /// Milliseconds for the typing caret and song playhead to close half their remaining
+        /// distance to the next position. Zero snaps both immediately. Display only.
+        /// </summary>
+        CaretSmoothing,
+
+        /// <summary>
         /// Rendering style of the SUNG playhead: the second head on the lyric line, which tracks the
         /// vocals rather than the player. Independent of the typing caret's <see cref="CaretStyle"/>,
         /// so a player can shape the two apart (they are already told apart by colour, damping and
@@ -128,17 +134,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// <summary>
         /// Whether a map's own font choice (<c>[General] LyricFont</c>, backlog 291) is applied to
         /// the typing surface. ON by default, in the spirit of osu's beatmap skin/hitsound toggles:
-        /// the mapper picked a look for their map and most players want to see it. It only matters
-        /// while <see cref="LyricFont"/> is the Default sentinel, because a player's own deliberate
-        /// font pick always beats the map's (see <c>UI.LyricFontResolution</c>). Display only, so it
-        /// never reaches the replay CONFIG frame.
+        /// the mapper picked a look for their map and most players want to see it. When enabled,
+        /// a usable map font takes priority over <see cref="LyricFont"/>; the player's font remains
+        /// the fallback. Display only, so it never reaches the replay CONFIG frame.
         /// </summary>
         UseMapFonts,
 
         /// <summary>
-        /// Whether a word left carrying an error, once the player has spaced past it, is marked with
-        /// a small red dot centred in the gap after it (the TypeGG-style error indicator). ON by
-        /// default since PR 2. Purely visual: it decides nothing about judgement, scoring, the replay or the
+        /// Whether a wrong character typed into a space between words is marked with a small red
+        /// dot centred in that gap. Skipping a word does not earn a dot. Purely visual: it decides
+        /// nothing about judgement, scoring, the replay or the
         /// wire, which is why it binds straight to the lyric displays and never reaches the replay
         /// CONFIG frame. See <see cref="UI.LyricLineDisplay.ComputeSpaceErrorDots"/> for the exact
         /// rule.
@@ -146,9 +151,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         UseSpaceErrorDot,
 
         /// <summary>
-        /// Whether a word the mapper subdivided (<see cref="Beatmaps.TimedUnit.SyllableBoundaries"/>
-        /// non-empty) shows a tiny triangle in the inter-character gap at each of its interior
-        /// syllable boundaries. ON by default: since backlog 179 a keypress inside a syllable is
+        /// Whether a word shows a tiny triangle in the inter-character gap at each of its
+        /// interior syllable boundaries, including automatically derived ones. ON by default:
+        /// since backlog 179 a keypress inside a syllable is
         /// judged against that syllable's sung SPAN, so the subdivision is already something the
         /// player is being asked to pace to, and the mark is how they see it coming instead of
         /// discovering it by ear.
@@ -186,7 +191,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// displays and never reaches the replay CONFIG frame, so a replay re-derives identically
         /// whichever way the player left it.</para>
         /// </summary>
-        ShowSyncMetric
+        ShowSyncMetric,
+
+        /// <summary>
+        /// Percentage change in speed needed to reach the strongest word pace colour. Purely
+        /// visual and independent of the player's typing speed.
+        /// </summary>
+        PaceColourMaxChange,
+
+        /// <summary>How far sung syllables brighten from untyped grey towards typed white.</summary>
+        SyllableBrightness
     }
 
     /// <summary>
@@ -250,6 +264,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// <summary>Sentinel <see cref="TypeBeatRulesetSetting.LyricFont"/> value meaning "keep the game's built-in font".</summary>
         public const string LYRIC_FONT_DEFAULT = "Default";
 
+        /// <summary>Caret smoothing for a player who has not changed the slider.</summary>
+        public const float DEFAULT_CARET_SMOOTHING_MS = 35f;
+
         /// <summary>
         /// The caret style a NEW install starts on. Changing this cannot disturb an existing player, and the reason is
         /// worth stating because the usual assumption about defaults is the opposite one: a default normally leaks to
@@ -301,17 +318,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.LyricLabPath, string.Empty);
             SetDefault(TypeBeatRulesetSetting.LocalAlignerEnabled, true);
             SetDefault(TypeBeatRulesetSetting.CaretStyle, DEFAULT_CARET_STYLE);
+            SetDefault(TypeBeatRulesetSetting.CaretSmoothing, DEFAULT_CARET_SMOOTHING_MS, 0.0f, 50.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.SungCaretStyle, DEFAULT_SUNG_CARET_STYLE);
             SetDefault(TypeBeatRulesetSetting.KeyboardLayout, Gameplay.KeyboardLayout.Qwerty);
             SetDefault(TypeBeatRulesetSetting.SpaceSkipsWord, true);
             SetDefault(TypeBeatRulesetSetting.ManualNewlines, true);
             SetDefault(TypeBeatRulesetSetting.LineSpacing, 96.0f, 40.0f, 200.0f, 1.0f);
+
             SetDefault(TypeBeatRulesetSetting.LyricFontSize, UI.TypeBeatStyle.LYRIC_FONT_SIZE, 24.0f, 72.0f, 1.0f);
+
             SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
             SetDefault(TypeBeatRulesetSetting.UseMapFonts, true);
             SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, true);
             SetDefault(TypeBeatRulesetSetting.ShowSyllableMarkers, true);
             SetDefault(TypeBeatRulesetSetting.ShowPaceColours, true);
+            SetDefault(TypeBeatRulesetSetting.PaceColourMaxChange, 75.0f, 25.0f, 150.0f, 1.0f);
+            SetDefault(TypeBeatRulesetSetting.SyllableBrightness, 50.0f, 0.0f, 100.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.ShowSyncMetric, false);
         }
     }

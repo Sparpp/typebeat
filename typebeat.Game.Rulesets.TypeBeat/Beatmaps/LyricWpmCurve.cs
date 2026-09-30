@@ -10,9 +10,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// <summary>
     /// Typing pace ACROSS a lyric map, as a perfect player would experience it: every typeable cell
     /// of the map is laid out on the beatmap timeline in typing order, a rolling window of at least
-    /// <see cref="WINDOW_SECONDS"/> seconds and <see cref="MIN_WINDOW_CELLS"/> cells is swept over it, and each window
-    /// yields one WPM and one CPM. What comes out is the peak of each (independently) plus a
-    /// downsampled curve of the WPM over map time, which song select draws as a bar graph.
+    /// <see cref="WINDOW_SECONDS"/> seconds and <see cref="MIN_WINDOW_CELLS"/> cells is swept over it.
+    /// Eligible windows determine the peak WPM and CPM. The graph samples pace throughout the map,
+    /// including ordinary sections whose windows do not reach the peak's character floor.
     ///
     /// Kept byte-for-byte in step with the website's port
     /// (typebeat-web: Typebeat.Web.Packages.Lyrics.LyricWpmCurve) so the in-game and the on-site
@@ -65,9 +65,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         /// <summary>
         /// Raw (UNNORMALISED) WPM at evenly spaced points across [<see cref="StartTime"/>,
-        /// <see cref="EndTime"/>]. Bucket b takes the maximum WPM over the windows whose FIRST cell
-        /// falls in it, and 0 where no window starts in it. Scaling this for display is the caller's
-        /// job. Empty for a degenerate map.
+        /// <see cref="EndTime"/>]. Each bucket reads a centered time window without the peak's
+        /// character floor, so slower passages have a pace too. Eligible peak windows also mark
+        /// their starting bucket, keeping the curve's maximum equal to <see cref="PeakWpm"/>.
+        /// Empty for a degenerate map.
         /// </summary>
         public IReadOnlyList<double> Curve => curve ?? Array.Empty<double>();
 
@@ -93,7 +94,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         public static LyricWpmCurve Compute(IEnumerable<LyricLine> lines, int points = DEFAULT_CURVE_POINTS, double rate = 1)
         {
-            var lineList = lines as IReadOnlyList<LyricLine> ?? lines.ToList();
+            var lineList = lines.ToList();
 
             // Cell target times in typing order. That is the whole state this needs: every cell is
             // worth 1/CHARS_PER_WORD of a word, so counting cells IS counting words and the
@@ -227,6 +228,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 if (bucket >= points)
                     bucket = points - 1;
+
+                if (wpm > result[bucket])
+                    result[bucket] = wpm;
+            }
+
+            // The peak needs 16 cells, but the graph should show the pace of every typed passage.
+            // Sampling each bar's own centered window also fills bars with no cell exactly at their
+            // timestamp. The peak sweep above remains in the curve, so its maximum stays PeakWpm.
+            int lower = 0;
+            int upper = 0;
+
+            for (int bucket = 0; bucket < points; bucket++)
+            {
+                double center = first + (bucket + 0.5) * mapSpanMs / points;
+                double start = center - windowMs / 2;
+                double finish = center + windowMs / 2;
+
+                while (lower < cellCount && targets[lower] < start)
+                    lower++;
+
+                if (upper < lower)
+                    upper = lower;
+
+                while (upper < cellCount && targets[upper] <= finish)
+                    upper++;
+
+                double wpm = (upper - lower) * 60000.0 * rate / windowMs / CHARS_PER_WORD;
 
                 if (wpm > result[bucket])
                     result[bucket] = wpm;

@@ -418,7 +418,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.That(typeline.Syllables.Count, Is.EqualTo(1), "\"please\" is one syllable");
             Assert.That(typeline.Syllables[0], Is.EqualTo(new SyllableGroup(0, 6, 1000, 2000)));
-            Assert.That(typeline.SyllableMarkerCells, Is.Empty, "nothing was authored, so nothing is marked");
+            Assert.That(typeline.SyllableMarkerCells, Is.Empty, "a one-syllable word has no interior boundary");
         }
 
         /// <summary>

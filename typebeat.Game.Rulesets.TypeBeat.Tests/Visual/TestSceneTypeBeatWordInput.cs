@@ -278,11 +278,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
-        /// A typo on the WORD GAP (backlog 181) is a typo for this gesture too, and it anchors on the
-        /// gap rather than dragging the good word in front of it into the selection.
+        /// A typo on the word gap selects the preceding word as well as the gap.
         /// </summary>
         [Test]
-        public void TestAGapTypoAnchorsOnTheGap()
+        public void TestAGapTypoAnchorsOnThePrecedingWord()
         {
             waitForLine();
 
@@ -294,8 +293,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             recoveryChord(Key.A);
 
-            AddAssert("only the gap onwards is selected", () =>
-                playfield.CurrentRetypeSelection is TypeBeatPlayfield.RetypeSelection { StartCell: 2, EndCell: 4 });
+            AddAssert("the preceding word and gap are selected", () =>
+                playfield.CurrentRetypeSelection is TypeBeatPlayfield.RetypeSelection { StartCell: 0, EndCell: 4 });
         }
 
         /// <summary>

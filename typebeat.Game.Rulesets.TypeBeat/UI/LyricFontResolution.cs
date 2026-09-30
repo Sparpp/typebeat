@@ -13,19 +13,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// as a pure function so the order itself is pinned by tests rather than by convention:
     ///
     /// <list type="number">
-    /// <item>The player's own <see cref="TypeBeatRulesetSetting.LyricFont"/> pick, when it is not
-    /// the Default sentinel: a deliberate personal choice (an accessibility font above all) always
-    /// beats the map's.</item>
     /// <item>The map's font, when the player's <see cref="TypeBeatRulesetSetting.UseMapFonts"/>
     /// setting (default ON) allows it: the bundled font file first (registered from the set's file
     /// store under a per-file key), then the declared family by name from the system fonts.</item>
+    /// <item>The player's own <see cref="TypeBeatRulesetSetting.LyricFont"/> pick, when no usable map
+    /// font was selected or the map font setting is off.</item>
     /// <item>The built-in lyric font (null).</item>
     /// </list>
     ///
-    /// <para>Every step FALLS THROUGH on failure rather than failing the play: a player font that
-    /// no longer loads is as good as absent, so the map's font (then the built-in) still applies,
-    /// and a map font whose file is corrupt and whose family is not installed lands on the
-    /// built-in font. The registration delegates own all logging.</para>
+    /// <para>Every step falls through on failure rather than failing the play: an unusable map
+    /// font yields to the player's choice, then the built-in font. The registration delegates own
+    /// all logging.</para>
     /// </summary>
     public static class LyricFontResolution
     {
@@ -48,9 +46,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public static string? Resolve(string? playerFamily, bool useMapFonts, string? mapFamily,
                                       Func<string, bool> ensureFamily, Func<string?>? registerMapFile)
         {
-            if (!isDefault(playerFamily) && ensureFamily(playerFamily!))
-                return playerFamily;
-
             if (useMapFonts)
             {
                 string? bundled = registerMapFile?.Invoke();
@@ -61,6 +56,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (!string.IsNullOrWhiteSpace(mapFamily) && ensureFamily(mapFamily!))
                     return mapFamily;
             }
+
+            if (!isDefault(playerFamily) && ensureFamily(playerFamily!))
+                return playerFamily;
 
             return null;
         }

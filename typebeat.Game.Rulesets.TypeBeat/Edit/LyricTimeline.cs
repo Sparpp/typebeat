@@ -560,6 +560,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private int[] groupIndices = Array.Empty<int>();
             private double[] groupOrigStart = Array.Empty<double>();
             private double[] groupOrigEnd = Array.Empty<double>();
+            private bool? lastOriginalView;
 
             public WordBlock(LyricTimeline strip, TypeBeatHitObject hitObject, int index)
             {
@@ -616,8 +617,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 // greyed band lands in the gap between two runs instead of over the letters. That is
                 // the very cut the engine times the halves by (see PausedWord), so the way the word
                 // reads here is the way it is played.
-                var runs = PausedWord.DisplayRuns(display, unit, unit.StartTime, unit.EndTime);
+                bool originalView = state.ShowOriginalLyrics.Value && unit.Original != null;
+                IReadOnlyList<PausedWord.Run> runs = originalView
+                    ? new[] { new PausedWord.Run(unit.Original!, unit.StartTime, unit.EndTime) }
+                    : PausedWord.DisplayRuns(display, unit, unit.StartTime, unit.EndTime);
                 ensureLabels(runs.Count);
+
+                if (lastOriginalView != originalView)
+                {
+                    foreach (var label in segmentLabels)
+                        label.Font = originalView ? TypeBeatStyle.Lyric(16) : TypeBeatStyle.Mono(16);
+
+                    lastOriginalView = originalView;
+                }
 
                 for (int i = 0; i < runs.Count; i++)
                 {

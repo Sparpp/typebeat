@@ -14,11 +14,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// <summary>
     /// THE PACE CHART'S FIGURES FOLLOW THE CLOCK, and they do not all follow it the same way.
     ///
-    /// <para>Two of the three are plain rates: the peak and the average are WPM - cells over time - and
-    /// a speed-changing mod plays the same cells in less time, so they scale with the clock exactly. The
-    /// curve's window is a run of CELLS rather than a span of seconds, so that holds for the peak and
-    /// for every sample of the graph, which is also why the graph's normalised shape is identical at
-    /// any rate.</para>
+    /// <para>The peak and the curve are rates over the same authored windows, so they scale with
+    /// the clock. The average also follows the clock, but a pause capped at one playback second
+    /// can change its fraction of the total time, so it is recomputed at each rate.</para>
     ///
     /// <para>The TARGET is not one of those. It is the map's hardest window re-expressed as the pace an
     /// equally demanding <see cref="LyricDifficulty.TargetWindowSeconds"/> stretch would ask for, i.e.
@@ -51,8 +49,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The two plain rates: DT asks for 1.5x, HT for 0.75x, and the graph's shape does not move
-        /// because the chart is normalised by the peak that scaled with it.
+        /// This fixture's gaps stay under one playback second at each tested rate, so its average
+        /// scales exactly like the peak. The graph's shape does not move with the clock.
         /// </summary>
         [Test]
         public void ThePeakAndAverageScaleWithTheClock()

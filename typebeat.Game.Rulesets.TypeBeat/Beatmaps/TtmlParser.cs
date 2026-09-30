@@ -26,7 +26,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// the song's own. A &lt;p&gt; is a LINE; its &lt;span&gt; children are timed PIECES. Pieces
     /// with no whitespace between them are SYLLABLES of one word ("Ab" "ra" "ca" "dab" "ra," -&gt;
     /// "Abracadabra,"), pieces separated by whitespace are separate words, and a piece whose text
-    /// carries spaces splits into its own words. A <c>&lt;span ttm:role="x-bg"&gt;</c> is a BACKING
+    /// carries spaces splits into its own words. For Japanese without a supplied transliteration,
+    /// Kawazu's dictionary boundaries also separate words before the remaining pieces become
+    /// syllables. A <c>&lt;span ttm:role="x-bg"&gt;</c> is a BACKING
     /// VOCAL and is dropped with its whole subtree, which is the same reading the import boundary
     /// already gives a bracketed backing vocal: the player never types it.</para>
     ///
@@ -300,10 +302,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // this line, else the romaniser word by word. A line of plain ASCII resolves to exactly
             // the words it always had.
             string? key = readAttribute(paragraph, "key");
-            List<ResolvedWord> resolved = (key != null && transliterations.TryGetValue(key, out XElement? transliteration)
-                                              ? pairTransliteration(words, transliteration)
-                                              : null)
-                                          ?? words.Select(w => resolve(w, language)).ToList();
+            List<ResolvedWord>? resolved = key != null && transliterations.TryGetValue(key, out XElement? transliteration)
+                ? pairTransliteration(words, transliteration)
+                : null;
+
+            // Japanese lyrics commonly omit spaces between timed spans. Those spans may cross
+            // dictionary word boundaries, so split the source words before assigning syllables.
+            resolved ??= splitJapaneseWords(words, language).Select(w => resolve(w, language)).ToList();
 
             var typed = resolved.Where(r => !r.Flagged).ToList();
             string text = string.Join(' ', typed.Select(w => w.Text));
@@ -615,6 +620,76 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
 
             return words;
+        }
+
+        /// <summary>
+        /// Turns Kawazu's Japanese word boundaries into actual words, retaining each TTML
+        /// fragment's timing. A boundary inside one timed fragment divides its span in proportion
+        /// to the source characters on either side.
+        /// </summary>
+        private static List<WordBuffer> splitJapaneseWords(List<WordBuffer> words, string? language)
+        {
+            var result = new List<WordBuffer>();
+
+            foreach (WordBuffer word in words)
+            {
+                IReadOnlyList<string>? parts = JapaneseReading.Segment(word.Raw, language);
+
+                if (parts == null)
+                {
+                    result.Add(word);
+                    continue;
+                }
+
+                int partIndex = 0;
+                int partEnd = parts[0].Length;
+                int sourceAt = 0;
+                var split = new WordBuffer();
+
+                foreach (var fragment in word.Fragments)
+                {
+                    int offset = 0;
+
+                    while (offset < fragment.Raw.Length)
+                    {
+                        int length = Math.Min(fragment.Raw.Length - offset, partEnd - sourceAt);
+                        string raw = fragment.Raw.Substring(offset, length);
+                        double? start = fragment.Start;
+                        double? end = fragment.End;
+
+                        if (start.HasValue && end.HasValue && end > start)
+                        {
+                            double duration = end.Value - start.Value;
+                            end = start.Value + duration * (offset + length) / fragment.Raw.Length;
+                            start += duration * offset / fragment.Raw.Length;
+                        }
+                        else
+                        {
+                            if (offset > 0)
+                                start = null;
+
+                            if (offset + length < fragment.Raw.Length)
+                                end = null;
+                        }
+
+                        split.Fragments.Add((Typeability.Normalize(raw), start, end, raw));
+                        offset += length;
+                        sourceAt += length;
+
+                        if (sourceAt == partEnd)
+                        {
+                            result.Add(split);
+                            split = new WordBuffer();
+                            partIndex++;
+
+                            if (partIndex < parts.Count)
+                                partEnd += parts[partIndex].Length;
+                        }
+                    }
+                }
+            }
+
+            return result;
         }
 
         /// <summary>

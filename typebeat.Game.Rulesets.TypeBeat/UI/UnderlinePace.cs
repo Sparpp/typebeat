@@ -76,6 +76,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// </summary>
     public static class UnderlinePace
     {
+        public const double DEFAULT_MAX_CHANGE_PERCENT = 75;
+
         /// <summary>
         /// Opacity of a NEUTRAL band: exactly the alpha the single flat rail carried before this
         /// feature existed, so the 25th-to-75th-percentile band (and every segment of a uniformly
@@ -167,12 +169,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
-        /// Colour a section by its change from the immediately preceding section. A 50% increase
-        /// reaches the red endpoint and a 50% decrease reaches the green endpoint. The first
+        /// Colour a section by its change from the immediately preceding section. At the default
+        /// threshold, a 75% increase reaches red and a 75% decrease reaches green. The first
         /// section has no reference and stays neutral; a positive speed after a zero-speed section
         /// is fully red.
         /// </summary>
-        public static Color4 ColourForPreviousSpeed(double speed, double? previousSpeed)
+        public static Color4 ColourForPreviousSpeed(double speed, double? previousSpeed,
+                                                     double maxChangePercent = DEFAULT_MAX_CHANGE_PERCENT)
         {
             if (!previousSpeed.HasValue)
                 return NeutralColour;
@@ -181,12 +184,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 return speed > 0 ? ColourForRank(1) : NeutralColour;
 
             double change = (speed - previousSpeed.Value) / previousSpeed.Value;
+            double threshold = double.IsFinite(maxChangePercent)
+                ? Math.Clamp(maxChangePercent, 25, 150) / 100
+                : DEFAULT_MAX_CHANGE_PERCENT / 100;
 
             if (change > 0)
-                return ColourForRank(NEUTRAL_HI_RANK + Math.Min(change / 0.5, 1) * (1 - NEUTRAL_HI_RANK));
+                return ColourForRank(NEUTRAL_HI_RANK + Math.Min(change / threshold, 1) * (1 - NEUTRAL_HI_RANK));
 
             if (change < 0)
-                return ColourForRank(NEUTRAL_LO_RANK - Math.Min(-change / 0.5, 1) * NEUTRAL_LO_RANK);
+                return ColourForRank(NEUTRAL_LO_RANK - Math.Min(-change / threshold, 1) * NEUTRAL_LO_RANK);
 
             return NeutralColour;
         }
@@ -349,10 +355,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             => buildBands(lines, relativeToPrevious: false);
 
         /// <summary>Colour each word or subdivision against its immediate predecessor, across line breaks.</summary>
-        public static PaceBand[][] BuildRelativeBands(IReadOnlyList<TypingLine> lines)
-            => buildBands(lines, relativeToPrevious: true);
+        public static PaceBand[][] BuildRelativeBands(IReadOnlyList<TypingLine> lines,
+                                                        double maxChangePercent = DEFAULT_MAX_CHANGE_PERCENT)
+            => buildBands(lines, relativeToPrevious: true, maxChangePercent);
 
-        private static PaceBand[][] buildBands(IReadOnlyList<TypingLine> lines, bool relativeToPrevious)
+        private static PaceBand[][] buildBands(IReadOnlyList<TypingLine> lines, bool relativeToPrevious,
+                                                double maxChangePercent = DEFAULT_MAX_CHANGE_PERCENT)
         {
             int m = lines.Count;
             var perLine = new PaceSegment[m][];
@@ -380,7 +388,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 {
                     var segment = perLine[k][j];
                     Color4 colour = relativeToPrevious
-                        ? ColourForPreviousSpeed(segment.Speed, previousSpeed)
+                        ? ColourForPreviousSpeed(segment.Speed, previousSpeed, maxChangePercent)
                         : ColourForRank(ranks[at]);
 
                     bands[k][j] = new PaceBand(segment.StartCell, segment.EndCellExclusive, colour);

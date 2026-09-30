@@ -620,10 +620,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// <summary>
         /// Three jobs. FORGIVE THE TIMING by multiplying the window scale (see
         /// <see cref="WINDOW_SCALE"/>), which is done here because this is where the engine exists
-        /// and before the first keypress, exactly as Easy, Hard Rock and the rate mods do it. EXEMPT
-        /// THE RUSH CAP (<see cref="Gameplay.TypingEngine.RushCapExempt"/>, backlog 261), set at the
-        /// same seam for the same reason: it is read at every press rather than at construction, and
-        /// no replay recorder stamps it. And capture the drawable ruleset so the live rate can be
+        /// and before the first keypress, exactly as Easy, Hard Rock and the rate mods do it. Record
+        /// Puppeteer's historical rush-cap exemption for replay compatibility. Capture the drawable ruleset so the live rate can be
         /// published for the HUD readout, the <see cref="DrawableTypeBeatRuleset.ConductorRate"/>
         /// half of the <c>FlashlightVisibleRadius</c> pattern: the mod writes, the always-on HUD
         /// reads, and no mod type is named inside the HUD.
@@ -634,12 +632,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
             typeBeatRuleset.Engine.WindowScale *= WINDOW_SCALE;
 
-            // THE RUSH CAP CANNOT MEASURE A TAPE (backlog 261). The playhead here is the tape the
-            // player is dragging, and it is walled at the preset's ceiling, so a player faster than
-            // that opens a lead with no bound: the cap broke their combo on a press it was still
-            // judging Great, and could not re-arm while the sprint continued. The flag's own doc has
-            // the whole argument, including why no finite cap value fixes it.
+            // Older Puppeteer replays were already exempt from the rush cap. Preserve that rule
+            // when CONFIG restores historical judgement settings during replay.
             typeBeatRuleset.Engine.RushCapExempt = true;
+            typeBeatRuleset.Engine.RushCapExemptFromMod = true;
 
             this.drawableRuleset = typeBeatRuleset;
 

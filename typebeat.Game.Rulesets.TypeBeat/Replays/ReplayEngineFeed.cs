@@ -39,6 +39,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         {
             if (frame.IsConfig)
             {
+                // A header from before the new control frame keeps the old five-character cap.
+                // Puppeteer was already exempt, independently of the replay era.
+                engine.RushCapExempt = engine.RushCapExemptFromMod;
                 // The recorded machine's judgement-relevant settings win over local config, all
                 // ten of them: a replay of a run played WITHOUT space-skip must not start skipping
                 // words because the watcher turned the setting on, and vice versa. Every replay
@@ -158,6 +161,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // Scoring.PuppeteerReplayTransform, which both the headless scorer and the watch
                 // path run up front; by the time a frame arrives here it is always on the track
                 // axis, and a derived stream carries the bit clear to say so.
+                return;
+            }
+
+            if (frame.IsRushCapRemoved)
+            {
+                engine.RushCapExempt = true;
                 return;
             }
 

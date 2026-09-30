@@ -57,6 +57,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         public bool HideUpcomingText { get; set; }
 
+
         /// <summary>
         /// The playback rate a FOLLOWER mod is currently asking for, or null when no mod is
         /// following the player (which is every ordinary play). Written each frame by
@@ -178,7 +179,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // read; TypeBeatModLiterate stamps the same value onto the hit objects, so the engine's
             // cells and the nested scoring objects are flattened identically by construction.
             bool literate = Mods?.Any(m => m is TypeBeatModLiterate) == true;
-
             // HARD ROCK REVERTS THE JUDGEMENT RULE (backlog 180), and since backlog 264 that is the
             // WHOLE of the mod: a rule that hands out delta 0 anywhere inside a syllable's whole
             // sung span means most presses never reach the ladder at all, so HR alone judges on the
@@ -217,14 +217,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // era flag and stamps no CONFIG bit; the mod itself says why.
             bool anyOrderWithinWord = Mods?.Any(m => m is TypeBeatModDyslexia) == true;
 
+
             // POLYGLOT (backlog 331) changes the cell list exactly as Literate does, so it is read here for
             // the same reason; the language is asked of the same function the mod stamps the hit
             // objects with, so the engine and the nested scoring objects cut the same cells.
             bool polyglot = Mods?.Any(m => m is TypeBeatModPolyglot) == true;
             string? polyglotLanguage = polyglot ? TypeBeatModPolyglot.LanguageFor(Beatmap) : null;
 
+            double stars = TypeBeatDifficultyCalculator.ComputeModel(lyricBeatmap.Lines, Mods?.ToList()).Stars;
             return new TypingEngine(lyricBeatmap, literate, polyglot, polyglotLanguage)
             {
+                DifficultyWindowScale = StarTimingWindows.ScaleForStars(stars),
+                // Live plays keep the combo earned by correct early presses. The replay header
+                // restores the old rush cap for runs recorded before this rule changed.
+                RushCapExempt = true,
+                RushCapExemptFromMod = Mods?.Any(m => m is TypeBeatModPuppeteer) == true,
                 // THE live judgement rule since backlog 179, for every player and (since backlog
                 // 180) every mod stack but Hard Rock: a character typed while its syllable is being
                 // sung is perfectly timed. Backlog 174 shipped this as a debug-only experiment and

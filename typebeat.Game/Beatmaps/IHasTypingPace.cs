@@ -25,21 +25,19 @@ namespace typebeat.Game.Beatmaps
         /// </summary>
         /// <param name="rate">
         /// The CLOCK to read it at: 1 for no rate mod, 1.5 for DoubleTime, 0.75 for HalfTime, and
-        /// whatever a custom rate mod asks for. The peak and the average are WPM, so they scale with
-        /// the clock; the target is the map's hardest window re-expressed at a fixed reading DURATION,
-        /// and a faster clock shortens that duration too, so it is recomputed rather than multiplied.
+        /// whatever a custom rate mod asks for. The peak scales with the clock. The average is
+        /// recomputed because each pause is capped at one playback second; the target is recomputed
+        /// because its window is re-expressed at a fixed reading duration.
         /// </param>
         TypingPaceProfile? GetTypingPace(double rate = 1);
     }
 
     /// <summary>
     /// Peak, target and average typing pace for a beatmap, plus a WPM curve over its length. All
-
     /// three are WPM, in the typing-test unit of 5 characters to the word, the same unit as the
     /// gameplay HUD's live counter. They are three different questions: <see cref="PeakWpm"/> is the
     /// fastest window meeting the rating's minimum duration and character count,
-    /// <see cref="AverageWpm"/> is the whole map's cells over its sung time,
-
+    /// <see cref="AverageWpm"/> is the whole map's cells over sung time and capped pauses,
     /// and <see cref="TargetWpm"/> is the map's hardest window by raw speed re-expressed as the
     /// speed an equally demanding thirty-second stretch would ask for. The CPM twins they used
     /// to carry alongside are gone: since the typing-test redefinition a CPM is its WPM times five
@@ -66,8 +64,8 @@ namespace typebeat.Game.Beatmaps
         public required double TargetWpm { get; init; }
 
         /// <summary>
-        /// The whole map's typing pace: every typeable cell over the total time the map is sung,
-        /// with only pauses between lines left out and freestyle slots not counted
+        /// The whole map's typing pace: every typeable cell over sung spans, counting each pause
+        /// inside or between lines up to one second of playback time; freestyle slots are not counted
         /// (<c>LyricPaceStatistics.AverageWpm</c>). A supported punctuation mark counts here when
         /// the mods this profile was asked of turned it into a typed cell.
         /// </summary>

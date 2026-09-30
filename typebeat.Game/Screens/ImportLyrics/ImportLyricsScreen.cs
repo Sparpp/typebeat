@@ -13,6 +13,7 @@ using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Logging;
 using osu.Framework.Screens;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
@@ -26,6 +27,7 @@ namespace typebeat.Game.Screens.ImportLyrics
 {
     /// <summary>
     /// The in-app "import a song" flow: drop an audio file and a lyrics file, confirm artist/title,
+    /// choose the map's language,
     /// and the ruleset's <see cref="ILyricMapImporter"/> aligns + packages an .osz which is then
     /// imported. Files arrive via <see cref="AddFiles"/> (routed by <see cref="LyricImportManager"/>
     /// from global file drops). Esc cancels an in-flight import, killing the aligner process tree.
@@ -59,6 +61,7 @@ namespace typebeat.Game.Screens.ImportLyrics
         private FileSlot lyricsSlot = null!;
         private LabelledTextBox artistBox = null!;
         private LabelledTextBox titleBox = null!;
+        private FormEnumDropdown<BeatmapLanguage> languageDropdown = null!;
         private OsuCheckbox automaticAlignmentCheckbox = null!;
         private RoundedButton importButton = null!;
         private OsuSpriteText statusText = null!;
@@ -120,6 +123,12 @@ namespace typebeat.Game.Screens.ImportLyrics
                                 lyricsSlot = new FileSlot("lyrics (optional)", "drop .txt / .lrc / .ttml, or import without for a blank map"),
                                 artistBox = new LabelledTextBox { Label = "artist" },
                                 titleBox = new LabelledTextBox { Label = "title" },
+                                languageDropdown = new FormEnumDropdown<BeatmapLanguage>
+                                {
+                                    Caption = "language",
+                                    HintText = "Choose the song's language for map metadata and lyric romanisation. Japanese kanji use dictionary readings; check unusual names and sung pronunciations in the editor.",
+                                    Current = { Value = BeatmapLanguage.Unspecified },
+                                },
                                 automaticAlignmentCheckbox = new OsuCheckbox
                                 {
                                     RelativeSizeAxes = Axes.X,
@@ -151,6 +160,7 @@ namespace typebeat.Game.Screens.ImportLyrics
         protected override void LoadComplete()
         {
             base.LoadComplete();
+            languageDropdown.Current.BindValueChanged(_ => updateImportButton());
             AddFiles(initialFiles);
         }
 
@@ -201,7 +211,8 @@ namespace typebeat.Game.Screens.ImportLyrics
 
             importButton.Enabled.Value = !importing
                                          && importer != null
-                                         && !string.IsNullOrEmpty(audioPath);
+                                         && !string.IsNullOrEmpty(audioPath)
+                                         && languageDropdown.Current.Value != BeatmapLanguage.Unspecified;
 
             importButton.Text = blank ? "import (blank map, no lyrics)" : "import";
 
@@ -210,6 +221,8 @@ namespace typebeat.Game.Screens.ImportLyrics
 
             if (importer == null)
                 statusText.Text = "lyric import is unavailable in this build.";
+            else if (!string.IsNullOrEmpty(audioPath) && languageDropdown.Current.Value == BeatmapLanguage.Unspecified)
+                statusText.Text = "select the song's language to import.";
             else if (blank && !string.IsNullOrEmpty(audioPath))
                 statusText.Text = "no lyrics file: this creates a blank map (song + metadata only) to write and time in the editor.";
             else
@@ -218,7 +231,8 @@ namespace typebeat.Game.Screens.ImportLyrics
 
         private void startImport()
         {
-            if (importing || importer == null || string.IsNullOrEmpty(audioPath))
+            if (importing || importer == null || string.IsNullOrEmpty(audioPath)
+                          || languageDropdown.Current.Value == BeatmapLanguage.Unspecified)
                 return;
 
             importing = true;
@@ -227,6 +241,7 @@ namespace typebeat.Game.Screens.ImportLyrics
             string artist = string.IsNullOrWhiteSpace(artistBox.Current.Value) ? "Unknown" : artistBox.Current.Value;
             string title = string.IsNullOrWhiteSpace(titleBox.Current.Value) ? "Imported Map" : titleBox.Current.Value;
             bool useAutomaticAlignment = automaticAlignmentCheckbox.Current.Value;
+            BeatmapLanguage language = languageDropdown.Current.Value;
 
             var cancellation = importCancellation = new CancellationTokenSource();
 
@@ -242,7 +257,7 @@ namespace typebeat.Game.Screens.ImportLyrics
                 try
                 {
                     result = await importer.BuildOszAsync(audioPath, lyricsPath, artist, title,
-                        line => Schedule(() => report(line)), cancellation.Token, useAutomaticAlignment).ConfigureAwait(false);
+                        line => Schedule(() => report(line)), cancellation.Token, useAutomaticAlignment, language).ConfigureAwait(false);
                 }
                 catch (Exception e)
                 {

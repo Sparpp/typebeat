@@ -24,6 +24,8 @@ namespace typebeat.Game.Rulesets.TypeBeat
     /// HalfTime) feed their combined clock rate in, so a faster clock raises the rating, and the
     /// LITERATE mod feeds in the cell stream it converts the map to, so its extra punctuation cells
     /// move the rating as well (backlog 144).
+    /// Polyglot changes only the playable typing line; the rating reads the stored romanised
+    /// <see cref="LyricLine"/>s.
     ///
     /// <para>The Literate flag is read off the MOD STACK rather than off the beatmap, deliberately:
     /// the mod stamps <see cref="TypeBeatHitObject.Literate"/> on the line objects so the nested
@@ -84,22 +86,29 @@ namespace typebeat.Game.Rulesets.TypeBeat
             if (objects.Count == 0)
                 return new DifficultyAttributes(mods, 0);
 
-            // Combined clock rate of any rate-adjusting mods (DT 1.5x, HT 0.75x, ...); 1 with none.
-            double rate = 1;
-
-            foreach (var mod in mods.OfType<IApplicableToRate>())
-                rate = mod.ApplyToRate(0, rate);
-
-            var lines = objects.Select(h => h.Line).ToList();
-
             // The rating AND the map's difficult characters. The second half is why this returns a
             // TypeBeat subclass again: the pp formula's miss penalty is measured against the
             // envelope model's own N, and the performance calculator is handed a score and these
             // attributes rather than the lyric lines, so the count has to travel with the rating it
             // was computed under.
-            var model = LyricDifficulty.ComputeDetail(lines, rate, PerformancePoints.IsLiterate(mods), LyricDifficulty.Live, PerformancePoints.JudgementArmFor(mods));
+            var model = ComputeModel(objects.Select(h => h.Line), mods);
 
             return new TypeBeatDifficultyAttributes(mods, model.Stars, model.DifficultCharacters);
+        }
+
+        /// <summary>Use the same mod-adjusted rating for song select and gameplay timing windows.</summary>
+        public static LyricDifficulty.ModelResult ComputeModel(IEnumerable<LyricLine> lines, IReadOnlyList<Mod>? mods)
+        {
+            double rate = 1;
+
+            if (mods != null)
+            {
+                foreach (var mod in mods.OfType<IApplicableToRate>())
+                    rate = mod.ApplyToRate(0, rate);
+            }
+
+            return LyricDifficulty.ComputeDetail(lines, rate, PerformancePoints.IsLiterate(mods),
+                LyricDifficulty.Live, PerformancePoints.JudgementArmFor(mods));
         }
 
         protected override IEnumerable<DifficultyHitObject> CreateDifficultyHitObjects(IBeatmap beatmap, Mod[] mods) => Enumerable.Empty<DifficultyHitObject>();

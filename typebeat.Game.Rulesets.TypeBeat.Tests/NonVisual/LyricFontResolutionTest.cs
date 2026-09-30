@@ -31,10 +31,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         // ---- resolution order ----
 
         [Test]
-        public void PlayerSettingBeatsMapFont()
+        public void EnabledMapFontBeatsPlayerSetting()
         {
-            // A deliberate personal choice (an accessibility font above all) always wins, so the
-            // map file must not even be consulted.
+            // When map fonts are enabled, a usable map file wins over a personal font choice.
             bool fileAsked = false;
 
             string? resolved = LyricFontResolution.Resolve(player_family, true, map_family,
@@ -43,8 +42,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(resolved, Is.EqualTo(player_family));
-                Assert.That(fileAsked, Is.False, "the map font must not be touched while the player's own pick resolves");
+                Assert.That(resolved, Is.EqualTo("MapFont-abc"));
+                Assert.That(fileAsked, Is.True, "the map font is checked before the player's choice");
             });
         }
 
@@ -53,13 +52,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             bool fileAsked = false;
 
-            string? resolved = LyricFontResolution.Resolve(TypeBeatRulesetConfigManager.LYRIC_FONT_DEFAULT, false, map_family,
+            string? resolved = LyricFontResolution.Resolve(player_family, false, map_family,
                 _ => true,
                 () => { fileAsked = true; return "MapFont-abc"; });
 
             Assert.Multiple(() =>
             {
-                Assert.That(resolved, Is.Null, "with the setting off, a map font falls back to the built-in");
+                Assert.That(resolved, Is.EqualTo(player_family), "with the setting off, the player's font is used");
                 Assert.That(fileAsked, Is.False);
             });
         }
@@ -101,15 +100,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void AFailedPlayerFontFallsThroughToTheMapFont()
+        public void AFailedMapFontFallsThroughToThePlayerFont()
         {
-            // A player font that no longer loads is as good as absent: the map's font (then the
-            // built-in) still applies, rather than the failure poisoning the whole chain.
+            // An unusable map font yields to the player's own choice.
             string? resolved = LyricFontResolution.Resolve(player_family, true, map_family,
-                f => f == map_family,
+                f => f == player_family,
                 () => null);
 
-            Assert.That(resolved, Is.EqualTo(map_family));
+            Assert.That(resolved, Is.EqualTo(player_family));
         }
 
         [Test]

@@ -571,12 +571,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// A GAP typo still anchors on the gap itself when it is the earliest one: the gap is the cell
-        /// to retype and it belongs to no word, so walking back from it would swallow the perfectly
-        /// good word in front of it. The two rules compose rather than fighting.
+        /// When the earliest typo is on a gap, the selection includes the word preceding it.
         /// </summary>
         [Test]
-        public void TheEarliestTypoBeingAGapStillAnchorsOnTheGap()
+        public void TheEarliestTypoBeingAGapAnchorsOnThePrecedingWord()
         {
             var engine = started(strictSpaces: false, spaceSkipsWord: false);
 
@@ -584,7 +582,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(engine.ProcessKey('m', gapTime(engine)), Is.True, "a typo on the gap, which advances on this arm");
             Assert.That(engine.ProcessKey('z', cells(engine)[5].TargetTime), Is.True, "and another in \"moment\"");
 
-            Assert.That(engine.RetypeSelectionAnchor, Is.EqualTo(gap), "the gap, so \"this\" is left alone");
+            Assert.That(engine.RetypeSelectionAnchor, Is.Zero, "the start of \"this\", before its gap");
         }
 
         // -----------------------------------------------------------------------------------------

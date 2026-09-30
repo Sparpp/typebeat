@@ -21,6 +21,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>The explicit user selection; null = follow the playhead.</summary>
         public readonly Bindable<TypeBeatHitObject?> SelectedLine = new Bindable<TypeBeatHitObject?>();
 
+        /// <summary>Which lyric script the compose editor displays. This is a view choice, not a map edit.</summary>
+        public readonly BindableBool ShowOriginalLyrics = new BindableBool();
+
         /// <summary>
         /// All multi-selected lines (Ctrl/Shift+click in the line list). Contains
         /// <see cref="SelectedLine"/> whenever a multi-selection exists; empty when only the

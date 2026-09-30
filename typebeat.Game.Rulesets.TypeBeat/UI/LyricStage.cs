@@ -5,7 +5,10 @@
 // Constant names restyled; nullable annotations added for the fork's hard-error nullability.
 
 using System;
+
+using System.Collections.Generic;
 using System.Linq;
+
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Extensions.ObjectExtensions;
@@ -37,6 +40,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private float lineGap = 96f;
         private readonly BindableFloat lineSpacing = new BindableFloat(96f);
 
+
         /// <summary>
         /// The lyric font size this stage was built at (TypeBeatRulesetSetting.LyricFontSize,
         /// backlog 334), read ONCE at load: every display is constructed at it and every adornment
@@ -66,6 +70,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public static float EffectiveRowPitch(float lineSpacing, float fontSize) => Math.Max(lineSpacing, fontSize * MIN_ROW_PITCH_RATIO);
 
         // The optional space error dot (TypeBeatRulesetSetting.UseSpaceErrorDot, on by default since PR 2), a
+
         // display-only marker the lyric displays draw themselves. Held here so a live change reaches
         // every display; see the binding in load() for why it never touches the replay CONFIG frame.
         private readonly Bindable<bool> spaceErrorDot = new Bindable<bool>();
@@ -78,6 +83,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         // Display-only. Relative colours are on by default, including without a config.
         private readonly Bindable<bool> showPaceColours = new Bindable<bool>(true);
+        private readonly BindableFloat paceColourMaxChange = new BindableFloat(75f);
+        private readonly BindableFloat syllableBrightness = new BindableFloat(50f);
 
         // The sync tint (TypeBeatRulesetSetting.ShowSyncMetric, off by default since backlog 251),
         // the same shape of display-only setting again. Initialised FALSE for the reason the two
@@ -129,6 +136,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private Container lineContainer = null!;
         private LyricLineDisplay[] displays = Array.Empty<LyricLineDisplay>();
+        private float availableLineWidth = -1f;
 
         // Flashlight stream geometry, fixed once the lines are known: countable (typeable, non-space)
         // char count per line, and its running total before each line (countableBase[k] = sum of
@@ -225,12 +233,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             // Compare each word/subdivision with its predecessor, even across line breaks. The
             // checkbox only recolours the existing boxes; geometry and timing stay fixed.
-            var paceBands = UnderlinePace.BuildRelativeBands(lines);
+            var paceBands = UnderlinePace.BuildRelativeBands(lines,
+                config?.GetBindable<float>(TypeBeatRulesetSetting.PaceColourMaxChange).Value
+                ?? UnderlinePace.DEFAULT_MAX_CHANGE_PERCENT);
 
             // The gameplay typing font is an accessibility pick (OpenDyslexic / a system font) applied
             // only to the lyric stack. Resolved once here: an unset/unknown/failed font stays null so
             // the displays fall back to the built-in lyric font.
             string? lyricFont = resolveLyricFont(config, fontManager);
+            float lyricFontSize = config?.GetBindable<float>(TypeBeatRulesetSetting.LyricFontSize).Value
+                                  ?? TypeBeatStyle.LYRIC_FONT_SIZE;
 
             // POLYGLOT (backlog 331): the lines are drawn in their original script, which the lyric
             // font may not cover. Every character they can show (the cells and the originals, a hangul
@@ -251,7 +263,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             for (int i = 0; i < lines.Count; i++)
             {
+
                 var d = new LyricLineDisplay(lines[i], FontSize, lyricFont, paceBands[i])
+
                 {
                     Anchor = Anchor.Centre,
                     Origin = Anchor.Centre,
@@ -269,16 +283,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     displays[i].SetPaceColours(e.NewValue ? paceBands[i] : null);
             }, true);
 
+            config?.BindWith(TypeBeatRulesetSetting.PaceColourMaxChange, paceColourMaxChange);
+            paceColourMaxChange.BindValueChanged(e =>
+            {
+                paceBands = UnderlinePace.BuildRelativeBands(lines, e.NewValue);
+
+                for (int i = 0; i < displays.Length; i++)
+                    displays[i].SetPaceColours(showPaceColours.Value ? paceBands[i] : null);
+            });
+
             // Carets are positioned via absolute points in this stage's top-left-origin
             // local space (from ToSpaceOfOtherDrawable), so they must anchor top-left.
-            playerCaret = new Caret(TypeBeatStyle.Caret, TypeBeatStyle.CARET_DAMP_HALF_TIME, blinks: true)
+            playerCaret = new Caret(TypeBeatStyle.Caret, TypeBeatRulesetConfigManager.DEFAULT_CARET_SMOOTHING_MS, blinks: true)
             {
                 Anchor = Anchor.TopLeft,
                 Origin = Anchor.TopCentre,
                 Height = FontSize,
                 Alpha = 0f,
             };
-            sungCaret = new Caret(TypeBeatStyle.SungAccent, TypeBeatStyle.SUNG_DAMP_HALF_TIME, blinks: false)
+            sungCaret = new Caret(TypeBeatStyle.SungAccent, TypeBeatRulesetConfigManager.DEFAULT_CARET_SMOOTHING_MS, blinks: false)
             {
                 Anchor = Anchor.TopLeft,
                 Origin = Anchor.TopCentre,
@@ -288,10 +311,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             // Each head is dressed from its OWN setting, so the typing caret and the map playhead can
             // be shaped apart: the two sit on the same line and are otherwise told apart only by
-            // colour, damp and blink, and their best shapes are not the same shape (the playhead's
+            // colour and blink, and their best shapes are not the same shape (the playhead's
             // Underline in particular runs near-parallel to the sung sweep rail the display draws just
             // under the glyphs). Both bind live, so either dropdown applies without a restart.
             config?.BindWith(TypeBeatRulesetSetting.CaretStyle, playerCaret.Style);
+            config?.BindWith(TypeBeatRulesetSetting.CaretSmoothing, playerCaret.SmoothingHalfTime);
+            config?.BindWith(TypeBeatRulesetSetting.CaretSmoothing, sungCaret.SmoothingHalfTime);
             config?.BindWith(TypeBeatRulesetSetting.SungCaretStyle, sungCaretStyle);
             sungCaret.Style.BindTo(sungCaretStyle);
 
@@ -336,6 +361,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 foreach (var d in displays)
                     d.SetSyllableMarkersEnabled(e.NewValue);
+            }, true);
+
+            config?.BindWith(TypeBeatRulesetSetting.SyllableBrightness, syllableBrightness);
+            syllableBrightness.BindValueChanged(e =>
+            {
+                foreach (var d in displays)
+                    d.SetSungBrightness(e.NewValue);
             }, true);
 
             // The sync tint (backlog 251) is a DISPLAY setting on those same terms, and the terms
@@ -411,8 +443,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>
         /// Resolves the gameplay font family to a value safe to hand the lyric displays, on the
-        /// order <see cref="LyricFontResolution"/> pins: the player's own pick, then the map's font
-        /// (bundled file first, then family name) while "Use map fonts" is on, then null (built-in).
+        /// order <see cref="LyricFontResolution"/> pins: the map's font (bundled file first, then
+        /// family name) while "Use map fonts" is on, then the player's pick, then null (built-in).
         /// Never throwing and never failing the play: a missing or corrupt bundled file, or an
         /// unknown family, logs and falls through.
         /// </summary>
@@ -592,6 +624,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             base.Update();
 
+            // The stage follows the real playfield size, which can differ from the design width
+            // and can change when the window is resized. Shrink only lines that exceed 90% of it.
+            float lineWidth = DrawWidth * LyricLineDisplay.MAX_WIDTH_FRACTION;
+
+            if (lineWidth > 0 && Math.Abs(availableLineWidth - lineWidth) >= 0.1f)
+            {
+                availableLineWidth = lineWidth;
+                bool resized = false;
+
+                foreach (var display in displays)
+                    resized |= display.SetMaximumWidth(lineWidth);
+
+                if (resized)
+                {
+                    laidOutFocus = int.MinValue;
+                    pendingSnap = true;
+                }
+            }
+
             int active = engine.ActiveLineIndex;
 
             if (active >= 0 && active < displays.Length)
@@ -644,11 +695,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 var sd = displays[sungLine];
                 SungLineIndex = sungLine;
 
-                // The syllable group the vocals are on lights in EVERY style (backlog 177): the
-                // highlight and the playhead are complements, not alternatives, so this is fed each
-                // frame whatever the setting says and the branch below decides only whether a head
-                // is drawn alongside it. Cheap: the displays repaint only when the group changes.
-                setSungSyllable(sungLine, currentSyllableIn(sd.Line));
+                // Every syllable within its Great window lights under every playhead style.
+                // Adjacent syllables and lines can overlap; displays repaint only on changes.
+                setSungSyllable(sungLine, Time.Current);
 
                 // Under CaretStyle.None none of this runs: the sweep fill/glow are never fed a
                 // position, so they hold the zero the style change set them to, and the sung caret
@@ -703,8 +752,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     laidOutFocus = encoded;
                 }
 
-                // No line is being sung, so no group may stay lit (mirrors the sung caret hiding).
-                setSungSyllable(-1, -1);
+                // The sung caret is hidden in a line gap, but a neighbouring syllable can
+                // still be inside its early or late Great window.
+                setSungSyllable(upcoming, Time.Current);
                 setCaretsVisible(false, false);
             }
             else
@@ -716,7 +766,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     laidOutFocus = int.MaxValue;
                 }
 
-                setSungSyllable(-1, -1);
+                setSungSyllable(-1, double.NaN);
                 setCaretsVisible(false, false);
             }
 
@@ -1277,13 +1327,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         private static double songWindowClosesAt(TypingLine line) => Math.Max(line.EndTime, line.SweepEndTime);
 
-        // Which display currently carries a lit sung syllable; -1 = none. Stage-tracked so the one
-        // line leaving the sung role is cleared explicitly, the highlight's mirror of how the sung
-        // sweep only ever rides the current sung line.
-        private int syllableLitLine = -1;
+        // Great windows can overlap a line split, so keep the small set of candidate displays
+        // that must be cleared when the song moves on.
+        private readonly HashSet<int> syllableLitLines = new HashSet<int>();
 
         // Which display currently carries the underline sweep; -1 = none. Same shape and same reason
-        // as syllableLitLine: the fill is per-DISPLAY state that only this feeds, so a row that stops
+        // as syllableLitLines: the fill is per-DISPLAY state that only this feeds, so a row that stops
         // being the sung row would otherwise freeze at whatever fraction it was last handed. That
         // used to be unobservable, because the row only ever changed on a seal, by which time its
         // sweep was clamped 100% full and scrolling away. Since backlog 223 the row moves off a
@@ -1293,20 +1342,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private int sweptLine = -1;
 
         /// <summary>
-        /// Route the currently sung group to the display that should carry it and clear the display
-        /// that carried one before. <paramref name="lineIndex"/> -1 = nothing is sung anywhere
-        /// (pre-roll, dead zones, finished). Cheap every frame: the displays repaint only on an
-        /// index change.
+        /// Feed the current song line and its neighbours so each syllable can stay lit for its
+        /// complete Great window across a line split. A negative line index clears all candidates.
         /// </summary>
-        private void setSungSyllable(int lineIndex, int syllable)
+        private void setSungSyllable(int lineIndex, double time)
         {
-            if (syllableLitLine != lineIndex && syllableLitLine >= 0 && syllableLitLine < displays.Length)
-                displays[syllableLitLine].SetSungSyllable(-1);
+            // Great windows can straddle a line split. Feed both visible neighbours until
+            // their own final/first syllable leaves its full window.
+            int lo = lineIndex >= 0 ? Math.Max(0, lineIndex - 1) : 0;
+            int hi = lineIndex >= 0 ? Math.Min(displays.Length - 1, lineIndex + 1) : -1;
 
-            syllableLitLine = lineIndex;
+            foreach (int previous in syllableLitLines)
+                if (previous < lo || previous > hi)
+                    displays[previous].SetSungSyllable(-1);
 
-            if (lineIndex >= 0 && lineIndex < displays.Length)
-                displays[lineIndex].SetSungSyllable(syllable);
+            syllableLitLines.Clear();
+
+            for (int candidate = lo; candidate <= hi; candidate++)
+            {
+                displays[candidate].SetSungWindow(time, engine.Windows.GreatEarly, engine.Windows.GreatLate);
+                syllableLitLines.Add(candidate);
+            }
         }
 
         /// <summary>
@@ -1324,33 +1380,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             if (lineIndex >= 0 && lineIndex < displays.Length)
                 displays[lineIndex].SetSungPosition(sung);
-        }
-
-        /// <summary>
-        /// The group of <paramref name="line"/> being sung right now: the one whose
-        /// [StartTime, EndTime] span contains the current time, i.e. where the old playhead would
-        /// have been; -1 between spans (nothing is being sung, so nothing lights). Groups are
-        /// ordered with monotonic spans and there are at most a few dozen per line, so a linear
-        /// scan per frame is nothing.
-        ///
-        /// <para>Gaps between spans are ordinary here, and one more kind opened up in backlog 178:
-        /// a token that is not a syllabifiable English word gets no group, so the whole time it is
-        /// sung this returns -1 and nothing lights. That is the intent, a stylised word keeps the
-        /// plain per-character presentation, and it needs no code change because "between spans" and
-        /// "over a word with no spans" are the same answer.</para>
-        /// </summary>
-        private int currentSyllableIn(TypingLine line)
-        {
-            double t = Time.Current;
-            var groups = line.Syllables;
-
-            for (int g = 0; g < groups.Count; g++)
-            {
-                if (t >= groups[g].StartTime && t <= groups[g].EndTime)
-                    return g;
-            }
-
-            return -1;
         }
 
         private void setCaretsVisible(bool showPlayer, bool showSung)

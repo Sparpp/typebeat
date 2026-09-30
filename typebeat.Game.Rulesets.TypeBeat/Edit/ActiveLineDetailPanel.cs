@@ -41,6 +41,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private EditorClock editorClock { get; set; } = null!;
 
         private FreestyleTextFlow header = null!;
+        private OsuSpriteText originalHeader = null!;
         private OsuSpriteText timing = null!;
         private RoundedButton addWordButton = null!;
         private RoundedButton removeWordButton = null!;
@@ -134,6 +135,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                     // slots shimmer here in the freestyle colour exactly as they
                                     // will in gameplay.
                                     header = new FreestyleTextFlow(18, TypeBeatStyle.TypedChar),
+                                    originalHeader = new OsuSpriteText
+                                    {
+                                        Font = TypeBeatStyle.Lyric(18),
+                                        Colour = TypeBeatStyle.TypedChar,
+                                        Alpha = 0,
+                                    },
                                     timing = new OsuSpriteText
                                     {
                                         Font = TypeBeatStyle.Mono(13),
@@ -306,6 +313,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             if (line == null || !live)
             {
+                header.Alpha = 1;
+                originalHeader.Alpha = 0;
                 // A BLANK map (an audio-only import) has no lines at all, so "click one" would be
                 // advice about something that does not exist: point at the two ways to author the
                 // very first line instead.
@@ -321,13 +330,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // outside the pass, its lyric goes away with the rest until the pass ends.
             if (state.HiddenByTapScope(line))
             {
+                header.Alpha = 1;
+                originalHeader.Alpha = 0;
                 header.Text = "tap timing: timing another section";
                 timing.Text = string.Empty;
                 return;
             }
 
             var l = line.Line;
-            header.Text = $"line {line.LineIndex + 1}: {l.RawText}";
+            string? original = state.ShowOriginalLyrics.Value ? TypeBeatEditorOperations.OriginalCaption(l) : null;
+            header.Alpha = original == null ? 1 : 0;
+            originalHeader.Alpha = original == null ? 0 : 1;
+
+            if (original == null)
+                header.Text = $"line {line.LineIndex + 1}: {l.RawText}";
+            else
+                originalHeader.Text = $"line {line.LineIndex + 1}: {original}";
 
             // Freestyle authoring feedback: the preview above shimmers the slots, this states the
             // count outright so a stray '&' is impossible to miss.

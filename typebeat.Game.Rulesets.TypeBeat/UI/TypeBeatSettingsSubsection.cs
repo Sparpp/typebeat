@@ -6,6 +6,7 @@ using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Localisation;
 using typebeat.Game.Graphics.Fonts;
+using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
@@ -13,9 +14,8 @@ using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
     /// <summary>
-    /// The ruleset's own settings section (titled "type!beat"): the two monkeytype-style head choices
-    /// (typing caret and song playhead, kept adjacent so the pair reads as a pair), the physical
-    /// keyboard layout and the typing surface's look, and the typing behaviours that have settled -
+    /// The ruleset's own settings section (titled "type!beat"): typing behaviour,
+    /// lyric appearance, both caret heads, and timing feedback. Settled behaviours include
     /// space to skip a word, manual newlines, the space error dot and the syllable markers. Those four
     /// moved here OUT of <see cref="TypeBeatExperimentalSettingsSubsection"/> once they were no longer
     /// on trial, and the move is of the CONTROLS and not of the settings: Realm keys the stored rows
@@ -49,6 +49,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public TypeBeatSettingsSubsection(Ruleset ruleset)
             : base(ruleset)
         {
+            // The first group header takes the place of the suppressed subsection header.
+            FlowContent.Margin = new MarginPadding();
         }
 
         [BackgroundDependencyLoader]
@@ -72,95 +74,117 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             return new Drawable[]
             {
-                // A plain SettingsDropdown, not a SettingsEnumDropdown: the enum one lists EVERY
-                // member, and CaretStyle.None is not a shape the typing caret can wear (it means "no
-                // head at all", which is only meaningful for the playhead, since the song is also
-                // shown by the lit syllable group). Listing the four shapes explicitly is what keeps
-                // it off this dropdown.
-                new SettingsDropdown<CaretStyle>
+                CreateSubsectionHeader("Typing"),
+                new SettingsItemV2(new FormEnumDropdown<KeyboardLayout>
                 {
-                    LabelText = "Typing caret style",
-                    TooltipText = "Shape of the head that follows YOUR typing along the lyric line. Cosmetic only: it never changes where a character is judged.",
-                    Items = TYPING_CARET_STYLES,
-                    Current = config.GetBindable<CaretStyle>(TypeBeatRulesetSetting.CaretStyle),
-                },
-                // The playhead keeps the full enum, None included.
-                new SettingsEnumDropdown<CaretStyle>
-                {
-                    LabelText = "Song playhead style",
-                    TooltipText = "Shape of the second head on the same line: the song's playhead, which follows the VOCALS rather than you. It stays the accent colour and never blinks, so the two are easy to tell apart whatever shapes you pick. None removes the playhead altogether; the syllable being sung lights up whichever option you choose, so the song stays easy to follow without it.",
-                    Current = config.GetBindable<CaretStyle>(TypeBeatRulesetSetting.SungCaretStyle),
-                },
-                new SettingsEnumDropdown<KeyboardLayout>
-                {
-                    LabelText = "Keyboard layout",
+                    Caption = "Keyboard layout",
                     Current = config.GetBindable<KeyboardLayout>(TypeBeatRulesetSetting.KeyboardLayout),
-                },
-                // The two settings that change what the KEYS do, next to the layout that decides which
-                // keys they are. Both had been on trial in Settings > Experimental (see the note on
-                // this class); nothing but the control moved.
-                new SettingsCheckbox
+                }),
+                new SettingsItemV2(new FormCheckBox
                 {
-                    LabelText = "Space to skip current word",
-                    TooltipText = "Press space in the middle of a word to jump to the next one. Backspace can reclaim the skipped letters. In Gatekeeper mode, space is rejected like any other wrong key. Applies from the next play.",
+                    Caption = "Space to skip current word",
+                    HintText = "Press space in the middle of a word to jump to the next one. Backspace can reclaim the skipped letters. In Gatekeeper mode, space is rejected like any other wrong key. Applies from the next play.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.SpaceSkipsWord),
-                },
-                new SettingsCheckbox
+                }),
+                new SettingsItemV2(new FormCheckBox
                 {
-                    LabelText = "Manual newlines",
 
-                    TooltipText = "After finishing a line, press Space or Enter, or start typing the next line, to move on. You can move early, but the next line stays grey and ignores typing until its entry window opens; an early letter must be pressed again. If you wait, the song moves you on when the push warning ends. With this off, finished lines advance automatically. Enter also skips an unfinished line. This setting has no effect with a pinned caret. Applies from the next play.",
+                    Caption = "Manual newlines",
+                    HintText = "After finishing a line, press Space or Enter, or start typing the next line, to move on. You can move early, but the next line stays grey and ignores typing until its entry window opens; an early letter must be pressed again. If you wait, the song moves you on when the push warning ends. With this off, finished lines advance automatically. Enter also skips an unfinished line. This setting has no effect with a pinned caret. Applies from the next play.",
 
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ManualNewlines),
-                },
-                new SettingsSlider<float>
+                }),
+
+                CreateSubsectionHeader("Lyric text"),
+                new SettingsItemV2(new FormCheckBox
                 {
-                    LabelText = "Lyric font size",
-                    TooltipText = "Size of the lyric text during gameplay. Applies from the next play.",
-                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.LyricFontSize),
-                    KeyboardStep = 1f,
-                },
-                new SettingsSlider<float>
+
+                    Caption = "Use map fonts",
+                    HintText = "Show the lyric font chosen by the mapper when available. It takes priority over your typing font; your choice is used when the map has no usable font. Applies from the next play.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.UseMapFonts),
+                }),
+                new SettingsItemV2(new FormDropdown<string>
+
                 {
-                    LabelText = "Lyric line spacing",
-                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.LineSpacing),
-                    KeyboardStep = 2f,
-                },
-                new SettingsDropdown<string>
-                {
-                    LabelText = "Typing font",
-                    TooltipText = "Font for the gameplay lyric text only (the rest of the UI is unchanged). OpenDyslexic is bundled; you can also pick any installed system font. Applies from the next play.",
+                    Caption = "Typing font",
+                    HintText = "Font for gameplay lyric text when the map has no usable font or Use map fonts is off. OpenDyslexic is bundled; you can also pick an installed system font. Applies from the next play.",
                     Items = buildFontItems(lyricFont.Value),
                     Current = lyricFont,
-                },
-                // Right under the typing font it defers to: the map's own font only ever applies
-                // while the dropdown above sits on Default, because a deliberate personal pick
-                // (an accessibility font above all) always wins (see LyricFontResolution).
-                new SettingsCheckbox
+                }),
+                new SettingsItemV2(new FormSliderBar<float>
                 {
-                    LabelText = "Use map fonts",
-                    TooltipText = "Show the lyric font the mapper chose for their map, when it has one. Your own typing font choice above always takes priority, so turn this off only if you want the built-in font even on maps that bring their own. Applies from the next play.",
-                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.UseMapFonts),
-                },
-                // And the two marks the line itself can carry, display only.
-                new SettingsCheckbox
+                    Caption = "Gameplay font size",
+                    HintText = "Preferred lyric text size during play. Long lines shrink individually to fit the screen. Applies from the next play.",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.LyricFontSize),
+                    KeyboardStep = 1f,
+                    LabelFormat = v => $"{v:0} px",
+                }),
+                new SettingsItemV2(new FormSliderBar<float>
                 {
-                    LabelText = "Use space error dot",
-                    TooltipText = "Mark a word you left with an error in it: once you space on past it, a small red dot appears in the gap after that word. Display only, nothing about your score or your judgements changes.",
+                    Caption = "Lyric line spacing",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.LineSpacing),
+                    KeyboardStep = 2f,
+                    LabelFormat = v => $"{v:0} px",
+                }),
+
+                CreateSubsectionHeader("Carets"),
+                new SettingsItemV2(new FormDropdown<CaretStyle>
+                {
+                    Caption = "Typing caret style",
+                    HintText = "Shape of the head that follows your typing along the lyric line. Cosmetic only: it never changes where a character is judged.",
+                    Items = TYPING_CARET_STYLES,
+                    Current = config.GetBindable<CaretStyle>(TypeBeatRulesetSetting.CaretStyle),
+                }),
+                new SettingsItemV2(new FormEnumDropdown<CaretStyle>
+                {
+                    Caption = "Song playhead style",
+                    HintText = "Shape of the head that follows the vocals. None removes the playhead; the sung syllable still lights up.",
+                    Current = config.GetBindable<CaretStyle>(TypeBeatRulesetSetting.SungCaretStyle),
+                }),
+                new SettingsItemV2(new FormSliderBar<float>
+                {
+                    Caption = "Caret smoothing",
+                    HintText = "Time for both the typing caret and song playhead to close half the distance to their next positions. Higher values glide longer; 0 moves both instantly. Display only.",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.CaretSmoothing),
+                    KeyboardStep = 1f,
+                    LabelFormat = v => v <= 0 ? "Instant" : $"{v:0} ms",
+                }),
+
+                CreateSubsectionHeader("Visual feedback"),
+                new SettingsItemV2(new FormCheckBox
+                {
+                    Caption = "Use space error dot",
+                    HintText = "Show a red dot only when you type a wrong character into a space between words. Skipping a word does not create a dot. Display only.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.UseSpaceErrorDot),
-                },
-                new SettingsCheckbox
+                }),
+                new SettingsItemV2(new FormSliderBar<float>
                 {
-                    LabelText = "Show syllable markers",
-                    TooltipText = "Mark the syllable boundaries inside a word the mapper timed syllable by syllable: a tiny triangle sits in the gap between the last character of one syllable and the first of the next, so you can see the subdivision coming. Display only, nothing about your score or your judgements changes.",
+                    Caption = "Sung syllable brightness",
+                    HintText = "How much untyped syllables brighten while they are within the Great timing window. Display only.",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.SyllableBrightness),
+                    KeyboardStep = 1f,
+                    LabelFormat = v => $"{v:0}%",
+                }),
+                new SettingsItemV2(new FormCheckBox
+                {
+                    Caption = "Show syllable markers",
+                    HintText = "Show a small triangle at each syllable boundary inside a word, including automatically split syllables. Display only.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyllableMarkers),
-                },
-                new SettingsCheckbox
+                }),
+                new SettingsItemV2(new FormCheckBox
                 {
-                    LabelText = "Show word pace colours",
-                    TooltipText = "Colour each word or subdivision by its speed relative to the previous one. 50% faster is fully red; 50% slower is fully green. Turn this off for a plain underline. Display only.",
+                    Caption = "Show word pace colours",
+                    HintText = "Colour each word or subdivision by its speed relative to the previous one. Turn this off for a plain underline. Display only.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowPaceColours),
-                },
+                }),
+                new SettingsItemV2(new FormSliderBar<float>
+                {
+                    Caption = "Pace colour maximum change",
+                    HintText = "Sets how strongly pace changes are coloured. Lower values make colours more sensitive. Defaults to 75%. Display only.",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.PaceColourMaxChange),
+                    KeyboardStep = 1f,
+                    LabelFormat = v => $"{v:0}%",
+                }),
             };
         }
 

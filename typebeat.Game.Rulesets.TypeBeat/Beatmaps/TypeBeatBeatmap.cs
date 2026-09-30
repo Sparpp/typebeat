@@ -101,16 +101,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 BarDisplayLength = Math.Min(1, pace.WordCount / max_display_words),
             };
 
-            // A faster clock (DoubleTime/Nightcore) means more words per real minute, so both pace
-            // figures scale linearly with the mod rate; song select re-renders these live as the
-            // selected rate mods change (see BeatmapStatistic.RateAdjusted). The word count above is
-            // unaffected (a rate mod changes when the words arrive, not how many there are), exactly
+            // A faster clock (DoubleTime/Nightcore) changes both pace figures, so song select
+            // recomputes them as the selected rate mods change (see BeatmapStatistic.RateAdjusted).
+            // The word count above is unaffected (a rate mod changes when the words arrive, not how
+            // many there are), exactly
             // as the line count it replaced was, so it deliberately carries no RateAdjusted.
             //
-            // THE WHOLE MAP, with only the breaks between lines taken out: every cell the map makes
-            // the player TYPE (freestyle slots are not one) over the sum of each line's full
-            // start-to-vocal-end span. Pauses within a line count regardless of length; an
-            // instrumental between lines does not. A long line weighs more than a short one. It
+            // THE WHOLE MAP: every cell the map makes the player TYPE (freestyle slots are not one)
+            // over sung spans, with every pause inside or between lines capped at one playback
+            // second. A long line weighs more than a short one. It
             // replaced an unweighted mean of per-line rates, which gave every line one vote and put
             // the pause after each line inside that line's own window. LyricPaceStatistics keeps both.
             double baseWpm = pace.AverageWpm;
@@ -124,28 +123,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // model's own duration and character floors.
             double baseTargetWpm = pace.TargetWpm;
 
-            // THE ONE FIGURE THAT HAS TO BE READ AGAIN RATHER THAN RATED. A faster clock does not merely
-            // scale the target: the model bins its timeline in REAL milliseconds, so the scan that picks
-            // the hardest window runs against different readings and can even name a different window.
-            // The figure is therefore recomputed through the model at the clock (see
-            // LyricPaceStatistics.Compute) - memoised per rate, because that is a scan over the whole map,
-            // and the caller renders these rows off the update thread for exactly this reason.
-            var targets = new Dictionary<double, double>();
+            // Both rate-sensitive pace figures are recomputed at the selected clock: a pause is
+            // capped at one second of playback time, and the target's own window scan also changes
+            // with the clock. Cache the shared pass for the two statistic rows.
+            var pacedByRate = new Dictionary<double, LyricPaceStatistics> { [1] = pace };
 
-            double targetAt(double rate)
+            LyricPaceStatistics paceAt(double rate)
             {
-                lock (targets)
+                lock (pacedByRate)
                 {
-                    if (targets.TryGetValue(rate, out double cached))
+                    if (pacedByRate.TryGetValue(rate, out LyricPaceStatistics cached))
                         return cached;
                 }
 
-                double value = LyricPaceStatistics
-                    .Compute(HitObjects.Select(h => h.Line), HitObjects.Any(h => h.Literate), rate)
-                    .TargetWpm;
+                var value = LyricPaceStatistics.Compute(HitObjects.Select(h => h.Line), HitObjects.Any(h => h.Literate), rate);
 
-                lock (targets)
-                    targets[rate] = value;
+                lock (pacedByRate)
+                    pacedByRate[rate] = value;
 
                 return value;
             }
@@ -156,7 +150,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Content = baseWpm.ToString("0"),
                 CreateIcon = () => new SpriteIcon { Icon = FontAwesome.Solid.Keyboard },
                 BarDisplayLength = (float)Math.Min(1, baseWpm / max_display_wpm),
-                RateAdjusted = rate => ((baseWpm * rate).ToString("0"), (float?)Math.Min(1, baseWpm * rate / max_display_wpm)),
+                RateAdjusted = rate =>
+                {
+                    double average = paceAt(rate).AverageWpm;
+                    return (average.ToString("0"), (float?)Math.Min(1, average / max_display_wpm));
+                },
             };
 
             yield return new BeatmapStatistic
@@ -165,13 +163,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 Content = baseTargetWpm.ToString("0"),
                 CreateIcon = () => new SpriteIcon { Icon = FontAwesome.Solid.Bullseye },
                 BarDisplayLength = (float)Math.Min(1, baseTargetWpm / max_display_wpm),
-                // NOT a rate, and not a cached multiply either: the figure comes from the model read at
-                // the clock (see targetAt above), so it is the same number the pace chart prints for the
-                // same map. The Average WPM above IS a rate and simply scales, which is why the two rows
-                // move by different factors on the same toggle.
+                // The model reads its window at the selected clock; use the same pace calculation
+                // as the chart and the average row above.
                 RateAdjusted = rate =>
                 {
-                    double target = targetAt(rate);
+                    double target = paceAt(rate).TargetWpm;
                     return (target.ToString("0"), (float?)Math.Min(1, target / max_display_wpm));
                 },
             };

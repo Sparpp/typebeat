@@ -1,7 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-// Ported verbatim from type!beat TypeBeat.Game/UI/Caret.cs; only namespace/constant names changed.
+// Ported from type!beat TypeBeat.Game/UI/Caret.cs, with seek handling for the gameplay clock.
 
 using System;
 using osu.Framework.Bindables;
@@ -20,7 +20,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// and blinks (530ms) only while idle. Renders in any of monkeytype's styles
     /// (<see cref="CaretStyle"/>): the classic 3px beam straddling the cell boundary, or a
     /// block/outline/underline covering the current cell. The same class is reused as the
-    /// sung caret (recoloured, slower damp, no blink); each instance carries its own
+    /// sung caret (recoloured, no blink); each instance carries its own
     /// <see cref="Style"/>, and the two are fed from separate user settings, so the heads can
     /// differ in shape as well as in identity.
     ///
@@ -41,8 +41,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private const float block_alpha = 0.4f;
 
         private readonly Color4 colour;
-        private readonly double dampHalfTime;
         private readonly bool blinks;
+
+        /// <summary>Milliseconds to close half the distance to the target. Zero snaps immediately.</summary>
+        public readonly BindableFloat SmoothingHalfTime = new BindableFloat();
 
         /// <summary>The style-built visual; blink/idle modulates its alpha.</summary>
         private readonly Container visual;
@@ -59,7 +61,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public Caret(Color4 colour, double dampHalfTime, bool blinks)
         {
             this.colour = colour;
-            this.dampHalfTime = dampHalfTime;
+            SmoothingHalfTime.Value = (float)dampHalfTime;
             this.blinks = blinks;
 
             Width = beam_width;
@@ -197,16 +199,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             base.Update();
 
             double elapsed = Time.Elapsed;
+            float halfTime = SmoothingHalfTime.Value;
 
-            if (snapNextFrame)
+            // A skin-editor preview or replay can seek the gameplay clock backwards. Damping
+            // with a negative elapsed time extrapolates away from the target; a large seek can
+            // overflow the float position. A seek is a jump, so use the target directly.
+            if (snapNextFrame || !double.IsFinite(elapsed) || elapsed < 0 || !float.IsFinite(halfTime) || halfTime <= 0)
             {
                 Position = target;
                 snapNextFrame = false;
             }
             else
             {
-                float x = (float)Interpolation.DampContinuously(Position.X, target.X, dampHalfTime, elapsed);
-                float y = (float)Interpolation.DampContinuously(Position.Y, target.Y, dampHalfTime, elapsed);
+                float x = (float)Interpolation.DampContinuously(Position.X, target.X, halfTime, elapsed);
+                float y = (float)Interpolation.DampContinuously(Position.Y, target.Y, halfTime, elapsed);
                 Position = new Vector2(x, y);
             }
 

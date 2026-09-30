@@ -6,6 +6,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using typebeat.Game.Beatmaps;
 
 namespace typebeat.Game.Screens.ImportLyrics
 {
@@ -30,10 +31,12 @@ namespace typebeat.Game.Screens.ImportLyrics
         /// <para><paramref name="lyricsPath"/> is optional: null (or a file holding only whitespace)
         /// skips alignment entirely and packages a BLANK map, audio + metadata with zero lyric
         /// lines, to be written and timed in the editor.</para>
+        /// <para><paramref name="language"/> is selected in the import screen. It is saved as map
+        /// metadata and used when romanising lyrics.</para>
         /// </summary>
         Task<LyricImportResult> BuildOszAsync(
             string audioPath, string? lyricsPath, string artist, string title,
-            Action<string> progress, CancellationToken token, bool useAutomaticAlignment = false);
+            Action<string> progress, CancellationToken token, bool useAutomaticAlignment, BeatmapLanguage language);
 
         /// <summary>
         /// Aligns raw lyrics text to an audio file and returns timing.json (v2) text WITHOUT

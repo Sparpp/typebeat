@@ -3291,7 +3291,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// Any other payload (one written before the text existed) falls through to
         /// <see cref="PasteLineTimings"/> unchanged, so an old clipboard still pastes as timings.
         ///
-
         /// <list type="bullet">
         /// <item>The target keeps its StartTime. An interior target keeps its EndTime too: the next
         /// line's start is the wall, so the boundary invariant holds and nothing cascades. A pattern
@@ -3432,7 +3431,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// boundaries and rests as offsets from the same anchor, the authored split verbatim). The
         /// text is what lets a paste recognise the SAME word and carry that sub-word timing onto it;
         /// see <see cref="PasteUnitTimings"/> for the policy.</para>
-
         /// </summary>
         public static LyricTimingClipboard.UnitTimingsPayload? CopyUnitTimings(TypeBeatHitObject hitObject, IEnumerable<int> indices)
         {
@@ -3475,11 +3473,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-
         /// Whether a copied word and a target word are the SAME word (backlog 343): both spelled out
         /// and equal ignoring case. The one gate on a word paste's sub-word timing; a payload written
         /// before the text travelled has none and is never the same word.
-
         /// </summary>
         public static bool IsSameWord(LyricTimingClipboard.UnitSpan copied, TimedUnit target)
             => !string.IsNullOrEmpty(copied.Text) && string.Equals(copied.Text, target.Text, StringComparison.OrdinalIgnoreCase);

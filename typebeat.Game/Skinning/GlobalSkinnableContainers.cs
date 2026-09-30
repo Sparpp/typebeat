@@ -17,6 +17,9 @@ namespace typebeat.Game.Skinning
         SongSelect,
 
         [Description("Playfield")]
-        Playfield
+        Playfield,
+
+        [Description("Typing counters")]
+        TypeBeatCounters
     }
 }

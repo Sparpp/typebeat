@@ -2561,20 +2561,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <see cref="TypeBeatReplayScorer.CreateEngine"/>, so the engine it reads its arms off is the
         /// engine that judges the derived frames.</para>
         ///
-        /// <para>A MOD FLAG AND NOT AN ERA (see <see cref="TypingEngine.RushCapExempt"/>): the mod
-        /// list is the whole mechanism, so an engine built without the mod is untouched.</para>
+        /// <para>Ordinary live play now ignores the cap as well. A rescore engine without the mod
+        /// starts with the historical cap until the replay's new control frame disables it.</para>
         /// </summary>
         [Test]
         public void TheRushCapExemptionReachesBothTheLiveEngineAndTheRescore()
         {
             Assert.IsTrue(liveEngine(sprintMap(), new TypeBeatModPuppeteer()).RushCapExempt);
-            Assert.IsFalse(liveEngine(sprintMap()).RushCapExempt, "an ordinary play is measured exactly as it was");
+            Assert.IsTrue(liveEngine(sprintMap()).RushCapExempt, "ordinary live play no longer has the rush cap");
 
             Assert.IsTrue(scorerEngine(new TypeBeatModPuppeteer()).RushCapExempt);
             Assert.IsFalse(scorerEngine().RushCapExempt);
 
-            // No CONFIG bit carries it, so the engine default has to be the cap applying: a replay
-            // with no mod list re-derives under the rule every ordinary run was played on.
+            // A replay without the new control frame keeps the historical cap.
             Assert.IsFalse(new TypingEngine(new LyricBeatmap
             {
                 Metadata = new LyricBeatmapMetadata { Artist = "a", Title = "bare", FolderPath = string.Empty, AudioFileName = "a.mp3" },

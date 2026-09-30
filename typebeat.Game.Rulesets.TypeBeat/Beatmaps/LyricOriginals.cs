@@ -225,6 +225,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// Romanises ONE source word (no whitespace inside it) under <paramref name="language"/>.
         /// Plain ASCII passes through <see cref="Typeability.Normalize"/> exactly as it always has.
+        /// Japanese words containing kanji use <see cref="JapaneseReading"/> for a dictionary
+        /// reading before the existing kana romaniser spells the result. Unknown readings remain
+        /// flagged for the mapper.
         /// A space the romaniser writes after a CJK mark is removed, because the source made this one
         /// word and a word is one token.
         /// </summary>
@@ -239,7 +242,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (!CarriesOriginal(source) && !Romaniser.NeedsRomanising(source, language))
                 return new RomanisedWord(source, Typeability.Normalize(source, keepFreestyleMarkers: keepMarkers, keepSplitMarkers: keepMarkers), false, null, null);
 
-            var result = Romaniser.Romanise(source, language);
+            var result = JapaneseReading.Romanise(source, language) ?? Romaniser.Romanise(source, language);
 
             if (!result.IsComplete)
                 return new RomanisedWord(source, string.Empty, true, result, null);
@@ -268,8 +271,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
-        /// A whole source LINE made typeable, word by word (whitespace separates words): the stored
-        /// line text is the romanised words joined by single spaces, flagged words left out.
+        /// A whole source LINE made typeable, word by word: authored whitespace separates words,
+        /// and Japanese runs gain Kawazu's dictionary word boundaries. The stored line text is the
+        /// romanised words joined by single spaces, flagged words left out.
         /// </summary>
         public sealed class RomanisedLine
         {
@@ -300,7 +304,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             string collapsed = CollapseWhitespace(source);
             var words = collapsed.Length == 0
                 ? Array.Empty<RomanisedWord>()
-                : collapsed.Split(' ').Select(w => RomaniseWord(w, language, keepMarkers)).ToArray();
+                : collapsed.Split(' ')
+                           .SelectMany(w => JapaneseReading.Segment(w, language) ?? new[] { w })
+                           .Select(w => RomaniseWord(w, language, keepMarkers)).ToArray();
 
             return new RomanisedLine(collapsed, words);
         }

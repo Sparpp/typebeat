@@ -499,7 +499,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>
         /// The one ladder every cell of every map is judged on, at the current
-        /// <see cref="WindowScale"/>. The map's timing granularity no longer selects a tier, so
+        /// <see cref="WindowScale"/> and <see cref="DifficultyWindowScale"/>. The map's timing
+        /// granularity no longer selects a tier, so
         /// there is nothing per-cell to resolve here.
         /// </summary>
         public SyncWindows Windows { get; private set; }
@@ -536,6 +537,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     throw new ArgumentOutOfRangeException(nameof(value), value, "A judgement window scale must be finite and positive.");
 
                 windowScale = value;
+                applyWindowScale();
+            }
+        }
+
+        /// <summary>Extra tolerance derived from the mod-adjusted map stars, separate from mod scales.</summary>
+        public double DifficultyWindowScale
+        {
+            get => difficultyWindowScale;
+            set
+            {
+                if (!double.IsFinite(value) || value <= 0)
+                    throw new ArgumentOutOfRangeException(nameof(value), value, "A difficulty window scale must be finite and positive.");
+
+                difficultyWindowScale = value;
                 applyWindowScale();
             }
         }
@@ -924,6 +939,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool Literate { get; }
 
+
         /// <summary>
         /// Polyglot mod (backlog 331): the lines are played in their ORIGINAL script (see
         /// <see cref="PolyglotLine"/>), fixed at construction for the reason <see cref="Literate"/>
@@ -1041,9 +1057,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <item>DRAG FREEDOM: a line the player is still typing is not force-sealed at its normal
         /// deadline; the seal is deferred by <see cref="FLETCHER_DRAG_GRACE_MS"/> so the caret is
         /// never yanked off a line mid-word (<see cref="sealPermitted"/>).</item>
-        /// <item>CHARACTER-DISTANCE RUSH CAP: a press that puts the caret more than
-        /// <see cref="FLETCHER_MAX_CHARS_AHEAD"/> countable chars ahead of the playhead lands and
-        /// scores as normal but earns no combo.</item>
+        /// <item>LEGACY CHARACTER-DISTANCE RUSH CAP: older replays can still remove combo from
+        /// presses more than <see cref="FLETCHER_MAX_CHARS_AHEAD"/> countable chars ahead of the
+        /// playhead. New live plays are exempt via <see cref="RushCapExempt"/>.</item>
         /// </list>
         /// Per-char judgement windows are untouched: rushing reads as early deltas and dragging as
         /// late ones, so accuracy, sync% and the judgement counts report the drift honestly.
@@ -1189,30 +1205,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <see cref="FletcherEnabled"/> itself is untouched, so the roll, the drag, the snap and the
         /// seal grace all behave exactly as they do for everyone else.
         ///
-        /// <para><b>Set by the Puppeteer mod, and by nothing else</b>
-        /// (<see cref="Mods.TypeBeatModPuppeteer.ApplyToDrawableRuleset"/> live, and the same mod's
-        /// arm in <see cref="Scoring.TypeBeatReplayScorer"/> for a rescore, which is what keeps the
-        /// two accounts of one run equal). Under that mod THE PLAYHEAD IS THE TAPE, and the tape is
-        /// walled at the preset's <c>MaxVelocity</c>, so a player typing faster than the tape can run
-        /// opens a lead that grows without bound: the cap then breaks their combo on a press it is
-        /// still judging Great, and cannot re-arm while the sprint continues. Every mod-shaped
-        /// alternative is worse. A bigger constant only moves the wall. The cap cannot measure TIME
-        /// here (a press's distance from its target is exactly what this mod has declared meaningless,
-        /// see <c>WINDOW_SCALE</c>). And the cap's purpose, stopping a player typing the whole map at
-        /// the top of the song, is already served by the tape itself, which will not play a line the
-        /// player has not reached.</para>
-        ///
-        /// <para><b>A MOD FLAG AND NOT AN ERA</b>, the precedent being
-        /// <see cref="AnyOrderWithinWord"/> exactly: no stored run can predate a mod that did not
-        /// exist when it was recorded, so there is nothing for a CONFIG bit to disambiguate and the
-        /// score's MOD LIST is the whole mechanism. That is only true because Puppeteer is UNSHIPPED,
-        /// and it is worth saying plainly: had one released build carried it, this would have needed
-        /// an era bit like any judgement change, because it moves max_combo on runs already
-        /// submitted. It reaches the live engine from <c>ApplyToDrawableRuleset</c> rather than from
-        /// <c>DrawableTypeBeatRuleset.createEngine</c> (where the era flags are decided) for the same
-        /// reason the window scale does: it is re-read at every press rather than at construction, so
-        /// there is no window in which it can be momentarily wrong, and no replay recorder stamps
-        /// it.</para>
+        /// <para>Set for every new live play. Older replays restore the cap from their CONFIG
+        /// frame; a new replay carries <see cref="Replays.TypeBeatReplayFrame.RUSH_CAP_REMOVED"/>
+        /// immediately after CONFIG to keep this value true. Puppeteer was already exempt before
+        /// that change, via <see cref="RushCapExemptFromMod"/>.</para>
         ///
         /// <para>A side effect worth knowing, on the replay side: the cap is the one judgement input
         /// that reads the PLAYHEAD rather than the keystroke, so a press near a countable boundary
@@ -1222,6 +1218,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// that whole divergence class is gone.</para>
         /// </summary>
         public bool RushCapExempt { get; set; }
+
+        /// <summary>
+        /// Puppeteer already ignored the rush cap before ordinary live play did. Replay CONFIG
+        /// resets <see cref="RushCapExempt"/> to this mod fact, then the new replay marker can
+        /// disable the cap for a run recorded under the newer rule.
+        /// </summary>
+        public bool RushCapExemptFromMod { get; set; }
 
         /// <summary>
         /// Whether the flexible caret was asked for by a MOD rather than by the era bit, which is
@@ -1655,6 +1658,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private (int lineIndex, int cellIndex, int streak, int ownPressCredit, List<ComboPosition> positions)? restorable;
 
         private double windowScale = 1;
+        private double difficultyWindowScale = 1;
 
         private bool hardRockFromMod;
 
@@ -1662,7 +1666,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         private SpaceTimingRule spaceTiming = SpaceTimingRule.Untimed;
 
+
         public TypingEngine(LyricBeatmap beatmap, bool literate = false, bool polyglot = false, string? polyglotLanguage = null)
+
         {
             Beatmap = beatmap ?? throw new ArgumentNullException(nameof(beatmap));
 
@@ -1673,13 +1679,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             applyWindowScale();
 
             Literate = literate;
-            CaseSensitive = literate;
             Polyglot = polyglot;
+            CaseSensitive = literate;
 
             lines = new List<TypingLine>(beatmap.Lines.Count);
 
             foreach (var line in beatmap.Lines)
+
                 lines.Add(TypingLine.ForMods(line, literate, polyglot, polyglotLanguage));
+
 
             lineSealed = new bool[lines.Count];
             lineAbandoned = new bool[lines.Count];
@@ -3064,8 +3072,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // is charged for characters they gave up rather than typed.
                 int caretForCap = LosslessSkipReclaim && caretBeforeSkip >= 0 ? caretBeforeSkip : caretIndex;
 
-                // ...and RushCapExempt (backlog 261) takes the cap out of the question entirely, for
-                // the one mod whose playhead IS the tape the player is dragging: see the flag.
+                // New live plays and newer replays ignore the cap. Older replays retain it unless
+                // Puppeteer was active, which was already exempt.
                 bool rushedPastCap = FletcherEnabled && !RushCapExempt && rushesPastCap(cell, time, caretForCap);
 
                 if (basePoints > 0)
@@ -3782,7 +3790,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>
         /// Rebuild the per-granularity ladders (and <see cref="Windows"/>) at the current EFFECTIVE
-        /// scale, which is <see cref="WindowScale"/> times Hard Rock's halving on the runs that were
+        /// scale, which is <see cref="WindowScale"/> times <see cref="DifficultyWindowScale"/>
+        /// and Hard Rock's halving on the runs that were
         /// played under it (<see cref="HardRockFromMod"/> and <see cref="UnhalvedHardRockWindows"/>).
         ///
         /// <para>Recomputed from scratch on every call rather than folded into
@@ -3796,7 +3805,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // Naming the mod costs nothing at runtime: WINDOW_SCALE is a const, so the compiler
             // inlines the 0.5 and this file keeps its zero-dependency shape. It is named rather than
             // duplicated so the era constant has exactly one definition.
-            double scale = windowScale * (hardRockFromMod && !unhalvedHardRockWindows ? Mods.TypeBeatModHardRock.WINDOW_SCALE : 1);
+            double scale = windowScale * difficultyWindowScale * (hardRockFromMod && !unhalvedHardRockWindows ? Mods.TypeBeatModHardRock.WINDOW_SCALE : 1);
 
             Windows = SyncWindows.Default.Scaled(scale);
         }
@@ -4294,9 +4303,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// (walk back to the gap before it), which for a skipped word is its head: the mass backspace
         /// the caller composes reclaims the abandoned tail on its way past, exactly as a plain
         /// backspace there does. For a WORD GAP holding a typo (possible since backlog 181, see
-        /// <see cref="WrongInputOnWordGaps"/>) the gap IS the cell to retype and it belongs to no
-        /// word, so the selection starts on the gap itself; walking back from it would swallow the
-        /// perfectly good word in front of it for nothing.</para>
+        /// <see cref="WrongInputOnWordGaps"/>) the selection starts at the beginning of the word
+        /// preceding that gap, so the retype includes its space as well.</para>
         ///
         /// <para>The answer is never equal to <see cref="CaretIndex"/> when it is non-negative: the
         /// scan is over [0, <see cref="CaretIndex"/>), so a selection always covers at least one cell.
@@ -4330,10 +4338,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 if (mistake < 0)
                     return -1;
 
-                if (isWordGap(cells[mistake]))
-                    return mistake;
-
                 int anchor = mistake;
+
+                // A typo on a space belongs to the word immediately before it for retyping.
+                // Step over adjacent gaps first so even unusual repeated spaces find that word.
+                if (isWordGap(cells[mistake]))
+                {
+                    while (anchor > 0 && isWordGap(cells[anchor - 1]))
+                        anchor--;
+                }
 
                 while (anchor > 0 && !isWordGap(cells[anchor - 1]))
                     anchor--;

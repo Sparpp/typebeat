@@ -1,306 +1,73 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-// Ported from type!beat TypeBeat.Game/UI/HudOverlay.cs, slimmed for the type!beat fork:
-// score/combo/accuracy readouts dropped (type!beat's own HUD shows those from the
-// ScoreProcessor); the SyncBar and hit-error meters were removed by design; the only
-// engine-authoritative extras left are the WPM / sync% readouts, plus the live pp counter
-// (which is score-processor authoritative, not engine authoritative, see below).
-// The sync% readout is OPT-IN since backlog 251 (TypeBeatRulesetSetting.ShowSyncMetric, off by
-// default), and by then it is a number and nothing else: no grade, score or judgement reads it.
-
-using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
-using osu.Framework.Allocation;
-using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using typebeat.Game.Beatmaps;
-using typebeat.Game.Graphics.Sprites;
+using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.Mods;
-using typebeat.Game.Rulesets.Scoring;
-using typebeat.Game.Rulesets.TypeBeat.Configuration;
-using typebeat.Game.Rulesets.TypeBeat.Gameplay;
-using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
+using typebeat.Game.Skinning;
+using osuTK;
 
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
     /// <summary>
-    /// Playfield-level HUD extras: top-centre WPM / sync% / pp readouts, polled each frame, plus a
-    /// playback-rate readout that appears only while a mod is publishing one.
-    /// Mounted under the playfield's lyric-offset clock container so <c>Time.Current</c> is
-    /// lyric-gameplay time.
+    /// Skin layout layer for the typing readouts. Each counter is a separate serialisable drawable,
+    /// so the skin editor can move and scale it without changing its neighbours. It stays inside
+    /// the playfield's lyric clock container, alongside the engine ticker and lyric stage.
     /// </summary>
-    public partial class TypeBeatHudOverlay : CompositeDrawable
+    public partial class TypeBeatHudOverlay : SkinnableContainer
     {
-        /// <summary>
-        /// What the pp readout shows for a play that can never earn pp (see
-        /// <see cref="starRating"/>). Deliberately not a number: a live "214" on a play the server
-        /// will store at 0 pp would be a lie the player only discovers on the results screen.
-        /// Aliases <see cref="PerformancePointsDisplay.INELIGIBLE_TEXT"/> rather than re-stating it,
-        /// so this counter and the results screen render an ineligible play identically.
-        /// </summary>
         public const string INELIGIBLE_TEXT = PerformancePointsDisplay.INELIGIBLE_TEXT;
 
-        private readonly TypingEngine engine;
-
-        private OsuSpriteText wpmValue = null!;
-        private OsuSpriteText syncValue = null!;
-        private OsuSpriteText ppValue = null!;
-        private OsuSpriteText rateValue = null!;
-
-        /// <summary>
-        /// The "rate" stat, built always and PRESENT only while something is publishing a rate (the
-        /// Conductor mod). A <see cref="FillFlowContainer"/> lays out only its present children, so
-        /// an alpha of 0 takes the column out of the row entirely rather than leaving a hole.
-        /// </summary>
-        private Drawable rateStat = null!;
-
-        /// <summary>
-        /// The "sync" stat, hidden the same way and for the same layout reason as
-        /// <see cref="rateStat"/>: alpha 0 takes the column out of the row, so with the metric off
-        /// the HUD reads "wpm pp" with no gap where sync used to sit.
-        /// </summary>
-        private Drawable syncStat = null!;
-
-        /// <summary>
-        /// <see cref="Configuration.TypeBeatRulesetSetting.ShowSyncMetric"/>, live-bound so the
-        /// checkbox applies without re-entering gameplay. Initialised FALSE, which is the shipped
-        /// default, so a HUD built with no config (every bare test scene) starts where the game
-        /// ships rather than on <c>default(bool)</c> by luck.
-        /// </summary>
-        private readonly Bindable<bool> showSync = new Bindable<bool>();
-
-        /// <summary>Last whole percent rendered, so a steady rate costs no string allocation.</summary>
-        private int lastRatePercent = -1;
-
-        // Cached by DrawableTypeBeatRuleset for its subtree; absent in bare playfield test scenes.
-        // Carries the Conductor mod's live rate (null = no mod is following the player).
-        [Resolved]
-        private DrawableTypeBeatRuleset? drawableRuleset { get; set; }
-
-        // Both cached by Player; absent in bare drawable-ruleset test scenes.
-        [Resolved]
-        private ScoreProcessor? scoreProcessor { get; set; }
-
-        /// <summary>
-        /// The star rating this play is priced at, or null when it is pp-INELIGIBLE and the readout
-        /// is frozen at <see cref="INELIGIBLE_TEXT"/>. Computed once, at load: it is a full pass
-        /// over the map's words, and nothing that can move it changes during a play.
-        ///
-        /// <para>The three ways a play is ineligible are the three the server would refuse to pay
-        /// for, so the counter never promises pp that will not be awarded:</para>
-        /// <list type="number">
-        /// <item>a CUSTOM rate (only the DT/NC 1.50x and HT 0.75x base rates earn pp, docs/pp.md);</item>
-        /// <item>any UNRANKED mod in the stack (Mashing, Autoplay, ...), which makes the submission
-        /// path store the score <c>ranked = false</c>;</item>
-        /// <item>a map that grants no pp (anything not Ranked/Approved: a local map, an unsubmitted
-        /// map, a work-in-progress).</item>
-        /// </list>
-        /// A FAILED play is deliberately NOT in that list. Failing is not knowable in advance, the
-        /// counter's contract is "what this play is worth if it ends right here", and a run that
-        /// still might be no-failed or recovered should keep showing what it is building.
-        ///
-        /// <para>SO THE COUNTER DOES NOT MOVE ON A SPOTLESS RUN, and that is correct rather than
-        /// broken (backlog 152, backlog 154). Since length pricing left pp for the star rating, a
-        /// play with no misses, no typos and an unbroken combo is worth
-        /// <c>scale · SR^2 · acc^1.8</c> exactly, and the note count appears in none of those: it
-        /// survives only under the two penalty terms, the combo ratio and Flashlight's bonus, all
-        /// of which sit at 1.0 on a clean play. A perfect run therefore reads its final value from
-        /// the first character and holds it, which is precisely "what this play is worth if it ends
-        /// right here". Before backlog 152 the deleted length factor climbed from 0.1 to about 1.35
-        /// across a 500-cell map and was the ONLY thing animating this readout. Any mistake puts the
-        /// count back into the arithmetic through the penalty denominators and it moves again.</para>
-        /// </summary>
-        private double? starRating;
-
-        /// <summary>
-        /// The map's DIFFICULT CHARACTERS at the played rate and stream, read once at load because
-        /// the miss penalty is measured against it (see <see cref="PerformancePoints"/>). A property
-        /// of the map, not of the play, so it is constant for the run.
-        /// </summary>
-        private double difficultCharacters;
-
-        private IReadOnlyList<Mod>? mods;
-
-        // Last state the readout was computed from, so a frame that judged nothing does no work.
-        private PerformancePoints.NoteCounts lastCounts = new PerformancePoints.NoteCounts(-1, -1, -1);
-        private int lastMaxCombo = -1;
-
-        public TypeBeatHudOverlay(TypingEngine engine)
+        public TypeBeatHudOverlay(RulesetInfo? ruleset = null)
+            : base(new GlobalSkinnableContainerLookup(GlobalSkinnableContainers.TypeBeatCounters, ruleset), createDefaultComponents)
         {
-            this.engine = engine;
             RelativeSizeAxes = Axes.Both;
         }
 
-        [BackgroundDependencyLoader(true)]
-        private void load(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? gameplayMods, TypeBeatRulesetConfigManager? config)
-        {
-            InternalChild = new FillFlowContainer
-            {
-                Anchor = Anchor.TopCentre,
-                Origin = Anchor.TopCentre,
-                AutoSizeAxes = Axes.Both,
-                Direction = FillDirection.Horizontal,
-                Spacing = new osuTK.Vector2(36, 0),
-                Margin = new MarginPadding { Top = 24 },
-                Children = new[]
-                {
-                    stat("wpm", out wpmValue),
-                    syncStat = stat("sync", out syncValue),
-                    stat("pp", out ppValue),
-                    rateStat = stat("rate", out rateValue),
-                },
-            };
-
-            rateStat.Alpha = 0;
-
-            // The sync readout is a DISPLAY setting (backlog 251), so it binds straight here and
-            // deliberately never reaches the replay CONFIG frame the playfield writes for
-            // judgement-affecting settings: nothing about a keystroke, a judgement, a grade or a
-            // stored score moves with it. Fired immediately so a HUD built with no config (every
-            // bare test scene) starts hidden, which is what the game ships.
-            config?.BindWith(TypeBeatRulesetSetting.ShowSyncMetric, showSync);
-            showSync.BindValueChanged(e => syncStat.Alpha = e.NewValue ? 1 : 0, true);
-
-            mods = gameplayMods;
-            difficultCharacters = playableBeatmap == null
-                ? 0
-                : PerformancePoints.DifficultCharactersFor(playableBeatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), gameplayMods);
-            starRating = StarRatingFor(playableBeatmap, gameplayMods);
-            ppValue.Text = PerformancePointsDisplay.Format(starRating == null ? null : 0d);
-        }
-
-        /// <summary>
-        /// The rating to price this play at, or null when it is ineligible (see
-        /// <see cref="starRating"/>). Delegates to
-        /// <see cref="PerformancePointsDisplay.StarRatingFor"/>, which is where the gates and their
-        /// reasoning live, so this counter and the results screen apply exactly the same ones.
-        ///
-        /// <para>Kept here, and public, because the task 74 tests drive the gate the HUD uses
-        /// through this name rather than through a paraphrase of it.</para>
-        /// </summary>
         public static double? StarRatingFor(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? mods)
             => PerformancePointsDisplay.StarRatingFor(playableBeatmap, mods);
 
-        /// <summary>Whether the sync column is on screen; test support for the opt-in toggle.</summary>
-        public bool SyncReadoutVisible => syncStat.Alpha > 0;
+        public bool SyncReadoutVisible => Components.OfType<TypeBeatSyncCounter>().FirstOrDefault()?.Alpha > 0;
 
-        /// <summary>The text the sync column is showing; test support.</summary>
-        public string SyncReadoutText => syncValue.Text.ToString();
+        public string SyncReadoutText => Components.OfType<TypeBeatSyncCounter>().FirstOrDefault()?.DisplayedText ?? string.Empty;
 
-        private Drawable stat(string caption, out OsuSpriteText value)
+        private static Container createDefaultComponents() => new Container
         {
-            value = new OsuSpriteText
+            RelativeSizeAxes = Axes.Both,
+            Children = new Drawable[]
             {
-                Anchor = Anchor.TopCentre,
-                Origin = Anchor.TopCentre,
-                Font = TypeBeatStyle.Mono(30),
-                Colour = TypeBeatStyle.TypedChar,
-                Text = "0",
-                ShadowColour = TypeBeatStyle.TextShadow,
-                ShadowOffset = TypeBeatStyle.TEXT_SHADOW_OFFSET,
-            };
-
-            return new FillFlowContainer
-            {
-                AutoSizeAxes = Axes.Both,
-                Direction = FillDirection.Vertical,
-                Children = new Drawable[]
+                new TypeBeatWpmCounter
                 {
-                    new OsuSpriteText
-                    {
-                        Anchor = Anchor.TopCentre,
-                        Origin = Anchor.TopCentre,
-                        Font = TypeBeatStyle.Mono(14),
-                        Colour = TypeBeatStyle.UntypedChar,
-                        Text = caption,
-                        ShadowColour = TypeBeatStyle.TextShadow,
-                        ShadowOffset = TypeBeatStyle.TEXT_SHADOW_OFFSET,
-                    },
-                    value,
+                    Anchor = Anchor.TopCentre,
+                    Origin = Anchor.TopCentre,
+                    Position = new Vector2(-58, 24),
                 },
-            };
-        }
 
-        protected override void Update()
-        {
-            base.Update();
+                new TypeBeatPpCounter
+                {
+                    Anchor = Anchor.TopCentre,
+                    Origin = Anchor.TopCentre,
+                    Position = new Vector2(58, 24),
+                },
+                new TypeBeatSyncCounter
+                {
+                    Anchor = Anchor.TopCentre,
+                    Origin = Anchor.TopCentre,
+                    Position = new Vector2(168, 24),
+                },
+                new TypeBeatRateCounter
+                {
+                    Anchor = Anchor.TopCentre,
+                    Origin = Anchor.TopCentre,
+                    Position = new Vector2(278, 24),
+                },
+            },
+        };
 
-            // Rolling window over the last few dozen keypresses, not the whole-run average: the live
-            // readout should track current pace. The whole-run figure (ResultsSummary.Wpm) is computed
-            // but drawn nowhere: the results screen shows no WPM, so this counter is the only place a
-            // player sees their own pace (the map's pace shows at song select).
-            wpmValue.Text = engine.LiveRollingWpm.ToString("0");
-
-            // Skipped entirely while the column is hidden: LiveSyncPercent walks every cell of the
-            // map, so a metric nobody asked for should cost nothing per frame either.
-            if (showSync.Value)
-                syncValue.Text = engine.LiveSyncPercent.ToString("0.0") + "%";
-
-            updatePerformancePoints();
-            updateRate();
-        }
-
-        /// <summary>
-        /// The Conductor mod's live playback rate, as a whole percent. Players need to SEE the song
-        /// responding to them to trust that it is: without this the mod is an unexplained wobble.
-        /// Absent (and taking no space in the row) on every play with no rate-following mod.
-        /// </summary>
-        private void updateRate()
-        {
-            if (drawableRuleset?.ConductorRate is not double rate)
-            {
-                rateStat.Alpha = 0;
-                return;
-            }
-
-            rateStat.Alpha = 1;
-
-            int percent = (int)Math.Round(rate * 100);
-
-            if (percent == lastRatePercent)
-                return;
-
-            lastRatePercent = percent;
-            rateValue.Text = percent.ToString(CultureInfo.InvariantCulture) + "%";
-        }
-
-        /// <summary>
-        /// "What this play is worth if it ends right here". The formula's <c>notes</c> is the count
-        /// of JUDGED notes, so feeding it the live counts makes the readout land, on the play's last
-        /// judgement, on exactly the value the server will store for the submitted score (pinned by
-        /// <c>PerformancePointsHudTest.LiveCounterConvergesOnTheSubmittedScoresValue</c>).
-        ///
-        /// <para>Recomputed only when a judgement actually moved the counts or the combo, so a
-        /// typical frame costs one scan of a dictionary with a handful of entries and no
-        /// <c>Math.Pow</c> at all. Every input the formula takes moves with those: accuracy cannot
-        /// change without a note being judged, and a mistype shows up as its own count.</para>
-        ///
-        /// <para>The accuracy fed in is the score processor's RUNNING accuracy (denominator: what
-        /// has been judged so far), which is the only honest reading mid-play and is exactly equal
-        /// to the whole-map accuracy the server recomputes once every cell has been judged. The two
-        /// diverge only for a play that ends early, i.e. a FAIL, which is stored unranked and earns
-        /// nothing anyway.</para>
-        /// </summary>
-        private void updatePerformancePoints()
-        {
-            if (scoreProcessor == null || starRating is not double stars)
-                return;
-
-            var counts = PerformancePoints.CountNotes(scoreProcessor.Statistics) with { DifficultCharacters = difficultCharacters };
-            int maxCombo = scoreProcessor.HighestCombo.Value;
-
-            if (counts == lastCounts && maxCombo == lastMaxCombo)
-                return;
-
-            lastCounts = counts;
-            lastMaxCombo = maxCombo;
-
-            ppValue.Text = PerformancePointsDisplay.Format(PerformancePoints.ForPlay(stars, counts, scoreProcessor.Accuracy.Value, maxCombo, mods));
-        }
     }
 }

@@ -248,20 +248,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// immediately LEFT of cell i", which is that cell's own left edge, so a renderer needs no
         /// arithmetic of its own and cannot land the mark half a character away from the cut.
         ///
-        /// <para>SUBTIMED words only: an entry exists for every group after the first of a token
-        /// whose unit carries <see cref="TimedUnit.SyllableBoundaries"/>, and for no other
-        /// group. A word the SYLLABIFIER split naturally is deliberately left unmarked, because the
-        /// mark says "the mapper timed a subdivision here" and the rules-based split is a guess
-        /// nobody authored. That asymmetry is the feature's gate, not an oversight.</para>
+        /// <para>An entry exists for every surviving syllable group after the first within a word,
+        /// whether the split was authored or derived automatically. A word the syllabifier leaves
+        /// ungrouped has no boundaries to mark.</para>
         ///
         /// <para>Read STRAIGHT OFF the compacted groups, so the mark and the judgement cannot
         /// disagree: the cell recorded here is <see cref="SyllableGroup.StartCell"/> of the group the
-        /// boundary opens, which came from the same single <c>SyllableSegments.SplitsFor</c>
-        /// call that fed the per-char targets. A group compaction dropped (it owned no cell) leaves
+        /// boundary opens. Authored and automatic markers therefore follow the same groups as
+        /// judgement. A group compaction dropped (it owned no cell) leaves
         /// no mark, and neither does the FIRST surviving group of a word, since with nothing of that
         /// word rendered to its left there is no interior gap to mark. The count can therefore be
-        /// smaller than <c>SyllableBoundaries.Count</c> on an over-forced short word; it is never
-        /// larger, and every entry is strictly inside the line.</para>
+        /// smaller than <c>SyllableBoundaries.Count</c> on an over-forced short word. Every entry
+        /// is strictly inside the line.</para>
         ///
         /// <para>Derived WRITE-ONLY at construction, in the style of <see cref="buildCharTimedStretch"/>:
         /// nothing here feeds a target, a span, a group or the replay CONFIG frame, so a line built
@@ -461,6 +459,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// only <see cref="Typeability.IsCell"/> chars (never punctuation), so turning the mod on
         /// adds cells without moving any of the existing ones.</para>
         /// </summary>
+
         public static TypingLine FromLyricLine(LyricLine line, bool literate = false)
             => build(line, literate, CellRules.Default, null, null);
 
@@ -468,8 +467,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// Flattens <paramref name="line"/> for a play that may carry the POLYGLOT mod (backlog 331).
         /// Off, this is exactly <see cref="FromLyricLine"/>. On, every word that
         /// records an original is played in it instead of its romanised text (see
-        /// <see cref="PolyglotLine"/>, which derives the line the cells are cut from, word times
-        /// unchanged), under the Polyglot character rules: any script's letters, marks and digits
+        /// <see cref="PolyglotLine"/>, which derives the line the cells are cut from and joins
+        /// Japanese words where the original lyric has no space), under the Polyglot character
+        /// rules: any script's letters, marks and digits
         /// are cells (<see cref="Typeability.IsPolyglotCell"/>), any script's punctuation is a
         /// Literate cell, and the default stream drops every other character. On a line with no
         /// original anywhere the cells are the romanised ones, byte for byte.
@@ -527,6 +527,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             => jamoHead != null && cellIndex >= 0 && cellIndex < jamoHead.Length ? jamoHead[cellIndex] : -1;
 
         private static TypingLine build(LyricLine line, bool literate, CellRules rules, PolyglotLine.NaturalSplit?[]? naturalSplits, int[]? rawCluster)
+
         {
             string text = line.RawText;
             var units = line.Units;
@@ -653,7 +654,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 cells = new TypingCell[n];
 
                 for (int i = 0; i < n; i++)
+
                     cells[i] = new TypingCell(expected[i], isTypeable[i] || rules.IsLiteratePunctuation(expected[i]), targets[i]!.Value);
+
             }
             else
             {
@@ -689,7 +692,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 break;
             }
 
-            var (syllables, cellSyllable, markerCells) = buildSyllables(line, tokens, cells, defaultSources, naturalSplits);
+            var (syllables, cellSyllable, markerCells) = buildSyllables(line, tokens, cells, defaultSources, naturalSplits, rules.IsCell);
             var (words, cellWord) = buildWords(line, tokens, cells, defaultSources);
 
             return new TypingLine(line, cells, Math.Min(sealGrace, max_seal_grace_ms), syllables, cellSyllable, markerCells, words, cellWord, lastUnitEnd,
@@ -879,12 +882,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// boundary marks. That is a pure BY-PRODUCT: it is written from the groups this already
         /// builds and is read by nothing here, so no target, span or group index moves because of
         /// it. It is derived here rather than in the renderer because this is the only place that
-        /// knows, per token, whether the mapper SUBTIMED it: downstream the token has been flattened
-        /// into cells and the word index cannot be recovered by counting spaces (the default stream
-        /// turns a hyphen into a typed space cell, so "well-known" is one unit but two cell runs).</para>
+        /// still knows each group's source token: downstream the word index cannot be recovered by
+        /// counting spaces (the default stream turns a hyphen into a typed space cell, so
+        /// "well-known" is one unit but two cell runs).</para>
         /// </summary>
         private static (SyllableGroup[] groups, int[] cellSyllable, int[] markerCells) buildSyllables(LyricLine line, string[] tokens, TypingCell[] cells, List<int>? defaultSources,
-                                                                                                    PolyglotLine.NaturalSplit?[]? naturalSplits = null)
+                                                                                                    PolyglotLine.NaturalSplit?[]? naturalSplits = null, Func<char, bool>? isCell = null)
         {
             var units = line.Units;
             int[] rawGroup = new int[line.RawText.Length];
@@ -895,12 +898,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             var starts = new List<double>();
             var ends = new List<double>();
 
-            // Parallel to the two above, for the display marks: whether this group opens a
-            // MAPPER-AUTHORED subdivision inside its word (a non-first group of a SUBTIMED token),
-            // and which group its token started at. Captured HERE because this is the only point
-            // that still has the token's unit in hand; a naturally syllabified word produces groups
-            // too and must not be marked (see SyllableMarkerCells).
-            var subtimedInterior = new List<bool>();
+            // The first group of each token, used to keep display marks inside a word even
+            // when the default cell stream turns a hyphen into a space.
             var groupTokenBase = new List<int>();
             int tokStart = 0;
 
@@ -924,7 +923,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // gameplay subdivision mark at the cut - the same reading a mapper-authored subdivider
                 // gets. A rest that cannot cut the word changes nothing here, exactly as it changes
                 // nothing in the ramp.
-                var paused = unit != null ? PausedWord.Of(token, unitStart, unitEnd, unit) : null;
+                var paused = unit != null ? PausedWord.Of(token, unitStart, unitEnd, unit, isCell) : null;
 
                 // A POLYGLOT word played in its original carries its natural split with it (the
                 // romanised word's own syllables carried back onto the original, see PolyglotLine):
@@ -948,7 +947,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                     for (int g = 0; g < groupCount; g++)
                     {
-                        subtimedInterior.Add((subtimed || paused != null) && g > 0);
                         groupTokenBase.Add(groupBase);
 
                         if (paused != null)
@@ -1063,7 +1061,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             for (int i = 0; i < cellSyllable.Length; i++)
                 cellSyllable[i] = cellSyllable[i] >= 0 ? remap[cellSyllable[i]] : -1;
 
-            // The display marks (backlog 225), read off the groups that survived: a flagged group's
+            // The display marks (backlog 225), read off the groups that survived: each group's
             // StartCell IS the gap its boundary falls in. A mark also needs something rendered to
             // its LEFT inside the same word, or it would sit on the word's leading edge and read as
             // a mark on the space before it; that is why a surviving earlier group of the same
@@ -1081,7 +1079,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     lastSurvivor = -1;
                 }
 
-                if (subtimedInterior[g] && remap[g] >= 0 && lastSurvivor >= 0)
+                if (remap[g] >= 0 && lastSurvivor >= 0)
                 {
                     int startCell = groups[remap[g]].StartCell;
 
@@ -1305,7 +1303,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             var boundaries = unit?.SyllableBoundaries ?? Array.Empty<double>();
 
-            if (unit != null && PausedWord.Of(token, unitStart, unitEnd, unit) is PausedWord.Cut cut)
+            if (unit != null && PausedWord.Of(token, unitStart, unitEnd, unit, isCell) is PausedWord.Cut cut)
             {
                 fillPausedStretches(cut, ramp);
                 return ramp;

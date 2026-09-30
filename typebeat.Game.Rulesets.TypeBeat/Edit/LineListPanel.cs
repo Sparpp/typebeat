@@ -14,6 +14,8 @@ using osu.Framework.Input.Events;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
+using typebeat.Game.Graphics.UserInterfaceV2;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
@@ -44,7 +46,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         private readonly FillFlowContainer<LineRow> rows;
         private readonly OsuScrollContainer scroll;
+        private readonly Container listArea;
+        private readonly RoundedButton lyricViewButton;
         private readonly List<TypeBeatHitObject> displayed = new List<TypeBeatHitObject>();
+        private bool? lastToggleAvailable;
 
         public LineListPanel()
         {
@@ -58,20 +63,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     Colour = TypeBeatStyle.PanelBackground,
                     Alpha = 0.6f,
                 },
-                scroll = new OsuScrollContainer
+                listArea = new Container
                 {
                     RelativeSizeAxes = Axes.Both,
-                    ScrollbarOverlapsContent = false,
-                    Child = rows = new FillFlowContainer<LineRow>
+                    Child = scroll = new OsuScrollContainer
                     {
-                        RelativeSizeAxes = Axes.X,
-                        AutoSizeAxes = Axes.Y,
-                        Direction = FillDirection.Vertical,
-                        Spacing = new Vector2(0, 2),
-                        Padding = new MarginPadding(4),
+                        RelativeSizeAxes = Axes.Both,
+                        ScrollbarOverlapsContent = false,
+                        Child = rows = new FillFlowContainer<LineRow>
+                        {
+                            RelativeSizeAxes = Axes.X,
+                            AutoSizeAxes = Axes.Y,
+                            Direction = FillDirection.Vertical,
+                            Spacing = new Vector2(0, 2),
+                            Padding = new MarginPadding(4),
+                        },
+                    },
+                },
+                lyricViewButton = new RoundedButton
+                {
+                    Anchor = Anchor.TopRight,
+                    Origin = Anchor.TopRight,
+                    Position = new Vector2(-4, 4),
+                    Width = 174,
+                    Height = 28,
+                    TooltipText = "Switches the editor's lyric display. Original edits update the script editor's line original.",
+                    Action = () =>
+                    {
+                        foreach (LineRow row in rows)
+                            row.CommitPendingText();
+
+                        state.ShowOriginalLyrics.Toggle();
                     },
                 },
             };
+
+            lyricViewButton.Alpha = 0;
+            lyricViewButton.Enabled.Value = false;
         }
 
         protected override void Update()
@@ -79,6 +107,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             base.Update();
 
             var current = TypeBeatEditorOperations.OrderedLines(editorBeatmap);
+            bool canShowOriginal = editorBeatmap.BeatmapInfo.Metadata.Language != BeatmapLanguage.English
+                                   && editorBeatmap.BeatmapInfo.Metadata.Language != BeatmapLanguage.Instrumental
+                                   && current.Any(h => h.Line.Original != null || h.Line.UnromanisedWords.Count > 0
+                                                       || h.Line.Units.Any(u => u.Original != null));
+
+            if (!canShowOriginal && state.ShowOriginalLyrics.Value)
+                state.ShowOriginalLyrics.Value = false;
+
+            if (lastToggleAvailable != canShowOriginal)
+            {
+                listArea.Padding = new MarginPadding { Top = canShowOriginal ? 36 : 0 };
+                lyricViewButton.Alpha = canShowOriginal ? 1 : 0;
+                lyricViewButton.Enabled.Value = canShowOriginal;
+                lastToggleAvailable = canShowOriginal;
+            }
+            lyricViewButton.Text = state.ShowOriginalLyrics.Value ? "Lyrics: Original" : "Lyrics: Romanized";
 
             if (!current.SequenceEqual(displayed))
             {
@@ -132,6 +176,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private OsuSpriteText timeText = null!;
             private OsuTextBox textBox = null!;
             private OsuSpriteText originalCaption = null!;
+            private bool? renderedOriginalView;
 
             /// <summary>The caption over the text box: the line's ORIGINAL text (backlog 330), or empty.</summary>
             public string OriginalCaptionText => originalCaption.Text.ToString();
@@ -217,7 +262,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 Height = 28,
                                 FontSize = 15,
                                 CommitOnFocusLost = true,
-                                CommittedText = () => TypeBeatEditorOperations.PipeDisplayText(HitObject.Line),
+                                CommittedText = committedText,
                             },
                         },
                     },
@@ -231,12 +276,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 if (!editorBeatmap.HitObjects.Contains(HitObject))
                     return;
 
+                if (textBox.Text == committedText())
+                    return;
+
+                if (state.ShowOriginalLyrics.Value)
+                {
+                    // Use the same operation as the script editor's line-original field.
+                    // This leaves the romanized words and their timing intact.
+                    TypeBeatEditorOperations.SetLineOriginal(editorBeatmap, HitObject, textBox.Text);
+                    textBox.Text = committedText();
+                    return;
+                }
+
                 if (!TypeBeatEditorOperations.SetLineText(editorBeatmap, HitObject, textBox.Text))
                 {
                     // Normalized to empty; refuse and flash (delete the line instead).
                     textBox.Text = TypeBeatEditorOperations.PipeDisplayText(HitObject.Line);
                     background.FlashColour(TypeBeatStyle.ErrorChar, 400, Easing.OutQuint);
                 }
+            }
+
+            private string committedText() => state.ShowOriginalLyrics.Value
+                ? TypeBeatEditorOperations.OriginalCaption(HitObject.Line) ?? TypeBeatEditorOperations.PipeDisplayText(HitObject.Line)
+                : TypeBeatEditorOperations.PipeDisplayText(HitObject.Line);
+
+            /// <summary>Commits a focused edit before the view button changes the row's text.</summary>
+            public void CommitPendingText()
+            {
+                if (textBox.HasFocus && textBox.Text != committedText())
+                    commitText();
             }
 
             protected override void Update()
@@ -251,12 +319,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 // how it is edited (see TypeBeatEditorOperations.SetLineText). The pipe is a
                 // reserved character of this surface only; it is stripped on commit and never
                 // reaches the stored lyric or a gameplay cell.
-                string display = TypeBeatEditorOperations.PipeDisplayText(HitObject.Line);
+                string romanized = TypeBeatEditorOperations.PipeDisplayText(HitObject.Line);
+                string? original = TypeBeatEditorOperations.OriginalCaption(HitObject.Line);
+                bool originalView = state.ShowOriginalLyrics.Value && original != null;
+                string display = originalView ? original! : romanized;
+                bool modeChanged = renderedOriginalView != state.ShowOriginalLyrics.Value;
+                renderedOriginalView = state.ShowOriginalLyrics.Value;
 
-                if (!textBox.HasFocus && textBox.Text != display)
+                textBox.ReadOnly = false;
+
+                if ((!textBox.HasFocus || modeChanged) && textBox.Text != display)
                     textBox.Text = display;
 
-                string caption = captionFor(HitObject.Line);
+                string caption = originalView ? $"Romanized: {romanized}" : captionFor(HitObject.Line);
 
                 if (originalCaption.Text != caption)
                 {

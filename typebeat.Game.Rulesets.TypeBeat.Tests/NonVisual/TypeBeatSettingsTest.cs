@@ -3,6 +3,7 @@
 
 using System.Linq;
 using NUnit.Framework;
+using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
@@ -49,9 +50,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             using (var config = new TypeBeatRulesetConfigManager(null, ruleset.RulesetInfo))
             {
                 var controls = subsection.BuildControls(config);
-                var checkboxes = controls.OfType<SettingsCheckbox>().ToList();
+                var checkboxes = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().ToList();
 
-                Assert.That(checkboxes.Select(c => c.LabelText.ToString()), Is.EqualTo(new[]
+                Assert.That(checkboxes.Select(c => c.Caption.ToString()), Is.EqualTo(new[]
                 {
                     "Space to skip current word",
                     "Manual newlines",
@@ -96,7 +97,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// The cosmetic and input controls the section always had are still there, in order, with the
-        /// four typing behaviours sitting between the keyboard layout and the line's own look. Pinned
+        /// settled typing, lyric, caret, and feedback controls. Pinned
         /// as a whole so a control that silently left the section would be noticed here.
         /// </summary>
         [Test]
@@ -109,31 +110,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 var controls = subsection.BuildControls(config);
 
-                Assert.That(controls.Select(c => c switch
+                Assert.That(controls.OfType<SettingsItemV2>().Select(c => c.Control switch
                 {
-                    // SettingsEnumDropdown<T> derives from SettingsDropdown<T>, so the two caret
-                    // dropdowns and the layout are matched by their type arguments, not by their
-                    // concrete classes.
-                    SettingsCheckbox checkbox => checkbox.LabelText.ToString(),
-                    SettingsSlider<float> slider => slider.LabelText.ToString(),
-                    SettingsDropdown<string> font => font.LabelText.ToString(),
-                    SettingsDropdown<KeyboardLayout> layout => layout.LabelText.ToString(),
-                    SettingsDropdown<CaretStyle> caret => caret.LabelText.ToString(),
+                    FormCheckBox checkbox => checkbox.Caption.ToString(),
+                    FormSliderBar<float> slider => slider.Caption.ToString(),
+                    FormDropdown<string> font => font.Caption.ToString(),
+                    FormDropdown<KeyboardLayout> layout => layout.Caption.ToString(),
+                    FormDropdown<CaretStyle> caret => caret.Caption.ToString(),
                     _ => "?",
                 }), Is.EqualTo(new[]
                 {
-                    "Typing caret style",
-                    "Song playhead style",
                     "Keyboard layout",
                     "Space to skip current word",
                     "Manual newlines",
-                    "Lyric font size",
-                    "Lyric line spacing",
-                    "Typing font",
+
+
                     "Use map fonts",
+                    "Typing font",
+                    "Gameplay font size",
+                    "Lyric line spacing",
+                    "Typing caret style",
+                    "Song playhead style",
+                    "Caret smoothing",
                     "Use space error dot",
+                    "Sung syllable brightness",
                     "Show syllable markers",
                     "Show word pace colours",
+                    "Pace colour maximum change",
                 }));
             }
         }

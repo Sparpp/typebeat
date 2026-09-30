@@ -18,15 +18,13 @@ using typebeat.Game.Tests.Visual;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 {
     /// <summary>
-    /// Backlog 197: the optional SPACE ERROR DOT. Leave a word carrying an error, space on past it,
-    /// and a small red interpunct is drawn in the gap between that word and the next one, the
-    /// TypeGG-style indicator. OFF by default, so the shipped line is exactly the line that shipped
-    /// before it; this scene drives the setting live and asserts the drawable on screen.
+    /// The optional space error dot marks a wrong character typed into a word gap. This scene
+    /// drives the setting live and checks the drawable on screen.
     ///
     /// <para>The RULE is pinned by <c>SpaceErrorDotTest</c> over
     /// <see cref="LyricLineDisplay.ComputeSpaceErrorDots"/>. What is left for here is the wiring the
     /// pure function cannot see: the setting reaching the display, the dot being drawn where the
-    /// player would look for it, and a backspace over the accepted space taking it away with no
+    /// player would look for it, and a backspace over the mistyped space taking it away with no
     /// event of its own (the dot is pull-based, exactly as every cell colour is).</para>
     ///
     /// <para>Keys are fed straight to the engine at chosen times rather than through the input
@@ -111,43 +109,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && !display.SpaceErrorDotVisibleAt(gap));
         }
 
-        /// <summary>Mistype the 'a', finish the word, then space onward: the word is left flawed and
-        /// the gap accepts the space.</summary>
-        private void leaveTheFirstWordFlawedAndSpaceOn()
+        /// <summary>Type the first word, then place a wrong character in its following space.</summary>
+        private void mistypeTheGap()
         {
-            AddStep("mistype 'a', type 'b', then space", () =>
+            AddStep("type 'ab', then mistype the space", () =>
             {
-                press(0, 'z');
+                press(0, 'a');
                 press(1, 'b');
-                press(gap, ' ');
+                press(gap, 'x');
             });
 
-            AddUntilStep("the word is flawed and the space was accepted", () =>
-                cell(0).State == CellState.Wrong && cell(gap).State == CellState.Correct);
+            AddUntilStep("the gap holds the typo", () => cell(gap).State == CellState.Wrong);
         }
 
-        /// <summary>The headline: setting on, word left flawed, space taken, dot drawn in the gap.</summary>
+        /// <summary>A wrong character inside the gap draws its dot.</summary>
         [Test]
-        public void TestAFlawedWordSpacedPastShowsTheDot()
+        public void TestAMistypedGapShowsTheDot()
         {
             setDot(true);
-            leaveTheFirstWordFlawedAndSpaceOn();
+            mistypeTheGap();
 
             AddUntilStep("the dot is drawn in the gap", () => display.SpaceErrorDotVisibleAt(gap));
         }
 
-        /// <summary>The same play with the setting off draws nothing at all: existing styling is the
-        /// only styling, which is what makes this safe to ship off by default.</summary>
+        /// <summary>With the setting off, the wrong character appears instead of the dot.</summary>
         [Test]
         public void TestTheDotStaysHiddenWhileTheSettingIsOff()
         {
-            leaveTheFirstWordFlawedAndSpaceOn();
+            mistypeTheGap();
 
             AddWaitStep("let the repaint land", 3);
             AddAssert("no dot", () => display.SpaceErrorDotVisibleAt(gap), () => Is.False);
 
-            // And turning it on mid-play lights the dot the play already earned, since the rule is
-            // re-read rather than recorded when the space landed.
+            // Turning it on mid-play reveals the dot for the standing gap typo.
             float width = 0;
             var cellPositions = Array.Empty<osuTK.Vector2>();
 
@@ -186,7 +180,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
-        /// Backspacing back over the accepted space clears the dot. Nothing clears it explicitly: the
+        /// Backspacing over the mistyped space clears the dot. Nothing clears it explicitly: the
         /// gap returns to <see cref="CellState.Untyped"/> and the rule is read again on the next
         /// repaint, which is the whole reason the dot is computed from cell state rather than latched
         /// when the space landed.
@@ -195,7 +189,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         public void TestBackspacingOverTheSpaceClearsTheDot()
         {
             setDot(true);
-            leaveTheFirstWordFlawedAndSpaceOn();
+            mistypeTheGap();
             AddUntilStep("dotted to start with", () => display.SpaceErrorDotVisibleAt(gap));
 
             AddStep("backspace over the space", () => engine.ProcessBackspace());

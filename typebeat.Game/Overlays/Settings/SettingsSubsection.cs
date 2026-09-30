@@ -61,10 +61,13 @@ namespace typebeat.Game.Overlays.Settings
         }
 
         protected virtual Drawable CreateHeader()
+            => CreateSubsectionHeader(Header);
+
+        protected static Drawable CreateSubsectionHeader(LocalisableString header)
         {
             return new OsuSpriteText
             {
-                Text = Header,
+                Text = header,
                 Font = OsuFont.GetFont(size: header_font_size),
                 Margin = new MarginPadding { Vertical = VERTICAL_PADDING },
                 Padding = SettingsPanel.CONTENT_PADDING,

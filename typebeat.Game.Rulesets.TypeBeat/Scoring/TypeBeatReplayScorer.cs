@@ -425,11 +425,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             };
 
             bool literate = mods.Any(m => m is TypeBeatModLiterate);
-
-            // POLYGLOT (backlog 331) is identified by the mod in the score, like Literate: no era bit.
             bool polyglot = mods.Any(m => m is TypeBeatModPolyglot);
 
-            var engine = new TypingEngine(lyricBeatmap, literate, polyglot, polyglot ? TypeBeatModPolyglot.LanguageFor(playable) : null);
+
+            var engine = new TypingEngine(lyricBeatmap, literate, polyglot, polyglot ? TypeBeatModPolyglot.LanguageFor(playable) : null)
+            {
+                DifficultyWindowScale = StarTimingWindows.ScaleForStars(
+                    TypeBeatDifficultyCalculator.ComputeModel(lyricBeatmap.Lines, mods).Stars),
+            };
+
 
             // SyllableTiming is NOT selected here, and deliberately not: it is the one era axis
             // that travels in the replay itself (CONFIG frame, bit 2), so ReplayEngineFeed.Apply
@@ -539,13 +543,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // release, so no stored row can carry the acronym and there is no era in which the arm
             // should be off.
             //
-            // Since backlog 261 the same arm also exempts the RUSH CAP, on the same terms and for a
-            // reason of the same shape: under strict following the playhead is the TAPE, which is
-            // walled at the preset's ceiling, so a player faster than the wall opens an unbounded
-            // character lead and the cap breaks a combo on presses it is still judging Great. It is a
-            // MOD flag and not an era (see TypingEngine.RushCapExempt), so it belongs here in the mod
-            // list rather than in a CONFIG bit, and it has to be here as well as at the live seam or
-            // a rescore would report a lower max combo than the run the player finished.
+            // Puppeteer was exempt from the rush cap before ordinary live play was. Retain that
+            // mod-specific exemption when deriving older replays, whose CONFIG frames lack the
+            // new RUSH_CAP_REMOVED marker. Newer replays set the exemption through that marker.
             //
             // PuppeteerReplayTransform's scratch engine is built by THIS method, so its co-simulation
             // picks both arms up with no line of its own: the engine it reads arms off is the engine
@@ -555,6 +555,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             {
                 engine.WindowScale *= TypeBeatModPuppeteer.WINDOW_SCALE;
                 engine.RushCapExempt = true;
+                engine.RushCapExemptFromMod = true;
             }
 
             // The rate mods scale the windows by the CLOCK RATE so the real-time tolerance is

@@ -9,10 +9,8 @@ using Newtonsoft.Json;
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
-
     /// The lyric editor's clipboard payloads, serialized as JSON into the editor's string clipboard
     /// (<c>EditorClipboard.Content</c>), discriminated by <c>type</c> so paste can dispatch:
-
     ///
     ///  - <see cref="LineTimingsPayload"/>: one entry per copied line, each holding its units'
     ///    offsets and sung-end RELATIVE TO THE LINE START. Pasting rebases the pattern onto each
@@ -22,7 +20,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     ///  - <see cref="UnitTimingsPayload"/>: the selected word units' offsets relative to the FIRST
     ///    selected unit's start. Pasting anchors the pattern at a target word's current start.
     ///
-
     /// <para>A line payload carries a word's SUB-WORD timing too (subdivision boundaries, the
     /// authored char split, the authored rests), because a chorus line's internal rhythm is the
     /// whole point of the gesture: see <see cref="TypeBeatEditorOperations.PasteLineTimings"/> for
@@ -44,7 +41,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// <para>The per-word <c>text</c> lives on <see cref="UnitSpan"/>, beside the char-indexed fields
     /// it spells out, so a UNIT payload can carry it the same way (backlog 343) without a second
     /// shape. <see cref="UnitSpan.Chars"/> stays: it is the gate the timing-only paste still uses.</para>
-
     /// </summary>
     public static class LyricTimingClipboard
     {
@@ -88,10 +84,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             /// </summary>
             [JsonProperty("chars")]
             public int Chars;
-
-            /// <summary>Source spelling for mapping a pasted unit run's rest cuts.</summary>
-            [JsonProperty("text", NullValueHandling = NullValueHandling.Ignore)]
-            public string? Text;
 
             /// <summary>
             /// The source word's text in the AUTHOR'S form (<see cref="TimedUnit.Text"/>, the token of

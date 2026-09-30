@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Platform;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Screens.ImportLyrics;
 
@@ -51,8 +52,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
         public Task<LyricImportResult> BuildOszAsync(
             string audioPath, string? lyricsPath, string artist, string title,
-            Action<string> progress, CancellationToken token, bool useAutomaticAlignment = false)
-            => LyricMapImporter.BuildOszAsync(audioPath, lyricsPath, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token, useAutomaticAlignment);
+            Action<string> progress, CancellationToken token, bool useAutomaticAlignment, BeatmapLanguage language)
+            => language == BeatmapLanguage.Unspecified
+                ? Task.FromResult(LyricImportResult.Fail("select a language before importing"))
+                : LyricMapImporter.BuildOszAsync(audioPath, lyricsPath, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token,
+                    useAutomaticAlignment, language: language.ToCanonicalName());
 
         public Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,

@@ -77,12 +77,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// can honour (see the type's remarks) - in which case every reader keeps the plain word it had
         /// before the feature existed.
         /// </summary>
-        internal static Cut? Of(string token, double unitStart, double unitEnd, TimedUnit? unit)
+        internal static Cut? Of(string token, double unitStart, double unitEnd, TimedUnit? unit, Func<char, bool>? isCell = null)
         {
             if (unit == null || unit.Pauses.Count == 0)
                 return null;
 
-            var rests = UsableRests(token, unitStart, unitEnd, unit.Pauses);
+            isCell ??= Typeability.IsCell;
+            var rests = UsableRests(token, unitStart, unitEnd, unit.Pauses, isCell);
 
             if (rests.Count == 0)
                 return null;
@@ -93,7 +94,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 ? unit.SyllableSplits
                 : SyllableSegments.SplitsFor(token, unit.SyllableBoundaries.Count + 1, null);
             int[]? wordCuts = authored && wordSplits.Count == unit.SyllableBoundaries.Count
-                ? SyllableSegments.CellCuts(token, wordSplits)
+                ? SyllableSegments.CellCuts(token, wordSplits, isCell)
                 : null;
 
             int stretches = rests.Count + 1;
@@ -145,13 +146,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             {
                 int lastChar = i == stretches - 1 ? token.Length : rests[i].SplitChar;
                 int charCount = Math.Max(0, lastChar - firstChar);
-                int cells = Math.Max(0, cellsBefore(token, lastChar) - firstCell);
+                int cells = Math.Max(0, cellsBefore(token, lastChar, isCell) - firstCell);
                 double pieceStart = stretchStart(rests, unitStart, i);
                 double pieceEnd = stretchEnd(rests, unitEnd, i);
                 var inOrder = owned[i].OrderBy(pair => pair.Time).ToList();
                 var slots = inOrder.Select(pair => pair.Slot).ToList();
 
-                var (cuts, cellCuts) = stretchCuts(token, firstChar, charCount, slots, wordSplits, wordCuts, firstCell, cells);
+                var (cuts, cellCuts) = stretchCuts(token, firstChar, charCount, slots, wordSplits, wordCuts, firstCell, cells, isCell);
 
                 pieces.Add(new Piece(
                     firstChar, charCount,
@@ -202,7 +203,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // The CELL cuts come from the resolved CHARACTER cuts when those are the mapper's, and are
             // null (derived) otherwise, so the ramp and the text can never part at different places.
             static (IReadOnlyList<int> Cuts, int[]? Cells) stretchCuts(string token, int firstChar, int charCount, List<int> slots,
-                                                                       IReadOnlyList<int> wordSplits, int[]? wordCuts, int firstCell, int cells)
+                                                                       IReadOnlyList<int> wordSplits, int[]? wordCuts, int firstCell, int cells, Func<char, bool> isCell)
             {
                 int lastChar = firstChar + charCount;
 
@@ -232,7 +233,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                         splitCuts[0] = 0;
 
                         for (int i = 0; i < placed.Count; i++)
-                            splitCuts[i + 1] = cellsBefore(token, placed[i]) - firstCell;
+                            splitCuts[i + 1] = cellsBefore(token, placed[i], isCell) - firstCell;
 
                         splitCuts[^1] = cells;
                         bool legal = true;
@@ -321,10 +322,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// play would ignore is never stored in the first place; and with the editor's operations, which
         /// refuse to author one.</para>
         /// </summary>
-        internal static List<WordPause> UsableRests(string token, double unitStart, double unitEnd, IEnumerable<WordPause> pauses)
+        internal static List<WordPause> UsableRests(string token, double unitStart, double unitEnd, IEnumerable<WordPause> pauses, Func<char, bool>? isCell = null)
         {
+            isCell ??= Typeability.IsCell;
             var rests = new List<WordPause>();
-            int totalCells = Typeability.TypeableCount(token);
+            int totalCells = token.Count(c => isCell(c));
 
             foreach (var pause in pauses.OrderBy(p => p.StartTime))
             {
@@ -332,7 +334,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     continue;
 
                 int cut = Math.Clamp(pause.SplitChar, 0, token.Length);
-                int cells = cellsBefore(token, cut);
+                int cells = cellsBefore(token, cut, isCell);
 
                 if (cells <= 0 || cells >= totalCells)
                     continue;
@@ -398,13 +400,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>
         /// How many of a token's typeable cells sit before <paramref name="charIndex"/>.
         /// </summary>
-        private static int cellsBefore(string token, int charIndex)
+        private static int cellsBefore(string token, int charIndex, Func<char, bool> isCell)
         {
             int cells = 0;
 
             for (int i = 0; i < charIndex && i < token.Length; i++)
             {
-                if (Typeability.IsCell(token[i]))
+                if (isCell(token[i]))
                     cells++;
             }
 

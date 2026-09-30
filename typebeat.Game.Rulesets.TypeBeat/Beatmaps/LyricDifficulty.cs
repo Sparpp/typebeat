@@ -390,7 +390,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         internal static ModelResult ComputeDetail(IEnumerable<LyricLine> lines, double rate, bool literate, EnduranceAxis enduranceAxis, JudgementArm judgementArm, LyricScoreSource scores)
         {
-            var lineList = lines as IReadOnlyList<LyricLine> ?? lines.ToList();
+            var lineList = lines.ToList();
 
             if (enduranceAxis == EnduranceAxis.Chunked)
             {

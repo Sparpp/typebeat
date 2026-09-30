@@ -21,9 +21,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// so judgement deltas recompute bit-identically.</item>
     /// <item><see cref="Character"/> is the exact character fed to the engine, AFTER keyboard-layout
     /// remapping and Shift application (so it carries the case the Literate mod judges on, and is
-    /// independent of the player's physical layout). Three sentinels reuse ASCII control codes:
+    /// independent of the player's physical layout). Control sentinels reuse ASCII control codes:
     /// <see cref="BACKSPACE"/> (0x08) is a backspace erase, <see cref="ENTER"/> (0x0A) is a line
-    /// skip (backlog 241), and <see cref="CONFIG"/> (0x00) is a
+    /// skip (backlog 241), <see cref="RUSH_CAP_REMOVED"/> (0x01) disables the old combo cutoff,
+    /// and <see cref="CONFIG"/> (0x00) is a
     /// settings header frame carrying the judgement-relevant settings as BITS: bit 0
     /// <see cref="AllowWrongInput"/> (the wrong-key model the run was judged under), bit 1
     /// <see cref="SpaceSkipsWord"/> (whether a space pressed inside a word abandoned it), bit 2
@@ -56,7 +57,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// the map's first vocal opened the first line, rather than being refused until the line's own
     /// activation).
     /// Other mods
-    /// (Literate/Mashing/rate) travel in the score itself and need no frames.
+    /// (Literate/Polyglot/Mashing/rate) travel in the score itself and need no frames.
     ///
     /// <para>Backlog 107 turned that model from a local SETTING into a mod (Gatekeeper), so it now
     /// travels in the score's mods too, and the header frame is kept anyway, for two reasons. It is
@@ -82,15 +83,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// to the encoder as the single bit was, and each new bit is appended ABOVE the existing ones,
     /// never renumbered: bits 0 to 4 keep their meaning and their positions untouched, so every
     /// replay already on disk decodes identically and simply reads false for the newer bits. All
-    /// typeable characters (a-z, A-Z, 0-9, space, plus the Literate mod's punctuation, whose
-    /// highest code point is ']' at 0x5D) and all three sentinels are far below the decoder's
+    /// typeable characters (including Polyglot's BMP Unicode characters, at most 0xFFFF)
+    /// and all control sentinels are below the decoder's
     /// coordinate parse limits and its (256, -500) stable-header positions, so no stable fixup can
     /// mangle them. Bits 8, 9 and 10 push the flags word itself to 256 and then past 512 and 1024,
     /// and the safety
     /// argument does not depend on the word's size at all: the stable-header strip matches the
     /// POSITION PAIR (256, -500) exactly, and a CONFIG frame's MouseX is 0x00 with a MouseY that is
     /// never negative, so neither coordinate can match whatever the flags word grows to. The
-    /// sentinels sit at 0x00, 0x08 and 0x0A, below every printable mark, so nothing
+    /// sentinels sit at 0x00, 0x01, 0x08 and 0x0A, below every printable mark, so nothing
     /// collides. Bit 12 pushed the word to 4096 and the ceiling to 8191, and bit 13 pushes them to
     /// 8192 and 16383, and bit 14 to 16384 and 32767; none of them changes anything about that
     /// argument, which never depended on the
@@ -101,8 +102,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <c>Parsing.ParseFloat(..., Parsing.MAX_COORDINATE_VALUE)</c>, which THROWS above 131072.
     /// Bit 15 took the word to 32768 and its ceiling to 65535, and bit 16 takes them to 65536 and
     /// 131071, one below that limit. A bit 17 would push a fully set word to 262143 and make the
-    /// replay undecodable, so the next era needs another carrier (or the decoder's limit raised for
-    /// this ruleset, the way MouseX's already is for mania) before it can be added here.</para>
+    /// replay undecodable, so the rush-cap era uses the separate
+    /// <see cref="RUSH_CAP_REMOVED"/> control frame.</para>
     ///
     /// <para><b>The WALL-CLOCK axis (bit 9, backlog 256).</b> Ordinarily a frame's time is a lyric
     /// time and can be fed to the engine as it stands. Under the Puppeteer mod the song's position
@@ -145,8 +146,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public const char CONFIG = '\0';
 
         /// <summary>
+        /// Header extension for runs played without the five-character combo cutoff. The CONFIG
+        /// flags word is full, so this control frame follows it at the same timestamp.
+        /// Older clients ignore unknown control characters rather than typing them.
+        /// </summary>
+        public const char RUSH_CAP_REMOVED = '\x01';
+
+        /// <summary>
         /// The character fed to the engine (layout-remapped, Shift-cased), or a sentinel
-        /// (<see cref="BACKSPACE"/>/<see cref="ENTER"/>/<see cref="CONFIG"/>). Never a sentinel value for real typing:
+        /// (<see cref="BACKSPACE"/>/<see cref="ENTER"/>/<see cref="CONFIG"/>/<see cref="RUSH_CAP_REMOVED"/>). Never a sentinel value for real typing:
         /// the typeable surface is a-z/A-Z/0-9/space, widened under the Literate mod by the
         /// supported punctuation marks, all of them printable ASCII. Under the Polyglot mod (backlog
         /// 331) it is any character of the original script, which the legacy frame's MouseX float holds
@@ -420,6 +428,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool IsEnter => Character == ENTER;
 
         public bool IsConfig => Character == CONFIG;
+
+        public bool IsRushCapRemoved => Character == RUSH_CAP_REMOVED;
 
         public TypeBeatReplayFrame()
         {

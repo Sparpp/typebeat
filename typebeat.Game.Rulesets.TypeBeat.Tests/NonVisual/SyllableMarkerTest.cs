@@ -13,7 +13,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
     /// The SYLLABLE MARKERS (backlog 225): the tiny triangles drawn in the inter-character gap at
-    /// each mid-word syllable boundary of a word the mapper SUBDIVIDED.
+    /// each mid-word syllable boundary, including automatically split words.
     /// <see cref="TypingLine.SyllableMarkerCells"/> is the whole rule, so pinning it pins the
     /// feature; the display does nothing but hang a drawable off each cell it names.
     ///
@@ -22,9 +22,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// <item>A mark can never DISAGREE with judgement, because it is read off the compacted syllable
     /// groups rather than re-derived: every marker cell opens a different group from the cell to its
     /// left. That is the pin that would fail if anyone re-implemented the placement anywhere else.</item>
-    /// <item>The gate is "the mapper subtimed this word", not "this word has two syllables". A word
-    /// the SYLLABIFIER happily splits gets groups, a highlight and span judgement, and NO marks.
-    /// That asymmetry is deliberate: the mark says a human authored a subdivision here.</item>
+    /// <item>A naturally split word gets the same markers as an authored subdivision, while a
+    /// stylised word the syllabifier leaves ungrouped has no boundaries to mark.</item>
     /// </list>
     /// </summary>
     [TestFixture]
@@ -66,35 +65,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// THE GATE. A word with no <see cref="TimedUnit.SyllableBoundaries"/> gets no marks at all,
-        /// even though the syllabifier splits it happily and the engine really does group and light
-        /// it. Nothing about that word's rendering changes from before the feature.
+        /// A word without authored boundaries still shows the boundaries of its naturally derived
+        /// syllable groups.
         /// </summary>
         [Test]
-        public void AWordWithNoBoundariesIsNeverMarked()
+        public void AWordWithNoAuthoredBoundariesShowsAutomaticMarkers()
         {
             var line = TypingLine.FromLyricLine(
                 lineOf("banana", 1000, 2000, unit("banana", 1000, 1600, Array.Empty<int>())));
 
             Assert.That(Syllabifier.IsSyllabifiable("banana"), Is.True, "the syllabifier would split it");
             Assert.That(line.Syllables.Count, Is.GreaterThan(1), "and the engine does group it");
-            Assert.That(line.SyllableMarkerCells, Is.Empty, "but nobody authored those boundaries");
+            Assert.That(line.SyllableMarkerCells, Is.EqualTo(new[] { 2, 4 }));
+            assertMarksSitOnGroupEdges(line);
         }
 
         /// <summary>
-        /// One line, one subtimed word and one that is not: the marks appear only inside the word
-        /// the mapper subdivided, and the word beside it renders exactly as it always has.
+        /// One line, one authored word and one automatically split word: both show the interior
+        /// syllable boundaries, without a mark on the space between words.
         /// </summary>
         [Test]
-        public void OnlyTheSubtimedWordOfALineIsMarked()
+        public void AuthoredAndAutomaticWordsAreBothMarked()
         {
             var line = TypingLine.FromLyricLine(
-                lineOf("banana orange", 1000, 2200,
+                lineOf("banana banana", 1000, 2200,
                     unit("banana", 1000, 1600, Array.Empty<int>(), 1200, 1400),
-                    unit("orange", 1700, 2100, Array.Empty<int>())));
+                    unit("banana", 1700, 2100, Array.Empty<int>())));
 
-            Assert.That(line.DisplayText, Is.EqualTo("banana orange"));
-            Assert.That(line.SyllableMarkerCells, Is.EqualTo(new[] { 2, 4 }), "nothing past the space cell at 6");
+            Assert.That(line.DisplayText, Is.EqualTo("banana banana"));
+            Assert.That(line.SyllableMarkerCells, Is.EqualTo(new[] { 2, 4, 9, 11 }), "no mark on the space cell at 6");
             assertMarksSitOnGroupEdges(line);
         }
 

@@ -81,14 +81,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// where the map's playhead speeds up and green where it slows down. The stage supplies the
     /// colours; nothing here computes one.</para>
     ///
-    /// <para>An opt-in SPACE ERROR DOT (see <see cref="ComputeSpaceErrorDots"/>) marks a word left
-    /// carrying an error once the player has spaced past it. It is an overlay drawable per word gap,
+    /// <para>An opt-in SPACE ERROR DOT (see <see cref="ComputeSpaceErrorDots"/>) marks a wrong
+    /// character typed into a space between words. It is an overlay drawable per word gap,
     /// kept out of the auto-size box like the retype selection, so the setting can never move a
-    /// character; off by default, the state it reads is pulled like every other cell state.</para>
+    /// character; the state it reads is pulled like every other cell state.</para>
     ///
     /// <para>SYLLABLE MARKERS (backlog 225) draw a tiny apex-up triangle in the inter-character gap
-    /// at each mid-word syllable boundary of a SUBTIMED word, so the subdivision span judgement
-    /// paces on is visible before it is heard. The cells are <see cref="TypingLine.SyllableMarkerCells"/>,
+    /// at each mid-word syllable boundary, whether authored or automatically derived, so the
+    /// syllable span judgement is visible before it is heard. The cells are <see cref="TypingLine.SyllableMarkerCells"/>,
     /// derived with the groups themselves; nothing about the geometry is recomputed here. On by
     /// default, and the same drawables on an active line and a preview one, so the dim ladder
     /// carries them for free (<see cref="SetLineDim"/> fades the whole content container).</para>
@@ -96,7 +96,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     public partial class LyricLineDisplay : CompositeDrawable
     {
         private const float design_width = 1366f;
-        private const float max_width_fraction = 0.9f;
+        public const float MAX_WIDTH_FRACTION = 0.9f;
+        private float maxLineWidth = design_width * MAX_WIDTH_FRACTION;
 
         public TypingLine Line { get; }
 
@@ -125,12 +126,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private Container content = null!;
 
         // --- The sung-sweep underline ---
-        // The TRACK is the faint full-line rail; it is one Box per pace band
-        // rather than one Box for the whole line, so each band can carry the selected pace hue
-        // (see UnderlinePace). The bands tile the line exactly, so their union is
-        // still the full-width rail the layout has always pinned itself on, and a display built with
-        // no bands gets a single neutral band covering the whole line: byte-identical to pre-228.
+        // The track is a solid core per pace band plus a short gradient at each interior boundary.
+        // Together they tile the full-width rail; a display with no bands gets one neutral core.
         private Box[] sweepTracks = Array.Empty<Box>();
+        private Box[] sweepBlends = Array.Empty<Box>();
         private PaceBand[] trackBands = Array.Empty<PaceBand>();
         private Box sweepFill = null!;
         private Box sweepGlow = null!;
@@ -155,7 +154,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private bool spaceErrorDotsDirty;
 
         // --- Syllable markers (backlog 225, opt-out) ---
-        // One tiny apex-up triangle per MID-WORD syllable boundary of a subtimed word, drawn in the
+        // One tiny apex-up triangle per MID-WORD syllable boundary, drawn in the
         // inter-character gap the boundary falls in. The cells come from the line itself
         // (TypingLine.SyllableMarkerCells), never from anything measured here, so the mark and the
         // judgement group read one derivation. Their POSITIONS are fixed for the line's whole
@@ -213,6 +212,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>Effective on-screen height of a glyph row (after auto-shrink scaling).</summary>
         public float LineHeight => glyphHeight * contentScale;
 
+        /// <summary>
+        /// Limit this line to the available playfield width. Each display keeps its own scale, so
+        /// a long line can shrink without making the other lines smaller.
+        /// </summary>
+        public bool SetMaximumWidth(float width)
+        {
+            if (width <= 0 || Math.Abs(maxLineWidth - width) < 0.1f)
+                return false;
+
+            maxLineWidth = width;
+
+            if (IsLoaded)
+                measureAndLayout();
+
+            return true;
+        }
+
         /// <summary>Effective on-screen advance of a specific cell (after auto-shrink scaling):
         /// the width a cell-covering caret style (block/outline/underline) spans there. Advances
         /// are proportional, so this varies per cell; past-the-end uses the last cell's width.</summary>
@@ -268,6 +284,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// -1 = none. Stage-fed (see <see cref="SetSungSyllable"/>); time-driven state, so it lives
         /// beside the sung sweep rather than in the pull-based cell states.</summary>
         private int sungSyllable = -1;
+        private bool[] litSyllables = Array.Empty<bool>();
+        private float sungBrightness = 50f;
 
         /// <summary>
         /// This line's pace-band geometry and initial relative colours. The owning stage computes
@@ -280,6 +298,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                                 IReadOnlyList<PaceBand>? paceBands = null)
         {
             Line = line;
+            litSyllables = new bool[line.Syllables.Count];
             requestedFontSize = fontSize;
             this.fontFamily = fontFamily;
             this.paceBands = paceBands;
@@ -327,6 +346,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             foreach (var track in sweepTracks)
                 content.Add(track);
+
+            foreach (var blend in sweepBlends)
+                content.Add(blend);
 
             content.Add(sweepFill);
             content.Add(sweepGlow);
@@ -401,7 +423,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <para>Three properties of the OLD single track are preserved deliberately, because
         /// dropping any of them breaks something that is not about colour:</para>
         /// <list type="bullet">
-        /// <item>The bands TILE the line, with no hole at the start or the end, so their union is
+        /// <item>The cores and blends TILE the line, with no hole at the start or the end, so their union is
         /// still exactly the full-width rail.</item>
         /// <item>Every band is <c>AlwaysPresent</c>, so the auto-size container keeps its width and
         /// its lower vertical extent even when the flashlight has faded the whole rail to alpha 0.
@@ -441,6 +463,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             trackBands = bands.ToArray();
             sweepTracks = new Box[trackBands.Length];
+            sweepBlends = new Box[Math.Max(0, trackBands.Length - 1)];
 
             for (int k = 0; k < trackBands.Length; k++)
             {
@@ -448,6 +471,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 {
                     Colour = trackBands[k].Colour,
                     Height = SWEEP_RAIL_HEIGHT * SizeRatio,
+                    Anchor = Anchor.TopLeft,
+                    Origin = Anchor.TopLeft,
+                    AlwaysPresent = true,
+                };
+            }
+
+            for (int k = 0; k < sweepBlends.Length; k++)
+            {
+                sweepBlends[k] = new Box
+                {
+                    Height = 3,
                     Anchor = Anchor.TopLeft,
                     Origin = Anchor.TopLeft,
                     AlwaysPresent = true,
@@ -469,10 +503,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private void applyPaceColours()
         {
+            bool coloured = selectedPaceBands?.Count == sweepTracks.Length;
+
             for (int i = 0; i < sweepTracks.Length; i++)
-                sweepTracks[i].Colour = selectedPaceBands?.Count == sweepTracks.Length
-                    ? selectedPaceBands[i].Colour
+                sweepTracks[i].Colour = coloured
+                    ? selectedPaceBands![i].Colour
                     : UnderlinePace.NeutralColour;
+
+            for (int i = 0; i < sweepBlends.Length; i++)
+                sweepBlends[i].Colour = ColourInfo.GradientHorizontal(
+                    coloured ? selectedPaceBands![i].Colour : UnderlinePace.NeutralColour,
+                    coloured ? selectedPaceBands![i + 1].Colour : UnderlinePace.NeutralColour);
         }
 
         /// <summary>
@@ -527,7 +568,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// pixel or two the moment it lit. Bypassing makes "turning this on moves no character"
         /// structural instead of a property of the numbers.</para>
         ///
-        /// <para>A line with no subtimed word (which is most lines) allocates nothing and does no
+        /// <para>A line with no mid-word syllable boundary allocates nothing and does no
         /// per-frame work at all.</para>
         /// </summary>
         private void addSyllableMarkers(int n)
@@ -734,7 +775,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             cellX[n] = x;
 
+
             applyFit();
+
 
             for (int i = 0; i < n; i++)
                 cells[i].Position = new Vector2(cellX[i] + advances[i] * 0.5f, glyphHeight * 0.5f);
@@ -751,18 +794,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 gapDots[k].Position = new Vector2(cellX[i] + advances[i] * 0.5f, glyphHeight * 0.5f);
             }
 
-            // Each pace band spans exactly its own cells' x-extent, off the same measured edges the
-            // glyphs sit on; the bands tile the line, so the union is still cellX[n] wide.
+
+            // Solid cores and short gradients meet without overlap. Each gradient straddles one
+            // band boundary, so adjacent hues ease together while most of each band stays solid.
             float railOffset = SWEEP_RAIL_OFFSET * SizeRatio;
             float railY = glyphHeight + railOffset;
+            var blendWidths = new float[sweepBlends.Length];
+
+            for (int k = 0; k < sweepBlends.Length; k++)
+            {
+                float boundary = cellX[Math.Clamp(trackBands[k].EndCellExclusive, 0, n)];
+                float leftWidth = boundary - cellX[Math.Clamp(trackBands[k].StartCell, 0, n)];
+                float rightWidth = cellX[Math.Clamp(trackBands[k + 1].EndCellExclusive, 0, n)] - boundary;
+                float width = Math.Max(0, Math.Min(10f, Math.Min(leftWidth, rightWidth) * 0.25f));
+
+                blendWidths[k] = width;
+                sweepBlends[k].X = boundary - width * 0.5f;
+                sweepBlends[k].Width = width;
+                sweepBlends[k].Y = railY;
+            }
+
 
             for (int k = 0; k < sweepTracks.Length; k++)
             {
                 float left = cellX[Math.Clamp(trackBands[k].StartCell, 0, n)];
                 float right = cellX[Math.Clamp(trackBands[k].EndCellExclusive, 0, n)];
+                float coreLeft = left + (k > 0 ? blendWidths[k - 1] * 0.5f : 0);
+                float coreRight = right - (k < blendWidths.Length ? blendWidths[k] * 0.5f : 0);
 
-                sweepTracks[k].X = left;
-                sweepTracks[k].Width = Math.Max(0f, right - left);
+                sweepTracks[k].X = coreLeft;
+                sweepTracks[k].Width = Math.Max(0f, coreRight - coreLeft);
                 sweepTracks[k].Y = railY;
             }
 
@@ -805,7 +866,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             fittedWidth = availableWidth;
 
             float total = cellX[^1];
-            float maxWidth = fittedWidth * max_width_fraction;
+            float maxWidth = fittedWidth * MAX_WIDTH_FRACTION;
             contentScale = total > maxWidth && total > 0f ? maxWidth / total : 1f;
             content.Scale = new Vector2(contentScale);
         }
@@ -1022,7 +1083,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// the syllable highlight may repaint it (see <see cref="refreshFreestyleCell"/>; an
         /// exclusion, not an oversight).</para>
         /// </summary>
-        public static Color4 CellFillColour(CellState state, bool isFreestyle, bool inSungSyllable, double? syncQuality)
+        public static Color4 CellFillColour(CellState state, bool isFreestyle, bool inSungSyllable, double? syncQuality, float sungBrightness = 50f)
         {
             if (isFreestyle)
                 return TypeBeatStyle.FreestyleChar;
@@ -1043,7 +1104,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // The one addition to the classic painting: the group the vocals are on lifts to
                     // a lighter grey, so where the song is up to stays legible from the characters
                     // even when the playhead is switched off, without claiming they were typed.
-                    return inSungSyllable ? TypeBeatStyle.SungChar : TypeBeatStyle.UntypedChar;
+                    return inSungSyllable ? TypeBeatStyle.SungCharForBrightness(sungBrightness) : TypeBeatStyle.UntypedChar;
 
                 default: // Missed, Abandoned, AutoSkipped
                     // Lost or given up, and the highlight is only for characters that can still be
@@ -1210,36 +1271,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public static bool IsWordGap(TypingCell cell) => cell.IsTypeable && cell.Expected == ' ';
 
         /// <summary>
-        /// The SPACE ERROR DOT rule (backlog 197), one flag per cell, true only on a gap that has
-        /// earned a dot: the player left the word before it carrying an error and then spaced onward
-        /// past it, or the gap itself holds an unfixed typo, so a small red interpunct is drawn in
-        /// that gap (the TypeGG-style indicator). On by default since PR 2, purely visual, and
-        /// nothing about scoring, judgement, the replay or the wire reads this.
-        ///
-        /// <para>Three decisions, each of which is what a repaint re-reads rather than something
-        /// remembered from when it happened:</para>
-        /// <list type="bullet">
-        /// <item>THE GAP IS ITS OWN CELL (<see cref="IsWordGap"/>), so the dot sits in the boundary
-        /// between two words rather than on either of them.</item>
-        /// <item>SPACED ONWARD means that gap cell is <see cref="CellState.Correct"/>: the space was
-        /// accepted. A gap still <see cref="CellState.Untyped"/> has not been passed yet, and
-        /// backspacing an accepted space puts the gap back to Untyped, which takes the dot away with
-        /// it. A gap holding a typo is <see cref="CellState.Wrong"/> and is dotted on its own
-        /// account, flawed word or not (see the rule body); <see cref="GapGlyph"/> then draws the
-        /// dot INSTEAD of the offending character, so the two never stack in one slot.</item>
-        /// <item>LEFT FLAWED means any TYPEABLE non-gap cell in the contiguous run before that gap
-        /// (back to the previous gap, or the line start) is <see cref="CellState.Wrong"/>,
-        /// <see cref="CellState.Missed"/> or <see cref="CellState.Abandoned"/>. Abandoned counts: a
-        /// word given up to a skip was left with an error in it. Because the state is re-read on
-        /// every repaint, reclaiming that word (backspacing into it, which returns those cells to
-        /// Untyped) clears its dot on its own. <see cref="CellState.AutoSkipped"/> cannot arise here:
-        /// the engine only ever sets it on NON-typeable cells, which are excluded anyway.</item>
-        /// </list>
-        ///
-        /// <para>A gap's own state never flaws the word AFTER it: the run restarts at each gap, so a
-        /// spoiled boundary is charged to the boundary and not to the next word. Pure, so it is
-        /// unit-testable beside <see cref="CellFillColour"/> and
-        /// <see cref="ComputeWindowAlphas(IReadOnlyList{TypingCell}, LineWindow, float)"/>.</para>
+        /// The space error dot marks only a wrong character currently typed into a word-gap cell.
+        /// A skipped word, an accepted space, or a typo in a lyric character does not dot the gap.
+        /// The rule reads current cell state, so backspacing a gap typo clears it immediately.
         /// </summary>
         public static bool[] ComputeSpaceErrorDots(IReadOnlyList<TypingCell> cells)
         {
@@ -1248,52 +1282,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             return result;
         }
 
-        /// <summary>The rule itself, writing into a caller-owned buffer so the renderer's per-frame
-        /// path allocates nothing. <paramref name="into"/> must be at least as long as
-        /// <paramref name="cells"/>.</summary>
+        /// <summary>Write the current gap-typo flags into a caller-owned buffer without allocations.</summary>
         private static void computeSpaceErrorDots(IReadOnlyList<TypingCell> cells, bool[] into)
         {
-            int n = cells.Count;
-            bool flawed = false;
-
-            for (int i = 0; i < n; i++)
-            {
-                var cell = cells[i];
-
-                if (IsWordGap(cell))
-                {
-                    // THE DOT ANSWERS TWO QUESTIONS, and the second one is the gap's own error.
-                    //
-                    //   * The WORD behind the gap was left flawed and the player has SPACED PAST it
-                    //     (Correct) - the original rule, and the one a clean run past a mistyped word
-                    //     still reads.
-                    //   * The GAP ITSELF is holding an unfixed typo: state Wrong. Under Space to Skip
-                    //     a wrong letter lands IN the space and parks the caret there (backlog 184), so
-                    //     the error lives in the gap and nowhere else, and nothing behind it needs to
-                    //     be flawed for the player to have something to fix.
-                    //
-                    // THE STATE, NOT THE CHARACTER, is what says the gap holds a mistake. A CORRECT
-                    // space records its character too (the engine keeps TypedChar through every
-                    // resolution), so keying the gap's own error on TypedChar != null dotted every word
-                    // the player simply passed - the marker appeared all over a clean line. Either way
-                    // the mark itself is the dot when the setting is on and the character when it is
-                    // off (see GapGlyph), so the two never stack in the same slot.
-                    into[i] = cell.State == CellState.Wrong || (flawed && cell.State == CellState.Correct);
-                    flawed = false;
-                    continue;
-                }
-
-                into[i] = false;
-
-                if (cell.IsTypeable && isFlawState(cell.State))
-                    flawed = true;
-            }
+            for (int i = 0; i < cells.Count; i++)
+                into[i] = IsWordGap(cells[i]) && cells[i].State == CellState.Wrong && cells[i].TypedChar.HasValue;
         }
-
-        /// <summary>A cell state that leaves its word flawed: typed wrong, run out of time on, or
-        /// given up to a word skip.</summary>
-        private static bool isFlawState(CellState state)
-            => state == CellState.Wrong || state == CellState.Missed || state == CellState.Abandoned;
 
         /// <summary>
         /// Turn the space error dots on or off for this line (the user setting, live-bound by
@@ -1462,9 +1456,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 ? SyncWindows.Default.SyncQuality(delta)
                 : null;
 
-            bool inSungSyllable = sungSyllable >= 0 && Line.SyllableIndexOf(cellIndex) == sungSyllable;
+            int group = Line.SyllableIndexOf(cellIndex);
+            bool inSungSyllable = group >= 0 && group < litSyllables.Length && litSyllables[group];
 
-            cell.Colour = CellFillColour(source.State, isFreestyle: false, inSungSyllable, syncQuality);
+            cell.Colour = CellFillColour(source.State, isFreestyle: false, inSungSyllable, syncQuality, sungBrightness);
             // A WORD GAP is the one cell whose glyph is not fixed at construction: a typo landing on
             // it shows the typed char, and every other state shows the space back (see CellGlyph).
             // Scoped to the gap rather than asserted for every cell so a lyric character's Text is
@@ -1527,7 +1522,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // Routed through CellFillColour so the exclusion is the rendered path, not a parallel
             // truth: freestyle identity wins over the sung highlight as well as over the sync ramp.
             cell.Colour = CellFillColour(source.State, isFreestyle: true,
-                inSungSyllable: sungSyllable >= 0 && Line.SyllableIndexOf(cellIndex) == sungSyllable, syncQuality: null);
+                inSungSyllable: sungSyllable >= 0 && Line.SyllableIndexOf(cellIndex) == sungSyllable, syncQuality: null, sungBrightness);
 
             cellStateAlpha[cellIndex] = source.State switch
             {
@@ -1611,31 +1606,55 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             sweepGlow.Alpha = localX > 0.5f ? 0.9f : 0f;
         }
 
-        /// <summary>
-        /// The sung highlight's sibling of <see cref="SetSungPosition"/>: the stage feeds the index
-        /// of the group currently being sung (-1 = none) each frame, alongside the sweep position
-        /// rather than instead of it (backlog 177: the lit group shows under every playhead style,
-        /// and CaretStyle.None only stops the sweep being fed), and
-        /// the Untyped cells of that group lift to <see cref="TypeBeatStyle.SungChar"/>
-        /// (see <see cref="CellFillColour"/>).
-        /// Cheap to call every frame: nothing repaints until the index CHANGES, and then only the
-        /// cells whose colour actually depends on it, the untyped non-freestyle cells of the old
-        /// and new groups, not the whole line. Membership is read through
-        /// <see cref="TypingLine.SyllableIndexOf"/>, never by range: a hyphen-turned-space cell can
-        /// sit positionally inside a group's cell range while being in no group. Coverage is partial
-        /// by design since backlog 178 (a stylised word gets no groups at all), which this loop
-        /// already tolerates: it walks a group's own cell range and skips anything not in the group.
-        /// </summary>
+        /// <summary>Light exactly one syllable, or clear all groups with -1.</summary>
         public void SetSungSyllable(int index)
         {
-            if (index == sungSyllable)
-                return;
-
-            int previous = sungSyllable;
             sungSyllable = index;
 
-            repaintUntypedCellsOf(previous);
-            repaintUntypedCellsOf(index);
+            for (int g = 0; g < litSyllables.Length; g++)
+            {
+                bool lit = g == index;
+                if (litSyllables[g] == lit)
+                    continue;
+
+                litSyllables[g] = lit;
+                repaintUntypedCellsOf(g);
+            }
+        }
+
+        /// <summary>Light every syllable from GreatEarly before its start through GreatLate after its end.</summary>
+        public void SetSungWindow(double time, double greatEarly, double greatLate)
+        {
+            int primary = -1;
+
+            for (int g = 0; g < litSyllables.Length; g++)
+            {
+                var group = Line.Syllables[g];
+                bool lit = time >= group.StartTime - greatEarly && time <= group.EndTime + greatLate;
+                if (lit && (primary < 0 || time >= group.StartTime && time <= group.EndTime))
+                    primary = g;
+
+                if (litSyllables[g] == lit)
+                    continue;
+
+                litSyllables[g] = lit;
+                repaintUntypedCellsOf(g);
+            }
+
+            sungSyllable = primary;
+        }
+
+        /// <summary>Adjust the highlight colour during play without changing cell states.</summary>
+        public void SetSungBrightness(float percent)
+        {
+            float value = Math.Clamp(percent, 0f, 100f);
+            if (sungBrightness == value)
+                return;
+
+            sungBrightness = value;
+            for (int g = 0; g < litSyllables.Length; g++)
+                if (litSyllables[g])
+                    repaintUntypedCellsOf(g);
         }
 
         /// <summary>The group index last fed to <see cref="SetSungSyllable"/>; test support.</summary>
@@ -1714,6 +1733,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 foreach (var track in sweepTracks)
                     track.FadeTo(target, flashlight_fade_ms);
 
+                foreach (var blend in sweepBlends)
+                    blend.FadeTo(target, flashlight_fade_ms);
+
                 sweepFill.FadeTo(target, flashlight_fade_ms);
 
                 if (!showSweep)
@@ -1738,6 +1760,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 foreach (var track in sweepTracks)
                     track.FadeTo(0f, flashlight_fade_ms);
+
+                foreach (var blend in sweepBlends)
+                    blend.FadeTo(0f, flashlight_fade_ms);
 
                 sweepFill.FadeTo(0f, flashlight_fade_ms);
                 sweepGlow.FadeTo(0f, flashlight_fade_ms);
@@ -2047,6 +2072,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 foreach (var track in sweepTracks)
                     alpha = Math.Max(alpha, track.Alpha);
 
+                foreach (var blend in sweepBlends)
+                    alpha = Math.Max(alpha, blend.Alpha);
+
                 return alpha;
             }
         }
@@ -2109,11 +2137,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <see cref="SweepTrackAlpha"/> carries for the rail as a whole.</summary>
         public float PaceTrackAlpha(int index) => index >= 0 && index < sweepTracks.Length ? sweepTracks[index].Alpha : 0f;
 
-        /// <summary>A pace band's content-local width; test support for the tiling pin.</summary>
-        public float PaceTrackWidth(int index) => index >= 0 && index < sweepTracks.Length ? sweepTracks[index].Width : 0f;
+        /// <summary>A pace band's full logical width, including its halves of neighbouring blends.</summary>
+        public float PaceTrackWidth(int index) => index >= 0 && index < trackBands.Length
+            ? cellX[trackBands[index].EndCellExclusive] - cellX[trackBands[index].StartCell] : 0f;
 
-        /// <summary>A pace band's content-local left edge; test support for the tiling pin.</summary>
-        public float PaceTrackX(int index) => index >= 0 && index < sweepTracks.Length ? sweepTracks[index].X : 0f;
+        /// <summary>A pace band's full logical left edge.</summary>
+        public float PaceTrackX(int index) => index >= 0 && index < trackBands.Length
+            ? cellX[trackBands[index].StartCell] : 0f;
 
         /// <summary>The half-open cell range a pace band covers; test support.</summary>
         public (int StartCell, int EndCellExclusive) PaceTrackRange(int index) =>

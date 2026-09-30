@@ -388,13 +388,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// A typo on the WORD GAP (possible since backlog 181, where a wrong letter lands in the gap
-        /// cell) anchors on the GAP itself, not on the word in front of it. The gap is the cell that
-        /// has to be retyped and it belongs to no word, so walking back from it would swallow a
-        /// perfectly good word for nothing.
+        /// A typo on the word gap selects the preceding word too, so retyping begins at its start.
         /// </summary>
         [Test]
-        public void AGapTypoAnchorsOnTheGapItself()
+        public void AGapTypoAnchorsOnThePrecedingWord()
         {
             var engine = started();
 
@@ -406,7 +403,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.Multiple(() =>
             {
                 Assert.That(cells(engine)[2].State, Is.EqualTo(CellState.Wrong));
-                Assert.That(engine.RetypeSelectionAnchor, Is.EqualTo(2), "the gap, so \"ab\" is left alone");
+                Assert.That(engine.RetypeSelectionAnchor, Is.Zero, "the preceding word is selected with the gap");
             });
         }
 

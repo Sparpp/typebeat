@@ -28,6 +28,8 @@ namespace typebeat.Game.Skinning
 
         private Container? content;
 
+        private readonly Func<Container>? createDefaultComponents;
+
         /// <summary>
         /// The lookup criteria which will be used to retrieve components from the active skin.
         /// </summary>
@@ -43,9 +45,10 @@ namespace typebeat.Game.Skinning
 
         private CancellationTokenSource? cancellationSource;
 
-        public SkinnableContainer(GlobalSkinnableContainerLookup lookup)
+        public SkinnableContainer(GlobalSkinnableContainerLookup lookup, Func<Container>? createDefaultComponents = null)
         {
             Lookup = lookup;
+            this.createDefaultComponents = createDefaultComponents;
         }
 
         public void Reload() => Reload((
@@ -59,7 +62,7 @@ namespace typebeat.Game.Skinning
             components.Clear();
             ComponentsLoaded = false;
 
-            content = componentsContainer ?? new Container
+            content = componentsContainer ?? createDefaultComponents?.Invoke() ?? new Container
             {
                 RelativeSizeAxes = Axes.Both
             };

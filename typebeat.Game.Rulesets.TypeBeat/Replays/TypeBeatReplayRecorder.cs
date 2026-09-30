@@ -25,7 +25,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// bound and first-char timing), so playback
     /// can reproduce judgement regardless of
     /// the watching machine's local config, and regardless of which JUDGEMENT ERA the client watching
-    /// it ships.
+    /// it ships. New runs also carry a control frame after CONFIG when the rush cap is disabled.
     ///
     /// <para><b>THE FRAME AXIS (backlog 256).</b> Ordinarily a frame's time is the lyric time the
     /// engine was fed at, and that is the whole of it. Under the PUPPETEER mod the song's position
@@ -89,6 +89,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 double configTime = wallStamped ? AnchorTimeFor(puppeteer!.AnchorMs!.Value) : time;
 
                 emit(TypeBeatReplayFrame.CreateConfigFrame(configTime, engine.AllowWrongInput, engine.SpaceSkipsWord, engine.SyllableTiming, engine.WrongInputOnWordGaps, engine.StrictSpaces, engine.CharTimedStretch, flexibleLines: engine.FlexibleLineSnap, boundedRush: engine.BoundedRush, firstCharTiming: engine.FirstCharTiming, wallClockFrames: wallStamped, backDatedSealBreak: engine.BackDatedSealBreak, losslessSkipReclaim: engine.LosslessSkipReclaim, foldsDisplacedClaim: engine.FoldsDisplacedClaim, unhalvedHardRockWindows: engine.UnhalvedHardRockWindows, manualNewlines: engine.ManualNewlines, newlineOnTypedLetter: engine.NewlineOnTypedLetter, firstLineLeadIn: engine.FirstLineLeadIn));
+
+                if (engine.RushCapExempt)
+                    emit(new TypeBeatReplayFrame(configTime, TypeBeatReplayFrame.RUSH_CAP_REMOVED));
             }
 
             emit(new TypeBeatReplayFrame(StampFor(puppeteer, wallStamped, time), character));
