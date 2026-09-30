@@ -200,7 +200,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         PaceColourMaxChange,
 
         /// <summary>How far sung syllables brighten from untyped grey towards typed white.</summary>
-        SyllableBrightness
+        SyllableBrightness,
+
+        /// <summary>Subtle text growth finishing at the early Great window. Display only.</summary>
+        TextPopIn,
+
+        /// <summary>How much smaller upcoming text starts, as a percentage of its full size.</summary>
+        TextPopInAmount
     }
 
     /// <summary>
@@ -267,6 +273,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// <summary>Caret smoothing for a player who has not changed the slider.</summary>
         public const float DEFAULT_CARET_SMOOTHING_MS = 35f;
 
+        public const float DEFAULT_TEXT_POP_IN_AMOUNT = 5f;
+        public const float MAX_TEXT_POP_IN_AMOUNT = 20f;
+
         /// <summary>
         /// The caret style a NEW install starts on. Changing this cannot disturb an existing player, and the reason is
         /// worth stating because the usual assumption about defaults is the opposite one: a default normally leaks to
@@ -332,9 +341,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, true);
             SetDefault(TypeBeatRulesetSetting.ShowSyllableMarkers, true);
             SetDefault(TypeBeatRulesetSetting.ShowPaceColours, true);
-            SetDefault(TypeBeatRulesetSetting.PaceColourMaxChange, 75.0f, 25.0f, 150.0f, 1.0f);
+            SetDefault(TypeBeatRulesetSetting.PaceColourMaxChange, 100.0f, 25.0f, 150.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.SyllableBrightness, 50.0f, 0.0f, 100.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.ShowSyncMetric, false);
+            SetDefault(TypeBeatRulesetSetting.TextPopIn, false);
+            SetDefault(TypeBeatRulesetSetting.TextPopInAmount, DEFAULT_TEXT_POP_IN_AMOUNT, 0f, MAX_TEXT_POP_IN_AMOUNT, 1f);
         }
     }
 }

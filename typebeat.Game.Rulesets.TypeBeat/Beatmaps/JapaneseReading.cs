@@ -32,7 +32,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         public static IReadOnlyList<string>? Segment(string source, string? language)
         {
-            if (!isJapanese(language) || !source.Any(Utilities.IsJapanese))
+            // Kana-only runs already have a direct reading. Keep their authored word and
+            // syllable grouping rather than splitting them at dictionary boundaries.
+            if (!isJapanese(language) || !source.Any(Utilities.IsKanji))
                 return null;
 
             try

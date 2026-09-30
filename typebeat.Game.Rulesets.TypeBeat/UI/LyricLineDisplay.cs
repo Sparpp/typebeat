@@ -15,6 +15,7 @@ using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Utils;
 using typebeat.Game.Graphics.Sprites;
+using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using osuTK;
 using osuTK.Graphics;
@@ -284,7 +285,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// -1 = none. Stage-fed (see <see cref="SetSungSyllable"/>); time-driven state, so it lives
         /// beside the sung sweep rather than in the pull-based cell states.</summary>
         private int sungSyllable = -1;
-        private bool[] litSyllables = Array.Empty<bool>();
+        private readonly bool[] litCells;
+        private readonly bool[] popInApplied;
+        private bool textPopInEnabled;
+        private float textPopInAmount = TypeBeatRulesetConfigManager.DEFAULT_TEXT_POP_IN_AMOUNT;
+        private double sungTime = double.NaN;
+        private double sungGreatEarly;
+        private bool characterTiming;
+        private bool charTimedStretch;
+        private Box layoutBounds = null!;
+
+        public const float TEXT_POP_IN_MIN_SCALE = 1 - TypeBeatRulesetConfigManager.DEFAULT_TEXT_POP_IN_AMOUNT / 100f;
+        public const double TEXT_POP_IN_DURATION_MS = 140;
         private float sungBrightness = 50f;
 
         /// <summary>
@@ -298,7 +310,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                                 IReadOnlyList<PaceBand>? paceBands = null)
         {
             Line = line;
-            litSyllables = new bool[line.Syllables.Count];
+            litCells = new bool[line.Cells.Count];
+            popInApplied = new bool[line.Cells.Count];
             requestedFontSize = fontSize;
             this.fontFamily = fontFamily;
             this.paceBands = paceBands;
@@ -315,6 +328,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             Array.Fill(cellStateAlpha, 1f);
 
             content = new Container { AutoSizeAxes = Axes.Both };
+            // Glyphs may shrink, but their slots and the line's centre must stay fixed.
+            content.Add(layoutBounds = new Box { Alpha = 0, AlwaysPresent = true });
 
             buildPaceTracks(n);
 
@@ -774,6 +789,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
 
             cellX[n] = x;
+            layoutBounds.Size = new Vector2(x, glyphHeight);
 
 
             applyFit();
@@ -1054,29 +1070,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// state), and an Untyped cell is the untyped grey UNLESS <paramref name="inSungSyllable"/>,
         /// in which case it wears <see cref="TypeBeatStyle.SungChar"/>, a LIGHTER grey.</para>
         ///
-        /// <para>Lighter grey, not white (backlog 178 demoted it): the highlight says "sing this
-        /// now", not "you typed this", and painting it <see cref="TypeBeatStyle.TypedChar"/> said
-        /// both at once. The new grey clears the untyped grey by about as much as the shipped
-        /// untyped-versus-Missed step and sits well below both the typed white and the sync ramp's
-        /// floor, so the three readings stay separable; the arithmetic is in
-        /// <see cref="TypeBeatStyle.SungChar"/>'s own doc.</para>
+        /// <para>The sung brightness preference blends untyped grey towards typed white. It affects
+        /// only untyped cells in the sung group, so adjusting it never changes the sync tint or
+        /// the colour of a correct, wrong, lost or freestyle cell.</para>
         ///
         /// <para>The lit group therefore shows under EVERY sung playhead style, not just one: the
         /// highlight and the playhead are complements rather than alternatives, and
         /// <see cref="Configuration.CaretStyle.None"/> subtracts the caret and the sweep without
         /// changing a single colour decided here. What drives
-        /// <paramref name="inSungSyllable"/> is the stage's per-frame feed off
-        /// <see cref="TypingLine.Syllables"/>, and NOT
-        /// <see cref="TypingEngine.SyllableTiming"/>: that flag is a judgement rule, and the groups
-        /// are built for every line either way, so the highlight is just as correct under classic
-        /// judgement.</para>
+        /// <paramref name="inSungSyllable"/> is the stage's per-frame availability feed: syllable
+        /// spans normally, character targets under HR and in character-timed sections.</para>
         ///
-        /// <para>A Correct cell deliberately has NO highlight colour of its own (backlog 176a
-        /// removed the flat green that briefly gave it one). It rides the ramp everywhere, and the
-        /// whole ramp, floor included, now sits ABOVE the highlight grey, so typing a character
-        /// visibly promotes it out of the highlight however badly timed the press was. Keeping the
-        /// ramp keeps the signal that an off-span press was off-span, and leaves classic
-        /// judgement's ramp untouched by construction.</para>
+        /// <para>A Correct cell retains its sync tint everywhere, independently of the sung
+        /// brightness setting.</para>
         ///
         /// <para>A FREESTYLE cell wears <see cref="TypeBeatStyle.FreestyleChar"/> in every state:
         /// the violet is an identity signal ("this slot was free"), and neither the sync ramp nor
@@ -1403,6 +1409,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         public void RefreshCell(int cellIndex)
         {
+            applyTextPopIn(cellIndex);
             if (cellIndex < 0 || cellIndex >= cells.Length)
                 return;
 
@@ -1456,8 +1463,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 ? SyncWindows.Default.SyncQuality(delta)
                 : null;
 
-            int group = Line.SyllableIndexOf(cellIndex);
-            bool inSungSyllable = group >= 0 && group < litSyllables.Length && litSyllables[group];
+            bool inSungSyllable = litCells[cellIndex];
 
             cell.Colour = CellFillColour(source.State, isFreestyle: false, inSungSyllable, syncQuality, sungBrightness);
             // A WORD GAP is the one cell whose glyph is not fixed at construction: a typo landing on
@@ -1522,7 +1528,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // Routed through CellFillColour so the exclusion is the rendered path, not a parallel
             // truth: freestyle identity wins over the sung highlight as well as over the sync ramp.
             cell.Colour = CellFillColour(source.State, isFreestyle: true,
-                inSungSyllable: sungSyllable >= 0 && Line.SyllableIndexOf(cellIndex) == sungSyllable, syncQuality: null, sungBrightness);
+                inSungSyllable: litCells[cellIndex], syncQuality: null, sungBrightness);
 
             cellStateAlpha[cellIndex] = source.State switch
             {
@@ -1610,38 +1616,51 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public void SetSungSyllable(int index)
         {
             sungSyllable = index;
-
-            for (int g = 0; g < litSyllables.Length; g++)
-            {
-                bool lit = g == index;
-                if (litSyllables[g] == lit)
-                    continue;
-
-                litSyllables[g] = lit;
-                repaintUntypedCellsOf(g);
-            }
+            for (int i = 0; i < litCells.Length; i++)
+                setCellLit(i, index >= 0 && Line.SyllableIndexOf(i) == index);
         }
 
-        /// <summary>Light every syllable from GreatEarly before its start through GreatLate after its end.</summary>
-        public void SetSungWindow(double time, double greatEarly, double greatLate)
+        /// <summary>Follow syllable spans or character targets using the actual Great windows.</summary>
+        public void SetSungWindow(double time, double greatEarly, double greatLate, bool characterTiming = false, bool charTimedStretch = false)
         {
+            sungTime = time;
+            sungGreatEarly = greatEarly;
+            this.characterTiming = characterTiming;
+            this.charTimedStretch = charTimedStretch;
             int primary = -1;
 
-            for (int g = 0; g < litSyllables.Length; g++)
+            for (int i = 0; i < litCells.Length; i++)
             {
-                var group = Line.Syllables[g];
-                bool lit = time >= group.StartTime - greatEarly && time <= group.EndTime + greatLate;
-                if (lit && (primary < 0 || time >= group.StartTime && time <= group.EndTime))
-                    primary = g;
-
-                if (litSyllables[g] == lit)
-                    continue;
-
-                litSyllables[g] = lit;
-                repaintUntypedCellsOf(g);
+                var (start, end) = sungSpan(i);
+                bool lit = Line.Cells[i].IsCountable && time >= start - greatEarly && time <= end + greatLate;
+                int group = Line.SyllableIndexOf(i);
+                if (lit && group >= 0 && (primary < 0 || time >= start && time <= end))
+                    primary = group;
+                setCellLit(i, lit);
+                applyTextPopIn(i);
             }
-
             sungSyllable = primary;
+        }
+
+        private (double start, double end) sungSpan(int index)
+        {
+            int group = Line.SyllableIndexOf(index);
+            if (!characterTiming && !(charTimedStretch && Line.IsCharTimedStretch(index)) && group >= 0)
+            {
+                var span = Line.Syllables[group];
+                return (span.StartTime, span.EndTime);
+            }
+            double target = Line.Cells[index].TargetTime;
+            return (target, target);
+        }
+
+        private void setCellLit(int index, bool lit)
+        {
+            if (litCells[index] == lit)
+                return;
+            litCells[index] = lit;
+            if (Line.Cells[index].State == CellState.Untyped && !Line.Cells[index].IsFreestyle)
+                RefreshCell(index);
         }
 
         /// <summary>Adjust the highlight colour during play without changing cell states.</summary>
@@ -1650,36 +1669,59 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             float value = Math.Clamp(percent, 0f, 100f);
             if (sungBrightness == value)
                 return;
-
             sungBrightness = value;
-            for (int g = 0; g < litSyllables.Length; g++)
-                if (litSyllables[g])
-                    repaintUntypedCellsOf(g);
+            for (int i = 0; i < litCells.Length; i++)
+                if (litCells[i] && Line.Cells[i].State == CellState.Untyped && !Line.Cells[i].IsFreestyle)
+                    RefreshCell(i);
         }
 
-        /// <summary>The group index last fed to <see cref="SetSungSyllable"/>; test support.</summary>
-        public int SungSyllable => sungSyllable;
-
-        private void repaintUntypedCellsOf(int group)
+        public void SetTextPopInEnabled(bool enabled)
         {
-            if (group < 0 || group >= Line.Syllables.Count)
+            textPopInEnabled = enabled;
+            for (int i = 0; i < cells.Length; i++)
+                applyTextPopIn(i);
+        }
+
+        public void SetTextPopInAmount(float amount)
+        {
+            textPopInAmount = Math.Clamp(amount, 0, TypeBeatRulesetConfigManager.MAX_TEXT_POP_IN_AMOUNT);
+            for (int i = 0; i < cells.Length; i++)
+                applyTextPopIn(i);
+        }
+
+        /// <summary>Absolute song-time easing, so pauses, playback rates and seeks cannot delay the finish.</summary>
+        public static float TextPopInScale(double time, double windowOpens, float amount = TypeBeatRulesetConfigManager.DEFAULT_TEXT_POP_IN_AMOUNT)
+        {
+            float minScale = 1 - Math.Clamp(amount, 0, TypeBeatRulesetConfigManager.MAX_TEXT_POP_IN_AMOUNT) / 100f;
+            if (double.IsNaN(time))
+                return minScale;
+            double progress = Math.Clamp((time - windowOpens + TEXT_POP_IN_DURATION_MS) / TEXT_POP_IN_DURATION_MS, 0, 1);
+            double eased = 1 - Math.Pow(1 - progress, 3);
+            return (float)(minScale + (1 - minScale) * eased);
+        }
+
+        private void applyTextPopIn(int index)
+        {
+            if (index < 0 || index >= cells.Length)
                 return;
-
-            var g = Line.Syllables[group];
-
-            for (int i = g.StartCell; i < g.EndCellExclusive && i < cells.Length; i++)
+            var source = Line.Cells[index];
+            bool apply = textPopInEnabled && source.IsCountable && source.State == CellState.Untyped;
+            if (apply)
             {
-                if (Line.SyllableIndexOf(i) != group)
-                    continue;
-
-                var source = Line.Cells[i];
-
-                // Only Untyped non-freestyle cells wear the highlight, so nothing else can have
-                // changed colour with the index.
-                if (source.State == CellState.Untyped && !source.IsFreestyle)
-                    RefreshCell(i);
+                cells[index].Scale = new Vector2(TextPopInScale(sungTime, sungSpan(index).start - sungGreatEarly, textPopInAmount));
+                popInApplied[index] = true;
+            }
+            else if (popInApplied[index])
+            {
+                cells[index].Scale = Vector2.One;
+                popInApplied[index] = false;
             }
         }
+
+        /// <summary>The group index last highlighted; -1 also covers ungrouped character timing.</summary>
+        public int SungSyllable => sungSyllable;
+
+        public float CellVisualScale(int index) => index >= 0 && index < cells.Length ? cells[index].Scale.X : 1f;
 
         public void SetLineDim(float dimAmount)
         {

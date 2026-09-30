@@ -2,6 +2,9 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using typebeat.Game.Beatmaps.ControlPoints;
 using System.Text;
 using System.Text.Json;
 
@@ -114,6 +117,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <param name="lyricFontFile">The bundled font file's name inside the set
         /// (<see cref="typebeat.Game.Beatmaps.BeatmapMetadata.LyricFontFile"/>), written as
         /// <c>[General] LyricFontFile:</c> and only when set.</param>
+        /// <param name="editorTimingPoints">Authored editor timing sections; null uses the import default.</param>
+        /// <param name="editorEffectPoints">Existing kiai effect points to preserve on save.</param>
+        /// <param name="beatDivisor">The editor subdivision preference.</param>
         /// <exception cref="ArgumentException">When the timing.json is not a supported v2 document.</exception>
         public static string GenerateOsu(string artist, string title, string audioFilename, string creator, string timingJsonText,
                                          double previewTime = -1, double audioLeadIn = 0, double? beatdropMs = null,
@@ -121,7 +127,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                                          int beatmapId = -1, int beatmapSetId = -1, string difficultyName = "type!beat",
                                          string tags = "", string? titleUnicode = null, string? artistUnicode = null,
                                          string? language = null, double audioGain = 1,
-                                         string? lyricFont = null, string? lyricFontFile = null)
+                                         string? lyricFont = null, string? lyricFontFile = null,
+                                         IReadOnlyList<TimingControlPoint>? editorTimingPoints = null,
+                                         IReadOnlyList<EffectControlPoint>? editorEffectPoints = null, int? beatDivisor = null)
         {
             using var doc = JsonDocument.Parse(timingJsonText);
             JsonElement root = doc.RootElement;
@@ -254,8 +262,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
 
             sb.AppendLine();
+            if (beatDivisor.HasValue)
+            {
+                sb.AppendLine("[Editor]");
+                sb.AppendLine($"BeatDivisor: {beatDivisor.Value}");
+                sb.AppendLine();
+            }
+
             sb.AppendLine("[TimingPoints]");
-            sb.AppendLine("0,500,4,2,0,100,1,0");
+            if (editorTimingPoints == null)
+                sb.AppendLine("0,500,4,2,0,100,1,0");
+            else
+            {
+                // The legacy section also carries kiai/omit-bar flags. Preserve effect points
+                // independently of timing so adding editor BPM never discards existing effects.
+                var effects = editorEffectPoints ?? Array.Empty<EffectControlPoint>();
+                foreach (double time in editorTimingPoints.Select(p => p.Time).Concat(effects.Select(p => p.Time)).Distinct().OrderBy(t => t))
+                {
+                    var timing = editorTimingPoints.FirstOrDefault(p => p.Time == time);
+                    var effect = effects.LastOrDefault(p => p.Time <= time);
+                    int flags = (effect?.KiaiMode == true ? 1 : 0) | (timing?.OmitFirstBarLine == true ? 8 : 0);
+                    double length = timing?.BeatLength ?? -100;
+                    int meter = timing?.TimeSignature.Numerator ?? 4;
+                    sb.AppendLine(FormattableString.Invariant($"{time:R},{length:R},{meter},2,0,100,{(timing != null ? 1 : 0)},{flags}"));
+                }
+            }
             sb.AppendLine();
             sb.AppendLine("[Lyrics]");
 

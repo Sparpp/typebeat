@@ -394,8 +394,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void ConductorRescoresAReplayIdentically()
         {
-            var plain = scoreThreeLatePresses(200);
-            var conducted = scoreThreeLatePresses(200, new TypeBeatModConductor());
+            var plain = scoreThreeLatePresses(400);
+            var conducted = scoreThreeLatePresses(400, new TypeBeatModConductor());
 
             Assert.AreEqual(plain.TotalScore, conducted.TotalScore);
             Assert.AreEqual(plain.TotalScoreWithoutMods, conducted.TotalScoreWithoutMods);
@@ -460,16 +460,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// The engine works in MAP time and holds no rate, so a fixed map-time window elapses in
         /// 1/rate of the real time it used to: before this, speeding the track up TIGHTENED the
         /// windows and slowing it down LOOSENED them, on top of the rate change itself. Scaling the
-        /// ladder by the rate cancels that exactly. Three presses 200 ms late are an Ok apiece
-        /// unmodded (Great 150, Ok 300); at 1.50x the Great window reaches 225 and pays all
-        /// three, and three presses 250 ms late fall from Ok to Meh at 0.75x (Ok edge 225).
+        /// ladder by the rate cancels that exactly. On this low-star map the base windows double: presses 400 ms late are Ok
+        /// unmodded (Great 300, Ok 600); at 1.50x Great reaches 450. Presses 500 ms late
+        /// fall from Ok to Meh at 0.75x (Ok edge 450).
         /// </summary>
         [Test]
         public void RateScalesTheWindowsSoTheRealTimeToleranceIsConstant()
         {
-            var plain = scoreThreeLatePresses(200);
-            var doubleTime = scoreThreeLatePresses(200, new TypeBeatModDoubleTime());
-            var nightcore = scoreThreeLatePresses(200, new TypeBeatModNightcore());
+            var plain = scoreThreeLatePresses(400);
+            var doubleTime = scoreThreeLatePresses(400, new TypeBeatModDoubleTime());
+            var nightcore = scoreThreeLatePresses(400, new TypeBeatModNightcore());
 
             Assert.AreEqual(3, plain.Statistics.GetValueOrDefault(HitResult.Ok));
             Assert.AreEqual(0, plain.Statistics.GetValueOrDefault(HitResult.Great));
@@ -480,8 +480,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Nightcore differs from Double Time only in pitch, which is not a difficulty lever.
             Assert.AreEqual(3, nightcore.Statistics.GetValueOrDefault(HitResult.Great));
 
-            var plainLater = scoreThreeLatePresses(250);
-            var halfTime = scoreThreeLatePresses(250, new TypeBeatModHalfTime());
+            var plainLater = scoreThreeLatePresses(500);
+            var halfTime = scoreThreeLatePresses(500, new TypeBeatModHalfTime());
 
             Assert.AreEqual(3, plainLater.Statistics.GetValueOrDefault(HitResult.Ok));
             Assert.AreEqual(3, halfTime.Statistics.GetValueOrDefault(HitResult.Meh));
@@ -490,14 +490,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// The factor is the mod's own SpeedChange, not the 1.50x default: the slider is ranked
-        /// across its whole range, so a play at 1.80x is judged on 1.80x windows. Presses 250 ms
-        /// late are an Ok at 1.50x (Great edge 225) and a Great at 1.80x (270).
+        /// across its whole range, so a play at 1.80x is judged on 1.80x windows. Presses 500 ms
+        /// late are Ok at 1.50x (low-star Great edge 450) and Great at 1.80x (540).
         /// </summary>
         [Test]
         public void TheWindowScaleIsReadOffTheUserAdjustableSlider()
         {
-            var atDefault = scoreThreeLatePresses(250, new TypeBeatModDoubleTime());
-            var faster = scoreThreeLatePresses(250, new TypeBeatModDoubleTime { SpeedChange = { Value = 1.80 } });
+            var atDefault = scoreThreeLatePresses(500, new TypeBeatModDoubleTime());
+            var faster = scoreThreeLatePresses(500, new TypeBeatModDoubleTime { SpeedChange = { Value = 1.80 } });
 
             Assert.AreEqual(3, atDefault.Statistics.GetValueOrDefault(HitResult.Ok));
             Assert.AreEqual(3, faster.Statistics.GetValueOrDefault(HitResult.Great));
@@ -506,7 +506,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// Every window-scaling mod multiplies its factor in, so a rate and Easy compose:
         /// 0.75x x 2 is the same 1.5x ladder Double Time's default produces on its own, and a STORED
-        /// Hard Rock run's 0.5 puts a 1.50x play back on the unscaled one.
+        /// Hard Rock run's 0.5 puts a 1.50x play on 0.75x base windows, where 400 ms is still Ok.
         ///
         /// <para>The Hard Rock half is a STORED-era statement since backlog 264, and the fixture
         /// supplies that era without a word: <see cref="scoreThreeLatePresses"/> writes a bare CONFIG
@@ -517,20 +517,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void RateComposesWithTheOtherWindowScalingMods()
         {
-            var halfTimeEasy = scoreThreeLatePresses(200, new TypeBeatModHalfTime(), new TypeBeatModEasy());
-            var doubleTime = scoreThreeLatePresses(200, new TypeBeatModDoubleTime());
+            var halfTimeEasy = scoreThreeLatePresses(400, new TypeBeatModHalfTime(), new TypeBeatModEasy());
+            var doubleTime = scoreThreeLatePresses(400, new TypeBeatModDoubleTime());
 
             Assert.AreEqual(3, halfTimeEasy.Statistics.GetValueOrDefault(HitResult.Great));
             Assert.AreEqual(doubleTime.Statistics.GetValueOrDefault(HitResult.Great),
                 halfTimeEasy.Statistics.GetValueOrDefault(HitResult.Great),
                 "0.75 x 2 and 1.50 are the same ladder");
 
-            var plain = scoreThreeLatePresses(200);
-            var doubleTimeHardRock = scoreThreeLatePresses(200, new TypeBeatModDoubleTime(), new TypeBeatModHardRock());
+            var plain = scoreThreeLatePresses(400);
+            var doubleTimeHardRock = scoreThreeLatePresses(400, new TypeBeatModDoubleTime(), new TypeBeatModHardRock());
 
             Assert.AreEqual(plain.Statistics.GetValueOrDefault(HitResult.Ok),
                 doubleTimeHardRock.Statistics.GetValueOrDefault(HitResult.Ok),
-                "1.50 x 0.5 lands back on the unscaled ladder");
+                "1.50 x 0.5 leaves 400 ms inside the low-star Ok window");
             Assert.AreEqual(3, doubleTimeHardRock.Statistics.GetValueOrDefault(HitResult.Ok));
         }
 

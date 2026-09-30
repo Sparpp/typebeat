@@ -376,15 +376,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         // -----------------------------------------------------------------------------------------
 
         /// <summary>
-        /// Three presses 500 ms late. Unmodded that is an Ok apiece (GreatLate 400); at 1.50x today's
-        /// rule stretches the Great window to 600 and pays all three, and the pre-150 rule leaves the
+        /// Three presses 400 ms late on a low-star map. Unmodded that is Ok (Great edge 300);
+        /// at 1.50x today's rule stretches the Great window to 450 and pays all three, and the pre-150 rule leaves the
         /// ladder in beatmap milliseconds, where the run is exactly the Ok run it always was.
         /// </summary>
         [Test]
         public void ThePreScalingEraLeavesARateRunOnTheUnscaledLadder()
         {
             var map = plainMap();
-            var r = replay((200, 'a'), (4200, 'b'), (8200, 'c'));
+            var r = replay((400, 'a'), (4400, 'b'), (8400, 'c'));
             Mod[] doubleTime = { new TypeBeatModDoubleTime { SpeedChange = { Value = 1.5 } } };
 
             var live = TypeBeatReplayScorer.Score(map, doubleTime, r, TypoRule.Deferred, ComboRestoreRule.OnFix);
@@ -396,7 +396,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(count(live, HitResult.Great), Is.EqualTo(3), "1.50x stretches the Great edge to 225");
+                Assert.That(count(live, HitResult.Great), Is.EqualTo(3), "1.50x stretches the low-star Great edge from 300 to 450");
                 Assert.That(count(stored, HitResult.Ok), Is.EqualTo(3), "a pre-150 client graded on the base ladder");
                 Assert.That(count(stored, HitResult.Great), Is.Zero);
 
@@ -415,7 +415,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void TheRateEraChangesNothingWithoutARateMod()
         {
             var map = plainMap();
-            var r = replay((200, 'a'), (4200, 'b'), (8200, 'c'));
+            var r = replay((400, 'a'), (4400, 'b'), (8400, 'c'));
 
             var scaled = TypeBeatReplayScorer.Score(map, Array.Empty<Mod>(), r, TypoRule.Deferred, ComboRestoreRule.OnFix,
                 SpaceTimingRule.Untimed, RateWindowRule.ScaledByRate);
@@ -735,7 +735,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void EasyIsNotEraDependent()
         {
             var map = plainMap();
-            var r = replay((200, 'a'), (4200, 'b'), (8200, 'c'));
+            var r = replay((400, 'a'), (4400, 'b'), (8400, 'c'));
             Mod[] easy = { new TypeBeatModEasy() };
 
             var live = TypeBeatReplayScorer.Score(map, easy, r, TypoRule.Deferred, ComboRestoreRule.OnFix);

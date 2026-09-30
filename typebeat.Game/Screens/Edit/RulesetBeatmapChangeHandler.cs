@@ -46,6 +46,11 @@ namespace typebeat.Game.Screens.Edit
 
             editorBeatmap.BeginChange();
 
+            // Keep the shared control-point collection alive for clock and timeline subscribers.
+            editorBeatmap.ControlPointInfo.Clear();
+            foreach (var point in EditorBeatmap.ConvertControlPoints(decoded.ControlPointInfo).AllControlPoints)
+                editorBeatmap.ControlPointInfo.Add(point.Time, point);
+
             editorBeatmap.Clear();
             editorBeatmap.AddRange(decoded.HitObjects.ToArray());
 

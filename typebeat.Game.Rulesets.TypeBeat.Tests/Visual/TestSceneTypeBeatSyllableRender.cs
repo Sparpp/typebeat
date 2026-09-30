@@ -240,9 +240,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("the sweep is being fed", () => display.SweepFillWidth > 0);
             AddAssert("typing caret shown too", () => stage.PlayerCaretVisible);
 
-            // Deep inside group 0's span: the group lights, alongside the playhead rather than
-            // instead of it, and cells outside the group stay grey.
-            AddUntilStep("well inside the first sung group", () => now > 3300 && now < 4300);
+            // Hold the clock inside group 0, before the next group's early Great window.
+            // Sequential assertions must not race the advancing clock into that window.
+            AddStep("hold inside the first sung group", () =>
+            {
+                Player.GameplayClockContainer.Stop();
+                Player.GameplayClockContainer.Seek(3750);
+            });
+            AddUntilStep("held position rendered", () => now == 3750 && display.SungSyllable == 0 && display.SweepFillWidth > 0);
             AddAssert("group 0 is lit", () => display.SungSyllable == 0);
             AddAssert("'o' lights while the playhead is still drawn", () =>
                 same(colour(0), TypeBeatStyle.SungChar) && stage.SungCaretVisible && display.SweepFillWidth > 0);

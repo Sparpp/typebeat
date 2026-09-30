@@ -49,6 +49,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     [Cached]
     public partial class LyricComposeScreen : EditorScreenWithTimeline, IKeyBindingHandler<PlatformAction>
     {
+        [Resolved]
+        private EditorTimingSettings timingSettings { get; set; } = null!;
+
+        [Resolved]
+        private BindableBeatDivisor beatDivisor { get; set; } = null!;
+
+        private double gridTime => timingSettings.Snap(editorClock.CurrentTime, EditorBeatmap.ControlPointInfo, beatDivisor.Value);
+
         [Cached]
         private readonly LyricEditState state = new LyricEditState();
 
@@ -122,6 +130,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         [BackgroundDependencyLoader]
         private void load(AudioManager audio)
         {
+            state.SnapToCaret.BindTo(timingSettings.SnapToCaret);
+
             // Word starts and syllable boundaries share the same editor metronome click; only the
             // volume tells them apart (see tick_volume / syllable_tick_volume above). Ships in
             // typebeat.Game.Resources under Samples/UI.
@@ -752,7 +762,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 case Key.Enter when line != null:
                 case Key.KeypadEnter when line != null:
                     // Stamp the line boundary at the playhead (moves prev line's end too).
-                    TypeBeatEditorOperations.SetLineStart(EditorBeatmap, line, editorClock.CurrentTime);
+                    TypeBeatEditorOperations.SetLineStart(EditorBeatmap, line, gridTime);
                     return true;
 
                 case Key.T when line != null:
@@ -762,7 +772,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                     if (index < line.Line.Units.Count)
                     {
-                        TypeBeatEditorOperations.StampUnitStart(EditorBeatmap, line, index, editorClock.CurrentTime);
+                        TypeBeatEditorOperations.StampUnitStart(EditorBeatmap, line, index, gridTime);
                         state.SelectUnit(index + 1 < line.Line.Units.Count ? index + 1 : -1);
                     }
 
@@ -872,7 +882,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             EditorBeatmap.BeginChange();
 
             foreach (int i in targets)
-                TypeBeatEditorOperations.AddSyllableBoundary(EditorBeatmap, line, i, editorClock.CurrentTime);
+                TypeBeatEditorOperations.AddSyllableBoundary(EditorBeatmap, line, i, gridTime);
 
             EditorBeatmap.EndChange();
         }

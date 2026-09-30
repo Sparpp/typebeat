@@ -52,6 +52,7 @@ using typebeat.Game.Screens.Edit.Compose.Components.Timeline;
 using typebeat.Game.Screens.Edit.GameplayTest;
 using typebeat.Game.Screens.Edit.Setup;
 using typebeat.Game.Screens.Edit.Submission;
+using typebeat.Game.Screens.Edit.Timing;
 using typebeat.Game.Users;
 using osuTK.Input;
 using WebCommonStrings = typebeat.Game.Resources.Localisation.Web.CommonStrings;
@@ -167,6 +168,8 @@ namespace typebeat.Game.Screens.Edit
         private readonly EditorLoader loader;
 
         private EditorScreen currentScreen;
+
+        private readonly EditorTimingSettings timingSettings = new EditorTimingSettings();
 
         private readonly BindableBeatDivisor beatDivisor = new BindableBeatDivisor();
         private EditorClock clock;
@@ -291,9 +294,11 @@ namespace typebeat.Game.Screens.Edit
 
             // todo: remove caching of this and consume via editorBeatmap?
             dependencies.Cache(beatDivisor);
+            dependencies.CacheAs(timingSettings);
 
             AddInternal(editorBeatmap = new EditorBeatmap(playableBeatmap, loadableBeatmap.GetSkin(), loadableBeatmap.Storyboard, loadableBeatmap.BeatmapInfo));
             dependencies.CacheAs(editorBeatmap);
+            AddInternal(new EditorMetronome());
 
             // Screens implement Copy/Paste against this shared clipboard (as upstream cached it
             // for its compose screen; the lyric compose screen carries timing payloads through it).
@@ -1114,6 +1119,10 @@ namespace typebeat.Game.Screens.Edit
                         currentScreen = new SetupScreen();
                         break;
 
+                    case EditorScreenMode.Timing:
+                        currentScreen = new Timing.TimingScreen();
+                        break;
+
                     case EditorScreenMode.Compose:
                         // Rulesets with their own editing surface (e.g. type!beat's lyric timeline)
                         // supply a whole compose screen.
@@ -1273,10 +1282,13 @@ namespace typebeat.Game.Screens.Edit
                 amount *= beatDivisor.Value * (timingPoint.BPM / 120);
             }
 
+            if (!trackPlaying)
+                amount *= timingSettings.BeatMultiplier.Value;
+
             if (direction < 1)
-                clock.SeekBackward(!trackPlaying, amount);
+                clock.SeekBackward(!trackPlaying && timingSettings.SnapToGrid.Value, amount);
             else
-                clock.SeekForward(!trackPlaying, amount);
+                clock.SeekForward(!trackPlaying && timingSettings.SnapToGrid.Value, amount);
         }
 
         private void updateLastSavedHash()
@@ -1614,7 +1626,15 @@ namespace typebeat.Game.Screens.Edit
             return true;
         }
 
-        public double SnapTime(double time, double? referenceTime) => editorBeatmap.SnapTime(time, referenceTime);
+        public double SnapTime(double time, double? referenceTime)
+        {
+            if (!timingSettings.SnapToGrid.Value || editorBeatmap.ControlPointInfo.TimingPoints.Count == 0)
+                return time;
+
+            return timingSettings.BeatMultiplier.Value == 1
+                ? editorBeatmap.SnapTime(time, referenceTime)
+                : timingSettings.Snap(time, editorBeatmap.ControlPointInfo, beatDivisor.Value);
+        }
 
         public double GetBeatLengthAtTime(double referenceTime) => editorBeatmap.GetBeatLengthAtTime(referenceTime);
 

@@ -17,6 +17,7 @@ using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Overlays;
 using typebeat.Game.Rulesets.Edit;
+using typebeat.Game.Screens.Edit.Timing;
 using osuTK;
 using osuTK.Input;
 
@@ -187,6 +188,12 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
                     }
                 },
             });
+
+            AddInternal(new TimingGrid(() =>
+            {
+                return (TimeAtPosition(Content.ToLocalSpace(ScreenSpaceDrawQuad.TopLeft).X),
+                    TimeAtPosition(Content.ToLocalSpace(ScreenSpaceDrawQuad.TopRight).X));
+            }, optional: false));
 
             waveformOpacity = config.GetBindable<float>(OsuSetting.EditorWaveformOpacity);
             controlPointsVisible = config.GetBindable<bool>(OsuSetting.EditorTimelineShowTimingChanges);
@@ -372,6 +379,7 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
         private void endUserDrag()
         {
             handlingDragInput = false;
+            editorClock.Seek(timingSettings.Snap(editorClock.CurrentTime, editorBeatmap.ControlPointInfo, beatDivisor.Value));
 
             if (trackWasPlaying)
                 editorClock.Start();
@@ -380,10 +388,16 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
         [Resolved]
         private IBeatSnapProvider beatSnapProvider { get; set; } = null!;
 
+        [Resolved]
+        private EditorTimingSettings timingSettings { get; set; } = null!;
+
+        [Resolved]
+        private BindableBeatDivisor beatDivisor { get; set; } = null!;
+
         /// <summary>
         /// The total amount of time visible on the timeline.
         /// </summary>
-        public double VisibleRange => editorClock.TrackLength / Zoom;
+        public double VisibleRange => editorClock.TrackLength / CurrentZoom.Value;
 
         public double TimeAtPosition(double x)
         {

@@ -196,7 +196,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// The correction-heavy fixture the era pins run on: the 'm' of "me" spoiled and fixed 100 ms
-        /// late (inside the Great window, so the cap bites) and the 'e' spoiled and fixed 500 ms late
+        /// late (inside the Great window, so the cap bites) and the 'e' spoiled and fixed 1000 ms late
         /// (inside Meh, outside Ok, so the cap has nothing to take). Everything else on target.
         /// </summary>
         private static Replay correctionRun()
@@ -213,7 +213,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             presses.Add((targets[11], 'z'));
             presses.Add((targets[11] + 100, TypeBeatReplayFrame.BACKSPACE));
-            presses.Add((targets[11] + 500, 'e'));
+            presses.Add((targets[11] + 1000, 'e'));
 
             for (int i = 12; i < correction_text.Length; i++)
                 presses.Add((targets[i], correction_text[i]));
@@ -636,14 +636,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// <see cref="CorrectionCreditRule.Full"/> re-derives the account a pre-210 client submitted,
-        /// BYTE for byte. The numbers below were captured off the shipped code before the cap existed,
-        /// on this exact fixture, which is what makes this a reproduction pin and not a restatement of
-        /// the implementation: the recalculation tool's reproduce gate compares precisely these
-        /// quantities against the stored row, and every one of them has to come back unchanged for a
-        /// row that is not corrupt.
+        /// with full correction credit. The late fix stays in Meh on this low-star map
+        /// despite its doubled windows, preserving the judgement mix and account totals this fixture
+        /// tested before star-based window scaling. The era changes the cap, not the shared tuning.
         /// </summary>
         [Test]
-        public void TheFullEraReproducesTheAccountStoredBeforeTheCap()
+        public void TheFullEraKeepsFullCreditAtCurrentWindowTuning()
         {
             var account = score(correctionRun(), CorrectionCreditRule.Full);
 

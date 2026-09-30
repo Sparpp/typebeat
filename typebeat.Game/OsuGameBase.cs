@@ -288,6 +288,7 @@ namespace typebeat.Game
             }
 
             Resources.AddStore(new DllResourceStore(OsuResources.ResourceAssembly));
+            Resources.AddStore(new NamespacedResourceStore<byte[]>(new DllResourceStore(typeof(OsuGameBase).Assembly), @"Resources"));
 
             dependencies.Cache(realm = new RealmAccess(Storage, CLIENT_DATABASE_FILENAME, Host.UpdateThread));
 

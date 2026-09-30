@@ -14,8 +14,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// <summary>
     /// THE PACE CHART'S FIGURES FOLLOW THE CLOCK, and they do not all follow it the same way.
     ///
-    /// <para>The peak and the curve are rates over the same authored windows, so they scale with
-    /// the clock. The average also follows the clock, but a pause capped at one playback second
+    /// <para>The peak and curve are recomputed over a fixed playback-time window, whose authored
+    /// span changes with the clock. The average follows the clock, but a pause capped at one playback second
     /// can change its fraction of the total time, so it is recomputed at each rate.</para>
     ///
     /// <para>The TARGET is not one of those. It is the map's hardest window re-expressed as the pace an
@@ -50,10 +50,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// This fixture's gaps stay under one playback second at each tested rate, so its average
-        /// scales exactly like the peak. The graph's shape does not move with the clock.
+        /// scales exactly with the clock.
         /// </summary>
         [Test]
-        public void ThePeakAndAverageScaleWithTheClock()
+        public void TheAverageScalesWithTheClock()
         {
             TypeBeatBeatmap beatmap = map();
             TypingPaceProfile raw = beatmap.GetTypingPace()!;
@@ -64,14 +64,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(raw.PeakWpm, Is.GreaterThan(0), "not vacuous: the fixture has a peak");
                 Assert.That(raw.AverageWpm, Is.GreaterThan(0));
-                Assert.That(fast.PeakWpm, Is.EqualTo(raw.PeakWpm * 1.5).Within(1e-9), "the peak is cells over time");
                 Assert.That(fast.AverageWpm, Is.EqualTo(raw.AverageWpm * 1.5).Within(1e-9), "and so is the average");
                 Assert.That(slow.AverageWpm, Is.EqualTo(raw.AverageWpm * 0.75).Within(1e-9), "down as well as up");
 
-                Assert.That(fast.WpmCurve.Select(w => w / fast.PeakWpm),
-                    Is.EqualTo(raw.WpmCurve.Select(w => w / raw.PeakWpm)).Within(1e-12),
-                    "the chart's normalised shape is the same at any clock");
             });
+        }
+
+        [TestCase(1.0, 128.0)]
+        [TestCase(1.5, 184.0)]
+        [TestCase(0.75, 96.0)]
+        public void ThePeakUsesAPlaybackTimeWindowAtEachClock(double rate, double expectedPeak)
+        {
+            var beatmap = new TypeBeatBeatmap();
+            addLine(beatmap, 0, 0, 5000, new List<TimedUnit>
+            {
+                new TimedUnit { Text = new string('a', 50), StartTime = 0, EndTime = 5000 },
+            });
+
+            // Cells are 100 ms apart. At 1x the inclusive 1.5s window holds 16 cells;
+            // at 1.5x its 2250 map-ms hold 23. At 0.75x the 16-cell floor keeps the
+            // window at 1500 map-ms. Each cell is 1/5 of a word.
+            TypingPaceProfile pace = beatmap.GetTypingPace(rate)!;
+            Assert.That(pace.PeakWpm, Is.EqualTo(expectedPeak).Within(1e-9));
+            Assert.That(pace.WpmCurve.Max(), Is.EqualTo(expectedPeak).Within(1e-9));
         }
 
         /// <summary>
@@ -108,7 +123,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// THE TWO SURFACES PRINT ONE NUMBER. The chart reads its target from the profile; the title
         /// wedge's row reads it through its own RateAdjusted hook. Both come through
-        /// <see cref="LyricPaceStatistics.TargetWpmAt"/>, so a DT or HT toggle cannot show the player two
+        /// <see cref="LyricPaceStatistics.Compute"/>, so a DT or HT toggle cannot show the player two
         /// different targets for the same map.
         /// </summary>
         [Test]

@@ -692,7 +692,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             => account.Statistics.GetValueOrDefault(result);
 
         /// <summary>"open door" with every syllable's first char BURST late into its span (o 240 in,
-        /// p 650 in, d 900 in), as a live client would record it, with bit 8 the parameter.</summary>
+        /// p and d 400 in), as a live client would record it, with bit 8 the parameter.</summary>
         private static Replay burstReplay(bool firstCharTiming)
         {
             var replay = new Replay();
@@ -701,11 +701,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 syllableTiming: true, wrongInputOnWordGaps: true, strictSpaces: true, charTimedStretch: true, firstCharTiming: firstCharTiming));
 
             replay.Frames.Add(new TypeBeatReplayFrame(1150, 'o'));
-            replay.Frames.Add(new TypeBeatReplayFrame(1500, 'p'));
+            replay.Frames.Add(new TypeBeatReplayFrame(1650, 'p'));
             replay.Frames.Add(new TypeBeatReplayFrame(1900, 'e'));
             replay.Frames.Add(new TypeBeatReplayFrame(1900, 'n'));
             replay.Frames.Add(new TypeBeatReplayFrame(1900, ' '));
-            replay.Frames.Add(new TypeBeatReplayFrame(2250, 'd'));
+            replay.Frames.Add(new TypeBeatReplayFrame(2400, 'd'));
             replay.Frames.Add(new TypeBeatReplayFrame(2900, 'o'));
             replay.Frames.Add(new TypeBeatReplayFrame(2900, 'o'));
             replay.Frames.Add(new TypeBeatReplayFrame(2900, 'r'));
@@ -734,7 +734,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(0, count(stored, HitResult.Ok));
             Assert.AreEqual(1, stored.Accuracy, 1e-9);
 
-            Assert.AreEqual(7, count(live, HitResult.Great), "o at 240 in stays Great; p at 650 and d at 900 do not");
+            Assert.AreEqual(7, count(live, HitResult.Great), "o at 150 in stays Great; p and d at 400 do not");
             Assert.AreEqual(2, count(live, HitResult.Ok));
             Assert.AreEqual(0, count(live, HitResult.Miss), "an off-time press is still a hit");
 

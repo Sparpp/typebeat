@@ -76,7 +76,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// </summary>
     public static class UnderlinePace
     {
-        public const double DEFAULT_MAX_CHANGE_PERCENT = 75;
+        public const double DEFAULT_MAX_CHANGE_PERCENT = 100;
 
         /// <summary>
         /// Opacity of a NEUTRAL band: exactly the alpha the single flat rail carried before this
@@ -170,7 +170,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>
         /// Colour a section by its change from the immediately preceding section. At the default
-        /// threshold, a 75% increase reaches red and a 75% decrease reaches green. The first
+        /// threshold, a 100% increase reaches red and a 100% decrease reaches green. The first
         /// section has no reference and stays neutral; a positive speed after a zero-speed section
         /// is fully red.
         /// </summary>

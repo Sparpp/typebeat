@@ -5,6 +5,7 @@ using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using typebeat.Game.Graphics.UserInterface;
+using typebeat.Game.Screens.Edit.Timing;
 using typebeat.Game.Screens.Edit.Compose.Components.Timeline;
 
 namespace typebeat.Game.Screens.Edit
@@ -17,7 +18,7 @@ namespace typebeat.Game.Screens.Edit
         public Container MainContent { get; private set; } = null!;
 
         private LoadingSpinner spinner = null!;
-        private Container timelineContent = null!;
+        private FillFlowContainer timelineContent = null!;
 
         protected EditorScreenWithTimeline(EditorScreenMode type)
             : base(type)
@@ -58,8 +59,9 @@ namespace typebeat.Game.Screens.Edit
                                     {
                                         new Drawable[]
                                         {
-                                            timelineContent = new Container
+                                            timelineContent = new FillFlowContainer
                                             {
+                                                Direction = FillDirection.Vertical,
                                                 RelativeSizeAxes = Axes.X,
                                                 AutoSizeAxes = Axes.Y,
                                             },
@@ -109,7 +111,13 @@ namespace typebeat.Game.Screens.Edit
                 LoadComponentAsync(TimelineArea = new TimelineArea(CreateTimelineContent()), timeline =>
                 {
                     ConfigureTimeline(timeline);
+                    // Draw the toolbar (including its open menu) above the waveform, while
+                    // keeping the vertical layout independent of drawable depth.
+                    var controls = new TimingGridControls { Depth = -1 };
+                    timelineContent.Add(controls);
                     timelineContent.Add(timeline);
+                    timelineContent.SetLayoutPosition(controls, 0);
+                    timelineContent.SetLayoutPosition(timeline, 1);
                 });
             });
         }

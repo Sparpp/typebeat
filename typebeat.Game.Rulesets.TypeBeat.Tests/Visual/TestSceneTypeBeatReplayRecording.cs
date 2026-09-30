@@ -12,6 +12,7 @@ using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
+using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Tests.Visual;
 using osuTK.Input;
@@ -113,9 +114,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("line complete", () => playfield.Engine.IsLineComplete);
 
-            // One config header + one frame per effective input, in press order.
+            // Config and rush-cap headers, then one frame per effective input, in press order.
             AddAssert("frame sequence recorded", () =>
-                string.Concat(frames.Select(f => f.Character)) == "\0zxa b");
+                string.Concat(frames.Select(f => f.Character)) == "\0\u0001zxa b");
 
             assertCommonRecordingInvariants(syllableEra: true);
         }
@@ -152,7 +153,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("line complete", () => playfield.Engine.IsLineComplete);
 
             AddAssert("frame sequence records the erase", () =>
-                string.Concat(frames.Select(f => f.Character)) == "\0zq\ba b");
+                string.Concat(frames.Select(f => f.Character)) == "\0\u0001zq\ba b");
 
             AddAssert("config frame carries allow-wrong-input on", () => frames[0].IsConfig && frames[0].AllowWrongInput);
 
@@ -194,7 +195,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("press B (correct)", () => InputManager.Key(Key.B));
 
             AddAssert("line complete", () => playfield.Engine.IsLineComplete);
-            AddAssert("frame sequence recorded", () => string.Concat(frames.Select(f => f.Character)) == "\0za b");
+            AddAssert("frame sequence recorded", () => string.Concat(frames.Select(f => f.Character)) == "\0\u0001za b");
 
             // The load-bearing difference, on a cell whose point target is nowhere near the press:
             // 'a' is timed at 75000 and is typed within a second of the line starting, yet it sits
@@ -204,7 +205,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             {
                 var line = playfield.Engine.Lines[0];
                 var span = line.Syllables[line.SyllableIndexOf(1)];
-                double pressed = frames[2].Time;
+                double pressed = frames.First(f => f.Character == 'a').Time;
 
                 return pressed >= span.StartTime
                        && pressed <= span.EndTime
@@ -225,6 +226,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             AddAssert("config frame leads and captures allow-wrong-input", () =>
                 frames[0].IsConfig && frames[0].AllowWrongInput == playfield.Engine.AllowWrongInput);
+
+            AddAssert("rush-cap removal is recorded after config", () =>
+                frames[0].IsConfig && frames[1].IsRushCapRemoved && frames[1].Time == frames[0].Time);
 
             AddAssert("times are integral and monotonic", () =>
                 frames.All(f => f.Time == Math.Round(f.Time))
@@ -318,10 +322,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 var line = playfield.Engine.Lines[0];
                 var span = line.Syllables[line.SyllableIndexOf(0)];
 
-                bool inSpan = frames[1].Time >= span.StartTime && frames[1].Time <= span.EndTime;
+                bool inSpan = frames.First(f => f.Character == 'z').Time >= span.StartTime && frames.First(f => f.Character == 'z').Time <= span.EndTime;
 
                 return inSpan
-                       && line.Cells[0].JudgedDelta == frames[1].Time - (syllableEra ? span.StartTime : line.Cells[0].TargetTime)
+                       && line.Cells[0].JudgedDelta == frames.First(f => f.Character == 'z').Time - (syllableEra ? span.StartTime : line.Cells[0].TargetTime)
                        && line.Cells[1].JudgedDelta == (syllableEra ? 0 : frames.First(f => f.Character == 'a').Time - line.Cells[1].TargetTime);
             });
 
@@ -331,61 +335,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             {
                 var live = playfield.Engine;
 
-                var replayed = new TypingEngine(new LyricBeatmap
-                {
-                    Metadata = new LyricBeatmapMetadata
-                    {
-                        Artist = "Test",
-                        Title = "ReplayRecording",
-                        FolderPath = string.Empty,
-                        AudioFileName = string.Empty,
-                        HasWordTiming = true,
-                    },
-                    Lines = new List<LyricLine> { recordedLine },
-                    Granularity = TimingGranularity.Word,
-                });
-
-                // Which MODS the score holds comes from the score, exactly as the headless scorer
-                // takes it, and is not carried by any frame; the window ERA is (bit 13, backlog
-                // 264), and the two together decide the ladder. Under a live Hard Rock run that
-                // means the plain ladder, since the halving is retired, but the pair still has to be
-                // wired or a stored run would re-derive on the wrong one.
-                replayed.HardRockFromMod = !syllableEra;
+                var map = Player.GameplayState.Beatmap;
+                var replayed = TypeBeatReplayScorer.CreateEngine(map,
+                    map.HitObjects.OfType<TypeBeatHitObject>().ToList(), Player.GameplayState.Mods, RateWindowRule.ScaledByRate);
 
                 foreach (var frame in frames)
-                {
-                    if (frame.IsConfig)
-                    {
-                        replayed.AllowWrongInput = frame.AllowWrongInput;
-                        // Backlog 264: the WINDOW era travels in the same header (bit 13). A fresh
-                        // engine defaults to the halved ladder every stored Hard Rock row was graded
-                        // against, so without this a run recorded today would replay a tier lower.
-                        replayed.UnhalvedHardRockWindows = frame.UnhalvedHardRockWindows;
-                        // Backlog 179: the judgement ERA travels in the same header. A fresh engine
-                        // defaults to the classic point-target rule, so without this the replayed
-                        // deltas would be the ones this run was NOT judged under, which is exactly
-                        // the divergence the JudgedDelta comparison below exists to catch.
-                        replayed.SyllableTiming = frame.SyllableTiming;
-                        // Backlog 181: the input MODEL travels in the same header, and it has to be
-                        // applied for the same reason, one step harder. A fresh engine rejects a
-                        // wrong key on a word gap, so a run that typed one through would replay with
-                        // its caret a cell behind from that keystroke on.
-                        replayed.WrongInputOnWordGaps = frame.WrongInputOnWordGaps;
-                        // Backlog 247: the first-char hybrid travels in the same header (bit 8). A
-                        // fresh engine defaults to the whole-span rule, so without this the replayed
-                        // delta of every syllable-opening press would be the one this run was NOT
-                        // judged under.
-                        replayed.FirstCharTiming = frame.FirstCharTiming;
-                        continue;
-                    }
-
-                    replayed.Update(frame.Time);
-
-                    if (frame.IsBackspace)
-                        replayed.ProcessBackspace();
-                    else
-                        replayed.ProcessKey(frame.Character, frame.Time);
-                }
+                    ReplayEngineFeed.Apply(replayed, frame);
 
                 bool cellsMatch = live.Lines[0].Cells.Zip(replayed.Lines[0].Cells)
                                       .All(pair => pair.First.State == pair.Second.State

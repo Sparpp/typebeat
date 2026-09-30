@@ -83,8 +83,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         // Display-only. Relative colours are on by default, including without a config.
         private readonly Bindable<bool> showPaceColours = new Bindable<bool>(true);
-        private readonly BindableFloat paceColourMaxChange = new BindableFloat(75f);
+        private readonly BindableFloat paceColourMaxChange = new BindableFloat((float)UnderlinePace.DEFAULT_MAX_CHANGE_PERCENT);
         private readonly BindableFloat syllableBrightness = new BindableFloat(50f);
+        private readonly BindableBool textPopIn = new BindableBool();
+        private readonly BindableFloat textPopInAmount = new BindableFloat(TypeBeatRulesetConfigManager.DEFAULT_TEXT_POP_IN_AMOUNT);
 
         // The sync tint (TypeBeatRulesetSetting.ShowSyncMetric, off by default since backlog 251),
         // the same shape of display-only setting again. Initialised FALSE for the reason the two
@@ -184,11 +186,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// every frame, so the playhead and the highlight are complements rather than two
         /// presentations to pick between, and this bindable only subtracts.</para>
         ///
-        /// <para>The highlight is also deliberately independent of
-        /// <see cref="TypingEngine.SyllableTiming"/>: that flag is a judgement rule, this is a look.
-        /// <see cref="TypingLine.Syllables"/> is built for every line either way, so the lit group
-        /// renders the same under classic judgement, which is what keeps it from silently doing
-        /// nothing in a Release build.</para>
+        /// <para>The highlight follows syllable spans or individual character targets according
+        /// to the engine's timing mode. It remains independent of the chosen playhead shape.</para>
         ///
         /// <para>Defaults to <see cref="CaretStyle.Line"/> (matching <see cref="Caret.Style"/>'s own
         /// initialiser) so a stage built with no config, which is every bare test scene, gets the
@@ -361,6 +360,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 foreach (var d in displays)
                     d.SetSyllableMarkersEnabled(e.NewValue);
+            }, true);
+
+            config?.BindWith(TypeBeatRulesetSetting.TextPopInAmount, textPopInAmount);
+            textPopInAmount.BindValueChanged(e =>
+            {
+                foreach (var d in displays)
+                    d.SetTextPopInAmount(e.NewValue);
+            }, true);
+
+            config?.BindWith(TypeBeatRulesetSetting.TextPopIn, textPopIn);
+            textPopIn.BindValueChanged(e =>
+            {
+                foreach (var d in displays)
+                    d.SetTextPopInEnabled(e.NewValue);
             }, true);
 
             config?.BindWith(TypeBeatRulesetSetting.SyllableBrightness, syllableBrightness);
@@ -1360,7 +1373,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             for (int candidate = lo; candidate <= hi; candidate++)
             {
-                displays[candidate].SetSungWindow(time, engine.Windows.GreatEarly, engine.Windows.GreatLate);
+                displays[candidate].SetSungWindow(time, engine.Windows.GreatEarly, engine.Windows.GreatLate,
+                    characterTiming: engine.HardRockFromMod || !engine.SyllableTiming, charTimedStretch: engine.CharTimedStretch);
                 syllableLitLines.Add(candidate);
             }
         }

@@ -50,6 +50,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void Schema59MarksEveryExistingRowUnprocessed()
         {
+            using var context = new SynchronousRealmTestContext();
             string directory = Path.Combine(Path.GetTempPath(), "typebeat-facts-migration-" + Guid.NewGuid().ToString("N"));
             const string filename = "client.realm";
 

@@ -286,8 +286,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>
         /// The era through the SCORER, which is the path a stored row is re-derived on. Three cells
-        /// struck 100 ms late, judged on point targets under both arms: a Great apiece at normal
-        /// windows (Great edge 150) and an Ok apiece on the halved ladder (Great edge 75).
+        /// struck 200 ms late, judged on point targets under both arms: a Great apiece on this
+        /// low-star map (Great edge 300) and an Ok apiece on the halved ladder (Great edge 150).
         /// A stored HR run carries bit 13 CLEAR and gets the second; a run recorded by today's client
         /// carries it SET and gets the first, off the SAME keystrokes and the SAME mod list.
         /// </summary>
@@ -303,7 +303,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 replay.Frames.Add(TypeBeatReplayFrame.CreateConfigFrame(0, true, unhalvedHardRockWindows: unhalved));
 
                 for (int i = 0; i < 3; i++)
-                    replay.Frames.Add(new TypeBeatReplayFrame(i * 4000 + 100, "abc"[i]));
+                    replay.Frames.Add(new TypeBeatReplayFrame(i * 4000 + 200, "abc"[i]));
 
                 return replay;
             }
@@ -462,16 +462,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The rule where it can be seen: 'a' pressed at 2000 is INSIDE the span "cake" is sung
-        /// over ([1000, 3000]) and 500 ms past its own point target (1500). Under every other stack
-        /// that is delta 0 and a Great; under Hard Rock it is delta 500, which the NORMAL ladder
-        /// prices as a Meh (Great ends 150, Ok 300, Meh 600). One press, two
-        /// rules, and the mod is the only difference between the two engines.
-        ///
-        /// <para>500 rather than backlog 180's 300: at the halved windows the mod used to carry, 300
-        /// was already past the Great window, and since backlog 264 it is not. The point of the test
-        /// is the RULE, so the delta was moved into the Ok tier of the ladder the mod now judges on
-        /// rather than left where it would quietly assert a Great.</para>
+        /// 'a' pressed at 2500 is inside the sung span "cake" ([1000, 3000]), but 1000 ms
+        /// past its point target (1500). The syllable shelter makes that delta 0 and Great;
+        /// Hard Rock judges the point delta, which is Meh even on this low-star map's doubled
+        /// ladder (Great 300, Ok 600, Meh 1200). The mod alone distinguishes the two engines.
         ///
         /// <para>The demonstrating cell is 'a', the span's second char, and deliberately NOT 'c':
         /// since backlog 247 the FIRST char of a syllable is judged on its distance from the span's
@@ -482,7 +476,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void AnInSpanOffTargetPressIsJudgedOnItsPointTargetUnderHardRock()
         {
-            const double press_time = 2000;
+            const double press_time = 2500;
 
             var hard = liveEngine(new TypeBeatModHardRock());
             var plain = liveEngine();
@@ -504,14 +498,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var hardJudgement = press(hard, 'a', press_time);
             var plainJudgement = press(plain, 'a', press_time);
 
-            Assert.AreEqual(500, hardJudgement.Delta, 1e-9, "Hard Rock judges the distance to the point target");
+            Assert.AreEqual(1000, hardJudgement.Delta, 1e-9, "Hard Rock judges the distance to the point target");
             Assert.AreEqual(JudgementType.Meh, hardJudgement.Type);
 
             Assert.AreEqual(0, plainJudgement.Delta, 1e-9, "every other stack judges the distance to the sung span");
             Assert.AreEqual(JudgementType.Great, plainJudgement.Type);
 
             // Stored, not just announced, so every readout that re-reads JudgedDelta agrees.
-            Assert.AreEqual(500, hard.Lines[0].Cells[1].JudgedDelta!.Value, 1e-9);
+            Assert.AreEqual(1000, hard.Lines[0].Cells[1].JudgedDelta!.Value, 1e-9);
             Assert.AreEqual(0, plain.Lines[0].Cells[1].JudgedDelta!.Value, 1e-9);
         }
 

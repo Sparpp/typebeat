@@ -142,30 +142,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var editorBeatmap = createBeatmap();
             var line = lineAt(editorBeatmap, 0);
 
-            Assert.That(TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "君 が すき"), Is.True);
+            Assert.That(TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "鿿 が すき"), Is.True);
 
             Assert.That(line.Line.RawText, Is.EqualTo("ga suki"));
-            Assert.That(line.Line.Original, Is.EqualTo("君 が すき"));
+            Assert.That(line.Line.Original, Is.EqualTo("鿿 が すき"));
             var pending = line.Line.UnromanisedWords.Single();
-            Assert.That(pending.Original, Is.EqualTo("君"));
+            Assert.That(pending.Original, Is.EqualTo("鿿"));
             Assert.That(pending.Position, Is.Zero);
             Assert.That(pending.EndTime, Is.LessThanOrEqualTo(line.Line.Units[0].StartTime));
 
-            Assert.That(new TypeBeatRuleset().GetSubmissionRefusal(editorBeatmap), Does.Contain("君"));
+            Assert.That(new TypeBeatRuleset().GetSubmissionRefusal(editorBeatmap), Does.Contain("鿿"));
 
             var slots = TypeBeatEditorOperations.WordSlots(line.Line);
             Assert.That(slots.Select(s => s.Unromanised), Is.EqualTo(new[] { true, false, false }));
 
-            Assert.That(TypeBeatEditorOperations.SetWordText(editorBeatmap, line, 0, "kimi"), Is.True);
+            Assert.That(TypeBeatEditorOperations.SetWordText(editorBeatmap, line, 0, "manual"), Is.True);
 
-            Assert.That(line.Line.RawText, Is.EqualTo("kimi ga suki"));
+            Assert.That(line.Line.RawText, Is.EqualTo("manual ga suki"));
             Assert.That(line.Line.UnromanisedWords, Is.Empty);
-            Assert.That(line.Line.Units[0].Original, Is.EqualTo("君"));
+            Assert.That(line.Line.Units[0].Original, Is.EqualTo("鿿"));
             Assert.That(line.Line.Units[0].StartTime, Is.EqualTo(pending.StartTime));
             Assert.That(line.Line.Units[0].Source, Is.EqualTo(TimingSource.Explicit));
             Assert.That(new TypeBeatRuleset().GetSubmissionRefusal(editorBeatmap), Is.Null);
 
-            Assert.That(reloaded(editorBeatmap, 0).RawText, Is.EqualTo("kimi ga suki"));
+            Assert.That(reloaded(editorBeatmap, 0).RawText, Is.EqualTo("manual ga suki"));
         }
 
         [Test]

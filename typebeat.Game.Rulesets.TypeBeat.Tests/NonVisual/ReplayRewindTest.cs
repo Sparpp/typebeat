@@ -162,8 +162,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             press(first[1], 'b');
             press(first[2], ' '); // ON the gap: an ordinary typed space
             press(first[3] + 100, ' '); // inside "cd": abandons it, and the line is complete
-            press(first[3] + 200, TypeBeatReplayFrame.BACKSPACE); // back into the word, over the gap it lands on
-            press(first[3] + 250, ' '); // the gap again (scoring-inert: it was already earned)
+            press(first[3] + 200, TypeBeatReplayFrame.BACKSPACE); // undo the skip, directly onto 'c'; the earned gap stays typed
             press(first[3] + 300, 'c');
             press(first[3] + 400, 'd');
 

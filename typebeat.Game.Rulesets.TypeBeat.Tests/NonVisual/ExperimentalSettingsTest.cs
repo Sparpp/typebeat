@@ -3,6 +3,8 @@
 
 using System.Linq;
 using NUnit.Framework;
+using osu.Framework.Graphics.Containers;
+using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.UI;
@@ -57,23 +59,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 var controls = subsection.BuildControls(config);
 
-                Assert.That(controls.OfType<SettingsCheckbox>().Select(c => c.LabelText.ToString()), Is.EqualTo(new[]
+                Assert.That(controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Select(c => c.Caption.ToString()), Is.EqualTo(new[]
                 {
                     "Show sync metric",
                     "Use local auto-aligner",
                 }));
 
+                Assert.That(controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>(), Is.Empty, "pop-in controls live in type!beat");
+                Assert.That(controls.OfType<SettingsCheckbox>(), Is.Empty, "all experimental toggles use the shared form UI");
+
                 // The one that has to be OFF here: the whole point of the toggle is that the metric
                 // is gone unless a player goes looking for it, so a checkbox that came up ticked
                 // would ship the thing backlog 251 removed.
-                var syncCheckbox = controls.OfType<SettingsCheckbox>().Single(c => c.LabelText.ToString() == "Show sync metric");
+                var syncCheckbox = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Single(c => c.Caption.ToString() == "Show sync metric");
 
                 Assert.That(syncCheckbox.Current.Value, Is.False);
 
                 // The aligner checkbox is meaningless without the installer, so the pair moved together.
-                var installButton = controls.OfType<SettingsButton>().Single();
+                var installButton = controls.OfType<Container>().Select(c => c.Child).OfType<FormButton>().Single();
 
-                Assert.That(installButton.Text.ToString(), Is.EqualTo("Install local auto-aligner (~2 GB)"));
+                Assert.That(installButton.Caption.ToString(), Is.EqualTo("Install local auto-aligner (~2 GB)"));
 
                 // ILocalAlignerManager is resolved CanBeNull and is absent here, exactly as it is in a
                 // headless scene: the button must go dead rather than throw on a click nothing services.

@@ -20,6 +20,7 @@ using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Screens.Edit;
+using typebeat.Game.Screens.Edit.Timing;
 using osuTK;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Edit
@@ -64,6 +65,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         [Resolved]
         private EditorScreenWithTimeline screen { get; set; } = null!;
+
+        [Resolved]
+        private EditorTimingSettings timingSettings { get; set; } = null!;
+
+        [Resolved]
+        private BindableBeatDivisor beatDivisor { get; set; } = null!;
 
         private readonly Container bandLayer;
         private readonly Container blockLayer;
@@ -119,6 +126,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         },
                         bandLayer = new Container { RelativeSizeAxes = Axes.Both },
                         blockLayer = new Container { RelativeSizeAxes = Axes.Both },
+                        new TimingGrid(() => (windowStart, windowStart + windowLength)),
                         handleLayer = new Container { RelativeSizeAxes = Axes.Both },
                         ghostLayer = new TapGhostLayer(),
                         playhead = new Box
@@ -359,6 +367,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             return EditorSnapMagnet.Magnet(time, editorClock.CurrentTime, EditorSnapMagnet.RADIUS_PX / DrawWidth * windowLength);
         }
 
+        internal double SnapToGrid(double time) => timingSettings.Snap(time, editorBeatmap.ControlPointInfo, beatDivisor.Value);
+
         protected override bool OnScroll(ScrollEvent e)
         {
             if (DrawWidth <= 0)
@@ -403,7 +413,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Move the playhead to a screen-space X on the strip (video-editor seek), leaving
         /// the view put. Shared by empty-space clicks (root) and line-band grey-area clicks.</summary>
         internal void SeekToScreenSpace(Vector2 screenSpacePosition)
-            => SeekTo(TimeAt(ToLocalSpace(screenSpacePosition).X));
+            => SeekTo(SnapToGrid(TimeAt(ToLocalSpace(screenSpacePosition).X)));
 
         /// <summary>Move the playhead to a time, leaving the view put (see <see cref="SeekToScreenSpace"/>).</summary>
         internal void SeekTo(double time)
@@ -424,7 +434,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             // Double click on empty space (outside every line band, before the first line or
             // after the last) authors a new line there; bands/blocks consume their own clicks.
-            double time = TimeAt(ToLocalSpace(e.ScreenSpaceMousePosition).X);
+            double time = SnapToGrid(TimeAt(ToLocalSpace(e.ScreenSpaceMousePosition).X));
             var added = TypeBeatEditorOperations.AddLine(editorBeatmap, time);
 
             if (added != null)
@@ -819,6 +829,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 double cursorTime = strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X);
                 double delta = cursorTime - grabTime;
+                double anchor = groupDrag ? (grab == Grab.ResizeEnd ? groupOrigEnd[0] : groupOrigStart[0]) : grabStart;
+                delta = strip.SnapToGrid(anchor + delta) - anchor;
 
                 if (groupDrag)
                 {
@@ -838,7 +850,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 // A WORD BOUNDARY is being dragged (one edge, on its own): magnet it to the caret.
                 // The group drag keeps its uniform-delta semantics, and a body move drags no
                 // boundary at all, so neither is magneted.
-                double boundaryTime = strip.MagnetToCaret(cursorTime);
+                double boundaryTime = strip.timingSettings.SnapToGrid.Value ? strip.SnapToGrid(cursorTime) : strip.MagnetToCaret(cursorTime);
 
                 if (sharedBoundaryLeftIndex >= 0)
                 {
@@ -957,7 +969,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override void OnDrag(DragEvent e)
             {
-                TypeBeatEditorOperations.SetLineStart(editorBeatmap, hitObject, strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X));
+                TypeBeatEditorOperations.SetLineStart(editorBeatmap, hitObject, strip.SnapToGrid(strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X)));
             }
 
             protected override void OnDragEnd(DragEndEvent e)
@@ -1252,7 +1264,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override void OnDrag(DragEvent e)
             {
-                draggedTo = strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X);
+                draggedTo = strip.SnapToGrid(strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X));
 
                 TypeBeatEditorOperations.SetSyllableBoundary(editorBeatmap, hitObject, unitIndex, boundaryIndex, draggedTo);
             }
@@ -1453,7 +1465,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override void OnDrag(DragEvent e)
             {
-                double time = strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X);
+                double time = strip.SnapToGrid(strip.TimeAt(strip.ToLocalSpace(e.ScreenSpaceMousePosition).X));
 
                 if (start)
                     TypeBeatEditorOperations.SetWordPauseStart(editorBeatmap, hitObject, unitIndex, pauseIndex, time);

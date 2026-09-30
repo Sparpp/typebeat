@@ -141,7 +141,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // A katakana line with NO transliteration: the romaniser, with the source's syllables.
             + "<p begin=\"6.000\" end=\"7.000\"><span begin=\"6.000\" end=\"6.300\">コー</span><span begin=\"6.300\" end=\"6.600\">ヒ</span><span begin=\"6.600\" end=\"7.000\">ー</span></p>"
             // A kanji the romaniser cannot read, with no transliteration: flagged.
-            + "<p begin=\"8.000\" end=\"9.000\"><span begin=\"8.000\" end=\"8.500\">君</span> <span begin=\"8.500\" end=\"9.000\">さくら</span></p>"
+            + "<p begin=\"8.000\" end=\"9.000\"><span begin=\"8.000\" end=\"8.500\">鿿</span> <span begin=\"8.500\" end=\"9.000\">さくら</span></p>"
             + "</div></body></tt>";
 
         [Test]
@@ -189,14 +189,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.That(line.RawText, Is.EqualTo("sakura"));
             Assert.That(line.Units.Single().Original, Is.EqualTo("さくら"));
-            Assert.That(line.UnromanisedWords, Is.EqualTo(new[] { new UnromanisedWord(0, "君", 8000, 8500) }));
+            Assert.That(line.UnromanisedWords, Is.EqualTo(new[] { new UnromanisedWord(0, "鿿", 8000, 8500) }));
 
             var (result, beatmap, _) = package(timing, "japanese");
 
             Assert.That(result.Notice, Does.Contain("1 word could not be romanised"));
-            Assert.That(result.Notice, Does.Contain("君"));
+            Assert.That(result.Notice, Does.Contain("鿿"));
             Assert.That(beatmap.Metadata.Language, Is.EqualTo(BeatmapLanguage.Japanese));
-            Assert.That(new TypeBeatRuleset().GetSubmissionRefusal(beatmap), Does.Contain("君"));
+            Assert.That(new TypeBeatRuleset().GetSubmissionRefusal(beatmap), Does.Contain("鿿"));
         }
 
         #endregion

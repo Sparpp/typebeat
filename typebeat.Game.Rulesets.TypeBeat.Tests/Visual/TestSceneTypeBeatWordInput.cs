@@ -19,6 +19,7 @@ using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
+using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Tests.Visual;
 using osuTK.Input;
@@ -375,8 +376,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         /// <summary>
         /// The other half of that, and the reason backlog 244 took the gate off the SELECT width:
-        /// word skipping is orthogonal to the input model, so a Gatekeeper player CAN leave cells
-        /// behind, and those cells are exactly what the gesture exists to walk back to. Ctrl+A offers
+        /// a skipped word prepared before switching to Gatekeeper remains recoverable. Strict input
+        /// refuses new mid-word skips, so the fixture creates the skipped cells first. The chord offers
         /// the skipped word, a letter consumes the offer, and the cells are open to be typed again.
         /// </summary>
         [Test]
@@ -384,13 +385,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             waitForLine();
 
-            AddStep("Gatekeeper, with word skipping on", () =>
+            AddStep("prepare a skipped word", () =>
             {
-                engine.AllowWrongInput = false;
+                engine.AllowWrongInput = true;
                 engine.SpaceSkipsWord = true;
             });
 
             type("a ");
+            AddStep("switch to Gatekeeper", () => engine.AllowWrongInput = false);
 
             AddAssert("the rest of \"ab\" was given up", () =>
                 cell(1).State == CellState.Abandoned && cell(2).State == CellState.Correct && engine.CaretIndex == 3);
@@ -429,13 +431,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             waitForLine();
 
-            AddStep("Gatekeeper, with word skipping on", () =>
+            AddStep("prepare a skipped word", () =>
             {
-                engine.AllowWrongInput = false;
+                engine.AllowWrongInput = true;
                 engine.SpaceSkipsWord = true;
             });
 
             type("a ");
+            AddStep("switch to Gatekeeper", () => engine.AllowWrongInput = false);
             recoveryChord(Key.A);
             AddAssert("selection held", () => playfield.CurrentRetypeSelection != null);
 
@@ -496,10 +499,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // naming the line-skip sentinel here costs this assert nothing and keeps it honest
             // about what a frame may legally carry.
             AddAssert("nothing but existing frame kinds was recorded", () =>
-                frames.All(f => f.IsConfig || f.IsBackspace || f.IsEnter || f.Character is >= 'a' and <= 'z' or ' '));
+                frames.All(f => f.IsConfig || f.IsRushCapRemoved || f.IsBackspace || f.IsEnter || f.Character is >= 'a' and <= 'z' or ' '));
 
             AddAssert("the frame sequence is the calls the engine actually took", () =>
-                string.Concat(frames.Select(f => f.Character)) == "\0ab cd \b\b\bcd xf\b\be");
+                string.Concat(frames.Select(f => f.Character)) == "\0\u0001ab cd \b\b\bcd xf\b\be");
 
             AddAssert("times are integral and monotonic", () =>
                 frames.All(f => f.Time == Math.Round(f.Time))
@@ -507,13 +510,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("each burst's frames share the one timestamp the engine judged them at", () =>
             {
-                var all = frames;
+                var all = frames.Where(f => !f.IsConfig && !f.IsRushCapRemoved).ToList();
 
-                // Counting the CONFIG header at 0: the Ctrl+Backspace burst is frames 7..9, and the
-                // Ctrl+A consume is 15..17 (its two erases plus the letter that landed at the anchor,
+                // Counting inputs only: the Ctrl+Backspace burst is frames 6..8, and the
+                // Ctrl+A consume is 14..16 (its two erases plus the letter that landed at the anchor,
                 // all produced by the single press that consumed the selection).
-                return all[7].Time == all[8].Time && all[8].Time == all[9].Time
-                       && all[15].Time == all[16].Time && all[16].Time == all[17].Time;
+                return all[6].Time == all[7].Time && all[7].Time == all[8].Time
+                       && all[14].Time == all[15].Time && all[15].Time == all[16].Time;
             });
 
             AddAssert("the recorded run re-derives to the live one", () =>
@@ -938,19 +941,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             var dummy = new Beatmap();
 
-            var replayed = new TypingEngine(new LyricBeatmap
-            {
-                Metadata = new LyricBeatmapMetadata
-                {
-                    Artist = "Test",
-                    Title = "WordInput",
-                    FolderPath = string.Empty,
-                    AudioFileName = string.Empty,
-                    HasWordTiming = true,
-                },
-                Lines = new List<LyricLine> { recordedLine, trailingLine },
-                Granularity = TimingGranularity.Word,
-            });
+            var map = Player.GameplayState.Beatmap;
+            var replayed = TypeBeatReplayScorer.CreateEngine(map,
+                map.HitObjects.OfType<TypeBeatHitObject>().ToList(), Player.GameplayState.Mods, RateWindowRule.ScaledByRate);
 
             foreach (var frame in frames)
             {

@@ -122,12 +122,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             => account.Statistics.GetValueOrDefault(result);
 
         /// <summary>
-        /// The user's own example (backlog 179): "cake", ONE word and ONE syllable (the final e is
-        /// silent, so the syllabifier does not split it), sung over [1000, 3000]. The flat char ramp
-        /// puts the point targets at 1000 / 1500 / 2000 / 2500, and the group's span runs from its
-        /// first cell's target to the unit's end, so it is [1000, 3000]: every one of those targets
-        /// sits inside it, which is what makes the same four keystrokes classify differently under
-        /// the two rules.
+        /// One word and one syllable, "cake", sung over [1000, 5000]. Point targets are
+        /// 1000 / 2000 / 3000 / 4000. The longer span keeps the legacy point-delta mix below
+        /// distinct from the sung-span rule despite this low-star map's doubled windows.
         /// </summary>
         private static TypeBeatBeatmap cake()
         {
@@ -136,8 +133,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 RawText = "cake",
                 StartTime = 0,
                 EndTime = 60000,
-                SingEndTime = 3000,
-                Units = new[] { new TimedUnit { Text = "cake", StartTime = 1000, EndTime = 3000 } },
+                SingEndTime = 5000,
+                Units = new[] { new TimedUnit { Text = "cake", StartTime = 1000, EndTime = 5000 } },
             };
 
             var map = new TypeBeatBeatmap();
@@ -150,14 +147,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// The four presses that spell "cake" in one flurry near the top of the syllable: on the
-        /// beat, then 300, 450 and 300 milliseconds AHEAD of each following cell's point target,
-        /// and all four inside the sung span. Every delta is inside the one ladder's Meh edge (600
-        /// on either side), so every press resolves and the MIX is what the legacy arm is read from:
-        /// 0 is a Great, 300 early is an Ok (the Great edge is 150) and 450 early is a Meh (the Ok
-        /// edge is 300). <paramref name="flags"/> is the CONFIG frame's flags word, taken through the
-        /// LEGACY DECODE so the era arm is the one a stored .osr really produces rather than one the
-        /// test constructs.
+        /// Four presses inside the sung span: on target, then 600, 900 and 600 ms early.
+        /// The low-star ladder has Great 300, Ok 600 and Meh 1200, giving Great/Ok/Meh/Ok
+        /// on point deltas, while the span rule gives four Greats. The flags travel through
+        /// legacy decoding to exercise the same era selection as a stored .osr.
         /// </summary>
         private static Replay cakeRun(int flags)
         {
@@ -169,9 +162,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 config,
                 new TypeBeatReplayFrame(1000, 'c'), // target 1000: delta 0 under either rule
-                new TypeBeatReplayFrame(1200, 'a'), // target 1500: 300 early, the Ok edge
-                new TypeBeatReplayFrame(1550, 'k'), // target 2000: 450 early, a Meh
-                new TypeBeatReplayFrame(2200, 'e'), // target 2500: 300 early, an Ok
+                new TypeBeatReplayFrame(1400, 'a'), // target 2000: 600 early, low-star Ok edge
+                new TypeBeatReplayFrame(2100, 'k'), // target 3000: 900 early, a Meh
+                new TypeBeatReplayFrame(3400, 'e'), // target 4000: 600 early, an Ok
             });
         }
 
@@ -1399,7 +1392,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// deltas -- each against its own cell's target -- rather than against the sung span, which
         /// is what bit 2 clear means and what a row stored before that backlog was graded on. Read
         /// against the CELL's own point target it is worth less than an SS and its accuracy is below
-        /// 1: 0 is a Great, 300 and 300 early are Oks (the Ok edge), 450 early is a Meh.
+        /// 1: 0 is Great, the two 600 ms early presses are Ok, and 900 ms early is Meh.
         ///
         /// <para>The MIX is what this pins, and deliberately not the ladder's constants: the window
         /// ladder is one tuning point that a retune moves for every arm at once (the three-tier
@@ -1508,10 +1501,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return replay(new List<TypeBeatReplayFrame>
             {
                 config,
-                new TypeBeatReplayFrame(1100, 'c'), // target 1000: 100 late
-                new TypeBeatReplayFrame(1700, 'a'), // target 1500: 200 late
-                new TypeBeatReplayFrame(2250, 'k'), // target 2000: 250 late
-                new TypeBeatReplayFrame(2790, 'e'), // target 2500: 290 late
+                new TypeBeatReplayFrame(1200, 'c'), // target 1000: 200 late
+                new TypeBeatReplayFrame(2400, 'a'), // target 2000: 400 late
+                new TypeBeatReplayFrame(3500, 'k'), // target 3000: 500 late
+                new TypeBeatReplayFrame(4580, 'e'), // target 4000: 580 late
             });
         }
 
@@ -1520,10 +1513,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// 150 halved every window under Hard Rock and backlog 264 retired that live, so the ladder a
         /// re-derivation gets cannot come from the acronym: it comes from the run's own header.
         ///
-        /// <para>Stored (bit 13 clear, the halved ladder: Great +/-75, Ok +/-150, Meh +/-300): 100
-        /// is an Ok and the other three are Mehs. Live (bit 13 set, the normal ladder: Great +/-150,
-        /// Ok +/-300, Meh +/-600): 100 is a Great and the other three are Oks. Two accounts of the
-        /// same four presses, and the frame is the only thing that tells them apart.</para>
+        /// <para>On this low-star map, stored windows are Great 150, Ok 300, Meh 600:
+        /// 200 ms late is Ok, and 400/500/580 ms late are Meh. Live windows are Great 300,
+        /// Ok 600, Meh 1200: the same run is one Great and three Oks.</para>
         ///
         /// <para>The era is the HALVING, not the six constants it multiplies: the ladder itself is
         /// one tuning point, so a retune moves both arms together and a stored row re-derives on the

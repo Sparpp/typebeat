@@ -14,6 +14,7 @@ using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Screens.Edit;
+using typebeat.Game.Screens.Edit.Timing;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
@@ -46,6 +47,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         [Resolved]
         private EditorScreenWithTimeline screen { get; set; } = null!;
 
+        [Resolved]
+        private EditorTimingSettings timingSettings { get; set; } = null!;
+
+        [Resolved]
+        private BindableBeatDivisor beatDivisor { get; set; } = null!;
+
+        private double snap(double time) => timingSettings.Snap(time, editorBeatmap.ControlPointInfo, beatDivisor.Value);
+
         private readonly Container shadeLayer;
         private readonly Container markLayer;
         private readonly TapGhostLayer ghostLayer;
@@ -70,6 +79,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     Alpha = 0.6f,
                 },
                 shadeLayer = new Container { RelativeSizeAxes = Axes.Both },
+                new TimingGrid(() => (windowStart, windowStart + windowLength)),
                 markLayer = new Container { RelativeSizeAxes = Axes.Both },
                 ghostLayer = new TapGhostLayer(),
                 playhead = new Box
@@ -185,7 +195,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 editorClock.SeekSmoothlyTo(hit.Line.StartTime);
             }
             else
-                editorClock.SeekSmoothlyTo(Math.Max(0, time));
+                editorClock.SeekSmoothlyTo(snap(Math.Max(0, time)));
 
             return true;
         }
@@ -195,7 +205,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // Empty-gap double click = author a new line at that time (AddLine itself rejects
             // times colliding with an existing line start).
             double time = TimeAt(ToLocalSpace(e.ScreenSpaceMousePosition).X);
-            var added = TypeBeatEditorOperations.AddLine(editorBeatmap, time);
+            var added = TypeBeatEditorOperations.AddLine(editorBeatmap, snap(time));
 
             if (added != null)
             {

@@ -44,6 +44,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void SetInclusionIsDerivedFromDifficultyOverrides()
         {
+            using var context = new SynchronousRealmTestContext();
             var storage = new NativeStorage(directory);
 
             Guid trueWins = Guid.Empty, allFalse = Guid.Empty, mixed = Guid.Empty, untouched = Guid.Empty;

@@ -179,10 +179,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // (see LyricLineDisplay.CellFillColour).
             AddUntilStep("the line's one group is being sung", () => display.SungSyllable == 0);
             AddAssert("so every cell starts on the highlight grey", () => same(colour(0), TypeBeatStyle.SungChar));
-            // Backlog 178 put the whole ramp above that grey, which is what lets the steps below
-            // tell a typed cell from an untyped one at ANY quality, the floor included.
-            AddAssert("and the ramp floor clears it", () => !same(LyricLineDisplay.CorrectCharColour(0), TypeBeatStyle.SungChar)
-                                                           && brightness(LyricLineDisplay.CorrectCharColour(0)) > brightness(TypeBeatStyle.SungChar));
+            // Brightness is adjustable independently of sync quality; the default highlight
+            // remains distinct from the ramp floor without requiring a brightness ordering.
+            AddAssert("and the ramp floor is distinct", () => !same(LyricLineDisplay.CorrectCharColour(0), TypeBeatStyle.SungChar));
         }
 
         [Test]
@@ -191,8 +190,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("type 'a' dead on", () => press(0, 'a', 0));
             AddStep("type 'b' half a window late", () => press(1, 'b', halfQualityLateDelta(1)));
 
-            // Both chars leave the highlight grey when they repaint, since the whole ramp is above
-            // it; waiting on the late one is enough, because it is the later of the two writes.
+            // Both chars leave the default highlight when they repaint; waiting on the late
+            // one is enough, because it is the later of the two writes.
             AddUntilStep("both chars repainted", () => !same(colour(1), TypeBeatStyle.SungChar)
                                                       && cell(0).JudgedDelta != null);
 
@@ -229,9 +228,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // unfloored ramp would paint a char the player DID type in precisely the untyped grey.
             AddAssert("it sits on the ramp floor", () => same(colour(0), LyricLineDisplay.CorrectCharColour(0)));
             AddAssert("which is not the untyped grey", () => brightness(colour(0)) > brightness(TypeBeatStyle.UntypedChar));
-            // Nor an UNTYPED cell of the sung group, which here wears the highlight grey: backlog 178
-            // put that grey below the floor precisely so the worst correct char still reads as typed.
-            AddAssert("nor the sung group's highlight grey", () => brightness(colour(0)) > brightness(TypeBeatStyle.SungChar));
+            AddAssert("nor the sung group's default highlight", () => !same(colour(0), TypeBeatStyle.SungChar));
             AddAssert("and is not the full typed colour either", () => !same(colour(0), TypeBeatStyle.TypedChar));
         }
 

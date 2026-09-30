@@ -167,6 +167,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 }),
                 new SettingsItemV2(new FormCheckBox
                 {
+                    Caption = "Text pop-in",
+                    HintText = "Gently grow upcoming syllables or characters to full size as their Great timing window opens. Display only.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.TextPopIn),
+                }),
+                new SettingsItemV2(new FormSliderBar<float>
+                {
+                    Caption = "Pop-in amount",
+                    HintText = "How much smaller upcoming text starts before growing to full size. Higher values make the pop stronger; 0% removes the size change. Display only.",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.TextPopInAmount),
+                    KeyboardStep = 1f,
+                    LabelFormat = v => $"{v:0}%",
+                }),
+                new SettingsItemV2(new FormCheckBox
+                {
                     Caption = "Show syllable markers",
                     HintText = "Show a small triangle at each syllable boundary inside a word, including automatically split syllables. Display only.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyllableMarkers),
@@ -180,7 +194,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsItemV2(new FormSliderBar<float>
                 {
                     Caption = "Pace colour maximum change",
-                    HintText = "Sets how strongly pace changes are coloured. Lower values make colours more sensitive. Defaults to 75%. Display only.",
+                    HintText = "Sets how strongly pace changes are coloured. Lower values make colours more sensitive. Defaults to 100%. Display only.",
                     Current = config.GetBindable<float>(TypeBeatRulesetSetting.PaceColourMaxChange),
                     KeyboardStep = 1f,
                     LabelFormat = v => $"{v:0}%",

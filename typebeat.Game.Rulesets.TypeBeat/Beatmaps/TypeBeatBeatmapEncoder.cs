@@ -57,7 +57,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 language: metadata.Language.ToCanonicalName(),
                 audioGain: metadata.AudioGain,
                 lyricFont: metadata.LyricFont,
-                lyricFontFile: metadata.LyricFontFile);
+                lyricFontFile: metadata.LyricFontFile,
+                editorTimingPoints: beatmap.ControlPointInfo.TimingPoints,
+                editorEffectPoints: beatmap.ControlPointInfo.EffectPoints,
+                beatDivisor: beatmap.BeatmapInfo.BeatDivisor);
 
             writer.Write(osu);
         }

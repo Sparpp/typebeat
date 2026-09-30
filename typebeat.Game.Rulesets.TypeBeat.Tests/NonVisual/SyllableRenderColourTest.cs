@@ -10,26 +10,9 @@ using osuTK.Graphics;
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
-    /// The colour half of the lit-syllable rendering (backlog 174 stage 3, rekeyed off the sung
-    /// playhead style by 175, made unconditional by 177):
-    /// <see cref="LyricLineDisplay.CellFillColour"/> is the single pure function every cell fill
-    /// routes through, so pinning it pins the painting.
-    ///
-    /// <para>There is ONE rule now rather than two presentations to choose between, which is why
-    /// this fixture no longer sweeps a mode axis: the pre-174 painting, sync-tint ramp included,
-    /// plus the currently sung group's UNTYPED cells lifting to <see cref="TypeBeatStyle.SungChar"/>.
-    /// A player who never opens the playhead dropdown therefore sees exactly today's colours with
-    /// the lit group added, and the one who sets the playhead to <c>CaretStyle.None</c> sees the
-    /// same colours again: that style subtracts the caret and the sweep, neither of which is decided
-    /// here.</para>
-    ///
-    /// <para>Backlog 178 DEMOTED that highlight from the palette white to a lighter grey. The pin
-    /// below inverted with it: the highlight used to be asserted EQUAL to the typed white and to an
-    /// on-the-beat correct char, and is now asserted DISTINCT from the untyped grey, the typed white
-    /// and the sync ramp's floor, in contrast terms rather than by restating a hex. The Correct state
-    /// still has no highlight colour of its own (backlog 176a removed the flat green it briefly had):
-    /// it rides the ramp wherever it sits, and the whole ramp now sits above the highlight, so typing
-    /// a char always promotes it out of the highlight.</para>
+    /// Cell colours separate the current sung group from untyped text. Players can adjust the
+    /// sung brightness; that preference affects untyped cells only, while correct cells retain
+    /// their sync tint and every other state retains its own colour.
     /// </summary>
     [TestFixture]
     public class SyllableRenderColourTest
@@ -83,55 +66,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Is.EqualTo(TypeBeatStyle.UntypedChar));
         }
 
-        /// <summary>
-        /// The inverted pin (backlog 178). The highlight is a THIRD colour and must be readable as
-        /// one against all three things it sits near, stated as contrast ratios so the assertion
-        /// survives a retune of any of them. The margins are asymmetric on purpose: the band between
-        /// the untyped grey and the ramp floor is only about 1.94:1 wide in total, so nothing inside
-        /// it can clear both ends by more than about 1.39:1, and the split is weighted towards the
-        /// untyped end because "the song is HERE" is the read the highlight exists for.
-        /// </summary>
         [Test]
-        public void TheHighlightIsAThirdColourDistinctFromEveryStateItSitsBetween()
+        public void TheDefaultHighlightIsDistinctFromUntypedAndTypedText()
         {
             var highlight = fill(CellState.Untyped, inSung: true);
-            var floor = LyricLineDisplay.CorrectCharColour(0);
 
-            Assert.That(highlight, Is.Not.EqualTo(TypeBeatStyle.UntypedChar));
-            Assert.That(highlight, Is.Not.EqualTo(TypeBeatStyle.TypedChar));
-            Assert.That(highlight, Is.Not.EqualTo(floor));
+            assertBrighterThan(highlight, TypeBeatStyle.UntypedChar, "highlight vs untyped grey");
+            assertBrighterThan(TypeBeatStyle.TypedChar, highlight, "typed white vs highlight");
+            Assert.That(contrast(highlight, TypeBeatStyle.UntypedChar), Is.GreaterThan(1.4));
+            Assert.That(contrast(TypeBeatStyle.TypedChar, highlight), Is.GreaterThan(1.4));
+        }
 
-            // Ordered, on every channel as well as on luminance: untyped < highlight < floor < typed.
-            assertBrighterThan(highlight, TypeBeatStyle.UntypedChar, "highlight vs the untyped grey");
-            assertBrighterThan(floor, highlight, "the sync ramp floor vs the highlight");
-            assertBrighterThan(TypeBeatStyle.TypedChar, floor, "the typed white vs the ramp floor");
-
-            // Against the untyped grey the yardstick is the untyped-versus-Missed step the game
-            // already ships and asks players to read, about 1.47:1; the highlight matches it.
-            Assert.That(contrast(highlight, TypeBeatStyle.UntypedChar), Is.GreaterThan(1.4),
-                "a sung cell must be tellable from a not-yet-sung one at a glance");
-
-            // Against the typed white the margin is wide, which is the demotion itself: an untyped
-            // char can never be misread as one the player already typed.
-            Assert.That(contrast(TypeBeatStyle.TypedChar, highlight), Is.GreaterThan(2.4),
-                "the highlight must not read as typed");
-
-            // And it clears the ramp floor, the collision the old white had no room for at all.
-            Assert.That(contrast(floor, highlight), Is.GreaterThan(1.25),
-                "the worst correct char must stay tellable from a highlighted untyped one");
+        [TestCase(0f)]
+        [TestCase(25f)]
+        [TestCase(50f)]
+        [TestCase(75f)]
+        [TestCase(100f)]
+        public void SungBrightnessChangesOnlyTheUntypedHighlight(float brightness)
+        {
+            foreach (CellState state in all_states)
+            {
+                foreach (double quality in new[] { 0, 0.25, 0.5, 0.75, 1 })
+                {
+                    Color4 actual = LyricLineDisplay.CellFillColour(state, false, true, quality, brightness);
+                    Color4 expected = state == CellState.Untyped
+                        ? TypeBeatStyle.SungCharForBrightness(brightness)
+                        : fill(state, inSung: false, quality);
+                    Assert.That(actual, Is.EqualTo(expected), $"state {state}, quality {quality}");
+                    Assert.That(LyricLineDisplay.CellFillColour(state, false, false, quality, brightness),
+                        Is.EqualTo(fill(state, inSung: false, quality)), "outside the sung group the setting has no effect");
+                    Assert.That(LyricLineDisplay.CellFillColour(state, true, true, quality, brightness),
+                        Is.EqualTo(TypeBeatStyle.FreestyleChar), "freestyle keeps its identity colour");
+                }
+            }
         }
 
         [Test]
-        public void TypingACharAlwaysPromotesItOutOfTheHighlight()
+        public void SungBrightnessClampsAtTheUntypedAndTypedColours()
         {
-            // The consequence of putting the whole ramp above the highlight: however badly timed the
-            // press was, a Correct cell is brighter than the highlight it replaced. Before 178 the
-            // ramp's TOP was the highlight, so a dead-on press was invisible against it.
-            foreach (double q in new[] { 0, 0.25, 0.5, 0.75, 1 })
-            {
-                assertBrighterThan(fill(CellState.Correct, inSung: true, quality: q),
-                    fill(CellState.Untyped, inSung: true), $"a correct char at quality {q} vs the highlight");
-            }
+            Assert.That(TypeBeatStyle.SungCharForBrightness(-10), Is.EqualTo(TypeBeatStyle.UntypedChar));
+            Assert.That(TypeBeatStyle.SungCharForBrightness(110), Is.EqualTo(TypeBeatStyle.TypedChar));
         }
 
         [Test]

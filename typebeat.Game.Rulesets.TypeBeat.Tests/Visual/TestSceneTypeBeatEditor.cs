@@ -15,6 +15,7 @@ using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.Edit;
+using typebeat.Game.Screens.Edit.Timing;
 using typebeat.Game.Screens.Edit.GameplayTest;
 using typebeat.Game.Screens.Edit.Components.Timelines.Summary;
 using typebeat.Game.Screens.Edit.Compose;
@@ -1135,7 +1136,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("out of range, the drag is left alone", () => Math.Abs(wordStart() - caret) > 2 * msPerPixel);
 
-            AddStep("disarm snap to caret", () => clickPanelButton("snap to caret"));
+            AddStep("disarm snap to caret", () =>
+            {
+                var button = Editor.ChildrenOfType<LyricComposeScreen>().Single().ChildrenOfType<TimingGridControls>()
+                    .Single().ChildrenOfType<RoundedButton>().Single(b => b.Text.ToString() == "Snap to Caret: On");
+                InputManager.MoveMouseTo(button);
+                InputManager.Click(MouseButton.Left);
+            });
             AddAssert("magnet is off", () => !state().SnapToCaret.Value);
 
             AddStep("aim 4px short of the caret again", () =>

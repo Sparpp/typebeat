@@ -2,9 +2,13 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
+using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.Cursor;
+using typebeat.Game.Graphics.UserInterfaceV2;
 using osu.Framework.Localisation;
 using osu.Framework.Logging;
 using typebeat.Game.Overlays;
@@ -44,11 +48,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         [Resolved(CanBeNull = true)]
         private INotificationOverlay? notifications { get; set; }
 
-        private SettingsButton installButton = null!;
+        private InstallAlignerButton installButton = null!;
 
         public TypeBeatExperimentalSettingsSubsection(Ruleset ruleset)
             : base(ruleset)
         {
+            FlowContent.Margin = new MarginPadding();
         }
 
         [BackgroundDependencyLoader]
@@ -66,25 +71,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             var controls = new Drawable[]
             {
-                new SettingsCheckbox
+                CreateSubsectionHeader("Visual feedback"),
+                new SettingsItemV2(new FormCheckBox
                 {
-                    LabelText = "Show sync metric",
-                    TooltipText = "Show how in time your keypresses are: a \"sync\" readout beside wpm during play, and a brightness ramp on each character you type (bright when you hit the beat, dull when you drift). Display only, and off by default: nothing about your grade, score, judgements or submitted play reads it.",
+                    Caption = "Show sync metric",
+                    HintText = "Show keypress timing beside wpm and shade typed characters by how closely they match the beat. Display only; does not affect grades, scores or judgements.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyncMetric),
-                },
-                new SettingsCheckbox
+                }),
+                CreateSubsectionHeader("Lyric timing"),
+                new SettingsItemV2(new FormCheckBox
                 {
-                    LabelText = "Use local auto-aligner",
-                    TooltipText = "When the local aligner is installed, time imported lyrics word-by-word on this machine (nothing is uploaded). Turn off to time imports from their own [mm:ss.xx] line stamps instead.",
+                    Caption = "Use local auto-aligner",
+                    HintText = "Time imported lyrics word by word on this machine when the aligner is installed. Turn off to use imported line timestamps. Nothing is uploaded.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.LocalAlignerEnabled),
-                },
-                installButton = new SettingsButton
+                }),
+                new Container
                 {
-                    Text = InstallButtonText(alignerManager),
-                    TooltipText = alignerManager?.UpdateAvailable == true
-                        ? "This build ships a newer aligner than the one installed. Updating replaces the scripts and clears the old aligner's caches; the environment already downloaded is kept, so it takes seconds."
-                        : "One-time download of the AI that times lyrics word-by-word on your own machine, recommended if you have a good GPU. Installs the GPU build automatically when an NVIDIA card is detected.",
-                    Action = startInstall,
+                    RelativeSizeAxes = Axes.X,
+                    AutoSizeAxes = Axes.Y,
+                    Padding = SettingsPanel.CONTENT_PADDING,
+                    Child = installButton = new InstallAlignerButton
+                    {
+                        Caption = InstallButtonText(alignerManager),
+                        TooltipText = alignerManager?.UpdateAvailable == true
+                            ? "Update the local aligner scripts and clear their caches. The downloaded environment is kept."
+                            : "Download the local lyric aligner (~2 GB). Uses an NVIDIA GPU automatically when available.",
+                        Action = startInstall,
+                    },
                 },
             };
 
@@ -111,6 +124,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 return $"Update local auto-aligner (v{manager.InstalledVersion ?? "1"} → v{manager.ShippedVersion})";
 
             return "Reinstall local auto-aligner";
+        }
+
+        private partial class InstallAlignerButton : FormButton, IHasTooltip, IFilterable
+        {
+            public LocalisableString TooltipText { get; set; }
+            public IEnumerable<LocalisableString> FilterTerms => new[] { Caption, TooltipText };
+            public bool FilteringActive { get; set; }
+            public bool MatchingFilter { set => this.FadeTo(value ? 1 : 0); }
         }
 
         private void startInstall()
@@ -156,7 +177,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     Schedule(() =>
                     {
                         if (result.Success)
-                            installButton.Text = InstallButtonText(alignerManager);
+                            installButton.Caption = InstallButtonText(alignerManager);
 
                         installButton.Enabled.Value = true;
                     });

@@ -13,5 +13,7 @@ namespace typebeat.Game.Screens.Edit
 
         [LocalisableDescription(typeof(EditorStrings), nameof(EditorStrings.ComposeScreen))]
         Compose,
+
+        Timing,
     }
 }

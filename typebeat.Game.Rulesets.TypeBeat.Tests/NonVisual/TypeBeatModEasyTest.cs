@@ -482,7 +482,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// A replay carries KEYSTROKES and is re-judged from scratch, so the recalculation path has
         /// to apply the same window scale the live run did or every stored Easy score reprices on
-        /// the wrong ladder. Three cells struck 500 ms late: an Ok apiece unscaled, a Great apiece
+        /// the wrong ladder. Three cells struck 400 ms late: an Ok apiece unscaled, a Great apiece
         /// under Easy.
         /// </summary>
         [Test]
@@ -493,9 +493,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // Cell targets 0, 4000, 8000 (three chars evenly over the unit's [0, 12000]).
             var frames = new List<TypeBeatReplayFrame> { TypeBeatReplayFrame.CreateConfigFrame(0, true) };
 
-            // 200 ms late: Ok on the plain ladder (inside 300), Great on the doubled one (600).
+            // Low-star windows double: 400 ms late is Ok plain (Great 300), Great with Easy (600).
             for (int i = 0; i < 3; i++)
-                frames.Add(new TypeBeatReplayFrame(i * 4000 + 200, "abc"[i]));
+                frames.Add(new TypeBeatReplayFrame(i * 4000 + 400, "abc"[i]));
 
             var replay = new Replay();
             replay.Frames.AddRange(frames);
@@ -527,8 +527,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 TypeBeatReplayFrame.CreateConfigFrame(0, true, syllableTiming: true, charTimedStretch: true, firstCharTiming: true),
                 new TypeBeatReplayFrame(1000, 'a'),
-                new TypeBeatReplayFrame(1400, 'p'),
-                new TypeBeatReplayFrame(1500, 'p'), // 500 ms before its own syllable opens, inside the word
+                new TypeBeatReplayFrame(1000, 'p'),
+                new TypeBeatReplayFrame(1100, 'p'), // 900 ms before its syllable, inside the word; Meh on doubled windows
                 new TypeBeatReplayFrame(2200, 'l'),
                 new TypeBeatReplayFrame(2600, 'e'),
             };
