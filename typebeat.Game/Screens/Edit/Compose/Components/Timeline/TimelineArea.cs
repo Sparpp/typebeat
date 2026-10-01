@@ -7,7 +7,6 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Graphics.Sprites;
-using typebeat.Game.Graphics;
 using typebeat.Game.Overlays;
 using typebeat.Game.Rulesets.Edit;
 using osuTK;
@@ -32,7 +31,7 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
         }
 
         [BackgroundDependencyLoader]
-        private void load(OverlayColourProvider colourProvider, OsuColour colours, Editor? editor)
+        private void load(OverlayColourProvider colourProvider, Editor? editor)
         {
             const float padding = 10;
 
