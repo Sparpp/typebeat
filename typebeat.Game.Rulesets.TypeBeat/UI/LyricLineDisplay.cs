@@ -999,9 +999,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <para>Pure and static so the band can be pinned without standing up a drawable.
         /// <paramref name="railOffset"/> defaults to the default-size drop.</para>
         /// </summary>
-        public static (float Top, float Width, float Height) SyllableMarkerGeometry(float glyphHeight, float railOffset = SWEEP_RAIL_OFFSET)
+        /// <param name="glyphHeight">The glyph row's height; the mark hangs from its bottom.</param>
+        /// <param name="railOffset">The band below the row the mark must stay inside (gameplay: the sweep rail's offset).</param>
+        /// <param name="heightFraction">The mark's height as a fraction of the glyph row. Gameplay keeps
+        /// <see cref="SYLLABLE_MARKER_HEIGHT"/>; the editor's line list passes its own larger fraction
+        /// (<see cref="Edit.LineListPanel.LineRow.REST_MARKER_HEIGHT"/>), since its 15 px rows made the gameplay
+        /// fraction a one-pixel sliver nobody could see (owner, 2026-10-03).</param>
+        public static (float Top, float Width, float Height) SyllableMarkerGeometry(float glyphHeight, float railOffset = SWEEP_RAIL_OFFSET, float heightFraction = SYLLABLE_MARKER_HEIGHT)
         {
-            float height = Math.Clamp(glyphHeight * SYLLABLE_MARKER_HEIGHT, 1f, Math.Max(1f, railOffset - 1f));
+            float height = Math.Clamp(glyphHeight * heightFraction, 1f, Math.Max(1f, railOffset - 1f));
             return (glyphHeight, height * SYLLABLE_MARKER_ASPECT, height);
         }
 

@@ -7,6 +7,7 @@ using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
@@ -371,6 +372,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             Assert.That(LyricLineDisplay.SyllableMarkerGeometry(30f).Height,
                 Is.EqualTo(30f * LyricLineDisplay.SYLLABLE_MARKER_HEIGHT).Within(1e-6));
+            // The fraction is a parameter so the editor's line list can draw a legible mark at 15 px
+            // without moving gameplay's; the default is still gameplay's constant.
+            Assert.That(LyricLineDisplay.SyllableMarkerGeometry(30f, railOffset: 100f, heightFraction: LineListPanel.LineRow.REST_MARKER_HEIGHT).Height,
+                Is.EqualTo(30f * LineListPanel.LineRow.REST_MARKER_HEIGHT).Within(1e-6));
+            Assert.That(LineListPanel.LineRow.REST_MARKER_HEIGHT, Is.GreaterThan(LyricLineDisplay.SYLLABLE_MARKER_HEIGHT * 2f), "legible on a 15 px row");
 
             Assert.That(LyricLineDisplay.SyllableMarkerGeometry(4000f).Height,
                 Is.EqualTo(LyricLineDisplay.SWEEP_RAIL_OFFSET - 1f).Within(1e-6), "clamped, never through the rail");

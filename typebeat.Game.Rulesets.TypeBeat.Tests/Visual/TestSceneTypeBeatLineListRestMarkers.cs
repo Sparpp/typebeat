@@ -17,6 +17,7 @@ using typebeat.Game.Rulesets.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
+using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Tests.Visual;
 
@@ -88,10 +89,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("two marks", () => row().VisibleRestMarkers.Count() == 2);
             AddUntilStep("each mark's axis is its gap", () => marksSitInGaps(rest_gaps));
 
-            AddAssert("marks hang below the glyph row", () => row().VisibleRestMarkers.All(m =>
-                m.ScreenSpaceDrawQuad.TopLeft.Y >= row().TextFlowDrawable.ScreenSpaceDrawQuad.BottomLeft.Y - 0.5f));
+            // Hung from the glyph row like gameplay's, but allowed to start inside the row's descender
+            // zone (LineRow.REST_MARKER_RISE), which is what makes room for a legible mark in a 28 px box.
+            AddAssert("marks hang from the glyph row, rising at most into its descender zone", () => row().VisibleRestMarkers.All(m =>
+                m.ScreenSpaceDrawQuad.TopLeft.Y >= row().TextFlowDrawable.ScreenSpaceDrawQuad.BottomLeft.Y
+                                                   - row().TextFlowDrawable.ScreenSpaceDrawQuad.Height * LineListPanel.LineRow.REST_MARKER_RISE - 0.5f));
             AddAssert("marks stay inside the box", () => row().VisibleRestMarkers.All(m =>
                 m.ScreenSpaceDrawQuad.BottomLeft.Y <= row().TextBox.ScreenSpaceDrawQuad.BottomLeft.Y + 0.5f));
+
+            // Legible at the row's size: the row's own fraction, not gameplay's one-pixel sliver, and
+            // still the same shallow wedge (the aspect is gameplay's).
+            AddAssert("marks are at least three times gameplay's fraction of the row, or the band's full height", () => row().VisibleRestMarkers.All(m =>
+            {
+                float glyph = row().TextFlowDrawable.DrawHeight;
+                float roomBelow = row().TextFlowDrawable.ToLocalSpace(row().TextBox.ScreenSpaceDrawQuad.BottomLeft).Y - glyph;
+                float band = roomBelow + glyph * LineListPanel.LineRow.REST_MARKER_RISE;
+                float expected = Math.Min(glyph * LineListPanel.LineRow.REST_MARKER_HEIGHT, Math.Max(1f, band - 1f));
+                return Precision.AlmostEquals(m.DrawHeight, expected, 0.01f) && m.DrawHeight > glyph * LyricLineDisplay.SYLLABLE_MARKER_HEIGHT * 2f;
+            }));
+            AddAssert("marks keep gameplay's wedge aspect", () => row().VisibleRestMarkers.All(m =>
+                Precision.AlmostEquals(m.DrawWidth, m.DrawHeight * LyricLineDisplay.SYLLABLE_MARKER_ASPECT, 0.01f)));
 
             // Consuming no layout: the flow holds exactly the plain characters and ends at the last
             // one's right edge, so the marks added nothing to it and pushed nothing apart.

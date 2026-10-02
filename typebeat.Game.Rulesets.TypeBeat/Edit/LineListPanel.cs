@@ -295,6 +295,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>One list row. Public so scene tests can address a specific line's row.</summary>
         public partial class LineRow : CompositeDrawable
         {
+            /// <summary>
+            /// The rest view's syllable mark height as a fraction of the row's glyph height. Gameplay's
+            /// <see cref="LyricLineDisplay.SYLLABLE_MARKER_HEIGHT"/> (0.09) is tuned for a lyric drawn at
+            /// 40 px and more; on this 15 px row it came to about a pixel and a half and read as dirt on
+            /// the screen (owner, 2026-10-03). Three times that keeps the same wedge shape at a size the
+            /// eye finds; the band clamp in <see cref="LyricLineDisplay.SyllableMarkerGeometry"/> still
+            /// keeps it inside the box, so a row too short for it shows the largest mark that fits.
+            /// </summary>
+            public const float REST_MARKER_HEIGHT = LyricLineDisplay.SYLLABLE_MARKER_HEIGHT * 3f;
+
+            /// <summary>
+            /// How far the rest mark may rise into the glyph row, as a fraction of the row's height.
+            /// The 28 px box leaves only three or four pixels under the glyph row, which is not enough
+            /// for a legible mark on its own. The bottom fifth of the row is descender space, and the
+            /// mark's apex sits in an inter-character GAP where no glyph has ink, so letting the mark
+            /// start there costs nothing it could collide with. Gameplay has its sweep rail band and
+            /// needs no such allowance.
+            /// </summary>
+            public const float REST_MARKER_RISE = 0.2f;
+
             public readonly TypeBeatHitObject HitObject;
 
             [Resolved]
@@ -713,7 +733,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         return;
 
                     if (ReferenceEquals(placedText, Text) && ReferenceEquals(placedGaps, restGaps)
-                                                           && placedFlowSize == flow.DrawSize && placedContainerHeight == TextContainer.DrawHeight)
+                                                           && placedFlowSize == flow.DrawSize && placedContainerHeight == DrawHeight)
                         return;
 
                     // The vertical rule is gameplay's (LyricLineDisplay.SyllableMarkerGeometry): hung
@@ -721,8 +741,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     // clamp keeps the mark inside is what is left of the box below the glyph row.
                     float glyphHeight = flow.DrawHeight;
                     float flowTop = flow.DrawPosition.Y;
-                    float band = TextContainer.DrawHeight - (flowTop + glyphHeight);
-                    var geometry = LyricLineDisplay.SyllableMarkerGeometry(glyphHeight, band);
+                    // The room is measured to the BOX's bottom edge, in the text container's space:
+                    // the container is only as tall as the glyph row and sits centred in the 28 px
+                    // box, so its own height leaves no band at all (measured: 15 of 28, mark 1 px).
+                    float rise = glyphHeight * REST_MARKER_RISE;
+                    float boxBottom = TextContainer.ToLocalSpace(ScreenSpaceDrawQuad.BottomLeft).Y;
+                    float band = boxBottom - (flowTop + glyphHeight) + rise;
+                    var geometry = LyricLineDisplay.SyllableMarkerGeometry(glyphHeight, band, REST_MARKER_HEIGHT);
 
                     for (int k = 0; k < restGaps.Length; k++)
                     {
@@ -732,13 +757,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             continue;
 
                         restMarkers[k].Size = new Vector2(geometry.Width, geometry.Height);
-                        restMarkers[k].Position = new Vector2(flow.DrawPosition.X + characters[gap].DrawPosition.X, flowTop + geometry.Top);
+                        restMarkers[k].Position = new Vector2(flow.DrawPosition.X + characters[gap].DrawPosition.X, flowTop + geometry.Top - rise);
                     }
 
                     placedText = Text;
                     placedGaps = restGaps;
                     placedFlowSize = flow.DrawSize;
-                    placedContainerHeight = TextContainer.DrawHeight;
+                    placedContainerHeight = DrawHeight;
                 }
 
                 protected override bool OnMouseDown(MouseDownEvent e)
