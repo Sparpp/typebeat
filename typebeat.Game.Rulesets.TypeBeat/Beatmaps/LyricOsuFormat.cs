@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using osu.Framework.Graphics;
 using typebeat.Game.Beatmaps.ControlPoints;
 using System.Text;
 using System.Text.Json;
@@ -117,6 +118,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <param name="lyricFontFile">The bundled font file's name inside the set
         /// (<see cref="typebeat.Game.Beatmaps.BeatmapMetadata.LyricFontFile"/>), written as
         /// <c>[General] LyricFontFile:</c> and only when set.</param>
+        /// <param name="freestyleColour">The mapper-chosen freestyle character colour
+        /// (<see cref="typebeat.Game.Beatmaps.IBeatmap.FreestyleColour"/>, backlog 384), written as
+        /// <c>[General] FreestyleColour: #rrggbb</c> after the font lines and ONLY when it differs
+        /// from the default (<see cref="FreestyleColourKey.LineFor"/>), on the same map-hash terms.</param>
         /// <param name="editorTimingPoints">Authored editor timing sections; null uses the import default.</param>
         /// <param name="editorEffectPoints">Existing kiai effect points to preserve on save.</param>
         /// <param name="beatDivisor">The editor subdivision preference.</param>
@@ -128,6 +133,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                                          string tags = "", string? titleUnicode = null, string? artistUnicode = null,
                                          string? language = null, double audioGain = 1,
                                          string? lyricFont = null, string? lyricFontFile = null,
+                                         Colour4? freestyleColour = null,
                                          IReadOnlyList<TimingControlPoint>? editorTimingPoints = null,
                                          IReadOnlyList<EffectControlPoint>? editorEffectPoints = null, int? beatDivisor = null)
         {
@@ -197,6 +203,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 sb.AppendLine($"LyricFont: {lyricFont}");
             if (!string.IsNullOrEmpty(lyricFontFile))
                 sb.AppendLine($"LyricFontFile: {lyricFontFile}");
+            if (FreestyleColourKey.LineFor(freestyleColour) is string freestyleLine)
+                sb.AppendLine(freestyleLine);
 
             sb.AppendLine();
             sb.AppendLine("[Metadata]");

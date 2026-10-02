@@ -138,6 +138,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return;
             }
 
+            // The mapper's freestyle colour (backlog 384) is read HERE rather than in the inherited
+            // [General] parse, so the whole key lives in this ruleset (FreestyleColourKey). Every
+            // other [General] key, and an unknown one, falls through to the base unchanged.
+            if (section == Section.General)
+            {
+                var pair = SplitKeyVal(line);
+
+                if (pair.Key == FreestyleColourKey.KEY)
+                {
+                    beatmap.FreestyleColour = FreestyleColourKey.Parse(pair.Value);
+                    return;
+                }
+            }
+
             base.ParseLine(beatmap, section, line, isPrimaryStream);
         }
 

@@ -23,6 +23,7 @@ using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using osuTK;
+using osuTK.Graphics;
 
 namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
@@ -282,10 +283,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             lineContainer = new Container { RelativeSizeAxes = Axes.Both };
 
+            // The map's freestyle colour (backlog 384), read once like the font: absent is the default.
+            Color4 freestyleColour = FreestyleColourKey.Resolve(drawableRuleset?.Beatmap.FreestyleColour);
+
             for (int i = 0; i < lines.Count; i++)
             {
 
-                var d = new LyricLineDisplay(lines[i], FontSize, lyricFont, paceBands[i])
+                var d = new LyricLineDisplay(lines[i], FontSize, lyricFont, paceBands[i], freestyleColour)
 
                 {
                     Anchor = Anchor.Centre,

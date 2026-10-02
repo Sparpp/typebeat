@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using typebeat.Game.Beatmaps.ControlPoints;
 using Newtonsoft.Json;
+using osu.Framework.Graphics;
 using osu.Framework.Lists;
 using typebeat.Game.Beatmaps.Formats;
 using typebeat.Game.IO.Serialization.Converters;
@@ -123,6 +124,9 @@ namespace typebeat.Game.Beatmaps
         public double AudioLeadIn { get; set; }
 
         public double? IntroBeatdropTime { get; set; }
+
+        [JsonIgnore]
+        public Colour4? FreestyleColour { get; set; }
 
         public float StackLeniency { get; set; } = 0.7f;
 

@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using osu.Framework.Graphics;
 using osu.Framework.Lists;
 using typebeat.Game.Beatmaps.ControlPoints;
 using typebeat.Game.Beatmaps.Timing;
@@ -70,6 +71,13 @@ namespace typebeat.Game.Beatmaps
         /// game intro, which times playback so this moment lands exactly on the main menu reveal.
         /// </summary>
         double? IntroBeatdropTime { get; internal set; }
+
+        /// <summary>
+        /// The colour a type!beat map's FREESTYLE characters render in, chosen by the mapper and stored
+        /// as the <c>[General] FreestyleColour:</c> key. Null means the key is absent, which is every map
+        /// written before it existed, and resolves to the ruleset's default freestyle colour.
+        /// </summary>
+        Colour4? FreestyleColour { get; internal set; }
 
         float StackLeniency { get; internal set; }
 

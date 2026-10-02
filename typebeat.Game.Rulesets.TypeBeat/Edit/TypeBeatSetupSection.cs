@@ -54,6 +54,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Caption of the bundle toggle; also how tests find it.</summary>
         public const string BUNDLE_FONT_CAPTION = "Bundle font file with the map";
 
+        /// <summary>Caption of the freestyle colour row (backlog 384); also how tests find it.</summary>
+        public const string FREESTYLE_COLOUR_CAPTION = "Freestyle character colour";
+
         /// <summary>Caption of the estimated vocals toggle (backlog 354); also how tests find it.</summary>
         public const string ESTIMATED_VOCALS_CAPTION = "Estimated vocals (pace lines from their stamps)";
 
@@ -110,6 +113,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private OsuSpriteText fontPreview = null!;
         private FormCheckBox bundleToggle = null!;
         private OsuTextFlowContainer bundleNote = null!;
+        private FormColourSwatch freestyleColourRow = null!;
+
+        /// <summary>
+        /// What the row edits: never null, the default colour standing for "no key". Its DEFAULT is
+        /// the ruleset default, so an empty hex commit resets the map to carrying no key at all.
+        /// </summary>
+        private readonly Bindable<Colour4> freestyleColour = new Bindable<Colour4>(FreestyleColourKey.Default);
+
+        private IBindable<Colour4?> mapFreestyleColour = null!;
 
         // Guards the programmatic writes fontChanged makes to the bundle toggle (and rollbacks of a
         // refused bundle), so they do not re-enter bundleChanged; same shape as ResourcesSection's
@@ -193,6 +205,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     AutoSizeAxes = Axes.Y,
                     Padding = new MarginPadding { Left = 9, Right = 9 },
                 },
+                // Backlog 384: the map's freestyle colour, straight under the bundle-font row (and its
+                // note). A hex field plus the shared 2D picker; the map carries no key until the
+                // mapper picks a colour other than the default.
+                freestyleColourRow = new FormColourSwatch
+                {
+                    Caption = FREESTYLE_COLOUR_CAPTION,
+                    HintText = "Colour of the freestyle (&) characters on this map, in gameplay and in the editor preview. Type a hex code or click the swatch for a picker; clear the field to go back to the default. Applies in the desktop client and on the website's player.",
+                    Current = { BindTarget = freestyleColour },
+                },
             };
 
             // Seed the font controls from what the map already carries; the value-changed wiring in
@@ -233,6 +254,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     beatmaps.SetAlignerVocalMode(set, e.NewValue ? AlignerVocalMode.Estimated : AlignerVocalMode.Aligned);
             });
             bundleToggle.Current.BindValueChanged(e => bundleChanged(e.NewValue));
+
+            // Two-way between the row and the map (backlog 384). Map to row seeds it and follows an
+            // undo; row to map stores the NORMALISED pick, so choosing the default removes the key.
+            // Neither direction loops: each write lands on a value the other side already holds.
+            mapFreestyleColour = Beatmap.FreestyleColour.GetBoundCopy();
+            mapFreestyleColour.BindValueChanged(c => freestyleColour.Value = FreestyleColourKey.Resolve(c.NewValue), true);
+            freestyleColour.BindValueChanged(c => Beatmap.FreestyleColour.Value = FreestyleColourKey.Normalise(c.NewValue));
 
             Beatmap.IntroBeatdrop.BindValueChanged(drop =>
             {

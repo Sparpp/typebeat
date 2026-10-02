@@ -3,6 +3,7 @@
 
 using System.Linq;
 using osu.Framework.Allocation;
+using osu.Framework.Bindables;
 using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
@@ -46,6 +47,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private EditorClock editorClock { get; set; } = null!;
 
         private FreestyleTextFlow header = null!;
+        private IBindable<Colour4?> freestyleColour = null!;
         private OsuSpriteText originalHeader = null!;
         private OsuSpriteText timing = null!;
         private RoundedButton addWordButton = null!;
@@ -61,6 +63,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             base.LoadComplete();
             state.ActionRefused += flashRefusal;
+
+            // The preview follows the map's freestyle colour (backlog 384) as the setup screen edits it.
+            freestyleColour = editorBeatmap.FreestyleColour.GetBoundCopy();
+            freestyleColour.BindValueChanged(c => header.FreestyleColour = FreestyleColourKey.Resolve(c.NewValue), true);
         }
 
         /// <summary>The panel's error flash, for an action the editor refused (see <see cref="LyricEditState.Refuse"/>).</summary>

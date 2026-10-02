@@ -12,8 +12,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 {
     /// <summary>
     /// A read-only text label that renders FREESTYLE markers the way gameplay does: shimmering
-    /// through <see cref="FreestyleGlyphs"/> in <see cref="TypeBeatStyle.FreestyleChar"/>, with the
-    /// rest of the string in the label's own colour. Used by the editor so a mapper sees exactly
+    /// through <see cref="FreestyleGlyphs"/> in <see cref="FreestyleColour"/> (the map's own pick, backlog
+    /// 384, or <see cref="TypeBeatStyle.FreestyleChar"/>), with the rest of the string in the label's
+    /// own colour. Used by the editor so a mapper sees exactly
     /// what they authored ("this slot is free") without launching a test play.
     ///
     /// <para>The text is split into runs: each maximal non-marker run is one sprite, each marker is
@@ -31,6 +32,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private readonly List<(int Index, OsuSpriteText Sprite)> markers = new List<(int, OsuSpriteText)>();
 
         private string text = string.Empty;
+        private Color4 freestyleColour = TypeBeatStyle.FreestyleChar;
+
+        /// <summary>
+        /// The colour the markers wear, <see cref="TypeBeatStyle.FreestyleChar"/> until set. Setting it
+        /// recolours the markers already shown, so the editor can follow the map's pick live.
+        /// </summary>
+        public Color4 FreestyleColour
+        {
+            get => freestyleColour;
+            set
+            {
+                if (freestyleColour == value)
+                    return;
+
+                freestyleColour = value;
+
+                foreach ((_, var glyphSprite) in markers)
+                    glyphSprite.Colour = value;
+            }
+        }
         private int shimmerTick = int.MinValue;
 
         public FreestyleTextFlow(float fontSize, Color4 textColour)
@@ -76,7 +97,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 if (marker)
                 {
-                    var glyph = sprite(FreestyleGlyphs.Glyph(FreestyleGlyphs.FIXED_WIDTH_POOL, shimmerTick, i).ToString(), TypeBeatStyle.FreestyleChar);
+                    var glyph = sprite(FreestyleGlyphs.Glyph(FreestyleGlyphs.FIXED_WIDTH_POOL, shimmerTick, i).ToString(), freestyleColour);
                     markers.Add((i, glyph));
                     Add(glyph);
                 }

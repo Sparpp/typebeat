@@ -8,9 +8,11 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using NUnit.Framework;
+using osu.Framework.Graphics;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Storyboards;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
@@ -108,6 +110,54 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 TypeBeatBeatmapEncoder.Encode(reloaded, sw);
 
             Assert.That(sb2.ToString(), Is.EqualTo(sb1.ToString()));
+        }
+
+        [Test]
+        public void FreestyleColourSurvivesRoundTripAsOneGeneralLine()
+        {
+            var source = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
+            source.FreestyleColour = new Colour4((byte)0x12, (byte)0xab, (byte)0xef, (byte)255);
+
+            string osu = encode(source, null);
+            string general = osu[osu.IndexOf("[General]", System.StringComparison.Ordinal)..osu.IndexOf("[Metadata]", System.StringComparison.Ordinal)];
+
+            Assert.That(general, Does.Contain("FreestyleColour: #12abef"), "written once, lowercase, in [General]");
+            Assert.That(osu.Split('\n').Count(l => l.StartsWith("FreestyleColour", System.StringComparison.Ordinal)), Is.EqualTo(1));
+
+            var reloaded = decode(osu);
+            Assert.That(reloaded.FreestyleColour, Is.EqualTo(source.FreestyleColour));
+
+            // Byte-stable on a second pass (the editor's undo stack diffs encoded states).
+            Assert.That(encode(reloaded, null), Is.EqualTo(osu));
+        }
+
+        [Test]
+        public void UntouchedMapCarriesNoFreestyleKeyAndDecodesToTheDefault()
+        {
+            var source = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
+            string osu = encode(source, null);
+
+            Assert.That(osu, Does.Not.Contain("FreestyleColour"));
+            Assert.That(decode(osu).FreestyleColour, Is.Null);
+            Assert.That(FreestyleColourKey.Resolve(decode(osu).FreestyleColour), Is.EqualTo(TypeBeatStyle.FreestyleChar));
+
+            // Picking the default spelling writes nothing either, so the map's bytes do not move.
+            source.FreestyleColour = (Colour4)TypeBeatStyle.FreestyleChar;
+            Assert.That(encode(source, null), Is.EqualTo(osu));
+        }
+
+        [Test]
+        public void MalformedFreestyleValueReadsAsAbsentWithoutDisturbingNeighbours()
+        {
+            var source = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
+            source.Metadata.LyricFont = "Some Font";
+            string osu = encode(source, null).Replace("LyricFont: Some Font", "FreestyleColour: 12abef\nLyricFont: Some Font");
+
+            var reloaded = decode(osu);
+
+            Assert.That(reloaded.FreestyleColour, Is.Null, "no '#': not a stored colour");
+            Assert.That(reloaded.Metadata.LyricFont, Is.EqualTo("Some Font"), "the next [General] key still parses");
+            Assert.That(reloaded.HitObjects, Has.Count.EqualTo(1));
         }
 
         [Test]

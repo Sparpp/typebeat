@@ -156,7 +156,12 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
             }
         }
 
-        private partial class ColourButton : OsuClickableContainer, IHasPopover, IHasContextMenu
+        /// <summary>
+        /// One swatch: shows its colour and hex, and opens <see cref="ColourPickerPopover"/> when clicked.
+        /// Also the single swatch of <see cref="FormColourSwatch"/>, where nothing can be deleted, so the
+        /// delete entry is only offered when <see cref="DeleteRequested"/> is set.
+        /// </summary>
+        internal partial class ColourButton : OsuClickableContainer, IHasPopover, IHasContextMenu
         {
             public Bindable<Colour4> Current { get; } = new Bindable<Colour4>();
             public Action? DeleteRequested { get; set; }
@@ -200,10 +205,12 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
                 Current = { BindTarget = Current }
             };
 
-            public MenuItem[] ContextMenuItems => new MenuItem[]
-            {
-                new OsuMenuItem(CommonStrings.ButtonsDelete, MenuItemType.Destructive, () => DeleteRequested?.Invoke())
-            };
+            public MenuItem[] ContextMenuItems => DeleteRequested == null
+                ? Array.Empty<MenuItem>()
+                : new MenuItem[]
+                {
+                    new OsuMenuItem(CommonStrings.ButtonsDelete, MenuItemType.Destructive, () => DeleteRequested?.Invoke())
+                };
 
             private void updateState()
             {
@@ -213,7 +220,7 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
             }
         }
 
-        private partial class ColourPickerPopover : OsuPopover, IHasCurrentValue<Colour4>
+        internal partial class ColourPickerPopover : OsuPopover, IHasCurrentValue<Colour4>
         {
             public Bindable<Colour4> Current
             {

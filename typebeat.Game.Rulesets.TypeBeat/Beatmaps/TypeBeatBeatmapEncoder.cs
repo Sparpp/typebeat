@@ -58,6 +58,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 audioGain: metadata.AudioGain,
                 lyricFont: metadata.LyricFont,
                 lyricFontFile: metadata.LyricFontFile,
+                freestyleColour: beatmap.FreestyleColour,
                 editorTimingPoints: beatmap.ControlPointInfo.TimingPoints,
                 editorEffectPoints: beatmap.ControlPointInfo.EffectPoints,
                 beatDivisor: beatmap.BeatmapInfo.BeatDivisor);

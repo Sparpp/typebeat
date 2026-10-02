@@ -205,11 +205,6 @@ namespace typebeat.Game.Localisation
         public static LocalisableString VideoHint => new TranslatableString(getKey(@"video_hint"), @"The video will be used instead of the static background, if present. Beatmap downloads are offered both with and without video, so if adding a video, a matching background should also be provided.");
 
         /// <summary>
-        /// "Custom sample sets"
-        /// </summary>
-        public static LocalisableString CustomSampleSets => new TranslatableString(getKey(@"custom_sample_sets"), @"Custom sample sets");
-
-        /// <summary>
         /// "Click to select a track"
         /// </summary>
         public static LocalisableString ClickToSelectTrack => new TranslatableString(getKey(@"click_to_select_track"), @"Click to select a track");

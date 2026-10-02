@@ -127,6 +127,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// the owning stage decides the value and guarantees the family is registered before it is used.</summary>
         private readonly string? fontFamily;
 
+        /// <summary>
+        /// The colour this line's FREESTYLE cells wear: the map's own pick (backlog 384,
+        /// <see cref="Beatmaps.FreestyleColourKey"/>) or <see cref="TypeBeatStyle.FreestyleChar"/>.
+        /// </summary>
+        public Color4 FreestyleColour { get; }
+
         private Container content = null!;
 
         // --- The sung-sweep underline ---
@@ -320,8 +326,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private SyllableGrouping grouping;
 
         public LyricLineDisplay(TypingLine line, float fontSize = TypeBeatStyle.LYRIC_FONT_SIZE, string? fontFamily = null,
-                                IReadOnlyList<PaceBand>? paceBands = null)
+                                IReadOnlyList<PaceBand>? paceBands = null, Color4? freestyleColour = null)
         {
+            FreestyleColour = freestyleColour ?? TypeBeatStyle.FreestyleChar;
             Line = line;
             litCells = new bool[line.Cells.Count];
             litAmounts = new float[line.Cells.Count];
@@ -1184,15 +1191,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <para>A Correct cell retains its sync tint everywhere, independently of the sung
         /// brightness setting.</para>
         ///
-        /// <para>A FREESTYLE cell wears <see cref="TypeBeatStyle.FreestyleChar"/> in every state:
-        /// the violet is an identity signal ("this slot was free"), and neither the sync ramp nor
-        /// the syllable highlight may repaint it (see <see cref="refreshFreestyleCell"/>; an
-        /// exclusion, not an oversight).</para>
+        /// <para>A FREESTYLE cell wears <paramref name="freestyleColour"/> in every state, which is
+        /// the map's own pick (backlog 384) or, when the caller passes none,
+        /// <see cref="TypeBeatStyle.FreestyleChar"/>: the colour is an identity signal ("this slot was
+        /// free"), and neither the sync ramp nor the syllable highlight may repaint it (see
+        /// <see cref="refreshFreestyleCell"/>; an exclusion, not an oversight).</para>
         /// </summary>
-        public static Color4 CellFillColour(CellState state, bool isFreestyle, bool inSungSyllable, double? syncQuality, float sungBrightness = 50f)
+        public static Color4 CellFillColour(CellState state, bool isFreestyle, bool inSungSyllable, double? syncQuality, float sungBrightness = 50f,
+                                            Color4? freestyleColour = null)
         {
             if (isFreestyle)
-                return TypeBeatStyle.FreestyleChar;
+                return freestyleColour ?? TypeBeatStyle.FreestyleChar;
 
             switch (state)
             {
@@ -1617,7 +1626,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         /// <summary>
-        /// A FREESTYLE cell always wears <see cref="TypeBeatStyle.FreestyleChar"/>, shimmering while
+        /// A FREESTYLE cell always wears <see cref="FreestyleColour"/>, shimmering while
         /// it is still open and frozen on the char the player actually pressed once it is filled
         /// (so a finished line still shows which slots were free). Backspace puts it back to
         /// Untyped, which resumes the shimmer and lets a different char land.
@@ -1633,7 +1642,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // Routed through CellFillColour so the exclusion is the rendered path, not a parallel
             // truth: freestyle identity wins over the sung highlight as well as over the sync ramp.
             cell.Colour = CellFillColour(source.State, isFreestyle: true,
-                inSungSyllable: litCells[cellIndex], syncQuality: null, sungBrightness);
+                inSungSyllable: litCells[cellIndex], syncQuality: null, sungBrightness, FreestyleColour);
 
             cellStateAlpha[cellIndex] = source.State switch
             {

@@ -23,7 +23,6 @@ using typebeat.Game.Localisation;
 using typebeat.Game.Models;
 using typebeat.Game.Overlays;
 using typebeat.Game.Screens.Backgrounds;
-using typebeat.Game.Screens.Edit.Components;
 using typebeat.Game.Storyboards;
 using typebeat.Game.Utils;
 using FileInfo = System.IO.FileInfo;
@@ -83,8 +82,6 @@ namespace typebeat.Game.Screens.Edit.Setup
         /// because the swap happens elsewhere in this same screen.
         /// </summary>
         private Waveform? analysedWaveform;
-
-        private readonly Bindable<EditorBeatmapSkin.SampleSet?> currentSampleSet = new Bindable<EditorBeatmapSkin.SampleSet?>();
 
         public override LocalisableString Title => EditorSetupStrings.ResourcesHeader;
 
@@ -180,27 +177,6 @@ namespace typebeat.Game.Screens.Edit.Setup
                 {
                     RelativeSizeAxes = Axes.X,
                     Height = 20,
-                },
-                new FormSampleSetChooser
-                {
-                    Current = { BindTarget = currentSampleSet },
-                },
-                new FormSampleSet
-                {
-                    Current = { BindTarget = currentSampleSet },
-                    SampleAddRequested = (file, targetName) =>
-                    {
-                        string actualFilename = string.Concat(targetName, file.Extension);
-                        using var stream = file.OpenRead();
-                        beatmaps.AddFile(currentWorkingBeatmap.Value.BeatmapSetInfo, stream, actualFilename);
-                        return actualFilename;
-                    },
-                    SampleRemoveRequested = filename =>
-                    {
-                        var file = currentWorkingBeatmap.Value.BeatmapSetInfo.GetFile(filename);
-                        if (file != null)
-                            beatmaps.DeleteFile(currentWorkingBeatmap.Value.BeatmapSetInfo, file);
-                    }
                 },
             };
 

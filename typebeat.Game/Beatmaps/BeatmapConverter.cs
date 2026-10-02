@@ -74,6 +74,7 @@ namespace typebeat.Game.Beatmaps
             beatmap.Breaks = original.Breaks;
             beatmap.AudioLeadIn = original.AudioLeadIn;
             beatmap.IntroBeatdropTime = original.IntroBeatdropTime;
+            beatmap.FreestyleColour = original.FreestyleColour;
             beatmap.StackLeniency = original.StackLeniency;
             beatmap.SpecialStyle = original.SpecialStyle;
             beatmap.LetterboxInBreaks = original.LetterboxInBreaks;

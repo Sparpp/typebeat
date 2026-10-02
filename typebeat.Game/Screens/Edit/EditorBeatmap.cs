@@ -10,6 +10,7 @@ using System.Linq;
 using JetBrains.Annotations;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
+using osu.Framework.Graphics;
 using osu.Framework.Lists;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Beatmaps.ControlPoints;
@@ -99,6 +100,12 @@ namespace typebeat.Game.Screens.Edit
         /// </summary>
         public Bindable<double?> IntroBeatdrop { get; }
 
+        /// <summary>
+        /// The map's freestyle character colour; null when the map carries none (the default). See
+        /// <see cref="IBeatmap.FreestyleColour"/>.
+        /// </summary>
+        public Bindable<Colour4?> FreestyleColour { get; }
+
         private readonly IBeatmapProcessor beatmapProcessor;
 
         private readonly Dictionary<HitObject, Bindable<double>> startTimeBindables = new Dictionary<HitObject, Bindable<double>>();
@@ -158,6 +165,14 @@ namespace typebeat.Game.Screens.Edit
             {
                 BeginChange();
                 PlayableBeatmap.IntroBeatdropTime = s.NewValue;
+                EndChange();
+            });
+
+            FreestyleColour = new Bindable<Colour4?>(playableBeatmap.FreestyleColour);
+            FreestyleColour.BindValueChanged(c =>
+            {
+                BeginChange();
+                PlayableBeatmap.FreestyleColour = c.NewValue;
                 EndChange();
             });
 
@@ -243,6 +258,12 @@ namespace typebeat.Game.Screens.Edit
         {
             get => PlayableBeatmap.IntroBeatdropTime;
             set => PlayableBeatmap.IntroBeatdropTime = value;
+        }
+
+        Colour4? IBeatmap.FreestyleColour
+        {
+            get => PlayableBeatmap.FreestyleColour;
+            set => PlayableBeatmap.FreestyleColour = value;
         }
 
         public float StackLeniency

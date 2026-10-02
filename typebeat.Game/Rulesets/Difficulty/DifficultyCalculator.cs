@@ -9,6 +9,7 @@ using System.Linq;
 using System.Threading;
 using JetBrains.Annotations;
 using osu.Framework.Extensions.IEnumerableExtensions;
+using osu.Framework.Graphics;
 using osu.Framework.Lists;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Beatmaps.ControlPoints;
@@ -353,6 +354,12 @@ namespace typebeat.Game.Rulesets.Difficulty
             {
                 get => baseBeatmap.IntroBeatdropTime;
                 set => baseBeatmap.IntroBeatdropTime = value;
+            }
+
+            public Colour4? FreestyleColour
+            {
+                get => baseBeatmap.FreestyleColour;
+                set => baseBeatmap.FreestyleColour = value;
             }
 
             public float StackLeniency
