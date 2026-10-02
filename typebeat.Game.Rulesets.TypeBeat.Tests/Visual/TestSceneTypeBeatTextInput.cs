@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using NUnit.Framework;
 using osu.Framework.Graphics;
@@ -247,14 +248,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void TestAStrayCommitWithNoPressIsDropped()
         {
+            Stopwatch sinceStray = null!;
+
             load();
 
-            AddStep("commit 'a' with no key behind it", () => os.Text("a"));
-            AddWaitStep("let the pairing give up on it", 3);
+            AddStep("commit 'a' with no key behind it", () =>
+            {
+                os.Text("a");
+                sinceStray = Stopwatch.StartNew();
+            });
+            AddUntilStep("let the pairing give up on it", () => sinceStray.Elapsed.TotalMilliseconds > 2 * TypeBeatPlayfield.PAIRING_GRACE_MS);
             AddAssert("nothing typed", () => engine.CaretIndex == 0 && keystrokes.Count == 0);
 
+            // A dead key's press commits nothing and expires the same way: the next press is not
+            // handed the stray, and the stray is not handed to it.
+            AddStep("press a dead key, committing nothing", () =>
+            {
+                os.CommitOnNextPress(null);
+                InputManager.Key(Key.BracketLeft);
+            });
+
             press(Key.A);
-            AddAssert("a real press types", () => engine.CaretIndex == 1);
+            AddAssert("a real press types exactly once", () => engine.CaretIndex == 1 && keystrokes.Count == 1);
         }
 
         /// <summary>

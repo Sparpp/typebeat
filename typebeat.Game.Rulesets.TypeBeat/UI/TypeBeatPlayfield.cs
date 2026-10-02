@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Extensions;
@@ -16,7 +17,6 @@ using osu.Framework.Graphics.Shapes;
 using osu.Framework.Input;
 using osu.Framework.Input.Bindings;
 using osu.Framework.Input.Events;
-using osu.Framework.Platform;
 using osu.Framework.Timing;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Configuration;
@@ -55,6 +55,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private readonly Dictionary<int, DrawableTypeBeatHitObject> lineDrawables = new Dictionary<int, DrawableTypeBeatHitObject>();
 
         private readonly BindableDouble lyricOffset = new BindableDouble();
+
+        /// <summary>
+        /// How long the key handler pairs a key press with the text the OS commits for it (backlog 383;
+        /// the reasoning is on the handler's own <c>pairing_grace_ms</c>). Internal for the tests that wait it out.
+        /// </summary>
+        internal const double PAIRING_GRACE_MS = 50;
 
         // Tracks the user's background dim so a 100% dim restores the flat serika-dark backdrop
         // over the (then fully-black) beatmap image/video.
@@ -1155,16 +1161,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 public PressPlan Plan;
 
-                /// <summary>Real update frames this press has waited through without its text.</summary>
-                public int Age;
+                /// <summary>When the press was made, on <see cref="pairingClock"/>.</summary>
+                public double Since;
             }
 
             private sealed class CommittedText
             {
                 public readonly string Text;
 
-                /// <summary>Real update frames this text has waited through without a press.</summary>
-                public int Age;
+                /// <summary>When an update first saw this commit, on <see cref="pairingClock"/>; NaN until one has.</summary>
+                public double Since = double.NaN;
+
+                /// <summary>Whether no update has seen it yet, i.e. it arrived in the same pump as the keys being handled now.</summary>
+                public bool Fresh = true;
 
                 public CommittedText(string text)
                 {
@@ -1173,29 +1182,44 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
 
             /// <summary>
-            /// How many REAL update frames a press may wait for its text, and a text for its press,
-            /// before the pairing gives up on it. ONE frame of grace on each side.
+            /// How long a press may wait for its commit, and a commit for its press, before the
+            /// pairing gives up on it, in REAL milliseconds.
             ///
             /// <para>WHY THE PAIRING EXISTS. A text event carries no key and no timestamp, and the
             /// framework delivers the two halves of one keystroke on different paths: the SDL pump
             /// (one batch on the window thread) hands the KEY_DOWN to the keyboard handler's pending
             /// inputs and, immediately after, the TEXT_INPUT to the text source, and the update thread
             /// applies the first through the input managers and this handler's queue through
-            /// <see cref="Update"/>. Within one update frame the key always comes first; across a frame
-            /// boundary either half can land one frame before the other (measured and bounded in
-            /// <c>docs/drafts/0383-text-input-timing.md</c>). So each fresh press claims ONE commit,
-            /// waiting at most a frame for it, and each commit waits at most a frame for a press.</para>
+            /// <see cref="Update"/>. On Windows, macOS and X11 without an input method the two are
+            /// produced by the same OS event and dispatched microseconds apart, so they almost always
+            /// meet in the same update frame, and otherwise one frame apart (measured and bounded in
+            /// <c>docs/drafts/0383-text-input-timing.md</c>). An input-method bus (IBus or Fcitx on
+            /// Linux, Wayland's text-input protocol) can hand the commit back a little later. So each
+            /// fresh press claims ONE commit and waits for it up to this long, and each commit waits
+            /// as long for a press.</para>
             ///
             /// <para>THAT IS ALSO WHAT DROPS OS KEY REPEAT. A held key makes the OS commit its character
             /// again and again, but the framework never reports those repeats as new presses (the key
             /// is already down, so no fresh KeyDownEvent is raised; its own timer-driven repeats carry
             /// <see cref="KeyDownEvent.Repeat"/> and are not presses either). A repeated commit
-            /// therefore finds no press to claim it and is discarded once its frame of grace is over:
-            /// one judgement per physical press, exactly the rule the key path always had (backlog 105
+            /// therefore finds no press to claim it and is discarded once its grace is over: one
+            /// judgement per physical press, exactly the rule the key path always had (backlog 105
             /// removed the game's own hold-to-repeat outright, so there is no second repeat to keep).
-            /// Backspace is a key, not text, and keeps its hold-to-erase.</para>
+            /// No OS starts repeating a held key sooner than about 250 ms after the press, five times
+            /// this grace, so a press that committed nothing (a dead key) has expired long before a
+            /// repeat could claim it. Backspace is a key, not text, and keeps its hold-to-erase.</para>
+            ///
+            /// <para>REAL time rather than gameplay time or frames: the frame-stability container
+            /// above the playfield can run this subtree several times in one real frame while it
+            /// catches up, and a rate mod stretches gameplay time, and neither is any time at all for
+            /// the window thread delivering the other half of a keystroke.</para>
             /// </summary>
-            private const int pairing_grace_frames = 1;
+            private const double pairing_grace_ms = PAIRING_GRACE_MS;
+
+            /// <summary>Real time for the pairing's grace, independent of every gameplay clock.</summary>
+            private readonly Stopwatch pairingClock = Stopwatch.StartNew();
+
+            private double pairingNow => pairingClock.Elapsed.TotalMilliseconds;
 
             /// <summary>Commits from the text source, in arrival order. Filled on the window thread (live) or the update thread (tests), so locked.</summary>
             private readonly List<CommittedText> committed = new List<CommittedText>();
@@ -1207,31 +1231,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             private bool latinTextInputActive => textInputActive && !engine.Polyglot;
 
-            /// <summary>The host, whose update-thread clock tells a real frame from a frame-stability repeat. Null in a bare scene.</summary>
-            [Resolved]
-            private GameHost? host { get; set; }
-
-            private double lastRealFrameTime = double.NaN;
-
-            /// <summary>
-            /// Whether this update is the first one this handler sees in a new REAL update frame, read
-            /// off the update thread's own clock (which the gameplay clock never rewinds or repeats).
-            /// Without a host every update counts as one.
-            /// </summary>
-            private bool isNewRealFrame()
-            {
-                if (host?.UpdateThread?.Clock is not { } realClock)
-                    return true;
-
-                double now = realClock.CurrentTime;
-
-                if (now == lastRealFrameTime)
-                    return false;
-
-                lastRealFrameTime = now;
-                return true;
-            }
-
             private void onLatinTextCommitted(string text)
             {
                 if (string.IsNullOrEmpty(text))
@@ -1242,16 +1241,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
 
             /// <summary>
-            /// The commit this press produced, if it has already arrived: the oldest one that arrived
-            /// since the last update (the same pump as this key), else the oldest one that has waited
-            /// a frame for its press. Preferring the fresh one is what keeps a press made while
-            /// another key is HELD from claiming a repeat of the held key that is still in its grace.
+            /// The commit a NEW press produced, if it has already arrived: the oldest one that arrived
+            /// since the last update (the same pump as this key, so almost surely its own), else the
+            /// oldest one still in its grace. Preferring the fresh one is what keeps a press made while
+            /// another key is HELD from claiming a repeat of the held key, and a press after a dead key
+            /// (whose own press committed nothing and is still waiting) from leaving its character to
+            /// that older press.
             /// </summary>
             private string? claimCommittedText()
             {
                 lock (committedLock)
                 {
-                    int index = committed.FindIndex(t => t.Age == 0);
+                    int index = committed.FindIndex(t => t.Fresh);
 
                     if (index < 0 && committed.Count > 0)
                         index = 0;
@@ -1265,25 +1266,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 }
             }
 
-            /// <summary>
-            /// The per-update half of the pairing: a press that is still waiting claims the oldest
-            /// commit, then everything left ages, and whatever has outlived its grace is given up on.
-            /// A commit given up on was an OS repeat (or a stray with no press); a press given up on
-            /// committed nothing (a dead key, a key with no character on the layout), except that the
-            /// spacebar then types its space.
-            /// </summary>
-            private void pairCommittedText()
+            /// <summary>Pairs every press still waiting with the commits that have arrived, oldest with oldest.</summary>
+            private List<(PendingPress press, string? text)>? pairWaitingPresses()
             {
-                if (!latinTextInputActive)
-                    return;
-
                 List<(PendingPress press, string? text)>? resolved = null;
-
-                // Ages count REAL frames, not this handler's updates: the frame-stability container
-                // above the playfield can run its subtree several times in one real frame while it
-                // catches the gameplay clock up, and those repeats are no time at all for the window
-                // thread delivering the other half of a keystroke.
-                bool newFrame = isNewRealFrame();
 
                 lock (committedLock)
                 {
@@ -1293,21 +1279,53 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         waitingPresses.RemoveAt(0);
                         committed.RemoveAt(0);
                     }
-
-                    if (newFrame)
-                    {
-                        foreach (var text in committed)
-                            text.Age++;
-
-                        committed.RemoveAll(t => t.Age > pairing_grace_frames);
-                    }
                 }
 
-                for (int i = 0; newFrame && i < waitingPresses.Count; i++)
+                return resolved;
+            }
+
+            private void resolveAll(List<(PendingPress press, string? text)>? resolved, double time)
+            {
+                if (resolved == null)
+                    return;
+
+                foreach (var (press, text) in resolved)
+                    resolvePress(press.Plan, text, time);
+            }
+
+            /// <summary>
+            /// The per-update half of the pairing: presses still waiting claim the commits that have
+            /// arrived, then whatever has outlived its grace is given up on. A commit given up on was
+            /// an OS repeat (or a stray with no press); a press given up on committed nothing (a dead
+            /// key, a key with no character on the layout), except that the spacebar then types its
+            /// space.
+            /// </summary>
+            private void pairCommittedText()
+            {
+                if (!latinTextInputActive)
+                    return;
+
+                double now = pairingNow;
+                var resolved = pairWaitingPresses();
+
+                lock (committedLock)
+                {
+                    foreach (var text in committed)
+                    {
+                        text.Fresh = false;
+
+                        if (double.IsNaN(text.Since))
+                            text.Since = now;
+                    }
+
+                    committed.RemoveAll(t => now - t.Since > pairing_grace_ms);
+                }
+
+                for (int i = 0; i < waitingPresses.Count; i++)
                 {
                     var press = waitingPresses[i];
 
-                    if (++press.Age <= pairing_grace_frames)
+                    if (now - press.Since <= pairing_grace_ms)
                         continue;
 
                     waitingPresses.RemoveAt(i--);
@@ -1316,11 +1334,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         (resolved ??= new List<(PendingPress, string?)>()).Add((press, null));
                 }
 
-                if (resolved == null)
-                    return;
-
-                foreach (var (press, text) in resolved)
-                    resolvePress(press.Plan, text, Math.Round(Time.Current));
+                resolveAll(resolved, Math.Round(Time.Current));
             }
 
             /// <summary>
@@ -1361,7 +1375,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (text != null)
                     return resolvePress(plan, text, time);
 
-                waitingPresses.Add(new PendingPress { Plan = plan });
+                waitingPresses.Add(new PendingPress { Plan = plan, Since = pairingNow });
                 return false;
             }
 
@@ -1433,8 +1447,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 // A FRESH press of a key that commits text (backlog 383). The framework's own repeats
                 // are not presses, and the OS's repeats never arrive as key events at all; see
-                // pairing_grace_frames for how their commits are dropped.
-                bool freshTextPress = !engine.Polyglot && !e.Repeat && TypingKeys.CommitsText(e.Key);
+                // pairing_grace_ms for how their commits are dropped. A Ctrl or Command chord is not
+                // one either: no platform commits text for it (SDL drops the control characters), so
+                // letting it wait would only hand it the next key's character. Ctrl+Alt stays one,
+                // because that is how Windows reports AltGr, and Option (Alt) alone on macOS commits.
+                bool freshTextPress = !engine.Polyglot && !e.Repeat && TypingKeys.CommitsText(e.Key)
+                                      && !e.SuperPressed && (!e.ControlPressed || e.AltPressed);
 
                 // Which word-level gesture (if any) this press triggers under the user's CURRENT
                 // bindings (backlog 183; backlog 182 hardcoded Ctrl+Backspace and Ctrl+A here).
