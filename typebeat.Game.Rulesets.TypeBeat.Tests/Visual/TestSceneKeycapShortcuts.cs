@@ -10,7 +10,6 @@ using osu.Framework.Input;
 using osu.Framework.Input.Bindings;
 using osu.Framework.Input.Events;
 using osu.Framework.Testing;
-using typebeat.Game.Configuration;
 using typebeat.Game.Input;
 using typebeat.Game.Tests.Visual;
 using osuTK.Input;
@@ -23,24 +22,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     /// whatever key the input manager reports, so they follow the KEYCAP exactly when the key is
     /// rewritten before matching. Driven as real key presses through the scene's input manager, which
     /// applies the same <see cref="KeycapKeyRewriter"/> the game's root input manager does; the root's
-    /// own wiring to the setting is pinned separately.
+    /// own wiring to the OS-detected layout (<see cref="OsKeyboardLayout"/>, backlog 383) is pinned
+    /// separately.
     /// </summary>
     public partial class TestSceneKeycapShortcuts : OsuManualInputManagerTestScene
     {
         [Resolved]
-        private OsuConfigManager config { get; set; } = null!;
+        private OsKeyboardLayout osLayout { get; set; } = null!;
 
         private PlatformActionRecorder recorder = null!;
 
         [SetUpSteps]
         public void SetUpSteps()
         {
-            AddStep("QWERTY keycaps", () => config.SetValue(OsuSetting.KeyboardLayout, KeyboardLayout.Qwerty));
+            AddStep("QWERTY keycaps", () => osLayout.Current.Value = KeyboardLayout.Qwerty);
             AddStep("add an action recorder", () => Child = recorder = new PlatformActionRecorder());
         }
 
         [TearDownSteps]
-        public void TearDownSteps() => AddStep("QWERTY keycaps", () => config.SetValue(OsuSetting.KeyboardLayout, KeyboardLayout.Qwerty));
+        public void TearDownSteps() => AddStep("QWERTY keycaps", () => osLayout.Current.Value = KeyboardLayout.Qwerty);
 
         [Test]
         public void TestUndoIsCtrlZOnQwerty()
@@ -56,7 +56,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void TestUndoFollowsTheZKeycapOnAzerty()
         {
-            AddStep("AZERTY keycaps", () => config.SetValue(OsuSetting.KeyboardLayout, KeyboardLayout.Azerty));
+            AddStep("AZERTY keycaps", () => osLayout.Current.Value = KeyboardLayout.Azerty);
 
             ctrl(Key.Z);
             AddAssert("Ctrl plus the physical Z key (the W keycap) is not undo", () => !recorder.Pressed.Contains(PlatformAction.Undo));
@@ -72,7 +72,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void TestUndoFollowsTheZKeycapOnQwertz()
         {
-            AddStep("QWERTZ keycaps", () => config.SetValue(OsuSetting.KeyboardLayout, KeyboardLayout.Qwertz));
+            AddStep("QWERTZ keycaps", () => osLayout.Current.Value = KeyboardLayout.Qwertz);
 
             ctrl(Key.Y);
             AddAssert("Ctrl plus the physical Y key (the Z keycap) is undo", () => recorder.Pressed.Contains(PlatformAction.Undo));
@@ -82,22 +82,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [Test]
         public void TestAKeyHeldAcrossALayoutChangeIsReleased()
         {
-            AddStep("AZERTY keycaps", () => config.SetValue(OsuSetting.KeyboardLayout, KeyboardLayout.Azerty));
+            AddStep("AZERTY keycaps", () => osLayout.Current.Value = KeyboardLayout.Azerty);
             AddStep("hold the physical W key", () => InputManager.PressKey(Key.W));
             AddAssert("held as the Z keycap", () => InputManager.CurrentState.Keyboard.Keys.IsPressed(Key.Z));
 
-            AddStep("QWERTY keycaps", () => config.SetValue(OsuSetting.KeyboardLayout, KeyboardLayout.Qwerty));
+            AddStep("QWERTY keycaps", () => osLayout.Current.Value = KeyboardLayout.Qwerty);
             AddStep("release the physical W key", () => InputManager.ReleaseKey(Key.W));
             AddAssert("nothing is left held", () => !InputManager.CurrentState.Keyboard.Keys.HasAnyButtonPressed);
         }
 
         /// <summary>
         /// The GAME's root input manager is the one real input enters through, and it is bound to the
-        /// setting: the test runner is an <see cref="OsuGameBase"/>, so the root here is the very
+        /// layout the OS keymap describes (a setting before backlog 383): the test runner is an
+        /// <see cref="OsuGameBase"/>, so the root here is the very
         /// <see cref="OsuUserInputManager"/> a player's keys pass through.
         /// </summary>
         [Test]
-        public void TestTheRootInputManagerFollowsTheSetting()
+        public void TestTheRootInputManagerFollowsTheDetectedLayout()
         {
             OsuUserInputManager root = null!;
 
@@ -111,10 +112,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 root = (OsuUserInputManager)drawable;
             });
 
-            AddStep("AZERTY keycaps", () => config.SetValue(OsuSetting.KeyboardLayout, KeyboardLayout.Azerty));
+            AddStep("AZERTY keycaps", () => osLayout.Current.Value = KeyboardLayout.Azerty);
             AddAssert("the root rewrites for AZERTY", () => root.KeyboardLayout.Value, () => Is.EqualTo(KeyboardLayout.Azerty));
 
-            AddStep("QWERTZ keycaps", () => config.SetValue(OsuSetting.KeyboardLayout, KeyboardLayout.Qwertz));
+            AddStep("QWERTZ keycaps", () => osLayout.Current.Value = KeyboardLayout.Qwertz);
             AddAssert("the root rewrites for QWERTZ", () => root.KeyboardLayout.Value, () => Is.EqualTo(KeyboardLayout.Qwertz));
         }
 

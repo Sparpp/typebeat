@@ -65,7 +65,11 @@ namespace typebeat.Game.Overlays.Mods
         private readonly ToggleAllCheckbox? toggleAllCheckbox;
 
         private Bindable<ModSelectHotkeyStyle> hotkeyStyle = null!;
-        private Bindable<KeyboardLayout> keyboardLayout = null!;
+
+        /// <summary>The keycap layout the root input manager rewrote keys by (backlog 371), read off the OS since backlog 383. Absent in a bare test scene, which means QWERTY.</summary>
+        [Resolved]
+        private OsKeyboardLayout? osKeyboardLayout { get; set; }
+
         private IModHotkeyHandler hotkeyHandler = null!;
 
         private Task? latestLoadTask;
@@ -131,7 +135,6 @@ namespace typebeat.Game.Overlays.Mods
             }
 
             hotkeyStyle = configManager.GetBindable<ModSelectHotkeyStyle>(OsuSetting.ModSelectHotkeyStyle);
-            keyboardLayout = configManager.GetBindable<KeyboardLayout>(OsuSetting.KeyboardLayout);
         }
 
         protected override void LoadComplete()
@@ -352,7 +355,7 @@ namespace typebeat.Game.Overlays.Mods
                 return false;
 
             // The root input manager hands over the KEYCAP key; the hotkey grid is positional.
-            return hotkeyHandler.HandleModHotkeyPressed(e, KeycapLayout.ToPhysical(e.Key, keyboardLayout.Value), availableMods);
+            return hotkeyHandler.HandleModHotkeyPressed(e, KeycapLayout.ToPhysical(e.Key, osKeyboardLayout?.Current.Value ?? KeyboardLayout.Qwerty), availableMods);
         }
 
         #endregion

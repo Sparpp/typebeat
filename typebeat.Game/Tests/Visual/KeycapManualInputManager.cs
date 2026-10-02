@@ -6,7 +6,6 @@ using osu.Framework.Allocation;
 using osu.Framework.Input;
 using osu.Framework.Input.StateChanges;
 using osu.Framework.Testing.Input;
-using typebeat.Game.Configuration;
 using typebeat.Game.Input;
 
 namespace typebeat.Game.Tests.Visual
@@ -15,9 +14,10 @@ namespace typebeat.Game.Tests.Visual
     /// The test scenes' manual input manager, given the same keycap rewrite the game's root input
     /// manager applies (<see cref="OsuUserInputManager"/>), so a test pressing a PHYSICAL key sees what
     /// a player pressing it would. Test input enters here rather than at the root, which is why the
-    /// rewrite has to be repeated here; it reads the very same <see cref="KeycapKeyRewriter"/>. Under
-    /// the default QWERTY layout the rewrite is the identity, so a scene that never sets a layout is
-    /// untouched.
+    /// rewrite has to be repeated here; it reads the very same <see cref="KeycapKeyRewriter"/>, bound
+    /// to the game's <see cref="OsKeyboardLayout"/>, which a headless host detects as QWERTY (the
+    /// identity) and a test may set to stand in for an OS with another keyboard map. A scene that
+    /// never sets one is untouched.
     ///
     /// <para>It also stands in for the OS's TEXT INPUT (backlog 383), because gameplay typing now
     /// reads the characters the OS commits rather than the keys: <see cref="TextInput"/> is cached
@@ -37,10 +37,10 @@ namespace typebeat.Game.Tests.Visual
         public readonly EmulatedTextInput TextInput = new EmulatedTextInput();
 
         [BackgroundDependencyLoader(true)]
-        private void load(OsuConfigManager? config)
+        private void load(OsKeyboardLayout? osKeyboardLayout)
         {
-            if (config != null)
-                config.BindWith(OsuSetting.KeyboardLayout, keycaps.Layout);
+            if (osKeyboardLayout != null)
+                keycaps.Layout.BindTo(osKeyboardLayout.Current);
         }
 
         protected override IReadOnlyDependencyContainer CreateChildDependencies(IReadOnlyDependencyContainer parent)

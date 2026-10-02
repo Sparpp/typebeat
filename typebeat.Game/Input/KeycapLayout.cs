@@ -19,8 +19,9 @@ namespace typebeat.Game.Input
     /// exchanges Y and Z. So the translation is its own inverse, and every physical key has exactly one
     /// keycap key and vice versa, which is what lets a pressed key always be released as the same key
     /// (see <see cref="KeycapKeyRewriter"/>). The punctuation and digit rows do not move here; what
-    /// they PRODUCE when typed is the typing map's business (<c>KeyCharMap</c>), which reads the
-    /// physical position back through <see cref="ToPhysical(Key, KeyboardLayout)"/>.</para>
+    /// they PRODUCE when typed is the OS's business: gameplay types the text the OS commits (backlog
+    /// 383), which this translation never touches. The layout itself is read off the OS too
+    /// (<see cref="OsKeyboardLayout"/>).</para>
     /// </summary>
     public static class KeycapLayout
     {

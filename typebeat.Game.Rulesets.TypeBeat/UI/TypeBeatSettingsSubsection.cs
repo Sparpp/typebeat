@@ -7,9 +7,7 @@ using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Localisation;
 using typebeat.Game.Graphics.Fonts;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics.UserInterfaceV2;
-using typebeat.Game.Input;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
@@ -56,10 +54,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             FlowContent.Margin = new MarginPadding();
         }
 
-        [BackgroundDependencyLoader(true)]
-        private void load(OsuConfigManager? osuConfig)
+        [BackgroundDependencyLoader]
+        private void load()
         {
-            Children = BuildControls((TypeBeatRulesetConfigManager)Config, osuConfig?.GetBindable<KeyboardLayout>(OsuSetting.KeyboardLayout));
+            Children = BuildControls((TypeBeatRulesetConfigManager)Config);
         }
 
         /// <summary>
@@ -72,24 +70,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// contributes no extra faces.
         /// </summary>
         /// <param name="config">The ruleset's own settings.</param>
-        /// <param name="keyboardLayout">
-        /// The game-wide <see cref="OsuSetting.KeyboardLayout"/> (it moved out of the ruleset config
-        /// in backlog 371, because the root input manager reads it for every shortcut). The control
-        /// stays here, where players look for it; a test passes nothing and gets a detached bindable.
-        /// </param>
-        internal Drawable[] BuildControls(TypeBeatRulesetConfigManager config, Bindable<KeyboardLayout>? keyboardLayout = null)
+        /// <remarks>
+        /// There is no keyboard layout control here any more (backlog 383): typing follows the OS's
+        /// own layout through its text input, and shortcuts follow the OS's keyboard map
+        /// (<see cref="Game.Input.OsKeyboardLayout"/>), so there is nothing left for a player to choose.
+        /// </remarks>
+        internal Drawable[] BuildControls(TypeBeatRulesetConfigManager config)
         {
             var lyricFont = config.GetBindable<string>(TypeBeatRulesetSetting.LyricFont);
 
             return new Drawable[]
             {
                 CreateSubsectionHeader("Typing"),
-                new SettingsItemV2(new FormEnumDropdown<KeyboardLayout>
-                {
-                    Caption = "Keyboard layout",
-                    HintText = "The letters printed on your keys. Typing and every keyboard shortcut follow them.",
-                    Current = keyboardLayout ?? new Bindable<KeyboardLayout>(),
-                }),
                 new SettingsItemV2(new FormCheckBox
                 {
                     Caption = "Space to skip current word",

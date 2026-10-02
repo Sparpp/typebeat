@@ -57,7 +57,6 @@ namespace typebeat.Game.Configuration
             SetDefault(OsuSetting.RandomSelectAlgorithm, RandomSelectAlgorithm.RandomPermutation);
             SetDefault(OsuSetting.ModSelectHotkeyStyle, ModSelectHotkeyStyle.Sequential);
 
-            SetDefault(OsuSetting.KeyboardLayout, KeyboardLayout.Qwerty);
             SetDefault(OsuSetting.ModSelectTextSearchStartsActive, true);
 
             SetDefault(OsuSetting.ChatDisplayHeight, ChatOverlay.DEFAULT_HEIGHT, 0.2f, 1f, 0.01f);
@@ -478,13 +477,11 @@ namespace typebeat.Game.Configuration
         DashboardSortMode,
         DashboardDisplayStyle,
 
-        /// <summary>
-        /// The layout the player's keycaps follow (<see cref="Input.KeyboardLayout"/>). Game-wide
-        /// because it decides which physical key every SHORTCUT answers to (the root input manager
-        /// rewrites keys to their keycap), as well as what gameplay typing produces. It used to be a
-        /// type!beat ruleset setting of the same name; <see cref="KeyboardLayoutSettingCarry"/> moves
-        /// a stored choice across once.
-        /// </summary>
-        KeyboardLayout,
+        // NOTE (backlog 383): there used to be a KeyboardLayout member here, the layout the player's
+        // keycaps follow. Gameplay typing reads the OS's committed text since 383, and the shortcuts
+        // it still steered follow the OS's own keyboard map now (Input.OsKeyboardLayout), so it was
+        // retired rather than renamed. A stored "KeyboardLayout = ..." line in game.ini needs no
+        // migration: the ini loader skips a key it cannot parse into this enum, and the next save
+        // writes the file without it. Do not reuse the name for something else.
     }
 }

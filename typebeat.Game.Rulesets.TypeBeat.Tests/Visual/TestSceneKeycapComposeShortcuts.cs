@@ -7,7 +7,6 @@ using NUnit.Framework;
 using osu.Framework.Allocation;
 using osu.Framework.Testing;
 using typebeat.Game.Beatmaps;
-using typebeat.Game.Configuration;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Input;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
@@ -27,7 +26,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
     public partial class TestSceneKeycapComposeShortcuts : EditorTestScene
     {
         [Resolved]
-        private OsuConfigManager config { get; set; } = null!;
+        private OsKeyboardLayout osLayout { get; set; } = null!;
 
         protected override Ruleset CreateEditorRuleset() => new TypeBeatRuleset();
 
@@ -69,13 +68,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [SetUpSteps]
         public void SetUpAzerty()
         {
-            AddStep("AZERTY keycaps", () => config.SetValue(OsuSetting.KeyboardLayout, KeyboardLayout.Azerty));
+            AddStep("AZERTY keycaps", () => osLayout.Current.Value = KeyboardLayout.Azerty);
             AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
             AddUntilStep("no text box has focus", () => Editor.ChildrenOfType<OsuTextBox>().All(b => !b.HasFocus));
         }
 
         [TearDownSteps]
-        public void RestoreQwerty() => AddStep("QWERTY keycaps", () => config.SetValue(OsuSetting.KeyboardLayout, KeyboardLayout.Qwerty));
+        public void RestoreQwerty() => AddStep("QWERTY keycaps", () => osLayout.Current.Value = KeyboardLayout.Qwerty);
 
         /// <summary>
         /// M (merge with the next line) is the M keycap, which AZERTY puts on QWERTY's semicolon

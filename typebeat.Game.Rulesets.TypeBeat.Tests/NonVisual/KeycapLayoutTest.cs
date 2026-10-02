@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using NUnit.Framework;
 using osu.Framework.Bindables;
 using osu.Framework.Input;
@@ -26,8 +27,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// <see cref="KeycapKeyRewriter"/>). Gameplay typing used to read the physical position back
     /// through KeyCharMap; since backlog 383 it reads the OS's committed text instead, which the rewrite
     /// never touches. The pins here are the translation itself, the promise
-    /// that the rewrite moves no key in or out of the typing block, the stored setting's
-    /// carry out of the ruleset config, and the key NAMES the settings screen prints.
+    /// that the rewrite moves no key in or out of the typing block, the retired setting's
+    /// stale ini line, the OS keymap detection that replaced it (backlog 383), and the key NAMES the
+    /// settings screen prints.
     /// </summary>
     [TestFixture]
     [NonParallelizable]
@@ -183,50 +185,49 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         // ---------------------------------------------------------------------------------------
-        // The stored setting's move out of the ruleset config
+        // The retired setting (backlog 383) and the OS detection that replaced it
         // ---------------------------------------------------------------------------------------
 
-        [TestCase("Azerty", KeyboardLayout.Qwerty, KeyboardLayout.Azerty)]
-        [TestCase("Qwertz", KeyboardLayout.Qwerty, KeyboardLayout.Qwertz)]
-        // A QWERTY row is what every install that ever booted holds (and what an older build run
-        // again would write back), so it says nothing and must not reset a layout chosen since.
-        [TestCase("Qwerty", KeyboardLayout.Azerty, KeyboardLayout.Azerty)]
-        [TestCase("not-a-layout", KeyboardLayout.Qwertz, KeyboardLayout.Qwertz)]
-        [TestCase(null, KeyboardLayout.Qwertz, KeyboardLayout.Qwertz)]
-        public void TheRulesetRowIsCarriedOnceAndDeleted(string? storedRow, KeyboardLayout gameValue, KeyboardLayout expected)
+        /// <summary>
+        /// The old setting's migration, reworked: backlog 371 carried a ruleset row into
+        /// <c>OsuSetting.KeyboardLayout</c>, and backlog 383 retired that setting too, so what a
+        /// stored choice now meets is the ini loader. Whatever an old game.ini holds for it, the
+        /// config loads cleanly, every other setting is still read, and the next save writes the file
+        /// without the line: no migration code runs, and nothing can resurrect the setting.
+        /// </summary>
+        [TestCase("Azerty")]
+        [TestCase("Qwertz")]
+        [TestCase("Qwerty")]
+        [TestCase("not-a-layout")]
+        [TestCase(null)]
+        public void AStoredLayoutLineIsDroppedWithoutMigration(string? storedLine)
         {
-            // Realm must not schedule its notifications onto NUnit's context (see PaceColourSettingsMigrationTest).
-            using var context = new SynchronousRealmTestContext();
-            string directory = Path.Combine(Path.GetTempPath(), "typebeat-layout-carry-" + Guid.NewGuid().ToString("N"));
+            string directory = Path.Combine(Path.GetTempPath(), "typebeat-layout-retired-" + Guid.NewGuid().ToString("N"));
 
             try
             {
                 var storage = new NativeStorage(directory);
 
-                using var realm = new RealmAccess(storage, "client.realm");
-                using var config = new OsuConfigManager(storage);
-
-                config.SetValue(OsuSetting.KeyboardLayout, gameValue);
-
-                realm.Write(r =>
+                using (var stream = storage.CreateFileSafely("game.ini"))
+                using (var writer = new StreamWriter(stream))
                 {
-                    if (storedRow != null)
-                        r.Add(new RealmRulesetSetting { RulesetName = "typebeat", Variant = 0, Key = KeyboardLayoutSettingCarry.RULESET_SETTING_KEY, Value = storedRow });
+                    if (storedLine != null)
+                        writer.WriteLine($"KeyboardLayout = {storedLine}");
 
-                    // An unrelated ruleset setting must survive.
-                    r.Add(new RealmRulesetSetting { RulesetName = "typebeat", Variant = 0, Key = "SpaceSkipsWord", Value = "False" });
-                });
+                    // An unrelated setting must still be read.
+                    writer.WriteLine("ShowFpsDisplay = True");
+                }
 
-                KeyboardLayoutSettingCarry.Run(realm, config);
+                using (var config = new OsuConfigManager(storage))
+                {
+                    Assert.That(config.Get<bool>(OsuSetting.ShowFpsDisplay), Is.True, "the rest of the file is still read");
+                    Assert.That(Enum.GetNames<OsuSetting>(), Has.No.Member("KeyboardLayout"), "the setting is gone");
+                    config.Save();
+                }
 
-                Assert.That(config.Get<KeyboardLayout>(OsuSetting.KeyboardLayout), Is.EqualTo(expected));
-                Assert.That(realm.Run(r => r.All<RealmRulesetSetting>().Count(s => s.Key == KeyboardLayoutSettingCarry.RULESET_SETTING_KEY)), Is.Zero, "the orphaned row is gone");
-                Assert.That(realm.Run(r => r.All<RealmRulesetSetting>().Count(s => s.Key == "SpaceSkipsWord")), Is.EqualTo(1));
-
-                // One-time: a later choice is not overwritten by a second boot.
-                config.SetValue(OsuSetting.KeyboardLayout, KeyboardLayout.Qwerty);
-                KeyboardLayoutSettingCarry.Run(realm, config);
-                Assert.That(config.Get<KeyboardLayout>(OsuSetting.KeyboardLayout), Is.EqualTo(KeyboardLayout.Qwerty));
+                string saved = File.ReadAllText(Path.Combine(directory, "game.ini"));
+                Assert.That(saved, Does.Not.Contain("KeyboardLayout"), "the stale line is dropped on save");
+                Assert.That(saved, Does.Contain("ShowFpsDisplay"));
             }
             finally
             {
@@ -236,9 +237,61 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 }
                 catch
                 {
-                    // A realm file can stay locked briefly on Windows; a stray temp folder is harmless.
+                    // A file can stay locked briefly on Windows; a stray temp folder is harmless.
                 }
             }
+        }
+
+        [Test]
+        public void TheLayoutIsDetectedFromTheOsKeymap()
+        {
+            Assert.That(OsKeyboardLayout.Detect(new OsLayoutProvider()), Is.EqualTo(KeyboardLayout.Qwerty));
+            Assert.That(OsKeyboardLayout.Detect(new OsLayoutProvider(("Y", "Z"), ("Z", "Y"))), Is.EqualTo(KeyboardLayout.Qwertz));
+            Assert.That(OsKeyboardLayout.Detect(new OsLayoutProvider(("Q", "A"), ("A", "Q"), ("W", "Z"), ("Z", "W"), ("Semicolon", "M"), ("M", ","))),
+                Is.EqualTo(KeyboardLayout.Azerty));
+
+            // Names arrive upper-cased from SDL, but nothing here depends on it.
+            Assert.That(OsKeyboardLayout.Detect(new OsLayoutProvider(("Y", "z"), ("Z", "y"))), Is.EqualTo(KeyboardLayout.Qwertz));
+        }
+
+        /// <summary>
+        /// Every other keyboard map is QWERTY, the identity: a headless host's provider (keys named
+        /// after their enum), a non-Latin layout whose letters are not A-Z, and a layout that moves
+        /// only half of a supported swap. Dvorak and Colemak move letters the three-layout rewrite
+        /// does not know, so their shortcuts stay positional, exactly as they were under the setting.
+        /// </summary>
+        [Test]
+        public void AnythingElseIsQwerty()
+        {
+            Assert.That(OsKeyboardLayout.Detect(new ReadableKeyCombinationProvider()), Is.EqualTo(KeyboardLayout.Qwerty));
+            Assert.That(OsKeyboardLayout.Detect(new OsLayoutProvider(("Q", "Й"), ("W", "Ц"), ("Y", "Н"), ("Z", "Я"), ("A", "Ф"))), Is.EqualTo(KeyboardLayout.Qwerty));
+            Assert.That(OsKeyboardLayout.Detect(new OsLayoutProvider(("Y", "Z"))), Is.EqualTo(KeyboardLayout.Qwerty));
+            Assert.That(OsKeyboardLayout.Detect(new OsLayoutProvider(("Q", "A"), ("A", "Q"))), Is.EqualTo(KeyboardLayout.Qwerty));
+            Assert.That(OsKeyboardLayout.Detect(new OsLayoutProvider(("S", "O"), ("D", "E"), ("F", "U"), ("Semicolon", "S"))), Is.EqualTo(KeyboardLayout.Qwerty));
+        }
+
+        [Test]
+        public void AKeymapChangeIsDetectedAgain()
+        {
+            var os = new OsLayoutProvider();
+            var scheduled = new List<Action>();
+            var detected = new OsKeyboardLayout(os, scheduled.Add);
+
+            Assert.That(detected.Current.Value, Is.EqualTo(KeyboardLayout.Qwerty));
+
+            os.Set(("Y", "Z"), ("Z", "Y"));
+            typeof(ReadableKeyCombinationProvider).GetMethod("OnKeymapChanged", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(os, null);
+
+            Assert.That(detected.Current.Value, Is.EqualTo(KeyboardLayout.Qwerty), "not before it reaches the update thread");
+
+            scheduled.ForEach(a => a());
+            Assert.That(detected.Current.Value, Is.EqualTo(KeyboardLayout.Qwertz));
+        }
+
+        [Test]
+        public void NoOsKeymapIsQwerty()
+        {
+            Assert.That(new OsKeyboardLayout(null, _ => { }).Current.Value, Is.EqualTo(KeyboardLayout.Qwerty));
         }
 
         // ---------------------------------------------------------------------------------------
@@ -298,6 +351,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         private class PhysicalNamingProvider : ReadableKeyCombinationProvider
         {
             protected override string GetReadableKey(InputKey key) => $"phys:{key}";
+        }
+
+        /// <summary>Stands in for the host's provider on an OS whose keymap puts the named letters on the named physical positions; every other key is named after itself.</summary>
+        private class OsLayoutProvider : ReadableKeyCombinationProvider
+        {
+            private Dictionary<InputKey, string> names = new Dictionary<InputKey, string>();
+
+            public OsLayoutProvider(params (string position, string name)[] moved) => Set(moved);
+
+            public void Set(params (string position, string name)[] moved) => names = moved.ToDictionary(m => Enum.Parse<InputKey>(m.position), m => m.name);
+
+            protected override string GetReadableKey(InputKey key) => names.TryGetValue(key, out string? name) ? name : key.ToString();
         }
     }
 }

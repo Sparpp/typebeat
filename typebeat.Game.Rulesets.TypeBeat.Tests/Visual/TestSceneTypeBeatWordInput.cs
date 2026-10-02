@@ -258,21 +258,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Resolved]
-        private OsuConfigManager gameConfig { get; set; } = null!;
+        private OsKeyboardLayout osLayout { get; set; } = null!;
 
         [TearDownSteps]
-        public void RestoreLayoutAfter() => AddStep("QWERTY keycaps", () => gameConfig.SetValue(OsuSetting.KeyboardLayout, KeyboardLayout.Qwerty));
+        public void RestoreLayoutAfter() => AddStep("QWERTY keycaps", () => osLayout.Current.Value = KeyboardLayout.Qwerty);
 
         /// <summary>
         /// Backlog 371: the select-back chord answers to the A KEYCAP, which on AZERTY is QWERTY's Q
         /// position, and Ctrl plus the physical A position (the Q keycap) is no longer the chord. The
         /// physical keys are pressed here, and the scene's input manager rewrites them exactly as the
-        /// game's root does. Typing itself is unchanged: the physical Q key still types 'a'.
+        /// game's root does. Typing is the OS's (backlog 383): an AZERTY OS commits 'a' for the physical
+        /// Q key, which the scene's emulated text input does too.
         /// </summary>
         [Test]
         public void TestCtrlAFollowsTheAKeycapOnAzerty()
         {
-            AddStep("AZERTY keycaps", () => gameConfig.SetValue(OsuSetting.KeyboardLayout, KeyboardLayout.Azerty));
+            AddStep("AZERTY keycaps", () => osLayout.Current.Value = KeyboardLayout.Azerty);
             waitForLine();
 
             AddStep("press the physical Q key (the A keycap)", () => InputManager.Key(Key.Q));

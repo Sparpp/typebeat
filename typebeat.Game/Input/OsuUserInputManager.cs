@@ -17,8 +17,8 @@ namespace typebeat.Game.Input
         public readonly IBindable<LocalUserPlayingState> PlayingState = new Bindable<LocalUserPlayingState>();
 
         /// <summary>
-        /// The layout the player's keycaps follow, bound by <see cref="OsuGameBase"/> to
-        /// <see cref="Configuration.OsuSetting.KeyboardLayout"/>. Every keyboard key is rewritten from
+        /// The layout the player's keycaps follow, bound by <see cref="OsuGameBase"/> to the one the
+        /// OS's keyboard map describes (<see cref="OsKeyboardLayout"/>). Every keyboard key is rewritten from
         /// its physical position to its keycap key here, at the root, before any key-binding
         /// container (the framework's platform actions included, which sit directly below this
         /// manager) or <c>OnKeyDown</c> handler sees it, so every shortcut follows the keycap.

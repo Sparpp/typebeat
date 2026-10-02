@@ -76,8 +76,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 
         // NOTE (backlog 371): there used to be a KeyboardLayout member here. The layout now decides
         // which physical key every SHORTCUT in the game answers to, so it moved to the game config
-        // (OsuSetting.KeyboardLayout), and KeyboardLayoutSettingCarry moves a stored choice across
-        // once and deletes the orphaned row.
+        // (OsuSetting.KeyboardLayout), and KeyboardLayoutSettingCarry moved a stored choice across
+        // once and deleted the orphaned row. Backlog 383 retired the game setting too (the layout is
+        // read off the OS now) and the carry with it; a row older builds left here is an orphan
+        // this config never reads.
 
         // NOTE (backlog 107): there used to be an AllowWrongInput member here. Typing wrong
         // characters through is now the DEFAULT gameplay for everyone and strict rejection is a mod

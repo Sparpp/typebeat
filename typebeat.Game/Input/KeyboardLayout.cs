@@ -4,33 +4,29 @@
 namespace typebeat.Game.Input
 {
     /// <summary>
-    /// The keyboard layout the player's keycaps follow (<see cref="Configuration.OsuSetting.KeyboardLayout"/>).
-    /// osu!framework reports keys by physical position (scancode), so the letter printed on a key can
-    /// differ from the QWERTY letter its position implies. <see cref="KeycapLayout"/> turns a physical
-    /// letter key into the key carrying the same KEYCAP letter on QWERTY, once, at the root input
-    /// manager, which is what makes every shortcut follow the keycap; the typing map
-    /// (<c>KeyCharMap</c>, in the ruleset) reads the physical position back so typed characters are
-    /// unchanged.
+    /// The keycap layouts SHORTCUTS follow (backlog 371). osu!framework reports keys by physical
+    /// position (scancode), so the letter printed on a key can differ from the QWERTY letter its
+    /// position implies. <see cref="KeycapLayout"/> turns a physical letter key into the key carrying
+    /// the same KEYCAP letter on QWERTY, once, at the root input manager, which is what makes every
+    /// shortcut follow the keycap.
     ///
-    /// <para>The member NAMES are stored (in game.ini, and formerly in the ruleset's own settings row,
-    /// which <see cref="KeyboardLayoutSettingCarry"/> moves across once), so they must never be renamed.</para>
+    /// <para>Since backlog 383 this is DETECTED from the OS's own keyboard map
+    /// (<see cref="OsKeyboardLayout"/>) rather than chosen in settings, and it no longer has anything
+    /// to do with typing: gameplay types the characters the OS commits. Only the three layouts whose
+    /// letter moves the shortcut rewrite knows are named; every other layout is treated as QWERTY,
+    /// whose rewrite is the identity.</para>
+    ///
+    /// <para>The member NAMES were once stored (in game.ini, and before that in the ruleset's own
+    /// settings row), so they are kept as they were.</para>
     /// </summary>
     public enum KeyboardLayout
     {
         Qwerty,
 
-        /// <summary>
-        /// German/Central-European: the Y and Z keys are swapped relative to QWERTY, and four US
-        /// punctuation positions carry LETTERS instead (o-umlaut, a-umlaut, u-umlaut and eszett),
-        /// with the marks they displaced sitting elsewhere (see the QWERTZ punctuation table in
-        /// <c>KeyCharMap</c>).
-        /// </summary>
+        /// <summary>German/Central-European: the Y and Z keys are swapped relative to QWERTY.</summary>
         Qwertz,
 
-        /// <summary>
-        /// French: A↔Q and Z↔W are swapped relative to QWERTY, M sits on the QWERTY semicolon
-        /// position, and the QWERTY M position carries ',' (outside the typeable surface).
-        /// </summary>
+        /// <summary>French: A↔Q and Z↔W are swapped relative to QWERTY, and M sits on the QWERTY semicolon position.</summary>
         Azerty
     }
 }
