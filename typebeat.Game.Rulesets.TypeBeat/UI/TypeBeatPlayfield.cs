@@ -1420,54 +1420,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 return typed;
             }
 
-            /// <summary>
-            /// Whether a key COMMITS TEXT on some layout: the letter, digit and punctuation block,
-            /// the keypad's digits and operators, and the spacebar. Only these take part in the
-            /// pairing; a key outside the block (Enter, Backspace, an arrow, a function key) never
-            /// commits a character, and letting one wait for a commit could hand it a character
-            /// another key produced. Modifier keys are outside it too: Shift commits nothing, it only
-            /// changes what the next key commits.
-            /// </summary>
-            internal static bool CommitsText(Key key)
-                => (key >= Key.A && key <= Key.Z)
-                   || (key >= Key.Number0 && key <= Key.Number9)
-                   || (key >= Key.Keypad0 && key <= Key.Keypad9)
-                   || isPunctuationPosition(key)
-                   || key == Key.KeypadDivide || key == Key.KeypadMultiply || key == Key.KeypadMinus || key == Key.KeypadPlus || key == Key.KeypadDecimal
-                   || key == Key.Space;
-
-            /// <summary>The block's punctuation positions, named after their US legends; what each one commits is the OS layout's business.</summary>
-            private static bool isPunctuationPosition(Key key)
-                => key == Key.Tilde || key == Key.Minus || key == Key.Plus || key == Key.BracketLeft || key == Key.BracketRight
-                   || key == Key.BackSlash || key == Key.NonUSBackSlash || key == Key.Semicolon || key == Key.Quote
-                   || key == Key.Comma || key == Key.Period || key == Key.Slash;
-
-            /// <summary>
-            /// The digit a digit-row or keypad key types WITHOUT the Literate mod, whatever the layout
-            /// commits for it: Shift+1 is '1' rather than '!', an AZERTY digit key is its digit rather
-            /// than its accented letter, and a keypad key is its digit with Num Lock off. That is the
-            /// rule the default surface has always had (Shift only ever cased letters there), and the
-            /// browser keeps it too (typebeat-player.js keyToChar, backlog 305/309). Under Literate the
-            /// marks above the digits are cells, so the OS's character decides there.
-            /// </summary>
-            private static bool tryPositionalDigit(Key key, out char digit)
-            {
-                if (key >= Key.Number0 && key <= Key.Number9)
-                {
-                    digit = (char)('0' + (key - Key.Number0));
-                    return true;
-                }
-
-                if (key >= Key.Keypad0 && key <= Key.Keypad9)
-                {
-                    digit = (char)('0' + (key - Key.Keypad0));
-                    return true;
-                }
-
-                digit = default;
-                return false;
-            }
-
             #endregion
 
             protected override bool OnKeyDown(KeyDownEvent e)
@@ -1482,7 +1434,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // A FRESH press of a key that commits text (backlog 383). The framework's own repeats
                 // are not presses, and the OS's repeats never arrive as key events at all; see
                 // pairing_grace_frames for how their commits are dropped.
-                bool freshTextPress = !engine.Polyglot && !e.Repeat && CommitsText(e.Key);
+                bool freshTextPress = !engine.Polyglot && !e.Repeat && TypingKeys.CommitsText(e.Key);
 
                 // Which word-level gesture (if any) this press triggers under the user's CURRENT
                 // bindings (backlog 183; backlog 182 hardcoded Ctrl+Backspace and Ctrl+A here).
@@ -1735,15 +1687,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // whatever the OS commits for the press, folded to the surface and typed when it
                 // arrives (usually this very frame, see pressFor); the key itself decides only
                 // whether the press is swallowed, so a letter never reaches a global binding mid-line.
-                if (CommitsText(e.Key))
+                if (TypingKeys.CommitsText(e.Key))
                 {
                     // The framework's own auto-repeat is discarded outright: one judgement per
                     // physical press, never a machine-gun run at the keyboard's repeat rate.
                     if (e.Repeat)
                         return typesHere(e.Key);
 
-                    // The default surface keeps the digit row POSITIONAL (see tryPositionalDigit).
-                    if (!engine.Literate && tryPositionalDigit(e.Key, out char digit))
+                    // The default surface keeps the digit row POSITIONAL (see TypingKeys.TryPositionalDigit).
+                    if (!engine.Literate && TypingKeys.TryPositionalDigit(e.Key, out char digit))
                     {
                         dropPress(true, time);
                         TypeLatinText(digit.ToString(), time);
@@ -1759,30 +1711,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // '=') falls through to it as it always did; and without the mod a German 'ß' on
                     // the US Minus position types "ss" and must not also nudge the offset, while a US
                     // hyphen there stays inert and still reaches that binding.
-                    return alwaysSwallowed(e.Key) || typed;
+                    return TypingKeys.AlwaysSwallowed(e.Key) || typed;
                 }
 
                 return false;
             }
 
             /// <summary>
-            /// The keys a Latin play SWALLOWS on an active, unfinished line whatever they commit: a
-            /// letter, a digit (top row or keypad) and the spacebar, the keys that were typing keys on
-            /// every layout before backlog 383 too.
-            /// </summary>
-            private static bool alwaysSwallowed(Key key)
-                => (key >= Key.A && key <= Key.Z)
-                   || (key >= Key.Number0 && key <= Key.Number9)
-                   || (key >= Key.Keypad0 && key <= Key.Keypad9)
-                   || key == Key.Space;
-
-            /// <summary>
             /// Whether a key counts as a TYPING key before its commit is known: for the gesture
             /// shadowing (typing always wins) and for a framework repeat, which commits nothing of
-            /// its own. <see cref="alwaysSwallowed"/>, plus a punctuation position under Literate,
+            /// its own. <see cref="TypingKeys.AlwaysSwallowed"/>, plus a punctuation position under Literate,
             /// where marks are cells.
             /// </summary>
-            private bool typesHere(Key key) => alwaysSwallowed(key) || (engine.Literate && isPunctuationPosition(key));
+            private bool typesHere(Key key) => TypingKeys.AlwaysSwallowed(key) || (engine.Literate && TypingKeys.IsPunctuationPosition(key));
 
             /// <summary>
             /// What a Polyglot play swallows as a character key, unchanged since backlog 331, where it
@@ -1793,7 +1734,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             /// </summary>
             private static bool polyglotSwallows(KeyDownEvent e)
             {
-                if (alwaysSwallowed(e.Key))
+                if (TypingKeys.AlwaysSwallowed(e.Key))
                     return true;
 
                 switch (e.Key)

@@ -83,7 +83,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void MarkerIsNotTypeableAndIsStrippedByDefault()
         {
-            // The marker must stay outside the typeable surface (KeyCharMap cannot produce it), and
+            // The marker must stay outside the typeable surface (the text-input fold never produces it), and
             // outside default normalization, which is what makes it invisible to every legacy path.
             Assert.IsFalse(Typeability.IsTypeable(marker));
             Assert.IsTrue(Typeability.IsFreestyle(marker));

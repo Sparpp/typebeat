@@ -5,9 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using osuTK.Input;
 using typebeat.Game.Beatmaps;
-using typebeat.Game.Input;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Mods;
@@ -302,64 +300,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// The reachability invariant stated for exactly the four marks backlog 255 turns into
         /// cells the editor and the format can now emit: '(' and ')' (literal at last) and the two
-        /// new marks. A mark with no key on some layout makes every lyric containing it
-        /// uncompletable under Literate, which is the failure history the key tables carry.
+        /// new marks. A mark with no way to type it makes every lyric containing it uncompletable
+        /// under Literate. Since backlog 383 the key a mark lives on is the OS layout's business (the
+        /// hand-written tables that used to place, and park, these marks are gone), so what is
+        /// pinned is the half that is still the game's: the character the keyboard commits types
+        /// the mark under the mod, and nothing without it.
         /// </summary>
         [Test]
         public void TheFourNewlyReachableMarksHaveAKeyOnEveryLayout()
         {
-            foreach (var layout in new[] { KeyboardLayout.Qwerty, KeyboardLayout.Qwertz, KeyboardLayout.Azerty })
-            {
-                foreach (char mark in "()_~")
-                {
-                    bool found = false;
-
-                    foreach (Key key in Enum.GetValues<Key>())
-                    {
-                        foreach (bool shift in new[] { false, true })
-                        {
-                            foreach (bool caps in new[] { false, true })
-                            {
-                                if (KeyCharMap.TryMap(key, layout, shift, true, caps, out char c) && c == mark)
-                                    found = true;
-                            }
-                        }
-                    }
-
-                    Assert.IsTrue(found, $"'{mark}' has no key on {layout}");
-                }
-            }
-
-            // And the exact positions, so a silent relocation reds here rather than in a field
-            // report. US: '_' above the hyphen, '~' above the grave, the brackets on their own keys.
-            assertProduces(KeyboardLayout.Qwerty, Key.Minus, true, '_');
-            assertProduces(KeyboardLayout.Qwerty, Key.Tilde, true, '~');
-            assertProduces(KeyboardLayout.Qwerty, Key.Number9, true, '(');
-            assertProduces(KeyboardLayout.Qwerty, Key.Number0, true, ')');
-
-            // QWERTZ: '_' is the faithful shifted legend of the German '-' key, '~' is PARKED on
-            // the spare shifted grave (its US home), the brackets stay parked where 216 put them.
-            assertProduces(KeyboardLayout.Qwertz, Key.Slash, true, '_');
-            assertProduces(KeyboardLayout.Qwertz, Key.Tilde, true, '~');
-            assertProduces(KeyboardLayout.Qwertz, Key.Number8, true, '(');
-            assertProduces(KeyboardLayout.Qwertz, Key.Number9, true, ')');
-
-            // AZERTY: '_' is the faithful UNSHIFTED legend of the 8 key, '~' is PARKED on the spare
-            // shifted grave, the brackets keep their own homes (5 unshifted, the Minus position).
-            assertProduces(KeyboardLayout.Azerty, Key.Number8, false, '_');
-            assertProduces(KeyboardLayout.Azerty, Key.Tilde, true, '~');
-            assertProduces(KeyboardLayout.Azerty, Key.Number5, false, '(');
-            assertProduces(KeyboardLayout.Azerty, Key.Minus, false, ')');
+            foreach (char mark in "()_~")
+                assertProduces(mark);
         }
 
-        private static void assertProduces(KeyboardLayout layout, Key key, bool shift, char expected)
+        /// <summary>A committed <paramref name="mark"/> types itself under Literate and is inert without the mod.</summary>
+        private static void assertProduces(char mark)
         {
-            Assert.IsTrue(KeyCharMap.TryMap(key, layout, shift, true, out char c), $"{layout} {key} shift={shift}");
-            Assert.AreEqual(expected, c, $"{layout} {key} shift={shift}");
+            CollectionAssert.AreEqual(new[] { mark }, TextInputFold.Fold(mark.ToString(), true).ToArray(), $"'{mark}' under Literate");
+            CollectionAssert.IsEmpty(TextInputFold.Fold(mark.ToString(), false).ToArray(), $"'{mark}' leaked outside Literate");
+        }
 
-            // Inert without the mod, like every other punctuation position.
-            Assert.IsFalse(KeyCharMap.TryMap(key, layout, shift, false, out char plain) && plain == expected,
-                $"{layout} {key} shift={shift} leaked outside Literate");
+        /// <summary>A committed <paramref name="legend"/> outside the supported set is inert with the mod and without.</summary>
+        private static void assertInert(string legend)
+        {
+            CollectionAssert.IsEmpty(TextInputFold.Fold(legend, true).ToArray(), $"'{legend}' under Literate");
+            CollectionAssert.IsEmpty(TextInputFold.Fold(legend, false).ToArray(), $"'{legend}' without the mod");
         }
 
         [Test]
@@ -450,758 +415,219 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         // --- Input surface ----------------------------------------------------------------------
+        //
+        // Until backlog 383 these pinned three hand-written key tables (US QWERTY, German QWERTZ and
+        // French AZERTY: which physical key carried which mark, under Shift and under Caps Lock, and
+        // where the AltGr-only marks were parked). The OS layout now says what a key commits, for
+        // every layout, so the tables are gone and so is the parking. What stays the game's, and is
+        // pinned below with the legends those keyboards actually show, is what a COMMITTED character
+        // types: a supported mark under Literate and nothing without it, an unsupported legend
+        // nothing at all, a letter its base letter, a digit itself.
 
         [Test]
         public void ThePunctuationSurfaceIsOpenedOnlyForTheMod()
         {
-            // Off (the default): the punctuation keys are inert, exactly as they always were, so a
-            // habitual comma still costs nothing.
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Comma, KeyboardLayout.Qwerty, false, out _));
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Period, KeyboardLayout.Qwerty, false, out _));
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Quote, KeyboardLayout.Qwerty, true, out _));
+            // Off (the default): every mark is inert, exactly as the punctuation keys always were,
+            // so a habitual comma still costs nothing.
+            foreach (char mark in Typeability.PUNCTUATION)
+                CollectionAssert.IsEmpty(TextInputFold.Fold(mark.ToString(), false).ToArray(), $"'{mark}' without the mod");
 
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Slash, KeyboardLayout.Qwerty, false, out _));
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Comma, KeyboardLayout.Qwerty, true, out _));
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Period, KeyboardLayout.Qwerty, true, out _));
+            // On: every one of them is a press of its own.
+            foreach (char mark in Typeability.PUNCTUATION)
+                CollectionAssert.AreEqual(new[] { mark }, TextInputFold.Fold(mark.ToString(), true).ToArray(), $"'{mark}' under the mod");
 
-            // ...and Shift+digit still produces the DIGIT, not the mark above it.
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Number1, KeyboardLayout.Qwerty, true, out char one));
-            Assert.AreEqual('1', one);
-
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Number4, KeyboardLayout.Qwerty, true, out char four));
-            Assert.AreEqual('4', four);
-
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Number8, KeyboardLayout.Qwerty, true, out char eight));
-            Assert.AreEqual('8', eight);
-
-            // On: every supported mark is reachable.
-            var expected = new Dictionary<(Key, bool), char>
-            {
-                [(Key.Comma, false)] = ',',
-                [(Key.Period, false)] = '.',
-                [(Key.Quote, false)] = '\'',
-                [(Key.Quote, true)] = '"',
-                [(Key.Minus, false)] = '-',
-                [(Key.Slash, true)] = '?',
-                [(Key.Slash, false)] = '/',
-                [(Key.Number1, true)] = '!',
-                [(Key.Semicolon, false)] = ';',
-                [(Key.Semicolon, true)] = ':',
-                [(Key.Number9, true)] = '(',
-                [(Key.Number0, true)] = ')',
-                [(Key.BracketLeft, false)] = '[',
-                [(Key.BracketRight, false)] = ']',
-                [(Key.Number4, true)] = '$',
-                [(Key.Number5, true)] = '%',
-                [(Key.Number6, true)] = '^',
-                [(Key.Number8, true)] = '*',
-                [(Key.Comma, true)] = '<',
-                [(Key.Period, true)] = '>',
-                // Backlog 255: '_' above the US hyphen, '~' above the grave.
-                [(Key.Minus, true)] = '_',
-                [(Key.Tilde, true)] = '~',
-            };
-
-            foreach (var ((key, shift), mark) in expected)
-            {
-                Assert.IsTrue(KeyCharMap.TryMap(key, KeyboardLayout.Qwerty, shift, true, out char produced), $"{key} (shift={shift})");
-                Assert.AreEqual(mark, produced, $"{key} (shift={shift})");
-            }
-
-            // The whole supported set is covered by the map, with nothing left untypeable.
-            Assert.AreEqual(Typeability.PUNCTUATION.OrderBy(c => c).ToArray(), expected.Values.OrderBy(c => c).ToArray());
-
-            // The unshifted slash is '/', a supported mark since backlog 202, so the key is live
-            // under the mod (and, per the assert at the top of this test, still inert without it).
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Slash, KeyboardLayout.Qwerty, false, true, out char slash));
-            Assert.AreEqual('/', slash);
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Slash, KeyboardLayout.Qwerty, false, out _));
-
-            // Keys with no mark on either legend stay inert even under the mod. (The shifted hyphen
-            // used to be one of them; backlog 255 gave it '_'.)
-            Assert.IsFalse(KeyCharMap.TryMap(Key.BracketLeft, KeyboardLayout.Qwerty, true, true, out _));
-            Assert.IsFalse(KeyCharMap.TryMap(Key.BracketRight, KeyboardLayout.Qwerty, true, true, out _));
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Tilde, KeyboardLayout.Qwerty, false, true, out _));
-
-            // Letters are untouched by the wider surface.
-            Assert.IsTrue(KeyCharMap.TryMap(Key.A, KeyboardLayout.Qwerty, true, true, out char shifted));
-            Assert.AreEqual('A', shifted);
+            // And the letters and digits never depend on the mod.
+            CollectionAssert.AreEqual("aZ7".ToCharArray(), TextInputFold.Fold("aZ7", false).ToArray());
+            CollectionAssert.AreEqual("aZ7".ToCharArray(), TextInputFold.Fold("aZ7", true).ToArray());
         }
 
         [Test]
         public void AzertyCommaKeyComesAliveOnlyWithTheMod()
         {
-            // The QWERTY-M position carries ',' on AZERTY (the 'm' keycap moved to the semicolon
-            // position). Inert without the mod, the comma key with it.
-            Assert.IsFalse(KeyCharMap.TryMap(Key.M, KeyboardLayout.Azerty, false, out _));
+            // The French bottom-row key left of ';' shows ',' and '?': inert without the mod...
+            assertProduces(',');
+            assertProduces('?');
 
-            Assert.IsTrue(KeyCharMap.TryMap(Key.M, KeyboardLayout.Azerty, false, true, out char comma));
-            Assert.AreEqual(',', comma);
-
-            // The relocated 'm' still works either way.
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Semicolon, KeyboardLayout.Azerty, false, out char m));
-            Assert.AreEqual('m', m);
-
-            // ...including with the surface open, which is the whole of backlog 214: the US ';'
-            // legend for that position must not shadow the keycap the AZERTY player reads.
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Semicolon, KeyboardLayout.Azerty, false, true, out char literateM));
-            Assert.AreEqual('m', literateM);
-
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Semicolon, KeyboardLayout.Azerty, true, true, out char literateCapitalM));
-            Assert.AreEqual('M', literateCapitalM);
+            // ...and the 'm' that sits on the US semicolon position is a letter either way.
+            CollectionAssert.AreEqual(new[] { 'm' }, TextInputFold.Fold("m", false).ToArray());
+            CollectionAssert.AreEqual(new[] { 'M' }, TextInputFold.Fold("M", true).ToArray());
         }
 
-        /// <summary>
-        /// Backlog 214. AZERTY's bottom row sits one position left of the US one, so five physical
-        /// positions carry a different legend. Under Literate each must produce what the player
-        /// reads on the keycap, or produce nothing: a mark the keycap does not show is a wrong key,
-        /// which is a combo break, a typo and HP drain rather than a miss.
-        /// </summary>
+        /// <summary>The French bottom row: ', ; : !' unshifted, '? . / §' shifted, and the ISO key's angle brackets.</summary>
         [Test]
         public void AzertyBottomRowCarriesItsOwnLegendsUnderTheMod()
         {
-            var expected = new Dictionary<(Key, bool), char>
-            {
-                // The four corrected punctuation positions, unshifted then shifted.
-                [(Key.M, false)] = ',',
-                [(Key.M, true)] = '?',
-                [(Key.Comma, false)] = ';',
-                [(Key.Comma, true)] = '.',
-                [(Key.Period, false)] = ':',
-                [(Key.Period, true)] = '/',
-                [(Key.Slash, false)] = '!',
-                // The ISO key AZERTY has and US QWERTY does not, which is where the angle
-                // brackets live once Comma and Period carry their French legends.
-                [(Key.NonUSBackSlash, false)] = '<',
-                [(Key.NonUSBackSlash, true)] = '>',
-            };
+            foreach (char mark in ",;:!?./<>")
+                assertProduces(mark);
 
-            foreach (var ((key, shift), mark) in expected)
-            {
-                Assert.IsTrue(KeyCharMap.TryMap(key, KeyboardLayout.Azerty, shift, true, out char produced), $"{key} (shift={shift})");
-                Assert.AreEqual(mark, produced, $"{key} (shift={shift})");
-
-                // Every one of them is still inert without the mod, exactly like the US table's
-                // punctuation keys: a habitual comma never costs an AZERTY player anything.
-                Assert.IsFalse(KeyCharMap.TryMap(key, KeyboardLayout.Azerty, shift, false, out _), $"{key} (shift={shift}) without the mod");
-            }
-
-            // Shift on the '!' key is the section sign, outside the supported set, so the key
-            // stays inert for that modifier state rather than producing the US legend's '?'.
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Slash, KeyboardLayout.Azerty, true, true, out _));
-
-            // Nothing about the correction reaches QWERTY, which keeps every US legend involved.
-            // (QWERTZ has a table of its own since backlog 216, pinned below.)
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Comma, KeyboardLayout.Qwerty, false, true, out char usComma));
-            Assert.AreEqual(',', usComma);
-
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Period, KeyboardLayout.Qwerty, true, true, out char greater));
-            Assert.AreEqual('>', greater);
-
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Slash, KeyboardLayout.Qwerty, true, true, out char question));
-            Assert.AreEqual('?', question);
-
-            Assert.IsFalse(KeyCharMap.TryMap(Key.NonUSBackSlash, KeyboardLayout.Qwerty, false, true, out _));
-            Assert.IsFalse(KeyCharMap.TryMap(Key.NonUSBackSlash, KeyboardLayout.Qwerty, true, true, out _));
+            // The section sign is outside the supported set.
+            assertInert("§");
         }
 
         /// <summary>
-        /// Backlog 215. AZERTY's digit row is the REVERSE of the US one: the marks are unshifted
-        /// and the digits are shifted. The apostrophe on the 4 key is the one that mattered, since
-        /// a lyric without a "don't" or an "I'm" in it is the exception.
+        /// The French digit row shows marks and accented letters unshifted ('&amp; é " ' ( - è _ ç à')
+        /// and the digits shifted. Under Literate the OS's character is typed: the supported marks
+        /// are marks, the accented letters type their base letter, '&amp;' is inert. (Without the mod
+        /// the playfield types a digit-row key's DIGIT whatever it commits, which the playfield's own
+        /// scene pins.)
         /// </summary>
         [Test]
         public void AzertyDigitRowIsMarksUnshiftedAndDigitsShifted()
         {
-            var marks = new Dictionary<Key, char>
-            {
-                [Key.Number3] = '"',
-                [Key.Number4] = '\'',
-                [Key.Number5] = '(',
-                [Key.Number6] = '-',
-                // The underscore, supported since backlog 255, is the 8 key's own French legend, so
-                // it is PLACED here rather than parked on a spare shifted position.
-                [Key.Number8] = '_',
-                [Key.Minus] = ')', // the key immediately right of 0
-            };
+            foreach (char mark in "\"'(-_")
+                assertProduces(mark);
 
-            foreach (var (key, mark) in marks)
-            {
-                Assert.IsTrue(KeyCharMap.TryMap(key, KeyboardLayout.Azerty, false, true, out char produced), $"{key}");
-                Assert.AreEqual(mark, produced, $"{key}");
-            }
+            assertInert("&");
 
-            // The five whose unshifted legend is outside the supported set ('&' and the accented
-            // letters) produce NOTHING rather than falling through to the digit their keycap
-            // shows only on Shift: a digit the player never asked for is a wrong key like any other.
-            foreach (var key in new[] { Key.Number1, Key.Number2, Key.Number7, Key.Number9, Key.Number0 })
-                Assert.IsFalse(KeyCharMap.TryMap(key, KeyboardLayout.Azerty, false, true, out _), $"{key}");
+            CollectionAssert.AreEqual(new[] { 'e' }, TextInputFold.Fold("é", true).ToArray());
+            CollectionAssert.AreEqual(new[] { 'e' }, TextInputFold.Fold("è", true).ToArray());
+            CollectionAssert.AreEqual(new[] { 'c' }, TextInputFold.Fold("ç", true).ToArray());
+            CollectionAssert.AreEqual(new[] { 'a' }, TextInputFold.Fold("à", true).ToArray());
 
-            // Shift is the digit, on all ten.
-            for (int d = 0; d <= 9; d++)
-            {
-                Assert.IsTrue(KeyCharMap.TryMap(Key.Number0 + d, KeyboardLayout.Azerty, true, true, out char digit), $"digit {d}");
-                Assert.AreEqual((char)('0' + d), digit, $"digit {d}");
-            }
-
-            // Shift on the ')' key is the degree sign, outside the supported set, so it stays inert
-            // rather than producing the US legend's '-' (which lives on the 6 key here).
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Minus, KeyboardLayout.Azerty, true, true, out _));
-
-            // WITHOUT the mod nothing about the row moves: every digit key is its digit under both
-            // modifiers exactly as before, and the ')' key is inert. This is load-bearing, the
-            // punctuation surface only ever opens under Literate.
-            foreach (bool shift in new[] { false, true })
-            {
-                for (int d = 0; d <= 9; d++)
-                {
-                    Assert.IsTrue(KeyCharMap.TryMap(Key.Number0 + d, KeyboardLayout.Azerty, shift, false, out char digit), $"digit {d} shift={shift}");
-                    Assert.AreEqual((char)('0' + d), digit, $"digit {d} shift={shift}");
-                }
-
-                Assert.IsFalse(KeyCharMap.TryMap(Key.Minus, KeyboardLayout.Azerty, shift, false, out _), $"minus shift={shift}");
-            }
+            for (char digit = '0'; digit <= '9'; digit++)
+                CollectionAssert.AreEqual(new[] { digit }, TextInputFold.Fold(digit.ToString(), true).ToArray(), $"digit {digit}");
         }
 
-        /// <summary>
-        /// Backlog 215. The marks the reversed digit row displaced ('$', '%', '^', '*') all have
-        /// real French homes of their own, so they move there rather than being parked: the rule is
-        /// still that a position only ever yields what the keycap in front of the player shows.
-        /// </summary>
+        /// <summary>The marks the French keyboard keeps somewhere other than the US one: ')' right of 0, '$' and the circumflex on the top row, '%' over the u-grave, '*' by Enter.</summary>
         [Test]
         public void AzertyRelocatedMarksSitOnTheirFrenchKeycaps()
         {
-            var expected = new Dictionary<(Key, bool), char>
-            {
-                // Top row: '$' on the US-BracketRight position, the circumflex legend on the
-                // US-BracketLeft one.
-                [(Key.BracketRight, false)] = '$',
-                [(Key.BracketLeft, false)] = '^',
-                // Home row: the u-grave keycap is '%' shifted, and the US-BackSlash position is '*'.
-                [(Key.Quote, true)] = '%',
-                [(Key.BackSlash, false)] = '*',
-            };
+            foreach (char mark in ")$^%*")
+                assertProduces(mark);
 
-            foreach (var ((key, shift), mark) in expected)
-            {
-                Assert.IsTrue(KeyCharMap.TryMap(key, KeyboardLayout.Azerty, shift, true, out char produced), $"{key} (shift={shift})");
-                Assert.AreEqual(mark, produced, $"{key} (shift={shift})");
-
-                Assert.IsFalse(KeyCharMap.TryMap(key, KeyboardLayout.Azerty, shift, false, out _), $"{key} (shift={shift}) without the mod");
-            }
-
-            // The US Quote position is the u-grave keycap here, outside the supported set, so it no
-            // longer hands an AZERTY player the apostrophe (and the '"' above it): both moved to the
-            // digit row, where the French keycaps actually show them.
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Quote, KeyboardLayout.Azerty, false, true, out _));
-
-            // The micro sign above '*' is outside the set too.
-            Assert.IsFalse(KeyCharMap.TryMap(Key.BackSlash, KeyboardLayout.Azerty, true, true, out _));
-
-            // None of it reaches QWERTY, which keeps every US legend involved.
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Quote, KeyboardLayout.Qwerty, false, true, out char quote));
-            Assert.AreEqual('\'', quote);
-
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Quote, KeyboardLayout.Qwerty, true, true, out char doubleQuote));
-            Assert.AreEqual('"', doubleQuote);
-
-            Assert.IsTrue(KeyCharMap.TryMap(Key.BracketLeft, KeyboardLayout.Qwerty, false, true, out char open));
-            Assert.AreEqual('[', open);
-
-            Assert.IsTrue(KeyCharMap.TryMap(Key.BracketRight, KeyboardLayout.Qwerty, false, true, out char close));
-            Assert.AreEqual(']', close);
-
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Minus, KeyboardLayout.Qwerty, false, true, out char hyphen));
-            Assert.AreEqual('-', hyphen);
-
-            Assert.IsFalse(KeyCharMap.TryMap(Key.BracketLeft, KeyboardLayout.Qwerty, true, true, out _));
-            Assert.IsFalse(KeyCharMap.TryMap(Key.BracketRight, KeyboardLayout.Qwerty, true, true, out _));
-            Assert.IsFalse(KeyCharMap.TryMap(Key.BackSlash, KeyboardLayout.Qwerty, false, true, out _));
+            // The u-grave keycap types its base letter now (it used to be inert): a lyric's "où" is
+            // stored "ou", so the letter lands on its cell. The micro and degree signs are inert.
+            CollectionAssert.AreEqual(new[] { 'u' }, TextInputFold.Fold("ù", true).ToArray());
+            assertInert("µ");
+            assertInert("°");
         }
 
         /// <summary>
-        /// The two deliberate exceptions to the keycap rule. '[' and ']' are AltGr-only on AZERTY
-        /// and AltGr is not modelled at all, so they are parked on the SHIFTED US bracket positions,
-        /// whose real legends (the diaeresis dead key and the pound sign) are outside the supported
-        /// set and so displace nothing faithful. Parking beats stranding: a mark with no key makes
-        /// every map containing it uncompletable, which is the whole bug class, while a mark on a
-        /// spare shifted legend is merely undiscoverable.
+        /// '[' and ']' are AltGr marks on a French keyboard, which the tables could not model and so
+        /// parked on spare legends. AltGr is the OS's now, and the marks it commits type.
         /// </summary>
         [Test]
         public void AzertyParksTheBracketsOnTheSpareShiftedLegends()
         {
-            Assert.IsTrue(KeyCharMap.TryMap(Key.BracketLeft, KeyboardLayout.Azerty, true, true, out char open));
-            Assert.AreEqual('[', open);
+            assertProduces('[');
+            assertProduces(']');
 
-            Assert.IsTrue(KeyCharMap.TryMap(Key.BracketRight, KeyboardLayout.Azerty, true, true, out char close));
-            Assert.AreEqual(']', close);
-
-            // Inert without the mod, like every other punctuation position.
-            Assert.IsFalse(KeyCharMap.TryMap(Key.BracketLeft, KeyboardLayout.Azerty, true, false, out _));
-            Assert.IsFalse(KeyCharMap.TryMap(Key.BracketRight, KeyboardLayout.Azerty, true, false, out _));
+            // The diaeresis and pound legends those brackets were parked on are inert.
+            assertInert("¨");
+            assertInert("£");
         }
 
-        /// <summary>
-        /// Every position the US punctuation surface claims, pinned key by key, with the assertion
-        /// that EVERY other position falls straight through to the plain letter/digit map. The
-        /// corrections are per LAYOUT, so QWERTY is the one layout that must come out of all three
-        /// of them byte for byte unchanged, and this is the pin that says so. (It used to be stated
-        /// as "QWERTY and QWERTZ are equal", which backlog 216 retired: QWERTZ now has German
-        /// keycaps and a table of its own.)
-        /// </summary>
+        /// <summary>The US keyboard's legends, every one: the supported marks type, the rest are inert.</summary>
         [Test]
         public void TheUsTableIsPinnedKeyByKey()
         {
-            var usSurface = new Dictionary<(Key, bool), char>
-            {
-                [(Key.Comma, false)] = ',',
-                [(Key.Comma, true)] = '<',
-                [(Key.Period, false)] = '.',
-                [(Key.Period, true)] = '>',
-                [(Key.Quote, false)] = '\'',
-                [(Key.Quote, true)] = '"',
-                [(Key.Minus, false)] = '-',
-                [(Key.Minus, true)] = '_',
-                [(Key.Slash, false)] = '/',
-                [(Key.Slash, true)] = '?',
-                [(Key.Semicolon, false)] = ';',
-                [(Key.Semicolon, true)] = ':',
-                [(Key.BracketLeft, false)] = '[',
-                [(Key.BracketRight, false)] = ']',
-                // Key.Grave is the same enum value: '`' unshifted is outside the set, '~' above it.
-                [(Key.Tilde, true)] = '~',
-                [(Key.Number1, true)] = '!',
-                [(Key.Number4, true)] = '$',
-                [(Key.Number5, true)] = '%',
-                [(Key.Number6, true)] = '^',
-                [(Key.Number8, true)] = '*',
-                [(Key.Number9, true)] = '(',
-                [(Key.Number0, true)] = ')',
-            };
+            foreach (char legend in ",<.>'\"-_/?;:[]~!$%^*()")
+                assertProduces(legend);
 
-            // The 22 claimed states are exactly the 22 supported marks, one each.
-            Assert.AreEqual(Typeability.PUNCTUATION.OrderBy(c => c).ToArray(), usSurface.Values.OrderBy(c => c).ToArray());
-
-            foreach (Key key in Enum.GetValues<Key>())
-            {
-                foreach (bool shift in new[] { false, true })
-                {
-                    bool got = KeyCharMap.TryMap(key, KeyboardLayout.Qwerty, shift, true, out char c);
-                    bool plain = KeyCharMap.TryMap(key, KeyboardLayout.Qwerty, shift, false, out char plainChar);
-
-                    if (usSurface.TryGetValue((key, shift), out char mark))
-                    {
-                        Assert.IsTrue(got, $"{key} shift={shift}");
-                        Assert.AreEqual(mark, c, $"{key} shift={shift}");
-                    }
-                    else
-                    {
-                        // Not claimed: the surface is transparent, so opening it changes nothing.
-                        Assert.AreEqual(plain, got, $"{key} shift={shift} claimed nothing but moved");
-                        Assert.AreEqual(plainChar, c, $"{key} shift={shift} claimed nothing but moved");
-                    }
-
-                    // ...and the plain map underneath is letters (cased), digits, keypad and space,
-                    // and nothing else, on every key of the enum.
-                    bool wantPlain;
-                    char wantPlainChar = default;
-
-                    if (key >= Key.A && key <= Key.Z)
-                    {
-                        wantPlain = true;
-                        char letter = (char)('a' + (key - Key.A));
-                        wantPlainChar = shift ? char.ToUpperInvariant(letter) : letter;
-                    }
-                    else if (key >= Key.Number0 && key <= Key.Number9)
-                    {
-                        wantPlain = true;
-                        wantPlainChar = (char)('0' + (key - Key.Number0));
-                    }
-                    else if (key >= Key.Keypad0 && key <= Key.Keypad9)
-                    {
-                        wantPlain = true;
-                        wantPlainChar = (char)('0' + (key - Key.Keypad0));
-                    }
-                    else if (key == Key.Space)
-                    {
-                        wantPlain = true;
-                        wantPlainChar = ' ';
-                    }
-                    else
-                        wantPlain = false;
-
-                    Assert.AreEqual(wantPlain, plain, $"plain {key} shift={shift}");
-                    Assert.AreEqual(wantPlainChar, plainChar, $"plain {key} shift={shift}");
-                }
-            }
+            foreach (string legend in new[] { "`", "@", "#", "&", "=", "+", "{", "}", "\\", "|" })
+                assertInert(legend);
         }
 
-        /// <summary>
-        /// Backlog 216. QWERTZ's digit row carries the US DIGITS unshifted, so the row falls through
-        /// to the letter/digit map for that state and 0-9 stay reachable; its SHIFTED legends are
-        /// German and differ from the US ones on seven of the ten keys.
-        /// </summary>
+        /// <summary>The German digit row: US digits unshifted, '! " $ % / ( )' among the shifted legends, '§ &amp; =' outside the set.</summary>
         [Test]
         public void QwertzDigitRowIsUsDigitsWithGermanMarksAbove()
         {
-            var marks = new Dictionary<Key, char>
-            {
-                [Key.Number1] = '!',
-                [Key.Number2] = '"',
-                [Key.Number4] = '$',
-                [Key.Number5] = '%',
-                [Key.Number7] = '/',
-                [Key.Number8] = '(',
-                [Key.Number9] = ')',
-            };
+            foreach (char mark in "!\"$%/()")
+                assertProduces(mark);
 
-            foreach (var (key, mark) in marks)
-            {
-                Assert.IsTrue(KeyCharMap.TryMap(key, KeyboardLayout.Qwertz, true, true, out char produced), $"{key}");
-                Assert.AreEqual(mark, produced, $"{key}");
-            }
+            // The AMPERSAND is the freestyle marker and must never be typed as a cell.
+            foreach (string legend in new[] { "§", "&", "=" })
+                assertInert(legend);
 
-            // Shift on 3 is the section sign and on 0 it is '=', both outside the supported set, so
-            // they produce NOTHING rather than falling through to a digit the keycap only shows
-            // unshifted (which is what the US table's fall-through would have done).
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Number3, KeyboardLayout.Qwertz, true, true, out _));
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Number0, KeyboardLayout.Qwertz, true, true, out _));
-
-            // Shift on 6 is the AMPERSAND, which is the FREESTYLE MARKER: deliberately outside
-            // Typeability.PUNCTUATION, so this position must stay inert and never produce it. It is
-            // also where the US table puts '^', which on a German keyboard lives left of the 1 key.
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Number6, KeyboardLayout.Qwertz, true, true, out _));
-            Assert.IsFalse(Typeability.IsPunctuation(Typeability.FREESTYLE_MARKER), "the marker is out of the set on purpose");
-
-            // Unshifted the row is the digits, mod or no mod, exactly as on US.
-            foreach (bool punctuation in new[] { false, true })
-            {
-                for (int d = 0; d <= 9; d++)
-                {
-                    Assert.IsTrue(KeyCharMap.TryMap(Key.Number0 + d, KeyboardLayout.Qwertz, false, punctuation, out char digit), $"digit {d} punct={punctuation}");
-                    Assert.AreEqual((char)('0' + d), digit, $"digit {d} punct={punctuation}");
-                }
-            }
-
-            // WITHOUT the mod nothing about the row moves: shifted is the digit on all ten, exactly
-            // as before. The punctuation surface only ever opens under Literate.
-            for (int d = 0; d <= 9; d++)
-            {
-                Assert.IsTrue(KeyCharMap.TryMap(Key.Number0 + d, KeyboardLayout.Qwertz, true, false, out char digit), $"digit {d}");
-                Assert.AreEqual((char)('0' + d), digit, $"digit {d}");
-            }
+            for (char digit = '0'; digit <= '9'; digit++)
+                CollectionAssert.AreEqual(new[] { digit }, TextInputFold.Fold(digit.ToString(), false).ToArray(), $"digit {digit}");
         }
 
-        /// <summary>
-        /// Backlog 216, the rest of the German table: every non-digit position it claims, both
-        /// modifier states, produced marks and inert states alike. Before it, QWERTZ read the US
-        /// table with only the Y/Z letter swap applied, so a German player under Literate got ';'
-        /// from their o-umlaut key, the apostrophe from their a-umlaut key, '/' from their '-' key
-        /// and no way at all to produce the semicolon, the colon, the double quote, the slash, the
-        /// asterisk, the two angle brackets or the apostrophe.
-        /// </summary>
+        /// <summary>The rest of the German legends: '- _' on the US slash position, '+ *', ', ; . :', '# '' and the circumflex.</summary>
         [Test]
         public void QwertzCarriesItsOwnGermanLegendsUnderTheMod()
         {
-            // null = the position is claimed but its legend for that state is outside the set, so
-            // it produces nothing AND does not fall through.
-            var expected = new Dictionary<(Key, bool), char?>
-            {
-                // Left of the 1 key: the circumflex dead key, degree sign above it ('~' PARKED on
-                // that spare shifted legend since backlog 255, which is also its US home).
-                [(Key.Tilde, false)] = '^',
-                [(Key.Tilde, true)] = '~',
-                // Right of 0: the eszett keycap, '?' above it.
-                [(Key.Minus, false)] = null,
-                [(Key.Minus, true)] = '?',
-                // Right of that: the dead acute, dead grave above it.
-                [(Key.Plus, false)] = null,
-                [(Key.Plus, true)] = null,
-                // Top row, right of P: the u-umlaut keycap ('[' PARKED on it), then '+' / '*'
-                // (']' PARKED on the '+').
-                [(Key.BracketLeft, false)] = '[',
-                [(Key.BracketLeft, true)] = null,
-                [(Key.BracketRight, false)] = ']',
-                [(Key.BracketRight, true)] = '*',
-                // Home row, right of L: the o-umlaut and a-umlaut keycaps, then '#' / apostrophe.
-                [(Key.Semicolon, false)] = null,
-                [(Key.Semicolon, true)] = null,
-                [(Key.Quote, false)] = null,
-                [(Key.Quote, true)] = null,
-                [(Key.BackSlash, false)] = null,
-                [(Key.BackSlash, true)] = '\'',
-                // Bottom row: the ISO key US keyboards do not have, then ',' '.' '-' with ';' ':'
-                // and '_' above them.
-                [(Key.NonUSBackSlash, false)] = '<',
-                [(Key.NonUSBackSlash, true)] = '>',
-                [(Key.Comma, false)] = ',',
-                [(Key.Comma, true)] = ';',
-                [(Key.Period, false)] = '.',
-                [(Key.Period, true)] = ':',
-                [(Key.Slash, false)] = '-',
-                [(Key.Slash, true)] = '_',
-            };
+            foreach (char mark in "-_*,;.:'^<>?")
+                assertProduces(mark);
 
-            foreach (var ((key, shift), mark) in expected)
-            {
-                if (mark is null)
-                    Assert.IsFalse(KeyCharMap.TryMap(key, KeyboardLayout.Qwertz, shift, true, out _), $"{key} (shift={shift}) must be inert");
-                else
-                {
-                    Assert.IsTrue(KeyCharMap.TryMap(key, KeyboardLayout.Qwertz, shift, true, out char produced), $"{key} (shift={shift})");
-                    Assert.AreEqual(mark.Value, produced, $"{key} (shift={shift})");
-                }
-
-                // Every one of them is still inert WITHOUT the mod, exactly as it was before: none
-                // of these positions is on the plain letter/digit map, so a habitual comma (or a
-                // stray umlaut key) never costs a German player anything.
-                Assert.IsFalse(KeyCharMap.TryMap(key, KeyboardLayout.Qwertz, shift, false, out _), $"{key} (shift={shift}) without the mod");
-            }
+            foreach (string legend in new[] { "+", "#", "°", "´", "`" })
+                assertInert(legend);
         }
 
         /// <summary>
-        /// Backlog 216's version of backlog 214's failure: four US punctuation positions are
-        /// LETTER keycaps on a German keyboard (o-umlaut, a-umlaut, u-umlaut and the eszett). None
-        /// of those letters is on the typeable surface (the normalizer strips diacritics, so no
-        /// lyric ever asks for one), so the positions produce nothing rather than the US marks they
-        /// used to hand over.
+        /// The umlaut and eszett keycaps carry LETTERS. They used to be inert (the tables had no
+        /// letter for them); now the OS commits the letter and the fold types it the way the lyric
+        /// stores it: the base vowel, and "ss" for the eszett.
         /// </summary>
         [Test]
         public void QwertzUmlautAndEszettPositionsDoNotHandOverUsMarks()
         {
-            // The o-umlaut and a-umlaut keys, where the US table had ';' ':' and '\'' '"'.
-            foreach (var key in new[] { Key.Semicolon, Key.Quote })
-            {
-                foreach (bool shift in new[] { false, true })
-                    Assert.IsFalse(KeyCharMap.TryMap(key, KeyboardLayout.Qwertz, shift, true, out _), $"{key} shift={shift}");
-            }
+            CollectionAssert.AreEqual(new[] { 'o' }, TextInputFold.Fold("ö", false).ToArray());
+            CollectionAssert.AreEqual(new[] { 'a' }, TextInputFold.Fold("ä", false).ToArray());
+            CollectionAssert.AreEqual(new[] { 'u' }, TextInputFold.Fold("ü", false).ToArray());
+            CollectionAssert.AreEqual(new[] { 'U' }, TextInputFold.Fold("Ü", true).ToArray());
+            CollectionAssert.AreEqual("ss".ToCharArray(), TextInputFold.Fold("ß", false).ToArray());
 
-            // The u-umlaut key, where the US table had '['. It stays '[' unshifted, but as a
-            // documented PARK rather than a legend (see the bracket test); shifted it is inert.
-            Assert.IsFalse(KeyCharMap.TryMap(Key.BracketLeft, KeyboardLayout.Qwertz, true, true, out _));
-
-            // The eszett key, where the US table had '-' unshifted. Its shifted legend '?' is the
-            // one supported mark on it.
-            Assert.IsFalse(KeyCharMap.TryMap(Key.Minus, KeyboardLayout.Qwertz, false, true, out _));
-
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Minus, KeyboardLayout.Qwertz, true, true, out char question));
-            Assert.AreEqual('?', question);
-
-            // The letter map does not claim any of the four either, mod or no mod, so nothing about
-            // them moved for a player without Literate.
-            foreach (var key in new[] { Key.Semicolon, Key.Quote, Key.BracketLeft, Key.Minus })
-            {
-                foreach (bool shift in new[] { false, true })
-                    Assert.IsFalse(KeyCharMap.TryMap(key, KeyboardLayout.Qwertz, shift, false, out _), $"{key} shift={shift} without the mod");
-            }
-
-            // ...and every letter of the alphabet is still reachable without them, 'y' and 'z'
-            // included, so nothing was stranded by refusing to claim them.
-            for (char letter = 'a'; letter <= 'z'; letter++)
-            {
-                bool found = false;
-
-                foreach (Key key in Enum.GetValues<Key>())
-                {
-                    if (KeyCharMap.TryMap(key, KeyboardLayout.Qwertz, false, true, out char c) && c == letter)
-                        found = true;
-                }
-
-                Assert.IsTrue(found, $"'{letter}' has no key on QWERTZ");
-            }
+            // None of them is ever a US mark.
+            foreach (string letter in new[] { "ö", "ä", "ü", "ß" })
+                Assert.IsFalse(TextInputFold.Fold(letter, true).Any(Typeability.IsPunctuation), letter);
         }
 
-        /// <summary>
-        /// The two deliberate exceptions to the keycap rule on QWERTZ. '[' and ']' are AltGr+8 and
-        /// AltGr+9 on a real German keyboard and AltGr is not modelled at all, so they are parked
-        /// on the UNSHIFTED US bracket positions, which here show the u-umlaut and '+': neither is
-        /// in the supported set, so nothing faithful is displaced, and the US positional memory
-        /// survives exactly. Parking beats stranding: a mark with no key makes every lyric
-        /// containing it uncompletable, while a mark on a spare legend is merely undiscoverable.
-        /// </summary>
+        /// <summary>'[' ']' and '~' are AltGr marks on a German keyboard (AltGr+8, AltGr+9, AltGr on '+'), committed by the OS and typed.</summary>
         [Test]
         public void QwertzParksTheBracketsOnTheUsBracketPositions()
         {
-            Assert.IsTrue(KeyCharMap.TryMap(Key.BracketLeft, KeyboardLayout.Qwertz, false, true, out char open));
-            Assert.AreEqual('[', open);
-
-            Assert.IsTrue(KeyCharMap.TryMap(Key.BracketRight, KeyboardLayout.Qwertz, false, true, out char close));
-            Assert.AreEqual(']', close);
-
-            // The parks sit on the two positions QWERTY uses, so a US-trained German player finds
-            // them where they expect.
-            Assert.IsTrue(KeyCharMap.TryMap(Key.BracketLeft, KeyboardLayout.Qwerty, false, true, out char usOpen));
-            Assert.AreEqual(open, usOpen);
-
-            Assert.IsTrue(KeyCharMap.TryMap(Key.BracketRight, KeyboardLayout.Qwerty, false, true, out char usClose));
-            Assert.AreEqual(close, usClose);
-
-            // Nothing faithful was displaced: '*', the one supported mark either keycap shows, keeps
-            // its own state on the '+' key.
-            Assert.IsTrue(KeyCharMap.TryMap(Key.BracketRight, KeyboardLayout.Qwertz, true, true, out char star));
-            Assert.AreEqual('*', star);
-
-            // Inert without the mod, like every other punctuation position.
-            Assert.IsFalse(KeyCharMap.TryMap(Key.BracketLeft, KeyboardLayout.Qwertz, false, false, out _));
-            Assert.IsFalse(KeyCharMap.TryMap(Key.BracketRight, KeyboardLayout.Qwertz, false, false, out _));
+            assertProduces('[');
+            assertProduces(']');
+            assertProduces('~');
         }
 
-        /// <summary>
-        /// The property the QWERTZ table has to preserve, and the one the pre-216 US-table-plus-swap
-        /// modelling broke outright: no supported mark, digit or letter may be left with no key at
-        /// all, because that makes every lyric containing it uncompletable under Literate.
-        /// </summary>
         [Test]
         public void EverySupportedMarkStaysReachableOnQwertz()
         {
-            var reachable = new HashSet<char>();
-
-            foreach (Key key in Enum.GetValues<Key>())
-            {
-                foreach (bool shift in new[] { false, true })
-                {
-                    if (KeyCharMap.TryMap(key, KeyboardLayout.Qwertz, shift, true, out char c))
-                        reachable.Add(c);
-                }
-            }
-
             foreach (char mark in Typeability.PUNCTUATION)
-                Assert.IsTrue(reachable.Contains(mark), $"'{mark}' has no key on QWERTZ");
-
-            for (char letter = 'a'; letter <= 'z'; letter++)
-            {
-                Assert.IsTrue(reachable.Contains(letter), $"'{letter}' has no key on QWERTZ");
-                Assert.IsTrue(reachable.Contains(char.ToUpperInvariant(letter)), $"'{char.ToUpperInvariant(letter)}' has no key on QWERTZ");
-            }
-
-            for (char digit = '0'; digit <= '9'; digit++)
-                Assert.IsTrue(reachable.Contains(digit), $"'{digit}' has no key on QWERTZ");
-
-            Assert.IsTrue(reachable.Contains(' '), "the space has no key on QWERTZ");
-
-            // The freestyle marker is not a mark the surface may ever produce, on any layout.
-            Assert.IsFalse(reachable.Contains(Typeability.FREESTYLE_MARKER));
+                assertProduces(mark);
         }
 
         /// <summary>
-        /// The exhaustive diff pin, the replacement for "QWERTY and QWERTZ are equal": the two
-        /// layouts differ on the Y/Z letter swap (under both surfaces) and, with the punctuation
-        /// surface OPEN, on exactly the positions where the German keycaps differ from the US ones.
-        /// Everywhere else, including every state with the surface CLOSED, they are byte identical.
+        /// What used to differ between the German and the US table was WHERE a mark lived. The
+        /// fold is layout-blind by construction: one character in, one answer out, whichever
+        /// keyboard committed it.
         /// </summary>
         [Test]
         public void QwertzDiffersFromQwertyExactlyWhereTheGermanKeycapsDo()
         {
-            var expected = new HashSet<(Key, bool, bool)>();
+            // Same positions, different keyboards, each commit folded on its own: the US Minus
+            // position commits '-', the German one 'ß'; the US Semicolon ';', the German 'ö'; the US
+            // Slash '/', the German '-'.
+            CollectionAssert.AreEqual(new[] { '-' }, TextInputFold.Fold("-", true).ToArray());
+            CollectionAssert.AreEqual("ss".ToCharArray(), TextInputFold.Fold("ß", true).ToArray());
+            CollectionAssert.AreEqual(new[] { ';' }, TextInputFold.Fold(";", true).ToArray());
+            CollectionAssert.AreEqual(new[] { 'o' }, TextInputFold.Fold("ö", true).ToArray());
+            CollectionAssert.AreEqual(new[] { '/' }, TextInputFold.Fold("/", true).ToArray());
 
-            // The letter swap: both keys, both shift states, surface open or closed.
-            foreach (var key in new[] { Key.Y, Key.Z })
-            {
-                foreach (bool shift in new[] { false, true })
-                {
-                    foreach (bool punctuation in new[] { false, true })
-                        expected.Add((key, shift, punctuation));
-                }
-            }
-
-            // The punctuation surface, and ONLY with it open. Read as "US legend -> German legend".
-            (Key key, bool shift)[] surfaceDiffs =
-            {
-                (Key.Comma, true), // '<' -> ';'
-                (Key.Period, true), // '>' -> ':'
-                (Key.Quote, false), // '\'' -> a-umlaut
-                (Key.Quote, true), // '"' -> capital a-umlaut
-                (Key.Minus, false), // '-' -> eszett
-                (Key.Minus, true), // '_' -> '?'
-                (Key.Slash, false), // '/' -> '-'
-                (Key.Slash, true), // '?' -> '_'
-                (Key.Semicolon, false), // ';' -> o-umlaut
-                (Key.Semicolon, true), // ':' -> capital o-umlaut
-                (Key.BracketRight, true), // nothing -> '*'
-                (Key.Number0, true), // ')' -> '='
-                (Key.Number2, true), // the digit -> '"'
-                (Key.Number3, true), // the digit -> the section sign
-                (Key.Number6, true), // '^' -> the ampersand
-                (Key.Number7, true), // the digit -> '/'
-                (Key.Number8, true), // '*' -> '('
-                (Key.Number9, true), // '(' -> ')'
-                (Key.Tilde, false), // nothing -> '^' (shifted both layouts give '~', so no diff)
-                (Key.BackSlash, true), // nothing -> the apostrophe
-                (Key.NonUSBackSlash, false), // nothing -> '<'
-                (Key.NonUSBackSlash, true), // nothing -> '>'
-            };
-
-            foreach (var (key, shift) in surfaceDiffs)
-                expected.Add((key, shift, true));
-
-            var actual = new HashSet<(Key, bool, bool)>();
-
-            foreach (Key key in Enum.GetValues<Key>())
-            {
-                foreach (bool shift in new[] { false, true })
-                {
-                    foreach (bool punctuation in new[] { false, true })
-                    {
-                        bool qwerty = KeyCharMap.TryMap(key, KeyboardLayout.Qwerty, shift, punctuation, out char qwertyChar);
-                        bool qwertz = KeyCharMap.TryMap(key, KeyboardLayout.Qwertz, shift, punctuation, out char qwertzChar);
-
-                        if (qwerty != qwertz || qwertyChar != qwertzChar)
-                            actual.Add((key, shift, punctuation));
-                    }
-                }
-            }
-
-            string describe(IEnumerable<(Key, bool, bool)> set)
-                => string.Join(", ", set.OrderBy(x => x.Item1).ThenBy(x => x.Item2).Select(x => $"{x.Item1} shift={x.Item2} punct={x.Item3}"));
-
-            Assert.AreEqual(string.Empty, describe(expected.Except(actual)), "expected to differ but did not");
-            Assert.AreEqual(string.Empty, describe(actual.Except(expected)), "differ but were not expected to");
+            // The letters are the same letters on both keyboards; only Y and Z swap places.
+            CollectionAssert.AreEqual(new[] { 'y', 'z' }, TextInputFold.Fold("yz", false).ToArray());
         }
 
-        /// <summary>
-        /// The digit row's own version of the reachability property: moving the marks onto the
-        /// unshifted legends must not cost the player the DIGITS, which are real lyric content.
-        /// They end up on Shift, exactly where the French keyboard puts them.
-        /// </summary>
         [Test]
         public void EveryDigitStaysReachableOnAzertyUnderTheMod()
         {
-            for (int d = 0; d <= 9; d++)
-            {
-                Assert.IsTrue(KeyCharMap.TryMap(Key.Number0 + d, KeyboardLayout.Azerty, true, true, out char c), $"digit {d}");
-                Assert.AreEqual((char)('0' + d), c, $"digit {d}");
-            }
+            for (char digit = '0'; digit <= '9'; digit++)
+                CollectionAssert.AreEqual(new[] { digit }, TextInputFold.Fold(digit.ToString(), true).ToArray(), $"digit {digit}");
 
-            // And the space, the other non-letter cell every line is full of.
-            Assert.IsTrue(KeyCharMap.TryMap(Key.Space, KeyboardLayout.Azerty, false, true, out char space));
-            Assert.AreEqual(' ', space);
+            CollectionAssert.AreEqual(new[] { ' ' }, TextInputFold.Fold(" ", true).ToArray());
         }
 
-        /// <summary>
-        /// The property the AZERTY table has to preserve: moving a position onto its French legend
-        /// must not strand a supported mark with no key at all, which is the same failure as the
-        /// untypeable 'm' in a slower disguise.
-        /// </summary>
         [Test]
         public void EverySupportedMarkStaysReachableOnAzerty()
         {
-            var reachable = new HashSet<char>();
-
-            foreach (Key key in Enum.GetValues<Key>())
-            {
-                foreach (bool shift in new[] { false, true })
-                {
-                    if (KeyCharMap.TryMap(key, KeyboardLayout.Azerty, shift, true, out char c))
-                        reachable.Add(c);
-                }
-            }
-
             foreach (char mark in Typeability.PUNCTUATION)
-                Assert.IsTrue(reachable.Contains(mark), $"'{mark}' has no key on AZERTY");
+                assertProduces(mark);
 
             // And the letters are all still there too, 'm' included.
             for (char letter = 'a'; letter <= 'z'; letter++)
-                Assert.IsTrue(reachable.Contains(letter), $"'{letter}' has no key on AZERTY");
+                CollectionAssert.AreEqual(new[] { letter }, TextInputFold.Fold(letter.ToString(), true).ToArray(), $"'{letter}'");
         }
 
         // --- Mod plumbing and replays -----------------------------------------------------------

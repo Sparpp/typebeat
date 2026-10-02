@@ -59,8 +59,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// </summary>
         public const char SPLIT_MARKER = '|';
 
-        // INVARIANT: the accepted set must be a subset of what KeyCharMap can produce
-        // (ASCII letters/digits/space after Fold); anything else must classify as
+        // INVARIANT: the accepted set must be a subset of what the input path can produce
+        // (TextInputFold since backlog 383, KeyCharMap's key tables before it: ASCII
+        // letters/digits/space after Fold); anything else must classify as
         // non-typeable so it auto-skips instead of stranding the caret on an
         // unreachable cell. Normalize strips Latin diacritics first, so 'é' survives as 'e'.
         // Deliberately excludes FREESTYLE_MARKER: a freestyle cell matches every key rather than

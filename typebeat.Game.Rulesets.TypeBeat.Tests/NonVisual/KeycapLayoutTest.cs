@@ -16,15 +16,17 @@ using typebeat.Game.Configuration;
 using typebeat.Game.Database;
 using typebeat.Game.Input;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.UI;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
     /// Backlog 371: shortcuts follow the KEYCAP. The root input manager rewrites a physical letter key
     /// to the QWERTY key carrying the same keycap letter (<see cref="KeycapLayout"/>,
-    /// <see cref="KeycapKeyRewriter"/>), and gameplay typing reads the physical position back
-    /// (<see cref="KeyCharMap.TryMapKeycap"/>). The pins here are the translation itself, the promise
-    /// that what a physical key TYPES is byte-identical to before on every layout, the stored setting's
+    /// <see cref="KeycapKeyRewriter"/>). Gameplay typing used to read the physical position back
+    /// through KeyCharMap; since backlog 383 it reads the OS's committed text instead, which the rewrite
+    /// never touches. The pins here are the translation itself, the promise
+    /// that the rewrite moves no key in or out of the typing block, the stored setting's
     /// carry out of the ruleset config, and the key NAMES the settings screen prints.
     /// </summary>
     [TestFixture]
@@ -88,13 +90,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// THE identity pin. Every physical key, on every layout, under every shift / caps lock /
-        /// punctuation state, driven through the input-layer rewrite and then through the typing map
-        /// exactly as live input is, produces the very character (or the very nothing) that
-        /// <see cref="KeyCharMap.TryMap(Key, KeyboardLayout, bool, bool, bool, out char)"/> gave the
-        /// physical key before the rewrite existed. Replays record those characters, and
-        /// <see cref="KeyCharMapTest"/>, <see cref="LiteratePunctuationTest"/> and the Literate mod
-        /// tests pin them against the physical key, so they stand unchanged.
+        /// THE identity pin, reworked for backlog 383. It used to drive every physical key through the
+        /// rewrite and then through KeyCharMap and demand the very character the physical key typed
+        /// before. Typing no longer reads the key at all (the OS commits the character, and the
+        /// rewrite never touches text), so what the rewrite could still disturb is the key's PLACE:
+        /// whether the playfield treats it as a key that commits text (and pairs it with its commit)
+        /// and as a typing key it swallows mid-line. A rewrite that moved a key in or out of either
+        /// set would lose a keystroke or leak one to a global binding; it moves none.
         /// </summary>
         [Test]
         public void EveryPhysicalKeyTypesExactlyWhatItTypedBefore()
@@ -107,20 +109,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 {
                     Key delivered = deliver(rewriter, physical);
 
-                    foreach (bool shift in new[] { false, true })
-                    {
-                        foreach (bool punctuation in new[] { false, true })
-                        {
-                            foreach (bool caps in new[] { false, true })
-                            {
-                                bool before = KeyCharMap.TryMap(physical, layout, shift, punctuation, caps, out char expected);
-                                bool after = KeyCharMap.TryMapKeycap(delivered, layout, shift, punctuation, caps, out char actual);
+                    Assert.That(TypingKeys.CommitsText(delivered), Is.EqualTo(TypingKeys.CommitsText(physical)), $"{layout} {physical}");
 
-                                Assert.That(after, Is.EqualTo(before), $"{layout} {physical} shift={shift} punct={punctuation} caps={caps}");
-                                Assert.That(actual, Is.EqualTo(expected), $"{layout} {physical} shift={shift} punct={punctuation} caps={caps}");
-                            }
-                        }
-                    }
+                    // The one key that changes swallow class is AZERTY's M position: the ',' keycap,
+                    // delivered as the semicolon key, a punctuation position swallowed only when its
+                    // commit types (which a ',' does under Literate and does not without it).
+                    if (layout == KeyboardLayout.Azerty && (physical == Key.M || physical == Key.Semicolon))
+                        continue;
+
+                    Assert.That(TypingKeys.AlwaysSwallowed(delivered), Is.EqualTo(TypingKeys.AlwaysSwallowed(physical)), $"{layout} {physical}");
                 }
             }
         }
@@ -130,20 +127,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var rewriter = new KeycapKeyRewriter { Layout = { Value = KeyboardLayout.Azerty } };
 
-            // The keycap A (physical Q) is delivered as Key.A and still types 'a'.
+            // The keycap A (physical Q) is delivered as Key.A, a typing key; the OS commits its 'a'.
             Key a = deliver(rewriter, Key.Q);
             Assert.That(a, Is.EqualTo(Key.A));
-            Assert.That(KeyCharMap.TryMapKeycap(a, KeyboardLayout.Azerty, false, false, false, out char typedA) && typedA == 'a');
+            Assert.That(TypingKeys.AlwaysSwallowed(a));
+            Assert.That(TextInputFold.Fold("a", false), Is.EqualTo(new[] { 'a' }));
 
-            // The keycap M (physical semicolon) is delivered as Key.M and types 'm'.
+            // The keycap M (physical semicolon) is delivered as Key.M, a typing key, typing 'm'.
             Key m = deliver(rewriter, Key.Semicolon);
             Assert.That(m, Is.EqualTo(Key.M));
-            Assert.That(KeyCharMap.TryMapKeycap(m, KeyboardLayout.Azerty, false, false, false, out char typedM) && typedM == 'm');
+            Assert.That(TypingKeys.AlwaysSwallowed(m));
+            Assert.That(TextInputFold.Fold("m", false), Is.EqualTo(new[] { 'm' }));
 
-            // The ',' keycap (physical M) is inert outside Literate and ',' under it, as before.
+            // The ',' keycap (physical M) is a punctuation position: its ',' is inert outside
+            // Literate and ',' under it, as before.
             Key comma = deliver(rewriter, Key.M);
-            Assert.That(KeyCharMap.TryMapKeycap(comma, KeyboardLayout.Azerty, false, false, false, out _), Is.False);
-            Assert.That(KeyCharMap.TryMapKeycap(comma, KeyboardLayout.Azerty, false, true, false, out char typedComma) && typedComma == ',');
+            Assert.That(TypingKeys.IsPunctuationPosition(comma));
+            Assert.That(TextInputFold.Fold(",", false), Is.Empty);
+            Assert.That(TextInputFold.Fold(",", true), Is.EqualTo(new[] { ',' }));
         }
 
         /// <summary>

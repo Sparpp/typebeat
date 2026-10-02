@@ -920,7 +920,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <see cref="Typeability.Fold"/>), so a right letter typed in the wrong case is judged
         /// wrong: rejected/miss, exactly like any other wrong char. Off by default: gameplay is
         /// case-insensitive. Requires the input path to actually produce upper-case chars for
-        /// Shift-held keys (see <see cref="KeyCharMap"/>), else capitals would be untypeable.
+        /// Shift-held keys (the OS layout commits them since backlog 383, and <see cref="TextInputFold"/>
+        /// keeps their case), else capitals would be untypeable.
         /// Set from <see cref="Literate"/> at construction; still settable so a test can exercise
         /// exact-case matching on its own.
         /// </summary>
@@ -932,7 +933,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// flag this is fixed at construction, because it changes the CELL LIST itself (see
         /// <see cref="TypingLine.FromLyricLine"/>) rather than only how a press is judged, and the
         /// nested per-cell scoring objects have to be flattened the same way.
-        /// Requires the input path to be able to produce the marks (see <see cref="KeyCharMap"/>).
+        /// Requires the input path to be able to produce the marks (<see cref="TextInputFold"/> passes them under the mod).
         /// </summary>
         public bool Literate { get; }
 
@@ -940,9 +941,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// Polyglot mod (backlog 331): the lines are played in their ORIGINAL script (see
         /// <see cref="PolyglotLine"/>), fixed at construction for the reason <see cref="Literate"/>
         /// is, and a press is matched against a cell in Unicode NFC (see
-        /// <see cref="PolyglotText.Matches"/>). The input path is the OS's committed TEXT rather than
-        /// <see cref="KeyCharMap"/>, which only the playfield has to know. A MOD and not an era: a
-        /// score carries it in its mod list, and no stored run can carry a mod that did not exist.
+        /// <see cref="PolyglotText.Matches"/>). The input path is the OS's committed TEXT, kept in its
+        /// own script rather than folded by <see cref="TextInputFold"/>, which only the playfield has to
+        /// know. A MOD and not an era: a score carries it in its mod list, and no stored run can
+        /// carry a mod that did not exist.
         /// </summary>
         public bool Polyglot { get; }
 
@@ -2784,7 +2786,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>
-        /// Process a lowercased char from KeyCharMap at gameplay time <paramref name="time"/>.
+        /// Process a char the input path produced (TextInputFold since backlog 383) at gameplay time <paramref name="time"/>.
         /// Returns false when inert (no active line / line complete / finished).
         /// A space pressed inside a word abandons it under <see cref="SpaceSkipsWord"/> (off by default).
         /// A space typed ON a space cell is UNTIMED (backlog 148): it is judged as though it landed on
