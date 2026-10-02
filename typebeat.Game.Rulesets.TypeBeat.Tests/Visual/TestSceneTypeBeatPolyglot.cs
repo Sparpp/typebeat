@@ -5,9 +5,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using NUnit.Framework;
+using osu.Framework.Input;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
@@ -74,6 +76,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddUntilStep("a submission token was requested", () => Player.TokenCreationRequested);
         }
+
+        /// <summary>
+        /// Backlog 383 moved Latin plays onto text input too, with the IME OFF; a Polyglot play keeps
+        /// the activation it always had, plain text with the IME allowed, and its committed text is
+        /// still typed in its own script, composition and all.
+        /// </summary>
+        [Test]
+        public void TestPolyglotKeepsItsImeActivationAndItsScript()
+        {
+            loadWith(new TypeBeatModPolyglot());
+
+            AddUntilStep("line 0 active", () => engine.ActiveLineIndex == 0);
+            AddAssert("text input is active as plain text with the IME allowed", () =>
+                os.ActiveProperties, () => Is.EqualTo(new TextInputProperties(TextInputType.Text, true)));
+
+            AddStep("compose, then commit 'α' through the IME", () =>
+            {
+                os.TriggerImeComposition("α", 1, 0);
+                os.TriggerImeResult("α");
+            });
+            AddUntilStep("the original-script cell took it", () => engine.CaretIndex == 1);
+        }
+
+        [Test]
+        public void TestALatinPlayActivatesWithTheImeOff()
+        {
+            loadWith();
+
+            AddUntilStep("text input is active as Code with the IME disallowed", () =>
+                os.ActiveProperties?.Equals(new TextInputProperties(TextInputType.Code, AllowIme: false)) == true);
+        }
+
+        private EmulatedTextInput os => ((KeycapManualInputManager)InputManager).TextInput;
+
+        private TypingEngine engine => ((TypeBeatPlayfield)Player.DrawableRuleset.Playfield).Engine;
 
         private void loadWith(params Mod[] mods)
         {
