@@ -370,6 +370,47 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("nothing typed", () => engine.CaretIndex == 1);
         }
 
+        /// <summary>
+        /// THE TIMING HARNESS (docs/drafts/0383-text-input-timing.md). Each step is one SDL pump as
+        /// the framework delivers it: KEY_DOWN for A, the TEXT_INPUT it produced, then KEY_DOWN for
+        /// Backspace, which is still typed by its key. The text-typed 'a' and the key-typed backspace
+        /// are recorded at the times the playfield stamped them, so their difference is exactly what
+        /// moving characters from the key path to the text path costs in timestamp, through the real
+        /// playfield, recorder and replay frames. Measured: 0 ms on every press.
+        /// </summary>
+        [Test]
+        public void TestTheTextTimestampMatchesTheKeyTimestamp()
+        {
+            const int presses = 20;
+            var differences = new List<double>();
+
+            load();
+
+            for (int i = 0; i < presses; i++)
+            {
+                AddStep($"pump {i}: A (as text), then Backspace (as a key)", () =>
+                {
+                    InputManager.Key(Key.A);
+                    InputManager.Key(Key.BackSpace);
+                });
+            }
+
+            AddAssert("every press recorded a pair", () =>
+            {
+                differences.Clear();
+
+                for (int i = 0; i + 1 < keystrokes.Count; i++)
+                {
+                    if (keystrokes[i].Character == 'a' && keystrokes[i + 1].IsBackspace)
+                        differences.Add(keystrokes[i].Time - keystrokes[i + 1].Time);
+                }
+
+                TestContext.Progress.WriteLine($"[0383 timing] pairs={differences.Count} max|text - key|={differences.Select(Math.Abs).DefaultIfEmpty().Max()} ms");
+                return differences.Count == presses;
+            });
+            AddAssert("the text stamp equals the key stamp, every time", () => differences.All(d => d == 0));
+        }
+
         private void load(params Mod[] mods)
         {
             AddStep($"load with [{string.Join(' ', mods.Select(m => m.Acronym))}]", () => LoadPlayer(mods));
