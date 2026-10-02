@@ -365,6 +365,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void TtmlImportDeclaresUnsubmittedOnlineIds()
+        {
+            const string ttml = "<tt xmlns=\"http://www.w3.org/ns/ttml\"><body dur=\"3.000\"><div><p begin=\"1.000\" end=\"2.000\">hello world</p></div></body></tt>";
+            string timing = LyricMapImporter.SynthesizeTimingJsonFromTtml(ttml)!;
+            Assert.That(timing, Is.Not.Null);
+
+            string audioPath = Path.Combine(tempRoot, "audio.mp3");
+            File.WriteAllBytes(audioPath, new byte[] { 0x49, 0x44, 0x33 });
+            string packagePath = Path.Combine(tempRoot, "ttml.osz");
+            var result = LyricMapImporter.PackageOsz(packagePath, "Artist", "Title", audioPath, timing, ttml);
+            Assert.That(result.Success, Is.True, result.Error);
+
+            using var archive = ZipFile.OpenRead(packagePath);
+            string encoded = readEntry(archive.Entries.Single(e => e.FullName.EndsWith(".osu", StringComparison.OrdinalIgnoreCase)));
+            var imported = decode(encoded);
+            Assert.That(encoded, Does.Contain("BeatmapID:0"));
+            Assert.That(encoded, Does.Contain("BeatmapSetID:-1"));
+            Assert.That(imported.BeatmapInfo.OnlineID, Is.Zero);
+            Assert.That(imported.BeatmapInfo.BeatmapSet!.OnlineID, Is.EqualTo(-1));
+            Assert.That(imported.HitObjects.OfType<TypeBeatHitObject>().Single().Line.RawText, Is.EqualTo("hello world"));
+        }
+
+        [Test]
         public async Task LrcOnlyFallbackPackagesLineGranularityMap()
         {
             // No aligner reachable from the start dir + line-stamped lyrics -> line-granularity map.
