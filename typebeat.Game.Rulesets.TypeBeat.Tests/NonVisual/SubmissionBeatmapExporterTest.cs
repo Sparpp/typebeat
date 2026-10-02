@@ -11,6 +11,7 @@ using osu.Framework.Extensions;
 using osu.Framework.Testing;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Extensions;
+using typebeat.Game.Database;
 using typebeat.Game.IO.Archives;
 using typebeat.Game.Models;
 using typebeat.Game.Online.API.Requests.Responses;
@@ -108,6 +109,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(reloaded.BeatmapInfo.BeatmapSet!.OnlineID, Is.EqualTo(777));
         }
 
+        [TestCase(-1, -1, 0, -1)]
+        [TestCase(555, 241, 555, 241)]
+        public void NativeExportRepairsOlderMapsWithoutEmbeddedIds(int storedBeatmapId, int storedSetId, int expectedBeatmapId, int expectedSetId)
+        {
+            using var storage = new TemporaryNativeStorage($"submission-export-{Guid.NewGuid()}");
+            var setInfo = buildSetInfo(storage, buildBeatmap(), storedBeatmapId, out byte[] sourceBytes);
+            setInfo.OnlineID = storedSetId;
+
+            using var output = new MemoryStream();
+            new BeatmapExporter(storage).ExportToStream(setInfo, output, null);
+            output.Seek(0, SeekOrigin.Begin);
+            using var archive = new ZipArchiveReader(output);
+            string exported = Encoding.UTF8.GetString(readAllBytes(archive.GetStream("map.osu")));
+
+            Assert.That(exported, Does.Contain($"BeatmapID:{expectedBeatmapId}"));
+            Assert.That(exported, Does.Contain($"BeatmapSetID:{expectedSetId}"));
+            Assert.That(readAllBytes(archive.GetStream("audio.mp3")), Is.EqualTo(audio_bytes));
+
+            // Only the ID fields change. This includes preserving the BOM, lyrics and timing.
+            string withoutIds = exported.Replace($"BeatmapID:{expectedBeatmapId}{Environment.NewLine}", string.Empty)
+                                        .Replace($"BeatmapSetID:{expectedSetId}{Environment.NewLine}", string.Empty);
+            Assert.That(Encoding.UTF8.GetBytes(withoutIds), Is.EqualTo(sourceBytes));
+        }
+
         [Test]
         public void ThrowsOnUnrecognisedId()
         {
@@ -187,7 +212,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 using (var sw = new StreamWriter(ms, Encoding.UTF8, 1024, true))
                     TypeBeatBeatmapEncoder.Encode(beatmap, sw);
 
-                osuBytes = ms.ToArray();
+                // Reproduce maps imported before online ID fields were written at all.
+                string encoded = Encoding.UTF8.GetString(ms.ToArray())
+                                         .Replace($"BeatmapID:0{Environment.NewLine}", string.Empty)
+                                         .Replace($"BeatmapSetID:-1{Environment.NewLine}", string.Empty);
+                osuBytes = Encoding.UTF8.GetBytes(encoded);
             }
 
             var beatmapInfo = new BeatmapInfo(new TypeBeatRuleset().RulesetInfo)

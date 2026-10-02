@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -177,6 +178,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var source = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
 
             Assert.That(encode(source, new Storyboard()), Does.Not.Contain("[Events]"));
+        }
+
+        [TestCase(-1, -1, 0, -1)]
+        [TestCase(0, 0, 0, -1)]
+        [TestCase(555, 241, 555, 241)]
+        public void OnlineIdFieldsSurviveEditorSave(int beatmapId, int setId, int expectedBeatmapId, int expectedSetId)
+        {
+            var source = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
+            source.BeatmapInfo.OnlineID = beatmapId;
+            source.BeatmapInfo.BeatmapSet = new BeatmapSetInfo { OnlineID = setId };
+
+            string encoded = encode(source, null);
+            var reloaded = decode(encoded);
+
+            Assert.That(encoded, Does.Contain($"BeatmapID:{expectedBeatmapId}"));
+            Assert.That(encoded, Does.Contain($"BeatmapSetID:{expectedSetId}"));
+            Assert.That(reloaded.BeatmapInfo.OnlineID, Is.EqualTo(expectedBeatmapId));
+            Assert.That(reloaded.BeatmapInfo.BeatmapSet!.OnlineID, Is.EqualTo(expectedSetId));
+            Assert.That(encode(reloaded, null), Is.EqualTo(encoded));
+        }
+
+        [Test]
+        public void AddingUnsubmittedIdFieldsDoesNotDemoteAnOlderMap()
+        {
+            string encoded = encode(buildBeatmap(singleLine(), "Artist", "Title", "song.mp3"), null);
+            string oldEncoding = encoded.Replace($"BeatmapID:0{Environment.NewLine}", string.Empty).Replace($"BeatmapSetID:-1{Environment.NewLine}", string.Empty);
+            var ruleset = new TypeBeatRuleset();
+
+            Assert.That(ruleset.NativeEncodingsEquivalentForStatus(oldEncoding, encoded), Is.True);
+            Assert.That(ruleset.NativeEncodingsEquivalentForStatus(encoded, oldEncoding), Is.True);
+            Assert.That(ruleset.NativeEncodingsEquivalentForStatus(oldEncoding, encoded.Replace("BeatmapSetID:-1", "BeatmapSetID:241")), Is.False);
         }
 
         [Test]

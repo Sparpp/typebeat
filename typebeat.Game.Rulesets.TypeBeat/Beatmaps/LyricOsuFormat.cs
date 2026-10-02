@@ -87,8 +87,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// line this format has always written: same reason the Language line is conditional, an
         /// encoding that moved would re-hash installed maps through
         /// <c>TypeBeatRuleset.NativeEncodingsEquivalentForStatus</c>.</param>
-        /// <param name="beatmapId">Server-side beatmap ID; omitted from [Metadata] unless positive.</param>
-        /// <param name="beatmapSetId">Server-side beatmap set ID; omitted from [Metadata] unless positive.</param>
+        /// <param name="beatmapId">Server-side beatmap ID; 0 when not yet submitted.</param>
+        /// <param name="beatmapSetId">Server-side beatmap set ID; -1 when not yet submitted.</param>
         /// <param name="difficultyName">Difficulty name (the [Metadata] Version), so a set can hold
         /// several difficulties without their identities colliding; defaults to "type!beat".</param>
         /// <param name="tags">Space-separated [Metadata] Tags, exactly what the author set in the
@@ -227,13 +227,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (audioGain != typebeat.Game.Beatmaps.BeatmapMetadata.DEFAULT_AUDIO_GAIN)
                 sb.AppendLine($"AudioGain:{typebeat.Game.Beatmaps.BeatmapMetadata.EncodeAudioGain(audioGain)}");
 
-            // Online IDs are stamped on submission; the server validates the embedded IDs
-            // against the set being uploaded, and the inherited legacy [Metadata] parsing
-            // reads them back on decode.
-            if (beatmapId > 0)
-                sb.AppendLine($"BeatmapID:{beatmapId.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
-            if (beatmapSetId > 0)
-                sb.AppendLine($"BeatmapSetID:{beatmapSetId.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+            // Unsubmitted maps still declare both fields. Submission replaces these placeholders
+            // with the server-allocated IDs; imports and editor saves share this writer.
+            sb.AppendLine($"BeatmapID:{Math.Max(0, beatmapId).ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+            sb.AppendLine($"BeatmapSetID:{(beatmapSetId > 0 ? beatmapSetId : -1).ToString(System.Globalization.CultureInfo.InvariantCulture)}");
             sb.AppendLine();
             sb.AppendLine("[Difficulty]");
             sb.AppendLine("HPDrainRate:5");
@@ -357,6 +354,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// text: turning one into a romanised word changes the cells, and that is a real edit.</para>
         /// </summary>
         public static string StripOriginals(string osu) => original_field.Replace(osu, string.Empty);
+
+        private static readonly System.Text.RegularExpressions.Regex unassigned_online_id_fields =
+            new System.Text.RegularExpressions.Regex(@"^(?:BeatmapID:0|BeatmapSetID:-1)\r?\n",
+                System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        /// <summary>
+        /// Adding explicit unsubmitted ID placeholders to older maps does not change gameplay.
+        /// Positive online IDs remain part of the status comparison.
+        /// </summary>
+        public static string StripUnassignedOnlineIds(string osu) => unassigned_online_id_fields.Replace(osu, string.Empty);
 
         private static readonly System.Text.RegularExpressions.Regex format_version_field =
             new System.Text.RegularExpressions.Regex(@"^" + System.Text.RegularExpressions.Regex.Escape(LyricBeatmapDecoder.MAGIC) + "[0-9]+",
