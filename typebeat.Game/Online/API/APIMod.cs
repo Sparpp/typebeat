@@ -12,11 +12,12 @@ using typebeat.Game.Configuration;
 using typebeat.Game.Extensions;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.Mods;
+using typebeat.Game.Scoring;
 
 namespace typebeat.Game.Online.API
 {
     [MessagePackObject]
-    public class APIMod : IEquatable<APIMod>
+    public class APIMod : IEquatable<APIMod>, IConfiguredMod
     {
         [JsonProperty("acronym")]
         [Key(0)]
@@ -109,5 +110,11 @@ namespace typebeat.Game.Online.API
 
             public int GetHashCode(KeyValuePair<string, object> obj) => HashCode.Combine(obj.Key, obj.Value.GetUnderlyingSettingValue());
         }
+
+        #region IConfiguredMod
+
+        IReadOnlyDictionary<string, object> IConfiguredMod.Settings => Settings;
+
+        #endregion
     }
 }
