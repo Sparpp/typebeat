@@ -5,6 +5,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
+using osu.Framework.Extensions.Color4Extensions;
+using osu.Framework.Graphics.Colour;
+using osu.Framework.Graphics.Shapes;
 using osu.Framework.Testing;
 using osu.Framework.Utils;
 using osuTK;
@@ -14,6 +17,7 @@ using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Screens.Edit;
 using typebeat.Game.Screens.Edit.Timing;
 using typebeat.Game.Screens.Edit.GameplayTest;
@@ -554,6 +558,59 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
+        public void TestMultiSelectionCornerNotch()
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+
+            AddStep("add a third line", () => TypeBeatEditorOperations.AddLine(EditorBeatmap, 5500, "third line"));
+            AddUntilStep("three rows", () => rows().Count == 3);
+
+            // A plain single selection is carried by the active tint alone, so no notch anywhere.
+            AddStep("click row 1", () => clickRow(0));
+            AddUntilStep("row 1 active", () => state().ActiveLine.Value == rows()[0].HitObject);
+            AddAssert("single selection shows no notch", () => noNotches());
+
+            // Ctrl+click the rest: rows 1, 2 and 3 are all in the set, the active one included.
+            AddStep("ctrl+click row 2", () => clickRow(1, ctrl: true));
+            AddStep("ctrl+click row 3", () => clickRow(2, ctrl: true));
+            AddUntilStep("three rows multi-selected", () => state().MultiSelectedLines.Count == 3);
+            AddAssert("every selected row shows the notch", () =>
+                rows().All(r => r.SelectionNotch.Alpha == 1));
+
+            // The active row carries BOTH its brighter tint and the notch (the active tint is
+            // Lighten(0.5), distinct from a plain multi-selected row's Lighten(0.25)).
+            AddAssert("active row is in the set and keeps both marks", () =>
+                state().MultiSelectedLines.Contains(rows()[2].HitObject)
+                && rows()[2].SelectionNotch.Alpha == 1
+                && singleColour(rows()[2].Background) == TypeBeatStyle.PanelBackground.Lighten(0.5f));
+            AddAssert("a non-active member shows the multi-select tint", () =>
+                singleColour(rows()[0].Background) == TypeBeatStyle.PanelBackground.Lighten(0.25f));
+
+            // The notch is a real, drawn shape in the row's top-left, inside the masked row.
+            AddAssert("notch is a drawn wedge in the top-left corner", () =>
+            {
+                var notch = rows()[2].SelectionNotch.ScreenSpaceDrawQuad;
+                var row = rows()[2].ScreenSpaceDrawQuad;
+                return notch.Width > 0 && notch.Height > 0
+                       && notch.TopLeft.X >= row.TopLeft.X - 0.5f && notch.TopLeft.Y >= row.TopLeft.Y - 0.5f
+                       && notch.BottomRight.X <= row.BottomRight.X + 0.5f && notch.BottomRight.Y <= row.BottomRight.Y + 0.5f
+                       && notch.TopLeft.X < row.Centre.X && notch.Width < row.Width / 2;
+            });
+
+            // Ctrl+click row 2 again removes it: its notch clears, the other two stay lit.
+            AddStep("ctrl+click row 2 again", () => clickRow(1, ctrl: true));
+            AddUntilStep("row 2 left the set", () => !state().MultiSelectedLines.Contains(rows()[1].HitObject));
+            AddAssert("deselected row's notch cleared", () => rows()[1].SelectionNotch.Alpha == 0);
+            AddAssert("remaining members keep the notch", () =>
+                rows()[0].SelectionNotch.Alpha == 1 && rows()[2].SelectionNotch.Alpha == 1);
+
+            // A plain click collapses the whole section: every notch goes out.
+            AddStep("plain click row 2", () => clickRow(1));
+            AddUntilStep("section collapsed", () => state().MultiSelectedLines.Count == 0);
+            AddAssert("all notches cleared", () => noNotches());
+        }
+
+        [Test]
         public void TestSectionSurvivesPlayback()
         {
             AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
@@ -794,6 +851,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private List<LineListPanel.LineRow> rows()
             => Editor.ChildrenOfType<LineListPanel>().Single().ChildrenOfType<LineListPanel.LineRow>()
                      .OrderBy(r => r.HitObject.LineIndex).ToList();
+
+        /// <summary>True when no row currently draws the multi-selection corner notch (backlog 391).</summary>
+        private bool noNotches() => rows().All(r => r.SelectionNotch.Alpha == 0);
+
+        /// <summary>The single colour a drawable's box is painted with (the rows use one flat colour).</summary>
+        private static Color4 singleColour(Box box)
+            => box.Colour.TryExtractSingleColour(out SRGBColour c) ? c.SRGB : default;
 
         /// <summary>Clicks a row on its index column (the text box owns the rest of the row).</summary>
         private void clickRow(int index, bool ctrl = false, bool shift = false)
