@@ -21,6 +21,14 @@ namespace typebeat.Game.Beatmaps
         /// <summary>
         /// Query online sources immediately.
         /// </summary>
-        OnlineFirst
+        OnlineFirst,
+
+        /// <summary>
+        /// The local copy has just been brought to the online version by an accepted update, so an online
+        /// lookup should run as usual AND force the set's stored online version forward (see
+        /// <see cref="BeatmapSetInfo.AdoptOnlineVersion"/>). Without the force the freshly-imported set would
+        /// still read as behind the version cut it was downloaded for, and the UPDATE offer would not clear.
+        /// </summary>
+        UpdateApplied
     }
 }

@@ -132,8 +132,13 @@ namespace typebeat.Game.Database
         /// 61   2026-10-02    Added AlignerVocalMode to BeatmapSetInfo (the mapper's per-set choice of how the
         ///                    local auto-aligner times the words). No migration body: the column's realm
         ///                    default (0) is AlignerVocalMode.Aligned, what every existing set already means.
+        /// 62   2026-10-03    Added OnlineVersionLastUpdated to BeatmapSetInfo (the online set version this local
+        ///                    copy corresponds to, so UPDATE is offered for a version cut that changes no .osu
+        ///                    bytes, e.g. a stem-only version). No migration body: the column's realm default
+        ///                    (null) means "no version recorded yet", and the next lookup adopts the current
+        ///                    online version (see BeatmapSetInfo.AdoptOnlineVersion).
         /// </summary>
-        private const int schema_version = 61;
+        private const int schema_version = 62;
 
         /// <summary>
         /// Lock object which is held during <see cref="BlockAllOperations"/> sections, blocking realm retrieval during blocking periods.

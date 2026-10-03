@@ -64,8 +64,11 @@ namespace typebeat.Game.Beatmaps
                     // Transfer local values which should be persisted across a beatmap update.
                     s.DateAdded = originalDateAdded;
 
-                    // Re-run processing even in this case. We might have outdated metadata.
-                    ProcessBeatmap?.Invoke(s, MetadataLookupScope.OnlineFirst);
+                    // Re-run processing even in this case. We might have outdated metadata. The scope is
+                    // UpdateApplied (not OnlineFirst) because the user pressed UPDATE: the fresh bytes are on
+                    // disk, so the set's stored online version must be carried forward to the version just
+                    // fetched, clearing the offer (see MetadataLookupScope.UpdateApplied).
+                    ProcessBeatmap?.Invoke(s, MetadataLookupScope.UpdateApplied);
                 });
                 return first;
             }

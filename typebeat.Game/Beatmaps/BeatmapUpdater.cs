@@ -50,7 +50,15 @@ namespace typebeat.Game.Beatmaps
                 workingBeatmapCache.Invalidate(beatmapSet);
 
                 if (lookupScope != MetadataLookupScope.None)
-                    metadataLookup.Update(beatmapSet, lookupScope == MetadataLookupScope.OnlineFirst);
+                {
+                    bool onlineFirst = lookupScope is MetadataLookupScope.OnlineFirst or MetadataLookupScope.UpdateApplied;
+                    metadataLookup.Update(beatmapSet, onlineFirst);
+
+                    // An accepted update genuinely brought this local copy to the online version, so record
+                    // it as such even though the version the lookup saw is newer than the old baseline.
+                    if (lookupScope == MetadataLookupScope.UpdateApplied)
+                        beatmapSet.MarkUpdatedToOnlineVersion();
+                }
 
                 foreach (BeatmapInfo beatmap in beatmapSet.Beatmaps)
                 {

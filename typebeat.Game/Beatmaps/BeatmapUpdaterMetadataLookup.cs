@@ -90,6 +90,13 @@ namespace typebeat.Game.Beatmaps
                 }
             }
 
+            // The set's own update identity (see BeatmapSetInfo.OnlineVersionLastUpdated). The server reports
+            // the set version on every difficulty, so any successful result carries it; adopting it here is
+            // what clears the "behind" state once the local copy is genuinely at the online version, and what
+            // a first-ever lookup of an unversioned set records without manufacturing an offer.
+            DateTimeOffset? onlineVersion = lookupResults.Where(r => r != null).Select(r => (DateTimeOffset?)r!.LastUpdated).Max();
+            beatmapSet.AdoptOnlineVersion(onlineVersion);
+
             if (beatmapSet.Beatmaps.All(b => b.MatchesOnlineVersion)
                 && lookupResults.All(r => r != null)
                 && lookupResults.Select(r => r!.BeatmapSetID).Distinct().Count() == 1)
