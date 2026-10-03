@@ -51,7 +51,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var beatmap = upToDate();
             var set = beatmap.BeatmapSet!;
-            set.Files.Add(new RealmNamedFileUsage(new RealmFile { Hash = "stem" }, VocalsStem.OGG_FILENAME));
+            set.RecordLocalVocalsStem(true);
             set.RecordOnlineVocalsStem(true);
 
             Assert.Multiple(() =>
@@ -62,13 +62,51 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void TheStemPresenceIsReadOffTheManagedFileList()
+        {
+            // RecordLocalVocalsStem() (the parameterless overload) is what import calls while the MANAGED
+            // set is in hand: its Files are populated there, so it can read the stem off them.
+            var beatmap = upToDate();
+            var set = beatmap.BeatmapSet!;
+            set.Files.Add(new RealmNamedFileUsage(new RealmFile { Hash = "stem" }, VocalsStem.WAV_FILENAME));
+
+            set.RecordLocalVocalsStem();
+
+            Assert.That(set.HasLocalVocalsStem, Is.True, "a vocals.wav counts as a local stem");
+        }
+
+        [Test]
+        public void ADetachedCopyStillReportsTheStem()
+        {
+            // The bug: song select's carousel holds DETACHED sets, and the detach mapper strips Files, so
+            // VocalsStem.FilenameIn sees nothing on them. The recorded scalar is what carries presence
+            // across the detach, so a stem-less managed set that HAS the stem must not offer once detached.
+            var beatmap = upToDate();
+            var set = beatmap.BeatmapSet!;
+            set.Files.Add(new RealmNamedFileUsage(new RealmFile { Hash = "stem" }, VocalsStem.OGG_FILENAME));
+            set.RecordLocalVocalsStem();
+            set.RecordOnlineVocalsStem(true);
+
+            // Emulate the detach: the copy carries the scalar but no file list.
+            var detached = new BeatmapSetInfo { OnlineVersionLastUpdated = set.OnlineVersionLastUpdated, OnlineVersionHasVocalsStem = true, HasLocalVocalsStem = set.HasLocalVocalsStem };
+            detached.Beatmaps.Add(new BeatmapInfo { MD5Hash = md5, OnlineMD5Hash = md5, OnlineID = 11, BeatmapSet = detached });
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(VocalsStem.FilenameIn(detached), Is.Null, "the file list really is stripped");
+                Assert.That(detached.OnlineStemIsMissingLocally, Is.False, "but the scalar says the stem is present");
+                Assert.That(detached.AllBeatmapsUpToDate, Is.True, "so the detached set does not offer an update");
+            });
+        }
+
+        [Test]
         public void AWavStemCountsAsALocalStem()
         {
             // The game accepts vocals.wav when the producer had no Vorbis encoder; the server's flag is a
             // name test over both, so the local side must accept both too.
             var beatmap = upToDate();
             var set = beatmap.BeatmapSet!;
-            set.Files.Add(new RealmNamedFileUsage(new RealmFile { Hash = "stem" }, VocalsStem.WAV_FILENAME));
+            set.RecordLocalVocalsStem(true);
             set.RecordOnlineVocalsStem(true);
 
             Assert.That(set.AllBeatmapsUpToDate, Is.True);
@@ -80,7 +118,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // A stem the mapper's own aligner produced: the online version has none, so nothing to offer.
             var beatmap = upToDate();
             var set = beatmap.BeatmapSet!;
-            set.Files.Add(new RealmNamedFileUsage(new RealmFile { Hash = "stem" }, VocalsStem.OGG_FILENAME));
+            set.RecordLocalVocalsStem(true);
             set.RecordOnlineVocalsStem(false);
 
             Assert.Multiple(() =>

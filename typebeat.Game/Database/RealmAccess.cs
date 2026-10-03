@@ -144,8 +144,15 @@ namespace typebeat.Game.Database
         ///                    migration body: the column's realm default (false) means "no stem known", and
         ///                    the next lookup records the real value (see
         ///                    BeatmapSetInfo.RecordOnlineVocalsStem).
+        /// 64   2026-10-03    Added HasLocalVocalsStem to BeatmapSetInfo (whether the LOCAL copy carries a
+        ///                    vocals stem). Backfills every existing set from its own file list in the
+        ///                    migration body: the online stem arm compared against VocalsStem.FilenameIn(set),
+        ///                    but the song-select carousel holds DETACHED sets whose Files the detach mapper
+        ///                    strips, so a set that had the stem still read as missing it and the UPDATE
+        ///                    offer never cleared. A scalar recorded at import/update and backfilled here is
+        ///                    copied by the detach mapper, so the carousel sees the real value.
         /// </summary>
-        private const int schema_version = 63;
+        private const int schema_version = 64;
 
         /// <summary>
         /// Lock object which is held during <see cref="BlockAllOperations"/> sections, blocking realm retrieval during blocking periods.
@@ -1444,6 +1451,22 @@ namespace typebeat.Game.Database
 
                     foreach (var beatmap in realm.All<BeatmapInfo>())
                         beatmap.TargetWpm = StoredBeatmapFacts.UNPROCESSED;
+
+                    break;
+                }
+
+                case 64:
+                {
+                    // HasLocalVocalsStem is a scalar recorded at import/update from now on, but every set
+                    // installed before this schema has it false and, unlike the unversioned case above, the
+                    // presence IS recoverable from realm here: a set's own Files backlink lists its files,
+                    // so read the stem off it directly. Without this, every pre-existing set that already
+                    // carries a stem would still read as missing it and keep offering UPDATE. The realm is
+                    // held in a local for the reason given in case 56 above.
+                    Realm realm = migration.NewRealm;
+
+                    foreach (var set in realm.All<BeatmapSetInfo>())
+                        set.HasLocalVocalsStem = VocalsStem.FilenameIn(set) != null;
 
                     break;
                 }
