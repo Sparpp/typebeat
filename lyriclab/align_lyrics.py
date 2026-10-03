@@ -9,6 +9,7 @@ produces:
   <stem>.words.lrc      enhanced LRC with <mm:ss.xx> word tags
   <stem>.syllables.lrc  enhanced LRC with syllable-level tags (normalized text)
   <stem>.timing.json    rich word+syllable timings with confidence scores
+  vocals.wav            the isolated vocals stem, 16 kHz mono (a --no-separate run writes none)
   report.txt            QC report (vs reference times if available)
 
 Pipeline:
@@ -210,6 +211,7 @@ import argparse
 import json
 import math
 import re
+import shutil
 import subprocess
 import time
 import unicodedata
@@ -232,7 +234,7 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 
 # Bumped when the output of the same inputs changes. The game compares the shipped copy's
 # version with the installed one and offers a reinstall; `--version` prints it.
-ALIGNER_VERSION = "8"
+ALIGNER_VERSION = "9"
 
 SAMPLE_RATE = 16000
 FRAME_SAMPLES = 320          # wav2vec2 stride: 20 ms at 16 kHz
@@ -651,6 +653,22 @@ def ensure_wav(src: Path, dst: Path, rate: int, channels: int) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     run_ffmpeg(["-i", str(src), "-ac", str(channels), "-ar", str(rate),
                 "-c:a", "pcm_s16le", str(dst)])
+
+
+def persist_vocals_stem(out_dir: Path, stem: str, vocals_wav: Path) -> Path:
+    """Copies the isolated vocals stem into the output dir so a caller can keep it beside the map's
+    audio (backlog 392: the editor draws a waveform of the vocals alone from it).
+
+    The stem is the 16 kHz mono wav Demucs produced for the alignment, copied as `vocals.wav`; the
+    game re-encodes it to `vocals.ogg` when it has an encoder, because 16 kHz mono PCM is about
+    1.9 MB a minute and a map a mapper downloads should not carry that for a view-only surface. The
+    name is fixed (`vocals`, no per-song stem) so the game can find it without reading the document.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dst = out_dir / "vocals.wav"
+    shutil.copyfile(vocals_wav, dst)
+    log(f"vocals stem written to {dst}")
+    return dst
 
 
 def separate_vocals(song_wav: Path, work: Path, model: str, device: str,
@@ -4259,6 +4277,14 @@ def main():
         "repairs": len(repairs),
     }
     write_outputs(out_dir, stem, args.audio.name, lines, song_end_ms, meta)
+    # Keep the isolated vocals stem beside the outputs (backlog 392). Only when this run actually
+    # separated them: a --no-separate run aligned on the full mix, so wav16 IS the mix and there is
+    # no vocals stem to persist.
+    if not args.no_separate:
+        try:
+            persist_vocals_stem(out_dir, stem, wav16)
+        except Exception as e:
+            log(f"WARNING: could not write the vocals stem ({e})")
     report = write_report(out_dir, lines, voiced, mode)
     print()
     print(report)

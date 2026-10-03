@@ -208,6 +208,10 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
             controlPointsVisible = config.GetBindable<bool>(OsuSetting.EditorTimelineShowTimingChanges);
 
             editorClock.TrackChanged += updateWaveform;
+
+            // The vocals-stem toggle (backlog 392) is a VIEW-ONLY swap: only the graph's waveform
+            // source moves, never the track or the editor clock.
+            timingSettings.VocalsWaveform.BindValueChanged(_ => updateWaveform());
             updateWaveform();
 
             Zoom = (float)(defaultTimelineZoom * editorBeatmap.TimelineZoom);
@@ -215,7 +219,12 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
 
         private void updateWaveform()
         {
-            waveform.Waveform = beatmap.Value.Waveform;
+            // VIEW-ONLY: the toggle picks WHICH waveform the graph draws (the map's full mix or the
+            // isolated vocals stem). The track, the editor clock and everything downstream of them
+            // are untouched, so playback and timing still run on the full mix. A map with no stem,
+            // or a toggle asked for on one whose stem will not decode, falls back to the full mix.
+            var vocalsStem = timingSettings.VocalsWaveform.Value ? beatmap.Value.VocalsStemWaveform : null;
+            waveform.Waveform = vocalsStem ?? beatmap.Value.Waveform;
             Scheduler.AddOnce(applyVisualOffset, beatmap);
         }
 

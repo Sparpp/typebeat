@@ -8,6 +8,7 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Localisation;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using osuTK;
@@ -18,6 +19,11 @@ namespace typebeat.Game.Screens.Edit.Timing
     {
         private readonly BindableBeatDivisor currentDivisor = new BindableBeatDivisor();
         private readonly BindableInt currentMultiplier = new BindableInt(1);
+
+        private GridToggle waveformToggle = null!;
+
+        [Resolved]
+        private IBindable<WorkingBeatmap> beatmap { get; set; } = null!;
 
         [BackgroundDependencyLoader]
         private void load(EditorTimingSettings settings, BindableBeatDivisor divisor, Editor? editor)
@@ -60,7 +66,22 @@ namespace typebeat.Game.Screens.Edit.Timing
                 new GridToggle("Snap to Grid", settings.SnapToGrid),
                 new GridToggle("Snap to Caret", settings.SnapToCaret),
                 new GridToggle("Metronome", settings.Metronome),
+                waveformToggle = new GridToggle("Vocals Waveform", settings.VocalsWaveform)
+                {
+                    TooltipText = "Show the isolated vocals stem instead of the full mix (view only).",
+                },
             });
+
+            // The toggle only lights up for a map that actually carries a vocals stem (backlog 392);
+            // existing maps have none, so it stays disabled until they are re-imported or backfilled.
+            // A setting left ON by a stem-carrying map is cleared here, so a stem-less map never
+            // shows the toggle reading On while the timeline actually draws the full mix.
+            bool hasStem = beatmap.Value.VocalsStemWaveform != null;
+
+            if (!hasStem)
+                settings.VocalsWaveform.Value = false;
+
+            waveformToggle.Enabled.Value = hasStem;
         }
 
         private partial class NoteDropdown : OsuDropdown<int>

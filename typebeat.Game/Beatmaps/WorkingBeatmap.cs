@@ -62,6 +62,11 @@ namespace typebeat.Game.Beatmaps
         private Waveform waveform; // waveform is also not Lazy as the track may change.
         private string waveformSource;
 
+        // The vocals stem is a SEPARATE decode from the map's audio (see VocalsStemWaveform), cached
+        // by the stem file's storage path so a swap of the stem replaces it.
+        private Waveform vocalsStemWaveform;
+        private string vocalsStemWaveformSource;
+
         protected WorkingBeatmap(BeatmapInfo beatmapInfo, AudioManager audioManager)
         {
             this.audioManager = audioManager;
@@ -231,6 +236,63 @@ namespace typebeat.Game.Beatmaps
                 return waveform;
             }
         }
+
+        /// <summary>
+        /// The waveform of the map's ISOLATED VOCALS STEM, or null when the map carries none. A
+        /// SEPARATE decode from <see cref="Waveform"/> (a second <see cref="Waveform"/> built over
+        /// the stem file), decoded lazily and kept for the beatmap's lifetime; it is a mapper's
+        /// reading surface only and never feeds playback, timing or save.
+        /// </summary>
+        /// <remarks>
+        /// Read through the realm file list rather than the audio declaration: the stem is not the
+        /// map's audio and has no metadata field, so its presence is answered by whether
+        /// <c>vocals.ogg</c>/<c>vocals.wav</c> is among the set's files (see
+        /// <see cref="VocalsStem"/>). A map with no stem, or one whose stem cannot be decoded,
+        /// answers null and the editor hides the toggle.
+        /// </remarks>
+        public Waveform VocalsStemWaveform
+        {
+            get
+            {
+                string filename = VocalsStem.FilenameIn(BeatmapSetInfo);
+
+                if (filename == null)
+                {
+                    vocalsStemWaveform?.Dispose();
+                    vocalsStemWaveform = null;
+                    vocalsStemWaveformSource = null;
+                    return null;
+                }
+
+                string source = BeatmapSetInfo.GetPathForFile(filename);
+
+                if (vocalsStemWaveform != null && source != null && source == vocalsStemWaveformSource)
+                    return vocalsStemWaveform;
+
+                vocalsStemWaveform?.Dispose();
+                vocalsStemWaveformSource = source;
+
+                try
+                {
+                    var stream = GetVocalsStream(filename);
+                    vocalsStemWaveform = stream == null ? null : new Waveform(stream);
+                }
+                catch (Exception e)
+                {
+                    Logger.Error(e, "Vocals stem waveform failed to load");
+                    vocalsStemWaveform = null;
+                }
+
+                return vocalsStemWaveform;
+            }
+        }
+
+        /// <summary>
+        /// The stream the vocals stem's waveform is decoded from, or null. Left open by the
+        /// framework <see cref="Waveform"/> itself (it takes ownership), so the base implementation
+        /// returns null and only the database-backed working beatmap overrides it.
+        /// </summary>
+        protected virtual Stream GetVocalsStream(string vocalsStemFilename) => null;
 
         #endregion
 

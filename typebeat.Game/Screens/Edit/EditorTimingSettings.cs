@@ -15,6 +15,15 @@ namespace typebeat.Game.Screens.Edit
         public readonly BindableBool SnapToCaret = new BindableBool(true);
         public readonly BindableBool Metronome = new BindableBool();
 
+        /// <summary>
+        /// Whether the timeline waveform draws the map's ISOLATED VOCALS STEM instead of the full
+        /// mix (backlog 392), so a mapper can see where the vocals actually start. View-only: the
+        /// editor clock keeps playing the full mix, and timing, judgement and save are untouched.
+        /// A map with no stem has no toggle to set this, and the value is ignored when the stem's
+        /// waveform cannot be obtained.
+        /// </summary>
+        public readonly BindableBool VocalsWaveform = new BindableBool();
+
         // Whole and half notes span multiple quarter-note beats.
         public readonly BindableInt BeatMultiplier = new BindableInt(1) { MinValue = 1, MaxValue = 4 };
 

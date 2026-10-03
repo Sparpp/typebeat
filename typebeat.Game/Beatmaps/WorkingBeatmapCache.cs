@@ -456,6 +456,16 @@ namespace typebeat.Game.Beatmaps
 
             public override Stream GetStream(string storagePath) => resources.Files.GetStream(storagePath);
 
+            /// <summary>
+            /// The vocals stem's file, read from the set's own file store. The framework
+            /// <see cref="Waveform"/> takes ownership of the stream and disposes it when done.
+            /// </summary>
+            protected override Stream GetVocalsStream(string vocalsStemFilename)
+            {
+                string fileStorePath = BeatmapSetInfo.GetPathForFile(vocalsStemFilename);
+                return fileStorePath == null ? null : GetStream(fileStorePath);
+            }
+
             private string getMainStoryboardFilename(IBeatmapMetadataInfo metadata)
             {
                 // Matches stable implementation, because it's probably simpler than trying to do anything else.

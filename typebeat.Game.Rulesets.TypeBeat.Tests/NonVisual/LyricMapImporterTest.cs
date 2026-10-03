@@ -13,6 +13,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Beatmaps.Formats;
 using typebeat.Game.IO;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
@@ -1107,6 +1108,133 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(result.Error, Does.Not.Contain("103"));
         }
 
+        #region The vocals stem (backlog 392)
+
+        /// <summary>
+        /// A lyriclab stub whose script declares version 9 (the first that writes the vocals stem).
+        /// </summary>
+        private string makeVocalsLab()
+        {
+            string lab = Path.Combine(tempRoot, "lyriclab");
+            Directory.CreateDirectory(lab);
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), $"ALIGNER_VERSION = \"{LyricMapImporter.PERSISTS_VOCALS_STEM_ALIGNER_VERSION}\"\n");
+            return lab;
+        }
+
+        [Test]
+        public void ProducedVocalsStemIsFoundOnlyForAnAlignerThatWritesIt()
+        {
+            string lab = makeVocalsLab();
+            string outDir = Path.Combine(tempRoot, "out");
+            Directory.CreateDirectory(outDir);
+            string stem = Path.Combine(outDir, VocalsStem.WAV_FILENAME);
+            File.WriteAllBytes(stem, new byte[] { 1, 2, 3 });
+
+            // The stem the aligner wrote is trusted for a version-9 script...
+            Assert.That(LyricMapImporter.FindProducedVocalsStem(lab, outDir), Is.EqualTo(stem));
+
+            // ...and ignored for an older one that could not have written it, so a stale file in a
+            // reused out dir never becomes a map's vocals waveform.
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), "ALIGNER_VERSION = \"8\"\n");
+            Assert.That(LyricMapImporter.FindProducedVocalsStem(lab, outDir), Is.Null);
+
+            // A version-9 script with no stem file (a --no-separate run) is likewise no stem.
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), $"ALIGNER_VERSION = \"{LyricMapImporter.PERSISTS_VOCALS_STEM_ALIGNER_VERSION}\"\n");
+            File.Delete(stem);
+            Assert.That(LyricMapImporter.FindProducedVocalsStem(lab, outDir), Is.Null);
+        }
+
+        [Test]
+        public void PackageOszCarriesTheVocalsStemUnderItsFixedName()
+        {
+            string audioPath = Path.Combine(tempRoot, "audio.mp3");
+            File.WriteAllText(audioPath, "fake audio");
+            string timing = "{\"version\":2,\"song_end_ms\":8000,\"lines\":[{\"text\":\"one two\",\"start_ms\":1000,\"end_ms\":3000}]}";
+
+            string stemWav = Path.Combine(tempRoot, VocalsStem.WAV_FILENAME);
+            File.WriteAllBytes(stemWav, new byte[] { 0x52, 0x49, 0x46, 0x46 });
+
+            string oszPath = Path.Combine(tempRoot, "withstem.osz");
+            var result = LyricMapImporter.PackageOsz(oszPath, "A", "B", audioPath, timing, "one two", vocalsStemSourcePath: stemWav);
+
+            Assert.That(result.Success, Is.True, result.Error);
+
+            using (var archive = ZipFile.OpenRead(oszPath))
+            {
+                Assert.That(archive.GetEntry(VocalsStem.WAV_FILENAME), Is.Not.Null, "the stem must travel as vocals.wav so the editor finds it");
+                Assert.That(archive.GetEntry(VocalsStem.OGG_FILENAME), Is.Null);
+            }
+
+            // An Ogg-sourced stem lands under the Ogg name (the encoder's choice upstream).
+            string stemOgg = Path.Combine(tempRoot, "some_encoded.ogg");
+            File.WriteAllBytes(stemOgg, new byte[] { 0x4f, 0x67, 0x67, 0x53 });
+            string oszOgg = Path.Combine(tempRoot, "oggstem.osz");
+            var oggResult = LyricMapImporter.PackageOsz(oszOgg, "A", "B", audioPath, timing, "one two", vocalsStemSourcePath: stemOgg);
+
+            Assert.That(oggResult.Success, Is.True, oggResult.Error);
+
+            using (var archive = ZipFile.OpenRead(oszOgg))
+                Assert.That(archive.GetEntry(VocalsStem.OGG_FILENAME), Is.Not.Null, "an encoded stem rides as vocals.ogg");
+        }
+
+        [Test]
+        public void PackageOszWithoutAStemStillSucceedsAndCarriesNone()
+        {
+            string audioPath = Path.Combine(tempRoot, "audio.mp3");
+            File.WriteAllText(audioPath, "fake audio");
+            string timing = "{\"version\":2,\"song_end_ms\":8000,\"lines\":[{\"text\":\"one two\",\"start_ms\":1000,\"end_ms\":3000}]}";
+
+            string oszPath = Path.Combine(tempRoot, "nostem.osz");
+            var result = LyricMapImporter.PackageOsz(oszPath, "A", "B", audioPath, timing, "one two");
+
+            Assert.That(result.Success, Is.True, result.Error);
+
+            using var archive = ZipFile.OpenRead(oszPath);
+            Assert.That(archive.GetEntry(VocalsStem.WAV_FILENAME), Is.Null);
+            Assert.That(archive.GetEntry(VocalsStem.OGG_FILENAME), Is.Null);
+        }
+
+        [Test]
+        public void VocalsStemFilenameInAcceptsEitherExtension()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(VocalsStem.IsStemFileName(VocalsStem.OGG_FILENAME), Is.True);
+                Assert.That(VocalsStem.IsStemFileName(VocalsStem.WAV_FILENAME), Is.True);
+                Assert.That(VocalsStem.IsStemFileName("VOCALS.OGG"), Is.True, "case-insensitive, matching the realm lookup");
+                Assert.That(VocalsStem.IsStemFileName("audio.mp3"), Is.False);
+                Assert.That(VocalsStem.IsStemFileName(null), Is.False);
+            });
+        }
+
+        [Test]
+        public void ShippedAlignerPersistsTheVocalsStem()
+        {
+            // The vendored script must actually copy the stem into its output dir (backlog 392), and
+            // only when it separated. Found the way ShippedAlignerAcceptsVocalModes finds it.
+            string? vendored = null;
+
+            for (var dir = new DirectoryInfo(TestContext.CurrentContext.TestDirectory); dir != null && vendored == null; dir = dir.Parent)
+            {
+                if (File.Exists(Path.Combine(dir.FullName, "lyriclab", "align_lyrics.py")))
+                    vendored = Path.Combine(dir.FullName, "lyriclab", "align_lyrics.py");
+            }
+
+            Assert.That(vendored, Is.Not.Null);
+
+            string script = File.ReadAllText(vendored!);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(script, Does.Contain("def persist_vocals_stem"));
+                Assert.That(script, Does.Contain("persist_vocals_stem(out_dir, stem, wav16)"));
+                Assert.That(script, Does.Contain("if not args.no_separate:"), "a --no-separate run aligned on the mix and has no stem to keep");
+                Assert.That(LyricMapImporter.AlignerPersistsVocalsStem(Path.GetDirectoryName(vendored!)!), Is.True);
+            });
+        }
+
+        #endregion
+
         #region Setup sentinel and repair (backlog 353)
 
         private string makeLab()
@@ -1583,7 +1711,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(body, Does.Contain("env[\"PYTHONUTF8\"] = \"1\""));
                 Assert.That(body, Does.Contain("env[\"PYTHONIOENCODING\"] = \"utf-8\""));
-                Assert.That(script, Does.Contain("ALIGNER_VERSION = \"8\""), "installed version-7 copies must be offered the update");
+                Assert.That(script, Does.Contain($"ALIGNER_VERSION = \"{LyricMapImporter.PERSISTS_VOCALS_STEM_ALIGNER_VERSION}\""),
+                    "installed older copies must be offered the update, and the stem needs version 9");
             });
         }
 
