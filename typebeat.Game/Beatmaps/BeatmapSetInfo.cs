@@ -105,6 +105,116 @@ namespace typebeat.Game.Beatmaps
         [MapTo(nameof(AlignerVocalMode))]
         public int AlignerVocalModeInt { get; set; }
 
+        /// <summary>
+        /// The online set version (the server's <c>beatmapsets.updated_at</c>, surfaced to the client as
+        /// <c>last_updated</c>) that THIS local copy corresponds to, or <c>null</c> when no version has been
+        /// recorded yet.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The set's update signal for a version cut that changes no <c>.osu</c> bytes, which is exactly how a
+        /// stem-only version is attached server-side: a ranked set is re-snapshotted with its existing
+        /// content plus <c>vocals.ogg</c> and <c>updated_at</c> is bumped, left deliberately fingerprint-neutral so
+        /// the set is not demoted. Every difficulty's MD5 is then unchanged, so the MD5 path
+        /// (<see cref="BeatmapInfo.MatchesOnlineVersion"/>) cannot see the new version and the UPDATE button
+        /// would never appear, stranding the stem. Comparing the freshly-fetched online version against this
+        /// stored baseline closes that gap.
+        /// </para>
+        /// <para>
+        /// It is deliberately NOT <see cref="BeatmapInfo.LastOnlineUpdate"/>: that field is refreshed on EVERY
+        /// lookup, so it records "when I last looked", not "the version I have", and a naive comparison against
+        /// it fires once and settles. Here the baseline only advances when the local copy is genuinely brought
+        /// to a version: adopted on first sight (see <see cref="BeatmapUpdaterMetadataLookup"/> and
+        /// <see cref="Screens.Select.RealmPopulatingOnlineLookupSource"/>) and re-adopted after an accepted
+        /// update (see <see cref="BeatmapImporter.ImportAsUpdate"/>). While the online version is newer it is
+        /// left where it is, so the offer does not settle on its own.
+        /// </para>
+        /// </remarks>
+        public DateTimeOffset? OnlineVersionLastUpdated { get; set; }
+
+        /// <summary>
+        /// Whether the online set has a version strictly newer than <see cref="OnlineVersionLastUpdated"/>
+        /// that the local copy does not correspond to yet.
+        /// </summary>
+        /// <remarks>
+        /// Compared against each difficulty's <see cref="BeatmapInfo.LastOnlineUpdate"/>, which holds the
+        /// newest online version seen for this set (every difficulty of a set carries the same server-side
+        /// value). A difficulty that has never been looked up, or a locally modified map, has a null
+        /// <see cref="BeatmapInfo.LastOnlineUpdate"/> and so contributes nothing: without that, the null
+        /// baseline of a never-looked-up map would read as "behind".
+        /// </remarks>
+        public bool OnlineVersionIsNewer
+        {
+            get
+            {
+                DateTimeOffset? stored = OnlineVersionLastUpdated;
+
+                if (stored == null)
+                    return false;
+
+                foreach (var beatmap in Beatmaps)
+                {
+                    DateTimeOffset? seen = beatmap.LastOnlineUpdate;
+
+                    if (seen != null && seen.Value > stored.Value)
+                        return true;
+                }
+
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Records the freshly-fetched online set version as the one this local copy corresponds to,
+        /// unless it is strictly newer (see <see cref="OnlineVersionLastUpdated"/>).
+        /// </summary>
+        /// <remarks>
+        /// The single write path for the baseline, so both lookup surfaces and any future one decide
+        /// identically. A strictly-newer online version is deliberately NOT adopted: that is the "my
+        /// stored set is behind" state <see cref="OnlineVersionIsNewer"/> reports, and advancing the
+        /// baseline past it here is what would make the offer flash once and settle. A first look
+        /// (<see cref="OnlineVersionLastUpdated"/> null) adopts, so a plain lookup of a set that has
+        /// never been versioned does not itself manufacture an offer.
+        /// </remarks>
+        /// <param name="onlineVersion">The version to record. <c>null</c> is ignored.</param>
+        public void AdoptOnlineVersion(DateTimeOffset? onlineVersion)
+        {
+            if (onlineVersion is not { } online)
+                return;
+
+            if (OnlineVersionLastUpdated is { } stored && online > stored)
+                return;
+
+            if (OnlineVersionLastUpdated != online)
+                OnlineVersionLastUpdated = online;
+        }
+
+        /// <summary>
+        /// Records that an accepted UPDATE brought this local copy to the online version. Call after the
+        /// update's lookup has run (it reads the version off <see cref="BeatmapInfo.LastOnlineUpdate"/>, the
+        /// same field the lookup itself refreshes) and raises the baseline to it.
+        /// </summary>
+        /// <remarks>
+        /// The baseline is exactly the one that lagged (that is why an update was offered), so it is
+        /// deliberately moved forward here: this is the one place the local copy is genuinely brought to a
+        /// version, and without the move the freshly-imported set would still read as behind the very version
+        /// it was downloaded for and the offer would never clear. Everywhere else the baseline only advances
+        /// to a version it has not fallen behind (see <see cref="AdoptOnlineVersion"/>).
+        /// </remarks>
+        public void MarkUpdatedToOnlineVersion()
+        {
+            DateTimeOffset? seen = null;
+
+            foreach (var beatmap in Beatmaps)
+            {
+                if (beatmap.LastOnlineUpdate is { } t && (seen == null || t > seen.Value))
+                    seen = t;
+            }
+
+            if (seen != null)
+                OnlineVersionLastUpdated = seen;
+        }
+
         public double MaxStarDifficulty => Beatmaps.Count == 0 ? 0 : Beatmaps.Max(b => b.StarRating);
 
         public double MaxLength => Beatmaps.Count == 0 ? 0 : Beatmaps.Max(b => b.Length);
@@ -146,6 +256,11 @@ namespace typebeat.Game.Beatmaps
 
         IEnumerable<INamedFileUsage> IHasNamedFiles.Files => Files;
 
-        public bool AllBeatmapsUpToDate => Beatmaps.All(b => b.MatchesOnlineVersion);
+        /// <summary>
+        /// Whether every difficulty is at the online version AND the set itself is at the online version.
+        /// The second half is what surfaces a version cut that changed no <c>.osu</c> bytes (a stem-only
+        /// version): <see cref="OnlineVersionIsNewer"/>.
+        /// </summary>
+        public bool AllBeatmapsUpToDate => Beatmaps.All(b => b.MatchesOnlineVersion) && !OnlineVersionIsNewer;
     }
 }
