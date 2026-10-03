@@ -101,6 +101,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("the drag button is 40 percent smaller than stock", () =>
                 Precision.AlmostEquals(playback().Slider.DragNub.ScreenSpaceDrawQuad.Width, typebeat.Game.Graphics.UserInterface.Nub.DEFAULT_EXPANDED_SIZE * 0.6f, 1.0)
                 && Precision.AlmostEquals(playback().Slider.DragNub.ScreenSpaceDrawQuad.Height, typebeat.Game.Graphics.UserInterface.Nub.HEIGHT * 0.6f, 1.0));
+
+            // The fill must MEET the (smaller) handle, not stop short of it: RoundedSliderBar's fill
+            // math reads Nub.DrawWidth, which excludes the nub's Scale, so before the override the
+            // filled bar ended well before the handle and the dark track started late, leaving a pale
+            // exposed strip around it. Pin that the filled region's right edge reaches into the handle.
+            AddAssert("the filled bar reaches the drag button", () =>
+            {
+                float fillRight = playback().Slider.FillBar.ScreenSpaceDrawQuad.TopRight.X;
+                var nub = playback().Slider.DragNub.ScreenSpaceDrawQuad;
+                return fillRight > nub.TopLeft.X && fillRight < nub.BottomRight.X;
+            });
         }
 
         [Test]

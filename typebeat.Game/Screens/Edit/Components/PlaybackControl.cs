@@ -261,8 +261,11 @@ namespace typebeat.Game.Screens.Edit.Components
             private readonly BindableNumber<double> tempo;
             private readonly Box defaultTick;
 
-            /// <summary>The drag button, exposed for scene tests asserting its (scaled) size.</summary>
+            /// <summary>The drag button, exposed for scene tests asserting its size.</summary>
             public Drawable DragNub => Nub;
+
+            /// <summary>The filled (left) portion of the bar, exposed for scene tests asserting it reaches the nub.</summary>
+            public Drawable FillBar => LeftBox;
 
             public SpeedSlider(BindableNumber<double> tempo)
             {
@@ -270,13 +273,15 @@ namespace typebeat.Game.Screens.Edit.Components
 
                 Current = tempo;
 
-                // A 40 percent smaller drag button (backlog 392 follow-up). Everything the bar derives
-                // from the nub's size shrinks with it, or the ends stop meeting the nub: the bar's
-                // height, and RangePadding (the half-nub each end is inset by, which also lengthens
-                // the line), are both scaled here. The Nub's own fill animation is untouched.
+                // A 40 percent smaller drag button (backlog 392 follow-up), by SCALE so its border
+                // shrinks with it. Scaling is why the fill needs correcting below: RoundedSliderBar's
+                // fill and track math reads Nub.DrawWidth, which deliberately EXCLUDES a drawable's own
+                // Scale, so an unscaled-width fill stopped short of the smaller handle and the track
+                // started late, leaving an exposed strip around it. Height and RangePadding follow the
+                // scaled size so the ends still meet the nub.
                 Nub.Scale = new Vector2(nub_scale);
                 Height = Nub.HEIGHT * nub_scale;
-                RangePadding = Nub.DEFAULT_EXPANDED_SIZE / 2 * nub_scale;
+                RangePadding = Nub.DEFAULT_EXPANDED_SIZE * nub_scale / 2;
 
                 Add(defaultTick = new Box
                 {
@@ -304,6 +309,18 @@ namespace typebeat.Game.Screens.Edit.Components
             protected override void UpdateAfterChildren()
             {
                 base.UpdateAfterChildren();
+
+                // RoundedSliderBar fills up to Nub.DrawWidth, which EXCLUDES the nub's own Scale; with
+                // the nub scaled to 0.6 the filled bar stopped short of the handle and the darker track
+                // started late, leaving a pale exposed strip around it. Recompute both against the
+                // nub's true ON-SCREEN half-width (DrawWidth * Scale.X) so the fill meets the handle
+                // and the track abuts it, exactly as it does unshrunk. Same formula the base uses, only
+                // the half-width term is scaled.
+                float half = Nub.DrawWidth * Nub.Scale.X / 2;
+                float nubX = Nub.DrawPosition.X;
+
+                LeftBox.Scale = new Vector2(Math.Clamp(RangePadding + nubX - half, 0, Math.Max(0, DrawWidth)), 1);
+                RightBox.Scale = new Vector2(Math.Clamp(DrawWidth - nubX - RangePadding - half, 0, Math.Max(0, DrawWidth)), 1);
 
                 double range = tempo.MaxValue - tempo.MinValue;
                 double normalized = range > 0 ? (tempo.Default - tempo.MinValue) / range : 0;
