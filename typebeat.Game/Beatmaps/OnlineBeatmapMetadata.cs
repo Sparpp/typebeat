@@ -74,5 +74,18 @@ namespace typebeat.Game.Beatmaps
         /// decodes to. A language the file itself states always wins.
         /// </remarks>
         public BeatmapLanguage Language { get; init; }
+
+        /// <summary>
+        /// Whether the online set's CURRENT version carries an isolated vocals stem (backlog 396), the
+        /// server's <c>has_vocals_stem</c>. Set-level: the server reports the same value on every
+        /// difficulty of the set. False from a source that does not carry it (the local metadata cache,
+        /// or an older server), which reads as "nothing to offer".
+        /// </summary>
+        /// <remarks>
+        /// The update offer compares this against the LOCAL copy's own stem presence
+        /// (<see cref="VocalsStem.FilenameIn"/>): online has a stem and local has none means the local copy
+        /// is missing a file the online version offers, even though its <c>.osu</c> MD5s are unchanged.
+        /// </remarks>
+        public bool HasVocalsStem { get; init; }
     }
 }

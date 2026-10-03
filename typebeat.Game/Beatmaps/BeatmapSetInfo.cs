@@ -133,6 +133,28 @@ namespace typebeat.Game.Beatmaps
         public DateTimeOffset? OnlineVersionLastUpdated { get; set; }
 
         /// <summary>
+        /// Whether the online set's CURRENT version carries an isolated vocals stem
+        /// (<c>vocals.ogg</c>/<c>vocals.wav</c>), as last reported by a metadata lookup
+        /// (<c>has_vocals_stem</c>, backlog 396). Realm column, default false.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The server's answer for the version currently being served, recorded on every successful lookup
+        /// exactly as <see cref="OnlineVersionLastUpdated"/> is, and compared at read time against the stem
+        /// the LOCAL copy actually carries (<see cref="OnlineStemIsMissingLocally"/>). It is deliberately not
+        /// gated by <see cref="OnlineVersionLastUpdated"/>'s "do not advance while behind" rule: it describes
+        /// what the online offers right now, and whether that is something the local copy lacks is a separate
+        /// question answered by the local file list.
+        /// </para>
+        /// <para>
+        /// A realm schema bump added it with the column default false, meaning "no stem known", which reads as
+        /// nothing to offer; the next lookup records the real value. That ordering matters: the offer must not
+        /// fire off a stale flag before a lookup has confirmed the online version's content.
+        /// </para>
+        /// </remarks>
+        public bool OnlineVersionHasVocalsStem { get; set; }
+
+        /// <summary>
         /// Whether the online set has a version strictly newer than <see cref="OnlineVersionLastUpdated"/>
         /// that the local copy does not correspond to yet.
         /// </summary>
@@ -187,6 +209,33 @@ namespace typebeat.Game.Beatmaps
 
             if (OnlineVersionLastUpdated != online)
                 OnlineVersionLastUpdated = online;
+        }
+
+        /// <summary>
+        /// Whether the online version offers a vocals stem the LOCAL copy lacks: the online set carries one
+        /// (as last looked up, <see cref="OnlineVersionHasVocalsStem"/>) and this set has no stem file
+        /// (<see cref="VocalsStem.FilenameIn"/>).
+        /// </summary>
+        /// <remarks>
+        /// This is the arm that makes a stem-only version cut visible (backlog 396). Such a cut adds a file
+        /// and bumps the version but leaves every <c>.osu</c> MD5 byte-identical, so neither the MD5 path nor
+        /// <see cref="OnlineVersionIsNewer"/> can see it against a client that already had the map (whose
+        /// baseline may have adopted the already-bumped version), and a client that already holds the audio
+        /// never re-fetches a version that only added a file. Presence, not time, is what the client can
+        /// actually tell apart here. Once the update lands the stem file is in the local file list, so this
+        /// reads false and the offer clears on its own.
+        /// </remarks>
+        public bool OnlineStemIsMissingLocally => OnlineVersionHasVocalsStem && VocalsStem.FilenameIn(this) == null;
+
+        /// <summary>
+        /// Records what the last successful lookup reported about the online version's stem
+        /// (<see cref="OnlineVersionHasVocalsStem"/>). Only ever called with a real answer: a failed or
+        /// absent lookup must not blank a flag that is holding an offer open.
+        /// </summary>
+        public void RecordOnlineVocalsStem(bool hasVocalsStem)
+        {
+            if (OnlineVersionHasVocalsStem != hasVocalsStem)
+                OnlineVersionHasVocalsStem = hasVocalsStem;
         }
 
         /// <summary>
@@ -257,10 +306,16 @@ namespace typebeat.Game.Beatmaps
         IEnumerable<INamedFileUsage> IHasNamedFiles.Files => Files;
 
         /// <summary>
-        /// Whether every difficulty is at the online version AND the set itself is at the online version.
-        /// The second half is what surfaces a version cut that changed no <c>.osu</c> bytes (a stem-only
-        /// version): <see cref="OnlineVersionIsNewer"/>.
+        /// Whether every difficulty is at the online version, the set itself is at the online version, and
+        /// the local copy carries no file the online version offers but it lacks.
         /// </summary>
-        public bool AllBeatmapsUpToDate => Beatmaps.All(b => b.MatchesOnlineVersion) && !OnlineVersionIsNewer;
+        /// <remarks>
+        /// Three arms: the per-difficulty MD5 (<see cref="BeatmapInfo.MatchesOnlineVersion"/>), the set
+        /// version baseline (<see cref="OnlineVersionIsNewer"/>), and the stem presence
+        /// (<see cref="OnlineStemIsMissingLocally"/>). The stem arm is what makes a stem-only version cut
+        /// visible (backlog 396): the version baseline cannot see it once it has adopted the already-bumped
+        /// version, and the MD5 path cannot see it at all, so presence is the only signal that holds.
+        /// </remarks>
+        public bool AllBeatmapsUpToDate => Beatmaps.All(b => b.MatchesOnlineVersion) && !OnlineVersionIsNewer && !OnlineStemIsMissingLocally;
     }
 }

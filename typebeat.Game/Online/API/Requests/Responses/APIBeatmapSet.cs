@@ -168,6 +168,21 @@ namespace typebeat.Game.Online.API.Requests.Responses
         [JsonProperty(@"song_language")]
         public string SongLanguage { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Whether the set's CURRENT online version carries an isolated vocals stem
+        /// (<c>vocals.ogg</c> / <c>vocals.wav</c>, backlog 392/393), as the server's
+        /// <c>has_vocals_stem</c>.
+        /// </summary>
+        /// <remarks>
+        /// Set-level because a stem lives beside the song, not per difficulty. The metadata lookup reads it
+        /// to offer UPDATE when the online version offers a stem the local copy lacks (backlog 396): a
+        /// stem-only version cut changes no <c>.osu</c> bytes, so neither the MD5 path nor the version-time
+        /// path can see it. A server that predates the field sends no key, which deserialises to false,
+        /// meaning "nothing to offer" rather than manufacturing an offer for every map.
+        /// </remarks>
+        [JsonProperty(@"has_vocals_stem")]
+        public bool HasVocalsStem { get; set; }
+
         [JsonProperty(@"current_nominations")]
         public BeatmapSetOnlineNomination[]? CurrentNominations { get; set; }
 

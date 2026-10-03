@@ -137,8 +137,15 @@ namespace typebeat.Game.Database
         ///                    bytes, e.g. a stem-only version). No migration body: the column's realm default
         ///                    (null) means "no version recorded yet", and the next lookup adopts the current
         ///                    online version (see BeatmapSetInfo.AdoptOnlineVersion).
+        /// 63   2026-10-03    Added OnlineVersionHasVocalsStem to BeatmapSetInfo (whether the online version
+        ///                    carries a vocals stem, so UPDATE is offered when the local copy lacks a file
+        ///                    the online version has: a stem-only version cut leaves every .osu MD5
+        ///                    unchanged, so the version baseline alone cannot see it once adopted). No
+        ///                    migration body: the column's realm default (false) means "no stem known", and
+        ///                    the next lookup records the real value (see
+        ///                    BeatmapSetInfo.RecordOnlineVocalsStem).
         /// </summary>
-        private const int schema_version = 62;
+        private const int schema_version = 63;
 
         /// <summary>
         /// Lock object which is held during <see cref="BlockAllOperations"/> sections, blocking realm retrieval during blocking periods.
