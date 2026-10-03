@@ -1,17 +1,19 @@
-﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-using System.Linq;
+using System;
+using System.Globalization;
 using osuTK;
 using osuTK.Graphics;
 using osu.Framework.Allocation;
 using osu.Framework.Audio;
 using osu.Framework.Bindables;
-using osu.Framework.Extensions.IEnumerableExtensions;
+using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Cursor;
+using osu.Framework.Graphics.Shapes;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Input.Events;
@@ -25,15 +27,60 @@ using osuTK.Input;
 
 namespace typebeat.Game.Screens.Edit.Components
 {
+    /// <summary>
+    /// The editor bottom bar's playback-speed section: a rounded slider over the editor clock's
+    /// pitch-preserving tempo, with a compact typeable whole-percent box beside it.
+    ///
+    /// Space (and the existing transport shortcuts) is the only way to start/stop playback now; the
+    /// old play/pause <see cref="IconButton"/> is gone, so the bottom bar shows no running state at all.
+    /// </summary>
     public partial class PlaybackControl : BottomBarContainer
     {
-        private IconButton playButton = null!;
+        /// <summary>
+        /// The lowest playback speed the audio backend accepts for a tempo (time-stretch) adjustment.
+        ///
+        /// The BASS FX tempo path (osu.Framework's <c>TrackBass</c>) throws for any aggregate tempo
+        /// strictly below <c>0.05f</c> (5 percent). Because the framework compares against the widened
+        /// float <c>0.05000000074505806</c> and 5 percent stored as a <see cref="double"/> is
+        /// <c>0.05</c> exactly, 5 percent itself is still below that threshold and would throw. At
+        /// whole-percent precision the smallest safe value is therefore 6 percent (<c>0.06</c>), which
+        /// is what the slider's minimum is clamped to.
+        /// </summary>
+        public const double MIN_TEMPO = 0.06;
+
+        public const double MAX_TEMPO = 2.0;
+
+        /// <summary>Whole-percent precision: the value is stored as a fraction of one, so 0.01 = 1 percent.</summary>
+        public const double TEMPO_PRECISION = 0.01;
+
+        public const double DEFAULT_TEMPO = 1.0;
+
+        private const float speed_box_width = 52;
+
         private PlaybackSpeedControl playbackSpeedControl = null!;
+        private SpeedSlider speedSlider = null!;
+        private SpeedTextBox speedBox = null!;
 
         [Resolved]
         private EditorClock editorClock { get; set; } = null!;
 
-        private readonly BindableNumber<double> tempoAdjustment = new BindableDouble(1);
+        private readonly BindableNumber<double> tempoAdjustment = new BindableDouble(DEFAULT_TEMPO)
+        {
+            MinValue = MIN_TEMPO,
+            MaxValue = MAX_TEMPO,
+            Precision = TEMPO_PRECISION,
+            Default = DEFAULT_TEMPO,
+        };
+
+        /// <summary>The text currently shown in the speed box, kept in sync with <see cref="Tempo"/>.</summary>
+        private readonly Bindable<string> speedText = new Bindable<string>();
+
+        /// <summary>The single bindable the slider and the text box both read and write.</summary>
+        public BindableNumber<double> Tempo => tempoAdjustment;
+
+        public SpeedSlider Slider => speedSlider;
+
+        public SpeedTextBox SpeedField => speedBox;
 
         [BackgroundDependencyLoader]
         private void load(OverlayColourProvider colourProvider)
@@ -42,20 +89,11 @@ namespace typebeat.Game.Screens.Edit.Components
 
             Children = new Drawable[]
             {
-                playButton = new IconButton
-                {
-                    Anchor = Anchor.CentreLeft,
-                    Origin = Anchor.CentreLeft,
-                    Scale = new Vector2(1.2f),
-                    IconScale = new Vector2(1.2f),
-                    Icon = FontAwesome.Regular.PlayCircle,
-                    Action = togglePause,
-                },
                 playbackSpeedControl = new PlaybackSpeedControl
                 {
                     AutoSizeAxes = Axes.Y,
                     RelativeSizeAxes = Axes.X,
-                    Padding = new MarginPadding { Left = 45, },
+                    Padding = new MarginPadding { Left = 15, Right = 15 },
                     Anchor = Anchor.CentreRight,
                     Origin = Anchor.CentreRight,
                     Direction = FillDirection.Vertical,
@@ -65,17 +103,46 @@ namespace typebeat.Game.Screens.Edit.Components
                         {
                             Text = EditorStrings.PlaybackSpeed,
                         },
-                        new PlaybackTabControl
+                        new Container
                         {
-                            Current = tempoAdjustment,
                             RelativeSizeAxes = Axes.X,
-                            Height = 16,
+                            AutoSizeAxes = Axes.Y,
+                            Children = new Drawable[]
+                            {
+                                new Container
+                                {
+                                    RelativeSizeAxes = Axes.X,
+                                    AutoSizeAxes = Axes.Y,
+                                    Padding = new MarginPadding { Right = speed_box_width + 8 },
+                                    Child = speedSlider = new SpeedSlider(tempoAdjustment)
+                                    {
+                                        RelativeSizeAxes = Axes.X,
+                                    },
+                                },
+                                speedBox = new SpeedTextBox
+                                {
+                                    Width = speed_box_width,
+                                    Anchor = Anchor.CentreRight,
+                                    Origin = Anchor.CentreRight,
+                                },
+                            },
                         },
-                    }
-                }
+                    },
+                },
             };
 
+            speedBox.Current = speedText;
+            speedBox.Revert = () => speedText.Value = formatPercent(tempoAdjustment.Value);
+            speedBox.OnCommit += (_, _) => commitSpeed();
+
             editorClock.AudioAdjustments.AddAdjustment(AdjustableProperty.Tempo, tempoAdjustment);
+        }
+
+        protected override void LoadComplete()
+        {
+            base.LoadComplete();
+
+            tempoAdjustment.BindValueChanged(_ => speedText.Value = formatPercent(tempoAdjustment.Value), true);
         }
 
         protected override void Dispose(bool isDisposing)
@@ -109,99 +176,136 @@ namespace typebeat.Game.Screens.Edit.Components
                 editorClock.Start();
         }
 
-        private static readonly IconUsage play_icon = FontAwesome.Regular.PlayCircle;
-        private static readonly IconUsage pause_icon = FontAwesome.Regular.PauseCircle;
-
-        protected override void Update()
+        /// <summary>
+        /// Applies the box's typed value: a whole number, optionally suffixed with a percent sign,
+        /// clamped to the slider's range and rounded to a whole percent. Anything unparseable reverts
+        /// to the current value with the standard input-error flash.
+        /// </summary>
+        private void commitSpeed()
         {
-            base.Update();
+            if (tryParsePercent(speedBox.Text, out double percent))
+            {
+                percent = Math.Round(Math.Clamp(percent, MIN_TEMPO * 100, MAX_TEMPO * 100));
+                tempoAdjustment.Value = percent / 100.0;
+            }
+            else
+            {
+                speedBox.FlashInputError();
+            }
 
-            playButton.Icon = editorClock.IsRunning ? pause_icon : play_icon;
+            speedText.Value = formatPercent(tempoAdjustment.Value);
         }
+
+        private static bool tryParsePercent(string text, out double percent)
+        {
+            percent = 0;
+
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            string trimmed = text.Trim();
+
+            if (trimmed.EndsWith('%'))
+                trimmed = trimmed[..^1].Trim();
+
+            if (!double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out double value))
+                return false;
+
+            if (!double.IsFinite(value))
+                return false;
+
+            percent = value;
+            return true;
+        }
+
+        private static string formatPercent(double value) => $"{Math.Round(value * 100):0}%";
 
         private partial class PlaybackSpeedControl : FillFlowContainer, IHasTooltip
         {
             public LocalisableString TooltipText { get; set; }
         }
 
-        public partial class PlaybackTabControl : OsuTabControl<double>
+        /// <summary>
+        /// The rounded slider over the editor clock's tempo, matching the settings sliders' look:
+        /// double-clicking the nub or right-clicking anywhere on it resets to the default 100 percent,
+        /// and a faint tick marks where 100 percent sits on the track.
+        /// </summary>
+        public partial class SpeedSlider : RoundedSliderBar<double>
         {
-            private static readonly double[] tempo_values = { 0.25, 0.5, 0.75, 1 };
+            private readonly BindableNumber<double> tempo;
+            private readonly Box defaultTick;
 
-            protected override TabItem<double> CreateTabItem(double value) => new PlaybackTabItem(value);
-
-            protected override Dropdown<double> CreateDropdown() => null!;
-
-            public PlaybackTabControl()
+            public SpeedSlider(BindableNumber<double> tempo)
             {
-                RelativeSizeAxes = Axes.Both;
-                TabContainer.Spacing = Vector2.Zero;
+                this.tempo = tempo;
 
-                tempo_values.ForEach(AddItem);
+                Current = tempo;
 
-                Current.Value = tempo_values.Last();
+                Add(defaultTick = new Box
+                {
+                    Width = 1.5f,
+                    Height = 9,
+                    Anchor = Anchor.CentreLeft,
+                    Origin = Anchor.Centre,
+                    Colour = Color4.White.Opacity(0.3f),
+                });
             }
 
-            public partial class PlaybackTabItem : TabItem<double>
+            protected override bool OnMouseDown(MouseDownEvent e)
             {
-                private const float fade_duration = 200;
-
-                private readonly OsuSpriteText text;
-                private readonly OsuSpriteText textBold;
-
-                public PlaybackTabItem(double value)
-                    : base(value)
+                if (e.Button == MouseButton.Right && !IsDragged && !Current.Disabled)
                 {
-                    RelativeSizeAxes = Axes.Both;
-
-                    Width = 1f / tempo_values.Length;
-
-                    Children = new Drawable[]
-                    {
-                        text = new OsuSpriteText
-                        {
-                            Origin = Anchor.TopCentre,
-                            Anchor = Anchor.TopCentre,
-                            Text = $"{value:0%}",
-                            Font = OsuFont.GetFont(size: 14)
-                        },
-                        textBold = new OsuSpriteText
-                        {
-                            Origin = Anchor.TopCentre,
-                            Anchor = Anchor.TopCentre,
-                            Text = $"{value:0%}",
-                            Font = OsuFont.GetFont(size: 14, weight: FontWeight.Bold),
-                            Alpha = 0,
-                        },
-                    };
+                    ResetToDefault.Invoke();
+                    return true;
                 }
 
-                private Color4 hoveredColour;
-                private Color4 normalColour;
+                return base.OnMouseDown(e);
+            }
 
-                [BackgroundDependencyLoader]
-                private void load(OverlayColourProvider colourProvider)
+            protected override void UpdateAfterChildren()
+            {
+                base.UpdateAfterChildren();
+
+                double range = tempo.MaxValue - tempo.MinValue;
+                double normalized = range > 0 ? (tempo.Default - tempo.MinValue) / range : 0;
+
+                defaultTick.X = RangePadding + (float)(normalized * (DrawWidth - 2 * RangePadding));
+            }
+
+            protected override LocalisableString GetTooltipText(double value) => $"{value * 100:0}%";
+        }
+
+        /// <summary>
+        /// The compact whole-percent entry box. It only takes focus on a click, and releases it on
+        /// commit (Enter or blur) or Escape, so it never steals typing focus from the editor.
+        /// </summary>
+        public partial class SpeedTextBox : OsuTextBox
+        {
+            /// <summary>Invoked on Escape to discard the in-progress edit and restore the live value.</summary>
+            public Action? Revert { get; set; }
+
+            public SpeedTextBox()
+            {
+                Height = 22;
+                TextContainer.Height = 0.7f;
+                LengthLimit = 6;
+                CommitOnFocusLost = true;
+                ReleaseFocusOnCommit = true;
+            }
+
+            /// <summary>Triggers the standard input-error feedback (the red flash and the invalid sample).</summary>
+            public void FlashInputError() => NotifyInputError();
+
+            protected override bool OnKeyDown(KeyDownEvent e)
+            {
+                if (e.Key == Key.Escape && !e.Repeat)
                 {
-                    text.Colour = normalColour = colourProvider.Light3;
-                    textBold.Colour = hoveredColour = colourProvider.Content1;
+                    Revert?.Invoke();
+                    KillFocus();
+                    return true;
                 }
 
-                protected override bool OnHover(HoverEvent e)
-                {
-                    updateState();
-                    return false;
-                }
-
-                protected override void OnHoverLost(HoverLostEvent e) => updateState();
-                protected override void OnActivated() => updateState();
-                protected override void OnDeactivated() => updateState();
-
-                private void updateState()
-                {
-                    text.FadeColour(Active.Value || IsHovered ? hoveredColour : normalColour, fade_duration, Easing.OutQuint);
-                    text.FadeTo(Active.Value ? 0 : 1, fade_duration, Easing.OutQuint);
-                    textBold.FadeTo(Active.Value ? 1 : 0, fade_duration, Easing.OutQuint);
-                }
+                return base.OnKeyDown(e);
             }
         }
     }

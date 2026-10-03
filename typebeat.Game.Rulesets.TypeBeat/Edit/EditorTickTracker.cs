@@ -25,9 +25,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     public sealed class EditorTickTracker
     {
         /// <summary>
-        /// Largest forward gap (ms) between two consecutive running frames still treated as ordinary
-        /// playback. The editor plays at &lt;= 1x, so even a badly hitched frame stays well under this;
-        /// anything larger is assumed to be a seek jump and produces no ticks for that frame.
+        /// Largest forward gap (ms, SONG time) between two consecutive running frames still treated as
+        /// ordinary playback. The editor now plays up to 2x (below 1x down to the audio floor), so a
+        /// badly hitched frame advances up to twice as far as it used to; anything larger than this is
+        /// assumed to be a seek jump and produces no ticks for that frame.
         /// </summary>
         public const double MAX_FRAME_DELTA_MS = 250;
 
