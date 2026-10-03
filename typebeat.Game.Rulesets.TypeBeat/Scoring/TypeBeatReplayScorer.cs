@@ -572,14 +572,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             }
 
             // The rate mods scale the windows by the CLOCK RATE so the real-time tolerance is
-            // constant (backlog 150). Matched on ModRateAdjust, the base the ruleset's three rate
+            // constant (backlog 150). Matched on ModRateAdjust, the base the ruleset's four rate
             // mods share and the same set that carries the live ApplyToDrawableRuleset seam
             // (pinned by TypeBeatRateModTest); the rate is read off the mod's own user-adjustable
             // SpeedChange, never a hardcoded 1.50 / 0.75. Wind Up / Wind Down are deliberately not
             // here: a ramp's rate is a function of time, which one scale set before the first
             // keypress cannot express, and both are unranked at every configuration.
             //
-            // Unlike the two above, this one DOES need an era switch: DT / NC / HT have been ranked
+            // Unlike the two above, this one DOES need an era switch: DT / NC / HT / DC have been ranked
             // mods for the whole life of the score table, so every stored rate row was judged on
             // windows fixed in beatmap milliseconds. Under RateWindowRule.Unscaled the loop is
             // skipped entirely, which is exactly what a pre-150 client did.

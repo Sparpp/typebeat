@@ -637,7 +637,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// and Double Time understates it by 1/1.5.
         ///
         /// <para><see cref="GameplayClockExtensions.GetTrueGameplayRate"/> is the right source because it
-        /// reads the aggregate frequency/tempo actually in force, so it covers DT/NC/HT at ANY custom
+        /// reads the aggregate frequency/tempo actually in force, so it covers DT/NC/HT/DC at ANY custom
         /// slider value, both ramp mods and any future rate mod without enumerating them. Deliberately
         /// NOT <c>PerformancePoints.EligibleRate</c>: that answers a pp-eligibility question and returns
         /// null for a custom rate, but a custom-rate play still has a real typing speed worth showing.</para>

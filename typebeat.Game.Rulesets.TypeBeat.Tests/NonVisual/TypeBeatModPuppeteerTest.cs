@@ -169,8 +169,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsNotInstanceOf<ModTimeRamp>(mod);
             Assert.IsNotInstanceOf<ModAdaptiveSpeed>(mod);
 
-            Assert.AreEqual(3, new TypeBeatRuleset().AllMods.OfType<ModRateAdjust>().Count(),
-                "Double Time, Nightcore and Half Time; adding Puppeteer must not enlarge the population the replay scorer's rate seam matches on");
+            Assert.AreEqual(4, new TypeBeatRuleset().AllMods.OfType<ModRateAdjust>().Count(),
+                "Double Time, Nightcore, Half Time and Daycore; adding Puppeteer must not enlarge the population the replay scorer's rate seam matches on");
         }
 
         [Test]

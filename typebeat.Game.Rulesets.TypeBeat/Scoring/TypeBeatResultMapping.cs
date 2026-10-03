@@ -397,7 +397,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// <summary>
     /// The rule deciding whether a rate-adjusting mod scales the judgement windows. Same reason as
     /// the three above. Live play is always <see cref="ScaledByRate"/>, and the axis only reaches a
-    /// stored row that carries one of the rate mods (DT / NC / HT), unlike
+    /// stored row that carries one of the rate mods (DT / NC / HT / DC), unlike
     /// <see cref="SpaceTimingRule"/>, which reaches every row there is.
     ///
     /// <para>Kept as its own rule rather than folded into <see cref="SpaceTimingRule"/> even though

@@ -47,10 +47,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var dt = new TypeBeatModDoubleTime();
             var nc = new TypeBeatModNightcore();
             var ht = new TypeBeatModHalfTime();
+            var dc = new TypeBeatModDaycore();
 
             Assert.IsTrue(dt.Ranked, "Double Time must be ranked at its default speed.");
             Assert.IsTrue(nc.Ranked, "Nightcore must be ranked at its default speed.");
             Assert.IsTrue(ht.Ranked, "Half Time must be ranked at its default speed.");
+            Assert.IsTrue(dc.Ranked, "Daycore must be ranked at its default speed.");
 
             foreach (double rate in new[] { 1.01, 1.23, 1.99, 2.0 })
             {
@@ -63,7 +65,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             foreach (double rate in new[] { 0.5, 0.66, 0.9, 0.99 })
             {
                 ht.SpeedChange.Value = rate;
+                dc.SpeedChange.Value = rate;
                 Assert.IsTrue(ht.Ranked, $"Half Time must stay ranked at {rate:N2}x.");
+                Assert.IsTrue(dc.Ranked, $"Daycore must stay ranked at {rate:N2}x.");
             }
 
             // Pitch is not a difficulty lever, so toggling it must not unrank either.
@@ -77,20 +81,53 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var dt = new TypeBeatModDoubleTime();
             var ht = new TypeBeatModHalfTime();
             var nc = new TypeBeatModNightcore();
+            var dc = new TypeBeatModDaycore();
 
             Assert.AreEqual(1.5, dt.SpeedChange.Default, 1e-9);
             Assert.AreEqual(1.5, nc.SpeedChange.Default, 1e-9);
             Assert.AreEqual(0.75, ht.SpeedChange.Default, 1e-9);
+            Assert.AreEqual(0.75, dc.SpeedChange.Default, 1e-9);
 
             Assert.AreEqual(1.01, dt.SpeedChange.MinValue, 1e-9);
             Assert.AreEqual(2.0, dt.SpeedChange.MaxValue, 1e-9);
             Assert.AreEqual(0.5, ht.SpeedChange.MinValue, 1e-9);
             Assert.AreEqual(0.99, ht.SpeedChange.MaxValue, 1e-9);
+            Assert.AreEqual(0.5, dc.SpeedChange.MinValue, 1e-9);
+            Assert.AreEqual(0.99, dc.SpeedChange.MaxValue, 1e-9);
 
             // The curve snaps the rate to 2dp; the sliders must not offer finer than that.
             Assert.AreEqual(0.01, dt.SpeedChange.Precision, 1e-9);
             Assert.AreEqual(0.01, ht.SpeedChange.Precision, 1e-9);
             Assert.AreEqual(0.01, nc.SpeedChange.Precision, 1e-9);
+            Assert.AreEqual(0.01, dc.SpeedChange.Precision, 1e-9);
+        }
+
+        /// <summary>
+        /// DC is a DIFFERENT base class (<see cref="ModDaycore"/>) from HT/DT/NC, so the mutual
+        /// exclusion those three get from their shared <see cref="ModRateAdjust"/> base has to be
+        /// checked rather than assumed. It holds: every concrete rate mod, DC included, inherits
+        /// <c>ModRateAdjust.IncompatibleMods</c>, which names <see cref="ModRateAdjust"/> itself, so
+        /// a DC+HT (or DC+DT, DC+NC) stack is refused by <c>CheckCompatibleSet</c> at selection
+        /// time. That is what the server's "a stack with two rate mods is not producible" comment
+        /// (RateMods.cs) relies on, and it is now true of DC too.
+        /// </summary>
+        [Test]
+        public void DaycoreIsMutuallyExclusiveWithEveryOtherRateMod()
+        {
+            var dc = new TypeBeatModDaycore();
+
+            Assert.Contains(typeof(ModRateAdjust), dc.IncompatibleMods);
+
+            // The rate mods are exactly the population that names ModRateAdjust, so declaring it
+            // once on the shared base excludes DC from all of them (and them from DC, since
+            // CheckCompatibleSet reads the relation in both directions).
+            foreach (Mod other in new Mod[] { new TypeBeatModHalfTime(), new TypeBeatModDoubleTime(), new TypeBeatModNightcore() })
+            {
+                Assert.IsTrue(dc.IncompatibleMods.Any(t => t.IsInstanceOfType(other)),
+                    $"Daycore must be incompatible with {other.Acronym}");
+                Assert.IsTrue(other.IncompatibleMods.Any(t => t.IsInstanceOfType(dc)),
+                    $"{other.Acronym} must be incompatible with Daycore");
+            }
         }
 
         // -----------------------------------------------------------------------------------------
@@ -133,6 +170,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(1.23, calc.CalculateFor(new Mod[] { new TypeBeatModDoubleTime() }), 1e-9);
             Assert.AreEqual(1.23, calc.CalculateFor(new Mod[] { new TypeBeatModNightcore() }), 1e-9);
             Assert.AreEqual(0.25, calc.CalculateFor(new Mod[] { new TypeBeatModHalfTime() }), 1e-9);
+            // Daycore is HT's pitch-preserving twin, so it pays exactly what HT pays at the same rate.
+            Assert.AreEqual(0.25, calc.CalculateFor(new Mod[] { new TypeBeatModDaycore() }), 1e-9);
         }
 
         [Test]
@@ -218,6 +257,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.AreEqual(TypeBeatRateMultiplier.For(rate),
                     calc.CalculateFor(new Mod[] { new TypeBeatModHalfTime { SpeedChange = { Value = rate } } }), 1e-9);
+
+                // DC and HT differ only in pitch, which is not a difficulty lever, so a DC play at a
+                // given rate must price exactly as an HT play at that rate.
+                Assert.AreEqual(TypeBeatRateMultiplier.For(rate),
+                    calc.CalculateFor(new Mod[] { new TypeBeatModDaycore { SpeedChange = { Value = rate } } }), 1e-9);
             }
         }
 
@@ -324,7 +368,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var rateMods = ruleset.AllMods.OfType<ModRateAdjust>().ToList();
 
-            Assert.AreEqual(3, rateMods.Count, "Double Time, Nightcore and Half Time");
+            Assert.AreEqual(4, rateMods.Count, "Double Time, Nightcore, Half Time and Daycore");
 
             foreach (var mod in rateMods)
             {
@@ -381,8 +425,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsNotInstanceOf<IApplicableToRate>(conductor);
 
             // ...and adding it did not enlarge the population the replay scorer's seam matches on.
-            Assert.AreEqual(3, new TypeBeatRuleset().AllMods.OfType<ModRateAdjust>().Count(),
-                "Double Time, Nightcore and Half Time");
+            Assert.AreEqual(4, new TypeBeatRuleset().AllMods.OfType<ModRateAdjust>().Count(),
+                "Double Time, Nightcore, Half Time and Daycore");
         }
 
         /// <summary>
@@ -482,10 +526,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var plainLater = scoreThreeLatePresses(250);
             var halfTime = scoreThreeLatePresses(250, new TypeBeatModHalfTime());
+            // Daycore scales the windows exactly as Half Time does: pitch is not a difficulty lever,
+            // so it must not move the ladder.
+            var daycore = scoreThreeLatePresses(250, new TypeBeatModDaycore());
 
             Assert.AreEqual(3, plainLater.Statistics.GetValueOrDefault(HitResult.Ok));
             Assert.AreEqual(3, halfTime.Statistics.GetValueOrDefault(HitResult.Meh));
             Assert.AreEqual(0, halfTime.Statistics.GetValueOrDefault(HitResult.Ok));
+            Assert.AreEqual(3, daycore.Statistics.GetValueOrDefault(HitResult.Meh));
+            Assert.AreEqual(0, daycore.Statistics.GetValueOrDefault(HitResult.Ok));
         }
 
         /// <summary>
@@ -551,11 +600,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual("1.50x", new TypeBeatModDoubleTime().ExtendedIconInformation);
             Assert.AreEqual("1.50x", new TypeBeatModNightcore().ExtendedIconInformation);
             Assert.AreEqual("0.75x", new TypeBeatModHalfTime().ExtendedIconInformation);
+            Assert.AreEqual("0.75x", new TypeBeatModDaycore().ExtendedIconInformation);
 
             Assert.AreEqual("1.73x", new TypeBeatModDoubleTime { SpeedChange = { Value = 1.73 } }.ExtendedIconInformation);
             Assert.AreEqual("2.00x", new TypeBeatModDoubleTime { SpeedChange = { Value = 2.0 } }.ExtendedIconInformation);
             Assert.AreEqual("0.50x", new TypeBeatModHalfTime { SpeedChange = { Value = 0.5 } }.ExtendedIconInformation);
             Assert.AreEqual("1.05x", new TypeBeatModNightcore { SpeedChange = { Value = 1.05 } }.ExtendedIconInformation);
+            Assert.AreEqual("0.62x", new TypeBeatModDaycore { SpeedChange = { Value = 0.62 } }.ExtendedIconInformation);
         }
 
         /// <summary>
@@ -568,13 +619,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             assertDescribesRate(new TypeBeatModDoubleTime(), "1.50x");
             assertDescribesRate(new TypeBeatModNightcore(), "1.50x");
             assertDescribesRate(new TypeBeatModHalfTime(), "0.75x");
+            assertDescribesRate(new TypeBeatModDaycore(), "0.75x");
             assertDescribesRate(new TypeBeatModDoubleTime { SpeedChange = { Value = 1.73 } }, "1.73x");
             assertDescribesRate(new TypeBeatModHalfTime { SpeedChange = { Value = 0.62 } }, "0.62x");
+            assertDescribesRate(new TypeBeatModDaycore { SpeedChange = { Value = 0.62 } }, "0.62x");
 
-            // The pitch toggle still describes itself, and only when it is actually on.
+            // The pitch toggle still describes itself, and only when it is actually on. Daycore holds
+            // the pitch constant and carries no toggle, so it describes the rate alone.
             var pitched = new TypeBeatModDoubleTime { AdjustPitch = { Value = true } };
             Assert.IsTrue(pitched.SettingDescription.Any(d => d.setting.ToString() == "Adjust pitch"));
             Assert.IsFalse(new TypeBeatModDoubleTime().SettingDescription.Any(d => d.setting.ToString() == "Adjust pitch"));
+            Assert.IsFalse(new TypeBeatModDaycore().SettingDescription.Any(d => d.setting.ToString() == "Adjust pitch"));
         }
 
         private static void assertDescribesRate(Mod mod, string expected)
@@ -601,6 +656,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             assertWire(new TypeBeatModDoubleTime(), @"{""acronym"":""DT"",""settings"":{""speed_change"":1.5}}");
             assertWire(new TypeBeatModNightcore(), @"{""acronym"":""NC"",""settings"":{""speed_change"":1.5}}");
             assertWire(new TypeBeatModHalfTime(), @"{""acronym"":""HT"",""settings"":{""speed_change"":0.75}}");
+            assertWire(new TypeBeatModDaycore(), @"{""acronym"":""DC"",""settings"":{""speed_change"":0.75}}");
             assertWire(new TypeBeatModDoubleTime { SpeedChange = { Value = 1.73 } }, @"{""acronym"":""DT"",""settings"":{""speed_change"":1.73}}");
             assertWire(new TypeBeatModHalfTime { SpeedChange = { Value = 0.5 } }, @"{""acronym"":""HT"",""settings"":{""speed_change"":0.5}}");
 
@@ -622,6 +678,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                          new TypeBeatModDoubleTime { SpeedChange = { Value = 1.73 } },
                          new TypeBeatModNightcore { SpeedChange = { Value = 1.01 } },
                          new TypeBeatModHalfTime { SpeedChange = { Value = 0.62 } },
+                         new TypeBeatModDaycore { SpeedChange = { Value = 0.62 } },
                          new TypeBeatModDoubleTime(),
                      })
             {

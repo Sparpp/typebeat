@@ -707,15 +707,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void EligibleRate_CustomHalfTimeRatesEarnNothing(double rate)
             => Assert.That(PerformancePoints.EligibleRate(mods(at(new TypeBeatModHalfTime(), rate))), Is.Null);
 
+        [TestCase(0.50)]
+        [TestCase(0.74)]
+        [TestCase(0.99)]
+        public void EligibleRate_CustomDaycoreRatesEarnNothing(double rate)
+            => Assert.That(PerformancePoints.EligibleRate(mods(at(new TypeBeatModDaycore(), rate))), Is.Null);
+
         [Test]
-        public void EligibleRate_TwoRateModsAtOnceIsRefusedRatherThanGuessedAt()
+        public void EligibleRate_DaycoreDefaultEarnsHalfTimesBaseRate()
         {
-            // Tamper-shaped by construction: the client makes DT / NC / HT mutually exclusive.
-            Assert.That(PerformancePoints.EligibleRate(mods(new TypeBeatModDoubleTime(), new TypeBeatModHalfTime())), Is.Null);
+            // DC is HT's pitch-preserving twin, so its default 0.75x earns pp exactly as HT's does.
+            Assert.That(PerformancePoints.EligibleRate(mods(new TypeBeatModDaycore())), Is.EqualTo(0.75));
         }
 
         [Test]
-        public void TryGetBaseRate_KnowsExactlyTheThreeRateAcronyms()
+        public void EligibleRate_TwoRateModsAtOnceIsRefusedRatherThanGuessedAt()
+        {
+            // Tamper-shaped by construction: the client makes DT / NC / HT / DC mutually exclusive.
+            Assert.That(PerformancePoints.EligibleRate(mods(new TypeBeatModDoubleTime(), new TypeBeatModHalfTime())), Is.Null);
+            // DC has a DIFFERENT base class (ModDaycore), so this is not free from the DT/NC/HT
+            // exclusion and is pinned explicitly.
+            Assert.That(PerformancePoints.EligibleRate(mods(new TypeBeatModDaycore(), new TypeBeatModHalfTime())), Is.Null);
+        }
+
+        [Test]
+        public void TryGetBaseRate_KnowsExactlyTheFourRateAcronyms()
         {
             Assert.Multiple(() =>
             {
@@ -725,8 +741,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(nc, Is.EqualTo(1.50)); // pp[f.double_time_base_rate]
                 Assert.That(PerformancePoints.TryGetBaseRate("HT", out double ht), Is.True);
                 Assert.That(ht, Is.EqualTo(0.75)); // pp[f.half_time_base_rate]
+                Assert.That(PerformancePoints.TryGetBaseRate("DC", out double dc), Is.True);
+                Assert.That(dc, Is.EqualTo(0.75)); // pp[f.half_time_base_rate]; DC is HT's pitch twin
 
-                foreach (string other in new[] { "", " ", "LT", "FL", "NF", "WU", "WD", "DC", "ZZ" })
+                foreach (string other in new[] { "", " ", "LT", "FL", "NF", "WU", "WD", "ZZ" })
                     Assert.That(PerformancePoints.TryGetBaseRate(other, out _), Is.False, other);
 
                 Assert.That(PerformancePoints.TryGetBaseRate(null, out _), Is.False);

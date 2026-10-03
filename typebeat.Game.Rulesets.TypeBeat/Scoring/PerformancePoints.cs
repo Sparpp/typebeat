@@ -718,10 +718,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         public const HitResult MISTYPE_RESULT = TypeBeatScoreProcessor.MISTYPE_RESULT;
 
-        /// <summary>The DT / NC / HT base rates: the ONLY rates that earn pp (docs/pp.md).</summary>
+        /// <summary>The DT / NC / DC base rates: the ONLY rates that earn pp (docs/pp.md).</summary>
         public const double DOUBLE_TIME_BASE_RATE = 1.50;
 
-        /// <summary>Half Time's base rate, the down-rate counterpart of <see cref="DOUBLE_TIME_BASE_RATE"/>.</summary>
+        /// <summary>Half Time's base rate, the down-rate counterpart of <see cref="DOUBLE_TIME_BASE_RATE"/>.
+        /// Daycore (DC), the pitch-preserving Half Time, shares it.</summary>
         public const double HALF_TIME_BASE_RATE = 0.75;
 
         /// <summary>
@@ -806,11 +807,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         ///
         /// <list type="bullet">
         /// <item>No rate mod: 1.00.</item>
-        /// <item>Exactly one rate mod sitting at its slider default: 1.50 (DT / NC) or 0.75 (HT).</item>
+        /// <item>Exactly one rate mod sitting at its slider default: 1.50 (DT / NC) or 0.75 (HT / DC).</item>
         /// <item>A custom rate: null. Permanently pp-ineligible; the play still ranks on the score
         /// leaderboards exactly as before.</item>
         /// <item>More than one rate mod: null. Tamper-shaped by construction (the client makes
-        /// DT / NC / HT mutually exclusive), so it is refused rather than guessed at.</item>
+        /// DT / NC / HT / DC mutually exclusive), so it is refused rather than guessed at.</item>
         /// </list>
         /// </summary>
         public static double? EligibleRate(IReadOnlyList<Mod>? mods)
@@ -858,6 +859,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                     return true;
 
                 case "HT":
+                case "DC":
                     baseRate = HALF_TIME_BASE_RATE;
                     return true;
 
