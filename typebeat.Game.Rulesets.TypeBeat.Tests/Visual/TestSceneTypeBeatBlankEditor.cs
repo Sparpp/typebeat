@@ -109,17 +109,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
             AddAssert("no active line", () => state().ActiveLine.Value == null);
 
-            // There is no line to add a word to, let alone remove one from.
+            // There is no line to add a word to, let alone remove or subdivide one.
             AddUntilStep("add word greyed out", () => !panelButton("add word").Enabled.Value);
             AddAssert("remove word greyed out", () => !panelButton("remove word").Enabled.Value);
+            AddAssert("subdivide greyed out", () => !panelButton("subdivide (D)").Enabled.Value);
+            AddAssert("unsubdivide greyed out", () => !panelButton("unsubdivide").Enabled.Value);
+            AddAssert("insert pause greyed out", () => !panelButton("insert pause").Enabled.Value);
 
             AddStep("park the playhead", () => EditorClock.Seek(1500));
             AddStep("press \"add line\"", () => addAtPlayheadButton().TriggerClick());
             AddUntilStep("a first line exists", () => EditorBeatmap.HitObjects.Count == 1);
 
-            // "new line" is two words, so both actions become possible.
+            // "new line" is two words, so "add word" becomes possible, but nothing is SELECTED yet,
+            // so the four selection-driven word buttons stay greyed out until a word is picked
+            // (backlog 390). Selecting one arms them.
             AddUntilStep("add word live", () => panelButton("add word").Enabled.Value);
-            AddAssert("remove word live", () => panelButton("remove word").Enabled.Value);
+            AddAssert("remove word still greyed with nothing selected", () => !panelButton("remove word").Enabled.Value);
+            AddAssert("subdivide still greyed with nothing selected", () => !panelButton("subdivide (D)").Enabled.Value);
+            AddAssert("unsubdivide still greyed with nothing selected", () => !panelButton("unsubdivide").Enabled.Value);
+            AddAssert("insert pause still greyed with nothing selected", () => !panelButton("insert pause").Enabled.Value);
+
+            AddStep("select the first word", () => state().SelectUnit(0));
+            AddUntilStep("remove word live with a word selected", () => panelButton("remove word").Enabled.Value);
+            AddAssert("subdivide live with a word selected", () => panelButton("subdivide (D)").Enabled.Value);
+            AddAssert("unsubdivide live with a word selected", () => panelButton("unsubdivide").Enabled.Value);
+            AddAssert("insert pause live with a word selected", () => panelButton("insert pause").Enabled.Value);
         }
 
         [Test]
