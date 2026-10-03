@@ -1,19 +1,15 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using osu.Framework.Allocation;
-using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Scoring;
-using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Skinning;
@@ -83,68 +79,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             base.Update();
             if (playfield != null)
                 Text = playfield.Engine.LiveRollingWpm.ToString("0");
-        }
-    }
-
-    public partial class TypeBeatSyncCounter : TypeBeatHudCounter
-    {
-        [Resolved]
-        private TypeBeatPlayfield? playfield { get; set; }
-
-        private readonly Bindable<bool> showSync = new Bindable<bool>();
-
-        public TypeBeatSyncCounter()
-            : base("sync")
-        {
-            AlwaysPresent = true;
-        }
-
-        [BackgroundDependencyLoader(true)]
-        private void load(TypeBeatRulesetConfigManager? config)
-        {
-            config?.BindWith(TypeBeatRulesetSetting.ShowSyncMetric, showSync);
-            showSync.BindValueChanged(e => Alpha = e.NewValue ? 1 : 0, true);
-        }
-
-        protected override void Update()
-        {
-            base.Update();
-            if (showSync.Value && playfield != null)
-                Text = playfield.Engine.LiveSyncPercent.ToString("0.0") + "%";
-        }
-    }
-
-    public partial class TypeBeatRateCounter : TypeBeatHudCounter
-    {
-        [Resolved]
-        private DrawableTypeBeatRuleset? drawableRuleset { get; set; }
-
-        private int lastRatePercent = -1;
-
-        public TypeBeatRateCounter()
-            : base("rate")
-        {
-            AlwaysPresent = true;
-            Alpha = 0;
-        }
-
-        protected override void Update()
-        {
-            base.Update();
-
-            if (drawableRuleset?.ConductorRate is not double rate)
-            {
-                Alpha = 0;
-                return;
-            }
-
-            Alpha = 1;
-            int percent = (int)Math.Round(rate * 100);
-            if (percent == lastRatePercent)
-                return;
-
-            lastRatePercent = percent;
-            Text = percent.ToString(CultureInfo.InvariantCulture) + "%";
         }
     }
 

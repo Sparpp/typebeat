@@ -2,7 +2,6 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System.Collections.Generic;
-using System.Linq;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using typebeat.Game.Beatmaps;
@@ -41,10 +40,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public static double? StarRatingFor(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? mods)
             => PerformancePointsDisplay.StarRatingFor(playableBeatmap, mods, requireRankedMap: false);
 
-        public bool SyncReadoutVisible => Components.OfType<TypeBeatSyncCounter>().FirstOrDefault()?.Alpha > 0;
-
-        public string SyncReadoutText => Components.OfType<TypeBeatSyncCounter>().FirstOrDefault()?.DisplayedText ?? string.Empty;
-
         private static Container createDefaultComponents() => new Container
         {
             RelativeSizeAxes = Axes.Both,
@@ -62,18 +57,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     Anchor = Anchor.TopCentre,
                     Origin = Anchor.TopCentre,
                     Position = new Vector2(58, 24),
-                },
-                new TypeBeatSyncCounter
-                {
-                    Anchor = Anchor.TopCentre,
-                    Origin = Anchor.TopCentre,
-                    Position = new Vector2(168, 24),
-                },
-                new TypeBeatRateCounter
-                {
-                    Anchor = Anchor.TopCentre,
-                    Origin = Anchor.TopCentre,
-                    Position = new Vector2(278, 24),
                 },
             },
         };

@@ -410,11 +410,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         }
 
         /// <summary>
-        /// Captures the drawable ruleset so the live rate can be published for the HUD readout, and
-        /// publishes the starting value so the readout is present from the first frame. This is the
+        /// Captures the drawable ruleset so the live rate can be published, and publishes the
+        /// starting value from the first frame. This is the
         /// <see cref="DrawableTypeBeatRuleset.ConductorRate"/> half of the
-        /// <c>FlashlightVisibleRadius</c> pattern: the mod writes, the always-on HUD reads, and no
-        /// mod type is named inside the HUD.
+        /// <c>FlashlightVisibleRadius</c> pattern: the mod writes to the ruleset and no mod type is
+        /// named by the consumer.
         /// </summary>
         public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset)
         {

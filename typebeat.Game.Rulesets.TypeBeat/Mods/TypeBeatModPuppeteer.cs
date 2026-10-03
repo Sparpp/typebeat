@@ -624,9 +624,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// THE RUSH CAP (<see cref="Gameplay.TypingEngine.RushCapExempt"/>, backlog 261), set at the
         /// same seam for the same reason: it is read at every press rather than at construction, and
         /// no replay recorder stamps it. And capture the drawable ruleset so the live rate can be
-        /// published for the HUD readout, the <see cref="DrawableTypeBeatRuleset.ConductorRate"/>
-        /// half of the <c>FlashlightVisibleRadius</c> pattern: the mod writes, the always-on HUD
-        /// reads, and no mod type is named inside the HUD.
+        /// published, the <see cref="DrawableTypeBeatRuleset.ConductorRate"/>
+        /// half of the <c>FlashlightVisibleRadius</c> pattern: the mod writes to the ruleset and no
+        /// mod type is named by the consumer.
         /// </summary>
         public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset)
         {
