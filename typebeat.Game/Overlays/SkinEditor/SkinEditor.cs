@@ -528,7 +528,24 @@ namespace typebeat.Game.Overlays.SkinEditor
 
         private IEnumerable<SkinnableContainer> availableTargets => targetScreen.ChildrenOfType<SkinnableContainer>();
 
-        private SkinnableContainer? getFirstTarget() => availableTargets.FirstOrDefault();
+        /// <summary>
+        /// The target the editor opens on when none has been chosen yet, and the one the layer
+        /// dropdown falls back to.
+        /// </summary>
+        /// <remarks>
+        /// On a gameplay screen a fork keeps the plain <see cref="GlobalSkinnableContainers.MainHUDComponents"/>
+        /// layer (score, accuracy, health, key counter) and hangs every RULESET-SPECIFIC HUD piece
+        /// off a SECOND copy of that same lookup carrying the ruleset. The combo counter lives on
+        /// that ruleset layer, so picking the first target in child order (the typing counters here,
+        /// or whichever layer happens to be laid out first) lands the editor on a layer that does
+        /// not contain it, and the combo counter can then only be ADDED from the toolbox, never
+        /// selected and edited. Preferring the ruleset-bearing HUD layer is what makes the combo
+        /// counter (and the other pieces on that layer) directly editable on open. The layer
+        /// dropdown still lists every target, so any of them can be chosen explicitly.
+        /// </remarks>
+        private SkinnableContainer? getFirstTarget()
+            => availableTargets.FirstOrDefault(t => t.Lookup.Lookup == GlobalSkinnableContainers.MainHUDComponents && t.Lookup.Ruleset != null)
+               ?? availableTargets.FirstOrDefault();
 
         private SkinnableContainer? getTarget(GlobalSkinnableContainerLookup? target)
         {

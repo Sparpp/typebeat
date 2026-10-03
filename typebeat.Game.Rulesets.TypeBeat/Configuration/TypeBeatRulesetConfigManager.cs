@@ -188,23 +188,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         ShowPaceColours,
 
         /// <summary>
-        /// Whether the SYNC METRIC is shown at all: the gameplay HUD's "sync" readout
-        /// (<see cref="UI.TypeBeatHudOverlay"/>) and the sync TINT that paints a correctly typed
+        /// Whether the SYNC METRIC is shown at all: the sync TINT that paints a correctly typed
         /// character on a brightness ramp by how in time the press was
         /// (<see cref="UI.LyricLineDisplay.CorrectCharColour"/>). OFF by default (backlog 251).
         ///
         /// <para>The metric was removed from the game because it AFFECTED things, and the fix was to
         /// stop it affecting them rather than to delete it: since backlog 251 no grade, score,
         /// judgement or submission reads sync anywhere (<see cref="Gameplay.ResultsSummary.Grade"/>
-        /// is accuracy alone), so this key decides nothing but whether the figure is drawn. The
+        /// is accuracy alone), so this key decides nothing but whether the tint is drawn. The
         /// numbers behind it (<see cref="Gameplay.TypingEngine.LiveSyncPercent"/>,
         /// <see cref="Gameplay.ResultsSummary.SyncPercent"/>) are computed either way, which is what
         /// lets the toggle be a pure display switch with no mid-play consequence.</para>
         ///
+        /// <para>Backlog 389 removed the last other consumer of this switch: the gameplay HUD's
+        /// "sync" readout was an invisible, off-by-default component on the "Typing counters" skin
+        /// layer. The tint is what remains, so this toggle now decides exactly one thing.</para>
+        ///
         /// <para>Purely visual on exactly the terms <see cref="UseSpaceErrorDot"/> and
-        /// <see cref="ShowSyllableMarkers"/> are: it binds straight to the HUD and the lyric
-        /// displays and never reaches the replay CONFIG frame, so a replay re-derives identically
-        /// whichever way the player left it.</para>
+        /// <see cref="ShowSyllableMarkers"/> are: it binds straight to the lyric displays and never
+        /// reaches the replay CONFIG frame, so a replay re-derives identically whichever way the
+        /// player left it.</para>
         /// </summary>
         ShowSyncMetric,
 
