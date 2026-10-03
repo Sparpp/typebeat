@@ -52,6 +52,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private OsuSpriteText timing = null!;
         private RoundedButton addWordButton = null!;
         private RoundedButton removeWordButton = null!;
+        private RoundedButton subdivideButton = null!;
+        private RoundedButton unsubdivideButton = null!;
+        private RoundedButton insertPauseButton = null!;
         private Box background = null!;
 
         public ActiveLineDetailPanel()
@@ -172,18 +175,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                         {
                             actionRow("word", new Drawable[]
                             {
-                                addWordButton = actionButton("add word", addWord),
-                                removeWordButton = actionButton("remove word", removeWord),
-                                actionButton("subdivide (D)", subdivideSelectedWords),
-                                // Directly right of its inverse, and always enabled for the same
-                                // reason "subdivide" is: both are no-ops on a word that cannot take
-                                // them, and neither greys out per press.
-                                actionButton("unsubdivide", unsubdivideSelectedWords),
+                                addWordButton = actionButton("add word", addWord, inertWhenDisabled: true),
+                                removeWordButton = actionButton("remove word", removeWord, inertWhenDisabled: true),
+                                subdivideButton = actionButton("subdivide (D)", subdivideSelectedWords, inertWhenDisabled: true),
+                                // Directly right of its inverse: both act on the word selection, and
+                                // both grey out (and go inert) when nothing is selected (backlog 390),
+                                // since their action is a no-op on an empty selection.
+                                unsubdivideButton = actionButton("unsubdivide", unsubdivideSelectedWords, inertWhenDisabled: true),
                                 // The authored rest (see InsertWordPause): a tap-edge, not a text
                                 // edit, so it lives beside the subdivision buttons that it is clamped
-                                // and dragged like. Also always enabled, and a no-op on a word whose
-                                // rest the engine could not honour.
-                                actionButton("insert pause", insertPauseOnSelectedWords),
+                                // and dragged like. Also gated on a word being selected (backlog 390).
+                                insertPauseButton = actionButton("insert pause", insertPauseOnSelectedWords, inertWhenDisabled: true),
                             }),
                         },
                     },
@@ -194,14 +196,35 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>Width of the four LINE action buttons (see the note where they are built).</summary>
         private const float line_button_width = 100;
 
-        private static RoundedButton actionButton(string text, System.Action action, float width = 108, string? tooltip = null) => new RoundedButton
+        private static RoundedButton actionButton(string text, System.Action action, float width = 108, string? tooltip = null, bool inertWhenDisabled = false)
         {
-            Text = text,
-            Action = action,
-            Width = width,
-            Height = 30,
-            TooltipText = tooltip ?? string.Empty,
-        };
+            RoundedButton button = inertWhenDisabled ? new InertWhenDisabledButton() : new RoundedButton();
+
+            button.Text = text;
+            button.Action = action;
+            button.Width = width;
+            button.Height = 30;
+            button.TooltipText = tooltip ?? string.Empty;
+
+            return button;
+        }
+
+        /// <summary>
+        /// A button that takes NO positional input at all while <see cref="ClickableContainer.Enabled"/>
+        /// is false (backlog 390): no press, no hover, and therefore no click or hover sample. The
+        /// stock chain only skips the button's own <see cref="ClickableContainer.Action"/> when
+        /// disabled, and the click SOUND is played by a separate <c>HoverClickSounds</c> child whose
+        /// hit-test still reaches the button, so a disabled button would otherwise stay clickable and
+        /// play the (quiet) disabled select sample. The word-edit buttons are meant to be silent and
+        /// inert until a word is selected, so they refuse the input outright instead. The greyed
+        /// render is unchanged and comes from <c>OsuButton</c>'s own disabled tint, so this class
+        /// adds no colour of its own.
+        /// </summary>
+        private partial class InertWhenDisabledButton : RoundedButton
+        {
+            public override bool ReceivePositionalInputAt(Vector2 screenSpacePos)
+                => Enabled.Value && base.ReceivePositionalInputAt(screenSpacePos);
+        }
 
         /// <summary>
         /// One categorised action row: a small caption ("line" / "word") then its buttons, flowing
@@ -246,8 +269,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // record-then-commit, so the sheet it is timing must not change under it.
             bool editable = live && state.TapSession == null;
 
+            // A word is selected when the active line's word selection is non-empty: the shared
+            // predicate the four word-edit buttons greys out on (backlog 390), so none of them can
+            // edit the map (or make a click sound) with nothing selected. "add word" is exempt: it
+            // appends to the line's end with nothing selected, so it needs only a live editable line.
+            // "remove word" additionally needs a removal target (a whole-line selection is refused).
+            bool wordSelected = editable && line != null && selectedWords(line).Length > 0;
+
             addWordButton.Enabled.Value = editable;
-            removeWordButton.Enabled.Value = editable && line != null && removalTargets(line).Length > 0;
+            removeWordButton.Enabled.Value = wordSelected && line != null && removalTargets(line).Length > 0;
+            subdivideButton.Enabled.Value = wordSelected;
+            unsubdivideButton.Enabled.Value = wordSelected;
+            insertPauseButton.Enabled.Value = wordSelected;
 
             if (line == null || !live)
             {
