@@ -87,11 +87,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var filenames = realm.Run(r => r.All<BeatmapSetInfo>().Single().Files.Select(f => f.Filename).ToList());
             string? stem = realm.Run(r => VocalsStem.FilenameIn(r.All<BeatmapSetInfo>().Single()));
+            bool recorded = realm.Run(r => r.All<BeatmapSetInfo>().Single().HasLocalVocalsStem);
 
             Assert.Multiple(() =>
             {
                 Assert.That(filenames, Contains.Item("vocals.ogg"), "the stem is a plain archive entry");
                 Assert.That(stem, Is.EqualTo(VocalsStem.OGG_FILENAME), "and VocalsStem finds it, which enables the editor toggle");
+                // The scalar the song-select carousel actually reads: recorded at import so a detached
+                // copy (whose file list is stripped) still reports the stem as present.
+                Assert.That(recorded, Is.True, "and the presence is recorded for the detached carousel copy");
             });
         }
 
