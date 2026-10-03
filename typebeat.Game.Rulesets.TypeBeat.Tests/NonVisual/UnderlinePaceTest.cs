@@ -714,7 +714,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var rateMods = new TypeBeatRuleset().AllMods.OfType<ModRateAdjust>().ToList();
 
-            Assert.That(rateMods, Has.Count.EqualTo(3), "Double Time, Nightcore and Half Time");
+            Assert.That(rateMods, Has.Count.EqualTo(4), "Double Time, Nightcore, Half Time and Daycore");
 
             foreach (var mod in rateMods)
             {

@@ -35,6 +35,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             Single<TypeBeatModEasy>(hasMultiplier: 0.5);
             Single<TypeBeatModNoFail>(hasMultiplier: 0.5);
             Single<TypeBeatModHalfTime>(hasMultiplier: halfTime => TypeBeatRateMultiplier.For(halfTime.SpeedChange.Value));
+            // Daycore is the pitch-PRESERVING Half Time, so it pays off the same curve at the same
+            // rate: the pitch is not a difficulty lever, exactly as it is not between DT and NC.
+            Single<TypeBeatModDaycore>(hasMultiplier: daycore => TypeBeatRateMultiplier.For(daycore.SpeedChange.Value));
 
             // Difficulty increase.
             // Hard Rock at 1.10x, and the value is NOT read off osu: this fork keeps no copy of
