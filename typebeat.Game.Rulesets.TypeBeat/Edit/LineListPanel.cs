@@ -34,9 +34,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     ///
     /// This is also where a SECTION is picked: Ctrl+click toggles a line in or out of the
     /// selection and Shift+click takes the contiguous run from the anchor (the last plain or
-    /// Ctrl-clicked row) to the clicked row. Every selected row is tinted, the last-clicked row
-    /// stays the ACTIVE line the detail panel edits, and section-level operations (timing
-    /// copy/paste, tap timing) consume the whole set. Escape drops it.
+    /// Ctrl-clicked row) to the clicked row. Every selected row is tinted AND carries a coloured
+    /// corner notch (backlog 391, since the multi-select tint alone reads as the same gray as an
+    /// unselected row), the last-clicked row stays the ACTIVE line the detail panel edits, and
+    /// section-level operations (timing copy/paste, tap timing) consume the whole set. Escape drops it.
     /// </summary>
     public partial class LineListPanel : CompositeDrawable
     {
@@ -315,6 +316,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             /// </summary>
             public const float REST_MARKER_RISE = 0.2f;
 
+            /// <summary>
+            /// The multi-selection CORNER NOTCH (backlog 391): a small solid right triangle that
+            /// fills the row's top-left corner, shown on every row of a Ctrl/Shift selection so the
+            /// section is unmistakable at a glance. A 0.25-lightened row and an unselected row read as
+            /// the same gray, so the owner asked for a colour mark rather than a brighter tint. Its
+            /// LEG length (the two equal sides along the top and left edges), in pixels.
+            /// </summary>
+            public const float SELECTION_NOTCH_LEG = 8f;
+
+            /// <summary>
+            /// How far the notch is inset from the row's top-left before it is drawn, so it clears the
+            /// row's 4 px rounded corner (the rounded mask would otherwise clip the triangle's point).
+            /// </summary>
+            public const float SELECTION_NOTCH_INSET = 4f;
+
             public readonly TypeBeatHitObject HitObject;
 
             [Resolved]
@@ -328,6 +344,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             private readonly Box background;
             private readonly FillFlowContainer body;
+            private readonly Triangle selectionNotch;
             private OsuSpriteText indexText = null!;
             private OsuSpriteText timeText = null!;
             private LineTextBox textBox = null!;
@@ -368,6 +385,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             /// <summary>The flow the box lays its characters out in (for scene tests).</summary>
             public FillFlowContainer TextFlowDrawable => textBox.TextFlowDrawable;
 
+            /// <summary>
+            /// The multi-selection corner notch (backlog 391), for scene tests: Alpha 1 exactly while
+            /// this row is a member of <see cref="LyricEditState.MultiSelectedLines"/>, 0 otherwise.
+            /// </summary>
+            public Drawable SelectionNotch => selectionNotch;
+
+            /// <summary>The row's background box, for scene tests asserting the selection tint.</summary>
+            public Box Background => background;
+
             public LineRow(TypeBeatHitObject hitObject, IBindable<bool>? syllableMarkers = null)
             {
                 HitObject = hitObject;
@@ -395,6 +421,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                             RelativeSizeAxes = Axes.X,
                             AutoSizeAxes = Axes.Y,
                             Direction = FillDirection.Vertical,
+                        },
+                        // The multi-selection corner notch (backlog 391): a small solid right triangle
+                        // filling the row's top-left corner, on TOP of the background (so the tint
+                        // cannot hide it), inside this masked container. The Triangle shape draws
+                        // apex-up with a horizontal base, so a right isoceles corner wedge is built by
+                        // anchoring the apex (Origin = TopCentre) on the corner point and rotating it
+                        // 45 degrees clockwise: the base then lies on the corner's diagonal and the two
+                        // legs (length SELECTION_NOTCH_LEG) run along the top and left edges, which is
+                        // the wedge the owner drew. Alpha drives its visibility, so it is not present
+                        // on an unselected row.
+                        selectionNotch = new Triangle
+                        {
+                            Anchor = Anchor.TopLeft,
+                            Origin = Anchor.TopCentre,
+                            Position = new Vector2(SELECTION_NOTCH_INSET),
+                            Size = new Vector2(SELECTION_NOTCH_LEG * MathF.Sqrt(2), SELECTION_NOTCH_LEG * MathF.Sqrt(2) / 2),
+                            Colour = TypeBeatStyle.SungAccent,
+                            Rotation = 45,
+                            // Never part of the layout, so a corner wedge cannot grow the row's
+                            // auto-sized box (same treatment as the rest markers).
+                            BypassAutoSizeAxes = Axes.Both,
+                            Alpha = 0,
                         },
                     },
                 };
@@ -564,6 +612,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     : multiSelected
                         ? TypeBeatStyle.PanelBackground.Lighten(0.25f)
                         : TypeBeatStyle.Background;
+
+                // The coloured corner notch (backlog 391) carries the multi-selection, since the
+                // 0.25 tint reads as the same gray as an unselected row. Shown on EVERY member,
+                // including the active one when it is in the set (which keeps its own brighter
+                // tint too), and cleared the frame a row leaves the set.
+                selectionNotch.Alpha = multiSelected ? 1 : 0;
             }
 
             /// <summary>
