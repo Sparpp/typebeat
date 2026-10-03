@@ -57,6 +57,20 @@ namespace typebeat.Game.Screens.Edit.Components
 
         private const float speed_box_width = 52;
 
+        /// <summary>The text box's height; the slider nub is scaled to it (see <see cref="SpeedSlider"/>).</summary>
+        private const float speed_box_height = 22;
+
+        /// <summary>
+        /// The nub is shrunk by this factor from its stock size (backlog 392 follow-up, owner: the drag
+        /// button should be 40 percent smaller), so it no longer dwarfs the bar it rides.
+        /// </summary>
+        private const float nub_scale = 0.6f;
+
+        /// <summary>
+        /// The gap between the slider and the text box to its right (backlog 392 follow-up).
+        /// </summary>
+        private const float slider_box_gap = 8;
+
         private PlaybackSpeedControl playbackSpeedControl = null!;
         private SpeedSlider speedSlider = null!;
         private SpeedTextBox speedBox = null!;
@@ -113,15 +127,27 @@ namespace typebeat.Game.Screens.Edit.Components
                                 {
                                     RelativeSizeAxes = Axes.X,
                                     AutoSizeAxes = Axes.Y,
-                                    Padding = new MarginPadding { Right = speed_box_width + 8 },
+                                    Anchor = Anchor.CentreLeft,
+                                    Origin = Anchor.CentreLeft,
+                                    Padding = new MarginPadding { Right = speed_box_width + slider_box_gap },
                                     Child = speedSlider = new SpeedSlider(tempoAdjustment)
                                     {
                                         RelativeSizeAxes = Axes.X,
+                                        // Centre the bar on the box's middle: the row is as tall as the
+                                        // box, and the slider's own height is the (now smaller) nub, so
+                                        // a centred slice of the row lands the line at the box's level
+                                        // instead of riding high on its top edge.
+                                        Anchor = Anchor.Centre,
+                                        Origin = Anchor.Centre,
                                     },
                                 },
                                 speedBox = new SpeedTextBox
                                 {
                                     Width = speed_box_width,
+                                    // Wait for the box's own height (it sets it in its ctor) before the
+                                    // row sizes to it, so the slider's centring uses the real height.
+                                    // The nub is scaled to that height in SpeedSlider.Update.
+                                    Height = speed_box_height,
                                     Anchor = Anchor.CentreRight,
                                     Origin = Anchor.CentreRight,
                                 },
@@ -235,16 +261,29 @@ namespace typebeat.Game.Screens.Edit.Components
             private readonly BindableNumber<double> tempo;
             private readonly Box defaultTick;
 
+            /// <summary>The drag button, exposed for scene tests asserting its (scaled) size.</summary>
+            public Drawable DragNub => Nub;
+
             public SpeedSlider(BindableNumber<double> tempo)
             {
                 this.tempo = tempo;
 
                 Current = tempo;
 
+                // A 40 percent smaller drag button (backlog 392 follow-up). Everything the bar derives
+                // from the nub's size shrinks with it, or the ends stop meeting the nub: the bar's
+                // height, and RangePadding (the half-nub each end is inset by, which also lengthens
+                // the line), are both scaled here. The Nub's own fill animation is untouched.
+                Nub.Scale = new Vector2(nub_scale);
+                Height = Nub.HEIGHT * nub_scale;
+                RangePadding = Nub.DEFAULT_EXPANDED_SIZE / 2 * nub_scale;
+
                 Add(defaultTick = new Box
                 {
                     Width = 1.5f,
-                    Height = 9,
+                    // Scaled with the bar so the 100 percent mark stays a tick crossed over the line
+                    // rather than a full-height stroke on a now-shorter control.
+                    Height = 6,
                     Anchor = Anchor.CentreLeft,
                     Origin = Anchor.Centre,
                     Colour = Color4.White.Opacity(0.3f),

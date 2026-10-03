@@ -75,6 +75,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 playback().Tempo.Value == 1.0 && playback().SpeedField.Text == "100%");
         }
 
+        /// <summary>
+        /// The section's layout, as the owner asked for it (backlog 392 follow-up): the slider line
+        /// sits at the MIDDLE of the text box's height, the line reaches further right than it used
+        /// to (and the box sits past its right end, not under it), and the drag button is 40 percent
+        /// smaller than stock. Pinned so a later spacing tweak cannot quietly undo either.
+        /// </summary>
+        [Test]
+        public void TestSliderLineIsInlineWithTheBoxAndTheNubIsSmaller()
+        {
+            AddUntilStep("playback section present", () => playback().IsLoaded);
+
+            AddAssert("slider line is level with the box's vertical middle", () =>
+            {
+                float lineY = playback().Slider.ScreenSpaceDrawQuad.Centre.Y;
+                float boxCentreY = playback().SpeedField.ScreenSpaceDrawQuad.Centre.Y;
+                return Precision.AlmostEquals(lineY, boxCentreY, 1.5);
+            });
+
+            AddAssert("the slider ends before the box's left edge", () =>
+                playback().Slider.ScreenSpaceDrawQuad.TopRight.X < playback().SpeedField.ScreenSpaceDrawQuad.TopLeft.X);
+
+            // Screen-space size, not DrawWidth: DrawWidth excludes the nub's own Scale, so it would
+            // read the stock 50 regardless. The mock clock matches the game's layout scale here.
+            AddAssert("the drag button is 40 percent smaller than stock", () =>
+                Precision.AlmostEquals(playback().Slider.DragNub.ScreenSpaceDrawQuad.Width, typebeat.Game.Graphics.UserInterface.Nub.DEFAULT_EXPANDED_SIZE * 0.6f, 1.0)
+                && Precision.AlmostEquals(playback().Slider.DragNub.ScreenSpaceDrawQuad.Height, typebeat.Game.Graphics.UserInterface.Nub.HEIGHT * 0.6f, 1.0));
+        }
+
         [Test]
         public void TestSliderEndsAndDefault()
         {

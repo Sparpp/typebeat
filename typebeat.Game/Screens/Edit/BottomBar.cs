@@ -50,7 +50,11 @@ namespace typebeat.Game.Screens.Edit
                     {
                         new Dimension(GridSizeMode.Absolute, 150),
                         new Dimension(),
-                        new Dimension(GridSizeMode.Absolute, 220),
+                        // The playback cell (PlaybackControl). Widened from 220 for backlog 392's
+                        // follow-up: the speed slider grew and its text box moved right, and the box
+                        // is right-anchored to this cell, so the cell must widen or the box would sit
+                        // on top of the slider (the box is drawn after it) instead of past it.
+                        new Dimension(GridSizeMode.Absolute, 280),
                         // The ruleset slot: zero width unless the active ruleset's compose screen
                         // publishes an action, so the summary timeline only gives up space when
                         // there is actually a button there.
