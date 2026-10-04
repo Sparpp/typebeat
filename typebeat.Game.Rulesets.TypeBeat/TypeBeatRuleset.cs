@@ -132,6 +132,10 @@ namespace typebeat.Game.Rulesets.TypeBeat
             {
                 new TypeBeatModLegacyFletcher(),
                 new TypeBeatModConductor(),
+                // The synthetic "CL" (backlog 398): the server appends it to a score played on a
+                // version of the map that is not the ranked one. Not selectable (System), but listed
+                // so a stored CL row renders "Classic" rather than UnknownMod. See TypeBeatModClassic.
+                new TypeBeatModClassic(),
             },
             _ => Array.Empty<Mod>(),
         };

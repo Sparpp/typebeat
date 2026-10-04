@@ -648,6 +648,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         private const double fletcher_multiplier = 0.90;
         private const double no_fail_multiplier = 0.90;
+
+        /// <summary>
+        /// The synthetic "CL" Classic mark (backlog 398): the play was on a version of the map that
+        /// is not the ranked one, so it is paid 5 percent less. Mirrors the server's
+        /// <c>Scoring/PerformancePoints.cs</c> classic value and the server's score-side
+        /// <c>Scoring/ModMultiplier.cs</c> "CL" arm, so a stored marked row's re-derived reading on
+        /// the results screen equals the number the server stored.
+        /// </summary>
+        private const double classic_multiplier = 0.95;
+
         private const double flashlight_offset = 0.02;
         private const double flashlight_weight = 0.06;
         private const double flashlight_floor = 1.0;
@@ -1027,6 +1037,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
                     case "NF":
                         multiplier *= no_fail_multiplier;
+                        break;
+
+                    // The synthetic "CL" Classic mark (backlog 398): the play was on a version of
+                    // the map that is not the ranked one, so it is paid 5 percent less. The acronym
+                    // resolves to TypeBeatModClassic; the server keeps the same 0.95 in its own
+                    // Scoring/PerformancePoints.cs and Scoring/ModMultiplier.cs, and this arm is what
+                    // makes a marked row's RE-DERIVED pp on the results screen match the server's
+                    // stored number (which PpBackfill writes at this same factor).
+                    case "CL":
+                        multiplier *= classic_multiplier;
                         break;
 
                     // SD / GK / MU are explicitly 1.0, matching their score multipliers. Anything else
