@@ -505,8 +505,14 @@ namespace typebeat.Game.Online.API
             SecondFactorCode = code;
         }
 
-        public IHubClientConnector GetHubConnector(string clientName, string endpoint) =>
-            new HubClientConnector(clientName, endpoint, this, versionHash);
+        /// <summary>
+        /// A connector for the hub at <paramref name="endpoint"/>, or null when the endpoint is empty:
+        /// the server hosts no such hub (see <see cref="TypebeatEndpointConfiguration"/>), so there is
+        /// nothing to connect to and nothing to retry. Every hub client already treats a null connector
+        /// as permanently disconnected.
+        /// </summary>
+        public IHubClientConnector? GetHubConnector(string clientName, string endpoint) =>
+            string.IsNullOrEmpty(endpoint) ? null : new HubClientConnector(clientName, endpoint, this, versionHash);
 
         public IChatClient GetChatClient() => new WebSocketChatClient(this);
 

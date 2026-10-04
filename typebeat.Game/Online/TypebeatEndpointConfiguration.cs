@@ -49,12 +49,15 @@ namespace typebeat.Game.Online
             APIClientID = "1";
             APIClientSecret = @"typebeat-official-client";
 
-            // Deliberately dead paths: spectating/multiplayer are out of scope, and the server
-            // never offers these hubs. The client's HubClientConnectors retry quietly in the
-            // background (network log only), which is the zero-client-risk launch posture.
-            SpectatorUrl = $@"{apiRoot}/signalr/spectator";
-            MultiplayerUrl = $@"{apiRoot}/signalr/multiplayer";
-            MetadataUrl = $@"{apiRoot}/signalr/metadata";
+            // No SignalR hubs: spectating, multiplayer and the metadata hub are out of scope and
+            // the server offers none of them, so SpectatorUrl, MultiplayerUrl and MetadataUrl stay
+            // EMPTY, and an empty hub URL builds no connector at all (APIAccess.GetHubConnector).
+            // The clients then run exactly as they do against DummyAPIAccess: never connected, and
+            // every call bails out on IsConnected. Pointing these at paths the server does not
+            // serve used to leave three connectors failing and retrying for the whole session,
+            // each failure an exception rethrown through the connect chain, which under an
+            // attached debugger stalled the game every few seconds. Set them again (e.g.
+            // $@"{apiRoot}/signalr/spectator") once the server actually hosts a hub.
 
             // Beatmap submission (the BSS-compatible endpoint subset) is served by the same
             // monolith under the /bss path prefix. Production uploads are pointed at the
