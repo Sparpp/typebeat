@@ -79,6 +79,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     public sealed class SyncWindows
     {
         public const double LEAD_IN_MS = 2000;
+        public const double FREESTYLE_WINDOW_SCALE = 2;
 
         // ONE LADDER FOR EVERY CELL: the one tuning point. MILLISECONDS between the keypress and the
         // cell's TargetTime, SYMMETRIC around the target.
