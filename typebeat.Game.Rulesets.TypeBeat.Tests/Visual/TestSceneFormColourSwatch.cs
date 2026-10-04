@@ -95,6 +95,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
+        public void TestThePickersPreviewConfirmsAndClosesIt()
+        {
+            SpriteIcon confirm() => this.ChildrenOfType<OsuColourPicker>().Single().ChildrenOfType<SpriteIcon>().Single(i => i.Icon.Equals(FontAwesome.Solid.Check));
+
+            AddStep("open the picker", () => row.ShowPicker());
+            AddUntilStep("picker shown", () => this.ChildrenOfType<OsuColourPicker>().Any(p => p.IsPresent));
+
+            AddAssert("its preview carries a check mark", () => confirm().Alpha == 1);
+
+            AddStep("pick a colour in it", () => this.ChildrenOfType<OsuColourPicker>().Single().Current.Value = new Colour4(18, 171, 239, 255));
+            AddAssert("which applies straight away", () => hexIs("#12abef"));
+
+            AddStep("hover the preview", () => InputManager.MoveMouseTo(confirm()));
+            AddUntilStep("the check mark grows on hover", () => confirm().Scale.X > 1.1f);
+
+            AddStep("click it", () => InputManager.Click(MouseButton.Left));
+            AddUntilStep("the picker closes", () => !this.ChildrenOfType<OsuColourPicker>().Any(p => p.IsPresent));
+            AddAssert("keeping the picked colour", () => hexIs("#12abef"));
+        }
+
+        [Test]
+        public void TestAPickerOutsideAPopoverKeepsAPlainPreview()
+        {
+            AddStep("show a bare picker", () => Child = new OsuColourPicker { Current = colour });
+            AddAssert("no check mark", () => this.ChildrenOfType<SpriteIcon>().Single(i => i.Icon.Equals(FontAwesome.Solid.Check)).Alpha == 0);
+        }
+
+        [Test]
         public void TestTypedColourIsStoredOpaque()
         {
             commitHex("#00ff00");
