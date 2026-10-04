@@ -42,6 +42,55 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
+        /// The timing tint's settings sit under their own "Timing tint" heading, between "Visual
+        /// feedback" (which keeps the sync metric) and "Lyric timing", and their captions leave
+        /// the feature's name to the heading.
+        /// </summary>
+        [Test]
+        public void TheTimingTintSettingsSitUnderTheirOwnHeading()
+        {
+            var ruleset = new TypeBeatRuleset();
+            var subsection = (TypeBeatExperimentalSettingsSubsection)ruleset.CreateExperimentalSettings()!;
+
+            using (var config = new TypeBeatRulesetConfigManager(null, ruleset.RulesetInfo))
+            {
+                var controls = subsection.BuildControls(config).ToList();
+
+                int heading(string text) => controls.FindIndex(c => c is OsuSpriteText t && t.Text.ToString() == text);
+
+                int captioned(string caption) => controls.FindIndex(c => c is SettingsItemV2 item && item.Control.FilterTerms.Any(t => t.ToString() == caption));
+
+                Assert.That(controls.OfType<OsuSpriteText>().Select(t => t.Text.ToString()), Is.EqualTo(new[]
+                {
+                    "Visual feedback",
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_HEADING,
+                    "Lyric timing",
+                }), "the timing tint heading sits between visual feedback and lyric timing");
+
+                int visualFeedback = heading("Visual feedback");
+                int timingTint = heading(TypeBeatExperimentalSettingsSubsection.TIMING_TINT_HEADING);
+                int lyricTiming = heading("Lyric timing");
+
+                Assert.That(captioned("Show sync metric"), Is.InRange(visualFeedback + 1, timingTint - 1), "the sync metric stays under visual feedback");
+
+                string[] tintCaptions =
+                {
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_CAPTION,
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_MIN_CAPTION,
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_MAX_CAPTION,
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_EARLY_COLOUR_CAPTION,
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_LATE_COLOUR_CAPTION,
+                };
+
+                foreach (string caption in tintCaptions)
+                {
+                    Assert.That(captioned(caption), Is.InRange(timingTint + 1, lyricTiming - 1), $"'{caption}' sits under the timing tint heading");
+                    Assert.That(caption, Does.Not.StartWith("Timing tint"), "the heading names the feature, so the rows do not repeat it");
+                }
+            }
+        }
+
+        /// <summary>
         /// Everything still on trial in the section, in source order: the sync metric (backlog 251 put
         /// it behind a switch) and the local auto-aligner's high-accuracy tier (its on/off switch
         /// was hidden by backlog 381 and deleted by backlog 413, so it must NOT be listed). Pinned by their
