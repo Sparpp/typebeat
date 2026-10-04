@@ -358,9 +358,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 "Literate with Hard Rock reverts to point targets");
 
             var frames = mod.CreateReplayData(map, Array.Empty<Mod>()).Replay.Frames.Cast<TypeBeatReplayFrame>().ToList();
-            Assert.That(frames[0].IsConfigExtended && frames[0].AuthoredSyllablesOnly && frames[0].AlignSubdivisionTargets, Is.True, "the era header opens the frames");
-            Assert.That(frames[^2].IsConfigExtended && frames[^2].AuthoredSyllablesOnly && frames[^2].AlignSubdivisionTargets, Is.True, "and sits again ahead of the last press");
+            Assert.That(frames[0].IsConfigExtended && frames[0].AuthoredSyllablesOnly && frames[0].AlignSubdivisionTargets && frames[0].EarlyFinish, Is.True, "the era header opens the frames");
+            Assert.That(frames[^2].IsConfigExtended && frames[^2].AuthoredSyllablesOnly && frames[^2].AlignSubdivisionTargets && frames[^2].EarlyFinish, Is.True,
+                "and sits again ahead of the last press");
             Assert.That(frames.Count(f => f.IsConfigExtended), Is.EqualTo(2));
+        }
+
+        /// <summary>
+        /// Attaching a replay clears every second-word era on the live engine, so autoplay must carry
+        /// <see cref="TypingEngine.EarlyFinish"/> in its own header or the watched run waits for the
+        /// final line's end while a live run ends on the last word.
+        /// </summary>
+        [Test]
+        public void AutoplayFinishesOnItsLastPress()
+        {
+            var map = createTwoLineMap();
+            var frames = new TypeBeatModAutoplay().CreateReplayData(map, Array.Empty<Mod>()).Replay.Frames.Cast<TypeBeatReplayFrame>().ToList();
+            var engine = new TypingEngine(lyricBeatmap(map));
+
+            ReplayEngineFeed.ClearExtendedEras(engine);
+
+            foreach (var frame in frames)
+            {
+                engine.Update(frame.Time);
+                ReplayEngineFeed.Apply(engine, frame);
+            }
+
+            double lastPress = frames[^1].Time;
+            Assert.Less(lastPress + 1, 8000, "the fixture's final line ends well after its last press");
+
+            engine.Update(lastPress + 1);
+            Assert.IsTrue(engine.IsFinished, "the run ends on autoplay's last press, not at the final line's end");
         }
 
         #endregion

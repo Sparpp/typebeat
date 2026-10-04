@@ -56,6 +56,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             beatmap.HitObjects.Add(new TypeBeatHitObject { StartTime = line.StartTime, LineIndex = 0, Line = line, Granularity = TimingGranularity.Word });
 
+            // A SECOND line, deliberately: the assertions below need a live play. This fixture's first line is
+            // the map's whole content otherwise, so autoplay's final press would also be the map's last event
+            // and the run would seal at once (EarlyFinish, carried in the header the toggle attaches - see
+            // AutoplayFinishesOnItsLastPress). EditorPlayer then exits the test play RESULTS_DISPLAY_DELAY
+            // after ScoreProcessor.HasCompleted, taking the playfield with it, and the era-carry teardown
+            // below has nothing left to read. With a second line still to be typed the run does not finish,
+            // so the tail runs while the play is up. Line 2 is never typed; it only has to exist.
+            var trailing = new LyricLine
+            {
+                RawText = "let you down",
+                StartTime = 4500,
+                EndTime = 7000,
+                SingEndTime = 6000,
+                Units = new[]
+                {
+                    new TimedUnit { Text = "let", StartTime = 4500, EndTime = 5000, Source = TimingSource.Explicit },
+                    new TimedUnit { Text = "you", StartTime = 5000, EndTime = 5500, Source = TimingSource.Explicit },
+                    new TimedUnit { Text = "down", StartTime = 5500, EndTime = 6000, Source = TimingSource.Explicit },
+                },
+            };
+
+            beatmap.HitObjects.Add(new TypeBeatHitObject { StartTime = trailing.StartTime, LineIndex = 1, Line = trailing, Granularity = TimingGranularity.Word });
+
             return beatmap;
         }
 
