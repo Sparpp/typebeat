@@ -9,6 +9,7 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Cursor;
 using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Testing;
+using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Overlays;
 using typebeat.Game.Tests.Visual;
@@ -44,6 +45,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                     Current = colour,
                 },
             });
+        }
+
+        [Test]
+        public void TestTheSwatchSitsInsideTheCard()
+        {
+            Drawable swatch() => row.ChildrenOfType<OsuClickableContainer>().Single(c => c is IHasPopover);
+
+            AddAssert("one card: the swatch is inside the hex field's card", () =>
+            {
+                var card = row.HexBox.ScreenSpaceDrawQuad.AABBFloat;
+                var inner = swatch().ScreenSpaceDrawQuad.AABBFloat;
+                return card.Contains(inner.TopLeft) && card.Contains(inner.BottomRight);
+            });
+            AddAssert("inset by the same margin top, bottom and right", () =>
+            {
+                var card = row.HexBox.ScreenSpaceDrawQuad.AABBFloat;
+                var inner = swatch().ScreenSpaceDrawQuad.AABBFloat;
+                float top = inner.Top - card.Top, bottom = card.Bottom - inner.Bottom, right = card.Right - inner.Right;
+                return top > 0 && System.Math.Abs(top - bottom) < 0.5f && System.Math.Abs(top - right) < 0.5f;
+            });
+            AddAssert("the row is exactly the card's height", () => System.Math.Abs(row.DrawHeight - row.HexBox.DrawHeight) < 0.01f);
+            AddAssert("the picker opens from the swatch", () =>
+            {
+                row.ShowPicker();
+                return true;
+            });
+            AddUntilStep("picker shown", () => this.ChildrenOfType<OsuColourPicker>().Any());
         }
 
         [Test]

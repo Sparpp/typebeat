@@ -89,7 +89,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(config.Get<float>(TypeBeatRulesetSetting.TimingTintMinStrength), Is.EqualTo(50f), "bound to the stored setting, not a copy");
 
                 // The two colour rows, which edit a colour over a stored #rrggbb string in both directions.
-                var swatches = controls.OfType<Container>().Select(c => c.Children.FirstOrDefault()).OfType<FormColourSwatch>().ToArray();
+                var swatches = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormColourSwatch>().ToArray();
 
                 Assert.That(swatches.Select(s => s.Caption.ToString()), Is.EqualTo(new[]
                 {
@@ -108,6 +108,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 swatches[0].Current.SetDefault();
                 Assert.That(config.Get<string>(TypeBeatRulesetSetting.TimingTintEarlyColour), Is.EqualTo("#ff8a3d"), "resetting the row resets the setting");
+
+                // Settings rows like the rest, so the settings search finds them by caption.
+                Assert.That(swatches.Select(s => s.FilterTerms.Single().ToString()), Is.EqualTo(new[]
+                {
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_EARLY_COLOUR_CAPTION,
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_LATE_COLOUR_CAPTION,
+                }));
                 Assert.That(controls.OfType<SettingsCheckbox>(), Is.Empty, "all experimental toggles use the shared form UI");
 
                 // The one that has to be OFF here: the whole point of the toggle is that the metric

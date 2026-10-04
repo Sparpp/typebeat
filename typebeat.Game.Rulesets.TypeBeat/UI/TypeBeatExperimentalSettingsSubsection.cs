@@ -206,10 +206,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <c>#rrggbb</c> string (see <see cref="TypeBeatRulesetConfigManager.FormatTintColour"/>) and
         /// <see cref="FormColourSwatch"/> edits a <see cref="Colour4"/>, so the row keeps the two in
         /// step both ways; an empty hex commit resets the colour, and through it the setting, to the
-        /// default. The swatch is not an <c>IFormControl</c>, so it is padded like the install button
-        /// rather than wrapped in a <see cref="SettingsItemV2"/>.
+        /// default. A <see cref="SettingsItemV2"/> like every other row here, so it lines up with them,
+        /// carries the revert-to-default button and is found by the settings search.
         /// </summary>
-        private static Drawable tintColourRow(TypeBeatRulesetConfigManager config, TypeBeatRulesetSetting setting, string caption, string hint, Colour4 fallback)
+        private static SettingsItemV2 tintColourRow(TypeBeatRulesetConfigManager config, TypeBeatRulesetSetting setting, string caption, string hint, Colour4 fallback)
         {
             var stored = config.GetBindable<string>(setting);
             var colour = new Bindable<Colour4>(TypeBeatRulesetConfigManager.TintColour(stored.Default, fallback))
@@ -237,18 +237,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 syncing = false;
             });
 
-            return new Container
+            return new SettingsItemV2(new FormColourSwatch
             {
-                RelativeSizeAxes = Axes.X,
-                AutoSizeAxes = Axes.Y,
-                Padding = SettingsPanel.CONTENT_PADDING,
-                Child = new FormColourSwatch
-                {
-                    Caption = caption,
-                    HintText = hint,
-                    Current = colour,
-                },
-            };
+                Caption = caption,
+                HintText = hint,
+                Current = colour,
+            });
         }
 
         /// <summary>
