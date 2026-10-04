@@ -129,7 +129,8 @@ namespace typebeat.Game.Beatmaps.Drawables
                 Spacing = new Vector2(1, 0);
                 Direction = FillDirection.Horizontal;
 
-                var icon = rulesets.GetRuleset(RulesetId)?.CreateInstance().CreateIcon() ?? new SpriteIcon { Icon = FontAwesome.Regular.QuestionCircle };
+                var ruleset = rulesets.GetRuleset(RulesetId);
+                var icon = ruleset != null ? DifficultyIcon.CreateRulesetGlyph(ruleset, rulesets) : new SpriteIcon { Icon = FontAwesome.Regular.QuestionCircle };
                 Add(icon.With(i =>
                 {
                     i.Size = new Vector2(14);

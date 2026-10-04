@@ -6,7 +6,6 @@ using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
-using typebeat.Game.Online.API.Requests.Responses;
 using typebeat.Game.Overlays.Profile.Header.Components;
 using osuTK;
 
@@ -15,8 +14,6 @@ namespace typebeat.Game.Overlays.Profile.Header
     public partial class CentreHeaderContainer : CompositeDrawable
     {
         public readonly Bindable<UserProfileData?> User = new Bindable<UserProfileData?>();
-
-        private LevelBadge levelBadge = null!;
 
         public CentreHeaderContainer()
         {
@@ -51,58 +48,11 @@ namespace typebeat.Game.Overlays.Profile.Header
                         {
                             User = { BindTarget = User }
                         },
-                        new MessageUserButton
-                        {
-                            User = { BindTarget = User }
-                        },
-                        new UserActionsButton
-                        {
-                            User = { BindTarget = User }
-                        }
+                        // No message button (the server has no chat) and no report/block actions menu (no endpoints).
+                        // No level badge or progress bar either: type!beat has no levels (the server sends a fixed 1).
                     }
                 },
-                new Container
-                {
-                    Anchor = Anchor.CentreRight,
-                    Origin = Anchor.CentreRight,
-                    AutoSizeAxes = Axes.Both,
-                    Margin = new MarginPadding { Right = WaveOverlayContainer.HORIZONTAL_PADDING },
-                    Children = new Drawable[]
-                    {
-                        levelBadge = new LevelBadge
-                        {
-                            Anchor = Anchor.CentreRight,
-                            Origin = Anchor.CentreRight,
-                            Size = new Vector2(40)
-                        },
-                        new Container
-                        {
-                            Anchor = Anchor.CentreRight,
-                            Origin = Anchor.CentreRight,
-                            Width = 200,
-                            Height = 6,
-                            Margin = new MarginPadding { Right = WaveOverlayContainer.HORIZONTAL_PADDING },
-                            Child = new LevelProgressBar
-                            {
-                                RelativeSizeAxes = Axes.Both,
-                                User = { BindTarget = User }
-                            }
-                        },
-                    }
-                }
             };
-        }
-
-        protected override void LoadComplete()
-        {
-            base.LoadComplete();
-
-            User.BindValueChanged(user => updateDisplay(user.NewValue?.User), true);
-        }
-
-        private void updateDisplay(APIUser? user)
-        {
-            levelBadge.LevelInfo.Value = user?.Statistics?.Level;
         }
     }
 }

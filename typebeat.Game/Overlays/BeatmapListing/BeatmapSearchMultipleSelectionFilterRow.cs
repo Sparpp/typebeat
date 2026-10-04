@@ -28,9 +28,13 @@ namespace typebeat.Game.Overlays.BeatmapListing
 
         private MultipleSelectionFilter filter = null!;
 
-        public BeatmapSearchMultipleSelectionFilterRow(LocalisableString header)
+        /// <param name="header">The row's heading.</param>
+        /// <param name="values">The values to offer; every member of <typeparamref name="T"/> when null.</param>
+        public BeatmapSearchMultipleSelectionFilterRow(LocalisableString header, IReadOnlyCollection<T>? values = null)
             : base(header)
         {
+            // the filter is created by the base constructor and only reads its values on load.
+            filter.Values = values;
         }
 
         [BackgroundDependencyLoader]
@@ -49,6 +53,9 @@ namespace typebeat.Game.Overlays.BeatmapListing
         protected partial class MultipleSelectionFilter : FillFlowContainer<MultipleSelectionFilterTabItem>
         {
             public readonly BindableList<T> Current = new BindableList<T>();
+
+            /// <summary>The values to offer, or null for every member of <typeparamref name="T"/>.</summary>
+            public IReadOnlyCollection<T>? Values { get; set; }
 
             [BackgroundDependencyLoader]
             private void load()
@@ -82,7 +89,7 @@ namespace typebeat.Game.Overlays.BeatmapListing
             /// <summary>
             /// Returns all values to be displayed in this filter row.
             /// </summary>
-            protected virtual IEnumerable<T> GetValues() => Enum.GetValues(typeof(T)).Cast<T>();
+            protected virtual IEnumerable<T> GetValues() => Values ?? Enum.GetValues(typeof(T)).Cast<T>();
 
             /// <summary>
             /// Creates a <see cref="MultipleSelectionFilterTabItem"/> representing the supplied <paramref name="value"/>.

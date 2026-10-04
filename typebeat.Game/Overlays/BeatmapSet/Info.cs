@@ -1,8 +1,7 @@
-﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
-using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
@@ -15,6 +14,11 @@ using typebeat.Game.Overlays.BeatmapListing;
 
 namespace typebeat.Game.Overlays.BeatmapSet
 {
+    /// <summary>
+    /// The set's description, source, language and mapper tags, beside the selected difficulty's success rate.
+    /// Lazer's nominators, genre and user tags are not shown: the server has no nomination step, no genre and no
+    /// user tagging.
+    /// </summary>
     public partial class Info : Container
     {
         private const float metadata_width = 185;
@@ -29,11 +33,9 @@ namespace typebeat.Game.Overlays.BeatmapSet
 
         public Info()
         {
-            MetadataSectionNominators nominators;
+            MetadataSectionDescription description;
             MetadataSectionSource source;
-            MetadataSectionGenre genre;
             MetadataSectionLanguage language;
-            MetadataSectionUserTags userTags;
             MetadataSectionMapperTags mapperTags;
             SuccessRate successRate;
 
@@ -59,7 +61,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
                             Child = new Container
                             {
                                 RelativeSizeAxes = Axes.Both,
-                                Child = new MetadataSectionDescription(),
+                                Child = description = new MetadataSectionDescription(),
                             },
                         },
                         new OsuScrollContainer
@@ -80,11 +82,8 @@ namespace typebeat.Game.Overlays.BeatmapSet
                                 Padding = new MarginPadding { Right = 5 },
                                 Children = new Drawable[]
                                 {
-                                    nominators = new MetadataSectionNominators(),
                                     source = new MetadataSectionSource(),
-                                    genre = new MetadataSectionGenre { Width = 0.5f },
-                                    language = new MetadataSectionLanguage { Width = 0.5f },
-                                    userTags = new MetadataSectionUserTags(),
+                                    language = new MetadataSectionLanguage(),
                                     mapperTags = new MetadataSectionMapperTags(),
                                 },
                             },
@@ -114,17 +113,24 @@ namespace typebeat.Game.Overlays.BeatmapSet
 
             BeatmapSet.BindValueChanged(b =>
             {
-                nominators.Metadata = (b.NewValue?.CurrentNominations ?? Array.Empty<BeatmapSetOnlineNomination>(), b.NewValue?.RelatedUsers ?? Array.Empty<APIUser>());
+                description.Metadata = b.NewValue?.Description ?? string.Empty;
                 source.Metadata = b.NewValue?.Source ?? string.Empty;
-                genre.Metadata = b.NewValue?.Genre ?? new BeatmapSetOnlineGenre { Id = (int)SearchGenre.Unspecified };
-                language.Metadata = b.NewValue?.Language ?? new BeatmapSetOnlineLanguage { Id = (int)SearchLanguage.Unspecified };
+                language.Metadata = songLanguage(b.NewValue);
                 mapperTags.Metadata = b.NewValue?.Tags ?? string.Empty;
             });
-            Beatmap.BindValueChanged(b =>
-            {
-                userTags.Metadata = b.NewValue?.GetTopUserTags().Select(t => t.Tag.Name).ToArray() ?? Array.Empty<string>();
-                successRate.Beatmap = b.NewValue;
-            });
+            Beatmap.BindValueChanged(b => successRate.Beatmap = b.NewValue);
+        }
+
+        /// <summary>
+        /// The set's song language as lazer's language metadata. The server sends it as <c>song_language</c>, a canonical
+        /// name (osu's language list, lower-cased) or empty when unknown, rather than osu's <c>{id, name}</c> object, and
+        /// the names are <see cref="SearchLanguage"/>'s members.
+        /// </summary>
+        private static BeatmapSetOnlineLanguage songLanguage(APIBeatmapSet? set)
+        {
+            var parsed = Enum.TryParse(set?.SongLanguage, ignoreCase: true, out SearchLanguage language) ? language : SearchLanguage.Unspecified;
+
+            return new BeatmapSetOnlineLanguage { Id = (int)parsed, Name = parsed.ToString() };
         }
 
         [BackgroundDependencyLoader]

@@ -228,19 +228,7 @@ namespace typebeat.Game.Beatmaps.Drawables.Cards
             if (BeatmapSet.HasVideo)
                 leftIconArea.Add(new VideoIconPill());
 
-            if (BeatmapSet.HasStoryboard)
-                leftIconArea.Add(new StoryboardIconPill());
-
-            if (BeatmapSet.FeaturedInSpotlight)
-            {
-                titleBadgeArea.Add(new SpotlightBeatmapBadge
-                {
-                    Anchor = Anchor.BottomRight,
-                    Origin = Anchor.BottomRight,
-                    Margin = new MarginPadding { Left = 4 }
-                });
-            }
-
+            // No storyboard pill, spotlight badge or featured artist badge: none of the three is recorded server-side.
             if (BeatmapSet.HasExplicitContent)
             {
                 titleBadgeArea.Add(new ExplicitContentBeatmapBadge
@@ -250,16 +238,6 @@ namespace typebeat.Game.Beatmaps.Drawables.Cards
                     Margin = new MarginPadding { Left = 4 }
                 });
             }
-
-            if (BeatmapSet.TrackId != null)
-            {
-                artistContainer.Content[0][1] = new FeaturedArtistBeatmapBadge
-                {
-                    Anchor = Anchor.BottomRight,
-                    Origin = Anchor.BottomRight,
-                    Margin = new MarginPadding { Left = 4 }
-                };
-            }
         }
 
         private LocalisableString createArtistText()
@@ -268,16 +246,9 @@ namespace typebeat.Game.Beatmaps.Drawables.Cards
             return BeatmapsetsStrings.ShowDetailsByArtist(romanisableArtist);
         }
 
+        // No hype or nomination counts: there is no nomination process to count.
         private IEnumerable<BeatmapCardStatistic> createStatistics()
         {
-            var hypesStatistic = HypesStatistic.CreateFor(BeatmapSet);
-            if (hypesStatistic != null)
-                yield return hypesStatistic;
-
-            var nominationsStatistic = NominationsStatistic.CreateFor(BeatmapSet);
-            if (nominationsStatistic != null)
-                yield return nominationsStatistic;
-
             yield return new PlayCountStatistic(BeatmapSet);
             yield return new FavouritesStatistic(BeatmapSet) { Current = FavouriteState };
 

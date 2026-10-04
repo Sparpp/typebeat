@@ -319,7 +319,8 @@ namespace typebeat.Game
             dependencies.CacheAs(Storage);
 
             var largeStore = new LargeTextureStore(Host.Renderer, Host.CreateTextureLoaderStore(new NamespacedResourceStore<byte[]>(Resources, @"Textures")));
-            largeStore.AddTextureSource(Host.CreateTextureLoaderStore(CreateOnlineStore()));
+            var onlineStore = CreateOnlineStore();
+            largeStore.AddTextureSource(Host.CreateTextureLoaderStore(onlineStore is TrustedDomainOnlineStore trusted ? new LoopbackAwareStore(trusted) : onlineStore));
             dependencies.Cache(largeStore);
 
             dependencies.CacheAs(LocalConfig);

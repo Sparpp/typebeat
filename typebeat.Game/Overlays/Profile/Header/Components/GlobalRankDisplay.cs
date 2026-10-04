@@ -20,7 +20,6 @@ namespace typebeat.Game.Overlays.Profile.Header.Components
     public partial class GlobalRankDisplay : CompositeDrawable
     {
         public Bindable<UserStatistics?> UserStatistics = new Bindable<UserStatistics?>();
-        public Bindable<APIUser.UserRankHighest?> HighestRank = new Bindable<APIUser.UserRankHighest?>();
 
         private ProfileValueDisplay info = null!;
 
@@ -45,14 +44,16 @@ namespace typebeat.Game.Overlays.Profile.Header.Components
         {
             base.LoadComplete();
 
-            UserStatistics.BindValueChanged(_ => updateState());
-            HighestRank.BindValueChanged(_ => updateState(), true);
+            UserStatistics.BindValueChanged(_ => updateState(), true);
         }
 
+        /// <remarks>
+        /// No tooltip: lazer's lists the highest rank ever held and the per-variant ranks, and the server keeps neither a
+        /// rank history nor ruleset variants. The tier colour reads <c>global_rank_percent</c>, served off the pp board.
+        /// </remarks>
         private void updateState()
         {
             info.Content.Text = UserStatistics.Value?.GlobalRank?.ToLocalisableString("\\##,##0") ?? (LocalisableString)"-";
-            info.Content.TooltipText = getGlobalRankTooltipText();
 
             var tier = getRankingTier();
             info.Content.Colour = tier == null ? colourProvider.Content2 : OsuColour.ForRankingTier(tier.Value);
@@ -97,42 +98,5 @@ namespace typebeat.Game.Overlays.Profile.Header.Components
             return null;
         }
 
-        private LocalisableString getGlobalRankTooltipText()
-        {
-            var rankHighest = HighestRank.Value;
-            var variants = UserStatistics.Value?.Variants;
-
-            LocalisableString? result = null;
-
-            if (variants?.Count > 0)
-            {
-                foreach (var variant in variants)
-                {
-                    if (variant.GlobalRank != null)
-                    {
-                        var variantText = LocalisableString.Interpolate($"{variant.VariantType.GetLocalisableDescription()}: {variant.GlobalRank.ToLocalisableString("\\##,##0")}");
-
-                        if (result == null)
-                            result = variantText;
-                        else
-                            result = LocalisableString.Interpolate($"{result}\n{variantText}");
-                    }
-                }
-            }
-
-            if (rankHighest != null)
-            {
-                var rankHighestText = UsersStrings.ShowRankHighest(
-                    rankHighest.Rank.ToLocalisableString("\\##,##0"),
-                    rankHighest.UpdatedAt.ToLocalisedMediumDate());
-
-                if (result == null)
-                    result = rankHighestText;
-                else
-                    result = LocalisableString.Interpolate($"{result}\n{rankHighestText}");
-            }
-
-            return result ?? default;
-        }
     }
 }

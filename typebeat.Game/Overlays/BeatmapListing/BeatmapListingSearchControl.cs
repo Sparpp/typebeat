@@ -31,13 +31,16 @@ namespace typebeat.Game.Overlays.BeatmapListing
 
         public Bindable<string> Query => textBox.Current;
 
+        // Every row shown is a filter the server honours over stored data, offering only the values it has data for.
+        // Mode (one ruleset) and genre (not stored) have no row, and stay as inert bindables at their "any" values so
+        // the request and the filter control keep their osu! shape.
         public BindableList<SearchGeneral> General => generalFilter.Current;
 
-        public Bindable<RulesetInfo> Ruleset => modeFilter.Current;
+        public Bindable<RulesetInfo> Ruleset { get; } = new Bindable<RulesetInfo>(new RulesetInfo());
 
         public Bindable<SearchCategory> Category => categoryFilter.Current;
 
-        public Bindable<SearchGenre> Genre => genreFilter.Current;
+        public Bindable<SearchGenre> Genre { get; } = new Bindable<SearchGenre>();
 
         public Bindable<SearchLanguage> Language => languageFilter.Current;
 
@@ -65,10 +68,8 @@ namespace typebeat.Game.Overlays.BeatmapListing
         }
 
         private readonly BeatmapSearchTextBox textBox;
-        private readonly BeatmapSearchGeneralFilterRow generalFilter;
-        private readonly BeatmapSearchRulesetFilterRow modeFilter;
+        private readonly BeatmapSearchMultipleSelectionFilterRow<SearchGeneral> generalFilter;
         private readonly BeatmapSearchFilterRow<SearchCategory> categoryFilter;
-        private readonly BeatmapSearchFilterRow<SearchGenre> genreFilter;
         private readonly BeatmapSearchFilterRow<SearchLanguage> languageFilter;
         private readonly BeatmapSearchMultipleSelectionFilterRow<SearchExtra> extraFilter;
         private readonly BeatmapSearchScoreFilterRow ranksFilter;
@@ -129,12 +130,16 @@ namespace typebeat.Game.Overlays.BeatmapListing
                                 Spacing = new Vector2(5),
                                 Children = new Drawable[]
                                 {
-                                    generalFilter = new BeatmapSearchGeneralFilterRow(),
-                                    modeFilter = new BeatmapSearchRulesetFilterRow(),
-                                    categoryFilter = new BeatmapSearchFilterRow<SearchCategory>(BeatmapsStrings.ListingSearchFiltersStatus),
-                                    genreFilter = new BeatmapSearchFilterRow<SearchGenre>(BeatmapsStrings.ListingSearchFiltersGenre),
+                                    // Subscribed mappers only: recommended difficulty, converts, spotlights and featured artists have no data here.
+                                    generalFilter = new BeatmapSearchMultipleSelectionFilterRow<SearchGeneral>(BeatmapsStrings.ListingSearchFiltersGeneral, new[] { SearchGeneral.Follows }),
+                                    // No qualified or loved status exists; "has leaderboard" and "WIP" would repeat ranked and pending.
+                                    categoryFilter = new BeatmapSearchFilterRow<SearchCategory>(BeatmapsStrings.ListingSearchFiltersStatus, new[]
+                                    {
+                                        SearchCategory.Any, SearchCategory.Ranked, SearchCategory.Favourites, SearchCategory.Pending, SearchCategory.Graveyard, SearchCategory.Mine
+                                    }),
                                     languageFilter = new BeatmapSearchFilterRow<SearchLanguage>(BeatmapsStrings.ListingSearchFiltersLanguage),
-                                    extraFilter = new BeatmapSearchMultipleSelectionFilterRow<SearchExtra>(BeatmapsStrings.ListingSearchFiltersExtra),
+                                    // Video only: storyboards are not recorded.
+                                    extraFilter = new BeatmapSearchMultipleSelectionFilterRow<SearchExtra>(BeatmapsStrings.ListingSearchFiltersExtra, new[] { SearchExtra.Video }),
                                     ranksFilter = new BeatmapSearchScoreFilterRow(),
                                     playedFilter = new BeatmapSearchFilterRow<SearchPlayed>(BeatmapsStrings.ListingSearchFiltersPlayed),
                                     explicitContentFilter = new BeatmapSearchFilterRow<SearchExplicit>(BeatmapsStrings.ListingSearchFiltersNsfw),
@@ -145,8 +150,7 @@ namespace typebeat.Game.Overlays.BeatmapListing
                 }
             });
 
-            generalFilter.Current.Add(SearchGeneral.FeaturedArtists);
-            categoryFilter.Current.Value = SearchCategory.Leaderboard;
+            categoryFilter.Current.Value = SearchCategory.Any;
         }
 
         private IBindable<bool> allowExplicitContent = null!;
@@ -161,13 +165,6 @@ namespace typebeat.Game.Overlays.BeatmapListing
             {
                 ExplicitContent.Value = allow.NewValue ? SearchExplicit.Show : SearchExplicit.Hide;
             }, true);
-        }
-
-        protected override void LoadComplete()
-        {
-            base.LoadComplete();
-
-            generalFilter.Ruleset.BindTo(Ruleset);
         }
 
         public void TakeFocus() => textBox.TakeFocus();

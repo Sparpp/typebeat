@@ -34,20 +34,10 @@ namespace typebeat.Game.Beatmaps.Drawables.Cards.Statistics
             return new BeatmapCardDateStatistic(displayDate.Value);
         }
 
-        private static DateTimeOffset? displayDateFor(IBeatmapSetOnlineInfo beatmapSetInfo)
-        {
-            // reference: https://github.com/ppy/osu-web/blob/ef432c11719fd1207bec5f9194b04f0033bdf02c/resources/assets/lib/beatmapset-panel.tsx#L36-L44
-            switch (beatmapSetInfo.Status)
-            {
-                case BeatmapOnlineStatus.Ranked:
-                case BeatmapOnlineStatus.Approved:
-                case BeatmapOnlineStatus.Loved:
-                case BeatmapOnlineStatus.Qualified:
-                    return beatmapSetInfo.Ranked;
-
-                default:
-                    return beatmapSetInfo.LastUpdated;
-            }
-        }
+        /// <remarks>
+        /// Always the last update. osu shows a ranked set's ranked date, but the type!beat server records no ranked date (its
+        /// <c>ranked_date</c> is the last update standing in), so that would be the same date under a wrong label.
+        /// </remarks>
+        private static DateTimeOffset? displayDateFor(IBeatmapSetOnlineInfo beatmapSetInfo) => beatmapSetInfo.LastUpdated;
     }
 }

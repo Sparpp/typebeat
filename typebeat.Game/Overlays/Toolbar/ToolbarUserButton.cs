@@ -41,7 +41,7 @@ namespace typebeat.Game.Overlays.Toolbar
         }
 
         [BackgroundDependencyLoader]
-        private void load(OsuColour colours, IAPIProvider api, LoginOverlay? login)
+        private void load(OsuColour colours, IAPIProvider api, LoginOverlay? login, OsuGame? game)
         {
             Flow.AddRange(new Drawable[]
             {
@@ -102,6 +102,19 @@ namespace typebeat.Game.Overlays.Toolbar
             localUser.BindValueChanged(userChanged, true);
 
             StateContainer = login;
+
+            // Signed in: the button opens your profile (the login panel is only useful while offline).
+            // StateContainer still drives the highlight and the offline toggle.
+            if (login != null && game != null)
+            {
+                Action = () =>
+                {
+                    if (api.State.Value == APIState.Online)
+                        game.ShowUser(api.LocalUser.Value);
+                    else
+                        login.ToggleVisibility();
+                };
+            }
         }
 
         private void userChanged(ValueChangedEvent<APIUser> user) => Schedule(() =>

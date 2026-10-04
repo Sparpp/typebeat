@@ -26,12 +26,6 @@ namespace typebeat.Game.Overlays.Profile.Header
         public readonly Bindable<UserProfileData?> User = new Bindable<UserProfileData?>();
 
         private LinkFlowContainer topLinkContainer = null!;
-        private LinkFlowContainer bottomLinkContainer = null!;
-
-        private Color4 iconColour;
-
-        [Resolved]
-        private IAPIProvider api { get; set; } = null!;
 
         public BottomHeaderContainer()
         {
@@ -41,8 +35,6 @@ namespace typebeat.Game.Overlays.Profile.Header
         [BackgroundDependencyLoader]
         private void load(OverlayColourProvider colourProvider)
         {
-            iconColour = colourProvider.Foreground1;
-
             InternalChildren = new Drawable[]
             {
                 new Box
@@ -64,11 +56,6 @@ namespace typebeat.Game.Overlays.Profile.Header
                             RelativeSizeAxes = Axes.X,
                             AutoSizeAxes = Axes.Y,
                         },
-                        bottomLinkContainer = new LinkFlowContainer(text => text.Font = text.Font.With(size: 12))
-                        {
-                            RelativeSizeAxes = Axes.X,
-                            AutoSizeAxes = Axes.Y,
-                        }
                     }
                 }
             };
@@ -79,7 +66,6 @@ namespace typebeat.Game.Overlays.Profile.Header
         private void updateDisplay(APIUser? user)
         {
             topLinkContainer.Clear();
-            bottomLinkContainer.Clear();
 
             if (user == null) return;
 
@@ -102,87 +88,13 @@ namespace typebeat.Game.Overlays.Profile.Header
             {
                 topLinkContainer.AddText("Last seen ");
                 topLinkContainer.AddText(new DrawableDate(user.LastVisit.Value, italic: false), embolden);
-
-                addSpacer(topLinkContainer);
             }
 
-            if (user.PlayStyles?.Length > 0)
-            {
-                topLinkContainer.AddText("Plays with ");
-
-                LocalisableString playStylesString = user.PlayStyles[0].GetLocalisableDescription();
-
-                for (int i = 1; i < user.PlayStyles.Length; i++)
-                {
-                    playStylesString = new TranslatableString(@"_", @"{0}{1}", playStylesString, CommonStrings.ArrayAndWordsConnector);
-                    playStylesString = new TranslatableString(@"_", @"{0}{1}", playStylesString, user.PlayStyles[i].GetLocalisableDescription());
-                }
-
-                topLinkContainer.AddText(playStylesString, embolden);
-
-                addSpacer(topLinkContainer);
-            }
-
-            topLinkContainer.AddText("Contributed ");
-            topLinkContainer.AddLink("forum post".ToQuantity(user.PostCount, "#,##0"), $"{api.Endpoints.WebsiteUrl}/users/{user.Id}/posts", creationParameters: embolden);
-
-            addSpacer(topLinkContainer);
-
-            topLinkContainer.AddText("Posted ");
-            topLinkContainer.AddLink("comment".ToQuantity(user.CommentsCount, "#,##0"), $"{api.Endpoints.WebsiteUrl}/comments?user_id={user.Id}", creationParameters: embolden);
-
-            string websiteWithoutProtocol = user.Website;
-
-            if (!string.IsNullOrEmpty(websiteWithoutProtocol))
-            {
-                if (Uri.TryCreate(websiteWithoutProtocol, UriKind.Absolute, out var uri))
-                {
-                    websiteWithoutProtocol = uri.Host + uri.PathAndQuery + uri.Fragment;
-                    websiteWithoutProtocol = websiteWithoutProtocol.TrimEnd('/');
-                }
-            }
-
-            bool anyInfoAdded = false;
-
-            anyInfoAdded |= tryAddInfo(FontAwesome.Solid.MapMarkerAlt, user.Location);
-            anyInfoAdded |= tryAddInfo(FontAwesome.Regular.Heart, user.Interests);
-            anyInfoAdded |= tryAddInfo(FontAwesome.Solid.Suitcase, user.Occupation);
-
-            if (anyInfoAdded)
-                bottomLinkContainer.NewLine();
-
-            if (!string.IsNullOrEmpty(user.Twitter))
-                anyInfoAdded |= tryAddInfo(FontAwesome.Brands.Twitter, "@" + user.Twitter, $@"https://twitter.com/{user.Twitter}");
-            anyInfoAdded |= tryAddInfo(FontAwesome.Brands.Discord, user.Discord);
-            anyInfoAdded |= tryAddInfo(FontAwesome.Solid.Link, websiteWithoutProtocol, user.Website);
-
-            // If no information was added to the bottomLinkContainer, hide it to avoid unwanted padding
-            bottomLinkContainer.Alpha = anyInfoAdded ? 1 : 0;
+            // Join date and last visit are all this row has data for: the server keeps no play styles, forum posts,
+            // location, interests, occupation or social links, and the comment count's lazer link has no page.
         }
 
         private void addSpacer(OsuTextFlowContainer textFlow) => textFlow.AddArbitraryDrawable(new Container { Width = 15 });
-
-        private bool tryAddInfo(IconUsage icon, string content, string? link = null)
-        {
-            if (string.IsNullOrEmpty(content)) return false;
-
-            // newlines could be contained in API returned user content.
-            content = content.Replace('\n', ' ');
-
-            bottomLinkContainer.AddIcon(icon, text =>
-            {
-                text.Font = text.Font.With(icon.Family, 10, icon.Weight);
-                text.Colour = iconColour;
-            });
-
-            if (link != null)
-                bottomLinkContainer.AddLink(" " + content, link, creationParameters: embolden);
-            else
-                bottomLinkContainer.AddText(" " + content, embolden);
-
-            addSpacer(bottomLinkContainer);
-            return true;
-        }
 
         private void embolden(SpriteText text) => text.Font = text.Font.With(weight: FontWeight.Bold);
     }

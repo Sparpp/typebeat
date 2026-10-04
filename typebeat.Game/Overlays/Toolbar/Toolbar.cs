@@ -162,7 +162,7 @@ namespace typebeat.Game.Overlays.Toolbar
                                         Children = new Drawable[]
                                         {
                                             new ToolbarMusicButton(),
-                                            new ToolbarWebsiteButton(),
+                                            new ToolbarBeatmapListingButton(),
                                             new ToolbarClock(),
                                             new ToolbarUserButton(),
                                             new ToolbarNotificationButton(),

@@ -22,7 +22,7 @@ namespace typebeat.Game.Overlays.BeatmapListing
             base.LoadComplete();
 
             if (currentParameters == null)
-                Reset(SearchCategory.Leaderboard, false);
+                Reset(SearchCategory.Any, false);
 
             Current.BindValueChanged(_ => SortDirection.Value = Overlays.SortDirection.Descending);
         }
@@ -35,28 +35,20 @@ namespace typebeat.Game.Overlays.BeatmapListing
             {
                 TabControl.Clear();
 
+                // Only orders over data the server stores: no ranked date (none is recorded), rating (no user
+                // ratings) or nominations (no nomination process).
                 TabControl.AddItem(SortCriteria.Title);
                 TabControl.AddItem(SortCriteria.Artist);
                 TabControl.AddItem(SortCriteria.Difficulty);
-
-                if (category == SearchCategory.Any || category > SearchCategory.Loved)
-                    TabControl.AddItem(SortCriteria.Updated);
-
-                if (category < SearchCategory.Pending || category == SearchCategory.Mine)
-                    TabControl.AddItem(SortCriteria.Ranked);
-
-                TabControl.AddItem(SortCriteria.Rating);
+                TabControl.AddItem(SortCriteria.Updated);
                 TabControl.AddItem(SortCriteria.Plays);
                 TabControl.AddItem(SortCriteria.Favourites);
 
                 if (hasQuery)
                     TabControl.AddItem(SortCriteria.Relevance);
-
-                if (category == SearchCategory.Pending)
-                    TabControl.AddItem(SortCriteria.Nominations);
             }
 
-            var nonQueryCriteria = category >= SearchCategory.Pending ? SortCriteria.Updated : SortCriteria.Ranked;
+            var nonQueryCriteria = SortCriteria.Updated;
 
             Current.Value = hasQuery ? SortCriteria.Relevance : nonQueryCriteria;
             SortDirection.Value = Overlays.SortDirection.Descending;

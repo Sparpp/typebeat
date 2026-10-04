@@ -29,7 +29,6 @@ namespace typebeat.Game.Overlays.BeatmapSet.Scores
         private readonly DrawableDate achievedOn;
 
         private readonly UpdateableFlag flag;
-        private readonly UpdateableTeamFlag teamFlag;
 
         public TopScoreUserSection()
         {
@@ -130,13 +129,7 @@ namespace typebeat.Game.Overlays.BeatmapSet.Scores
                                         Size = new Vector2(19, 14),
                                         Margin = new MarginPadding { Top = 3 }, // makes spacing look more even
                                     },
-                                    teamFlag = new UpdateableTeamFlag
-                                    {
-                                        Anchor = Anchor.CentreLeft,
-                                        Origin = Anchor.CentreLeft,
-                                        Size = new Vector2(28, 14),
-                                        Margin = new MarginPadding { Top = 3 }, // makes spacing look more even
-                                    },
+                                    // No team flag: teams are not kept.
                                 }
                             },
                         }
@@ -159,7 +152,6 @@ namespace typebeat.Game.Overlays.BeatmapSet.Scores
             {
                 avatar.User = value.User;
                 flag.CountryCode = value.User.CountryCode;
-                teamFlag.Team = value.User.Team;
                 achievedOn.Date = value.Date;
 
                 usernameText.Clear();

@@ -50,6 +50,13 @@ namespace typebeat.Game.Online.API
         /// </remarks>
         internal string TokenEndpoint => $@"{endpoints.APIUrl}/oauth/token";
 
+        /// <summary>
+        /// The token requests get their Url after construction, so <see cref="OsuJsonWebRequest{T}"/>'s constructor never saw it, and
+        /// the framework would upgrade a loopback dev server (http://localhost) to https, failing login with a TLS error. The opt-out
+        /// has to be applied after the Url is set and before the request is performed (it has no effect from within PrePerform).
+        /// </summary>
+        private void allowLoopbackHttp(AccessTokenRequest request) => LocalDevInsecure.Allow(request, TokenEndpoint);
+
         internal void AuthenticateWithLogin(string username, string password)
         {
             if (string.IsNullOrEmpty(username)) throw new ArgumentException("Missing username.");
@@ -62,6 +69,8 @@ namespace typebeat.Game.Online.API
                 ClientId = clientId,
                 ClientSecret = clientSecret
             };
+
+            allowLoopbackHttp(accessTokenRequest);
 
             using (accessTokenRequest)
             {
@@ -104,6 +113,8 @@ namespace typebeat.Game.Online.API
                     ClientId = clientId,
                     ClientSecret = clientSecret
                 };
+
+                allowLoopbackHttp(refreshRequest);
 
                 using (refreshRequest)
                 {

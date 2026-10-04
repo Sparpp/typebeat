@@ -1,4 +1,4 @@
-﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 using osu.Framework.Graphics.Containers;
@@ -8,72 +8,37 @@ using osuTK;
 using typebeat.Game.Online.API.Requests.Responses;
 using typebeat.Game.Users.Drawables;
 using typebeat.Game.Graphics.Containers;
-using osu.Framework.Bindables;
-using System.Linq;
-using typebeat.Game.Graphics.Sprites;
-using osu.Framework.Allocation;
 using System.Collections.Generic;
-using System;
-using osu.Framework.Graphics.Shapes;
-using osu.Framework.Extensions.IEnumerableExtensions;
-using System.Collections.Specialized;
-using System.Diagnostics;
+using osu.Framework.Allocation;
 using osu.Framework.Extensions.LocalisationExtensions;
+using osu.Framework.Graphics.Shapes;
 using osu.Framework.Logging;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Localisation;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests;
-using typebeat.Game.Overlays.Comments.Buttons;
 using typebeat.Game.Overlays.Dialog;
 using WebCommonStrings = typebeat.Game.Resources.Localisation.Web.CommonStrings;
 
 namespace typebeat.Game.Overlays.Comments
 {
-    [Cached]
+    /// <summary>
+    /// One comment: avatar, author, message, date, and a delete action on your own comments.
+    /// </summary>
+    /// <remarks>
+    /// Lazer's comment is a node in a reply tree with votes, an edit history and pinning. The server's set comments are
+    /// flat and keep none of those, so this is the flat row: no vote pill, no reply / show-replies / load-more-replies
+    /// buttons, no collapse chevron, no child comments or deleted-replies counter, and no "edited by" line.
+    /// </remarks>
     public partial class DrawableComment : CompositeDrawable
     {
         private const int avatar_size = 40;
 
-        public Action<DrawableComment, int> RepliesRequested = null!;
-
         public readonly Comment Comment;
         public readonly IReadOnlyList<CommentableMeta> Meta;
 
-        public readonly BindableBool ShowDeleted = new BindableBool();
-        public readonly Bindable<CommentsSortCriteria> Sort = new Bindable<CommentsSortCriteria>();
-        private readonly Dictionary<long, Comment> loadedReplies = new Dictionary<long, Comment>();
-
-        public readonly BindableList<DrawableComment> Replies = new BindableList<DrawableComment>();
-
-        private readonly BindableBool childrenExpanded;
-
-        private int currentPage;
-
-        /// <summary>
-        /// Local field for tracking comment state. Initialized from Comment.IsDeleted, may change when deleting was requested by user.
-        /// </summary>
-        public bool WasDeleted { get; protected set; }
-
-        /// <summary>
-        /// Tracks this comment's level of nesting. 0 means that this comment has no parents.
-        /// </summary>
-        public int Level { get; private set; }
-
-        private FillFlowContainer childCommentsVisibilityContainer = null!;
-        private FillFlowContainer childCommentsContainer = null!;
-        private LoadRepliesButton loadRepliesButton = null!;
-        private ShowMoreRepliesButton showMoreButton = null!;
-        private ShowRepliesButton showRepliesButton = null!;
-        private ChevronButton chevronButton = null!;
         private LinkFlowContainer actionsContainer = null!;
         private LoadingSpinner actionsLoading = null!;
-        private DeletedCommentsCounter deletedCommentsCounter = null!;
-        private CommentAuthorLine author = null!;
-        private GridContainer content = null!;
-        private VotePill votePill = null!;
-        private Container<CommentEditor> replyEditorContainer = null!;
-        private Container repliesButtonContainer = null!;
 
         [Resolved]
         private IDialogOverlay? dialogOverlay { get; set; }
@@ -81,26 +46,16 @@ namespace typebeat.Game.Overlays.Comments
         [Resolved]
         private IAPIProvider api { get; set; } = null!;
 
-        [Resolved]
-        private OsuGame? game { get; set; }
-
         public DrawableComment(Comment comment, IReadOnlyList<CommentableMeta> meta)
         {
             Comment = comment;
             Meta = meta;
-
-            childrenExpanded = new BindableBool(!comment.Pinned);
         }
 
         [BackgroundDependencyLoader]
-        private void load(OverlayColourProvider colourProvider, DrawableComment? parentComment)
+        private void load(OverlayColourProvider colourProvider)
         {
-            FillFlowContainer info;
             CommentMarkdownContainer message;
-
-            Level = parentComment?.Level + 1 ?? 0;
-
-            float childrenPadding = Level < 6 ? 20 : 5;
 
             RelativeSizeAxes = Axes.X;
             AutoSizeAxes = Axes.Y;
@@ -110,275 +65,102 @@ namespace typebeat.Game.Overlays.Comments
                 {
                     RelativeSizeAxes = Axes.X,
                     AutoSizeAxes = Axes.Y,
-                    Padding = getPadding(Comment.IsTopLevel),
-                    Child = new FillFlowContainer
+                    Padding = new MarginPadding
+                    {
+                        Horizontal = WaveOverlayContainer.HORIZONTAL_PADDING,
+                        Vertical = 15
+                    },
+                    Child = new GridContainer
                     {
                         RelativeSizeAxes = Axes.X,
                         AutoSizeAxes = Axes.Y,
-                        Direction = FillDirection.Vertical,
-                        Children = new Drawable[]
+                        ColumnDimensions = new[]
                         {
-                            content = new GridContainer
+                            new Dimension(GridSizeMode.Absolute, size: avatar_size + 10),
+                            new Dimension(),
+                        },
+                        RowDimensions = new[]
+                        {
+                            new Dimension(GridSizeMode.AutoSize)
+                        },
+                        Content = new[]
+                        {
+                            new Drawable[]
                             {
-                                RelativeSizeAxes = Axes.X,
-                                AutoSizeAxes = Axes.Y,
-                                ColumnDimensions = new[]
+                                new UpdateableAvatar(Comment.User, showUserPanelOnHover: true)
                                 {
-                                    new Dimension(GridSizeMode.Absolute, size: avatar_size + 10),
-                                    new Dimension(),
+                                    Size = new Vector2(avatar_size),
+                                    Masking = true,
+                                    CornerRadius = avatar_size / 2f,
+                                    CornerExponent = 2,
                                 },
-                                RowDimensions = new[]
+                                new FillFlowContainer
                                 {
-                                    new Dimension(GridSizeMode.AutoSize)
-                                },
-                                Content = new[]
-                                {
-                                    new Drawable[]
+                                    RelativeSizeAxes = Axes.X,
+                                    AutoSizeAxes = Axes.Y,
+                                    Direction = FillDirection.Vertical,
+                                    Spacing = new Vector2(0, 4),
+                                    Margin = new MarginPadding
                                     {
-                                        new Container
-                                        {
-                                            Size = new Vector2(avatar_size),
-                                            Children = new Drawable[]
-                                            {
-                                                new UpdateableAvatar(Comment.User, showUserPanelOnHover: true)
-                                                {
-                                                    Size = new Vector2(avatar_size),
-                                                    Masking = true,
-                                                    CornerRadius = avatar_size / 2f,
-                                                    CornerExponent = 2,
-                                                },
-                                                votePill = new VotePill(Comment)
-                                                {
-                                                    Anchor = Anchor.CentreLeft,
-                                                    Origin = Anchor.CentreRight,
-                                                    Margin = new MarginPadding
-                                                    {
-                                                        Right = 5
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        new FillFlowContainer
+                                        Vertical = 2
+                                    },
+                                    Children = new Drawable[]
+                                    {
+                                        new CommentAuthorLine(Comment, Meta),
+                                        message = new CommentMarkdownContainer
                                         {
                                             RelativeSizeAxes = Axes.X,
                                             AutoSizeAxes = Axes.Y,
-                                            Direction = FillDirection.Vertical,
-                                            Spacing = new Vector2(0, 4),
-                                            Margin = new MarginPadding
-                                            {
-                                                Vertical = 2
-                                            },
+                                            DocumentMargin = new MarginPadding(0),
+                                            DocumentPadding = new MarginPadding(0),
+                                        },
+                                        new FillFlowContainer
+                                        {
+                                            AutoSizeAxes = Axes.Both,
+                                            Direction = FillDirection.Horizontal,
+                                            Spacing = new Vector2(10, 0),
                                             Children = new Drawable[]
                                             {
-                                                author = new CommentAuthorLine(Comment, Meta),
-                                                message = new CommentMarkdownContainer
+                                                new DrawableDate(Comment.CreatedAt, 12, false)
                                                 {
-                                                    RelativeSizeAxes = Axes.X,
-                                                    AutoSizeAxes = Axes.Y,
-                                                    DocumentMargin = new MarginPadding(0),
-                                                    DocumentPadding = new MarginPadding(0),
+                                                    Colour = colourProvider.Foreground1,
                                                 },
-                                                new FillFlowContainer
+                                                // Delete only (your own comments): replies, votes and comment reports are not
+                                                // stored, and the website has no comment permalink page.
+                                                actionsContainer = new LinkFlowContainer(s => s.Font = OsuFont.GetFont(size: 12, weight: FontWeight.Bold))
                                                 {
+                                                    Name = @"Actions buttons",
                                                     AutoSizeAxes = Axes.Both,
-                                                    Direction = FillDirection.Horizontal,
-                                                    Spacing = new Vector2(10, 0),
-                                                    Children = new Drawable[]
-                                                    {
-                                                        info = new FillFlowContainer
-                                                        {
-                                                            AutoSizeAxes = Axes.Both,
-                                                            Direction = FillDirection.Horizontal,
-                                                            Spacing = new Vector2(10, 0),
-                                                            Children = new Drawable[]
-                                                            {
-                                                                new DrawableDate(Comment.CreatedAt, 12, false)
-                                                                {
-                                                                    Colour = colourProvider.Foreground1,
-                                                                }
-                                                            }
-                                                        },
-                                                        actionsContainer = new LinkFlowContainer(s => s.Font = OsuFont.GetFont(size: 12, weight: FontWeight.Bold))
-                                                        {
-                                                            Name = @"Actions buttons",
-                                                            AutoSizeAxes = Axes.Both,
-                                                        },
-                                                        actionsLoading = new LoadingSpinner
-                                                        {
-                                                            Size = new Vector2(12f),
-                                                            Anchor = Anchor.TopLeft,
-                                                            Origin = Anchor.TopLeft
-                                                        }
-                                                    }
                                                 },
-                                                replyEditorContainer = new Container<CommentEditor>
+                                                actionsLoading = new LoadingSpinner
                                                 {
-                                                    AutoSizeAxes = Axes.Y,
-                                                    RelativeSizeAxes = Axes.X,
-                                                    Padding = new MarginPadding { Top = 10 },
-                                                    Alpha = 0,
-                                                },
-                                                repliesButtonContainer = new Container
-                                                {
-                                                    AutoSizeAxes = Axes.Both,
-                                                    Alpha = 0,
-                                                    Children = new Drawable[]
-                                                    {
-                                                        showRepliesButton = new ShowRepliesButton(Comment.RepliesCount)
-                                                        {
-                                                            Expanded = { BindTarget = childrenExpanded }
-                                                        },
-                                                        loadRepliesButton = new LoadRepliesButton
-                                                        {
-                                                            Action = () => RepliesRequested(this, ++currentPage)
-                                                        }
-                                                    }
+                                                    Size = new Vector2(12f),
+                                                    Anchor = Anchor.TopLeft,
+                                                    Origin = Anchor.TopLeft
                                                 }
                                             }
-                                        }
+                                        },
                                     }
                                 }
-                            },
-                            childCommentsVisibilityContainer = new FillFlowContainer
-                            {
-                                Name = @"Children comments",
-                                RelativeSizeAxes = Axes.X,
-                                AutoSizeAxes = Axes.Y,
-                                Direction = FillDirection.Vertical,
-                                Padding = new MarginPadding { Left = childrenPadding },
-                                Children = new Drawable[]
-                                {
-                                    childCommentsContainer = new FillFlowContainer
-                                    {
-                                        RelativeSizeAxes = Axes.X,
-                                        AutoSizeAxes = Axes.Y,
-                                        Direction = FillDirection.Vertical
-                                    },
-                                    deletedCommentsCounter = new DeletedCommentsCounter
-                                    {
-                                        ShowDeleted = { BindTarget = ShowDeleted },
-                                        Margin = new MarginPadding
-                                        {
-                                            Top = 10
-                                        }
-                                    },
-                                    showMoreButton = new ShowMoreRepliesButton
-                                    {
-                                        Action = () => RepliesRequested(this, ++currentPage)
-                                    }
-                                }
-                            },
+                            }
                         }
                     }
                 },
-                new Container
-                {
-                    Size = new Vector2(70, 40),
-                    Anchor = Anchor.TopRight,
-                    Origin = Anchor.TopRight,
-                    Margin = new MarginPadding { Horizontal = 5 },
-                    Child = chevronButton = new ChevronButton
-                    {
-                        Anchor = Anchor.CentreLeft,
-                        Origin = Anchor.CentreLeft,
-                        Expanded = { BindTarget = childrenExpanded },
-                        Alpha = 0
-                    }
-                }
-            };
-
-            if (Comment.EditedAt.HasValue && Comment.EditedUser != null)
-            {
-                var font = OsuFont.GetFont(size: 12, weight: FontWeight.Regular);
-                var colour = colourProvider.Foreground1;
-
-                info.Add(new FillFlowContainer
-                {
-                    AutoSizeAxes = Axes.Both,
-                    Children = new Drawable[]
-                    {
-                        new OsuSpriteText
-                        {
-                            Font = font,
-                            Text = "edited ",
-                            Colour = colour
-                        },
-                        new DrawableDate(Comment.EditedAt.Value)
-                        {
-                            Font = font,
-                            Colour = colour
-                        },
-                        new OsuSpriteText
-                        {
-                            Font = font,
-                            Text = $@" by {Comment.EditedUser.Username}",
-                            Colour = colour
-                        },
-                    }
-                });
-            }
-
-            if (Comment.HasMessage)
-                message.Text = Comment.Message;
-
-            WasDeleted = Comment.IsDeleted;
-            if (WasDeleted)
-                makeDeleted();
-
-            // WebsiteUrl, not APIUrl: this is a link a human copies and shares, and the API root can
-            // be swapped to the direct-origin host mid-session (see ApiHostSelector), which would
-            // hand out permalinks on a host that exists to route around a broken edge rather than to
-            // be typed into an address bar. The two are the same string on an unpinned session.
-            actionsContainer.AddLink(WebCommonStrings.ButtonsPermalink, () => game?.CopyToClipboard($@"{api.Endpoints.WebsiteUrl}/comments/{Comment.Id}"));
-            actionsContainer.AddArbitraryDrawable(Empty().With(d => d.Width = 10));
-            actionsContainer.AddLink(WebCommonStrings.ButtonsReply.ToLower(), toggleReply);
-            actionsContainer.AddArbitraryDrawable(Empty().With(d => d.Width = 10));
-
-            if (Comment.UserId.HasValue && Comment.UserId.Value == api.LocalUser.Value.Id)
-                actionsContainer.AddLink(WebCommonStrings.ButtonsDelete.ToLower(), deleteComment);
-            else
-                actionsContainer.AddArbitraryDrawable(new CommentReportButton(Comment));
-
-            if (Comment.IsTopLevel)
-            {
-                AddInternal(new Box
+                new Box
                 {
                     Anchor = Anchor.BottomCentre,
                     Origin = Anchor.BottomCentre,
                     RelativeSizeAxes = Axes.X,
                     Height = 1.5f,
                     Colour = OsuColour.Gray(0.1f)
-                });
-            }
-
-            if (Replies.Any())
-                onRepliesAdded(Replies);
-
-            Replies.CollectionChanged += (_, args) =>
-            {
-                switch (args.Action)
-                {
-                    case NotifyCollectionChangedAction.Add:
-                        Debug.Assert(args.NewItems != null);
-
-                        onRepliesAdded(args.NewItems.Cast<DrawableComment>());
-                        break;
-
-                    default:
-                        throw new NotSupportedException(@"You can only add replies to this list. Other actions are not supported.");
-                }
+                },
             };
-        }
 
-        /// <summary>
-        /// Transforms some comment's components to show it as deleted. Invoked both from loading and deleting.
-        /// </summary>
-        private void makeDeleted()
-        {
-            author.MarkDeleted();
-            content.FadeColour(OsuColour.Gray(0.5f));
-            votePill.Hide();
-            actionsContainer.Expire();
+            if (Comment.HasMessage)
+                message.Text = Comment.Message;
+
+            if (Comment.UserId.HasValue && Comment.UserId.Value == api.LocalUser.Value.Id)
+                actionsContainer.AddLink(WebCommonStrings.ButtonsDelete.ToLower(), deleteComment);
         }
 
         /// <summary>
@@ -393,7 +175,8 @@ namespace typebeat.Game.Overlays.Comments
         }
 
         /// <summary>
-        /// Invokes comment deletion directly.
+        /// Invokes comment deletion directly. A deleted comment leaves the list, as it does on the website (deleted comments
+        /// are never served, so there is no "show deleted" to keep it around for).
         /// </summary>
         private void deleteCommentRequest()
         {
@@ -403,10 +186,7 @@ namespace typebeat.Game.Overlays.Comments
             request.Success += _ => Schedule(() =>
             {
                 actionsLoading.Hide();
-                makeDeleted();
-                WasDeleted = true;
-                if (!ShowDeleted.Value)
-                    Hide();
+                Hide();
             });
             request.Failure += e => Schedule(() =>
             {
@@ -415,106 +195,6 @@ namespace typebeat.Game.Overlays.Comments
                 actionsContainer.Show();
             });
             api.Queue(request);
-        }
-
-        private void toggleReply()
-        {
-            if (replyEditorContainer.Count == 0)
-            {
-                replyEditorContainer.Show();
-                replyEditorContainer.Add(new ReplyCommentEditor(Comment, Meta)
-                {
-                    OnPost = comments =>
-                    {
-                        Comment.RepliesCount += comments.Length;
-                        showRepliesButton.Count = Comment.RepliesCount;
-                        Replies.AddRange(comments);
-                    },
-                    OnCancel = toggleReply
-                });
-            }
-            else
-            {
-                replyEditorContainer.ForEach(e => e.Expire());
-                replyEditorContainer.Hide();
-            }
-        }
-
-        protected override void LoadComplete()
-        {
-            ShowDeleted.BindValueChanged(show =>
-            {
-                if (WasDeleted)
-                    this.FadeTo(show.NewValue ? 1 : 0);
-            }, true);
-            childrenExpanded.BindValueChanged(expanded => childCommentsVisibilityContainer.FadeTo(expanded.NewValue ? 1 : 0), true);
-            updateButtonsState();
-            base.LoadComplete();
-        }
-
-        private void onRepliesAdded(IEnumerable<DrawableComment> replies)
-        {
-            var page = createRepliesPage(replies);
-
-            if (LoadState == LoadState.Loading)
-            {
-                addRepliesPage(page, replies);
-                return;
-            }
-
-            LoadComponentAsync(page, loaded => addRepliesPage(loaded, replies));
-        }
-
-        private void addRepliesPage(FillFlowContainer<DrawableComment> page, IEnumerable<DrawableComment> replies)
-        {
-            childCommentsContainer.Add(page);
-
-            var newReplies = replies.Select(reply => reply.Comment);
-            newReplies.ForEach(reply => loadedReplies.Add(reply.Id, reply));
-            deletedCommentsCounter.Count.Value += newReplies.Count(reply => reply.IsDeleted);
-            updateButtonsState();
-        }
-
-        private FillFlowContainer<DrawableComment> createRepliesPage(IEnumerable<DrawableComment> replies) => new FillFlowContainer<DrawableComment>
-        {
-            RelativeSizeAxes = Axes.X,
-            AutoSizeAxes = Axes.Y,
-            Direction = FillDirection.Vertical,
-            Children = replies.ToList()
-        };
-
-        private void updateButtonsState()
-        {
-            int loadedRepliesCount = loadedReplies.Count;
-            bool hasUnloadedReplies = loadedRepliesCount != Comment.RepliesCount;
-
-            showRepliesButton.FadeTo(loadedRepliesCount != 0 ? 1 : 0);
-            loadRepliesButton.FadeTo(hasUnloadedReplies && loadedRepliesCount == 0 ? 1 : 0);
-            repliesButtonContainer.FadeTo(repliesButtonContainer.Any(child => child.Alpha > 0) ? 1 : 0);
-
-            showMoreButton.FadeTo(hasUnloadedReplies && loadedRepliesCount > 0 ? 1 : 0);
-
-            if (Comment.IsTopLevel)
-                chevronButton.FadeTo(loadedRepliesCount != 0 ? 1 : 0);
-
-            showMoreButton.IsLoading = loadRepliesButton.IsLoading = false;
-        }
-
-        private MarginPadding getPadding(bool isTopLevel)
-        {
-            if (isTopLevel)
-            {
-                return new MarginPadding
-                {
-                    Horizontal = WaveOverlayContainer.HORIZONTAL_PADDING,
-                    Vertical = 15
-                };
-            }
-
-            return new MarginPadding
-            {
-                Top = 10
-            };
         }
     }
 }
