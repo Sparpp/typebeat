@@ -178,6 +178,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// explicit character cuts are absent, preserving existing replay judgements and caret timing.
     /// Applied like the other extended flags, before a keystroke or playback tick.</para>
     ///
+    /// <para><b>Second word, bit 4 (value 16): <see cref="EarlyFinish"/>.</b>
+    /// The map's FINAL line seals the moment every typeable cell of it is typed correctly, rather
+    /// than waiting for the line's own end, so the run (and the results screen) follows the last
+    /// word instead of the song. Clear (every replay stored before it) keeps the seal at the
+    /// line's end, which matters because a key after the last word (a backspace, say) could still
+    /// change the line there. Applied like the other extended flags.</para>
+    ///
     /// <para><b>The WALL-CLOCK axis (bit 9, backlog 256).</b> Ordinarily a frame's time is a lyric
     /// time and can be fed to the engine as it stands. Under the Puppeteer mod the song's position
     /// is a FUNCTION of the typing, so the lyric time of a keystroke is an OUTPUT of the model
@@ -532,6 +539,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         public bool AlignSubdivisionTargets;
 
         /// <summary>
+        /// The final line sealed as soon as it was fully typed correctly (see
+        /// <see cref="Gameplay.TypingEngine.EarlyFinish"/>). Bit 4 (value 16) of the extended flags
+        /// word; absent on existing replays, which seal the final line at its end.
+        /// </summary>
+        public bool EarlyFinish;
+
+        /// <summary>
         /// The ANCHOR carried by a bit-9 CONFIG frame: the track position the tape was started at,
         /// which is also the origin of the wall axis every other frame in the run is stamped on. It
         /// is simply this frame's own <see cref="ReplayFrame.Time"/>, named here because that is a
@@ -613,8 +627,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// Parameters are append-only and named, as <see cref="CreateConfigFrame"/>'s are; each one
         /// defaults to clear, which is what a replay with no extended frame decodes to.
         /// </summary>
-        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false, bool inputEra2 = false, bool authoredSyllablesOnly = false, bool alignSubdivisionTargets = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
+        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false, bool inputEra2 = false, bool authoredSyllablesOnly = false, bool alignSubdivisionTargets = false, bool earlyFinish = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
         {
+            EarlyFinish = earlyFinish,
             RushCapCostsAccuracy = rushCapCostsAccuracy,
             InputEra2 = inputEra2,
             AuthoredSyllablesOnly = authoredSyllablesOnly,
@@ -636,6 +651,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
 
         /// <summary>Bit 3: per-character timing follows the editor's effective subdivision cuts.</summary>
         private const int ext_flag_align_subdivision_targets = 8;
+
+        /// <summary>Bit 4: the final line seals as soon as it is fully typed (see <see cref="EarlyFinish"/>).</summary>
+        private const int ext_flag_early_finish = 16;
 
         /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>
         private const int flag_allow_wrong_input = 1;
@@ -724,6 +742,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 InputEra2 = (flags & ext_flag_input_era_2) != 0;
                 AuthoredSyllablesOnly = (flags & ext_flag_authored_syllables_only) != 0;
                 AlignSubdivisionTargets = (flags & ext_flag_align_subdivision_targets) != 0;
+                EarlyFinish = (flags & ext_flag_early_finish) != 0;
                 return;
             }
 
@@ -753,7 +772,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             (RushCapCostsAccuracy ? ext_flag_rush_cap_costs_accuracy : 0)
             | (InputEra2 ? ext_flag_input_era_2 : 0)
             | (AuthoredSyllablesOnly ? ext_flag_authored_syllables_only : 0)
-            | (AlignSubdivisionTargets ? ext_flag_align_subdivision_targets : 0);
+            | (AlignSubdivisionTargets ? ext_flag_align_subdivision_targets : 0)
+            | (EarlyFinish ? ext_flag_early_finish : 0);
 
         private int configFlags() =>
             (AllowWrongInput ? flag_allow_wrong_input : 0)

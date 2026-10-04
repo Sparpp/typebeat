@@ -680,7 +680,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             /// replay's headers selected (backlog 363: above all the grouping, which the lyric stack
             /// re-lays when it flips back).
             /// </summary>
-            private (bool RushCapCostsAccuracy, bool InputEra2, bool AuthoredSyllablesOnly, bool AlignSubdivisionTargets)? liveExtendedEras;
+            private (bool RushCapCostsAccuracy, bool InputEra2, bool AuthoredSyllablesOnly, bool AlignSubdivisionTargets, bool EarlyFinish)? liveExtendedEras;
             private int nextFrameIndex;
 
             /// <summary>
@@ -716,7 +716,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // The replay can be swapped mid-play (editor autoplay toggle); restart feeding.
                     if (!ReferenceEquals(replay, activeReplay))
                     {
-                        liveExtendedEras ??= (engine.RushCapCostsAccuracy, engine.InputEra2, engine.AuthoredSyllablesOnly, engine.AlignSubdivisionTargets);
+                        liveExtendedEras ??= (engine.RushCapCostsAccuracy, engine.InputEra2, engine.AuthoredSyllablesOnly, engine.AlignSubdivisionTargets, engine.EarlyFinish);
                         activeReplay = replay;
                         nextFrameIndex = 0;
                         lastFedTime = double.NegativeInfinity;
@@ -795,6 +795,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         engine.InputEra2 = live.InputEra2;
                         engine.AuthoredSyllablesOnly = live.AuthoredSyllablesOnly;
                         engine.AlignSubdivisionTargets = live.AlignSubdivisionTargets;
+                        engine.EarlyFinish = live.EarlyFinish;
                     }
 
                     liveExtendedEras = null;
