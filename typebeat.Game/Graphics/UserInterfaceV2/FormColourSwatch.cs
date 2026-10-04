@@ -97,7 +97,9 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
             if (text.Length == 0)
                 Current.SetDefault();
             else if (Colour4.TryParseHex(text, out Colour4 parsed))
-                Current.Value = parsed.Opacity(1);
+                // 1f, not 1: an integer literal binds to Opacity(byte), which sets alpha to 1/255 and
+                // stored a near-transparent colour that the field then spelled with a trailing "01".
+                Current.Value = parsed.Opacity(1f);
 
             // Always re-spelled from the colour: normalises a typed value, and puts an unparseable one
             // (or a commit that changed nothing) back to what is actually stored.
