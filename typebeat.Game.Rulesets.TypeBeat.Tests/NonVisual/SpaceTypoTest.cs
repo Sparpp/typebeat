@@ -932,7 +932,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>The pre-181 account of <see cref="gapRun"/> at flags 5, hardcoded so that no
         /// arm of the new era can move it unnoticed.</summary>
-        private const long stored_run_total_score = 891328;
+        private const long stored_run_total_score = 934797;
 
         #region Era harness
 

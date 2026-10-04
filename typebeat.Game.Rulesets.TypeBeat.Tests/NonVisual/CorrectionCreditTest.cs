@@ -655,7 +655,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(count(account, HitResult.Miss), Is.Zero);
                 Assert.That(account.Mistypes, Is.EqualTo(2));
                 Assert.That(account.MaxCombo, Is.EqualTo(16));
-                Assert.That(account.TotalScore, Is.EqualTo(856625));
+                Assert.That(account.TotalScore, Is.EqualTo(820109));
                 Assert.That(account.Accuracy, Is.EqualTo(4550 / 4800.0).Within(1e-9));
                 Assert.That(account.Completion, Is.EqualTo(1).Within(1e-9));
                 Assert.That(account.Rank, Is.EqualTo(ScoreRank.S));

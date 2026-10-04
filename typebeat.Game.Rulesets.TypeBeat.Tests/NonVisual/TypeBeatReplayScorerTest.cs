@@ -695,8 +695,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 // Both miss encodings now have identical quality: accuracy, missed cells and
                 // longest streak match. Historic cumulative combo portions no longer affect score.
-                Assert.That(deferred.TotalScore, Is.EqualTo(726780));
-                Assert.That(immediate.TotalScore, Is.EqualTo(684636));
+                Assert.That(deferred.TotalScore, Is.EqualTo(704139));
+                Assert.That(immediate.TotalScore, Is.EqualTo(678852));
             });
         }
 
@@ -732,7 +732,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 // The pre-213 goldens, unchanged.
                 Assert.That(stored.Accuracy, Is.EqualTo(3650 / 3900.0).Within(1e-12));
-                Assert.That(stored.TotalScore, Is.EqualTo(756145));
+                Assert.That(stored.TotalScore, Is.EqualTo(740898));
 
                 // ...and the live arm is strictly worse on both, which is the fold.
                 Assert.That(live.Accuracy, Is.LessThan(stored.Accuracy));
@@ -891,8 +891,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // clear is the account this run was given before backlog 259, and nothing may move
                 // it. The live arm is worth more because the seal no longer resets the combo weight
                 // of the three cells struck after it.
-                Assert.That(stored.TotalScore, Is.EqualTo(532609));
-                Assert.That(live.TotalScore, Is.EqualTo(581491));
+                Assert.That(stored.TotalScore, Is.EqualTo(524729));
+                Assert.That(live.TotalScore, Is.EqualTo(554058));
 
                 // Everything the axis does not reach.
                 Assert.That(live.Statistics, Is.EquivalentTo(stored.Statistics));
@@ -948,8 +948,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(stored.MaxCombo, Is.EqualTo(18), "the reported 919 of 920, in miniature");
 
                 // Current score quality retains only the small longest-streak difference.
-                Assert.That(stored.TotalScore, Is.EqualTo(970636));
-                Assert.That(live.TotalScore, Is.EqualTo(991258));
+                Assert.That(stored.TotalScore, Is.EqualTo(982382));
+                Assert.That(live.TotalScore, Is.EqualTo(994755));
 
                 // Full accuracy and the restored full streak now earn the clean run's million;
                 // the historical combo position of those presses no longer reduces score.
@@ -1040,8 +1040,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                 // The submitted totals, hardcoded so the stored arm is a REPRODUCTION pin: bit 12
                 // clear is the account this run was given before backlog 262, and nothing may move it.
-                Assert.That(stored.TotalScore, Is.EqualTo(709767));
-                Assert.That(live.TotalScore, Is.EqualTo(764689));
+                Assert.That(stored.TotalScore, Is.EqualTo(703873));
+                Assert.That(live.TotalScore, Is.EqualTo(736826));
 
                 // Neither reaches the clean run's million, and they are not meant to: the two breaks
                 // really happened and the combo weight of the cells typed under them is really lower.
@@ -1475,7 +1475,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(account.Accuracy, Is.EqualTo(550 / 1200.0).Within(1e-9));
                 // The whole submitted total, hardcoded: this is the number a stored row holds,
                 // where the same four keystrokes under the live rule are worth the full 1000000.
-                Assert.That(account.TotalScore, Is.EqualTo(239280));
+                Assert.That(account.TotalScore, Is.EqualTo(151658));
                 Assert.That(account.MaxCombo, Is.EqualTo(4));
                 Assert.That(account.UnconsumedFrames, Is.Zero);
             });

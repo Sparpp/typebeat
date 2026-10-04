@@ -25,6 +25,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         public const double ACCURACY_CUTOFF_C = 0.60;
         public const double S_MISS_LIMIT = 0.03;
 
+        // SCORE WEIGHTING (owner, 2026-10-04). The base osu! split is 500000/500000: the first half
+        // is scaled by cumulative COMBO POSITION (comboProgress) and the second by map PROGRESS
+        // (accuracyProgress), both of them multiplied by accuracy - the second by accuracy to the
+        // FIFTH power. type!beat moves that weight onto the accuracy half: 300000/700000. A perfect
+        // play still totals exactly 1000000, so the ceiling and every "one million" statement hold.
+        //
+        // WHY THIS HELPS: the first term is the one a single dropped key costs for the whole rest of
+        // the run (comboProgress is summed position, not the longest streak), so shrinking it makes a
+        // break less punishing; the second term carries accuracy^5, so growing it makes sloppy timing
+        // cost more. Together the score leans on how well the player TYPED rather than how long their
+        // streak ran. NOTE the honest limits: both terms multiply accuracy, so this is a 30/70 split
+        // of the two TERMS, not a clean accuracy-vs-combo ratio.
+        public const double COMBO_PORTION_MAX = 300_000;
+        public const double ACCURACY_PORTION_MAX = 700_000;
+
+        /// <summary>The exponent the accuracy half raises accuracy to (unchanged from the base osu! formula).</summary>
+        public const double ACCURACY_PORTION_EXPONENT = 5;
+
+        /// <summary>
+        /// type!beat's total score: the base osu! shape with the weight moved onto the accuracy half
+        /// (see <see cref="COMBO_PORTION_MAX"/>). Mirrored by the server's <c>ScoringContract</c> and
+        /// the browser's <c>typebeat-core.js</c>, which must move together or a submitted score is
+        /// rejected against a ceiling derived from the wrong split.
+        /// </summary>
+        protected override double ComputeTotalScore(double comboProgress, double accuracyProgress, double bonusPortion)
+        {
+            return COMBO_PORTION_MAX * Accuracy.Value * comboProgress
+                   + ACCURACY_PORTION_MAX * Math.Pow(Accuracy.Value, ACCURACY_PORTION_EXPONENT) * accuracyProgress
+                   + bonusPortion;
+        }
+
         /// <summary>
         /// The result key the MISTYPE stat (wrong keypresses) is persisted under, in the ordinary
         /// <c>statistics</c> dictionary and therefore on the wire as <c>"combo_break"</c>.
