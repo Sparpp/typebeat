@@ -6,9 +6,12 @@ using NUnit.Framework;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
+using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Cursor;
+using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Testing;
+using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Overlays;
@@ -72,6 +75,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 return true;
             });
             AddUntilStep("picker shown", () => this.ChildrenOfType<OsuColourPicker>().Any());
+        }
+
+        [Test]
+        public void TestTheSwatchCarriesALegibleEyedropper()
+        {
+            SpriteIcon icon() => row.ChildrenOfType<SpriteIcon>().Single(i => i.Icon.Equals(FontAwesome.Solid.EyeDropper));
+
+            AddAssert("an eyedropper on the swatch", () => icon() != null);
+            AddAssert("contrasting with the colour", () => icon().Colour.Equals((ColourInfo)OsuColour.ForegroundTextColourFor(colour.Value)));
+
+            ColourInfo onOrange = default;
+            AddStep("remember it", () => onOrange = icon().Colour);
+            AddStep("switch to a dark colour", () => colour.Value = new Colour4(20, 20, 30, 255));
+            AddAssert("the icon follows the colour", () => icon().Colour.Equals((ColourInfo)OsuColour.ForegroundTextColourFor(colour.Value)));
+            AddAssert("and flipped to stay legible", () => !icon().Colour.Equals(onOrange));
         }
 
         [Test]
