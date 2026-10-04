@@ -11,10 +11,12 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Cursor;
 using osu.Framework.Graphics.Shapes;
+using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Localisation;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Overlays;
+using osuTK;
 
 namespace typebeat.Game.Graphics.UserInterfaceV2
 {
@@ -134,13 +136,15 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
 
         /// <summary>
         /// The colour itself, filling the inset slot on the card's right. Rounded like
-        /// <see cref="FormButton"/>'s button; clicking it opens the picker.
+        /// <see cref="FormButton"/>'s button and marked with an eyedropper at that button's icon size,
+        /// drawn black or white against the colour so it stays legible; clicking it opens the picker.
         /// </summary>
         private partial class Swatch : OsuClickableContainer, IHasPopover
         {
             public Bindable<Colour4> Current { get; } = new Bindable<Colour4>();
 
             private Box fill = null!;
+            private SpriteIcon icon = null!;
 
             [Resolved]
             private OverlayColourProvider colourProvider { get; set; } = null!;
@@ -149,21 +153,35 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
             private void load()
             {
                 Masking = true;
-                CornerRadius = 5;
+                CornerRadius = 4;
                 CornerExponent = 2.5f;
                 // A thin edge so a colour close to the card's own background still reads as a swatch.
                 BorderThickness = 2;
                 BorderColour = colourProvider.Background4;
                 Action = this.ShowPopover;
 
-                Child = fill = new Box { RelativeSizeAxes = Axes.Both };
+                Children = new Drawable[]
+                {
+                    fill = new Box { RelativeSizeAxes = Axes.Both },
+                    icon = new SpriteIcon
+                    {
+                        Anchor = Anchor.Centre,
+                        Origin = Anchor.Centre,
+                        Icon = FontAwesome.Solid.EyeDropper,
+                        Size = new Vector2(16),
+                    },
+                };
             }
 
             protected override void LoadComplete()
             {
                 base.LoadComplete();
 
-                Current.BindValueChanged(c => fill.Colour = c.NewValue, true);
+                Current.BindValueChanged(c =>
+                {
+                    fill.Colour = c.NewValue;
+                    icon.Colour = OsuColour.ForegroundTextColourFor(c.NewValue);
+                }, true);
             }
 
             public Popover GetPopover() => new FormColourPalette.ColourPickerPopover
