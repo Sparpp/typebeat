@@ -424,9 +424,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 && statistics.GetValueOrDefault(HitResult.Ok) == 1
                 && statistics.GetValueOrDefault(HitResult.Miss) == 0);
 
-            AddAssert("completion is whole and the rank is an X", () =>
+            AddAssert("completion is whole and corrected accuracy earns S", () =>
                 TypeBeatScoreProcessor.ComputeCompletion(statistics) == 1
-                && Player.ScoreProcessor.Rank.Value == ScoreRank.X);
+                && Precision.AlmostEquals(Player.ScoreProcessor.Accuracy.Value, (11 * 300 + 100) / (12 * 300.0))
+                && Player.ScoreProcessor.Rank.Value == ScoreRank.S);
 
             // The typo is still on the record: the count is of the KEYPRESS, and no correction can
             // unpress it. The COMBO it broke is a different matter since backlog 140, and this is

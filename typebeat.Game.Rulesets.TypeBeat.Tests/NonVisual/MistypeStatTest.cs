@@ -230,7 +230,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(TypeBeatScoreProcessor.ComputeCompletion(sloppy),
                     Is.EqualTo(TypeBeatScoreProcessor.ComputeCompletion(clean)));
-                Assert.That(scoreProcessor.RankFromScore(0, sloppy), Is.EqualTo(ScoreRank.X));
+                Assert.That(scoreProcessor.RankFromScore(1, sloppy), Is.EqualTo(ScoreRank.X));
             });
         }
 

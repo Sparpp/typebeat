@@ -507,7 +507,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // late here (the player went back for them), so they are not Greats.
                 Assert.That(count(live, HitResult.Miss), Is.Zero);
                 Assert.That(live.Completion, Is.EqualTo(1).Within(1e-9));
-                Assert.That(live.Rank, Is.EqualTo(ScoreRank.X));
+                Assert.That(live.Rank, Is.EqualTo(ScoreRank.B));
 
                 // Pre-167: the cells were missed at the skip and can never be earned back.
                 Assert.That(count(stored, HitResult.Miss), Is.EqualTo(2));
@@ -672,7 +672,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(count(live, HitResult.Miss), Is.Zero);
                 Assert.That(live.MaxCombo, Is.EqualTo(3));
                 Assert.That(live.Completion, Is.EqualTo(1).Within(1e-9));
-                Assert.That(live.Rank, Is.EqualTo(ScoreRank.X));
+                Assert.That(live.Rank, Is.EqualTo(ScoreRank.C));
 
                 // Pre-199: a Miss, so the streak ends at the single character before it and the cell
                 // is one the map counts as never typed.

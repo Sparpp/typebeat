@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using osu.Framework;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
@@ -207,7 +208,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
         public override HealthProcessor CreateHealthProcessor(double drainStartTime) => new TypeBeatHealthProcessor();
 
         /// <summary>
-        /// Rank comes from COMPLETION (% of the map typed), not accuracy; see
+        /// Grades use accuracy and missed-character limits; see
         /// <see cref="TypeBeatScoreProcessor"/>. Score, combo and accuracy stay standardised.
         /// </summary>
         public override ScoreProcessor CreateScoreProcessor() => new TypeBeatScoreProcessor(this);
@@ -283,9 +284,20 @@ namespace typebeat.Game.Rulesets.TypeBeat
         public override HitResult GetDisplayResultFor(HitResult result)
             => result == TypeBeatResultMapping.UNFIXED_TYPO ? HitResult.Miss : result;
 
+        public override ScoreRank GetDisplayRankForScore(ScoreInfo score)
+        {
+            if (!score.Passed || score.Rank == ScoreRank.F)
+                return ScoreRank.F;
+
+            ScoreRank rank = TypeBeatScoreProcessor.RankFromStatistics(score.Accuracy, score.Statistics);
+            foreach (var mod in score.Mods.OfType<IApplicableToScoreProcessor>())
+                rank = mod.AdjustRank(rank, score.Accuracy);
+            return rank;
+        }
+
         /// <summary>
-        /// Results-screen statistics: completion (the number the rank is graded on) alongside the
-        /// judgement counts. The accuracy shown in the expanded panel is unchanged.
+        /// Results-screen statistics: completion alongside the judgement counts. Grades use
+        /// accuracy and missed-character limits; completion remains a separate typing statistic.
         ///
         /// <para>TYPOS is ONE number (backlog 140), counting wrong KEYPRESSES as events, and it is
         /// the only typo figure the player is shown: the cells left holding a wrong character at the

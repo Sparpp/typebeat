@@ -11,45 +11,19 @@ using typebeat.Game.Scoring;
 namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 {
     /// <summary>
-    /// type!beat scoring. Total score, combo and ACCURACY are the standardised defaults, but the
-    /// RANK is derived from <b>completion</b>: the fraction of typeable cells the player actually
-    /// typed (any non-miss judgement), instead of accuracy. Typing every character earns an SS even
-    /// with wrong-key stumbles and sloppy timing along the way, as long as the stumbles get fixed;
-    /// timing quality still shows in accuracy, score and combo, it just no longer gates the grade.
-    /// A cell only costs rank when the play did not TYPE IT RIGHT: either nobody typed it and the
-    /// line ran out of time (a Miss), or it was typed wrong and left that way
-    /// (<see cref="TypeBeatResultMapping.UNFIXED_TYPO"/>). Backlog 124 gave the second case a result
-    /// of its own so that pp could stop pricing it as a miss; backlog 126 is the other half of that,
-    /// and it is the user's rule: DO NOT COUNT A TYPO IN COMPLETION. So an unfixed typo sits in
-    /// completion's DENOMINATOR but not its numerator (see <see cref="CountsAsTyped"/>), and it, and
-    /// therefore rank, falls exactly as far as it would for a miss. Backlog 213 finishes that arc:
-    /// an uncorrected typo IS a miss to every consumer now, so it is worth 0 in accuracy
-    /// (<see cref="GetBaseScoreForResult"/>), it counts in pp's MISS term instead of its typo term
-    /// (<c>PerformancePoints.CountNotes</c>), and it is SHOWN in the miss column
-    /// (<c>TypeBeatRuleset.GetDisplayResultFor</c>). What does NOT move is the WIRE: the seal still
-    /// writes the typo's own key, so old rows stay comparable with new ones and the data keeps the
-    /// distinction even though nothing prices it any more. It is applied COMBO-NEUTRAL (see
-    /// <see cref="MarkComboNeutral"/>) because the break it owed was taken at the keypress.
-    ///
-    /// The server mirrors this exactly (typebeat-web ScoringContract.RankFromCompletion); keep
-    /// the cutoffs in the two files in sync.
-    ///
-    /// <para>Wrong keypresses are counted SEPARATELY as MISTYPES (<see cref="MISTYPE_RESULT"/>,
-    /// <see cref="RecordMistype"/>) and change none of the above: accuracy stays the timing quality
-    /// of the cells that were typed, completion/rank stay cells-typed over total cells, so an old
-    /// score and a new one mean the same thing and an SS is still reachable after a stumble. The
-    /// count exists so mistyping is visible at all (it used to leave no trace but a broken combo)
-    /// and so the server can price it in pp.</para>
+    /// type!beat scores use pp's accuracy, missed-cell and longest-streak quality, normalised to
+    /// one million for a perfect play. Grades use accuracy with additional missed-cell limits
+    /// for SS and S. An unfixed typo counts as a missed cell; recovered wrong keypresses remain
+    /// a separate, scoring-neutral statistic. The server scoring contract must mirror these rules.
     /// </summary>
     public partial class TypeBeatScoreProcessor : ScoreProcessor
     {
-        // Completion → rank cutoffs. Same band shape as the base game's accuracy cutoffs so the
-        // grades keep their familiar feel; X strictly requires every cell typed.
-        public const double COMPLETION_CUTOFF_X = 1;
-        public const double COMPLETION_CUTOFF_S = 0.95;
-        public const double COMPLETION_CUTOFF_A = 0.9;
-        public const double COMPLETION_CUTOFF_B = 0.8;
-        public const double COMPLETION_CUTOFF_C = 0.7;
+        public const double ACCURACY_CUTOFF_X = 0.98;
+        public const double ACCURACY_CUTOFF_S = 0.92;
+        public const double ACCURACY_CUTOFF_A = 0.85;
+        public const double ACCURACY_CUTOFF_B = 0.75;
+        public const double ACCURACY_CUTOFF_C = 0.60;
+        public const double S_MISS_LIMIT = 0.03;
 
         /// <summary>
         /// The result key the MISTYPE stat (wrong keypresses) is persisted under, in the ordinary
@@ -302,10 +276,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// one was the last place the two still came apart.</para>
         ///
         /// <para>The judgement's MAXIMUM result is still Great, so the accuracy DENOMINATOR is
-        /// untouched: the cell stays in the fraction and pays 0 of 300, which is what makes accuracy
-        /// genuinely fall rather than the cell quietly leaving. GRADES do not move here at all
-        /// (completion already counts an unfixed typo as untyped, backlog 126, so rank fell for it
-        /// long before accuracy did); the accuracy-derived surfaces fall out of the weight.</para>
+        /// untouched: the cell stays in the fraction and pays 0 of 300. Grades therefore see both
+        /// its accuracy cost and its missed-cell cost under the current accuracy-based thresholds.</para>
         ///
         /// <para>Mirrored by the server (<c>ScoringContract.BaseScore</c>), which recomputes
         /// accuracy from the same dictionaries, and by <c>typebeat-core.js</c>.</para>
@@ -330,10 +302,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             => score.Statistics.TryGetValue(MISTYPE_RESULT, out int mistypes) ? mistypes : null;
 
         public override ScoreRank RankFromScore(double accuracy, IReadOnlyDictionary<HitResult, int> results)
-            => RankFromCompletion(ComputeCompletion(results));
+            => RankFromStatistics(accuracy, results);
 
-        /// <summary>Grade is awarded on completion, so the results-screen gauge fills to completion.</summary>
-        public override double GradeProgress(ScoreInfo score) => ComputeCompletion(score);
+        public static ScoreRank RankFromStatistics(double accuracy, IReadOnlyDictionary<HitResult, int> results)
+        {
+            var counts = PerformancePoints.CountNotes(results);
+            double missedFraction = counts.Notes > 0 ? (double)counts.Misses / counts.Notes : 0;
+            return RankFromAccuracy(accuracy, missedFraction);
+        }
+
+        public override double AccuracyCutoffFromRank(ScoreRank rank)
+            => rank switch
+            {
+                ScoreRank.X or ScoreRank.XH => ACCURACY_CUTOFF_X,
+                ScoreRank.S or ScoreRank.SH => ACCURACY_CUTOFF_S,
+                ScoreRank.A => ACCURACY_CUTOFF_A,
+                ScoreRank.B => ACCURACY_CUTOFF_B,
+                ScoreRank.C => ACCURACY_CUTOFF_C,
+                ScoreRank.D => 0,
+                _ => throw new ArgumentOutOfRangeException(nameof(rank), rank, null),
+            };
 
         /// <summary>
         /// Whether a judged cell counts as TYPED, i.e. belongs in completion's numerator. Every
@@ -405,17 +393,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             return total > 0 ? (double)typed / total : 1;
         }
 
-        public static ScoreRank RankFromCompletion(double completion)
+        /// <summary>Accuracy bands, with missed-cell conditions applied before falling back to A.</summary>
+        public static ScoreRank RankFromAccuracy(double accuracy, double missedFraction)
         {
-            if (completion >= COMPLETION_CUTOFF_X)
+            accuracy = double.IsFinite(accuracy) ? Math.Clamp(accuracy, 0, 1) : 0;
+            missedFraction = double.IsFinite(missedFraction) ? Math.Clamp(missedFraction, 0, 1) : 1;
+
+            if (accuracy >= ACCURACY_CUTOFF_X && missedFraction == 0)
                 return ScoreRank.X;
-            if (completion >= COMPLETION_CUTOFF_S)
+            if (accuracy >= ACCURACY_CUTOFF_S && missedFraction < S_MISS_LIMIT)
                 return ScoreRank.S;
-            if (completion >= COMPLETION_CUTOFF_A)
+            if (accuracy >= ACCURACY_CUTOFF_A)
                 return ScoreRank.A;
-            if (completion >= COMPLETION_CUTOFF_B)
+            if (accuracy >= ACCURACY_CUTOFF_B)
                 return ScoreRank.B;
-            if (completion >= COMPLETION_CUTOFF_C)
+            if (accuracy >= ACCURACY_CUTOFF_C)
                 return ScoreRank.C;
 
             return ScoreRank.D;

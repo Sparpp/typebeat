@@ -413,10 +413,11 @@ namespace typebeat.Game.Screens.Select
                 {
                     set
                     {
+                        ScoreRank displayRank = value.GetDisplayRank();
                         rankBackground.Colour = ColourInfo.GradientVertical(
-                            OsuColour.ForRank(value.Rank).Opacity(0f),
-                            OsuColour.ForRank(value.Rank).Opacity(0.5f));
-                        rankContainer.Child = new DrawableRank(value.Rank);
+                            OsuColour.ForRank(displayRank).Opacity(0f),
+                            OsuColour.ForRank(displayRank).Opacity(0.5f));
+                        rankContainer.Child = new DrawableRank(displayRank);
                         totalScore.Current = scoreManager.GetBindableTotalScoreString(value);
                     }
                 }

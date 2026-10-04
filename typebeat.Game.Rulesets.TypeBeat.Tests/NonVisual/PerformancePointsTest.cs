@@ -780,7 +780,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // v24 = the PP Sandbox's dials re-read after the owner retuned the lab: Easy 0.9 to 0.85,
             // and the knee position written as the 0 the lab's panel holds (inert at width 0, so the
             // only live move is Easy's, which reprices Easy rows alone).
-            Assert.That(PerformancePoints.VERSION, Is.EqualTo(24)); // pp:version
+            Assert.That(PerformancePoints.VERSION, Is.EqualTo(25)); // pp:version
         }
 
         #endregion

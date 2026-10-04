@@ -21,10 +21,15 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// <summary>See <see cref="LyricDifficulty.ModelResult.DifficultCharacters"/>.</summary>
         public double DifficultCharacters { get; }
 
-        public TypeBeatDifficultyAttributes(Mod[] mods, double starRating, double difficultCharacters)
+        /// <summary>Mapped lyric span in seconds, divided by the played clock rate.</summary>
+        public double PlayedDurationSeconds { get; }
+
+        public TypeBeatDifficultyAttributes(Mod[] mods, double starRating, double difficultCharacters,
+                                            double playedDurationSeconds = double.PositiveInfinity)
             : base(mods, starRating)
         {
             DifficultCharacters = difficultCharacters;
+            PlayedDurationSeconds = playedDurationSeconds;
         }
     }
 }

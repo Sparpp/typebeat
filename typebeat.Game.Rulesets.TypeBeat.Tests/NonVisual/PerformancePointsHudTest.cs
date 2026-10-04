@@ -332,7 +332,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 },
                 processor.Accuracy.Value,
                 processor.HighestCombo.Value,
-                withMods);
+                withMods,
+                PerformancePoints.PlayedDurationFor(beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), withMods));
 
 
         [Test]
