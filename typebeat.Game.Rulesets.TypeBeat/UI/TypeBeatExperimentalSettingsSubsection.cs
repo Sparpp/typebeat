@@ -78,16 +78,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// </summary>
         public const string LOCAL_ALIGNER_CAPTION = "Use local auto-aligner";
 
+        /// <summary>
+        /// The heading the timing tint's settings sit under, below "Visual feedback". It names the
+        /// feature, so the rows under it do not repeat it. Public so the settings test pins it.
+        /// </summary>
+        public const string TIMING_TINT_HEADING = "Timing tint";
+
         /// <summary>Caption of the <see cref="TypeBeatRulesetSetting.ShowTimingTint"/> switch. Public so the settings test pins it.</summary>
-        public const string TIMING_TINT_CAPTION = "Timing tint";
+        public const string TIMING_TINT_CAPTION = "Tint typed characters";
 
-        public const string TIMING_TINT_MIN_CAPTION = "Timing tint: minimum strength";
+        public const string TIMING_TINT_MIN_CAPTION = "Minimum strength";
 
-        public const string TIMING_TINT_MAX_CAPTION = "Timing tint: maximum strength";
+        public const string TIMING_TINT_MAX_CAPTION = "Maximum strength";
 
-        public const string TIMING_TINT_EARLY_COLOUR_CAPTION = "Timing tint: early colour";
+        public const string TIMING_TINT_EARLY_COLOUR_CAPTION = "Early colour";
 
-        public const string TIMING_TINT_LATE_COLOUR_CAPTION = "Timing tint: late colour";
+        public const string TIMING_TINT_LATE_COLOUR_CAPTION = "Late colour";
 
         public const string TIMING_TINT_HINT = "Shade typed characters by when they were typed: orange when too early and blue when too late (both adjustable below), stronger the further outside the Great window. "
                                                + "Great hits stay white. Display only; does not affect grades, scores or judgements.";
@@ -126,6 +132,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     HintText = "Show keypress timing beside wpm and shade typed characters by how closely they match the beat. Display only; does not affect grades, scores or judgements.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyncMetric),
                 }),
+                CreateSubsectionHeader(TIMING_TINT_HEADING),
                 new SettingsItemV2(new FormCheckBox
                 {
                     Caption = TIMING_TINT_CAPTION,
