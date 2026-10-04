@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
@@ -77,6 +78,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// split into a tempo/frequency pair, Puppeteer's single frequency adjustment).</para>
         /// </summary>
         public double? ConductorRate { get; set; }
+
+        public override bool AllowGameplayOffsetShortcuts
+        {
+            get
+            {
+                if (Engine.Lines.Count == 0)
+                    return true;
+
+                var firstLine = Engine.Lines[0];
+                double typingStart = Engine.FirstLineLeadIn
+                    ? Math.Min(firstLine.ActivationTime, firstLine.FirstVocalTime - TypingEngine.FIRST_LINE_LEAD_MS)
+                    : firstLine.ActivationTime;
+
+                // Match the key handler's timestamp, including its early first-line input window.
+                // Compare against the first line so shortcuts remain blocked during later breaks.
+                return Math.Round(FrameStableClock.CurrentTime) < typingStart;
+            }
+        }
 
         private IReadOnlyList<InstrumentalSkipSection>? instrumentalSkipSections;
 
