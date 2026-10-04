@@ -5,6 +5,7 @@ using System;
 using System.IO;
 using System.Linq;
 using NUnit.Framework;
+using osu.Framework.Bindables;
 using osu.Framework.Platform;
 using typebeat.Game.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
@@ -227,6 +228,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             using (var rulesetConfig = new TypeBeatRulesetConfigManager(null, new TypeBeatRuleset().RulesetInfo))
             {
                 Assert.That(rulesetConfig.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyncMetric).Default, Is.False);
+            }
+        }
+
+        [Test]
+        public void TimingTintDefaultsToOff()
+        {
+            using (var rulesetConfig = new TypeBeatRulesetConfigManager(null, new TypeBeatRuleset().RulesetInfo))
+            {
+                Assert.That(rulesetConfig.GetBindable<bool>(TypeBeatRulesetSetting.ShowTimingTint).Default, Is.False);
+
+                var min = (BindableFloat)rulesetConfig.GetBindable<float>(TypeBeatRulesetSetting.TimingTintMinStrength);
+                var max = (BindableFloat)rulesetConfig.GetBindable<float>(TypeBeatRulesetSetting.TimingTintMaxStrength);
+
+                Assert.That(min.Default, Is.EqualTo(33f));
+                Assert.That(max.Default, Is.EqualTo(100f));
+                Assert.That(new[] { min.MinValue, min.MaxValue, max.MinValue, max.MaxValue }, Is.EqualTo(new[] { 0f, 100f, 0f, 100f }));
+
+                // Warm for early, cool for late.
+                Assert.That(rulesetConfig.GetBindable<string>(TypeBeatRulesetSetting.TimingTintEarlyColour).Default, Is.EqualTo("#ff8a3d"));
+                Assert.That(rulesetConfig.GetBindable<string>(TypeBeatRulesetSetting.TimingTintLateColour).Default, Is.EqualTo("#4d8bff"));
             }
         }
     }
