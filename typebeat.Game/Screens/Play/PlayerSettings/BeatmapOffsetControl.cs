@@ -28,6 +28,7 @@ using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Overlays.Settings.Sections.Audio;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.Scoring;
+using typebeat.Game.Rulesets.UI;
 using typebeat.Game.Scoring;
 using typebeat.Game.Screens.Ranking.Statistics;
 using osuTK;
@@ -62,6 +63,9 @@ namespace typebeat.Game.Screens.Play.PlayerSettings
 
         [Resolved]
         private Player? player { get; set; }
+
+        [Resolved(CanBeNull = true)]
+        private DrawableRuleset? drawableRuleset { get; set; }
 
         [Resolved]
         private SettingsOverlay? settings { get; set; }
@@ -148,6 +152,11 @@ namespace typebeat.Game.Screens.Play.PlayerSettings
 
         public bool OnPressed(KeyBindingPressEvent<GlobalAction> e)
         {
+            // Let typing keep the key; the offset shortcut is available only in the ruleset's lead-in.
+            if ((e.Action == GlobalAction.IncreaseOffset || e.Action == GlobalAction.DecreaseOffset)
+                && drawableRuleset?.AllowGameplayOffsetShortcuts == false)
+                return false;
+
             // To match stable, this should adjust by 5 ms, or 1 ms when holding alt.
             // But that is hard to make work with global actions due to the operating mode.
             // Let's use the more precise as a default for now.

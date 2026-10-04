@@ -498,6 +498,12 @@ namespace typebeat.Game.Rulesets.UI
         public abstract double GameplayStartTime { get; }
 
         /// <summary>
+        /// Whether keyboard shortcuts may adjust the beatmap offset at the current gameplay time.
+        /// Typing rulesets can close this window before character input begins.
+        /// </summary>
+        public virtual bool AllowGameplayOffsetShortcuts => true;
+
+        /// <summary>
         /// Purely instrumental stretches of the beatmap (no active/typeable content) long enough that
         /// the player should be offered a mid-song skip, reusing the intro <see cref="SkipOverlay"/>
         /// machinery. Empty by default; rulesets with the notion (e.g. lyric typing) override this.
