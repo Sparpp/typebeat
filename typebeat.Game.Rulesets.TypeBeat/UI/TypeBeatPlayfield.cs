@@ -680,7 +680,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             /// replay's headers selected (backlog 363: above all the grouping, which the lyric stack
             /// re-lays when it flips back).
             /// </summary>
-            private (bool RushCapCostsAccuracy, bool InputEra2, bool AuthoredSyllablesOnly, bool AlignSubdivisionTargets, bool EarlyFinish)? liveExtendedEras;
+            private (bool RushCapCostsAccuracy, bool InputEra2, bool AuthoredSyllablesOnly, bool AlignSubdivisionTargets, bool EarlyFinish, bool JapaneseRomajiInput, bool JapaneseWordTiming, bool JapaneseInputEra2)? liveExtendedEras;
             private int nextFrameIndex;
 
             /// <summary>
@@ -716,7 +716,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // The replay can be swapped mid-play (editor autoplay toggle); restart feeding.
                     if (!ReferenceEquals(replay, activeReplay))
                     {
-                        liveExtendedEras ??= (engine.RushCapCostsAccuracy, engine.InputEra2, engine.AuthoredSyllablesOnly, engine.AlignSubdivisionTargets, engine.EarlyFinish);
+                        liveExtendedEras ??= (engine.RushCapCostsAccuracy, engine.InputEra2, engine.AuthoredSyllablesOnly, engine.AlignSubdivisionTargets, engine.EarlyFinish, engine.JapaneseRomajiInput, engine.JapaneseWordTiming, engine.JapaneseInputEra2);
                         activeReplay = replay;
                         nextFrameIndex = 0;
                         lastFedTime = double.NegativeInfinity;
@@ -796,6 +796,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         engine.AuthoredSyllablesOnly = live.AuthoredSyllablesOnly;
                         engine.AlignSubdivisionTargets = live.AlignSubdivisionTargets;
                         engine.EarlyFinish = live.EarlyFinish;
+                        engine.JapaneseRomajiInput = live.JapaneseRomajiInput;
+                        engine.JapaneseWordTiming = live.JapaneseWordTiming;
+                        engine.JapaneseInputEra2 = live.JapaneseInputEra2;
                     }
 
                     liveExtendedEras = null;
@@ -989,6 +992,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             private TextInputSource? textInput { get; set; }
 
             private bool textInputActive;
+            private bool usesIme => engine.Polyglot && !engine.UsesJapaneseRomaji;
 
             /// <summary>The live IME composition, empty when none. Backspace, space and enter belong to the IME while it is not.</summary>
             private string imeComposition = string.Empty;
@@ -1000,7 +1004,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             /// with nothing) and turns SDL's autocorrect off; it is NOT a password type, so macOS never
             /// enters secure event input for it. A Latin play wants every key straight from the
             /// layout: an IME left on would hold a Latin letter in a composition window rather than
-            /// commit it. Polyglot keeps <see cref="TextInputType.Text"/> with the IME allowed.
+            /// commit it. Japanese Polyglot uses this path for its internal romaji processor. Other Polyglot languages keep <see cref="TextInputType.Text"/> with the IME allowed.
             /// </summary>
             internal static readonly TextInputProperties LATIN_TEXT_INPUT = new TextInputProperties(TextInputType.Code, AllowIme: false);
 
@@ -1013,7 +1017,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (textInputActive || textInput == null || drawableRuleset?.ReplayScore != null)
                     return;
 
-                if (engine.Polyglot)
+                if (usesIme)
                 {
                     textInput.OnTextInput += onTextCommitted;
                     textInput.OnImeResult += onTextCommitted;
@@ -1039,7 +1043,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (!textInputActive || textInput == null)
                     return;
 
-                if (engine.Polyglot)
+                if (usesIme)
                 {
                     textInput.OnTextInput -= onTextCommitted;
                     textInput.OnImeResult -= onTextCommitted;
@@ -1073,8 +1077,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (textInputActive && imeComposition.Length > 0)
                     textInput?.SetImeRectangle(playfield.imeRectangle);
 
-                if (!engine.Polyglot)
+                if (!usesIme)
                     pairCommittedText();
+
+                if (engine.UsesJapaneseRomaji)
+                    playfield.setImeComposition(engine.JapanesePending);
             }
 
             protected override void Dispose(bool isDisposing)
@@ -1230,7 +1237,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             /// <summary>Fresh presses still waiting for their commit, oldest first. Update thread only.</summary>
             private readonly List<PendingPress> waitingPresses = new List<PendingPress>();
 
-            private bool latinTextInputActive => textInputActive && !engine.Polyglot;
+            private bool latinTextInputActive => textInputActive && !usesIme;
 
             private void onLatinTextCommitted(string text)
             {
@@ -1395,7 +1402,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 // Nothing while paused, during playback, or while another control holds focus (a chat
                 // box can have activated text input too, and its characters are its own).
-                if (engine.Polyglot || drawableRuleset?.ReplayScore != null || drawableRuleset?.IsPaused.Value == true || !HasFocus)
+                if (usesIme || drawableRuleset?.ReplayScore != null || drawableRuleset?.IsPaused.Value == true || !HasFocus)
                     return false;
 
                 engine.Update(time, wpmClockRate(gameplayClock));
@@ -1405,7 +1412,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 bool typed = false;
 
-                foreach (char c in TextInputFold.Fold(text, engine.Literate))
+                foreach (char c in engine.UsesJapaneseRomaji ? PolyglotText.InputCharacters(text) : TextInputFold.Fold(text, engine.Literate))
                 {
                     // A FINISHED line takes a letter only as the typed-through newline (the era bit
                     // engine.NewlineOnTypedLetter carries), and never a space: the space that closes a
@@ -1452,7 +1459,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // one either: no platform commits text for it (SDL drops the control characters), so
                 // letting it wait would only hand it the next key's character. Ctrl+Alt stays one,
                 // because that is how Windows reports AltGr, and Option (Alt) alone on macOS commits.
-                bool freshTextPress = !engine.Polyglot && !e.Repeat && TypingKeys.CommitsText(e.Key)
+                bool freshTextPress = !usesIme && !e.Repeat && TypingKeys.CommitsText(e.Key)
                                       && !e.SuperPressed && (!e.ControlPressed || e.AltPressed);
 
                 // Which word-level gesture (if any) this press triggers under the user's CURRENT
@@ -1540,7 +1547,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 //
                 // (Gated on there being no bound gesture on this press, so binding one onto a Space
                 // chord is not swallowed by the skip fall-through.)
-                if (engine.FletcherEnabled && gesture == null && e.Key == Key.Space && !engine.SongIsOnTheCaretsLine && engine.ActiveLineUntouched)
+                // A freestyle slot can open before the song reaches this line. Space is its input within that window.
+                if (engine.FletcherEnabled && gesture == null && e.Key == Key.Space && !engine.SongIsOnTheCaretsLine && engine.ActiveLineUntouched
+                    && !engine.FreestyleInputWindowOpen(time))
                     return dropPress(freshTextPress, time);
 
                 if (gesture == TypeBeatAction.EraseWord || (gesture == null && e.Key == Key.BackSpace))
@@ -1684,7 +1693,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // without the mod, so a letter never reaches a global binding mid-line. The SPACEBAR is
                 // the one typing key that stays a key, because it is the word gesture every layout and
                 // IME agrees on.
-                if (engine.Polyglot)
+                if (usesIme)
                 {
                     if (e.Key == Key.Space)
                     {
@@ -1714,7 +1723,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         return typesHere(e.Key);
 
                     // The default surface keeps the digit row POSITIONAL (see TypingKeys.TryPositionalDigit).
-                    if (!engine.Literate && TypingKeys.TryPositionalDigit(e.Key, out char digit))
+                    if (!engine.Polyglot && !engine.Literate && TypingKeys.TryPositionalDigit(e.Key, out char digit))
                     {
                         dropPress(true, time);
                         TypeLatinText(digit.ToString(), time);
@@ -1742,7 +1751,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             /// its own. <see cref="TypingKeys.AlwaysSwallowed"/>, plus a punctuation position under Literate,
             /// where marks are cells.
             /// </summary>
-            private bool typesHere(Key key) => TypingKeys.AlwaysSwallowed(key) || (engine.Literate && TypingKeys.IsPunctuationPosition(key));
+            private bool typesHere(Key key) => TypingKeys.AlwaysSwallowed(key) || ((engine.Literate || engine.UsesJapaneseRomaji) && TypingKeys.IsPunctuationPosition(key));
 
             /// <summary>
             /// What a Polyglot play swallows as a character key, unchanged since backlog 331, where it
@@ -1805,9 +1814,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             /// </summary>
             private void eraseBackTo(int target, double time)
             {
-                while (engine.CaretIndex > target)
+                while (engine.CaretIndex > target || engine.JapanesePending.Length > 0)
                 {
                     int before = engine.CaretIndex;
+                    bool pendingRomaji = engine.JapanesePending.Length > 0;
                     // A PARKED typo is cleared where it sits (see TypingEngine.ProcessBackspace), so the
                     // press that removes it mutates the run without moving the caret. Read BEFORE the
                     // press: that is the only iteration the guard below has to let through.
@@ -1827,8 +1837,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // breaking here would leave the rest of the selection standing - a retype
                     // selection opened over a word skip ends on exactly such a cell whenever the
                     // player has since typed characters into the gap. The next press steps back
-                    // normally, so the run terminates on its own.
-                    if (engine.CaretIndex >= before && !parked)
+                    // normally, so the run terminates on its own. Pending romaji is likewise a
+                    // finite series of erases without caret movement, before the selected cells.
+                    if (engine.CaretIndex >= before && !parked && !pendingRomaji)
                         break;
                 }
             }

@@ -516,6 +516,53 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public SyncWindows Windows { get; private set; }
 
+        private SyncWindows freestyleWindows = SyncWindows.Default.Scaled(SyncWindows.FREESTYLE_WINDOW_SCALE);
+
+        /// <summary>The cell's judgement and feedback ladder, including freestyle and mod/rate scales.</summary>
+        public SyncWindows WindowsFor(TypingCell cell) => cell.IsFreestyle ? freestyleWindows : Windows;
+
+        /// <summary>
+        /// Whether space can currently fill the caret's freestyle slot within its timing window.
+        /// Uses the same point/span era and scaled ladder as ProcessKey so input UI can distinguish
+        /// a valid early freestyle press from a space intended to skip an instrumental gap.
+        /// </summary>
+        public bool FreestyleInputWindowOpen(double time)
+        {
+            if (isFinished || activeLineIndex < 0 || awaitingEntry(time))
+                return false;
+
+            var line = lines[activeLineIndex];
+            if (caretIndex < 0 || caretIndex >= line.Cells.Count)
+                return false;
+
+            var cell = line.Cells[caretIndex];
+            if (!cell.IsFreestyle)
+                return false;
+
+            double delta = judgedDeltaFor(line, caretIndex, time);
+            var windows = WindowsFor(cell);
+            return delta >= -windows.MehEarly && delta <= windows.MehLate;
+        }
+
+        /// <summary>
+        /// A line's hard deadline, preserving the full late window of every freestyle target.
+        /// Completed lines can still seal at EndTime, and manual newlines can advance at once.
+        /// </summary>
+        public double EffectiveSealTime(TypingLine line)
+        {
+            double deadline = line.EndTime + line.SealGraceMs;
+            if (!line.HasFreestyleCells)
+                return deadline;
+
+            foreach (var cell in line.Cells)
+            {
+                if (cell.IsFreestyle)
+                    deadline = Math.Max(deadline, cell.TargetTime + WindowsFor(cell).MehLate + 1);
+            }
+
+            return deadline;
+        }
+
         /// <summary>
         /// A MULTIPLICATIVE scale on every judgement window this engine grades against, 1 by default
         /// (the ladder exactly as <see cref="SyncWindows.Default"/> hands it over). 2 doubles every
@@ -583,7 +630,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 var line = lines[nextSealIndex];
 
-                return time >= line.ActivationTime && time < line.EndTime + line.SealGraceMs;
+                return time >= line.ActivationTime && time < EffectiveSealTime(line);
             }
         }
 
@@ -625,7 +672,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             => nextSealIndex == 0
                && lines.Count > 0
                && time >= Math.Min(lines[0].ActivationTime, lines[0].FirstVocalTime - FIRST_LINE_LEAD_MS)
-               && time < lines[0].EndTime + lines[0].SealGraceMs;
+               && time < EffectiveSealTime(lines[0]);
 
         /// <summary>
         /// Whether the SONG is asking for characters on the very line the player's caret is on:
@@ -645,7 +692,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         /// <summary>
         /// True while the player has put nothing into the active line yet (no cell behind the caret
-        /// is Correct or Wrong; leading auto-skipped punctuation does not count as progress). Used
+        /// is Correct or Wrong and no romaji is pending; leading auto-skipped punctuation does not
+        /// count as progress). Used
         /// by the key handler under <see cref="FletcherEnabled"/> to tell "parked on a line I have
         /// not started" from "typing it".
         /// </summary>
@@ -653,7 +701,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         {
             get
             {
-                if (activeLineIndex == -1)
+                if (activeLineIndex == -1 || JapanesePending.Length > 0)
                     return false;
 
                 var cells = lines[activeLineIndex].Cells;
@@ -734,6 +782,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// Gross WPM over active time only; 0 before any active time. Active time is REAL elapsed
         /// time (see <see cref="activeRealTimeMs"/>), not beatmap time, so the readout is the
         /// player's actual typing speed under any speed-adjusting mod rather than 1/rate of it.
+        /// Japanese internal input counts accepted keys, including romaji prefixes, rather than
+        /// the fewer original-script characters their conversions produce.
         /// </summary>
         public double LiveWpm
         {
@@ -742,7 +792,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 if (activeRealTimeMs <= 0)
                     return 0;
 
-                return (countCorrectCells() / 5.0) / (activeRealTimeMs / 60000.0);
+                return (wpmInputCount() / 5.0) / (activeRealTimeMs / 60000.0);
             }
         }
 
@@ -811,7 +861,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                         if (cell.State == CellState.Correct && cell.JudgedDelta is double d)
                         {
-                            sum += Windows.SyncQuality(d);
+                            sum += WindowsFor(cell).SyncQuality(d);
                             resolved++;
                         }
                         else if (lineSealed[i])
@@ -890,7 +940,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// already typed the moment the leftmost one is finally struck
         /// (<see cref="advanceCaretToFrontier"/>).</para>
         ///
-        /// <para>A FREESTYLE slot is not an any-order target. It matches every key but space, so a
+        /// <para>A FREESTYLE slot is not an any-order target. It matches every key, so a
         /// scan that offered it would consume it with the first press and starve the exact match the
         /// player meant; it still accepts anything AT THE CARET, exactly as it does today, which is
         /// reached whenever the scan finds nothing (so the slot fills with the key that fits nothing
@@ -942,11 +992,230 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <see cref="PolyglotLine"/>), fixed at construction for the reason <see cref="Literate"/>
         /// is, and a press is matched against a cell in Unicode NFC (see
         /// <see cref="PolyglotText.Matches"/>). The input path is the OS's committed TEXT, kept in its
-        /// own script rather than folded by <see cref="TextInputFold"/>, which only the playfield has to
-        /// know. A MOD and not an era: a score carries it in its mod list, and no stored run can
+        /// own script rather than folded by <see cref="TextInputFold"/>. Japanese maps accept romaji
+        /// through the internal processor under <see cref="JapaneseRomajiInput"/> instead.
+        /// A MOD and not an era: a score carries it in its mod list, and no stored run can
         /// carry a mod that did not exist.
         /// </summary>
         public bool Polyglot { get; }
+
+        /// <summary>Japanese Polyglot uses the internal romaji processor instead of an OS IME.</summary>
+        public bool UsesJapaneseRomaji { get; }
+
+        /// <summary>Extended replay bit 5; absent on older, committed-text Polyglot replays.</summary>
+        private bool japaneseRomajiInput;
+        public bool JapaneseRomajiInput
+        {
+            get => japaneseRomajiInput;
+            set
+            {
+                if (japaneseRomajiInput == value)
+                    return;
+                japaneseRomajiInput = value;
+                clearJapanesePending();
+            }
+        }
+
+        private bool japaneseWordTiming = true;
+
+        /// <summary>Japanese Polyglot words ignore romanised subdivisions. Extended replay bit 6.</summary>
+        public bool JapaneseWordTiming
+        {
+            get => japaneseWordTiming;
+            set
+            {
+                if (japaneseWordTiming == value)
+                    return;
+                japaneseWordTiming = value;
+                if (!UsesJapaneseRomaji)
+                    return;
+                foreach (var line in lines)
+                    line.SetJapaneseWordTiming(value);
+                clearJapanesePending();
+                rebuildCountableTargets();
+                JapaneseWordTimingChanged?.Invoke();
+            }
+        }
+
+        public event Action? JapaneseWordTimingChanged;
+
+        /// <summary>Extended replay bit 7: single-character Japanese skips and keystroke WPM.</summary>
+        public bool JapaneseInputEra2 { get; set; } = true;
+
+        private bool UsesJapaneseKeystrokeWpm => JapaneseInputEra2 && JapaneseRomajiInput && UsesJapaneseRomaji;
+        private int japaneseWpmInputs;
+        private int japaneseCompletionLine = -1;
+        private int japaneseCompletionCaret = -1;
+
+        private void protectJapaneseCompletion()
+        {
+            japaneseCompletionLine = activeLineIndex;
+            japaneseCompletionCaret = caretIndex;
+        }
+
+        private void recordJapaneseInput()
+        {
+            if (!UsesJapaneseKeystrokeWpm)
+                return;
+            japaneseWpmInputs++;
+            pushRollingSample();
+        }
+
+        private string japanesePending = string.Empty;
+        private int japanesePendingLine = -1;
+        private int japanesePendingCell = -1;
+        private double japanesePendingTime;
+        private bool committingJapanese;
+
+        public string JapanesePending => japanesePendingLine == activeLineIndex && japanesePendingCell == caretIndex
+            ? japanesePending : string.Empty;
+
+        private void clearJapanesePending()
+        {
+            japanesePending = string.Empty;
+            japanesePendingLine = japanesePendingCell = -1;
+        }
+
+        private bool tryCommitJapanesePending()
+        {
+            if (!JapaneseRomajiInput || !UsesJapaneseRomaji || committingJapanese || JapanesePending.Length == 0)
+                return false;
+            var plan = lines[activeLineIndex].JapaneseInput;
+            var group = JapaneseInputEra2 ? plan?.AtForInput(caretIndex) : plan?.At(caretIndex);
+            // Space/Enter explicitly confirm a word, so a trailing n needs no next-letter lookahead.
+            if (group == null || (JapaneseRomaji.Matches(group.Reading, JapanesePending) & JapaneseRomaji.Match.Complete) == 0)
+                return false;
+            commitJapanese(group, japanesePendingTime);
+            return true;
+        }
+
+        private bool? processJapaneseKey(char c, double time, TypingLine line)
+        {
+            if (!JapaneseRomajiInput || !UsesJapaneseRomaji || committingJapanese || MashingEnabled || line.Cells[caretIndex].IsFreestyle)
+                return null;
+
+            if (c != ' ')
+                japaneseCompletionLine = japaneseCompletionCaret = -1;
+            if (japanesePendingLine != activeLineIndex || japanesePendingCell != caretIndex)
+                clearJapanesePending();
+
+            var plan = line.JapaneseInput;
+            if (c == ' ' && line.Cells[caretIndex].Expected != ' ' && plan?.IsRomanCell(caretIndex) == false)
+            {
+                int originalLine = activeLineIndex;
+                if (!tryCommitJapanesePending())
+                {
+                    bool confirmation = japaneseCompletionLine == activeLineIndex && japaneseCompletionCaret == caretIndex;
+                    if (!JapaneseInputEra2 || !SpaceSkipsWord || !(AllowWrongInput || !InputEra2) || confirmation
+                        || plan?.IsJapaneseCell(caretIndex) != true || line.Cells[caretIndex].State == CellState.Correct)
+                        return false;
+
+                    clearJapanesePending();
+                    skipCurrentWord(time, singleJapaneseCharacter: true);
+                    advanceCaretToFrontier();
+                    rollForwardIfFinishedEarly(time);
+                    return true;
+                }
+
+                // Confirmation may also supply a genuine lyric space or a manual newline. Never
+                // run it as a word skip on a cell the confirmation just moved the caret onto.
+                if (activeLineIndex == originalLine
+                    && (caretIndex >= line.Cells.Count || line.Cells[caretIndex].Expected == ' '))
+                    ProcessKey(' ', time);
+                return true;
+            }
+
+            if (charMatches(c, line.Cells[caretIndex].Expected))
+            {
+                clearJapanesePending();
+                return null; // Direct kana layouts and legacy committed characters still work.
+            }
+
+            var group = JapaneseInputEra2 ? plan?.AtForInput(caretIndex) : plan?.At(caretIndex);
+            if (group == null)
+            {
+                char expected = line.Cells[caretIndex].Expected;
+                char equivalent = expected is >= '\uff01' and <= '\uff5e' ? (char)(expected - 0xfee0) : expected switch
+                {
+                    '、' => ',', '。' => '.', '「' or '『' => '[', '」' or '』' => ']',
+                    _ => expected,
+                };
+                if (equivalent != expected && (CaseSensitive ? c == equivalent : char.ToLowerInvariant(c) == char.ToLowerInvariant(equivalent)))
+                {
+                    clearJapanesePending();
+                    committingJapanese = true;
+                    try
+                    {
+                        bool accepted = ProcessKey(expected, time);
+                        if (accepted)
+                        {
+                            recordJapaneseInput();
+                            protectJapaneseCompletion();
+                        }
+                        return accepted;
+                    }
+                    finally
+                    {
+                        committingJapanese = false;
+                    }
+                }
+                return null;
+            }
+
+            char lower = char.ToLowerInvariant(c);
+            string input = japanesePending + lower;
+            var match = JapaneseRomaji.Matches(group.Reading, input, plan!.Following(group));
+            if (match == JapaneseRomaji.Match.Invalid)
+            {
+                // A nasal's first n may also begin nn. The following consonant resolves that
+                // ambiguity without being lost: commit n at its own time, then process this key.
+                // Inside the line, a vowel pronunciation alias still needs nn/n'; a word/line
+                // boundary can explicitly finish n before the next word's first vowel.
+                string following = plan.Following(group);
+                if ((JapaneseRomaji.Matches(group.Reading, japanesePending, following) & JapaneseRomaji.Match.Complete) != 0
+                    && (following.Length == 0 || char.IsWhiteSpace(following[0]) || lower is not ('a' or 'i' or 'u' or 'e' or 'o' or 'y')))
+                {
+                    commitJapanese(group, japanesePendingTime);
+                    return ProcessKey(c, time);
+                }
+                if (AllowWrongInput)
+                    clearJapanesePending();
+                return null; // Gatekeeper keeps a valid prefix when it rejects the wrong key.
+            }
+
+            recordJapaneseInput();
+            japanesePending = input;
+            japanesePendingLine = activeLineIndex;
+            japanesePendingCell = caretIndex;
+            japanesePendingTime = time;
+            if (match == JapaneseRomaji.Match.Complete)
+                commitJapanese(group, time);
+            return true;
+        }
+
+        private void commitJapanese(JapaneseInputPlan.Group group, double time)
+        {
+            int lineIndex = activeLineIndex;
+            int startCell = caretIndex;
+            clearJapanesePending();
+            committingJapanese = true;
+            try
+            {
+                while (activeLineIndex == lineIndex && caretIndex < group.EndCellExclusive)
+                {
+                    int before = caretIndex;
+                    ProcessKey(lines[lineIndex].Cells[caretIndex].Expected, time);
+                    if (caretIndex == before && activeLineIndex == lineIndex)
+                        break;
+                }
+            }
+            finally
+            {
+                committingJapanese = false;
+                if (JapaneseInputEra2 && (activeLineIndex != lineIndex || caretIndex != startCell))
+                    protectJapaneseCompletion();
+            }
+        }
 
         /// <summary>
         /// Whether a press of <paramref name="c"/> satisfies a cell expecting
@@ -1004,6 +1273,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// "Space to skip current word" (backlog 110), a local SETTING and not a mod, OFF by default.
         /// When on, a space pressed while the caret sits inside a word abandons the rest of that word
         /// and lands the caret on the word gap, so one bad character costs a word instead of the run.
+        /// Japanese romaji input skips a single unfinished character. A complete reading uses
+        /// space as confirmation, and repeated confirmation spaces preserve the next character.
         ///
         /// <para>What "abandons" means precisely, since backlog 167: every
         /// <see cref="CellState.Untyped"/> cell of that word enters
@@ -1862,6 +2133,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             Literate = literate;
             CaseSensitive = literate;
             Polyglot = polyglot;
+            UsesJapaneseRomaji = polyglot && JapaneseReading.IsJapanese(polyglotLanguage);
+            JapaneseRomajiInput = UsesJapaneseRomaji;
 
             lines = new List<TypingLine>(beatmap.Lines.Count);
 
@@ -2006,6 +2279,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private void reset()
         {
+            clearJapanesePending();
+            japaneseCompletionLine = japaneseCompletionCaret = -1;
+            japaneseWpmInputs = 0;
             foreach (var line in lines)
             {
                 foreach (var cell in line.Cells)
@@ -2153,6 +2429,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
 
             lastUpdateTime = time;
+
+            // A final n is already a complete reading. If no confirmation key arrives before the
+            // line ends, resolve it at its typed timestamp before sealing can turn it into a miss.
+            if (activeLineIndex >= 0 && time >= lines[activeLineIndex].EndTime)
+                tryCommitJapanesePending();
 
             // Whether the caret ends this update on a line it was not on when the update started.
             // Three things can move it (a drag cutoff inside the seal loop below, the ordinary
@@ -2321,7 +2602,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             {
                 var candidate = lines[nextSealIndex];
 
-                if (time >= candidate.ActivationTime && time < candidate.EndTime + candidate.SealGraceMs)
+                if (time >= candidate.ActivationTime && time < EffectiveSealTime(candidate))
                 {
                     activeLineIndex = nextSealIndex;
                     caretIndex = 0;
@@ -2577,7 +2858,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // Held together, the seal, the seal loop's hand-over of the caret and the closed step
             // back (see ProcessBackspace) all land on that one instant.
             if (manualNewlineHoldsLineOpen(index))
-                return time >= lines[index].EndTime + lines[index].SealGraceMs + FLETCHER_DRAG_GRACE_MS;
+                return time >= EffectiveSealTime(lines[index]) + FLETCHER_DRAG_GRACE_MS;
 
             if (!FletcherEnabled || (activeLineIndex != index && !lineAbandoned[index]))
                 return true;
@@ -2590,7 +2871,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (!hasUntypedTypeable(line))
                 return true;
 
-            return time >= line.EndTime + line.SealGraceMs + FLETCHER_DRAG_GRACE_MS;
+            return time >= EffectiveSealTime(line) + FLETCHER_DRAG_GRACE_MS;
         }
 
         /// <summary>
@@ -2668,12 +2949,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <see cref="sealPermitted"/>'s, and a line is held past this point both by drag protection
         /// and by a manual caret that has finished it (<see cref="manualNewlineHoldsLineOpen"/>).
         /// </summary>
-        private static bool canSeal(TypingLine line, double time)
+        private bool canSeal(TypingLine line, double time)
         {
             if (time < line.EndTime)
                 return false;
 
-            if (time >= line.EndTime + line.SealGraceMs)
+            if (time >= EffectiveSealTime(line))
                 return true;
 
             return !hasUntypedTypeable(line);
@@ -2776,6 +3057,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool ProcessEnter(double time)
         {
+            if (JapaneseRomajiInput && UsesJapaneseRomaji && JapanesePending.Length > 0)
+            {
+                int originalLine = activeLineIndex;
+                if (!tryCommitJapanesePending())
+                    return false;
+                // An IME-style confirmation never abandons the rest of this line, or the next
+                // line reached by automatic handoff. A complete manual line can still advance.
+                if (activeLineIndex == originalLine && IsLineComplete)
+                    processEnter(time);
+                return true;
+            }
+            return processEnter(time);
+        }
+
+        private bool processEnter(double time)
+        {
             if (isFinished || activeLineIndex == -1)
                 return false;
 
@@ -2851,6 +3148,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public bool ProcessKey(char c, double time)
         {
+            string pending = JapanesePending;
+            bool consumed = processKey(c, time);
+            // Cancelling a partial reading is itself an input mutation, even when the underlying
+            // key (such as a refused space) judges nothing. Record it so replay state stays exact.
+            return consumed || pending != JapanesePending;
+        }
+
+        private bool processKey(char c, double time)
+        {
             // THE MAP'S FIRST LINE OPENS A SECOND EARLY (see FIRST_LINE_LEAD_MS). There is no previous
             // line to rush from, so the PRESS is what opens it: the same hand-over the time-driven
             // activation arm performs, made on demand rather than idling a line the song has not reached.
@@ -2896,6 +3202,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // that has not opened yet - the player types the letter again when the line does.
                 if (NewlineOnTypedLetter && ManualNewlines && FletcherEnabled
                     && activeLineIndex + 1 < lines.Count
+                    && typedNewlineMatchesAfterFreestyle(line, c)
                     && rollForwardManually(time))
                 {
                     line = lines[activeLineIndex];
@@ -2928,22 +3235,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             var cell = line.Cells[caretIndex];
 
-            // Mashing mod: any key is the right key; judge it as the caret cell's expected char.
-            // A FREESTYLE cell is exempt: it already accepts any key, and rewriting c here would
-            // stamp the authoring marker over the char the player actually pressed (the one thing
-            // a freestyle cell must remember). No double effect, mashing simply has nothing to add.
-            // Space is the single exception to that exemption: a freestyle cell REJECTS space (see
-            // the match below), so mashing's "any key is the right key" promise needs a substitute
-            // to hand it, and the char an automated player presses into a freestyle slot is the
-            // canonical one. Nothing else about the exemption changes, the pressed char still
-            // survives on every other key.
-            if (MashingEnabled)
-            {
-                if (!cell.IsFreestyle)
-                    c = cell.Expected;
-                else if (c == ' ')
-                    c = Typeability.FREESTYLE_AUTO_CHAR;
-            }
+            if (processJapaneseKey(c, time, line) is bool japaneseConsumed)
+                return japaneseConsumed;
+
+            // Mashing substitutes ordinary cells only. Freestyle already accepts every char,
+            // including space, and must keep exactly the character the player pressed.
+            if (MashingEnabled && !cell.IsFreestyle)
+                c = cell.Expected;
 
             // Backlog 243: set when this press is a skip that left a claim outstanding, so the combo
             // the SAME press goes on to earn on the word gap is recorded as the claim's OWN credit
@@ -2966,7 +3264,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // Under InputEra2 the skip also needs wrong input allowed: Gatekeeper refuses a
             // mid-word space like any other wrong key. Every run stored before that era skipped
             // under Gatekeeper too, so the AllowWrongInput term is ignored when the era is clear.
-            if (SpaceSkipsWord && (AllowWrongInput || !InputEra2) && c == ' ' && cell.Expected != ' ')
+            if (SpaceSkipsWord && !cell.IsFreestyle && (AllowWrongInput || !InputEra2) && c == ' ' && cell.Expected != ' ')
             {
                 caretBeforeSkip = caretIndex;
                 skipLeftAClaimOutstanding = skipCurrentWord(time);
@@ -2985,6 +3283,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // path below (same windows, points, combo, accuracy) and leaves the cell exactly as
                 // a normally typed space would.
                 cell = line.Cells[caretIndex];
+                // A Roman run in a mixed Japanese word stops at the next script. The skip's space
+                // is not a typo on that Japanese character (freestyle still accepts it normally).
+                if (JapaneseRomajiInput && UsesJapaneseRomaji && cell.Expected != ' ' && !cell.IsFreestyle
+                    && line.JapaneseInput?.IsRomanCell(caretIndex) == false)
+                    return true;
             }
 
             // STEP OVER A SPOILED GAP (backlog 184, see StrictSpaces): the caret is PARKED on a word
@@ -3058,21 +3361,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (untimedSpace)
                 delta = 0;
 
-            // FREESTYLE cell: every char EXCEPT SPACE matches, in any case, under every mod (so the
-            // Literate mod's exact-case rule and the allow-wrong-input path are both bypassed for
-            // it). The press is then judged exactly like a correct char: same windows, points,
-            // combo, accuracy and completion, with the pressed char kept in TypedChar.
-            // SPACE is carved out (backlog 50): it is the word-advance key, not a glyph a player
-            // means to leave sitting in a lyric, so it falls through to the ordinary non-match path
-            // below and is judged exactly as a wrong key on any other cell would be. The strict
-            // rejection is the only outcome available to it, because neither allow-wrong-input path
-            // will type a space through (c != ' ' guards both arms). With SpaceSkipsWord on the space
-            // was consumed by the word skip above (freestyle slot included), except under Gatekeeper
-            // in InputEra2, where it reaches the strict rejection below.
-            // Literate mod folds nothing: the typed char must match the target's exact case.
-            // Default gameplay is case-insensitive (both sides lower-cased through Fold).
-            bool matched = (cell.IsFreestyle && c != ' ')
-                           || charMatches(c, cell.Expected);
+            // Freestyle accepts every pressed character, including spaces, preserving TypedChar.
+            // Ordinary cells retain the exact-case Literate / folded default matching rules.
+            bool matched = cell.IsFreestyle || charMatches(c, cell.Expected);
 
             if (!matched)
             {
@@ -3098,9 +3389,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // a non-problem). With SpaceSkipsWord ON the skip gate above consumed it, except
                 // under Gatekeeper in InputEra2, where the press falls through to rejection.
                 //
-                // A FREESTYLE slot keeps refusing the space key under every arm. Its promise is "any
-                // character except the word-advance key" (backlog 50) and it has no expected glyph to
-                // redden, so a space typed into one would blank the cell rather than mark it.
+                // Freestyle cells matched above already; this wrong-space permission is only
+                // relevant to ordinary lyric cells.
                 bool spaceMayLand = StrictSpaces && !SpaceSkipsWord && !cell.IsFreestyle;
 
                 if (AllowWrongInput && (c != ' ' || spaceMayLand) && (WrongInputOnWordGaps || cell.Expected != ' '))
@@ -3210,7 +3500,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // SPACES ARE UNTIMED (backlog 148); the zeroing itself is done above the match, where a
             // typed-through gap typo can read the same value. Reaching HERE on a space CELL means a
             // SPACE was typed on it: Fold is only ToLowerInvariant, so nothing but ' ' folds onto
-            // ' ', a freestyle cell refuses space outright, and under Mashing the press was already
+            // ' ', freestyle uses its own timed slot, and under Mashing the press was already
             // rewritten to the cell's expected char, which is the space it stood for anyway. The
             // spacebar is deliberately outside the timing challenge (the word gap is where a
             // typist's hands reset, not a note to hit), so the press is judged as though it landed
@@ -3273,7 +3563,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // same ladder, and through the same backlog 210 cap, because the flag it reads is
                 // set only before a cell is judged and never cleared. Announcing anything else here
                 // would show a Great on a cell whose stored result is the capped Ok.
-                type = TypeBeatResultMapping.AwardedTier(Windows.Classify(delta), cell.HeldWrongBeforeJudged, CorrectionCredit);
+                type = TypeBeatResultMapping.AwardedTier(WindowsFor(cell).Classify(delta), cell.HeldWrongBeforeJudged, CorrectionCredit);
 
                 // ...and through backlog 347's rush-cap award, for the same reason: the flag records
                 // that the first judgement was made out past the cap, and the delta alone would
@@ -3303,7 +3593,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // osu result all follow the one decision and cannot say different things. The delta
                 // itself is untouched, so the sync timeline and the sync readouts see the press the
                 // player actually made.
-                type = TypeBeatResultMapping.AwardedTier(Windows.Classify(delta), cell.HeldWrongBeforeJudged, CorrectionCredit);
+                type = TypeBeatResultMapping.AwardedTier(WindowsFor(cell).Classify(delta), cell.HeldWrongBeforeJudged, CorrectionCredit);
 
                 // Fletcher RUSH CAP, evaluated before the caret moves: does this press put the caret
                 // more than RushCap countable chars past the playhead?
@@ -3433,7 +3723,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             // Log the press for the HUD's rolling WPM. Both branches above land the cell Correct, so a
             // scoring-inert retype still counts here: this is a record of keystrokes, not of cell states.
-            pushRollingSample();
+            if (!UsesJapaneseKeystrokeWpm)
+                pushRollingSample();
+            else if (!committingJapanese)
+                recordJapaneseInput();
+
+            bool completedJapanese = UsesJapaneseKeystrokeWpm && !committingJapanese && !cell.IsFreestyle
+                                     && cell.Expected != ' ' && line.JapaneseInput?.IsJapaneseCell(targetIndex) == true;
 
             // The cell the press landed on, which is what the display repaints and what a consumer
             // reading the judgement back has to be told: under AnyOrderWithinWord that is not always
@@ -3453,6 +3749,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             raise(CharJudged, new CharJudgement(activeLineIndex, judgedCellIndex, type, delta, points, combo));
             rollForwardIfFinishedEarly(time);
+            if (completedJapanese)
+                protectJapaneseCompletion();
             return true;
         }
 
@@ -3485,7 +3783,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// one it passively left alone, because the argument is about the press and not about which
         /// break wrote the claim.</para>
         /// </summary>
-        private bool skipCurrentWord(double time)
+        // Japanese input shares the abandonment/reclaim accounting but limits the range to one cell.
+        private bool skipCurrentWord(double time, bool singleJapaneseCharacter = false)
         {
             var cells = lines[activeLineIndex].Cells;
 
@@ -3506,14 +3805,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // Scanning the word is what the feature promises either way, and it puts the weight on
             // the "already resolved" test below instead of on an argument about where the caret can be.
             int start = caretIndex;
-            int end = caretIndex;
+            int end = singleJapaneseCharacter ? caretIndex + 1 : caretIndex;
+            var japanesePlan = JapaneseRomajiInput && UsesJapaneseRomaji ? lines[activeLineIndex].JapaneseInput : null;
+            bool canSkip(int index) => japanesePlan == null || !cells[index].IsTypeable || japanesePlan.IsRomanCell(index);
 
-            while (start > 0 && !isWordGap(cells[start - 1]))
+            while (!singleJapaneseCharacter && start > 0 && !isWordGap(cells[start - 1]) && !cells[start - 1].IsFreestyle && canSkip(start - 1))
                 start--;
 
-            while (end < cells.Count && !isWordGap(cells[end]))
+            while (!singleJapaneseCharacter && end < cells.Count && !isWordGap(cells[end]) && !cells[end].IsFreestyle && canSkip(end))
                 end++;
 
+            // A freestyle slot is a hard stop: skip only ordinary cells before it, then let
+            // this same space fill the freestyle slot through the ordinary matching path.
             var abandoned = new List<int>();
 
             for (int i = start; i < end; i++)
@@ -3887,6 +4190,41 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>
+        /// After freestyle, random continued input must not spill onto an ordinary next line.
+        /// The first typeable cell is the same one autoSkipForward will land on after the handoff.
+        /// Explicit space/Enter and ordinary line endings keep their existing newline behavior.
+        /// </summary>
+        private bool typedNewlineMatchesAfterFreestyle(TypingLine finishedLine, char c)
+        {
+            TypingCell? lastRequired = null;
+            for (int i = finishedLine.Cells.Count - 1; i >= 0; i--)
+            {
+                if (!finishedLine.Cells[i].IsTypeable)
+                    continue;
+
+                lastRequired = finishedLine.Cells[i];
+                break;
+            }
+
+            if (lastRequired?.IsFreestyle != true)
+                return true;
+
+            var nextLine = lines[activeLineIndex + 1];
+            for (int i = 0; i < nextLine.Cells.Count; i++)
+            {
+                var next = nextLine.Cells[i];
+                if (!next.IsTypeable)
+                    continue;
+                if (next.IsFreestyle || charMatches(c, next.Expected))
+                    return true;
+                var group = JapaneseRomajiInput ? nextLine.JapaneseInput?.At(i) : null;
+                return group != null && JapaneseRomaji.Matches(group.Reading, char.ToLowerInvariant(c).ToString(), nextLine.JapaneseInput!.Following(group)) != JapaneseRomaji.Match.Invalid;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// THE MANUAL NEWLINE (see <see cref="ManualNewlines"/>): the player's own space-on-a-finished-
         /// line or Enter, which is the ONLY thing that hands a parked caret on while the setting is
         /// armed. Returns whether the caret moved, so a caller records a frame only for an effective
@@ -4081,6 +4419,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             double scale = windowScale * (hardRockFromMod && !unhalvedHardRockWindows ? Mods.TypeBeatModHardRock.WINDOW_SCALE : 1);
 
             Windows = SyncWindows.Default.Scaled(scale);
+            freestyleWindows = Windows.Scaled(SyncWindows.FREESTYLE_WINDOW_SCALE);
         }
 
         /// <summary>
@@ -4240,6 +4579,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         public bool ProcessBackspace()
         {
+            japaneseCompletionLine = japaneseCompletionCaret = -1;
+            if (JapaneseRomajiInput && JapanesePending.Length > 0)
+            {
+                japanesePending = japanesePending[..^1];
+                return true;
+            }
+            clearJapanesePending();
             if (isFinished || activeLineIndex == -1)
                 return false;
 
@@ -4470,7 +4816,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// the one route into a spoiled cell), an Abandoned one is reclaimed by the backspace its own
         /// feature promises, and a non-typeable one is the auto-skip's business. A FREESTYLE slot is
         /// excluded for the reason given on <see cref="AnyOrderWithinWord"/>: it matches every key
-        /// but space, so offering it here would swallow the first press of the word and starve every
+        /// including space, so offering it here would swallow the first press of the word and starve every
         /// exact match in it.</para>
         ///
         /// <para>The match is the SAME test the caret cell is matched with in
@@ -4767,7 +5113,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 if (!hasUntypedTypeable(line) && !manualNewlineHoldsLineOpen(activeLineIndex))
                     return null;
 
-                return line.EndTime + line.SealGraceMs + FLETCHER_DRAG_GRACE_MS;
+                return EffectiveSealTime(line) + FLETCHER_DRAG_GRACE_MS;
             }
         }
 
@@ -4788,13 +5134,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 foreach (var cell in line.Cells)
                 {
                     if (isTimed(cell) && cell.State == CellState.Correct && cell.JudgedDelta is double d)
-                        qualitySum += Windows.SyncQuality(d);
+                        qualitySum += WindowsFor(cell).SyncQuality(d);
                 }
             }
 
             double syncPercent = totalTimedCells == 0 ? 100 : 100 * qualitySum / totalTimedCells;
 
-            double wpm = activeRealTimeMs <= 0 ? 0 : (countCorrectCells() / 5.0) / (activeRealTimeMs / 60000.0);
+            double wpm = activeRealTimeMs <= 0 ? 0 : (wpmInputCount() / 5.0) / (activeRealTimeMs / 60000.0);
 
             return new ResultsSummary
             {
@@ -4810,7 +5156,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             };
         }
 
-        /// <summary>Correct cells (including spaces) across all lines: the WPM numerator source.</summary>
+        private int wpmInputCount() => UsesJapaneseKeystrokeWpm ? japaneseWpmInputs : countCorrectCells();
+
+        /// <summary>Correct cells (including spaces) across all lines: the legacy WPM numerator.</summary>
         private int countCorrectCells()
         {
             int count = 0;

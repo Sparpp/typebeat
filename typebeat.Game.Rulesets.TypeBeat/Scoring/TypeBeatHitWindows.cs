@@ -23,9 +23,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
         private SyncWindows effectiveWindows => windows ?? SyncWindows.Default;
 
-        public TypeBeatHitWindows()
+        public TypeBeatHitWindows(bool isFreestyle = false)
         {
-            windows = SyncWindows.Default;
+            windows = SyncWindows.Default.Scaled(isFreestyle ? SyncWindows.FREESTYLE_WINDOW_SCALE : 1);
         }
 
         public override bool IsHitResultAllowed(HitResult result)

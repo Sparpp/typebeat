@@ -23,7 +23,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// all), so a mixed line works. A word the romaniser could not spell
     /// (<see cref="LyricLine.UnromanisedWords"/>, no typed text at all) plays its original at its
     /// own position and span.</item>
-    /// <item>SYLLABLE CUTS. A stored split (<see cref="TimedUnit.SyllableSplits"/>, or the derived one)
+    /// <item>JAPANESE WORD TIMING. Each mapper-authored Japanese word has one sung span; its
+    /// romanised subdivisions are ignored. Joining words removes untyped spaces but retains word
+    /// seams and timed gaps. Older replays can select the previous subdivision-carry rule.</item>
+    /// <item>SYLLABLE CUTS (other languages and older Japanese replays). A stored split (<see cref="TimedUnit.SyllableSplits"/>, or the derived one)
     /// indexes the ROMANISED text, so it is carried back onto the original through the romaniser's
     /// own unit mapping run in reverse: the romanised cut lands on the unit whose text starts there,
     /// and the cut in the original is that unit's source start
@@ -37,8 +40,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     /// rests.</item>
     /// <item>A word with NO subdivision is ONE syllable over its span (backlog 363: only the mapper
     /// subdivides, which is what the play does without the mod too). Nothing is carried for it and
-    /// nothing is cut per glyph, so a joined Japanese run is cut only at its authored subdivisions
-    /// and its word seams. A stylised romanised word ("ohhh") keeps no groups, as it has none
+    /// nothing is cut per glyph. Japanese runs are cut at their word seams, with internal
+    /// authored subdivisions retained only for older replays. A stylised romanised word ("ohhh") keeps no groups, as it has none
     /// without the mod.</item>
     /// <item>LINE-GRANULARITY maps whose originals live on the LINE only
     /// (<see cref="LyricLine.Original"/>, no word carrying one): when the line original has exactly
@@ -91,7 +94,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         /// <summary>Derives the Polyglot line of <paramref name="line"/> (see the class summary).</summary>
-        public static Result Derive(LyricLine line, string? language)
+        public static Result Derive(LyricLine line, string? language, bool japaneseWordTiming = true)
         {
             var units = line.Units;
             bool wordLevel = line.UnromanisedWords.Count > 0 || units.Any(u => u.Original != null);
@@ -99,9 +102,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             List<Piece> pieces;
 
             if (wordLevel)
-                pieces = wordPieces(line, language);
+                pieces = wordPieces(line, language, japaneseWordTiming);
             else if (line.Original != null && units.Count > 0)
-                pieces = linePieces(line, language);
+                pieces = linePieces(line, language, japaneseWordTiming);
             else
                 return new Result(line, null, null);
 
@@ -111,7 +114,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 return new Result(line, null, null);
 
             if (isJapanese(language))
-                pieces = joinJapaneseWords(line, pieces);
+                pieces = joinJapaneseWords(line, splitJapaneseOriginalSpaces(line, pieces));
 
             var rawCluster = new List<int>();
             int nextBlock = 0;
@@ -153,7 +156,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             return new Result(derived, pieces.Select(p => p.Natural).ToArray(), rawCluster.ToArray());
         }
 
-        private static List<Piece> wordPieces(LyricLine line, string? language)
+        private static List<Piece> wordPieces(LyricLine line, string? language, bool japaneseWordTiming)
         {
             var pieces = new List<Piece>();
             var unromanised = line.UnromanisedWords.OrderBy(w => w.Position).ToList();
@@ -169,7 +172,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 while (next < unromanised.Count && unromanised[next].Position <= m)
                 {
                     var word = unromanised[next++];
-                    pieces.Add(originalPiece(word.Original, word.StartTime, word.EndTime, null, language));
+                    pieces.Add(originalPiece(word.Original, word.StartTime, word.EndTime, null, language, japaneseWordTiming: japaneseWordTiming));
                 }
 
                 if (m < line.Units.Count)
@@ -177,7 +180,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     var unit = line.Units[m];
 
                     pieces.Add(unit.Original != null && PolyglotText.CellText(unit.Original).Length > 0
-                        ? originalPiece(unit.Original, unit.StartTime, unit.EndTime, unit, language)
+                        ? originalPiece(unit.Original, unit.StartTime, unit.EndTime, unit, language, japaneseWordTiming: japaneseWordTiming)
                         : plainPiece(unit, tokensMatch ? tokens[m] : unit.Text));
                 }
             }
@@ -188,7 +191,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private static Piece plainPiece(TimedUnit unit, string token)
             => new Piece { Unit = unit, TextOverride = token, Natural = null, Cluster = Enumerable.Repeat(-1, token.Length).ToArray() };
 
-        private static List<Piece> linePieces(LyricLine line, string? language)
+        private static List<Piece> linePieces(LyricLine line, string? language, bool japaneseWordTiming)
         {
             var units = line.Units;
             string[] words = LyricOriginals.CollapseWhitespace(line.Original).Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -196,14 +199,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (words.Length == units.Count)
             {
                 // The original tokenises the way the romanised line does: word i over unit i.
-                return words.Select((w, i) => originalPiece(w, units[i].StartTime, units[i].EndTime, units[i], null, carryCuts: false)).ToList();
+                return words.Select((w, i) => originalPiece(w, units[i].StartTime, units[i].EndTime, units[i], language, carryCuts: false, japaneseWordTiming: japaneseWordTiming)).ToList();
             }
 
             // An older line may only store its original on the line. If Kawazu's words match
             // the romanised units, keep those units' times before removing untyped spaces.
             if (isJapanese(language) && words.Length == 1 && JapaneseReading.Segment(words[0], language) is { } segments
                 && segments.Count == units.Count)
-                return segments.Select((w, i) => originalPiece(w, units[i].StartTime, units[i].EndTime, units[i], language, carryCuts: false)).ToList();
+                return segments.Select((w, i) => originalPiece(w, units[i].StartTime, units[i].EndTime, units[i], language, carryCuts: false, japaneseWordTiming: japaneseWordTiming)).ToList();
 
             // It does not: spread the whole original over the line's sung span by character count.
             double start = units[0].StartTime;
@@ -218,27 +221,106 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 double s = start + (end - start) * before / total;
                 before += counts[i];
                 double e = start + (end - start) * before / total;
-                pieces.Add(originalPiece(words[i], s, e, null, null));
+                pieces.Add(originalPiece(words[i], s, e, null, language, japaneseWordTiming: japaneseWordTiming));
             }
 
             return pieces;
         }
 
-        private static bool isJapanese(string? language)
-            => string.Equals(language, "japanese", StringComparison.OrdinalIgnoreCase)
-               || string.Equals(language, "ja", StringComparison.OrdinalIgnoreCase);
+        // A word original may contain intentional spaces (the word-script editor allows this).
+        // Split its display tokens without changing the timing ramp or losing authored cuts.
+        private static List<Piece> splitJapaneseOriginalSpaces(LyricLine line, List<Piece> pieces)
+        {
+            string[] sources = pieces.Select(p => p.Unit.Original ?? p.Text).ToArray();
+            string caption = PolyglotText.ToNfc(line.Original);
+            static string withoutSpaces(string text) => new string(PolyglotText.ToNfc(text).Where(c => !char.IsWhiteSpace(c)).ToArray());
+            if (caption.Length > 0 && withoutSpaces(caption) == string.Concat(sources.Select(withoutSpaces)))
+            {
+                // A matching line original also records spaces inside a timed unit. Its whitespace
+                // is authoritative even if the word original stores the same characters joined.
+                int at = 0;
+                for (int i = 0; i < sources.Length; i++)
+                {
+                    int start = at;
+                    int remaining = withoutSpaces(sources[i]).Length;
+                    while (at < caption.Length && remaining > 0)
+                    {
+                        if (!char.IsWhiteSpace(caption[at]))
+                            remaining--;
+                        at++;
+                    }
+                    sources[i] = caption.Substring(start, at - start);
+                }
+            }
+
+            var result = new List<Piece>();
+            for (int p = 0; p < pieces.Count; p++)
+            {
+                Piece piece = pieces[p];
+                string[] originals = LyricOriginals.CollapseWhitespace(sources[p]).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (originals.Length < 2)
+                {
+                    result.Add(piece);
+                    continue;
+                }
+
+                string[] words = originals.Select(w => PolyglotText.CellText(w)).ToArray();
+                int[] counts = words.Select(w => w.Count(Typeability.IsPolyglotTypeCell)).ToArray();
+                double[] targets = TypingLine.CellTargetsFor(piece.Unit, counts.Sum(), Typeability.IsPolyglotTypeCell);
+                IReadOnlyList<int> cuts = SyllableSegments.SplitsFor(piece.Unit);
+                int offset = 0;
+                int before = 0;
+                for (int i = 0; i < words.Length; i++)
+                {
+                    int after = before + counts[i];
+                    double start = i == 0 ? piece.Unit.StartTime : before < targets.Length ? targets[before] : piece.Unit.EndTime;
+                    double end = i + 1 == words.Length ? piece.Unit.EndTime : after < targets.Length ? targets[after] : piece.Unit.EndTime;
+                    var boundaries = new List<double>();
+                    var splits = new List<int>();
+                    for (int j = 0; j < cuts.Count && j < piece.Unit.SyllableBoundaries.Count; j++)
+                    {
+                        double time = piece.Unit.SyllableBoundaries[j];
+                        if (cuts[j] > offset && cuts[j] < offset + words[i].Length && time > start && time < end)
+                        {
+                            boundaries.Add(time);
+                            splits.Add(cuts[j] - offset);
+                        }
+                    }
+                    result.Add(new Piece
+                    {
+                        Unit = new TimedUnit
+                        {
+                            Text = words[i],
+                            Original = (i > 0 || hasOriginalSpace(sources[p], trailing: false) ? " " : string.Empty) + originals[i]
+                                       + (i + 1 == words.Length && hasOriginalSpace(sources[p], trailing: true) ? " " : string.Empty),
+                            StartTime = start, EndTime = end, Source = piece.Unit.Source, Confidence = piece.Unit.Confidence,
+                            SyllableBoundaries = boundaries, SyllableSplits = splits,
+                        },
+                        Natural = boundaries.Count == 0 ? piece.Natural ?? new NaturalSplit(Array.Empty<int>()) : null,
+                        Cluster = piece.Cluster.Skip(offset).Take(words[i].Length).ToArray(),
+                    });
+                    offset += words[i].Length;
+                    before = after;
+                }
+            }
+            return result;
+        }
+
+        private static bool isJapanese(string? language) => JapaneseReading.IsJapanese(language);
 
         /// <summary>
         /// The romanised words of Japanese do not imply typed spaces in the original script.
         /// Only whitespace present between the matching original pieces keeps a space cell.
-        /// If the originals cannot be matched to the line, preserve the existing word breaks.
+        /// Without a matching line original, adjacent Japanese words still join unless their
+        /// own originals record whitespace at the seam. Mixed Latin words keep their breaks.
         /// </summary>
         private static List<Piece> joinJapaneseWords(LyricLine line, List<Piece> pieces)
         {
-            bool[]? spaces = originalSpaces(line.Original, pieces);
-
-            if (spaces == null)
-                return pieces;
+            bool[] spaces = originalSpaces(line.Original, pieces) ?? Enumerable.Range(0, pieces.Count - 1)
+                .Select(i => hasOriginalSpace(pieces[i].Unit.Original, trailing: true)
+                             || hasOriginalSpace(pieces[i + 1].Unit.Original, trailing: false)
+                             || !hasJapaneseEdge(pieces[i].Text, trailing: true)
+                             || !hasJapaneseEdge(pieces[i + 1].Text, trailing: false)).ToArray();
 
             var joined = new List<Piece>();
             int from = 0;
@@ -256,12 +338,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             return joined;
         }
 
+        private static bool hasOriginalSpace(string? original, bool trailing)
+            => !string.IsNullOrEmpty(original) && char.IsWhiteSpace(trailing ? original[^1] : original[0]);
+
+        private static bool hasJapaneseEdge(string text, bool trailing)
+        {
+            string kana = JapaneseRomaji.Hiragana(text);
+            for (int i = trailing ? kana.Length - 1 : 0; i >= 0 && i < kana.Length; i += trailing ? -1 : 1)
+            {
+                char c = kana[i];
+                if (char.IsPunctuation(c) || char.IsWhiteSpace(c))
+                    continue;
+                return Kawazu.Utilities.IsKanji(c) || Kawazu.Utilities.IsKana(c) || c is 'ー' or '々' or '〆';
+            }
+            return false;
+        }
+
         private static bool[]? originalSpaces(string? original, IReadOnlyList<Piece> pieces)
         {
             if (original == null)
                 return null;
 
-            string source = LyricOriginals.CollapseWhitespace(original);
+            string source = LyricOriginals.CollapseWhitespace(PolyglotText.ToNfc(original));
             var spaces = new bool[Math.Max(0, pieces.Count - 1)];
             int at = 0;
 
@@ -276,7 +374,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     }
                 }
 
-                string text = pieces[i].Unit.Original ?? pieces[i].Text;
+                string text = LyricOriginals.CollapseWhitespace(PolyglotText.ToNfc(pieces[i].Unit.Original ?? pieces[i].Text));
 
                 if (!source.AsSpan(at).StartsWith(text.AsSpan(), StringComparison.Ordinal))
                     return null;
@@ -363,7 +461,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <paramref name="source"/> is the romanised unit it stands in for (its subdivision and its
         /// romanised spelling), or null for a word that has none.
         /// </summary>
-        private static Piece originalPiece(string original, double start, double end, TimedUnit? source, string? language, bool carryCuts = true)
+        private static Piece originalPiece(string original, double start, double end, TimedUnit? source, string? language, bool carryCuts = true, bool japaneseWordTiming = true)
         {
             var sourceIndex = new List<int>();
             var cluster = new List<int>();
@@ -371,7 +469,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             string nfc = PolyglotText.ToNfc(original);
             int[] glyphs = glyphStarts(cluster);
 
-            var boundaries = source?.SyllableBoundaries ?? Array.Empty<double>();
+            bool wordTimed = japaneseWordTiming && isJapanese(language)
+                             && JapaneseRomaji.Hiragana(text).Any(c => Kawazu.Utilities.IsKanji(c) || Kawazu.Utilities.IsKana(c) || c is 'ー' or '々' or '〆');
+            IReadOnlyList<double> boundaries = wordTimed ? Array.Empty<double>() : source?.SyllableBoundaries ?? Array.Empty<double>();
             IReadOnlyList<int> splits = Array.Empty<int>();
 
             if (boundaries.Count > 0)
@@ -397,7 +497,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // stylised romanised word still has no groups at all, as it has none without the mod.
             if (boundaries.Count == 0)
             {
-                natural = source != null && carryCuts && !Syllabifier.IsSyllabifiable(source.Text)
+                natural = !wordTimed && source != null && carryCuts && !Syllabifier.IsSyllabifiable(source.Text)
                     ? new NaturalSplit(null)
                     : new NaturalSplit(Array.Empty<int>());
             }

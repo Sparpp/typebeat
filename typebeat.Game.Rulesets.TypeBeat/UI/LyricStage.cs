@@ -273,7 +273,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             if (engine.Polyglot)
             {
                 fontManager?.EnsureCoverage(lines.SelectMany(l => l.Cells.Select(c => c.Expected))
-                                                 .Concat(lines.SelectMany(l => l.Source.Units.SelectMany(u => PolyglotText.ToNfc(u.Original)))));
+                                                 .Concat(lines.SelectMany(l => l.Source.Units.SelectMany(u => PolyglotText.ToNfc(u.Original))))
+                                                 .Concat(lines.SelectMany(l => l.JapaneseInput?.Groups.SelectMany(g => g.Reading) ?? Enumerable.Empty<char>())));
             }
 
             // The lyric SIZE (backlog 334) is read once, like the font: a display measures its glyphs
@@ -339,6 +340,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // The target era switches the same way (a replay recorded before AlignSubdivisionTargets
             // flips the cells back to the legacy targets), and the bands are laid from those targets.
             engine.AlignSubdivisionTargetsChanged += regroup;
+            engine.JapaneseWordTimingChanged += regroup;
 
             // Carets are positioned via absolute points in this stage's top-left-origin
             // local space (from ToSpaceOfOtherDrawable), so they must anchor top-left.
@@ -457,6 +459,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             lineSpacing.BindValueChanged(e =>
             {
                 lineGap = EffectiveRowPitch(e.NewValue, FontSize);
+                if (engine.UsesJapaneseRomaji)
+                    lineGap = Math.Max(lineGap, FontSize * 1.6f);
                 laidOutFocus = int.MinValue;
             }, true);
 
@@ -499,8 +503,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             imeCompositionText = new OsuSpriteText
             {
                 Anchor = Anchor.TopLeft,
-                Origin = Anchor.BottomCentre,
-                Font = TypeBeatStyle.Lyric(FontSize * 0.75f, lyricFont),
+                Origin = engine.UsesJapaneseRomaji ? Anchor.TopLeft : Anchor.BottomCentre,
+                Font = TypeBeatStyle.Lyric(FontSize * (engine.UsesJapaneseRomaji ? 0.36f : 0.75f), lyricFont),
                 Colour = TypeBeatStyle.UntypedChar,
                 Alpha = 0f,
                 ShadowColour = TypeBeatStyle.TextShadow,
@@ -608,6 +612,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             imeCompositionText.Text = composition;
             imeCompositionText.Alpha = string.IsNullOrEmpty(composition) ? 0f : 1f;
             imeCompositionText.Position = playerCaret.Position;
+            // The romaji buffer belongs below the lyric rail, leaving the kanji's furigana readable.
+            if (engine.UsesJapaneseRomaji && DisplayAt(engine.ActiveLineIndex) is LyricLineDisplay active)
+                imeCompositionText.Y += active.LineHeight + 16 * sizeRatio;
         }
 
         /// <summary>The composition currently shown (empty when none).</summary>
@@ -1496,6 +1503,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 engine.AuthoredSyllablesOnlyChanged -= regroup;
                 engine.AlignSubdivisionTargetsChanged -= regroup;
+                engine.JapaneseWordTimingChanged -= regroup;
             }
 
             base.Dispose(isDisposing);

@@ -261,6 +261,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             AuthoredSyllablesOnly = source.AuthoredSyllablesOnly,
             AlignSubdivisionTargets = source.AlignSubdivisionTargets,
             EarlyFinish = source.EarlyFinish,
+            JapaneseRomajiInput = source.JapaneseRomajiInput,
+            JapaneseWordTiming = source.JapaneseWordTiming,
+            JapaneseInputEra2 = source.JapaneseInputEra2,
         };
     }
 }

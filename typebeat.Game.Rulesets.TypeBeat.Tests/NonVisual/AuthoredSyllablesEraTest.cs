@@ -131,11 +131,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void AnUnknownSecondWordBitDecodesToNothing()
         {
             var frame = new TypeBeatReplayFrame();
-            frame.FromLegacy(new LegacyReplayFrame(0, TypeBeatReplayFrame.CONFIG_EXTENDED, 32 | 4, ReplayButtonState.None), new Beatmap());
+            frame.FromLegacy(new LegacyReplayFrame(0, TypeBeatReplayFrame.CONFIG_EXTENDED, 256 | 4, ReplayButtonState.None), new Beatmap());
 
             Assert.IsTrue(frame.AuthoredSyllablesOnly);
             Assert.IsFalse(frame.RushCapCostsAccuracy);
             Assert.IsFalse(frame.InputEra2);
+            Assert.IsFalse(frame.JapaneseWordTiming);
+            Assert.IsFalse(frame.JapaneseInputEra2);
             Assert.AreEqual(4, (int)frame.ToLegacy(new Beatmap()).MouseY!.Value, "re-encoding writes the bits it knows");
         }
 
