@@ -48,6 +48,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             // Backlog 363's grouping rides along too, and is the one the generator must also CARRY:
             // the live engine plays a word nobody subdivided as one group, the watch path clears
             // that era on attach, so the generator writes the extended header that sets it again.
+            //
+            // EarlyFinish rides in that same header for the same reason: without it the attach clears
+            // the era and autoplay's run waits for the final line's end instead of its last press.
             => new ModReplayData(new TypeBeatAutoGenerator(beatmap,
                     literate: mods.Any(m => m is TypeBeatModLiterate),
                     syllableTiming: !mods.Any(m => m is TypeBeatModHardRock),
@@ -55,7 +58,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
                     firstCharTiming: true,
                     wordShelter: mods.Any(m => m is TypeBeatModEasy),
                     authoredSyllablesOnly: true,
-                    alignSubdivisionTargets: true).Generate(),
+                    alignSubdivisionTargets: true,
+                    earlyFinish: true).Generate(),
                 new ModCreatedUser { Username = "typebot" });
     }
 }

@@ -38,6 +38,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         private readonly bool wordShelter;
         private readonly bool authoredSyllablesOnly;
         private readonly bool alignSubdivisionTargets;
+        private readonly bool earlyFinish;
 
         /// <param name="beatmap">The map to perfect.</param>
         /// <param name="literate">
@@ -89,8 +90,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// Use the live editor-aligned character targets and carry that era in the extended header.
         /// Defaults to legacy targets for existing direct callers.
         /// </param>
+        /// <param name="earlyFinish">
+        /// Carry <see cref="Gameplay.TypingEngine.EarlyFinish"/> in the extended header, so the watched
+        /// run ends on autoplay's last press like a live one does instead of at the final line's end.
+        /// It moves no press (a seal is judgement-neutral on a fully correct line); it only has to be
+        /// carried because attaching the replay clears every second-word era on the live engine.
+        /// </param>
         public TypeBeatAutoGenerator(IBeatmap beatmap, bool literate = false, bool syllableTiming = false, bool charTimedStretch = false, bool firstCharTiming = false, bool wordShelter = false,
-                                     bool authoredSyllablesOnly = false, bool alignSubdivisionTargets = false)
+                                     bool authoredSyllablesOnly = false, bool alignSubdivisionTargets = false, bool earlyFinish = false)
             : base(beatmap)
         {
             this.literate = literate;
@@ -100,6 +107,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             this.wordShelter = wordShelter;
             this.authoredSyllablesOnly = authoredSyllablesOnly;
             this.alignSubdivisionTargets = alignSubdivisionTargets;
+            this.earlyFinish = earlyFinish;
         }
 
         protected override void GenerateFrames()
@@ -159,7 +167,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 }
             }
 
-            if ((authoredSyllablesOnly || alignSubdivisionTargets) && Frames.Count > 0)
+            if ((authoredSyllablesOnly || alignSubdivisionTargets || earlyFinish) && Frames.Count > 0)
             {
                 // The era header (see the constructor), immediately ahead of the LAST press and at its
                 // time, and again ahead of the first. The first lands it before any keystroke a play
@@ -167,10 +175,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // every frame at or before the playhead before attaching: whenever any press survives
                 // that trim, so does this header, and the watch path primes from the first header it
                 // finds, so the surviving presses are judged on the grouping they were made for.
-                Frames.Insert(Frames.Count - 1, TypeBeatReplayFrame.CreateExtendedConfigFrame(Frames[^1].Time, authoredSyllablesOnly: authoredSyllablesOnly, alignSubdivisionTargets: alignSubdivisionTargets));
+                Frames.Insert(Frames.Count - 1, TypeBeatReplayFrame.CreateExtendedConfigFrame(Frames[^1].Time, authoredSyllablesOnly: authoredSyllablesOnly, alignSubdivisionTargets: alignSubdivisionTargets,
+                    earlyFinish: earlyFinish));
 
                 if (Frames.Count > 2)
-                    Frames.Insert(0, TypeBeatReplayFrame.CreateExtendedConfigFrame(Frames[0].Time, authoredSyllablesOnly: authoredSyllablesOnly, alignSubdivisionTargets: alignSubdivisionTargets));
+                {
+                    Frames.Insert(0, TypeBeatReplayFrame.CreateExtendedConfigFrame(Frames[0].Time, authoredSyllablesOnly: authoredSyllablesOnly, alignSubdivisionTargets: alignSubdivisionTargets,
+                        earlyFinish: earlyFinish));
+                }
             }
         }
 
