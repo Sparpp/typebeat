@@ -1309,6 +1309,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool RushCapCostsAccuracy { get; set; }
 
         /// <summary>
+        /// The map's final line seals the moment every typeable cell of it is typed correctly, rather
+        /// than at the line's end, so the run finishes with the player's last word and not with the
+        /// song. A player still behind when the line ends is unaffected: the ordinary seal rules
+        /// (grace, drag cutoff) hold the line open until they finish or run out, and the final cell
+        /// then seals it at once.
+        ///
+        /// <para>An ERA, bit 4 of the SECOND CONFIG flags word
+        /// (<see cref="Replays.TypeBeatReplayFrame.CONFIG_EXTENDED"/>). FALSE by default, which is
+        /// what every replay stored before it was played under: a key after the last word (a
+        /// backspace) could still change the line before its end there. Set for every live stack
+        /// (<c>DrawableTypeBeatRuleset.createEngine</c>); a seal is judgement-neutral on a fully
+        /// correct line, so only the instant moves.</para>
+        /// </summary>
+        public bool EarlyFinish { get; set; }
+
+        /// <summary>
         /// The rush cap in force for this run: <see cref="FLETCHER_MAX_CHARS_AHEAD"/> under
         /// <see cref="RushCapCostsAccuracy"/>, <see cref="LEGACY_FLETCHER_MAX_CHARS_AHEAD"/> in the
         /// era before it.
@@ -1975,7 +1991,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <see cref="SyllableTiming"/>, <see cref="WrongInputOnWordGaps"/>,
         /// <see cref="StrictSpaces"/>, <see cref="BackDatedSealBreak"/>,
         /// <see cref="UnhalvedHardRockWindows"/>, and the second word's <see cref="RushCapCostsAccuracy"/>,
-        /// <see cref="InputEra2"/> and <see cref="AuthoredSyllablesOnly"/>), the mod flags
+        /// <see cref="InputEra2"/>, <see cref="AuthoredSyllablesOnly"/> and <see cref="EarlyFinish"/>), the mod flags
         /// (<see cref="FletcherEnabled"/>, <see cref="MashingEnabled"/>, <see cref="Literate"/>,
         /// <see cref="CaseSensitive"/>, <see cref="HardRockFromMod"/>),
         /// <see cref="WindowScale"/> and the era rules
@@ -2149,7 +2165,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             //     EndTime; lines with a seal grace (vocals overrunning into the next line, or a
             //     boundary-pinned last target) stay typeable through the grace window and seal
             //     early the moment nothing is left to type, so the next line isn't held up.
-            while (nextSealIndex < lines.Count && canSeal(lines[nextSealIndex], time) && sealPermitted(nextSealIndex, time))
+            while (nextSealIndex < lines.Count && (canSeal(lines[nextSealIndex], time) || finishedEarly(nextSealIndex)) && sealPermitted(nextSealIndex, time))
             {
                 int index = nextSealIndex;
                 var line = lines[index];
@@ -2661,6 +2677,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 return true;
 
             return !hasUntypedTypeable(line);
+        }
+
+        /// <summary>
+        /// EARLY FINISH (see <see cref="EarlyFinish"/>): the map's FINAL line has every typeable cell
+        /// typed correctly, so its seal does not wait for the line's end. Only the final line: an
+        /// earlier one seals on its own deadline so the song's pacing of the stack is untouched, and
+        /// the final line's seal is what ends the run. A wrong cell (still fixable) or a line with
+        /// nothing typeable in it does not qualify, so both keep the ordinary deadline.
+        /// </summary>
+        private bool finishedEarly(int index)
+        {
+            if (!EarlyFinish || index != lines.Count - 1)
+                return false;
+
+            bool anyTypeable = false;
+
+            foreach (var cell in lines[index].Cells)
+            {
+                if (!cell.IsTypeable)
+                    continue;
+
+                if (cell.State != CellState.Correct)
+                    return false;
+
+                anyTypeable = true;
+            }
+
+            return anyTypeable;
         }
 
         /// <summary>
