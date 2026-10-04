@@ -94,7 +94,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // The SECOND flags word (backlog 347), straight after the first and at the same time,
                 // which is the order ReplayEngineFeed.Apply relies on (the CONFIG frame clears these
                 // flags, this one sets them).
-                emit(TypeBeatReplayFrame.CreateExtendedConfigFrame(configTime, rushCapCostsAccuracy: engine.RushCapCostsAccuracy, inputEra2: engine.InputEra2, authoredSyllablesOnly: engine.AuthoredSyllablesOnly, alignSubdivisionTargets: engine.AlignSubdivisionTargets, earlyFinish: engine.EarlyFinish));
+                emit(TypeBeatReplayFrame.CreateExtendedConfigFrame(configTime, rushCapCostsAccuracy: engine.RushCapCostsAccuracy, inputEra2: engine.InputEra2, authoredSyllablesOnly: engine.AuthoredSyllablesOnly, alignSubdivisionTargets: engine.AlignSubdivisionTargets, earlyFinish: engine.EarlyFinish, japaneseRomajiInput: engine.JapaneseRomajiInput, japaneseWordTiming: engine.JapaneseWordTiming, japaneseInputEra2: engine.JapaneseInputEra2));
             }
 
             emit(new TypeBeatReplayFrame(StampFor(puppeteer, wallStamped, time), character));

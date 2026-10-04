@@ -202,9 +202,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.AreEqual(0, engine.ConsecutiveWrongKeys);
             }
 
-            Assert.AreEqual(control.Score, free.Score);
-            Assert.AreEqual(control.MaxCombo, free.MaxCombo);
-            Assert.AreEqual(control.LiveAccuracy, free.LiveAccuracy);
+            // No cross-engine score/combo/accuracy comparison here: a freestyle cell is graded on the
+            // doubled ladder, so the final press legitimately scores differently from the same press
+            // on the control's ordinary cell. The rejection signature asserted in the loop above is
+            // what makes the two indistinguishable, and that is the claim backlog 50 makes.
         }
 
         [Test]

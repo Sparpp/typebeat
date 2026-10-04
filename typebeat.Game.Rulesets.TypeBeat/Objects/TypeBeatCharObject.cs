@@ -26,6 +26,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
 
         public override Rulesets.Judgements.Judgement CreateJudgement() => new TypeBeatCharJudgement();
 
-        protected override HitWindows CreateHitWindows() => new TypeBeatHitWindows();
+        protected override HitWindows CreateHitWindows() => new TypeBeatHitWindows(Typeability.IsFreestyle(Expected));
     }
 }

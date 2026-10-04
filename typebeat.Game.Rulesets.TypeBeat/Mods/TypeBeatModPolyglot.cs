@@ -27,7 +27,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// and read by both engine factories off the mod list.</item>
     /// <item>INPUT is the OS's committed text rather than the physical key map: whatever the player's
     /// layout or IME produces is the character judged (see the playfield's key handler), matched in
-    /// NFC and case-insensitively unless Literate is on (<see cref="Gameplay.PolyglotText"/>).</item>
+    /// NFC and case-insensitively unless Literate is on (<see cref="Gameplay.PolyglotText"/>).
+    /// Japanese maps instead process romaji internally, accepting IME spelling variants and
+    /// displaying furigana over kanji. No per-character IME submission is required.</item>
     /// <item>LOCAL ONLY (<see cref="Mod.LocalOnly"/>): no token, no submission, no online board for a
     /// selection holding it, and the play is kept in the local score list with its replay. It is
     /// unranked regardless, and 1.0x, because nothing it produces reaches a leaderboard.</item>
@@ -39,7 +41,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// while this mod is selected.</para>
     ///
     /// <para>A MOD, not an ERA: a replay is identified as a Polyglot play by the mod in its score, and
-    /// no CONFIG frame bit is spent on it (bit 16 was the last the carrier can hold).</para>
+    /// no CONFIG frame bit is spent on the mod itself. Extended bit 4 separately records the
+    /// Japanese romaji input era so older committed-text Polyglot replays stay unchanged.</para>
     /// </summary>
     public class TypeBeatModPolyglot : Mod, IApplicableAfterBeatmapConversion
     {
@@ -47,7 +50,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
         public override string Acronym => "PG";
 
-        public override LocalisableString Description => "Type the lyric in its original script.";
+        public override LocalisableString Description => "Type the lyric in its original script. Japanese maps accept romaji.";
 
         /// <summary>CONVERSION: the question the game asks changes (which text), nothing is tightened or loosened.</summary>
         public override ModType Type => ModType.Conversion;

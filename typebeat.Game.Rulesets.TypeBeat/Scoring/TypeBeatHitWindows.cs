@@ -36,9 +36,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         public Func<SyncWindows>? WindowsSource { get; set; }
 
-        public TypeBeatHitWindows()
+        public TypeBeatHitWindows(bool isFreestyle = false)
         {
-            windows = SyncWindows.Default;
+            windows = SyncWindows.Default.Scaled(isFreestyle ? SyncWindows.FREESTYLE_WINDOW_SCALE : 1);
         }
 
         public override bool IsHitResultAllowed(HitResult result)
