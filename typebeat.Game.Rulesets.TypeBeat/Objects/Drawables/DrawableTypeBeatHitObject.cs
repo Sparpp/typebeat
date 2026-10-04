@@ -99,7 +99,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
             if (!charDrawablesByCell.TryGetValue(judgement.CellIndex, out var charDrawable))
                 return;
 
-            charDrawable.ApplyEngineResult(result);
+            charDrawable.ApplyEngineResult(result, judgement.Delta);
         }
 
         /// <summary>
