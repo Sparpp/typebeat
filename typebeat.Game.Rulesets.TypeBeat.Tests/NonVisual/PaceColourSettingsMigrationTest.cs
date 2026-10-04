@@ -56,7 +56,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     }));
                 }
 
-                // An unrelated variant and setting must survive the one-time reset.
+                // The unrelated variant survives; the indicator preset also resets maximum change.
                 access.Write(r =>
                 {
                     r.Add(new RealmRulesetSetting { RulesetName = ruleset.ShortName, Variant = 0, Key = nameof(TypeBeatRulesetSetting.PaceColourMode), Value = "PreviousSegment" });
@@ -66,7 +66,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 using (var config = new TypeBeatRulesetConfigManager(settings, ruleset.RulesetInfo, 7))
                 {
                     Assert.That(config.Get<PaceColourMode>(TypeBeatRulesetSetting.PaceColourMode), Is.EqualTo(PaceColourMode.MapRelative));
-                    Assert.That(config.Get<float>(TypeBeatRulesetSetting.PaceColourMaxChange), Is.EqualTo(75f));
+                    Assert.That(config.Get<float>(TypeBeatRulesetSetting.PaceColourMaxChange), Is.EqualTo(100f));
                     Assert.That(config.Get<float>(TypeBeatRulesetSetting.PaceColourOpacityCurve), Is.Zero);
                     Assert.That(access.Realm.All<RealmRulesetSetting>().Single(s => s.RulesetName == ruleset.ShortName && s.Variant == 7 && s.Key == nameof(TypeBeatRulesetSetting.PaceColourMode)).Value,
                         Is.EqualTo("MapRelative"), "migration must rewrite the row before parsing it");

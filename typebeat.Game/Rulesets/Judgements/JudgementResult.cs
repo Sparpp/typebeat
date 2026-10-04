@@ -39,12 +39,25 @@ namespace typebeat.Game.Rulesets.Judgements
 
         /// <summary>
         /// The offset of <see cref="TimeAbsolute"/> from the end time of <see cref="HitObject"/>, clamped by <see cref="typebeat.Game.Rulesets.Objects.HitObject.MaximumJudgementOffset"/>.
+        /// When the ruleset supplied a <see cref="JudgedTimeOffset"/>, that is the offset instead (clamped the same way).
         /// </summary>
         public double TimeOffset
         {
-            get => RawTime != null ? Math.Min(RawTime.Value - HitObject.GetEndTime(), HitObject.MaximumJudgementOffset) : 0;
+            get => RawTime != null ? Math.Min(JudgedTimeOffset ?? RawTime.Value - HitObject.GetEndTime(), HitObject.MaximumJudgementOffset) : 0;
             internal set => RawTime = HitObject.GetEndTime() + value;
         }
+
+        /// <summary>
+        /// The timing error the ruleset actually graded this result on, when that is not simply how
+        /// far the judgement landed from <see cref="HitObject"/>'s end time. type!beat judges a typed
+        /// character against its sung syllable's whole span (and its windows move with mods), so the
+        /// raw distance from the character's point target is not the offset its result was decided
+        /// by. Set while applying the result; <see cref="TimeOffset"/> then reports it, so every
+        /// timing readout (hit error meters, the results screen's timing graph, unstable rate)
+        /// places the hit where its judgement did. <see cref="TimeAbsolute"/> and the revert
+        /// bookkeeping keep using the real judgement time. Null for every ordinary result.
+        /// </summary>
+        public double? JudgedTimeOffset { get; set; }
 
         /// <summary>
         /// The absolute time at which this <see cref="JudgementResult"/> occurred, clamped by the end time of <see cref="HitObject"/> plus <see cref="typebeat.Game.Rulesets.Objects.HitObject.MaximumJudgementOffset"/>.
@@ -120,6 +133,7 @@ namespace typebeat.Game.Rulesets.Judgements
         {
             Type = HitResult.None;
             RawTime = null;
+            JudgedTimeOffset = null;
         }
 
         public override string ToString() => $"{Type} ({Judgement})";

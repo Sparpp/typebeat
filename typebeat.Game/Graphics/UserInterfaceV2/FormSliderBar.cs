@@ -302,7 +302,8 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
             currentNumberInstantaneous.BindDisabledChanged(_ => updateState());
             currentNumberInstantaneous.BindValueChanged(e =>
             {
-                if (!TransferValueOnCommit)
+                // Initial synchronisation and cancellation on disable must not write to a disabled setting.
+                if (!TransferValueOnCommit && !current.Disabled)
                     current.Value = e.NewValue;
 
                 updateState();

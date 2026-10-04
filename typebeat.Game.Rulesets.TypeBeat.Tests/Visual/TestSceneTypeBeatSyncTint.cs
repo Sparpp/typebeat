@@ -133,6 +133,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             // would carry over, and the shipped default is OFF, so without this every ramp
             // assertion below would be testing the flat typed colour.
             setSyncMetric(true);
+            AddStep("use the sync tint fixture's fixed highlight baseline", () =>
+            {
+                config.SetValue(TypeBeatRulesetSetting.SyllableBrightness, 50f);
+                config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.None);
+            });
 
             AddStep("create drawable ruleset", () =>
             {

@@ -87,10 +87,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private readonly Bindable<bool> showPaceColours = new Bindable<bool>(true);
         private readonly Bindable<PaceColourMode> paceColourMode = new Bindable<PaceColourMode>(PaceColourMode.MapRelative);
         private readonly BindableFloat paceColourOpacityCurve = new BindableFloat();
+        private readonly BindableFloat paceColourGradient = new BindableFloat();
         private readonly BindableFloat paceColourMaxChange = new BindableFloat((float)UnderlinePace.DEFAULT_MAX_CHANGE_PERCENT);
-        private readonly BindableFloat syllableBrightness = new BindableFloat(50f);
-        private readonly BindableBool syllableFadeIn = new BindableBool();
-        private readonly BindableBool textPopIn = new BindableBool();
+        private readonly BindableFloat syllableBrightness = new BindableFloat(60f);
+        private readonly Bindable<JudgementIndicatorMode> judgementIndicator = new Bindable<JudgementIndicatorMode>(JudgementIndicatorMode.FadeIn);
+        private readonly BindableBool approachBars = new BindableBool(true);
+        private readonly BindableFloat syllableFadeInEnd = new BindableFloat();
+        private readonly BindableFloat syllableFadeInDuration = new BindableFloat(TypeBeatRulesetConfigManager.DEFAULT_SYLLABLE_FADE_IN_DURATION_MS);
+        private readonly BindableBool textPopIn = new BindableBool(true);
         private readonly BindableFloat textPopInAmount = new BindableFloat(TypeBeatRulesetConfigManager.DEFAULT_TEXT_POP_IN_AMOUNT);
 
         // The sync tint (TypeBeatRulesetSetting.ShowSyncMetric, off by default since backlog 251),
@@ -418,11 +422,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     d.SetTextPopInAmount(e.NewValue);
             }, true);
 
-            config?.BindWith(TypeBeatRulesetSetting.SyllableFadeIn, syllableFadeIn);
-            syllableFadeIn.BindValueChanged(e =>
+            config?.BindWith(TypeBeatRulesetSetting.ApproachBars, approachBars);
+            approachBars.BindValueChanged(e =>
             {
                 foreach (var d in displays)
-                    d.SetSyllableFadeInEnabled(e.NewValue);
+                    d.SetApproachBarsEnabled(e.NewValue);
+            }, true);
+
+            config?.BindWith(TypeBeatRulesetSetting.JudgementIndicator, judgementIndicator);
+            judgementIndicator.BindValueChanged(e =>
+            {
+                foreach (var d in displays)
+                    d.SetJudgementIndicator(e.NewValue);
+            }, true);
+
+            config?.BindWith(TypeBeatRulesetSetting.PaceColourGradient, paceColourGradient);
+            paceColourGradient.BindValueChanged(e =>
+            {
+                foreach (var d in displays)
+                    d.SetPaceColourGradient(e.NewValue);
+            }, true);
+
+            config?.BindWith(TypeBeatRulesetSetting.SyllableFadeInEnd, syllableFadeInEnd);
+            syllableFadeInEnd.BindValueChanged(e =>
+            {
+                foreach (var d in displays)
+                    d.SetSyllableFadeInEnd(e.NewValue);
+            }, true);
+
+            config?.BindWith(TypeBeatRulesetSetting.SyllableFadeInDuration, syllableFadeInDuration);
+            syllableFadeInDuration.BindValueChanged(e =>
+            {
+                foreach (var d in displays)
+                    d.SetSyllableFadeInDuration(e.NewValue);
             }, true);
 
             config?.BindWith(TypeBeatRulesetSetting.TextPopIn, textPopIn);
@@ -1430,7 +1462,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             for (int candidate = lo; candidate <= hi; candidate++)
             {
                 displays[candidate].SetSungWindow(time, engine.Windows.GreatEarly, engine.Windows.GreatLate,
-                    characterTiming: engine.HardRockFromMod || !engine.SyllableTiming, charTimedStretch: engine.CharTimedStretch, okEarly: engine.Windows.OkEarly);
+                    characterTiming: engine.HardRockFromMod || !engine.SyllableTiming, charTimedStretch: engine.CharTimedStretch, okEarly: engine.Windows.OkEarly,
+                    freestyleWindowMultiplier: SyncWindows.FREESTYLE_WINDOW_SCALE);
                 syllableLitLines.Add(candidate);
             }
         }

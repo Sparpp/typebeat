@@ -48,7 +48,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         private TypeBeatRulesetConfigManager config => (TypeBeatRulesetConfigManager)RulesetConfigs.GetConfigFor(new TypeBeatRuleset())!;
 
-        private bool lit(int cell) => ((ColourInfo)TypeBeatStyle.SungChar).Equals((ColourInfo)display.CellColour(cell).TopLeft.SRGB);
+        private bool lit(int cell) => ((ColourInfo)TypeBeatStyle.SungCharForBrightness(60)).Equals((ColourInfo)display.CellColour(cell).TopLeft.SRGB);
 
         [SetUpSteps]
         public void SetUpSteps()

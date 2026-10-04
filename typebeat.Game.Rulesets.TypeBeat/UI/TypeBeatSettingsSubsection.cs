@@ -78,6 +78,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         internal Drawable[] BuildControls(TypeBeatRulesetConfigManager config)
         {
             var lyricFont = config.GetBindable<string>(TypeBeatRulesetSetting.LyricFont);
+            var judgementIndicator = config.GetBindable<JudgementIndicatorMode>(TypeBeatRulesetSetting.JudgementIndicator);
 
             return new Drawable[]
             {
@@ -85,7 +86,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 new SettingsItemV2(new FormCheckBox
                 {
                     Caption = "Space to skip current word",
-                    HintText = "Press space in the middle of a word to jump to the next one. Backspace can reclaim the skipped letters. In Gatekeeper mode, space is rejected like any other wrong key. Applies from the next play.",
+                    HintText = "Press space in the middle of a word to jump to the next one. In Freestyle, spaces are accepted in their slots instead of skipping. Backspace can reclaim skipped letters. In Gatekeeper mode, space is rejected like any other wrong key. Applies from the next play.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.SpaceSkipsWord),
                 }),
                 new SettingsItemV2(new FormCheckBox
@@ -159,9 +160,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     HintText = "Show a red dot only when you type a wrong character into a space between words. Skipping a word does not create a dot. Display only.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.UseSpaceErrorDot),
                 }),
+                new SettingsItemV2(new FormCheckBox
+                {
+                    Caption = "Approach bars",
+                    HintText = "Show pace-coloured bars that rise over the Indicator Lead-In and arrive at the centre of the Great window, independently of Indicator Alignment. Display only.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ApproachBars),
+                }),
+                new SettingsItemV2(new FormEnumDropdown<JudgementIndicatorMode>
+                {
+                    Caption = "Judgement Indicator",
+                    HintText = "Choose how upcoming syllables or letters show judgement timing. Display only.",
+                    Current = judgementIndicator,
+                }),
                 new SettingsItemV2(new FormSliderBar<float>
                 {
-                    Caption = "Sung syllable brightness",
+                    Caption = "Indicator Alignment",
+                    HintText = "Sets when the fade or fill and text pop-in complete, from the start to the centre of the Great window. Approach bars always arrive at the centre. Display only.",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.SyllableFadeInEnd),
+                    KeyboardStep = 1f,
+                    LabelFormat = v => v == 0 ? "Great window start" : v == 100 ? "Great window centre" : $"{v:0}% towards centre",
+                }),
+                new SettingsItemV2(new FormSliderBar<float>
+                {
+                    Caption = "Indicator Lead-In",
+                    HintText = "How many milliseconds the indicator takes to fade, fill, or approach its alignment point. Zero makes it appear instantly. Display only.",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.SyllableFadeInDuration),
+                    KeyboardStep = 1f,
+                    LabelFormat = v => $"{v:0} ms",
+                }),
+                new SettingsItemV2(new FormSliderBar<float>
+                {
+                    Caption = "Indicator Brightness",
                     HintText = "How much untyped syllables brighten while they are within the Great timing window. Display only.",
                     Current = config.GetBindable<float>(TypeBeatRulesetSetting.SyllableBrightness),
                     KeyboardStep = 1f,
@@ -169,14 +198,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 }),
                 new SettingsItemV2(new FormCheckBox
                 {
-                    Caption = "Syllable fade-in",
-                    HintText = "Gradually brighten upcoming syllables or characters from the Ok window opening, reaching your sung brightness at the Great window. Display only.",
-                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.SyllableFadeIn),
-                }),
-                new SettingsItemV2(new FormCheckBox
-                {
                     Caption = "Text pop-in",
-                    HintText = "Gently grow upcoming syllables or characters to full size as their Great timing window opens. Display only.",
+                    HintText = "Gently grow upcoming syllables or characters to full size by the indicator's alignment point. Display only.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.TextPopIn),
                 }),
                 new SettingsItemV2(new FormSliderBar<float>
@@ -221,6 +244,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     Current = config.GetBindable<float>(TypeBeatRulesetSetting.PaceColourOpacityCurve),
                     KeyboardStep = 1f,
                     LabelFormat = v => v == 0 ? "Linear" : v == 100 ? "Exponential" : $"{v:0}% exponential",
+                }),
+                new SettingsItemV2(new FormSliderBar<float>
+                {
+                    Caption = "Pace colour gradient",
+                    HintText = "Blends between neighbouring word pace colours. 0% keeps sharp band edges; 100% gives smooth transitions. Approach bars use sharp bands and disable this control at 0%. Display only.",
+                    Current = config.GetBindable<float>(TypeBeatRulesetSetting.PaceColourGradient),
+                    KeyboardStep = 1f,
+                    LabelFormat = v => $"{v:0}%",
                 }),
             };
         }

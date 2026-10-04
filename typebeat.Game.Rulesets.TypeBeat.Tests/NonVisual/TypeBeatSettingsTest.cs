@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Linq;
 using NUnit.Framework;
 using typebeat.Game.Graphics.UserInterfaceV2;
@@ -58,7 +59,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Manual newlines",
                     "Use map fonts",
                     "Use space error dot",
-                    "Syllable fade-in",
+                    "Approach bars",
                     "Text pop-in",
                     "Show syllable markers",
                     "Show word pace colours",
@@ -73,7 +74,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     TypeBeatRulesetSetting.ManualNewlines,
                     TypeBeatRulesetSetting.UseMapFonts,
                     TypeBeatRulesetSetting.UseSpaceErrorDot,
-                    TypeBeatRulesetSetting.SyllableFadeIn,
+                    TypeBeatRulesetSetting.ApproachBars,
                     TypeBeatRulesetSetting.TextPopIn,
                     TypeBeatRulesetSetting.ShowSyllableMarkers,
                     TypeBeatRulesetSetting.ShowPaceColours,
@@ -95,7 +96,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 // And the defaults the game ships with, which the move must not have reset either.
                 // Manual newlines, map fonts, the space error dot, syllable markers and pace colours
                 // ship on by default.
-                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, true, true, true, false, false, true, true }));
+                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, true, true, true, true, true, true, true }));
             }
         }
 
@@ -122,6 +123,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     FormDropdown<string> font => font.Caption.ToString(),
                     FormDropdown<CaretStyle> caret => caret.Caption.ToString(),
                     FormDropdown<PaceColourMode> mode => mode.Caption.ToString(),
+                    FormDropdown<JudgementIndicatorMode> indicator => indicator.Caption.ToString(),
                     _ => "?",
                 }), Is.EqualTo(new[]
                 {
@@ -137,8 +139,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Song playhead style",
                     "Caret smoothing",
                     "Use space error dot",
-                    "Sung syllable brightness",
-                    "Syllable fade-in",
+                    "Approach bars",
+                    "Judgement Indicator",
+                    "Indicator Alignment",
+                    "Indicator Lead-In",
+                    "Indicator Brightness",
                     "Text pop-in",
                     "Pop-in amount",
                     "Show syllable markers",
@@ -146,20 +151,58 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Pace colour mode",
                     "Pace colour maximum change",
                     "Pace colour opacity curve",
+                    "Pace colour gradient",
                 }));
 
-                var fadeIn = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Single(c => c.Caption.ToString() == "Syllable fade-in");
-                fadeIn.Current.Value = true;
-                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.SyllableFadeIn), Is.True);
-                config.SetValue(TypeBeatRulesetSetting.SyllableFadeIn, false);
-                Assert.That(fadeIn.Current.Value, Is.False);
+                var indicator = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormDropdown<JudgementIndicatorMode>>().Single();
+                var indicatorModes = new[]
+                {
+                    JudgementIndicatorMode.None,
+                    JudgementIndicatorMode.FadeIn,
+                    JudgementIndicatorMode.BottomToTopFill,
+                };
+                Assert.That(indicator.Items, Is.EqualTo(indicatorModes));
+                Assert.That(indicatorModes.Select(mode => mode.GetType().GetField(mode.ToString())!.GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false).Cast<System.ComponentModel.DescriptionAttribute>().Single().Description), Is.EqualTo(new[]
+                {
+                    "None", "Fade-In", "Bottom-to-top fill",
+                }));
+                Assert.That(indicator.Current.Value, Is.EqualTo(JudgementIndicatorMode.FadeIn));
+                foreach (var indicatorMode in indicatorModes)
+                {
+                    indicator.Current.Value = indicatorMode;
+                    Assert.That(config.Get<JudgementIndicatorMode>(TypeBeatRulesetSetting.JudgementIndicator), Is.EqualTo(indicatorMode));
+                }
+                config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn);
+                Assert.That(indicator.Current.Value, Is.EqualTo(JudgementIndicatorMode.FadeIn));
+
+                var end = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Single(c => c.Caption.ToString() == "Indicator Alignment");
+                Assert.That(end.Current.Value, Is.Zero);
+                end.Current.Value = 50f;
+                Assert.That(config.Get<float>(TypeBeatRulesetSetting.SyllableFadeInEnd), Is.EqualTo(50f));
+                config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, 1000f);
+                Assert.That(end.Current.Value, Is.EqualTo(100f));
+                config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, -1f);
+                Assert.That(end.Current.Value, Is.Zero);
+                Assert.That(end.LabelFormat!(100).ToString(), Is.EqualTo("Great window centre"));
+
+                var duration = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Single(c => c.Caption.ToString() == "Indicator Lead-In");
+                Assert.That(duration.Current.Value, Is.EqualTo(800f));
+                duration.Current.Value = 250f;
+                Assert.That(config.Get<float>(TypeBeatRulesetSetting.SyllableFadeInDuration), Is.EqualTo(250f));
+                config.SetValue(TypeBeatRulesetSetting.SyllableFadeInDuration, 3000f);
+                Assert.That(duration.Current.Value, Is.EqualTo(2000f));
+                config.SetValue(TypeBeatRulesetSetting.SyllableFadeInDuration, -1f);
+                Assert.That(duration.Current.Value, Is.Zero);
+
+                var brightness = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Single(c => c.Caption.ToString() == "Indicator Brightness");
+                Assert.That(brightness.Current.Value, Is.EqualTo(60f));
 
                 var popIn = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Single(c => c.Caption.ToString() == "Text pop-in");
-                Assert.That(popIn.Current.Value, Is.False);
-                popIn.Current.Value = true;
-                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.TextPopIn), Is.True);
-                config.SetValue(TypeBeatRulesetSetting.TextPopIn, false);
-                Assert.That(popIn.Current.Value, Is.False);
+                Assert.That(popIn.Current.Value, Is.True);
+                popIn.Current.Value = false;
+                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.TextPopIn), Is.False);
+                config.SetValue(TypeBeatRulesetSetting.TextPopIn, true);
+                Assert.That(popIn.Current.Value, Is.True);
 
                 var amount = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Single(c => c.Caption.ToString() == "Pop-in amount");
                 Assert.That(amount.Current.Value, Is.EqualTo(5f));
@@ -190,7 +233,55 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 config.SetValue(TypeBeatRulesetSetting.PaceColourOpacityCurve, 1000f);
                 Assert.That(curve.Current.Value, Is.EqualTo(100f));
 
+                var gradient = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().Single(c => c.Caption.ToString() == "Pace colour gradient");
+                var bars = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Single(c => c.Caption.ToString() == "Approach bars");
+                Assert.That(bars.Current.Value, Is.True);
+                Assert.That(gradient.Current.Value, Is.Zero);
+                Assert.That(gradient.Current.Disabled, Is.True);
+                bars.Current.Value = false;
+                Assert.That(gradient.Current.Disabled, Is.False);
+                Assert.That(gradient.LabelFormat!(0).ToString(), Is.EqualTo("0%"));
+                gradient.Current.Value = 42f;
+                Assert.That(config.Get<float>(TypeBeatRulesetSetting.PaceColourGradient), Is.EqualTo(42f));
+                config.SetValue(TypeBeatRulesetSetting.PaceColourGradient, 1000f);
+                Assert.That(gradient.Current.Value, Is.EqualTo(100f), "gradient is bounded at the top of its range");
+                config.SetValue(TypeBeatRulesetSetting.PaceColourGradient, -1f);
+                Assert.That(gradient.Current.Value, Is.Zero, "gradient is bounded at the bottom of its range");
+                bars.Current.Value = true;
+                Assert.That(gradient.Current.Value, Is.Zero, "approach bars always use sharp pace colour bands");
+                Assert.That(gradient.Current.Disabled, Is.True);
+                indicator.Current.Value = JudgementIndicatorMode.BottomToTopFill;
+                Assert.That(gradient.Current.Disabled, Is.True, "changing the text indicator leaves bars enabled");
+                bars.Current.Value = false;
+                Assert.That(gradient.Current.Disabled, Is.False);
+                gradient.Current.Value = 81f;
+                Assert.That(config.Get<float>(TypeBeatRulesetSetting.PaceColourGradient), Is.EqualTo(81f));
+
             }
+        }
+
+        [Test]
+        public void ApproachBarsBindingSurvivesGarbageCollection()
+        {
+            var ruleset = new TypeBeatRuleset();
+
+            using var config = new TypeBeatRulesetConfigManager(null, ruleset.RulesetInfo);
+            var gradient = config.GetBindable<float>(TypeBeatRulesetSetting.PaceColourGradient);
+            config.SetValue(TypeBeatRulesetSetting.ApproachBars, false);
+            gradient.Value = 73f;
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            var bars = config.GetBindable<bool>(TypeBeatRulesetSetting.ApproachBars);
+            bars.Value = true;
+            Assert.That(gradient.Value, Is.Zero);
+            Assert.That(gradient.Disabled, Is.True);
+
+            Assert.That(config.Get<JudgementIndicatorMode>(TypeBeatRulesetSetting.JudgementIndicator), Is.EqualTo(JudgementIndicatorMode.FadeIn));
+            bars.Value = false;
+            Assert.That(gradient.Disabled, Is.False);
         }
 
         /// <summary>
