@@ -11,6 +11,7 @@ using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Testing;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Overlays;
+using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Tests.Visual;
@@ -40,7 +41,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 config = new TypeBeatRulesetConfigManager(null, ruleset.RulesetInfo);
 
                 var controls = ((TypeBeatExperimentalSettingsSubsection)ruleset.CreateExperimentalSettings()!).BuildControls(config);
-                rows = controls.OfType<Container>().Select(c => c.Children.FirstOrDefault()).OfType<FormColourSwatch>().ToArray();
+                rows = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormColourSwatch>().ToArray();
 
                 Child = new PopoverContainer
                 {
@@ -69,6 +70,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("a second colour takes too", () => config.Get<string>(TypeBeatRulesetSetting.TimingTintEarlyColour) == "#123456");
             AddAssert("and is spelled cleanly", () => hexIs(0, "#123456"));
+        }
+
+        [Test]
+        public void TestTheRevertButtonResetsTheStoredColour()
+        {
+            commitHex(0, "#00ff00");
+            AddAssert("changed", () => config.Get<string>(TypeBeatRulesetSetting.TimingTintEarlyColour) == "#00ff00");
+
+            AddStep("revert the row", () => this.ChildrenOfType<SettingsItemV2>().First(i => i.Control == rows[0]).ApplyDefault());
+
+            AddAssert("the setting is back to its default", () => config.Get<string>(TypeBeatRulesetSetting.TimingTintEarlyColour) == "#ff8a3d");
+            AddAssert("and so is the row", () => hexIs(0, "#ff8a3d"));
         }
 
         [Test]
