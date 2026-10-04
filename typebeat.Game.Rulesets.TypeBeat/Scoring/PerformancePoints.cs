@@ -200,7 +200,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     ///
     /// <para>
     /// HALF TIME'S DIFFICULTY IS PRICED BY ITS RATING, exactly as Double Time is (backlog 265).
-    /// v25 additionally measures the short-map factor at the played duration for every rate.
+    /// The short-map factor is measured at the played duration for every rate.
     /// From v3 to v19 it carried one extra term, a MIRROR multiplier that made the down-rate factor
     /// the reciprocal of the up-rate one on the same map, on the reading that slowing a map down
     /// lowers SR_eff by far less than speeding it up raises it. That term is gone. It was the only
@@ -427,8 +427,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// 1.75, acc_floor 0.5, knee off, miss_exponent 13.5134, the combo cap and kicker,
         /// reference_notes 100, Recite 2.0, Hard Rock neutral, Fletcher and No Fail 0.9.
         /// </summary>
-        /// <summary>v26 strengthens the played-duration penalty to 15% at 30 seconds, up to 60% near zero.</summary>
-        public const int VERSION = 26;
+        /// <summary>v25 adds the played-duration penalty: 15% at 30 seconds, up to 60% near zero.</summary>
+        public const int VERSION = 25;
 
         // ---- formula constants (the PP Sandbox's active dials) ----
 

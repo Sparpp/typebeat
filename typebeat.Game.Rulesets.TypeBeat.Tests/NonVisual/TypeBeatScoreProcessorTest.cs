@@ -113,68 +113,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void PerfectScoreScalesWithMapProgressAndFinishesAtOneMillion()
-        {
-            var (processor, cells) = setup();
-            Assert.That(processor.MaximumTotalScore, Is.EqualTo(1000000));
-            for (int i = 0; i < cells.Count; i++)
-            {
-                apply(processor, cells[i], HitResult.Great);
-                Assert.That(processor.TotalScoreWithoutMods.Value, Is.EqualTo((i + 1) * 100000));
-                Assert.That(processor.Rank.Value, Is.EqualTo(ScoreRank.X));
-            }
-        }
-
-        [Test]
-        public void ScoreRewardsAccuracyMoreThanLongestCombo()
-        {
-            var (accurate, accurateCells) = setup(new string('a', 200));
-            var (lessAccurate, lessAccurateCells) = setup(new string('a', 200));
-            for (int i = 0; i < accurateCells.Count; i++)
-            {
-                if (i % 10 == 0)
-                    accurate.Combo.Value = 0;
-                apply(accurate, accurateCells[i], HitResult.Great);
-                apply(lessAccurate, lessAccurateCells[i], i % 10 == 0 ? HitResult.Ok : HitResult.Great);
-            }
-            Assert.That(accurate.HighestCombo.Value, Is.EqualTo(10));
-            Assert.That(lessAccurate.HighestCombo.Value, Is.EqualTo(200));
-            Assert.That(accurate.TotalScore.Value, Is.GreaterThan(980000), "lost streaks cost only the small pp bonus");
-            Assert.That(accurate.TotalScore.Value, Is.GreaterThan(lessAccurate.TotalScore.Value));
-        }
-
-        [Test]
-        public void MissPositionDoesNotAlterScoreForSameAccuracyMissesAndLongestCombo()
-        {
-            var (early, earlyCells) = setup();
-            var (late, lateCells) = setup();
-            for (int i = 0; i < earlyCells.Count; i++)
-            {
-                apply(early, earlyCells[i], i == 0 ? HitResult.Miss : HitResult.Great);
-                apply(late, lateCells[i], i == 9 ? HitResult.Miss : HitResult.Great);
-            }
-            Assert.That(early.HighestCombo.Value, Is.EqualTo(late.HighestCombo.Value));
-            Assert.That(early.TotalScore.Value, Is.EqualTo(late.TotalScore.Value));
-            Assert.That(early.TotalScore.Value, Is.InRange(1, 999999));
-        }
-
-        [Test]
-        public void RestoringLastTypoRefreshesScoreWithoutAnotherJudgement()
-        {
-            var (processor, cells) = setup("abc");
-            apply(processor, cells[0], HitResult.Great);
-            apply(processor, cells[1], HitResult.Great);
-            processor.Combo.Value = 0;
-            processor.RecordMistype();
-            apply(processor, cells[2], HitResult.Great);
-            long beforeFix = processor.TotalScore.Value;
-            processor.RestoreCombo(2);
-            Assert.That(beforeFix, Is.LessThan(1000000));
-            Assert.That(processor.TotalScore.Value, Is.EqualTo(1000000));
-            Assert.That(processor.Mistypes, Is.EqualTo(1), "recovered wrong presses remain scoring-neutral");
-        }
-
-        [Test]
         public void RevertingMissRestoresLiveGradeAndPartialScore()
         {
             var (processor, cells) = setup();
@@ -184,7 +122,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(processor.Rank.Value, Is.EqualTo(ScoreRank.A));
             processor.RevertResult(miss);
             Assert.That(processor.Rank.Value, Is.EqualTo(ScoreRank.X));
-            Assert.That(processor.TotalScore.Value, Is.EqualTo(900000));
         }
 
         [Test]

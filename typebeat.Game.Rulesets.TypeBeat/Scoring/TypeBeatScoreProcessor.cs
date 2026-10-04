@@ -130,7 +130,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             Combo.Value += streak;
             HighestCombo.Value = Math.Max(HighestCombo.Value, Combo.Value);
-            RefreshScore();
         }
 
         /// <summary>
@@ -323,24 +322,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 ScoreRank.D => 0,
                 _ => throw new ArgumentOutOfRangeException(nameof(rank), rank, null),
             };
-
-        /// <summary>
-        /// Normalise pp quality at a fixed difficulty, using judged cells as the miss denominator.
-        /// This keeps score independent of map difficulty and rewards accuracy and missing fewer
-        /// characters, with only pp's small longest-streak bonus. Historic cumulative combo position
-        /// no longer changes score. Progress prevents partial plays from earning a full-map score.
-        /// </summary>
-        protected override double ComputeTotalScore(double comboProgress, double accuracyProgress, double bonusPortion)
-        {
-            var counts = PerformancePoints.CountNotes(ScoreResultCounts);
-            if (counts.Notes <= 0)
-                return 0;
-
-            double quality = PerformancePoints.Compute(1, counts.Notes, counts.Notes, counts.Misses, Accuracy.Value, HighestCombo.Value, null);
-            double perfectQuality = PerformancePoints.Compute(1, counts.Notes, counts.Notes, 0, 1, counts.Notes, null);
-            double qualityShare = perfectQuality > 0 ? Math.Clamp(quality / perfectQuality, 0, 1) : 0;
-            return MAX_SCORE * Math.Clamp(accuracyProgress, 0, 1) * qualityShare;
-        }
 
         /// <summary>
         /// Whether a judged cell counts as TYPED, i.e. belongs in completion's numerator. Every
