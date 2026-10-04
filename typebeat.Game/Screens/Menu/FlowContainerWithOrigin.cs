@@ -31,7 +31,13 @@ namespace typebeat.Game.Screens.Menu
                 if (CentreTarget == null)
                     return base.OriginPosition;
 
-                return CentreTarget.DrawPosition + CentreTarget.DrawSize / 2 * CentreTarget.Scale;
+                // The target's centre in this container's space, honouring its anchor and origin. A
+                // target anchored to the row's vertical centre (as the main menu's logo facade is) sits
+                // lower than its DrawPosition alone says, and ignoring that put the flow's origin above
+                // the row's middle whenever the target was shorter than the row.
+                return CentreTarget.RelativeAnchorPosition * ChildSize
+                       + CentreTarget.DrawPosition
+                       + (CentreTarget.DrawSize / 2 - CentreTarget.OriginPosition) * CentreTarget.Scale;
             }
         }
     }

@@ -260,6 +260,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             InputEra2 = source.InputEra2,
             AuthoredSyllablesOnly = source.AuthoredSyllablesOnly,
             AlignSubdivisionTargets = source.AlignSubdivisionTargets,
+            EarlyFinish = source.EarlyFinish,
         };
     }
 }

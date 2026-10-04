@@ -434,6 +434,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // Character targets and the caret use the same cuts as the editor subdivisions.
                 AlignSubdivisionTargets = true,
 
+                // EARLY FINISH (bit 4 of the second CONFIG word): the final line seals the moment it
+                // is fully typed correctly instead of at its own end. Set UNCONDITIONALLY like every
+                // era flag here; every replay recorded before it seals the final line at its end.
+                EarlyFinish = true,
+
                 FlexibleCaretFromMod = legacyFletcher,
 
                 // THE ONE MOD FLAG SET HERE THAT IS NOT AN ERA (backlog 231). A stored replay can

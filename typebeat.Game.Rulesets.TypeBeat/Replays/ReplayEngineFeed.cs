@@ -184,6 +184,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 engine.InputEra2 = frame.InputEra2;
                 engine.AuthoredSyllablesOnly = frame.AuthoredSyllablesOnly;
                 engine.AlignSubdivisionTargets = frame.AlignSubdivisionTargets;
+                engine.EarlyFinish = frame.EarlyFinish;
                 return;
             }
 
@@ -223,6 +224,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             engine.InputEra2 = false;
             engine.AuthoredSyllablesOnly = false;
             engine.AlignSubdivisionTargets = false;
+            engine.EarlyFinish = false;
         }
 
         /// <summary>

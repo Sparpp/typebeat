@@ -113,7 +113,16 @@ namespace typebeat.Game.Screens.Menu
                     VisibleStateMin = ButtonSystemState.Play,
                     VisibleStateMax = ButtonSystemState.Play,
                 },
-                logoTrackingContainer.LogoFacade.With(d => d.Scale = new Vector2(0.74f))
+                logoTrackingContainer.LogoFacade.With(d =>
+                {
+                    d.Scale = new Vector2(0.74f);
+                    // Centred in the row like the buttons, so the logo lines up with them however tall
+                    // the facade is. type!beat's logo texture is half the size of osu!'s, which makes
+                    // the facade SHORTER than the buttons: top-aligned, it put the logo above their
+                    // middle, and only the logo's 1.1x hover scale nearly closed the gap.
+                    d.Anchor = Anchor.CentreLeft;
+                    d.Origin = Anchor.CentreLeft;
+                })
             });
 
             buttonArea.Flow.CentreTarget = logoTrackingContainer.LogoFacade;
