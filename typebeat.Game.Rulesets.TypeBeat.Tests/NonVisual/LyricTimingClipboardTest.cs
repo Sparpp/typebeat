@@ -238,7 +238,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(target.Units[0].Source, Is.EqualTo(TimingSource.Explicit));
 
                 Assert.That(target.Units[1].StartTime, Is.EqualTo(2000));
-                Assert.That(target.Units[1].EndTime, Is.GreaterThanOrEqualTo(2000 + TypeBeatEditorOperations.MIN_SPAN_MS));
+                Assert.That(target.Units[1].EndTime, Is.GreaterThanOrEqualTo(2000 + TypeBeatEditorOperations.MIN_WORD_SPAN_MS));
                 Assert.That(target.Units[1].EndTime, Is.LessThanOrEqualTo(target.EndTime));
                 Assert.That(target.Units[1].Source, Is.EqualTo(TimingSource.Interpolated));
             });

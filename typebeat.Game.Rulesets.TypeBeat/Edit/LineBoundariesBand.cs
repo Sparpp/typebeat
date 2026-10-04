@@ -69,7 +69,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         // sort is cached (and the signature walk skipped while its Version is unchanged), and each
         // layer's children are held in typed lists filled by rebuild() rather than filtered with
         // OfType (an iterator per layer per frame).
-        private readonly OrderedLinesCache orderedLines = new OrderedLinesCache();
         private int seenLinesVersion = -1;
         private readonly List<LineShade> shades = new List<LineShade>();
         private readonly List<LineMark> marks = new List<LineMark>();
@@ -123,11 +122,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             windowLength = Math.Max(1, visibleRange);
             windowStart = windowCentre - windowLength / 2;
 
-            var ordered = orderedLines.Get(editorBeatmap);
+            var snapshot = EditorLineSnapshot.For(editorBeatmap);
+            var ordered = snapshot.Lines;
 
-            if (orderedLines.Version != seenLinesVersion)
+            if (snapshot.Revision != seenLinesVersion)
             {
-                seenLinesVersion = orderedLines.Version;
+                seenLinesVersion = snapshot.Revision;
 
                 if (signatureChanged(ordered))
                     rebuild(ordered);
@@ -215,7 +215,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // consistent with the word strip, and it also keeps the band the click-owner so a
             // double-click on empty space reaches OnDoubleClick below.
             double time = TimeAt(ToLocalSpace(e.ScreenSpaceMousePosition).X);
-            var hit = orderedLines.Get(editorBeatmap)
+            var hit = EditorLineSnapshot.For(editorBeatmap).Lines
                                   .FirstOrDefault(o => o.Line.StartTime <= time && time <= o.Line.EndTime);
 
             if (hit != null)
@@ -268,7 +268,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 // During a tap-timing pass the band keeps its time axis (it is the mapper's place in
                 // the song) but every line outside the pass is hidden outright rather than dimmed.
-                if (state.HiddenByTapScope(hitObject))
+                if (state.HiddenByTapScope(hitObject) || hitObject.Line.EndTime < parent.windowStart
+                    || hitObject.Line.StartTime > parent.windowStart + parent.windowLength)
                 {
                     Alpha = 0;
                     return;
@@ -315,7 +316,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             public void UpdateLayout(LineBoundariesBand parent)
             {
-                Alpha = state.HiddenByTapScope(hitObject) ? 0 : 1;
+                double time = hitObject.Line.StartTime;
+                Alpha = state.HiddenByTapScope(hitObject) || time < parent.windowStart || time > parent.windowStart + parent.windowLength ? 0 : 1;
 
                 if (Alpha > 0)
                     X = parent.PositionOf(hitObject.Line.StartTime);
@@ -360,8 +362,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     return;
                 }
 
-                Alpha = 1;
-                X = parent.PositionOf(hitObject.Line.Units[index].StartTime);
+                double time = hitObject.Line.Units[index].StartTime;
+                Alpha = time >= parent.windowStart && time <= parent.windowStart + parent.windowLength ? 1 : 0;
+
+                if (Alpha > 0)
+                    X = parent.PositionOf(time);
             }
         }
     }

@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
+using osu.Framework.Bindables;
 using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Graphics;
@@ -15,8 +16,10 @@ using osu.Framework.Graphics.Sprites;
 using osu.Framework.Input.Events;
 using osu.Framework.Localisation;
 using typebeat.Game.Graphics.Cursor;
+using typebeat.Game.Graphics.Fonts;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
@@ -61,6 +64,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         [Resolved]
         private LyricEditState state { get; set; } = null!;
 
+        [Resolved(CanBeNull = true)]
+        private TypeBeatRulesetConfigManager? lyricFontConfig { get; set; }
+
+        [Resolved(CanBeNull = true)]
+        private LyricFontManager? lyricFontManager { get; set; }
+
         [Resolved]
         private EditorClock editorClock { get; set; } = null!;
 
@@ -81,6 +90,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private readonly ResizeCursorContainer resizeCursor;
 
         private double windowStart, windowLength = 1;
+        private readonly EditorLyricFontResolutionCache lyricFontResolution = new EditorLyricFontResolutionCache();
+        private string? lyricFontFamily;
 
         // Video-editor semantics: this strip owns its horizontal view offset. Panning moves the
         // view WITHOUT seeking, and the playhead is a moving marker. `following` re-centres the
@@ -104,13 +115,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         // re-polled, but a HANDLE appearing or vanishing needs a rebuild). The LyricLine the
         // signature was last checked against rides along: a line is immutable, so while the
         // reference is unchanged the counts cannot have moved and the frame skips recounting them.
-        private readonly List<(TypeBeatHitObject hitObject, LyricLine line, string rawText, int unitCount, int syllableCount, int pauseCount)> displayed
-            = new List<(TypeBeatHitObject, LyricLine, string, int, int, int)>();
+        private readonly List<(TypeBeatHitObject hitObject, LyricLine line, string rawText, int unitCount, int[] syllableCount, int[] pauseCount)> displayed
+            = new List<(TypeBeatHitObject, LyricLine, string, int, int[], int[])>();
 
         // The idle editor re-polls every child each frame, so nothing on that path may allocate: the
         // sort is cached, and each layer's children are held in typed lists filled by rebuild()
         // rather than filtered with OfType (an iterator per layer per frame).
-        private readonly OrderedLinesCache orderedLines = new OrderedLinesCache();
         private readonly List<LineBand> bands = new List<LineBand>();
         private readonly List<WordBlock> blocks = new List<WordBlock>();
         private readonly List<WordJoinTarget> joins = new List<WordJoinTarget>();
@@ -221,6 +231,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (timeline == null || !timeline.IsLoaded)
                 return;
 
+            lyricFontFamily = lyricFontResolution.ResolveForEditor(lyricFontConfig, lyricFontManager);
+
             // The view is owned locally; the strip no longer drives (or reads, beyond the initial
             // zoom snapshot) the shared waveform timeline, so neither panning nor zooming seeks the
             // clock. A rising edge of playback re-arms follow so the view snaps back to the playhead
@@ -249,9 +261,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             windowStart = viewStart;
 
-            var ordered = orderedLines.Get(editorBeatmap);
+            var ordered = EditorLineSnapshot.For(editorBeatmap).Lines;
 
-            if (signatureChanged(ordered))
+            // Rebuilding disposes the active drag owner. If a resize drops an interior cut,
+            // keep the live handles until OnDragEnd closes its transaction and interaction pin.
+            if (!state.InteractionPinned && signatureChanged(ordered))
                 rebuild(ordered);
 
             for (int i = 0; i < bands.Count; i++)
@@ -299,11 +313,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 if (ReferenceEquals(current, line))
                     continue;
 
-                if (current.RawText != rawText || current.Units.Count != unitCount
-                    || totalSyllableBoundaries(current) != syllableCount
-                    || totalPauses(current) != pauseCount)
-                {
+                if (current.RawText != rawText || current.Units.Count != unitCount)
                     return true;
+
+                for (int unit = 0; unit < unitCount; unit++)
+                {
+                    if (ordered[i].Line.Units[unit].SyllableBoundaries.Count != syllableCount[unit]
+                        || ordered[i].Line.Units[unit].Pauses.Count != pauseCount[unit])
+                    {
+                        return true;
+                    }
                 }
 
                 // Retimed in place (a drag): the same handles, so no rebuild; remember the new line.
@@ -311,33 +330,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             }
 
             return false;
-        }
-
-        /// <summary>Total subdivision boundaries across a line's words: a rebuild trigger (add/remove of a dotted line).</summary>
-        private static int totalSyllableBoundaries(LyricLine line)
-        {
-            int count = 0;
-
-            for (int i = 0; i < line.Units.Count; i++)
-                count += line.Units[i].SyllableBoundaries.Count;
-
-            return count;
-        }
-
-        /// <summary>
-        /// How many pauses a line carries: the rebuild trigger for the greyed bands and their edge
-        /// handles. A COUNT is enough because every operation that writes a pause touches exactly one
-        /// word at a time - a rest moving between words cannot leave the count the same without the
-        /// line's text or unit count moving with it, and both of those are already in the signature.
-        /// </summary>
-        private static int totalPauses(LyricLine line)
-        {
-            int count = 0;
-
-            for (int i = 0; i < line.Units.Count; i++)
-                count += line.Units[i].Pauses.Count;
-
-            return count;
         }
 
         private void rebuild(IReadOnlyList<TypeBeatHitObject> ordered)
@@ -357,7 +349,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 var hitObject = ordered[i];
                 displayed.Add((hitObject, hitObject.Line, hitObject.Line.RawText, hitObject.Line.Units.Count,
-                    totalSyllableBoundaries(hitObject.Line), totalPauses(hitObject.Line)));
+                    hitObject.Line.Units.Select(unit => unit.SyllableBoundaries.Count).ToArray(),
+                    hitObject.Line.Units.Select(unit => unit.Pauses.Count).ToArray()));
 
                 bandLayer.Add(add(bands, new LineBand(this, hitObject, i)));
 
@@ -693,6 +686,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private double[] groupOrigStart = Array.Empty<double>();
             private double[] groupOrigEnd = Array.Empty<double>();
             private bool? lastOriginalView;
+            private string? lastFontFamily;
 
             // The label runs are re-derived only when their inputs change: the unit (immutable, so a
             // new reference is the only way its text, times, splits or rests move), the display text
@@ -772,12 +766,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 ensureLabels(runs.Count);
 
-                if (lastOriginalView != originalView)
+                if (lastOriginalView != originalView || !string.Equals(lastFontFamily, parent.lyricFontFamily, StringComparison.Ordinal))
                 {
                     foreach (var label in segmentLabels)
-                        label.Font = originalView ? TypeBeatStyle.Lyric(16) : TypeBeatStyle.Mono(16);
+                        label.Font = parent.lyricFontFamily != null
+                            ? TypeBeatStyle.Lyric(16, parent.lyricFontFamily)
+                            : originalView ? TypeBeatStyle.Lyric(16) : TypeBeatStyle.Mono(16);
 
                     lastOriginalView = originalView;
+                    lastFontFamily = parent.lyricFontFamily;
                 }
 
                 for (int i = 0; i < runs.Count; i++)

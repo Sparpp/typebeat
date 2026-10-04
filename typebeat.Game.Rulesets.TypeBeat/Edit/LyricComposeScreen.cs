@@ -17,7 +17,9 @@ using osu.Framework.Localisation;
 using osu.Framework.Platform;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.OSD;
+using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Screens.Edit;
 using typebeat.Game.Screens.Edit.Compose.Components.Timeline;
@@ -41,8 +43,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// multi-selected, copy takes those LINES (their words and internal timing); otherwise a
     /// word-unit selection copies its unit-run TIMING pattern; otherwise the active line. A copied
     /// line also puts its plain lyric text on the OS clipboard. Paste dispatches on the payload: a
-    /// line payload is put down AS IS over the selected lines (broadcast/zip, rebased per target) or,
-    /// with no line selected, inserted as a new line at the playhead (see <see cref="Paste"/>);
+    /// line payload is put down AS IS over selected destination lines (broadcast/zip, rebased per target),
+    /// or from one selected line into consecutive rows; with no line selected, one copied line is
+    /// inserted at the playhead (see <see cref="Paste"/>);
     /// Ctrl+Shift+V (<see cref="PasteTimings"/>) is the timing-only paste the clipboard was built
     /// for, and a unit run applies at the focused word under either gesture.
     /// </summary>
@@ -59,6 +62,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         [Cached]
         private readonly LyricEditState state = new LyricEditState();
+
+        private DependencyContainer dependencies = null!;
 
         /// <summary>The shared active/selected-line interaction state (exposed for tests).</summary>
         public LyricEditState EditState => state;
@@ -127,9 +132,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
         }
 
+        protected override IReadOnlyDependencyContainer CreateChildDependencies(IReadOnlyDependencyContainer parent)
+            => dependencies = new DependencyContainer(base.CreateChildDependencies(parent));
+
         [BackgroundDependencyLoader]
-        private void load(AudioManager audio)
+        private void load(AudioManager audio, IRulesetConfigCache? configCache)
         {
+            if (configCache?.GetConfigFor(new TypeBeatRuleset()) is TypeBeatRulesetConfigManager config)
+                dependencies.CacheAs(config);
+
             state.SnapToCaret.BindTo(timingSettings.SnapToCaret);
 
             // Word starts and syllable boundaries share the same editor metronome click; only the
@@ -199,6 +210,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         public bool OnPressed(KeyBindingPressEvent<PlatformAction> e)
         {
+            // Select All applies to word blocks on the active line. Let a focused line textbox
+            // keep the platform action so Ctrl/Command+A still selects its lyric text.
+            if (e.Action == PlatformAction.SelectAll && !e.Repeat)
+            {
+                if (tapOverlay.Active || GetContainingInputManager()?.FocusedDrawable is TextBox)
+                    return false;
+
+                var active = state.ActiveLine.Value ?? state.SelectedLine.Value;
+
+                if (active == null)
+                    return false;
+
+                state.SelectAllUnits(active.Line.Units.Count);
+                return active.Line.Units.Count > 0;
+            }
+
             // Deliberately never handled here: the editor above performs the undo/redo. This only
             // photographs the map first, so the restore can be diffed against it. A dirty line text
             // box swallows the action before it ever reaches this screen (its own layered undo), so
@@ -406,9 +433,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>
         /// The default paste ("Paste line", Ctrl+V). A LINE payload that carries its text is put down
-        /// AS IS (<see cref="TypeBeatEditorOperations.PasteLine"/>): over the multi-selection, else
-        /// over the explicitly selected line, and with NO line selected it is inserted as a new line at
-        /// the playhead (<see cref="TypeBeatEditorOperations.InsertCopiedLine"/>), refused with a
+        /// AS IS (<see cref="TypeBeatEditorOperations.PasteLine"/>): over the multi-selection, or
+        /// from one selected line into consecutive rows. With NO line selected, one copied line is
+        /// inserted at the playhead (<see cref="TypeBeatEditorOperations.InsertCopiedLine"/>), refused with a
         /// message when a line already starts there. A payload with no text (copied by an older build)
         /// and a unit run paste exactly as <see cref="PasteTimings"/> does.
         /// </summary>
@@ -420,9 +447,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 return;
             }
 
-            var targets = state.MultiSelectedLines.Count > 0
-                ? TypeBeatEditorOperations.OrderedLines(EditorBeatmap).Where(state.MultiSelectedLines.Contains).ToList()
-                : state.SelectedLine.Value is TypeBeatHitObject single ? new List<TypeBeatHitObject> { single } : new List<TypeBeatHitObject>();
+            var ordered = TypeBeatEditorOperations.OrderedLines(EditorBeatmap);
+            var targets = new List<TypeBeatHitObject>();
+
+            // An explicit section maps against exactly its selected rows. A single selected row is
+            // a starting point for a multi-line payload, so paste the copied run into consecutive
+            // lines rather than silently dropping all but its first line.
+            if (state.MultiSelectedLines.Count > 1)
+                targets.AddRange(ordered.Where(state.MultiSelectedLines.Contains));
+            else if (state.SelectedLine.Value is TypeBeatHitObject single)
+            {
+                int first = ordered.IndexOf(single);
+                int count = lines.Lines.Count;
+
+                if (first >= 0 && count > 1 && first + count > ordered.Count)
+                {
+                    showStatus($"Select {count} consecutive lines with enough lines after the starting row");
+                    return;
+                }
+
+                if (first >= 0)
+                    targets.AddRange(ordered.Skip(first).Take(count));
+            }
+            else if (state.MultiSelectedLines.Count == 1 && lines.Lines.Count == 1)
+                targets.AddRange(ordered.Where(state.MultiSelectedLines.Contains));
 
             if (targets.Count > 0)
             {
@@ -681,7 +729,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (state.InteractionPinned)
                 return;
 
-            var ordered = TypeBeatEditorOperations.OrderedLines(EditorBeatmap);
+            var ordered = EditorLineSnapshot.For(EditorBeatmap).Lines;
 
             // Undo/redo replaces every hit object instance: re-bind a stale selection by index.
             if (state.SelectedLine.Value is TypeBeatHitObject selected && !EditorBeatmap.HitObjects.Contains(selected))

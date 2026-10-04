@@ -207,6 +207,7 @@ namespace typebeat.Game.Screens.Play
             musicController.ResetTrackAdjustments();
 
             track.BindAdjustments(AdjustmentsFromMods);
+            track.BindAdjustments(AdjustmentsFromPlayback);
             track.AddAdjustment(AdjustableProperty.Frequency, UserPlaybackRate);
 
             speedAdjustmentsApplied = true;
@@ -218,6 +219,7 @@ namespace typebeat.Game.Screens.Play
                 return;
 
             track.UnbindAdjustments(AdjustmentsFromMods);
+            track.UnbindAdjustments(AdjustmentsFromPlayback);
             track.RemoveAdjustment(AdjustableProperty.Frequency, UserPlaybackRate);
 
             speedAdjustmentsApplied = false;

@@ -61,7 +61,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 freestyleColour: beatmap.FreestyleColour,
                 editorTimingPoints: beatmap.ControlPointInfo.TimingPoints,
                 editorEffectPoints: beatmap.ControlPointInfo.EffectPoints,
-                beatDivisor: beatmap.BeatmapInfo.BeatDivisor);
+                beatDivisor: beatmap.BeatmapInfo.BeatDivisor,
+                source: metadata.Source);
 
             writer.Write(osu);
         }

@@ -1536,8 +1536,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// gesture that snaps to a character boundary (the Map Editor's Insert Pause) lands on the
         /// moment the player will actually be typing, existing subdivisions and all.
         /// </summary>
-        internal static double[] CellTargetsFor(TimedUnit unit, int typeableCount)
-            => tokenCellTargets(unit.Text, unit.StartTime, unit.EndTime, unit, typeableCount, alignSubdivisions: true);
+        internal static double[] CellTargetsFor(TimedUnit unit, int typeableCount, Func<char, bool>? isCell = null)
+            => tokenCellTargets(unit.Text, unit.StartTime, unit.EndTime, unit, typeableCount, isCell, alignSubdivisions: true);
 
         private const double min_boundary_grace_ms = 250;
         private const double max_seal_grace_ms = 700;

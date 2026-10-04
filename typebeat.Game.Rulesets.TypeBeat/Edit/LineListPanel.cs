@@ -9,14 +9,17 @@ using osu.Framework.Bindables;
 using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.Cursor;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Input;
 using osu.Framework.Input.Events;
+using osu.Framework.Localisation;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Graphics.Fonts;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
@@ -32,7 +35,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// Clicking a row selects the line and seeks to it. Poll-synced: rows rebuild only when the
     /// line set changes identity; labels refresh in place; a focused text box is never stomped.
     ///
-    /// This is also where a SECTION is picked: Ctrl+click toggles a line in or out of the
+    /// This is also where a SECTION is picked: Ctrl/Command-click toggles a line in or out of the
     /// selection and Shift+click takes the contiguous run from the anchor (the last plain or
     /// Ctrl-clicked row) to the clicked row. Every selected row is tinted AND carries a coloured
     /// corner notch (backlog 391, since the multi-select tint alone reads as the same gray as an
@@ -47,20 +50,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         [Resolved]
         private LyricEditState state { get; set; } = null!;
 
+        [Resolved(canBeNull: true)]
+        private TypeBeatRulesetConfigManager? config { get; set; }
+
+        [Resolved(canBeNull: true)]
+        private LyricFontManager? fontManager { get; set; }
+
         private readonly FillFlowContainer<LineRow> rows;
         private readonly OsuScrollContainer scroll;
         private readonly Container listArea;
         private readonly RoundedButton lyricViewButton;
         private readonly List<TypeBeatHitObject> displayed = new List<TypeBeatHitObject>();
         private bool? lastToggleAvailable;
+        private BeatmapLanguage? lastCheckedLanguage;
+        private int lastCheckedRevision = -1;
+        private readonly EditorLyricFontResolutionCache lyricFontResolution = new EditorLyricFontResolutionCache();
+        private string? lyricFontFamily;
 
-        // Nothing on the idle per-frame path allocates: the sort is cached, and whether any line
-        // has an original (a walk of every word) is re-asked only when the order's version or the
-        // map's language moved.
-        private readonly OrderedLinesCache orderedLines = new OrderedLinesCache();
-        private int originalsCheckedVersion = -1;
-        private BeatmapLanguage? originalsCheckedLanguage;
-        private bool canShowOriginal;
 
         // The gameplay syllable-marker setting (backlog 225), which the rows' rest view follows
         // (backlog 378): off, a row at rest shows its plain text with no marks. Defaults on, so a
@@ -140,28 +146,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             base.Update();
 
-            var current = orderedLines.Get(editorBeatmap);
+            var snapshot = EditorLineSnapshot.For(editorBeatmap);
+            var current = snapshot.Lines;
             var language = editorBeatmap.BeatmapInfo.Metadata.Language;
 
-            if (orderedLines.Version != originalsCheckedVersion || language != originalsCheckedLanguage)
-            {
-                canShowOriginal = language != BeatmapLanguage.English
-                                  && language != BeatmapLanguage.Instrumental
-                                  && current.Any(h => h.Line.Original != null || h.Line.UnromanisedWords.Count > 0
-                                                      || h.Line.Units.Any(u => u.Original != null));
-                originalsCheckedVersion = orderedLines.Version;
-                originalsCheckedLanguage = language;
-            }
+            updateLyricFont();
 
-            if (!canShowOriginal && state.ShowOriginalLyrics.Value)
-                state.ShowOriginalLyrics.Value = false;
-
-            if (lastToggleAvailable != canShowOriginal)
+            if (lastCheckedRevision != snapshot.Revision || lastCheckedLanguage != language)
             {
-                listArea.Padding = new MarginPadding { Top = canShowOriginal ? 36 : 0 };
-                lyricViewButton.Alpha = canShowOriginal ? 1 : 0;
-                lyricViewButton.Enabled.Value = canShowOriginal;
-                lastToggleAvailable = canShowOriginal;
+                bool canShowOriginal = language != BeatmapLanguage.English
+                                       && language != BeatmapLanguage.Instrumental
+                                       && current.Any(h => h.Line.Original != null || h.Line.UnromanisedWords.Count > 0
+                                                           || h.Line.Units.Any(u => u.Original != null));
+
+                if (!canShowOriginal && state.ShowOriginalLyrics.Value)
+                    state.ShowOriginalLyrics.Value = false;
+
+                if (lastToggleAvailable != canShowOriginal)
+                {
+                    listArea.Padding = new MarginPadding { Top = canShowOriginal ? 36 : 0 };
+                    lyricViewButton.Alpha = canShowOriginal ? 1 : 0;
+                    lyricViewButton.Enabled.Value = canShowOriginal;
+                    lastToggleAvailable = canShowOriginal;
+                }
+
+                lastCheckedLanguage = language;
+                lastCheckedRevision = snapshot.Revision;
             }
             string buttonText = state.ShowOriginalLyrics.Value ? "Lyrics: Original" : "Lyrics: Romanized";
 
@@ -176,7 +186,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 rows.Clear();
 
                 foreach (var hitObject in current)
-                    rows.Add(new LineRow(hitObject, syllableMarkers));
+                    rows.Add(new LineRow(hitObject, syllableMarkers, lyricFontFamily));
             }
 
             // A tap-timing pass shows only the section it is recording. Alpha 0 makes a row
@@ -293,6 +303,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 scroll.ScrollIntoView(row);
         }
 
+        private void updateLyricFont()
+        {
+            string? resolved = lyricFontResolution.ResolveForEditor(config, fontManager);
+
+            if (resolved == lyricFontFamily)
+                return;
+
+            lyricFontFamily = resolved;
+
+            foreach (LineRow row in rows)
+                row.SetLyricFontFamily(lyricFontFamily);
+        }
+
         /// <summary>One list row. Public so scene tests can address a specific line's row.</summary>
         public partial class LineRow : CompositeDrawable
         {
@@ -350,6 +373,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private LineTextBox textBox = null!;
             private OsuSpriteText originalCaption = null!;
             private bool? renderedOriginalView;
+            private string? lyricFontFamily;
             private readonly IBindable<bool> syllableMarkers;
 
             // The row's strings are rebuilt only when what they are built from changes: the line
@@ -394,10 +418,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             /// <summary>The row's background box, for scene tests asserting the selection tint.</summary>
             public Box Background => background;
 
-            public LineRow(TypeBeatHitObject hitObject, IBindable<bool>? syllableMarkers = null)
+            public LineRow(TypeBeatHitObject hitObject, IBindable<bool>? syllableMarkers = null, string? lyricFontFamily = null)
             {
                 HitObject = hitObject;
                 this.syllableMarkers = syllableMarkers ?? new Bindable<bool>(true);
+                this.lyricFontFamily = lyricFontFamily;
 
                 RelativeSizeAxes = Axes.X;
                 AutoSizeAxes = Axes.Y;
@@ -457,7 +482,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 body.Add(originalCaption = new OsuSpriteText
                 {
                     Margin = new MarginPadding { Left = 34 + 76 + 4, Top = 3 },
-                    Font = TypeBeatStyle.Lyric(13),
+                    Font = TypeBeatStyle.Lyric(13, lyricFontFamily),
                     Colour = TypeBeatStyle.SungAccent,
                     Alpha = 0,
                 });
@@ -476,12 +501,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     {
                         new Drawable[]
                         {
-                            indexText = new OsuSpriteText
+                            indexText = new LineIndexText
                             {
                                 Anchor = Anchor.Centre,
                                 Origin = Anchor.Centre,
                                 Font = TypeBeatStyle.Mono(13),
                                 Colour = TypeBeatStyle.UntypedChar,
+                                TooltipText = "Click a row to select it. Ctrl/Command-click adds or removes rows; Shift-click selects a range. Select multiple rows and use Copy to copy lyrics with timing. Paste onto matching selected rows, or choose one starting row to fill consecutive rows.",
                             },
                             timeText = new OsuSpriteText
                             {
@@ -497,6 +523,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 RelativeSizeAxes = Axes.X,
                                 Height = 28,
                                 FontSize = 15,
+                                FontFamily = lyricFontFamily,
                                 CommitOnFocusLost = true,
                                 CommittedText = committedText,
                             },
@@ -542,6 +569,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 if (textBox.HasFocus && textBox.Text != committedText())
                     commitText();
+            }
+
+            public void SetLyricFontFamily(string? family)
+            {
+                if (lyricFontFamily == family)
+                    return;
+
+                lyricFontFamily = family;
+
+                if (originalCaption != null)
+                    originalCaption.Font = TypeBeatStyle.Lyric(13, family);
+
+                if (textBox != null)
+                    textBox.FontFamily = family;
             }
 
             protected override void Update()
@@ -647,9 +688,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             protected override bool OnClick(ClickEvent e)
             {
-                // Ctrl/Shift build a multi-selection (a section, for timing copy/paste and tap
+                // Ctrl/Command/Shift build a multi-selection (a section, for timing copy/paste and tap
                 // timing) without seeking; yanking the playhead mid-selection would fight the user.
-                if (e.ControlPressed)
+                if (e.ControlPressed || e.SuperPressed)
                 {
                     state.ToggleLine(HitObject);
                     return true;
@@ -896,6 +937,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                     return base.OnPressed(e);
                 }
+            }
+
+            private partial class LineIndexText : OsuSpriteText, IHasTooltip
+            {
+                public LocalisableString TooltipText { get; set; }
             }
         }
     }

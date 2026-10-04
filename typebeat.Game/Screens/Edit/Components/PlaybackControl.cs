@@ -6,7 +6,6 @@ using System.Globalization;
 using osuTK;
 using osuTK.Graphics;
 using osu.Framework.Allocation;
-using osu.Framework.Audio;
 using osu.Framework.Bindables;
 using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Extensions.ObjectExtensions;
@@ -161,7 +160,7 @@ namespace typebeat.Game.Screens.Edit.Components
             speedBox.Revert = () => speedText.Value = formatPercent(tempoAdjustment.Value);
             speedBox.OnCommit += (_, _) => commitSpeed();
 
-            editorClock.AudioAdjustments.AddAdjustment(AdjustableProperty.Tempo, tempoAdjustment);
+            tempoAdjustment.BindTo(editorClock.PlaybackRate);
         }
 
         protected override void LoadComplete()
@@ -173,8 +172,7 @@ namespace typebeat.Game.Screens.Edit.Components
 
         protected override void Dispose(bool isDisposing)
         {
-            if (editorClock.IsNotNull())
-                editorClock.AudioAdjustments.RemoveAdjustment(AdjustableProperty.Tempo, tempoAdjustment);
+            tempoAdjustment.UnbindAll();
 
             base.Dispose(isDisposing);
         }

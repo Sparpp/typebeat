@@ -9,9 +9,11 @@ using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using typebeat.Game.Graphics.Containers;
+using typebeat.Game.Graphics.Fonts;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
+using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Screens.Edit;
@@ -44,6 +46,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         [Resolved]
         private LyricEditState state { get; set; } = null!;
 
+        [Resolved(CanBeNull = true)]
+        private TypeBeatRulesetConfigManager? lyricFontConfig { get; set; }
+
+        [Resolved(CanBeNull = true)]
+        private LyricFontManager? lyricFontManager { get; set; }
+
+        private readonly EditorLyricFontResolutionCache lyricFontResolution = new EditorLyricFontResolutionCache();
+        private string? resolvedLyricFont;
         private readonly FillFlowContainer columns;
         private string shown = string.Empty;
         private TypeBeatHitObject? shownLine;
@@ -73,6 +83,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         protected override void Update()
         {
             base.Update();
+
+            string? nextLyricFont = lyricFontResolution.ResolveForEditor(lyricFontConfig, lyricFontManager);
+
+            if (!string.Equals(nextLyricFont, resolvedLyricFont, StringComparison.Ordinal))
+            {
+                resolvedLyricFont = nextLyricFont;
+
+                // A settings change should reach already-open inputs immediately, including a
+                // focused one. Updating FontFamily preserves the text box and its caret.
+                foreach (var column in columns.OfType<ScriptColumn>())
+                    column.SetFontFamily(resolvedLyricFont);
+            }
 
             var line = state.ActiveLine.Value;
             bool live = line != null && editorBeatmap.HitObjects.Contains(line) && !state.HiddenByTapScope(line);
@@ -114,7 +136,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             });
 
             columns.Add(new ScriptColumn(hitObject.Line.Original ?? string.Empty, "line original", null, false,
-                upper => TypeBeatEditorOperations.SetLineOriginal(editorBeatmap, hitObject, upper), null, 180));
+                upper => TypeBeatEditorOperations.SetLineOriginal(editorBeatmap, hitObject, upper), null, 180, resolvedLyricFont));
 
             for (int i = 0; i < slots.Count; i++)
             {
@@ -122,7 +144,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 columns.Add(new ScriptColumn(slots[i].Original ?? string.Empty, "original", slots[i].Text, slots[i].Unromanised,
                     upper => TypeBeatEditorOperations.SetWordOriginal(editorBeatmap, hitObject, slot, upper),
-                    lower => TypeBeatEditorOperations.SetWordText(editorBeatmap, hitObject, slot, lower)));
+                    lower => TypeBeatEditorOperations.SetWordText(editorBeatmap, hitObject, slot, lower), fontFamily: resolvedLyricFont));
             }
         }
 
@@ -134,12 +156,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private partial class ScriptColumn : FillFlowContainer
         {
             private readonly List<OsuTextBox> boxes = new List<OsuTextBox>();
+            private string? fontFamily;
 
             public bool HasFocusedBox => boxes.Any(b => b.HasFocus);
 
             public ScriptColumn(string upper, string upperPlaceholder, string? lower, bool unromanised,
-                                Func<string, bool> commitUpper, Func<string, bool>? commitLower, float? width = null)
+                                Func<string, bool> commitUpper, Func<string, bool>? commitLower, float? width = null, string? fontFamily = null)
             {
+                this.fontFamily = fontFamily;
                 Direction = FillDirection.Vertical;
                 AutoSizeAxes = Axes.Y;
                 Width = width ?? Math.Clamp(Math.Max(upper.Length * 16, (lower ?? string.Empty).Length * 9) + 24, 70, 220);
@@ -155,6 +179,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 Add(box(lower ?? string.Empty, unromanised ? "romanise me" : "romanised", commitLower, unromanised));
             }
 
+            public void SetFontFamily(string? family)
+            {
+                if (string.Equals(fontFamily, family, StringComparison.Ordinal))
+                    return;
+
+                fontFamily = family;
+
+                foreach (var textBox in boxes)
+                    textBox.FontFamily = family;
+            }
+
             private OsuTextBox box(string text, string placeholder, Func<string, bool> commit, bool marked = false)
             {
                 var textBox = new ScriptTextBox(marked)
@@ -162,6 +197,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     RelativeSizeAxes = Axes.X,
                     Height = 26,
                     FontSize = 14,
+                    FontFamily = fontFamily,
                     Text = text,
                     PlaceholderText = placeholder,
                     CommitOnFocusLost = true,

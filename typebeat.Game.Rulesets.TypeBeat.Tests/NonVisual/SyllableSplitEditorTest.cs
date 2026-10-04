@@ -248,38 +248,81 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void SurplusPipesAreDropped()
-        {
-            var beatmap = createBeatmap();
-
-            // One boundary wants ONE split; the second pipe has no segment to open.
-            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, lineAt(beatmap, 0), "a|pp|le orange"), Is.True);
-            Assert.That(lineAt(beatmap, 0).Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 1 }));
-        }
-
-        /// <summary>
-        /// The forgiving rule, narrowed by backlog 204 to a NONZERO shortfall: some pipe is still
-        /// there, so the commit is read as "these cuts moved", not as "this word is not subdivided".
-        /// Deleting them ALL is the one case that removes (see the region below).
-        /// </summary>
-        [Test]
-        public void FewerButNonzeroPipesThanBoundariesKeepsTheRestWhereItWas()
+        public void ExtraPipesAddCutsAndKeepSurvivingAuthoredTimes()
         {
             var beatmap = createBeatmap();
             var line = lineAt(beatmap, 0);
 
-            // Two boundaries on "banana" (line 1): derived "ba|na|na".
-            var second = lineAt(beatmap, 1);
-            TypeBeatEditorOperations.SetSyllableSplit(beatmap, second, 0, 1, 5);
-            Assert.That(second.Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 2, 5 }));
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "ap|p|le orange"), Is.True);
+            Assert.That(line.Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 2, 3 }));
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 1300d, 1350 }));
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(line.Line), Is.EqualTo("ap|p|le orange"));
+        }
 
-            // One pipe given: it takes the FIRST split, the second keeps the value it showed, and
-            // BOTH boundaries stay: a text commit never changes a boundary count downwards here.
-            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, second, "b|anana"), Is.True);
-            Assert.That(second.Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 1, 5 }));
-            Assert.That(second.Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3200d, 3400 }));
+        [TestCase("ba|nana", 2, 3200)]
+        [TestCase("bana|na", 4, 3400)]
+        public void DeletingOnePipeKeepsTheOtherCutsOwnTime(string text, int split, double time)
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 1);
 
-            Assert.That(line.Line.RawText, Is.EqualTo("apple orange"), "the other line is untouched");
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, text), Is.True);
+            Assert.That(line.Line.Units[0].SyllableSplits, Is.EqualTo(new[] { split }));
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { time }));
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(line.Line), Is.EqualTo(text));
+            Assert.That(SyllableSplitTest.DecodeOsu(encode(beatmap))[1].Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { time }));
+        }
+
+        [Test]
+        public void AddingSeveralCutsOnlyDividesTheNewTimingInterval()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 1);
+
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "b|a|na|na"), Is.True);
+            Assert.That(line.Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 1, 2, 4 }));
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3100d, 3200, 3400 }));
+
+            var before = line.Line;
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "b|a|na|na"), Is.True);
+            Assert.That(line.Line, Is.SameAs(before), "a repeated commit is not an undo step");
+        }
+
+        [Test]
+        public void PipeCountChangesPreserveBreathsAndTheSurvivingSubdivisionTimes()
+        {
+            var beatmap = createBeatmap();
+            var line = lineAt(beatmap, 1);
+            line.Line = new LyricLine
+            {
+                RawText = "banana",
+                StartTime = 3000,
+                EndTime = line.Line.EndTime,
+                SingEndTime = 3600,
+                Units = new[]
+                {
+                    new TimedUnit
+                    {
+                        Text = "banana",
+                        StartTime = 3000,
+                        EndTime = 3600,
+                        Source = TimingSource.Explicit,
+                        SyllableBoundaries = new[] { 3200d, 3400 },
+                        SyllableSplits = new[] { 2, 4 },
+                        Pauses = new[] { new WordPause(3050, 3100, 1) },
+                    },
+                },
+            };
+
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "b|a|n|a|na"), Is.True);
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3200d, 3300, 3400 }));
+            Assert.That(line.Line.Units[0].Pauses, Is.EqualTo(new[] { new WordPause(3050, 3100, 1) }));
+
+            Assert.That(TypeBeatEditorOperations.SetLineText(beatmap, line, "b|an|a|na"), Is.True);
+            Assert.That(line.Line.Units[0].SyllableSplits, Is.EqualTo(new[] { 3, 4 }));
+            Assert.That(line.Line.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 3300d, 3400 }));
+            Assert.That(TypeBeatEditorOperations.PipeDisplayText(line.Line), Is.EqualTo("b|an|a|na"));
+            Assert.That(line.Line.Units[0].Pauses, Is.EqualTo(new[] { new WordPause(3050, 3100, 1) }));
         }
 
         [TestCase("|apple orange", TestName = "PipeRefused_LeadingEmptiesFirstSegment")]

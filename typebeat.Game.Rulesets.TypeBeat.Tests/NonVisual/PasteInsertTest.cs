@@ -215,10 +215,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var editorBeatmap = createBeatmap();
 
-            // Between red (ends 5300) and green (5400) with the playhead at 5315: 85 of room, three
-            // words (90 needed) is refused, two words (60) fit. The run eat+apple is 1700 long, so
+            // Three words need at least 15ms, so 14ms of room is refused. At 5315 there is
+            // 85ms of room for two words. The run eat+apple is 1700 long, so
             // eat 0..400 lands 0..20 and apple 500..1700 lands 25..85.
-            Assert.That(insert(editorBeatmap, 5315, copy(editorBeatmap, 0, 0, 1, 2)).Outcome, Is.EqualTo(WordPasteOutcome.InsertNoRoom));
+            Assert.That(insert(editorBeatmap, 5386, copy(editorBeatmap, 0, 0, 1, 2)).Outcome, Is.EqualTo(WordPasteOutcome.InsertNoRoom));
             Assert.That(insert(editorBeatmap, 5315, copy(editorBeatmap, 0, 0, 1)).Outcome, Is.EqualTo(WordPasteOutcome.Inserted));
 
             var target = lineAt(editorBeatmap, 1).Line;
@@ -306,14 +306,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [TestCase(4000, WordPasteOutcome.OutsideLine, TestName = "Refused before the line")]
-        [TestCase(5380, WordPasteOutcome.InsertNoRoom, TestName = "Refused with 20 of room")]
+        [TestCase(5396, WordPasteOutcome.InsertNoRoom, TestName = "Refused with 4 of room")]
         [TestCase(5300, WordPasteOutcome.InsertNoRoom, TestName = "Refused on a word start in a packed run")]
         public void ARefusalChangesNothingAndLeavesNoUndoStep(double time, WordPasteOutcome expected)
         {
             var editorBeatmap = createBeatmap();
             var target = lineAt(editorBeatmap, 1);
 
-            // red ends 40 short of green, so at 5380 there are 20 of room. For 5300 the words are
+            // red ends 40 short of green, so at 5396 there are 4 of room. For 5300 the words are
             // packed edge to edge: the playhead is on green's start, so the run would go after green,
             // where pie starts at once.
             target.Line = new LyricLine
@@ -342,9 +342,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var editorBeatmap = createBeatmap();
 
-            // 50 of room: one word (30) goes in, two (60) do not.
-            Assert.That(insert(editorBeatmap, 5350, copy(editorBeatmap, 0, 0, 1)).Outcome, Is.EqualTo(WordPasteOutcome.InsertNoRoom));
-            Assert.That(insert(editorBeatmap, 5350, copy(editorBeatmap, 0, 0)).Outcome, Is.EqualTo(WordPasteOutcome.Inserted));
+            // 8 of room: one word (5) goes in, two (10) do not.
+            Assert.That(insert(editorBeatmap, 5392, copy(editorBeatmap, 0, 0, 1)).Outcome, Is.EqualTo(WordPasteOutcome.InsertNoRoom));
+            Assert.That(insert(editorBeatmap, 5392, copy(editorBeatmap, 0, 0)).Outcome, Is.EqualTo(WordPasteOutcome.Inserted));
         }
 
         [Test]

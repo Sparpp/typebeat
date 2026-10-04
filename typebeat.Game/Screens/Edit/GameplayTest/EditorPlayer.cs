@@ -4,6 +4,8 @@
 using System;
 using System.Linq;
 using osu.Framework.Allocation;
+using osu.Framework.Audio;
+using osu.Framework.Bindables;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Input.Bindings;
 using osu.Framework.Input.Events;
@@ -27,6 +29,13 @@ namespace typebeat.Game.Screens.Edit.GameplayTest
         private readonly Editor editor;
         private readonly EditorState editorState;
 
+        [Cached]
+        private readonly EditorTestPlayback editorPlayback;
+
+        private readonly BindableDouble playbackRateAdjustment;
+
+        public EditorTestPlayback TestPlayback => editorPlayback;
+
         protected override UserActivity InitialActivity => new UserActivity.TestingBeatmap(Beatmap.Value.BeatmapInfo);
 
         [Resolved]
@@ -40,6 +49,8 @@ namespace typebeat.Game.Screens.Edit.GameplayTest
         {
             this.editor = editor;
             editorState = editor.GetState();
+            editorPlayback = new EditorTestPlayback(editorState.PlaybackRate);
+            playbackRateAdjustment = new BindableDouble(editorPlayback.Rate);
         }
 
         protected override GameplayClockContainer CreateGameplayClockContainer(WorkingBeatmap beatmap, double gameplayStart)
@@ -51,6 +62,7 @@ namespace typebeat.Game.Screens.Edit.GameplayTest
             DrawableRuleset.IsEditorGameplayTest = true;
 
             var masterGameplayClockContainer = new MasterGameplayClockContainer(beatmap, gameplayStart);
+            masterGameplayClockContainer.AdjustmentsFromPlayback.AddAdjustment(AdjustableProperty.Tempo, playbackRateAdjustment);
 
             // Only reset the time to the current point if the editor is later than the normal start time (and the first object).
             // This allows more sane test playing from the start of the beatmap (ie. correctly adding lead-in time).

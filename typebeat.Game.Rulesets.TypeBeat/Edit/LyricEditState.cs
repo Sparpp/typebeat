@@ -187,6 +187,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             SelectedUnitIndex.Value = index;
         }
 
+        /// <summary>Selects every word unit in the active line, or clears the selection for an empty line.</summary>
+        public void SelectAllUnits(int unitCount)
+        {
+            SelectedUnitIndices.Clear();
+
+            for (int i = 0; i < unitCount; i++)
+                SelectedUnitIndices.Add(i);
+
+            SelectedUnitIndex.Value = unitCount > 0 ? unitCount - 1 : -1;
+        }
+
         /// <summary>Toggles a unit's membership in the selection (Ctrl+click); updates the anchor.</summary>
         public void ToggleUnit(int index)
         {

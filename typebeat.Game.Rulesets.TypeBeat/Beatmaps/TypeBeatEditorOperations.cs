@@ -128,8 +128,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return TimingGranularity.Line;
         }
 
-        /// <summary>Smallest line/word span the editor will produce, so nothing degenerates to zero width.</summary>
+        /// <summary>Smallest line span the editor will produce, so nothing degenerates to zero width.</summary>
         public const double MIN_SPAN_MS = 30;
+
+        /// <summary>Smallest authored word block duration, independently of the line minimum.</summary>
+        public const double MIN_WORD_SPAN_MS = 5;
 
         /// <summary>Smallest syllable segment (and gap between subdivision boundaries) the editor will produce.</summary>
         public const double MIN_SYLLABLE_MS = 20;
@@ -355,11 +358,27 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         #region Interactive edits (each wraps its own transaction => one undo step)
 
+        private static double minimumLineWindow(TypeBeatHitObject hitObject)
+        {
+            var line = hitObject.Line;
+
+            if (hitObject.Granularity != TimingGranularity.Line)
+                return Math.Max(MIN_SPAN_MS, line.Units.Count * MIN_WORD_SPAN_MS);
+
+            // Line maps are re-interpolated on reload. Reserve enough proportional time for
+            // even the shortest token, so enforcing the word minimum remains reload-stable.
+            var weights = line.RawText.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                              .Select(token => Typeability.TypeableCount(token) + 1.0).ToArray();
+
+            return weights.Length == 0 ? MIN_SPAN_MS : Math.Max(MIN_SPAN_MS, MIN_WORD_SPAN_MS * weights.Sum() / weights.Min());
+        }
+
         /// <summary>
         /// Moves the boundary between a line and its predecessor: the line's StartTime and the
         /// previous line's EndTime move together (the format derives EndTime from the next line's
         /// start, so they are one degree of freedom). Clamped so both lines keep
-        /// <see cref="MIN_SPAN_MS"/>; sung ends and unit times are re-clamped into their windows.
+        /// <see cref="MIN_SPAN_MS"/> and enough room for every 5ms word; sung ends and unit times
+        /// are re-clamped into their windows.
         /// </summary>
         public static void SetLineStart(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, double newStart)
         {
@@ -371,8 +390,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             var previous = index > 0 ? ordered[index - 1] : null;
 
-            double min = previous != null ? previous.Line.StartTime + MIN_SPAN_MS : 0;
-            double max = hitObject.Line.EndTime - MIN_SPAN_MS;
+            double min = previous != null ? previous.Line.StartTime + minimumLineWindow(previous) : 0;
+            double max = hitObject.Line.EndTime - minimumLineWindow(hitObject);
 
             // Degenerate window: this line and its predecessor are already so compressed that
             // there is no room to move the boundary without violating MIN_SPAN_MS. No-op rather
@@ -385,7 +404,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             editorBeatmap.BeginChange();
 
             var line = hitObject.Line;
-            double newSingEnd = Math.Clamp(line.SingEndTime, newStart, line.EndTime);
+            double newSingEnd = Math.Clamp(line.SingEndTime, newStart + minimumLineWindow(hitObject), line.EndTime);
             hitObject.Line = rebuild(line,
                 start: newStart,
                 singEnd: newSingEnd,
@@ -396,7 +415,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (previous != null)
             {
                 var prevLine = previous.Line;
-                double prevSingEnd = Math.Clamp(prevLine.SingEndTime, prevLine.StartTime, newStart);
+                double prevSingEnd = Math.Clamp(prevLine.SingEndTime, prevLine.StartTime + minimumLineWindow(previous), newStart);
                 previous.Line = rebuild(prevLine,
                     end: newStart,
                     singEnd: prevSingEnd,
@@ -422,7 +441,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             bool isLast = isLastLine(editorBeatmap, hitObject);
 
             var line = hitObject.Line;
-            double singEndMin = line.StartTime + MIN_SPAN_MS;
+            double singEndMin = line.StartTime + minimumLineWindow(hitObject);
             double singEndMax = isLast ? lastLineCap(editorBeatmap, line) : line.EndTime;
 
             // A non-last line shorter than MIN_SPAN_MS has no movable sung-end; no-op rather than
@@ -465,14 +484,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double lower = unitIndex > 0 ? line.Units[unitIndex - 1].EndTime : line.StartTime;
             double upper = unitCeiling(editorBeatmap, hitObject, unitIndex);
 
-            // The neighbours (or the line window) leave this unit less than MIN_SPAN_MS of room;
+            // The neighbours (or the line window) leave this unit less than MIN_WORD_SPAN_MS of room;
             // there is nowhere to retime it to. No-op rather than clamp into an inverted range.
-            // (Aligner output routinely packs short function words under 30ms apart.)
-            if (upper - lower < MIN_SPAN_MS)
+            // Imported words may already be shorter than the authoring minimum.
+            if (upper - lower < MIN_WORD_SPAN_MS)
                 return;
 
-            newStart = Math.Clamp(newStart, lower, upper - MIN_SPAN_MS);
-            newEnd = Math.Clamp(newEnd, newStart + MIN_SPAN_MS, upper);
+            newStart = Math.Clamp(newStart, lower, upper - MIN_WORD_SPAN_MS);
+            newEnd = Math.Clamp(newEnd, newStart + MIN_WORD_SPAN_MS, upper);
 
             applyUnit(editorBeatmap, hitObject, unitIndex, newStart, newEnd);
         }
@@ -516,7 +535,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// independent edges must not silently close it.</para>
         ///
         /// <para>The new boundary is clamped to
-        /// [left.StartTime + <see cref="MIN_SPAN_MS"/>, right.EndTime - <see cref="MIN_SPAN_MS"/>],
+        /// [left.StartTime + <see cref="MIN_WORD_SPAN_MS"/>, right.EndTime - <see cref="MIN_WORD_SPAN_MS"/>],
         /// so neither word degenerates; a pair whose combined span cannot hold two minimum spans is
         /// left alone rather than clamped into an inverted range. Both words become Explicit hand
         /// timing and each keeps only the syllable subdivisions still inside its new span (the same
@@ -536,8 +555,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (left.EndTime != right.StartTime)
                 return;
 
-            double min = left.StartTime + MIN_SPAN_MS;
-            double max = right.EndTime - MIN_SPAN_MS;
+            double min = left.StartTime + MIN_WORD_SPAN_MS;
+            double max = right.EndTime - MIN_WORD_SPAN_MS;
 
             // The pair is already narrower than two minimum spans: there is no boundary position
             // that leaves both words legal. No-op rather than clamp into an inverted range.
@@ -569,7 +588,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return;
 
             var current = line.Units[unitIndex];
-            double duration = current.EndTime - current.StartTime;
+            double duration = Math.Max(MIN_WORD_SPAN_MS, current.EndTime - current.StartTime);
 
             double lower = unitIndex > 0 ? line.Units[unitIndex - 1].EndTime : line.StartTime;
             double upper = unitCeiling(editorBeatmap, hitObject, unitIndex);
@@ -595,7 +614,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// stretching them all by the same amount (the distance the mouse travelled), never
         /// clipping each edge straight to the cursor (which would squash individuals differently).
         /// The delta is clamped once, globally, so no unit crosses a non-selected neighbour, the
-        /// line window, or shrinks below <see cref="MIN_SPAN_MS"/>. Base positions are the caller's
+        /// line window, or shrinks below <see cref="MIN_WORD_SPAN_MS"/>. Base positions are the caller's
         /// captured originals (<paramref name="origStart"/>/<paramref name="origEnd"/>), so repeated
         /// per-frame calls stay stable. Selected units become Explicit/Word-granularity, as with a
         /// single hand edit.
@@ -628,6 +647,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 int i = indices[k];
                 double s = origStart[k];
                 double e = origEnd[k];
+
+                if (mode == UnitGroupEdit.Move && e - s < MIN_WORD_SPAN_MS)
+                    return;
+
                 double low, high;
 
                 switch (mode)
@@ -636,13 +659,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         // Start edge moves, end fixed: bounded by the left neighbour's end (fixed in
                         // this mode, so reading it live is stable) and keeping MIN_SPAN width.
                         low = (i > 0 ? line.Units[i - 1].EndTime : line.StartTime) - s;
-                        high = (e - MIN_SPAN_MS) - s;
+                        high = (e - MIN_WORD_SPAN_MS) - s;
                         break;
 
                     case UnitGroupEdit.ResizeEnd:
                         // End edge moves, start fixed: bounded by MIN_SPAN width and the right
                         // neighbour's start (fixed in this mode).
-                        low = (s + MIN_SPAN_MS) - e;
+                        low = (s + MIN_WORD_SPAN_MS) - e;
                         high = unitCeiling(editorBeatmap, hitObject, i) - e;
                         break;
 
@@ -657,7 +680,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 maxDelta = Math.Min(maxDelta, high);
             }
 
-            // The current (delta == 0) layout is valid, so [minDelta, maxDelta] always contains 0.
+            // Imported timing may already be narrower than the authoring minimum.
             if (minDelta > maxDelta)
                 return;
 
@@ -769,7 +792,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (unitIndex < 0 || unitIndex >= line.Units.Count)
                 return;
 
-            double end = Math.Max(line.Units[unitIndex].EndTime, time + MIN_SPAN_MS);
+            double end = Math.Max(line.Units[unitIndex].EndTime, time + MIN_WORD_SPAN_MS);
             SetUnitTiming(editorBeatmap, hitObject, unitIndex, time, end);
         }
 
@@ -803,19 +826,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// mean is "this word is not subdivided". The word keeps its own span and becomes Explicit
         /// hand timing, like every other hand edit. No granularity demotion follows: the encoder
         /// simply writes no syllables[] for a boundary-free unit.</item>
-        /// <item>B boundaries, B or more pipes: the first B pipe positions become the authored
-        /// split; surplus pipes are dropped (the word is already subdivided, and a text commit
-        /// does not change a boundary COUNT).</item>
-        /// <item>B boundaries, fewer pipes but at least one: the pipes given replace the leading
-        /// splits and the remaining ones keep the value the word already showed (authored or
-        /// derived). Only the ZERO case removes.</item>
-        /// <item>a word carrying RESTS (see <see cref="InsertWordPause"/>): each one is a divider like
-        /// the others, so it prints a pipe of its own and the pipes fill the word's cuts - its syllable
-        /// splits with every rest's cut among them - in TEXT order, which is how "ple|ase" becomes
-        /// "pl|ease". Surplus pipes are dropped and a cut left without a pipe keeps the value it showed,
-        /// on the same terms as the rows above. A rest itself is NEVER removed from the box: it has its
-        /// own gesture and a rest with no cut has nowhere to sit, so deleting its pipe leaves it exactly
-        /// where it was.</item>
+        /// <item>B boundaries, B pipes: the pipe positions move the character cuts while keeping
+        /// their authored times. A different pipe count adds/removes individual subdivisions;
+        /// surviving character cuts retain their times and added cuts evenly divide the surrounding
+        /// surviving timing anchors.</item>
+        /// <item>a word carrying RESTS (see <see cref="InsertWordPause"/>): each rest prints its
+        /// own pipe. Moving cuts at the same count edits rests positionally; adding/removing cuts
+        /// preserves rests at their authored characters. A rest is removed on the timeline.</item>
         /// <item>a pipe that would leave a segment EMPTY (at the start or end of the word, or on
         /// top of another pipe): the whole word keeps its previous split, so a typo cannot silently
         /// re-cut it.</item>
@@ -988,7 +1005,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // read over the result, so this commit's own cuts land too.
                 units = placeChangedWords(editorBeatmap, hitObject, tokens)
                         ?? alignSubdivisions(line.Units, LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime));
-                units = applyPipes(units, tokens, pipes, out authoredSubdivision);
+                units = applyPipes(units, tokens, pipes, out authoredSubdivision, line.Units);
+            }
+
+            if (hitObject.Granularity != TimingGranularity.Line && !textUnchanged
+                && units.Any(u => u.EndTime - u.StartTime < MIN_WORD_SPAN_MS))
+            {
+                // Reserve each minimum inside the candidate authored span. Using the entire
+                // typeable line window here could silently extend a redistributed sung end.
+                double windowEnd = units.Count > 0 ? units[^1].EndTime : line.SingEndTime;
+
+                if (windowEnd - line.StartTime < units.Count * MIN_WORD_SPAN_MS)
+                    return false;
+
+                units = clampUnits(units, line.StartTime, windowEnd);
             }
 
             bool wordCountChanged = hitObject.Granularity != TimingGranularity.Line && tokens.Length != line.Units.Count;
@@ -1038,7 +1068,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// own, and a demotion would risk dropping the map's words[] with it).
         /// </summary>
         private static IReadOnlyList<TimedUnit> applyPipes(IReadOnlyList<TimedUnit> source, string[] tokens,
-                                                           IReadOnlyList<IReadOnlyList<int>> pipes, out bool authored)
+                                                           IReadOnlyList<IReadOnlyList<int>> pipes, out bool authored, IReadOnlyList<TimedUnit>? previous = null)
         {
             bool any = false;
 
@@ -1061,6 +1091,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         // The word is being un-subdivided, not retyped, so its rests stay.
                         Pauses = u.Pauses,
                     };
+                }
+
+                // Word placement can resize a kept anchor and drop its cuts. Pipes copied verbatim
+                // from the old display are not a request to put those dropped cuts back inside it.
+                var beforePlacement = previous?.FirstOrDefault(old => old.Text == tokens[i] && old.StartTime == u.StartTime);
+                bool pipesChanged = beforePlacement == null
+                                    || !wordPipes.SequenceEqual(PausedWord.Cuts(beforePlacement, beforePlacement.StartTime, beforePlacement.EndTime));
+
+                // A changed pipe count adds/removes individual cuts on the same spelling. Match
+                // surviving character cuts to their authored times, then divide only the new gaps.
+                if (pipesChanged && tokens[i] == u.Text && wordPipes.Count != PausedWord.Cuts(u, u.StartTime, u.EndTime).Count
+                    && withChangedPipeCount(u, wordPipes) is TimedUnit changed)
+                {
+                    any = true;
+                    return changed;
                 }
 
                 // A word carrying authored PAUSES: the pipes are ITS cuts, not a new subdivision. A rest
@@ -1110,6 +1155,72 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             authored = any;
             return units;
+        }
+
+        /// <summary>Changes the cut count while keeping surviving cuts and authored breaths in place.</summary>
+        private static TimedUnit? withChangedPipeCount(TimedUnit unit, IReadOnlyList<int> pipes)
+        {
+            if (pipes.Count > 0 && !SyllableSegments.IsAuthoredValid(unit.Text, pipes.Count + 1, pipes))
+                return null;
+
+            var currentSplits = SyllableSegments.SplitsFor(unit);
+            var timesBySplit = new Dictionary<int, double>();
+
+            for (int i = 0; i < currentSplits.Count && i < unit.SyllableBoundaries.Count; i++)
+                timesBySplit[currentSplits[i]] = unit.SyllableBoundaries[i];
+
+            // A rest's cut is edited positionally when the count stays the same. When cuts are
+            // added/removed, it remains a breath at its authored character, even if its pipe was removed.
+            var splits = pipes.Where(p => !unit.Pauses.Any(rest => rest.SplitChar == p)).ToArray();
+            var boundaries = new double[splits.Length];
+            var anchors = new List<(int Split, double LeftTime, double RightTime)>
+            {
+                (0, unit.StartTime, unit.StartTime),
+            };
+
+            foreach (int split in splits)
+            {
+                if (timesBySplit.TryGetValue(split, out double time))
+                    anchors.Add((split, time, time));
+            }
+
+            foreach (var rest in unit.Pauses)
+                anchors.Add((rest.SplitChar, rest.StartTime, rest.EndTime));
+
+            anchors.Add((unit.Text.Length, unit.EndTime, unit.EndTime));
+            anchors = anchors.OrderBy(a => a.Split).ToList();
+
+            for (int i = 0; i < splits.Length; i++)
+            {
+                if (timesBySplit.TryGetValue(splits[i], out double kept))
+                {
+                    boundaries[i] = kept;
+                    continue;
+                }
+
+                var left = anchors.Last(a => a.Split < splits[i]);
+                var right = anchors.First(a => a.Split > splits[i]);
+                var added = splits.Where(s => s > left.Split && s < right.Split).ToArray();
+                int position = Array.IndexOf(added, splits[i]) + 1;
+                boundaries[i] = left.RightTime + (right.LeftTime - left.RightTime) * position / (added.Length + 1);
+            }
+
+            if (boundaries.Any(t => t <= unit.StartTime || t >= unit.EndTime)
+                || boundaries.Where((t, i) => i > 0 && t <= boundaries[i - 1]).Any())
+                return null;
+
+            return new TimedUnit
+            {
+                Text = unit.Text,
+                Original = unit.Original,
+                StartTime = unit.StartTime,
+                EndTime = unit.EndTime,
+                Source = TimingSource.Explicit,
+                Confidence = 1,
+                SyllableBoundaries = boundaries,
+                SyllableSplits = splits,
+                Pauses = unit.Pauses,
+            };
         }
 
         /// <summary>
@@ -1164,7 +1275,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <item>every placed word is Explicit hand timing.</item>
         /// </list>
         /// <para>Returns null when nothing can be kept (the line was rewritten) or when a run has no
-        /// room for its words at <see cref="MIN_SPAN_MS"/> each; the caller then redistributes the
+        /// room for its words at <see cref="MIN_WORD_SPAN_MS"/> each; the caller then redistributes the
         /// whole line as it always did (<see cref="alignSubdivisions"/>).</para>
         /// </summary>
         private static IReadOnlyList<TimedUnit>? placeChangedWords(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string[] tokens)
@@ -1229,7 +1340,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         start = old[oi].StartTime;
                         end = old[oe - 1].EndTime;
 
-                        if (end - start < MIN_SPAN_MS * arriving)
+                        if (end - start < MIN_WORD_SPAN_MS * arriving)
                             return null;
                     }
                     else
@@ -1675,14 +1786,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// next word's start, or <see cref="unitCeiling"/> at the tail).
         ///
         /// <list type="number">
-        /// <item>A free gap of at least <see cref="MIN_SPAN_MS"/> per word: the words take it from
+        /// <item>A free gap of at least <see cref="MIN_WORD_SPAN_MS"/> per word: the words take it from
         /// the anchor's end, capped at the anchor's own duration per word, so an append at the end
         /// of a line does not swallow the whole tail. Nothing moves.</item>
         /// <item>Packed edge to edge: the anchor is BISECTED and the words take its second half. The
         /// anchor is RESIZED (<see cref="retime"/>), so a syllable boundary or rest of its own that
         /// falls in the half it gives up goes with that half.</item>
         /// <item>Neither (no gap and an anchor too short to halve into
-        /// <see cref="MIN_SPAN_MS"/> pieces): null.</item>
+        /// <see cref="MIN_WORD_SPAN_MS"/> pieces): null.</item>
         /// </list>
         /// </summary>
         private static Carve? carveAfter(TimedUnit anchor, double wall, int count)
@@ -1690,12 +1801,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double span = anchor.EndTime - anchor.StartTime;
             double gap = wall - anchor.EndTime;
 
-            if (gap >= MIN_SPAN_MS * count)
-                return new Carve(anchor.EndTime, anchor.EndTime + Math.Min(gap, Math.Max(MIN_SPAN_MS, span) * count), anchor);
+            if (gap >= MIN_WORD_SPAN_MS * count)
+                return new Carve(anchor.EndTime, anchor.EndTime + Math.Min(gap, Math.Max(MIN_WORD_SPAN_MS, span) * count), anchor);
 
             // The half given up must hold every new word at the minimum, and the half kept is the
             // same width, so both sides stay at or above it.
-            if (span >= 2 * MIN_SPAN_MS * count)
+            if (span >= 2 * MIN_WORD_SPAN_MS * count)
             {
                 double mid = (anchor.StartTime + anchor.EndTime) / 2;
                 return new Carve(mid, anchor.EndTime, retime(anchor, anchor.StartTime, mid));
@@ -1717,10 +1828,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double span = follower.EndTime - follower.StartTime;
             double gap = follower.StartTime - floor;
 
-            if (gap >= MIN_SPAN_MS * count)
-                return new Carve(follower.StartTime - Math.Min(gap, Math.Max(MIN_SPAN_MS, span) * count), follower.StartTime, follower);
+            if (gap >= MIN_WORD_SPAN_MS * count)
+                return new Carve(follower.StartTime - Math.Min(gap, Math.Max(MIN_WORD_SPAN_MS, span) * count), follower.StartTime, follower);
 
-            if (span >= 2 * MIN_SPAN_MS * count)
+            if (span >= 2 * MIN_WORD_SPAN_MS * count)
             {
                 double mid = (follower.StartTime + follower.EndTime) / 2;
                 return new Carve(follower.StartTime, mid, retime(follower, mid, follower.EndTime));
@@ -1836,7 +1947,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// index that is not a subdivision of that word, a word whose subdivisions cannot all be named
         /// in characters (an over-forced short word, where the syllabifier answered with fewer cuts
         /// than segments), or a cut that would leave either word shorter than
-        /// <see cref="MIN_SPAN_MS"/>.</para>
+        /// <see cref="MIN_WORD_SPAN_MS"/>.</para>
         /// </summary>
         public static bool SplitWord(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int boundaryIndex)
         {
@@ -1865,7 +1976,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (cut <= 0 || cut >= unit.Text.Length)
                 return false;
 
-            if (boundary - unit.StartTime < MIN_SPAN_MS || unit.EndTime - boundary < MIN_SPAN_MS)
+            if (boundary - unit.StartTime < MIN_WORD_SPAN_MS || unit.EndTime - boundary < MIN_WORD_SPAN_MS)
                 return false;
 
             string firstText = unit.Text.Substring(0, cut);
@@ -3205,12 +3316,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // More words than the source pattern has spans: spread the leftovers across the
                 // remaining sung window (the same surface interpolation lives on) so the line
                 // stays fully timed. They are synthesized, so they stay Interpolated. Each gets
-                // at least MIN_SPAN_MS where the window allows, so none degenerates to zero width.
+                // at least MIN_WORD_SPAN_MS where the window allows, so none degenerates to zero width.
                 if (mapped < n)
                 {
                     double from = mapped > 0 ? units[mapped - 1].EndTime : line.StartTime;
                     int remaining = n - mapped;
-                    double to = Math.Min(end, Math.Max(singEnd, from + MIN_SPAN_MS * remaining));
+                    double to = Math.Min(end, Math.Max(singEnd, from + MIN_WORD_SPAN_MS * remaining));
 
                     for (int i = 0; i < remaining; i++)
                     {
@@ -3555,9 +3666,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <para>FIT. A run longer than its room is SCALED about its start by room / length, with
         /// length the LARGEST copied end (343's rule and 343's exact arithmetic, multiply before
         /// dividing); one that fits lands at its own size. The refusal threshold is
-        /// <see cref="MIN_SPAN_MS"/> of room PER copied word: that is what keeps the scale from
+        /// <see cref="MIN_WORD_SPAN_MS"/> of room PER copied word: that is what keeps the scale from
         /// reaching the degenerate extreme (a 1200 ms word squeezed into a 50 ms gap is still
-        /// accepted, 30 is the floor), and below it the paste is refused rather than moving a
+        /// accepted, 5 is the floor), and below it the paste is refused rather than moving a
         /// neighbour to make room.</para>
         ///
         /// <para>REFUSALS change nothing and open no undo step: a LINE-granularity map (it persists no
@@ -3603,7 +3714,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double room = wall - from;
             int count = payload.Units.Count;
 
-            if (room < MIN_SPAN_MS * count)
+            if (room < MIN_WORD_SPAN_MS * count)
                 return new WordPasteResult(WordPasteOutcome.InsertNoRoom);
 
             double length = payload.Units.Max(s => s.End);
@@ -3706,7 +3817,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             double room = unitCeiling(editorBeatmap, hitObject, anchorIndex + count - 1) - anchor;
 
             // No room to land in (the next word starts right at the anchor): nowhere to put it.
-            if (room < MIN_SPAN_MS)
+            if (room < MIN_WORD_SPAN_MS * count)
                 return false;
 
             double length = payload.Units.Take(count).Max(s => s.End);
@@ -4014,11 +4125,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         {
             var result = new TimedUnit[units.Count];
             double previousEnd = start;
+            double minimum = end - start >= units.Count * MIN_WORD_SPAN_MS ? MIN_WORD_SPAN_MS : 0;
 
             for (int i = 0; i < units.Count; i++)
             {
-                double s = Math.Clamp(units[i].StartTime, previousEnd, end);
-                double e = Math.Clamp(units[i].EndTime, s, end);
+                double ceiling = end - minimum * (units.Count - i - 1);
+                double s = Math.Clamp(units[i].StartTime, previousEnd, ceiling - minimum);
+                double e = Math.Clamp(units[i].EndTime, s + minimum, ceiling);
                 result[i] = retime(units[i], s, e);
                 previousEnd = e;
             }
@@ -4110,7 +4223,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>Refused: the selected word has no room to take the run.</summary>
         RetimeNoRoom,
 
-        /// <summary>Refused: less than <see cref="TypeBeatEditorOperations.MIN_SPAN_MS"/> per copied word of room at the playhead.</summary>
+        /// <summary>Refused: less than <see cref="TypeBeatEditorOperations.MIN_WORD_SPAN_MS"/> per copied word of room at the playhead.</summary>
         InsertNoRoom,
 
         /// <summary>Refused: nothing selected and the playhead is outside the line's window.</summary>

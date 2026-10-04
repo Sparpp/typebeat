@@ -43,6 +43,9 @@ namespace typebeat.Game.Screens.Play
 
         public IAdjustableAudioComponent AdjustmentsFromMods { get; } = new AudioAdjustments();
 
+        /// <summary>Playback adjustments such as editor Test Play tempo, independent of rate mods.</summary>
+        public IAdjustableAudioComponent AdjustmentsFromPlayback { get; } = new AudioAdjustments();
+
         private readonly BindableBool isPaused = new BindableBool(true);
 
         /// <summary>

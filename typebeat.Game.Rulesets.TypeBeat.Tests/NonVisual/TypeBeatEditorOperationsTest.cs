@@ -22,7 +22,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// saved edits silently change on reopen).
     /// </summary>
     [TestFixture]
-    public class TypeBeatEditorOperationsTest
+    public partial class TypeBeatEditorOperationsTest
     {
         [SetUp]
         public void SetUp() => LyricBeatmapDecoder.Register();
@@ -1114,16 +1114,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             beatmap.Metadata.AudioFile = "audio.mp3";
 
             // Words packed edge to edge AND too short to halve into two MIN_SPAN words. A line
-            // follows, so the 20 ms tail really is all the room there is (the LAST line has no such
+            // follows, so the 4 ms tail really is all the room there is (the LAST line has no such
             // wall since backlog 336, see AddWordAtTheTailOfTheLastLineGrowsTheLine).
-            addLine(beatmap, 0, "a b", 1000, 1100, 1080, (1000, 1040), (1040, 1080));
-            addLine(beatmap, 1, "c", 1100, 3000, 2000, (1100, 2000));
+            addLine(beatmap, 0, "a b", 1000, 1016, 1012, (1000, 1006), (1006, 1012));
+            addLine(beatmap, 1, "c", 1016, 3000, 2000, (1016, 2000));
 
             var editorBeatmap = new EditorBeatmap(beatmap);
             var line = lineAt(editorBeatmap, 0);
 
             Assert.That(TypeBeatEditorOperations.AddWord(editorBeatmap, line, 0), Is.False, "no gap and an unsplittable anchor");
-            Assert.That(TypeBeatEditorOperations.AddWord(editorBeatmap, line, -1), Is.False, "20ms of tail is under MIN_SPAN_MS");
+            Assert.That(TypeBeatEditorOperations.AddWord(editorBeatmap, line, -1), Is.False, "4ms of tail is under MIN_WORD_SPAN_MS");
             Assert.That(line.Line.RawText, Is.EqualTo("a b"));
             Assert.That(line.Line.Units.Count, Is.EqualTo(2));
         }
@@ -1377,16 +1377,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var editorBeatmap = createTouchingBeatmap();
             var line = lineAt(editorBeatmap, 0);
 
-            // Dragged far left: the boundary stops MIN_SPAN after alpha's start (1030), so alpha
+            // Dragged far left: the boundary stops MIN_SPAN after alpha's start (1005), so alpha
             // keeps a legal span rather than collapsing.
             TypeBeatEditorOperations.SetSharedUnitBoundary(editorBeatmap, line, 0, -5000);
-            Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(1000 + TypeBeatEditorOperations.MIN_SPAN_MS));
-            Assert.That(line.Line.Units[1].StartTime, Is.EqualTo(1000 + TypeBeatEditorOperations.MIN_SPAN_MS));
+            Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(1000 + TypeBeatEditorOperations.MIN_WORD_SPAN_MS));
+            Assert.That(line.Line.Units[1].StartTime, Is.EqualTo(1000 + TypeBeatEditorOperations.MIN_WORD_SPAN_MS));
 
-            // Dragged far right: MIN_SPAN before beta's end (2770).
+            // Dragged far right: MIN_SPAN before beta's end (2795).
             TypeBeatEditorOperations.SetSharedUnitBoundary(editorBeatmap, line, 0, 99999);
-            Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(2800 - TypeBeatEditorOperations.MIN_SPAN_MS));
-            Assert.That(line.Line.Units[1].StartTime, Is.EqualTo(2800 - TypeBeatEditorOperations.MIN_SPAN_MS));
+            Assert.That(line.Line.Units[0].EndTime, Is.EqualTo(2800 - TypeBeatEditorOperations.MIN_WORD_SPAN_MS));
+            Assert.That(line.Line.Units[1].StartTime, Is.EqualTo(2800 - TypeBeatEditorOperations.MIN_WORD_SPAN_MS));
 
             assertReloadStable(editorBeatmap);
         }
@@ -1431,9 +1431,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             beatmap.Metadata.Title = "Test";
             beatmap.Metadata.AudioFile = "audio.mp3";
 
-            // Touching, but the pair spans 50ms: less than two MIN_SPAN_MS words fit, so there is
+            // Touching, but the pair spans 9ms: less than two MIN_WORD_SPAN_MS words fit, so there is
             // no boundary position that leaves both legal.
-            addLine(beatmap, 0, "alpha beta", 1000, 3000, 2800, (1000, 1020), (1020, 1050));
+            addLine(beatmap, 0, "alpha beta", 1000, 3000, 2800, (1000, 1003), (1003, 1009));
 
             var editorBeatmap = new EditorBeatmap(beatmap);
             var line = lineAt(editorBeatmap, 0);
@@ -1822,11 +1822,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             assertReloadStable(editorBeatmap);
 
             // Tap timing goes through the same ceiling: stamping the start past the word's end
-            // pushes the end to start + MIN_SPAN_MS, and the line follows.
+            // pushes the end to start + MIN_WORD_SPAN_MS, and the line follows.
             TypeBeatEditorOperations.StampUnitStart(editorBeatmap, last, 0, 10500);
             Assert.That(last.Line.Units[0].StartTime, Is.EqualTo(10500));
-            Assert.That(last.Line.Units[0].EndTime, Is.EqualTo(10530));
-            Assert.That(last.Line.EndTime, Is.EqualTo(11530));
+            Assert.That(last.Line.Units[0].EndTime, Is.EqualTo(10505));
+            Assert.That(last.Line.EndTime, Is.EqualTo(11505));
             assertReloadStable(editorBeatmap);
         }
 
@@ -2146,13 +2146,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void LineBoxInsertionWithNoRoomRedistributes()
         {
-            var editorBeatmap = createLocalEditBeatmap("a b", 1000, 1080, (1000, 1040), (1040, 1080));
+            var editorBeatmap = createLocalEditBeatmap("a b", 1000, 1018, (1000, 1009), (1009, 1018));
             var line = lineAt(editorBeatmap, 0);
 
             TypeBeatEditorOperations.SetLineText(editorBeatmap, line, "a new b");
 
-            var expected = LrcParser.InterpolateUnits("a new b", 1000, 1080);
-            assertWords(line, expected.Select(u => (u.Text, u.StartTime, u.EndTime, u.Source)).ToArray());
+            // Neither 9ms anchor can be halved into two legal words. The full redistribution
+            // retains the 5ms floor while fitting all three words into the available 18ms.
+            assertWords(line,
+                ("a", 1000, 1005, TimingSource.Interpolated),
+                ("new", 1005, 1013, TimingSource.Interpolated),
+                ("b", 1013, 1018, TimingSource.Interpolated));
 
             assertReloadStable(editorBeatmap);
         }
