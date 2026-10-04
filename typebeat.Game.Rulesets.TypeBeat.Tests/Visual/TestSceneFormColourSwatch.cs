@@ -83,13 +83,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             SpriteIcon icon() => row.ChildrenOfType<SpriteIcon>().Single(i => i.Icon.Equals(FontAwesome.Solid.EyeDropper));
 
             AddAssert("an eyedropper on the swatch", () => icon() != null);
-            AddAssert("contrasting with the colour", () => icon().Colour.Equals((ColourInfo)OsuColour.ForegroundTextColourFor(colour.Value)));
+            AddAssert("white with a shadow on the default orange", () => icon().Colour.Equals((ColourInfo)Colour4.White) && icon().Shadow);
 
-            ColourInfo onOrange = default;
-            AddStep("remember it", () => onOrange = icon().Colour);
+            AddStep("switch to a pale yellow", () => colour.Value = new Colour4(255, 248, 192, 255));
+            AddAssert("the icon turns dark to stay legible", () => icon().Colour.Equals((ColourInfo)FormColourSwatch.IconColourFor(colour.Value))
+                                                                   && !icon().Colour.Equals((ColourInfo)Colour4.White));
+            AddAssert("without a shadow", () => !icon().Shadow);
+
             AddStep("switch to a dark colour", () => colour.Value = new Colour4(20, 20, 30, 255));
-            AddAssert("the icon follows the colour", () => icon().Colour.Equals((ColourInfo)OsuColour.ForegroundTextColourFor(colour.Value)));
-            AddAssert("and flipped to stay legible", () => !icon().Colour.Equals(onOrange));
+            AddAssert("white again", () => icon().Colour.Equals((ColourInfo)Colour4.White) && icon().Shadow);
         }
 
         [Test]

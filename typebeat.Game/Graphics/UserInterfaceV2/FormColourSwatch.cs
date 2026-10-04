@@ -135,9 +135,29 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
         public float MainDrawHeight => DrawHeight;
 
         /// <summary>
+        /// Brightness above which the swatch's eyedropper turns dark: the YIQ lightness estimate
+        /// <see cref="OsuColour.ForegroundTextColourFor"/> uses, with a higher cut than its 0.5. That
+        /// 0.5 sends saturated mid-tones (the timing tint's default orange and blue among them) to a
+        /// dark icon, where <see cref="FormButton"/> draws its icon white with a shadow on coloured
+        /// buttons. Up here only genuinely light colours (white, pastels, pale yellow) flip.
+        /// </summary>
+        public const float DARK_ICON_BRIGHTNESS = 0.75f;
+
+        /// <summary>
+        /// The eyedropper's colour on a swatch of <paramref name="swatchColour"/>: white, as on
+        /// <see cref="FormButton"/>, unless the swatch is light enough that white would vanish on it.
+        /// </summary>
+        public static Colour4 IconColourFor(Colour4 swatchColour)
+        {
+            float brightness = 0.299f * swatchColour.R + 0.587f * swatchColour.G + 0.114f * swatchColour.B;
+            return brightness > DARK_ICON_BRIGHTNESS ? OsuColour.Gray(0.2f) : Colour4.White;
+        }
+
+        /// <summary>
         /// The colour itself, filling the inset slot on the card's right. Rounded like
         /// <see cref="FormButton"/>'s button and marked with an eyedropper at that button's icon size,
-        /// drawn black or white against the colour so it stays legible; clicking it opens the picker.
+        /// white with a shadow like its icon, dark on a light colour (see <see cref="IconColourFor"/>);
+        /// clicking it opens the picker.
         /// </summary>
         private partial class Swatch : OsuClickableContainer, IHasPopover
         {
@@ -180,7 +200,12 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
                 Current.BindValueChanged(c =>
                 {
                     fill.Colour = c.NewValue;
-                    icon.Colour = OsuColour.ForegroundTextColourFor(c.NewValue);
+
+                    var iconColour = IconColourFor(c.NewValue);
+                    icon.Colour = iconColour;
+                    // The shadow is what lets a white icon hold on a mid-tone; under a dark icon it
+                    // would only smudge it.
+                    icon.Shadow = iconColour == Colour4.White;
                 }, true);
             }
 
