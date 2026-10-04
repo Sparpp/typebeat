@@ -89,6 +89,7 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Accuracy
         public static readonly Easing ACCURACY_TRANSFORM_EASING = Easing.OutPow10;
 
         private readonly ScoreInfo score;
+        private readonly ScoreRank displayRank;
 
         [Resolved]
         private ResultsScreen? resultsScreen { get; set; }
@@ -130,6 +131,7 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Accuracy
         public AccuracyCircle(ScoreInfo score, bool withFlair = false)
         {
             this.score = score;
+            displayRank = score.GetDisplayRank();
             this.withFlair = withFlair;
 
             ScoreProcessor scoreProcessor = score.Ruleset.CreateInstance().CreateScoreProcessor();
@@ -143,7 +145,7 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Accuracy
 
             gradeProgress = scoreProcessor.GradeProgress(score);
 
-            isFailedSDueToMisses = gradeProgress >= accuracyS && score.Rank == ScoreRank.A;
+            isFailedSDueToMisses = gradeProgress >= accuracyS && displayRank == ScoreRank.A;
         }
 
         [BackgroundDependencyLoader]
@@ -199,7 +201,7 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Accuracy
                         new RankBadge(accuracyX, accuracyX, getRank(ScoreRank.X)),
                     }
                 },
-                rankText = new RankText(score.Rank)
+                rankText = new RankText(displayRank)
             };
 
             if (isFailedSDueToMisses)
@@ -263,7 +265,7 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Accuracy
                 }
 
                 // The final gap between 99.999...% (S) and 100% (SS) is exaggerated by `virtual_ss_percentage`. We don't want to land there either.
-                if (score.Rank == ScoreRank.X || score.Rank == ScoreRank.XH)
+                if (displayRank == ScoreRank.X || displayRank == ScoreRank.XH)
                     targetAccuracy = 1;
                 else
                     targetAccuracy = Math.Min(accuracyX - VIRTUAL_SS_PERCENTAGE - GRADE_SPACING_PERCENTAGE / 2, targetAccuracy);
@@ -298,11 +300,11 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Accuracy
 
                 int badgeNum = 0;
 
-                if (score.Rank != ScoreRank.F)
+                if (displayRank != ScoreRank.F)
                 {
                     foreach (var badge in badges)
                     {
-                        if (badge.Rank > score.Rank)
+                        if (badge.Rank > displayRank)
                             continue;
 
                         using (BeginDelayedSequence(
@@ -339,7 +341,7 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Accuracy
                         const double applause_pre_delay = 545f;
 
                         using (BeginDelayedSequence(applause_pre_delay))
-                            Schedule(() => resultsScreen?.PlayApplause(score.Rank));
+                            Schedule(() => resultsScreen?.PlayApplause(displayRank));
                     }
                 }
 
@@ -385,7 +387,7 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Accuracy
         {
             get
             {
-                switch (score.Rank)
+                switch (displayRank)
                 {
                     default:
                     case ScoreRank.D:

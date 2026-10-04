@@ -21,6 +21,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     ///      · accuracyShare(acc) · knee(acc)                  timing quality, DEPARTURE 5
     ///      · modMult
     ///      · (1 + comboBonus)                              combo bonus, a FRACTION of the price
+    ///      · shortMapMultiplier(playedDurationSeconds)      0.40 to 1 below one minute
     ///
     /// accuracyShare(acc) = expCurve((acc − acc_floor) / (1 − acc_floor))
     /// expCurve(t)        = (e^(k·t) − 1) / (e^k − 1), or t itself when k is 0
@@ -198,7 +199,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// </para>
     ///
     /// <para>
-    /// HALF TIME IS PRICED BY ITS RATING AND NOTHING ELSE, exactly as Double Time is (backlog 265).
+    /// HALF TIME'S DIFFICULTY IS PRICED BY ITS RATING, exactly as Double Time is (backlog 265).
+    /// v25 additionally measures the short-map factor at the played duration for every rate.
     /// From v3 to v19 it carried one extra term, a MIRROR multiplier that made the down-rate factor
     /// the reciprocal of the up-rate one on the same map, on the reading that slowing a map down
     /// lowers SR_eff by far less than speeding it up raises it. That term is gone. It was the only
@@ -206,8 +208,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     /// function of all three of a map's ratings (so the server could not price an HT play until
     /// <c>sr_dt</c> was stored), and a degenerate <c>sr_dt</c> zeroed an otherwise honest play. If
     /// Half Time ever reads as underpriced again the fix belongs in the SR model behind the
-    /// 0.75x rating, never in a second multiplier here. So the claim docs/pp.md has made since task
-    /// 61, that a rate is priced EXCLUSIVELY through SR_eff, is now literally true of both rates.
+    /// 0.75x rating. The short-map term measures played duration separately from difficulty;
+    /// SR_eff remains the sole source of each rate's difficulty price.
     /// </para>
     ///
     /// <para>
@@ -425,7 +427,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// 1.75, acc_floor 0.5, knee off, miss_exponent 13.5134, the combo cap and kicker,
         /// reference_notes 100, Recite 2.0, Hard Rock neutral, Fletcher and No Fail 0.9.
         /// </summary>
-        public const int VERSION = 24;
+        /// <summary>v26 strengthens the played-duration penalty to 15% at 30 seconds, up to 60% near zero.</summary>
+        public const int VERSION = 26;
 
         // ---- formula constants (the PP Sandbox's active dials) ----
 
@@ -956,6 +959,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 ? LyricDifficulty.ComputeDetail(lines, rate, IsLiterate(mods), LyricDifficulty.Live, JudgementArmFor(mods)).DifficultCharacters
                 : 0;
 
+        /// <summary>
+        /// First-to-last playable unit span, in seconds at the played rate. Instrumental breaks
+        /// within the mapped lyrics count, while leading audio, seal deadlines and trailing audio
+        /// do not. Empty caption-only lines have no playable units and cannot extend the span.
+        /// </summary>
+        public static double PlayedDurationFor(IEnumerable<LyricLine> lines, IReadOnlyList<Mod>? mods)
+        {
+            double first = double.PositiveInfinity, last = double.NegativeInfinity;
+            bool literate = IsLiterate(mods);
+
+            foreach (LyricLine line in lines)
+            {
+                foreach (TimedUnit unit in line.Units)
+                {
+                    string text = literate ? unit.Text : Typeability.ToDefaultStream(unit.Text);
+
+                    if (string.IsNullOrWhiteSpace(text.Replace("&", string.Empty)) || !double.IsFinite(unit.StartTime)
+                        || !double.IsFinite(unit.EndTime) || unit.EndTime < unit.StartTime)
+                        continue;
+
+                    first = Math.Min(first, unit.StartTime);
+                    last = Math.Max(last, unit.EndTime);
+                }
+            }
+
+            double rate = EligibleRate(mods) ?? 1;
+            return double.IsFinite(first) && double.IsFinite(last) ? Math.Max(0, last - first) / (1000 * rate) : 0;
+        }
+
+        /// <summary>
+        /// A short-map cut: 60% at zero seconds, 15% at 30, and none from 60 onward.
+        /// The quadratic joins the full-length price with zero slope. Unknown legacy durations
+        /// preserve the price; malformed durations use the maximum cut rather than evading it.
+        /// </summary>
+        public static double ShortMapMultiplier(double playedDurationSeconds)
+        {
+            if (double.IsPositiveInfinity(playedDurationSeconds))
+                return 1;
+
+            double duration = double.IsFinite(playedDurationSeconds) ? Math.Max(0, playedDurationSeconds) : 0;
+            double remaining = 1 - Math.Clamp(duration / 60, 0, 1);
+            return 1 - 0.60 * remaining * remaining;
+        }
+
         public static double? StarsFor(IEnumerable<LyricLine> lines, IReadOnlyList<Mod>? mods)
             => EligibleRate(mods) is double rate ? LyricDifficulty.Compute(lines, rate, IsLiterate(mods), LyricDifficulty.Live, JudgementArmFor(mods)) : (double?)null;
 
@@ -1129,11 +1176,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// (they have no upper bound: a player can press as many wrong keys as they like) and
         /// accuracy into <c>[0, 1]</c>. The result is guaranteed finite and non-negative.</para>
         ///
-        /// <para>THERE IS NO RATE ARGUMENT (backlog 265). A rate is priced entirely by the
-        /// <paramref name="starRating"/> it is handed, so a caller holding the effective rating
-        /// holds the whole price. From v3 to v19 a base-rate Half Time play took an extra
-        /// multiplier here, which every surface that could see one had to remember to pass; nothing
-        /// does now, and the forgetting-to-pass-it failure mode is gone with it.</para>
+        /// <para>Difficulty is rated at the played rate. The separate short-map factor uses
+        /// <paramref name="playedDurationSeconds"/>, already divided by that rate. An unknown
+        /// duration preserves legacy callers' price; every beatmap-backed caller supplies it.</para>
         /// </summary>
         public static double Compute(
             double starRating,
@@ -1143,7 +1188,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             double accuracy,
             int maxCombo,
             IReadOnlyList<Mod>? mods,
-            int typos = 0)
+            int typos = 0,
+            double playedDurationSeconds = double.PositiveInfinity)
         {
             // No notes describes no play; a zero or non-finite rating prices nothing.
             if (notes <= 0 || !double.IsFinite(starRating) || starRating <= 0)
@@ -1202,7 +1248,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // and a core zeroed by misses cannot keep a consolation bonus. That is the opposite of
             // v21's placement, which is what the version bump records.
             double core = scale * difficulty * cleanliness * timing * ModMultiplier(mods, notes);
-            double pp = core * (1 + comboBonus);
+            double pp = core * (1 + comboBonus) * ShortMapMultiplier(playedDurationSeconds);
 
             return double.IsFinite(pp) && pp > 0 ? pp : 0;
         }
@@ -1213,11 +1259,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// argument order. Mirrors the server's <c>ForScore</c> minus its storage concerns (the
         /// ranked flag, the settled/pending distinction), which have no client-side meaning.
         ///
-        /// <para>The rating is the WHOLE price of a rate since backlog 265, so a caller holding
-        /// <see cref="StarsFor"/>'s answer needs nothing else; there is no second half to fetch,
-        /// and no surface can under- or over-pay a Half Time play by forgetting one.</para>
+        /// <para>The short-map factor also needs the mapped lyric span divided by the played rate.
+        /// Callers with a beatmap supply <see cref="PlayedDurationFor"/>; cached difficulty attributes
+        /// carry that same duration for callers without a beatmap.</para>
         /// </summary>
-        public static double ForPlay(double starRating, NoteCounts counts, double accuracy, int maxCombo, IReadOnlyList<Mod>? mods)
-            => Compute(starRating, counts.Notes, counts.DifficultCharacters, counts.Misses, accuracy, maxCombo, mods, counts.Typos);
+        public static double ForPlay(double starRating, NoteCounts counts, double accuracy, int maxCombo, IReadOnlyList<Mod>? mods,
+                                     double playedDurationSeconds = double.PositiveInfinity)
+            => Compute(starRating, counts.Notes, counts.DifficultCharacters, counts.Misses, accuracy, maxCombo, mods, counts.Typos, playedDurationSeconds);
     }
 }

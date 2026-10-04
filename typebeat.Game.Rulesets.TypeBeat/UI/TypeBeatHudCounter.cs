@@ -92,6 +92,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         private double? starRating;
         private double difficultCharacters;
+        private double playedDurationSeconds;
         private IReadOnlyList<Mod>? mods;
         private PerformancePoints.NoteCounts lastCounts = new PerformancePoints.NoteCounts(-1, -1, -1);
         private int lastMaxCombo = -1;
@@ -109,6 +110,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             var difficulty = PerformancePointsDisplay.DifficultyFor(playableBeatmap, gameplayMods, requireRankedMap: false, playbackRate: statisticsRate);
             difficultCharacters = difficulty?.DifficultCharacters ?? 0;
             starRating = difficulty?.Stars;
+
+            // The short-map factor reads the played span, so it takes the same editor preview rate the
+            // rating above was computed at (PlayedDurationFor divides by the mod rate alone).
+            playedDurationSeconds = playableBeatmap == null
+                ? 0
+                : PerformancePoints.PlayedDurationFor(playableBeatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), gameplayMods) / statisticsRate;
             Text = PerformancePointsDisplay.Format(starRating == null ? null : 0d);
         }
 
@@ -127,7 +134,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             lastCounts = counts;
             lastMaxCombo = maxCombo;
-            Text = PerformancePointsDisplay.Format(PerformancePoints.ForPlay(stars, counts, scoreProcessor.Accuracy.Value, maxCombo, mods));
+            Text = PerformancePointsDisplay.Format(PerformancePoints.ForPlay(stars, counts, scoreProcessor.Accuracy.Value, maxCombo, mods, playedDurationSeconds));
         }
     }
 }

@@ -196,7 +196,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             => new TypeBeatDifficultyAttributes(
                 withMods.ToArray(),
                 rateAdjustedStars(beatmap, withMods),
-                PerformancePoints.DifficultCharactersFor(beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), withMods));
+                PerformancePoints.DifficultCharactersFor(beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), withMods),
+                PerformancePoints.PlayedDurationFor(beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), withMods));
 
         /// <summary>The star rating TypeBeatDifficultyCalculator produces for a play, rate and all.</summary>
         private static double rateAdjustedStars(Beatmap<TypeBeatHitObject> beatmap, IReadOnlyList<Mod> withMods)
@@ -268,7 +269,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 DifficultCharacters = PerformancePoints.DifficultCharactersFor(beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), score.Mods),
             };
 
-            double expected = PerformancePoints.ForPlay(stars, counts, score.Accuracy, score.MaxCombo, score.Mods);
+            double expected = PerformancePoints.ForPlay(stars, counts, score.Accuracy, score.MaxCombo, score.Mods,
+                PerformancePoints.PlayedDurationFor(beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), score.Mods));
 
             Assert.Multiple(() =>
             {
@@ -600,13 +602,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 DifficultCharacters = PerformancePoints.DifficultCharactersFor(beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), score.Mods),
             };
 
-            double offItsRatingAlone = PerformancePoints.ForPlay(stars, counts, score.Accuracy, score.MaxCombo, score.Mods);
+            double offItsRatingAlone = PerformancePoints.ForPlay(stars, counts, score.Accuracy, score.MaxCombo, score.Mods,
+                PerformancePoints.PlayedDurationFor(beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), score.Mods));
 
             Assert.Multiple(() =>
             {
                 Assert.That(ppRow(score, beatmap), Is.EqualTo(panelValue(score, beatmap)));
                 Assert.That(ppRow(score, beatmap), Is.GreaterThan(0), "the fixture play must be worth something");
-                Assert.That(ppRow(score, beatmap), Is.EqualTo(offItsRatingAlone), "and it is sr_ht's price exactly, with nothing on top");
+                Assert.That(ppRow(score, beatmap), Is.EqualTo(offItsRatingAlone), "the same mapped duration must be used by every surface");
             });
         }
 
@@ -711,7 +714,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 liveCounts,
                 processor.Accuracy.Value,
                 processor.HighestCombo.Value,
-                withMods);
+                withMods,
+                PerformancePoints.PlayedDurationFor(beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), withMods));
 
             Assert.Multiple(() =>
             {

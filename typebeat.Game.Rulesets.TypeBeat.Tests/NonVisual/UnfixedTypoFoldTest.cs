@@ -366,7 +366,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(TypeBeatScoreProcessor.CountsAsTyped(HitResult.Miss), Is.False);
 
                 Assert.That(TypeBeatScoreProcessor.ComputeCompletion(score), Is.EqualTo(0.9).Within(1e-12));
-                Assert.That(TypeBeatScoreProcessor.RankFromCompletion(TypeBeatScoreProcessor.ComputeCompletion(score)),
+                Assert.That(new TypeBeatScoreProcessor(new TypeBeatRuleset()).RankFromScore(0.9, score.Statistics),
                     Is.EqualTo(ScoreRank.A));
 
                 // The same play with the three typos stored as misses instead: identical, because

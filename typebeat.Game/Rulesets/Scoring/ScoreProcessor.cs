@@ -399,6 +399,9 @@ namespace typebeat.Game.Rulesets.Scoring
         {
         }
 
+        /// <summary>Refreshes derived score after a ruleset changes scoring inputs outside a judgement.</summary>
+        protected void RefreshScore() => updateScore();
+
         private void updateScore()
         {
             Accuracy.Value = currentMaximumBaseScore > 0 ? currentBaseScore / currentMaximumBaseScore : 1;
@@ -629,7 +632,7 @@ namespace typebeat.Game.Rulesets.Scoring
         /// <summary>
         /// The 0..1 value the results-screen grade gauge fills to — the same metric the rank is
         /// awarded on, so the gauge lands on the shown grade. Accuracy by default; rulesets that
-        /// grade on something else (type!beat grades on completion) override this.
+        /// grade on something else override this.
         /// </summary>
         public virtual double GradeProgress(ScoreInfo score) => score.Accuracy;
 

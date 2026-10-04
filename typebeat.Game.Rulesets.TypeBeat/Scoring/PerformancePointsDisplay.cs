@@ -163,7 +163,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 var counts = PerformancePoints.CountNotes(score)
                     with { DifficultCharacters = PerformancePoints.DifficultCharactersFor(lines, score.Mods) };
 
-                return PerformancePoints.ForPlay(stars, counts, score.Accuracy, score.MaxCombo, score.Mods);
+                return PerformancePoints.ForPlay(stars, counts, score.Accuracy, score.MaxCombo, score.Mods, PerformancePoints.PlayedDurationFor(lines, score.Mods));
             }
 
             return score.PP;

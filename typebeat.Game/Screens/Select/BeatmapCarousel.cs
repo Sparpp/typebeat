@@ -850,7 +850,7 @@ namespace typebeat.Game.Screens.Select
                 if (topRankMapping.ContainsKey(score.BeatmapInfo.ID))
                     continue;
 
-                topRankMapping[score.BeatmapInfo.ID] = score.Rank;
+                topRankMapping[score.BeatmapInfo.ID] = score.GetDisplayRank();
             }
 
             return topRankMapping;

@@ -71,7 +71,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             return new PerformanceAttributes
             {
-                Total = PerformancePoints.ForPlay(stars, counts, score.Accuracy, score.MaxCombo, score.Mods),
+                Total = PerformancePoints.ForPlay(stars, counts, score.Accuracy, score.MaxCombo, score.Mods,
+                    attributes is TypeBeatDifficultyAttributes durationAttributes ? durationAttributes.PlayedDurationSeconds : double.PositiveInfinity),
             };
         }
     }

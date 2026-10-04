@@ -29,8 +29,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// never split, a pause gate, and adjacent runs lifted where material straddles a boundary;</description></item>
     /// <item><description>the OVERLAPPING family (<see cref="profile_overlapping"/>), which the game
     /// now ships: the timeline is sampled at a regular step, each sample keeps the strongest of a
-    /// doubling family of windows tried at its start, centre and end, a window holding fewer than
-    /// <see cref="Settings.minimum_chars"/> characters is refused, and each sample consumes rank in
+    /// doubling family of windows tried at its start, centre and end, and each sample consumes rank in
     /// proportion to its own support.</description></item>
     /// </list>
     /// The chunk dials stay live for the first layout and the overlapping dials for the second,
@@ -181,16 +180,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             /// </summary>
             public double overlap_max_seconds { get; init; } = 60.75;
             public double overlap_samples { get; init; } = 4;
-
-            /// <summary>
-            /// THE CHARACTER FLOOR (the sandbox's <c>minimumChars</c>). A time window holding fewer
-            /// weighted characters than this is refused outright, so a base-length slice that
-            /// catches a handful of cells between rests cannot stand as a candidate: the shortest
-            /// eligible window becomes the shortest one that actually holds this many characters.
-            /// Read off the same cell prefix the strain reads, so the floor means the same thing on
-            /// this axis as it does on the peak. 0 disables it.
-            /// </summary>
-            public double minimum_chars { get; init; } = 16;
 
             /// <summary>
             /// The envelope-characters dial. On this axis only the <c>Fill</c> readout reads it;
@@ -788,10 +777,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // The family is the base duration doubled up to the horizon, plus the exact cap when it
             // is not on a doubling; each length is tried starting at the sample's centre, centred on
             // it, and ending at it. Windows outside the map keep their full length and read zero
-            // mass there, exactly as the sandbox's prefix reads them. A window holding fewer than
-            // `minimum_chars` weighted characters is refused instead of scored, which is the floor
-            // this axis now shares with the peak: on sparse material the shortest eligible window
-            // becomes the shortest one that actually holds that many characters.
+            // mass there, exactly as the sandbox's prefix reads them. Sparse windows are scored
+            // directly too: a character cutoff would suppress low-density maps' local difficulty.
             // ---------------------------------------------------------------------------------
             bool overlapping = settings.chunk_profile == profile_overlapping;
             List<Row>? overlappingRows = null;
@@ -806,7 +793,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 double baseMs = span;
                 double maxMs = Math.Max(baseMs, Math.Min(120, Math.Max(1, settings.overlap_max_seconds)) * 1000);
                 int subdivisions = Math.Max(1, Math.Min(8, (int)Math.Round(settings.overlap_samples)));
-                double characterFloor = Math.Max(0, settings.minimum_chars);
                 double stepMs = baseMs / subdivisions;
 
                 var durations = new List<double> { baseMs };
@@ -816,13 +802,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 if (maxMs > baseMs + 1e-6)
                     durations.Add(maxMs);
-
-                // The floor is applied to the SCORED stream both ways round: a refused window scores
-                // nothing with the rhythm boost on or off, the same as a silent one.
-                double WindowStrain(double aMs, double bMs, bool withRhythm)
-                    => characterFloor > 0 && timeline.MassBetween(aMs, bMs) < characterFloor - 1e-9
-                        ? 0
-                        : ChunkStrain(aMs, bMs, withRhythm);
 
                 overlappingRows = new List<Row>();
 
@@ -839,7 +818,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         foreach (double position in new[] { 0d, .5, 1d })
                         {
                             double from = centre - duration * position, to = from + duration;
-                            double value = WindowStrain(from, to, true);
+                            double value = ChunkStrain(from, to, true);
 
                             if (value > strain)
                             {
@@ -848,7 +827,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                                 windowSeconds = duration / 1000;
                             }
 
-                            plain = Math.Max(plain, WindowStrain(from, to, false));
+                            plain = Math.Max(plain, ChunkStrain(from, to, false));
                         }
                     }
 
