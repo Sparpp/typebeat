@@ -120,12 +120,71 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void ConfiguredResolutionUsesMapSettingAndSkipsMapRegistrationWhenDisabled()
+        {
+            var config = (TypeBeatRulesetConfigManager)new TypeBeatRuleset().CreateConfig(null);
+            var manager = new LyricFontManager(null, null);
+            int registerCalls = 0;
+
+            string? resolved = LyricFontResolution.ResolveConfigured(config, manager, map_family, () =>
+            {
+                registerCalls++;
+                return "MapFont-configured";
+            });
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(resolved, Is.EqualTo("MapFont-configured"));
+                Assert.That(registerCalls, Is.EqualTo(1), "the map file is the first choice when map fonts are enabled");
+            });
+
+            config.GetBindable<bool>(TypeBeatRulesetSetting.UseMapFonts).Value = false;
+            resolved = LyricFontResolution.ResolveConfigured(config, manager, map_family, () =>
+            {
+                registerCalls++;
+                return "MapFont-configured";
+            });
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(resolved, Is.Null, "with the player font left at its built-in default, a disabled map font resolves to built-in");
+                Assert.That(registerCalls, Is.EqualTo(1), "a disabled map font does not open its bundled file");
+            });
+        }
+
+        [Test]
         public void UseMapFontsShipsOn()
         {
             var config = (TypeBeatRulesetConfigManager)new TypeBeatRuleset().CreateConfig(null);
 
             Assert.That(config.GetBindable<bool>(TypeBeatRulesetSetting.UseMapFonts).Default, Is.True,
                 "map fonts apply by default; the setting exists to opt out");
+        }
+
+        [Test]
+        public void EditorFontCacheTracksTypingFontAndToggleIndependentlyOfGameplayMapFonts()
+        {
+            using var config = (TypeBeatRulesetConfigManager)new TypeBeatRuleset().CreateConfig(null);
+            using var fonts = new FontStore(new DummyRenderer(), null, 100);
+            var manager = new LyricFontManager(fonts, null);
+            var cache = new EditorLyricFontResolutionCache();
+            config.SetValue(TypeBeatRulesetSetting.LyricFont, LyricFontManager.OPEN_DYSLEXIC);
+            Assert.That(config.Get<bool>(TypeBeatRulesetSetting.UseTypingFontInEditor), Is.True);
+            Assert.That(cache.ResolveForEditor(config, manager), Is.EqualTo(LyricFontManager.OPEN_DYSLEXIC));
+
+            config.SetValue(TypeBeatRulesetSetting.UseTypingFontInEditor, false);
+            Assert.That(cache.ResolveForEditor(config, manager), Is.Null);
+            config.SetValue(TypeBeatRulesetSetting.UseMapFonts, false);
+            Assert.That(cache.ResolveForEditor(config, manager), Is.Null);
+            config.SetValue(TypeBeatRulesetSetting.UseTypingFontInEditor, true);
+            Assert.That(cache.ResolveForEditor(config, manager), Is.EqualTo(LyricFontManager.OPEN_DYSLEXIC));
+            config.SetValue(TypeBeatRulesetSetting.UseMapFonts, true);
+            Assert.That(cache.ResolveForEditor(config, manager), Is.EqualTo(LyricFontManager.OPEN_DYSLEXIC));
+
+            config.SetValue(TypeBeatRulesetSetting.LyricFont, TypeBeatRulesetConfigManager.LYRIC_FONT_DEFAULT);
+            Assert.That(cache.ResolveForEditor(config, manager), Is.Null);
+            config.SetValue(TypeBeatRulesetSetting.LyricFont, "typebeat-unavailable-editor-font");
+            Assert.That(cache.ResolveForEditor(config, manager), Is.Null, "an unavailable typing font falls back to the built-in editor font");
         }
 
         // ---- the register-from-stream path (the bundled file) ----

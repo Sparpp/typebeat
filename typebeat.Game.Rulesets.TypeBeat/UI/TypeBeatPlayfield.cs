@@ -30,6 +30,7 @@ using typebeat.Game.Rulesets.TypeBeat.Objects.Drawables;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.UI;
+using typebeat.Game.Screens.Edit.GameplayTest;
 using typebeat.Game.Screens.Play;
 using osuTK.Graphics;
 using osuTK.Input;
@@ -642,11 +643,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// NOT <c>PerformancePoints.EligibleRate</c>: that answers a pp-eligibility question and returns
         /// null for a custom rate, but a custom-rate play still has a real typing speed worth showing.</para>
         ///
+        /// <para>Editor Test Play also includes its playback tempo.</para>
+        ///
         /// <para>MUST be sampled per frame, never cached at load: ModWindUp / ModWindDown ramp the rate
         /// across the run. Null (no <see cref="IGameplayClock"/> in the hierarchy) means a bare
         /// drawable-ruleset test scene with no <c>Player</c>, hence no rate mods, hence 1.</para>
         /// </summary>
-        private static double wpmClockRate(IGameplayClock? clock) => clock?.GetTrueGameplayRate() ?? 1;
+        private static double wpmClockRate(IGameplayClock? clock, EditorTestPlayback? editorPlayback)
+            => editorPlayback?.GetRateForStatistics(clock) ?? clock?.GetTrueGameplayRate() ?? 1;
 
         /// <summary>
         /// Ticks the <see cref="TypingEngine"/> from inside the lyric-offset clock subtree so it
@@ -696,6 +700,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             [Resolved]
             private IGameplayClock? gameplayClock { get; set; }
 
+            [Resolved]
+            private EditorTestPlayback? editorPlayback { get; set; }
+
             public EngineTicker(TypingEngine engine, DrawableTypeBeatRuleset? drawableRuleset)
             {
                 this.engine = engine;
@@ -707,7 +714,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 base.Update();
 
                 var replay = drawableRuleset?.ReplayScore?.Replay;
-                double clockRate = wpmClockRate(gameplayClock);
+                double clockRate = wpmClockRate(gameplayClock, editorPlayback);
 
                 if (replay != null)
                 {
@@ -922,6 +929,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             [Resolved]
             private IGameplayClock? gameplayClock { get; set; }
 
+            [Resolved]
+            private EditorTestPlayback? editorPlayback { get; set; }
+
             public TypeBeatKeyHandler(TypingEngine engine, DrawableTypeBeatRuleset? drawableRuleset, TypeBeatPlayfield playfield)
             {
                 this.engine = engine;
@@ -1111,7 +1121,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (!engine.Polyglot || drawableRuleset?.ReplayScore != null || drawableRuleset?.IsPaused.Value == true || !HasFocus)
                     return;
 
-                engine.Update(time, wpmClockRate(gameplayClock));
+                engine.Update(time, wpmClockRate(gameplayClock, editorPlayback));
 
                 if (!engine.LineIsActive && !engine.FirstLineTypingOpensAt(time))
                     return;
@@ -1398,7 +1408,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (engine.Polyglot || drawableRuleset?.ReplayScore != null || drawableRuleset?.IsPaused.Value == true || !HasFocus)
                     return false;
 
-                engine.Update(time, wpmClockRate(gameplayClock));
+                engine.Update(time, wpmClockRate(gameplayClock, editorPlayback));
 
                 if (!engine.LineIsActive && !engine.FirstLineTypingOpensAt(time))
                     return false;
@@ -1509,7 +1519,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // Advance the engine to the keystroke's timestamp BEFORE gating/judging, so the
                 // outcome depends only on (char, time), not on where the last engine tick happened
                 // to fall. This is what lets replay playback reproduce the run exactly.
-                engine.Update(time, wpmClockRate(gameplayClock));
+                engine.Update(time, wpmClockRate(gameplayClock, editorPlayback));
 
                 // While the engine has no active line (pre-roll, a dead zone, or after the final
                 // line) typing is inert, so DON'T swallow the key; let it fall through to global

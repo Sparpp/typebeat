@@ -489,6 +489,7 @@ namespace typebeat.Game.Screens.Edit
         {
             Mode = Mode.Value,
             Time = clock.CurrentTimeAccurate,
+            PlaybackRate = clock.PlaybackRate.Value,
             ClipboardContent = nextRuleset == null || editorBeatmap.BeatmapInfo.Ruleset.ShortName == nextRuleset.ShortName ? Clipboard.Content.Value : string.Empty
         };
 
@@ -500,6 +501,7 @@ namespace typebeat.Game.Screens.Edit
         {
             Mode.Value = state.Mode;
             clock.Seek(state.Time);
+            clock.PlaybackRate.Value = state.PlaybackRate;
             Clipboard.Content.Value = state.ClipboardContent;
         });
 

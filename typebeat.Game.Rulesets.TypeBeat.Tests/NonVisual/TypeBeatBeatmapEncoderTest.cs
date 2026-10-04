@@ -299,6 +299,42 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
+        public void SourceSurvivesEditorSaveAndNewlinesStayInOneField()
+        {
+            var source = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
+            source.Metadata.Source = "album\r\nsource\nnotes";
+
+            string encoded = encode(source, null);
+            string expectedSource = "album  source notes";
+
+            Assert.That(encoded.Split('\n').Count(line => line.TrimEnd('\r').StartsWith("Source:", StringComparison.Ordinal)), Is.EqualTo(1));
+            Assert.That(encoded, Does.Contain($"Source:{expectedSource}"));
+
+            var reloaded = decode(encoded);
+            Assert.That(reloaded.Metadata.Source, Is.EqualTo(expectedSource));
+            Assert.That(encode(reloaded, null), Is.EqualTo(encoded), "the value remains stable on the next editor save");
+        }
+
+        [Test]
+        public void EmptySourceAddsNoMetadataLine()
+        {
+            var unset = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
+            var whitespace = buildBeatmap(singleLine(), "Artist", "Title", "song.mp3");
+            whitespace.Metadata.Source = "\r\n  \t";
+
+            string oldShape = encode(unset, null);
+            string emptySourceShape = encode(whitespace, null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(oldShape, Does.Not.Contain("Source:"));
+                Assert.That(emptySourceShape, Does.Not.Contain("Source:"));
+                Assert.That(emptySourceShape, Is.EqualTo(oldShape), "an absent Source must preserve the previous map encoding");
+                Assert.That(decode(emptySourceShape).Metadata.Source, Is.Empty);
+            });
+        }
+
+        [Test]
         public void OriginalTitleAndArtistSurviveRoundTrip()
         {
             // The editor's romanised (Title/Artist) and original (TitleUnicode/ArtistUnicode)

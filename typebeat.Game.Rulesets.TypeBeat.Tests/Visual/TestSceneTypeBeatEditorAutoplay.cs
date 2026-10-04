@@ -15,7 +15,9 @@ using typebeat.Game.Rulesets.TypeBeat.Edit;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
+using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.UI;
+using typebeat.Game.Scoring;
 using typebeat.Game.Screens.Edit.GameplayTest;
 using typebeat.Game.Tests.Visual;
 
@@ -80,6 +82,86 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             beatmap.HitObjects.Add(new TypeBeatHitObject { StartTime = trailing.StartTime, LineIndex = 1, Line = trailing, Granularity = TimingGranularity.Word });
 
             return beatmap;
+        }
+
+        [TestCase(0.5)]
+        [TestCase(1.5)]
+        public void EditorCountersUseTheSelectedPlaybackRate(double editorRate)
+        {
+            AddUntilStep("compose shown", () => Editor.ChildrenOfType<LyricComposeScreen>().Any());
+            AddStep("choose editor playback speed", () =>
+            {
+                EditorClock.Stop();
+                EditorClock.Seek(0);
+                EditorClock.PlaybackRate.Value = editorRate;
+            });
+            AddStep("start test play", () => Editor.TestGameplay());
+            AddUntilStep("player and counters loaded", () => editorPlayer()?.IsLoaded == true
+                && playfield()?.ChildrenOfType<TypeBeatPpCounter>().SingleOrDefault()?.IsLoaded == true);
+            AddAssert("audio retains the selected playback speed", () => editorPlayer()!.TestPlayback.Rate == editorRate);
+            AddStep("toggle autoplay", () =>
+                ((osu.Framework.Input.Bindings.IKeyBindingHandler<GlobalAction>)editorPlayer()!).OnPressed(
+                    new KeyBindingPressEvent<GlobalAction>(new InputState(), GlobalAction.EditorTestPlayToggleAutoplay)));
+            AddUntilStep("every cell typed", () =>
+                playfield()!.Engine.Lines[0].Cells.Where(c => c.IsTypeable).All(c => c.State == CellState.Correct));
+            double expectedRate = editorRate;
+            string expectedPp = "", expectedWpm = "";
+            AddStep("calculate expected counters at the selected rate", () =>
+            {
+                var state = editorPlayer()!.GameplayState;
+                var source = state.Beatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line).ToArray();
+                // A map stretched to the editor's tempo should have the same current price as
+                // its preview. Use the results surface so changes to pp's length factor remain
+                // covered without depending on a particular ForPlay overload.
+                var pricedMap = new TypeBeatBeatmap
+                {
+                    HitObjects = source.Select(line => new TypeBeatHitObject
+                    {
+                        Granularity = TimingGranularity.Word,
+                        Line = new LyricLine
+                        {
+                            RawText = line.RawText,
+                            StartTime = line.StartTime / expectedRate,
+                            EndTime = line.EndTime / expectedRate,
+                            SingEndTime = line.SingEndTime / expectedRate,
+                            Units = line.Units.Select(unit => new TimedUnit
+                            {
+                                Text = unit.Text,
+                                StartTime = unit.StartTime / expectedRate,
+                                EndTime = unit.EndTime / expectedRate,
+                                Source = unit.Source,
+                            }).ToArray(),
+                        },
+                    }).ToList(),
+                };
+                pricedMap.BeatmapInfo.Status = BeatmapOnlineStatus.Ranked;
+                var expectedScore = new ScoreInfo
+                {
+                    BeatmapInfo = pricedMap.BeatmapInfo,
+                    Ruleset = new TypeBeatRuleset().RulesetInfo,
+                    Passed = true,
+                    Rank = state.ScoreProcessor.Rank.Value,
+                    Accuracy = state.ScoreProcessor.Accuracy.Value,
+                    MaxCombo = state.ScoreProcessor.HighestCombo.Value,
+                    Statistics = state.ScoreProcessor.Statistics.ToDictionary(pair => pair.Key, pair => pair.Value),
+                    Mods = state.Mods.ToArray(),
+                };
+                expectedPp = PerformancePointsDisplay.Format(PerformancePointsDisplay.ForScore(expectedScore, pricedMap));
+
+                var reference = new TypingEngine(new LyricBeatmap
+                {
+                    Metadata = new LyricBeatmapMetadata { Artist = "Test", Title = "Preview", FolderPath = "", AudioFileName = "" },
+                    Granularity = TimingGranularity.Word,
+                    Lines = source,
+                });
+                var replay = editorPlayer()!.ChildrenOfType<DrawableTypeBeatRuleset>().Single().ReplayScore!.Replay!;
+                ReplayEngineFeed.RebuildTo(reference, replay.Frames, source.Max(l => l.EndTime), expectedRate);
+                expectedWpm = reference.LiveRollingWpm.ToString("0");
+            });
+            AddUntilStep("pp preview uses the expected rate", () =>
+                playfield()!.ChildrenOfType<TypeBeatPpCounter>().Single().DisplayedText == expectedPp);
+            AddUntilStep("wpm preview uses the expected rate", () =>
+                playfield()!.ChildrenOfType<TypeBeatWpmCounter>().Single().DisplayedText == expectedWpm);
         }
 
         private EditorPlayer? editorPlayer() => Stack.ChildrenOfType<EditorPlayer>().SingleOrDefault();

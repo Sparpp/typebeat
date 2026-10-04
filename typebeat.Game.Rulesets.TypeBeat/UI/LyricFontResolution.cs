@@ -4,6 +4,9 @@
 #nullable enable
 
 using System;
+using osu.Framework.Logging;
+using typebeat.Game.Beatmaps;
+using typebeat.Game.Graphics.Fonts;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 
 namespace typebeat.Game.Rulesets.TypeBeat.UI
@@ -63,8 +66,105 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             return null;
         }
 
+        /// <summary>
+        /// Resolves a map's gameplay font using the player's settings. The precedence is shared
+        /// with <see cref="Resolve"/>; editor lyrics use <see cref="ResolveForEditor"/> instead.
+        /// </summary>
+        public static string? ResolveConfigured(TypeBeatRulesetConfigManager? config, LyricFontManager? fontManager,
+                                                string? mapFamily, Func<string?>? registerMapFile)
+        {
+            if (fontManager == null)
+                return null;
+
+            string? playerFamily = config?.Get<string>(TypeBeatRulesetSetting.LyricFont);
+            bool useMapFonts = config?.Get<bool>(TypeBeatRulesetSetting.UseMapFonts) ?? true;
+            return Resolve(playerFamily, useMapFonts, mapFamily, fontManager.EnsureRegistered, registerMapFile);
+        }
+
+        public static string? ResolveForMap(TypeBeatRulesetConfigManager? config, LyricFontManager? fontManager,
+                                           string? mapFamily, string? mapFontFile, WorkingBeatmap? workingBeatmap)
+        {
+            if (fontManager == null)
+                return null;
+
+            bool useMapFonts = config?.Get<bool>(TypeBeatRulesetSetting.UseMapFonts) ?? true;
+            string? resolved = ResolveConfigured(config, fontManager, mapFamily,
+                () => registerMapFontFile(fontManager, workingBeatmap, mapFontFile));
+
+            if (resolved == null && useMapFonts && !string.IsNullOrEmpty(mapFamily))
+                Logger.Log($"The map's lyric font '{mapFamily}' could not be resolved on this machine; using the built-in font.");
+
+            return resolved;
+        }
+
+        /// <summary>Editor lyrics use only the player's typing font, when enabled, or the built-in editor font.</summary>
+        public static string? ResolveForEditor(TypeBeatRulesetConfigManager? config, LyricFontManager? fontManager)
+        {
+            if (fontManager == null || config?.Get<bool>(TypeBeatRulesetSetting.UseTypingFontInEditor) == false)
+                return null;
+
+            return Resolve(config?.Get<string>(TypeBeatRulesetSetting.LyricFont), false, null, fontManager.EnsureRegistered, null);
+        }
+
+        private static string? registerMapFontFile(LyricFontManager fontManager, WorkingBeatmap? workingBeatmap, string? fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                return null;
+
+            string? storagePath = workingBeatmap?.BeatmapSetInfo?.GetPathForFile(fileName);
+
+            if (workingBeatmap == null || storagePath == null)
+            {
+                Logger.Log($"The map names a bundled lyric font '{fileName}' that its set does not carry; falling back.");
+                return null;
+            }
+
+            // The storage path identifies the set-owned file used by the framework's file store.
+            // Register through WorkingBeatmap so missing, corrupt, or unreadable resources follow
+            // the same safe fallback path as gameplay.
+            string key = $"MapFont-{storagePath.Split('/')[^1]}";
+            return fontManager.EnsureRegisteredFromStream(key, () => workingBeatmap.GetStream(storagePath)) ? key : null;
+        }
+
         private static bool isDefault(string? family)
             => string.IsNullOrWhiteSpace(family)
                || family.Equals(TypeBeatRulesetConfigManager.LYRIC_FONT_DEFAULT, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Memoises the editor's typing font until the selected family or editor toggle changes,
+    /// avoiding font registration and lookup on every frame. Map fonts do not affect this cache.
+    /// </summary>
+    public sealed class EditorLyricFontResolutionCache
+    {
+        private bool initialized;
+        private TypeBeatRulesetConfigManager? lastConfig;
+        private LyricFontManager? lastFontManager;
+        private string? lastPlayerFamily;
+        private bool lastUseTypingFont;
+        private string? resolvedFamily;
+
+        public string? ResolveForEditor(TypeBeatRulesetConfigManager? config, LyricFontManager? fontManager)
+        {
+            string? playerFamily = config?.Get<string>(TypeBeatRulesetSetting.LyricFont);
+            bool useTypingFont = config?.Get<bool>(TypeBeatRulesetSetting.UseTypingFontInEditor) ?? true;
+
+            if (initialized
+                && ReferenceEquals(config, lastConfig)
+                && ReferenceEquals(fontManager, lastFontManager)
+                && string.Equals(playerFamily, lastPlayerFamily, StringComparison.Ordinal)
+                && useTypingFont == lastUseTypingFont)
+            {
+                return resolvedFamily;
+            }
+
+            initialized = true;
+            lastConfig = config;
+            lastFontManager = fontManager;
+            lastPlayerFamily = playerFamily;
+            lastUseTypingFont = useTypingFont;
+            resolvedFamily = LyricFontResolution.ResolveForEditor(config, fontManager);
+            return resolvedFamily;
+        }
     }
 }

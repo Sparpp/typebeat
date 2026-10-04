@@ -58,6 +58,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Space to skip current word",
                     "Manual newlines",
                     "Use map fonts",
+                    "Use typing font in Editor",
                     "Use space error dot",
                     "Approach bars",
                     "Text pop-in",
@@ -73,6 +74,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     TypeBeatRulesetSetting.SpaceSkipsWord,
                     TypeBeatRulesetSetting.ManualNewlines,
                     TypeBeatRulesetSetting.UseMapFonts,
+                    TypeBeatRulesetSetting.UseTypingFontInEditor,
                     TypeBeatRulesetSetting.UseSpaceErrorDot,
                     TypeBeatRulesetSetting.ApproachBars,
                     TypeBeatRulesetSetting.TextPopIn,
@@ -94,9 +96,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 }
 
                 // And the defaults the game ships with, which the move must not have reset either.
-                // Manual newlines, map fonts, the space error dot, syllable markers and pace colours
-                // ship on by default.
-                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, true, true, true, true, true, true, true }));
+                // All nine checkboxes ship on by default: space-skip, manual newlines, map fonts, the
+                // editor typing font, the space error dot, approach bars, text pop-in, syllable markers
+                // and pace colours.
+                Assert.That(checkboxes.Select(c => c.Current.Value), Is.EqualTo(new[] { true, true, true, true, true, true, true, true, true }));
             }
         }
 
@@ -133,6 +136,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
                     "Use map fonts",
                     "Typing font",
+                    "Use typing font in Editor",
                     "Gameplay font size",
                     "Lyric line spacing",
                     "Typing caret style",

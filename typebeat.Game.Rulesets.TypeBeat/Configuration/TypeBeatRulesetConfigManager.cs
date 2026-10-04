@@ -136,17 +136,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         LyricFontSize,
 
         /// <summary>
-        /// Family name of the font used for the gameplay typing surface (the lyric stack and typed
-        /// characters). <see cref="TypeBeatRulesetConfigManager.LYRIC_FONT_DEFAULT"/> keeps the game's
-        /// built-in font; <c>"OpenDyslexic"</c> selects the bundled accessibility face; any other value
-        /// is treated as an installed system-font family. Unknown or failed fonts fall back to the
-        /// default. Only the typing surface is affected; the rest of the UI keeps its default fonts.
+        /// Family name of the font used for lyric text in gameplay and the editor.
+        /// <see cref="TypeBeatRulesetConfigManager.LYRIC_FONT_DEFAULT"/> keeps the game's built-in font;
+        /// <c>"OpenDyslexic"</c> selects the bundled accessibility face; any other value is treated as
+        /// an installed system-font family. Unknown or failed fonts fall back to the default. Other UI
+        /// text keeps its default font.
         /// </summary>
         LyricFont,
 
+        /// <summary>Use the player's typing font for editor lyrics; map fonts never apply in the editor.</summary>
+        UseTypingFontInEditor,
+
         /// <summary>
         /// Whether a map's own font choice (<c>[General] LyricFont</c>, backlog 291) is applied to
-        /// the typing surface. ON by default, in the spirit of osu's beatmap skin/hitsound toggles:
+        /// gameplay lyric text. ON by default, in the spirit of osu's beatmap skin/hitsound toggles:
         /// the mapper picked a look for their map and most players want to see it. When enabled,
         /// a usable map font takes priority over <see cref="LyricFont"/>; the player's font remains
         /// the fallback. Display only, so it never reaches the replay CONFIG frame.
@@ -545,6 +548,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.LyricFontSize, UI.TypeBeatStyle.LYRIC_FONT_SIZE, 24.0f, 72.0f, 1.0f);
 
             SetDefault(TypeBeatRulesetSetting.LyricFont, LYRIC_FONT_DEFAULT);
+            SetDefault(TypeBeatRulesetSetting.UseTypingFontInEditor, true);
             SetDefault(TypeBeatRulesetSetting.UseMapFonts, true);
             SetDefault(TypeBeatRulesetSetting.UseSpaceErrorDot, true);
             SetDefault(TypeBeatRulesetSetting.ShowSyllableMarkers, true);

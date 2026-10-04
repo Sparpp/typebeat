@@ -19,6 +19,11 @@ namespace typebeat.Game.Screens.Edit
         public double Time { get; set; }
 
         /// <summary>
+        /// The selected editor playback speed, independent of gameplay mods.
+        /// </summary>
+        public double PlaybackRate { get; set; } = 1;
+
+        /// <summary>
         /// The editor clipboard content.
         /// </summary>
         public string ClipboardContent { get; set; } = string.Empty;

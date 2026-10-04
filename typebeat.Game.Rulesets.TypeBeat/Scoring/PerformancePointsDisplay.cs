@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -91,6 +92,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <param name="requireRankedMap">Whether gate 3 applies. The default is what every finished
         /// surface wants; only the live HUD counter passes false.</param>
         public static double? StarRatingFor(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? mods, bool requireRankedMap = true)
+            => DifficultyFor(playableBeatmap, mods, requireRankedMap)?.Stars;
+
+        /// <summary>
+        /// The eligible play's SR and difficult-character count at its mod rate plus an optional
+        /// editor preview tempo. Preview tempo does not change gameplay-mod eligibility.
+        /// Previews that exceed the SR model's duration limit have no pp reading.
+        /// </summary>
+        public static LyricDifficulty.ModelResult? DifficultyFor(IBeatmap? playableBeatmap, IReadOnlyList<Mod>? mods,
+                                                                bool requireRankedMap = true, double playbackRate = 1)
         {
             if (playableBeatmap == null)
                 return null;
@@ -101,7 +111,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             if (mods != null && mods.Any(m => !m.Ranked))
                 return null;
 
-            return PerformancePoints.StarsFor(playableBeatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line), mods);
+            if (PerformancePoints.EligibleRate(mods) is not double rate)
+                return null;
+
+            try
+            {
+                return LyricDifficulty.ComputeDetail(playableBeatmap.HitObjects.OfType<TypeBeatHitObject>().Select(h => h.Line),
+                    rate * playbackRate, PerformancePoints.IsLiterate(mods), LyricDifficulty.Live, PerformancePoints.JudgementArmFor(mods));
+            }
+            catch (InvalidOperationException) when (playbackRate != 1)
+            {
+                // Very slow editor tempos can stretch ordinary maps past the model's 30-minute
+                // limit. Keep Test Play usable and show a dash instead of failing the HUD's load.
+                return null;
+            }
         }
 
         /// <summary>

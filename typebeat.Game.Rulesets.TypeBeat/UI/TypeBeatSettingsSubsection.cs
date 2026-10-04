@@ -103,16 +103,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 {
 
                     Caption = "Use map fonts",
-                    HintText = "Show the lyric font chosen by the mapper when available. It takes priority over your typing font; your choice is used when the map has no usable font. Applies from the next play.",
+                    HintText = "Use the lyric font chosen by the mapper for gameplay when available. It takes priority over your typing font; your choice is used when the map has no usable font. Applies from the next play.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.UseMapFonts),
                 }),
                 new SettingsItemV2(new FormDropdown<string>
 
                 {
                     Caption = "Typing font",
-                    HintText = "Font for gameplay lyric text when the map has no usable font or Use map fonts is off. OpenDyslexic is bundled; you can also pick an installed system font. Applies from the next play.",
+                    HintText = "Font for gameplay when the map has no usable font or Use map fonts is off, and for editor lyrics when Use typing font in Editor is enabled. OpenDyslexic is bundled; you can also pick an installed system font. Editor changes apply immediately; gameplay changes apply from the next play.",
                     Items = buildFontItems(lyricFont.Value),
                     Current = lyricFont,
+                }),
+                new SettingsItemV2(new FormCheckBox
+                {
+                    Caption = "Use typing font in Editor",
+                    HintText = "Use your selected typing font for editor lyrics. When disabled, use the built-in editor font. Map fonts do not apply in the editor.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.UseTypingFontInEditor),
                 }),
                 new SettingsItemV2(new FormSliderBar<float>
                 {

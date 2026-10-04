@@ -16,6 +16,7 @@ using osuTK.Graphics;
 using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Graphics.Shapes;
 using osu.Framework.Input.Events;
+using osu.Framework.Testing;
 using osu.Framework.Utils;
 using typebeat.Game.Beatmaps.ControlPoints;
 using typebeat.Game.Graphics.Containers;
@@ -38,13 +39,59 @@ namespace typebeat.Game.Graphics.UserInterface
 
         protected override SpriteText CreatePlaceholder() => new OsuSpriteText
         {
-            Font = OsuFont.GetFont(italics: true),
+            Font = string.IsNullOrEmpty(fontFamily) ? OsuFont.GetFont(italics: true) : new FontUsage(fontFamily, FontSize).With(italics: true),
             Margin = new MarginPadding { Left = 2 },
         };
+
+        private FontUsage getTextFont()
+            => string.IsNullOrEmpty(fontFamily) ? OsuFont.GetFont(size: FontSize) : new FontUsage(fontFamily, FontSize);
+
+        private void updateFontFamily()
+        {
+            FontUsage textFont = getTextFont();
+
+            // TextContainer can also contain captions such as the map-search match count.
+            // Only editable characters belong to TextFlow and share the input's font size.
+            foreach (var sprite in TextFlow.ChildrenOfType<OsuSpriteText>())
+                sprite.Font = textFont;
+
+            Placeholder.Font = string.IsNullOrEmpty(fontFamily) ? OsuFont.GetFont(italics: true) : new FontUsage(fontFamily, FontSize).With(italics: true);
+        }
 
         protected bool DrawBorder { get; init; } = true;
 
         private OsuCaret? caret;
+
+        private string? fontFamily;
+
+        /// <summary>Optional registered font family for the text being edited. The existing FontSize
+        /// remains the size authority; null keeps the normal UI font. Changing this updates visible
+        /// characters immediately without rebuilding the text box or moving its caret.
+        /// </summary>
+        public string? FontFamily
+        {
+            get => fontFamily;
+            set
+            {
+                if (string.Equals(fontFamily, value, StringComparison.Ordinal))
+                    return;
+
+                fontFamily = value;
+
+                if (IsLoaded)
+                    Schedule(updateFontFamily);
+            }
+        }
+
+        protected override void LoadComplete()
+        {
+            base.LoadComplete();
+
+            // The placeholder is created by BasicTextBox before object initialisers can assign
+            // FontFamily. Refresh custom fonts here, preserving subclass styling on normal inputs.
+            if (!string.IsNullOrEmpty(fontFamily))
+                updateFontFamily();
+        }
 
         private bool selectionStarted;
         private double sampleLastPlaybackTime;
@@ -279,7 +326,7 @@ namespace typebeat.Game.Graphics.UserInterface
         protected override Drawable GetDrawableCharacter(char c) => new FallingDownContainer
         {
             AutoSizeAxes = Axes.Both,
-            Child = new OsuSpriteText { Text = c.ToString(), Font = OsuFont.GetFont(size: FontSize) },
+            Child = new OsuSpriteText { Text = c.ToString(), Font = getTextFont() },
         };
 
         protected override Caret CreateCaret() => caret = new OsuCaret

@@ -40,6 +40,9 @@ namespace typebeat.Game.Screens.Edit
 
         public AudioAdjustments AudioAdjustments { get; } = new AudioAdjustments();
 
+        /// <summary>The editor's selected tempo, also inherited by Test Play.</summary>
+        public BindableNumber<double> PlaybackRate { get; } = new BindableDouble(1) { MinValue = 0.06, MaxValue = 2, Precision = 0.01 };
+
         public ControlPointInfo ControlPointInfo => Beatmap.ControlPointInfo;
 
         public IBeatmap Beatmap { get; set; }
@@ -65,6 +68,7 @@ namespace typebeat.Game.Screens.Edit
 
             this.beatDivisor = beatDivisor ?? new BindableBeatDivisor();
 
+            AudioAdjustments.AddAdjustment(AdjustableProperty.Tempo, PlaybackRate);
             underlyingClock = new FramedBeatmapClock(applyOffsets: true, requireDecoupling: true);
             AddInternal(underlyingClock);
 
@@ -244,6 +248,8 @@ namespace typebeat.Game.Screens.Edit
         {
             AudioAdjustments.RemoveAllAdjustments(AdjustableProperty.Frequency);
             AudioAdjustments.RemoveAllAdjustments(AdjustableProperty.Tempo);
+            PlaybackRate.Value = 1;
+            AudioAdjustments.AddAdjustment(AdjustableProperty.Tempo, PlaybackRate);
             underlyingClock.ResetSpeedAdjustments();
         }
 

@@ -355,7 +355,12 @@ namespace typebeat.Game.Screens.Edit.Compose.Components.Timeline
 
         private void seekTrackToCurrent()
         {
-            editorClock.Seek(Math.Min(editorClock.TrackLength, TimeAtPosition(Current)));
+            double time = Math.Clamp(TimeAtPosition(Current), 0, editorClock.TrackLength);
+
+            // A held drag also updates on stationary frames. Avoid repeatedly queueing the same
+            // audio seek while preserving every changed scrub position.
+            if (double.IsFinite(time) && time != editorClock.CurrentTime)
+                editorClock.Seek(time);
         }
 
         private void scrollToTrackTime()

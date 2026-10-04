@@ -135,7 +135,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                                          string? lyricFont = null, string? lyricFontFile = null,
                                          Colour4? freestyleColour = null,
                                          IReadOnlyList<TimingControlPoint>? editorTimingPoints = null,
-                                         IReadOnlyList<EffectControlPoint>? editorEffectPoints = null, int? beatDivisor = null)
+                                         IReadOnlyList<EffectControlPoint>? editorEffectPoints = null, int? beatDivisor = null,
+                                         string? source = null)
         {
             using var doc = JsonDocument.Parse(timingJsonText);
             JsonElement root = doc.RootElement;
@@ -218,6 +219,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // tags; an unset field writes an empty Tags line.
             string sanitizedTags = (tags ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
             sb.AppendLine($"Tags:{sanitizedTags}");
+
+            // Source is optional and stays absent on maps that never set it, preserving their saved encoding.
+            // Keep a stray newline inside the value from creating a second metadata field.
+            string sanitizedSource = (source ?? string.Empty).Replace("\r", " ").Replace("\n", " ").Trim();
+            if (!string.IsNullOrEmpty(sanitizedSource))
+                sb.AppendLine($"Source:{sanitizedSource}");
 
             // Song language (task 58). Emitted ONLY when the mapper has chosen one, so a map that
             // has not been through the new setup field encodes exactly as it did before this key
