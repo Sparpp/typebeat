@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Allocation;
@@ -94,6 +95,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         public DrawableTypeBeatRuleset(TypeBeatRuleset ruleset, IBeatmap beatmap, IReadOnlyList<Mod>? mods = null)
             : base(ruleset, beatmap, mods)
         {
+            // Every scoring object's hit windows follow the engine's EFFECTIVE ladder rather than the
+            // default one, so the hit error meter's bands (and the lifetime bounds osu derives from
+            // the windows) match what the engine actually judges on once mods have rescaled it. Read
+            // through the field, not Engine, so querying a window never builds the engine early.
+            Func<SyncWindows> source = () => engine?.Windows ?? SyncWindows.Default;
+
+            foreach (var line in Beatmap.HitObjects)
+            {
+                if (line.HitWindows is TypeBeatHitWindows lineWindows)
+                    lineWindows.WindowsSource = source;
+
+                foreach (var nested in line.NestedHitObjects)
+                {
+                    if (nested.HitWindows is TypeBeatHitWindows charWindows)
+                        charWindows.WindowsSource = source;
+                }
+            }
         }
 
         protected override Playfield CreatePlayfield() => new TypeBeatPlayfield(Engine);
