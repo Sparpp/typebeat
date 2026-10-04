@@ -23,7 +23,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
 {
     public partial class BasicStats : Container
     {
-        private readonly Statistic length, circleCount, sliderCount;
+        private readonly Statistic length;
 
         private IBeatmapSetInfo beatmapSet;
 
@@ -60,8 +60,6 @@ namespace typebeat.Game.Overlays.BeatmapSet
             if (beatmapInfo == null)
             {
                 length.Value = string.Empty;
-                circleCount.Value = string.Empty;
-                sliderCount.Value = string.Empty;
             }
             else
             {
@@ -69,8 +67,6 @@ namespace typebeat.Game.Overlays.BeatmapSet
 
                 if (beatmapInfo is not IBeatmapOnlineInfo onlineInfo) return;
 
-                circleCount.Value = onlineInfo.CircleCount.ToLocalisableString(@"N0");
-                sliderCount.Value = onlineInfo.SliderCount.ToLocalisableString(@"N0");
                 length.TooltipText = BeatmapsetsStrings.ShowStatsTotalLength(TimeSpan.FromMilliseconds(onlineInfo.HitLength).ToFormattedDuration());
             }
         }
@@ -86,18 +82,8 @@ namespace typebeat.Game.Overlays.BeatmapSet
                 {
                     length = new Statistic(BeatmapStatisticsIconType.Length)
                     {
-                        Width = 1f / 3,
+                        Width = 1f,
                         TooltipText = default,
-                    },
-                    circleCount = new Statistic(BeatmapStatisticsIconType.Circles)
-                    {
-                        Width = 1f / 3,
-                        TooltipText = BeatmapsetsStrings.ShowStatsCountCircles
-                    },
-                    sliderCount = new Statistic(BeatmapStatisticsIconType.Sliders)
-                    {
-                        Width = 1f / 3,
-                        TooltipText = BeatmapsetsStrings.ShowStatsCountSliders
                     },
                 },
             };

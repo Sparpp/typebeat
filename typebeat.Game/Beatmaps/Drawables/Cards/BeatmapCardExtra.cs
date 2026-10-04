@@ -246,19 +246,7 @@ namespace typebeat.Game.Beatmaps.Drawables.Cards
             if (BeatmapSet.HasVideo)
                 leftIconArea.Add(new VideoIconPill());
 
-            if (BeatmapSet.HasStoryboard)
-                leftIconArea.Add(new StoryboardIconPill());
-
-            if (BeatmapSet.FeaturedInSpotlight)
-            {
-                titleBadgeArea.Add(new SpotlightBeatmapBadge
-                {
-                    Anchor = Anchor.BottomRight,
-                    Origin = Anchor.BottomRight,
-                    Margin = new MarginPadding { Left = 4 }
-                });
-            }
-
+            // No storyboard pill, spotlight badge or featured artist badge: none of the three is recorded server-side.
             if (BeatmapSet.HasExplicitContent)
             {
                 titleBadgeArea.Add(new ExplicitContentBeatmapBadge
@@ -267,16 +255,6 @@ namespace typebeat.Game.Beatmaps.Drawables.Cards
                     Origin = Anchor.BottomRight,
                     Margin = new MarginPadding { Left = 4 }
                 });
-            }
-
-            if (BeatmapSet.TrackId != null)
-            {
-                artistContainer.Content[0][1] = new FeaturedArtistBeatmapBadge
-                {
-                    Anchor = Anchor.BottomRight,
-                    Origin = Anchor.BottomRight,
-                    Margin = new MarginPadding { Left = 4 }
-                };
             }
 
             createStatistics();
@@ -296,14 +274,7 @@ namespace typebeat.Game.Beatmaps.Drawables.Cards
                 return original;
             }
 
-            var hypesStatistic = HypesStatistic.CreateFor(BeatmapSet);
-            if (hypesStatistic != null)
-                statisticsContainer.Content[0][0] = withMargin(hypesStatistic);
-
-            var nominationsStatistic = NominationsStatistic.CreateFor(BeatmapSet);
-            if (nominationsStatistic != null)
-                statisticsContainer.Content[1][0] = withMargin(nominationsStatistic);
-
+            // No hype or nomination counts (the grid's first column): there is no nomination process to count.
             statisticsContainer.Content[0][1] = withMargin(new PlayCountStatistic(BeatmapSet));
 
             statisticsContainer.Content[1][1] = withMargin(new FavouritesStatistic(BeatmapSet)

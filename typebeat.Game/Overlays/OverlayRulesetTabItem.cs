@@ -60,7 +60,7 @@ namespace typebeat.Game.Overlays
                         Anchor = Anchor.Centre,
                         Origin = Anchor.Centre,
                         Size = new Vector2(20f),
-                        Icon = value.CreateInstance().CreateIcon(),
+                        Icon = CreateRulesetIcon(value),
                     },
                 },
                 new HoverSounds(HoverSampleSet.TabSelect)
@@ -68,6 +68,11 @@ namespace typebeat.Game.Overlays
 
             Enabled.Value = true;
         }
+
+        /// <summary>
+        /// The icon shown for <paramref name="ruleset"/>. Called from the constructor.
+        /// </summary>
+        protected virtual Drawable CreateRulesetIcon(RulesetInfo ruleset) => ruleset.CreateInstance().CreateIcon();
 
         [BackgroundDependencyLoader]
         private void load(AudioManager audio)

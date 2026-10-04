@@ -183,6 +183,17 @@ namespace typebeat.Game.Online.API.Requests.Responses
         [JsonProperty(@"has_vocals_stem")]
         public bool HasVocalsStem { get; set; }
 
+        /// <summary>The creator's plain-text description (empty when none).</summary>
+        [JsonProperty(@"description")]
+        public string Description { get; set; } = string.Empty;
+
+        [JsonProperty(@"download_count")]
+        public int DownloadCount { get; set; }
+
+        /// <summary>False for sets with no uploaded package (available in-game only).</summary>
+        [JsonProperty(@"has_package")]
+        public bool HasPackage { get; set; } = true;
+
         [JsonProperty(@"current_nominations")]
         public BeatmapSetOnlineNomination[]? CurrentNominations { get; set; }
 

@@ -125,8 +125,7 @@ namespace typebeat.Game.Overlays
 
             sections = !user.IsBot
                 ? createSections()
-                // a bot has no profile content to show in the first place. This is a DIFFERENT emptiness from the one
-                // createSections() currently returns, and the two will diverge again the moment a section is revived.
+                // a bot has no profile content to show in the first place.
                 : Array.Empty<ProfileSection>();
 
             if (!sameUser)
@@ -197,67 +196,32 @@ namespace typebeat.Game.Overlays
         /// The profile sections this client is willing to build, in declared display order.
         /// </summary>
         /// <remarks>
-        /// TWO OF THE FIVE ARE ON. A section is listed here only when BOTH of the blockers task 81 recorded are
-        /// cleared for it: the server serves every route its subsections fetch, AND the user payload carries the
-        /// count each subsection heading prints. Serving the endpoint alone is not enough, because
-        /// <c>PaginatedProfileSubsection.GetCount</c> reads <see cref="APIUser"/> counters straight off the user
-        /// payload, so a section switched on early renders a real list under a confident <c>0</c>, the fabricated
-        /// zero tasks 74, 75 and 80 removed elsewhere.
+        /// A section is listed here only when the server serves every route its subsections fetch AND the user
+        /// payload carries the count each subsection heading prints: <c>PaginatedProfileSubsection.GetCount</c> reads
+        /// <see cref="APIUser"/> counters straight off the user payload, so a section without its counts renders a
+        /// real list under a confident <c>0</c>.
         ///
         /// <para>
-        /// THE OTHER THREE ARE OFF FOR GOOD, not pending. They are not waiting on an endpoint somebody should get
-        /// round to writing; the things they display do not exist in this game, so no endpoint would have anything
-        /// honest to return. Each is spelled out at its line below. This is a DIFFERENT emptiness from the bot case
-        /// in <see cref="fetchAndSetContent"/>, which is about the user rather than about what this game has.
-        /// </para>
-        ///
-        /// <para>
-        /// <see cref="AboutSection"/> and <see cref="MedalsSection"/> are a THIRD, unrelated case: they were never
-        /// wired up upstream and are left exactly as they were found. Do not fold them in with the five above.
+        /// The rest of lazer's sections show things the server keeps no record of, so they are not built at all
+        /// (and their types are removed): the recent activity feed (no event log), kudosu (no modding queue), medals
+        /// (none exist) and "me!" (unimplemented upstream).
         /// </para>
         /// </remarks>
-        private static ProfileSection[] createSections()
+        private static ProfileSection[] createSections() => new ProfileSection[]
         {
-            var enabled = new List<ProfileSection>();
+            // GET users/{id}/scores/{pinned,best,firsts}, counted by scores_pinned_count / scores_best_count /
+            // scores_first_count.
+            new RanksSection(),
 
-            // Upstream, never implemented. Not blocked on this server:
-            //   enabled.Add(new AboutSection());
-            //   enabled.Add(new MedalsSection());
+            // GET users/{id}/beatmapsets/most_played and users/{id}/scores/recent, counted by beatmap_playcounts_count /
+            // scores_recent_count. Its two graphs read monthly_playcounts / replays_watched_counts off the user payload
+            // and hide themselves below two months of data.
+            new HistoricalSection(),
 
-            // Never served, and not a TODO. Deleting the section types themselves would only fork this tree away
-            // from upstream for no runtime gain (nothing else references them), so they stay; what matters is that
-            // these lines stop reading as work waiting to be done:
-            //
-            //   RecentSection    GET /api/v2/users/{id}/recent_activity
-            //     An EVENT FEED, and this server records no events. Worse, most of osu's event vocabulary
-            //     (medals, supporter, beatmap nomination, username change) has no counterpart here at all, so a
-            //     faithful implementation would be a feed of one event type wearing a five-type UI.
-            //
-            //   KudosuSection    GET /api/v2/users/{id}/kudosu
-            //     Kudosu is the reward currency of osu's MODDING QUEUE. There is no modding queue, no kudosu, and
-            //     no `kudosu` key on this user payload; note that KudosuInfo dereferences `User.Kudosu.Total`
-            //     unguarded, so enabling this line today is not an empty section, it is a null reference on every
-            //     profile that opens.
-            //
-            //   BeatmapsSection  GET /api/v2/users/{id}/beatmapsets/{favourite,ranked,loved,guest,pending,graveyard,nominated}
-            //     FOUR of its seven subsections can never hold a row on this server: there is no 'loved' status, no
-            //     guest difficulties (a set has one owner), no nomination process (an admin ranks a set outright)
-            //     and no graveyard. Serving the three that are real (favourite, ranked, pending) would ship a
-            //     section that is mostly permanently-empty headings, for a browsing job the website already does
-            //     better, at the cost of the largest wire surface of the five (the full APIBeatmapSet card payload).
-
-            // Served: GET /api/v2/users/{id}/scores/{pinned,best,firsts}, counted by
-            // scores_pinned_count / scores_best_count / scores_first_count on the user payload.
-            enabled.Add(new RanksSection());
-
-            // Served: GET /api/v2/users/{id}/beatmapsets/most_played and GET /api/v2/users/{id}/scores/recent,
-            // counted by beatmap_playcounts_count / scores_recent_count. Its two graph subsections read
-            // monthly_playcounts / replays_watched_counts off the user payload instead of fetching, and hide
-            // themselves when fewer than two months are present, so they are self-limiting rather than blank.
-            enabled.Add(new HistoricalSection());
-
-            return enabled.ToArray();
-        }
+            // GET users/{id}/beatmapsets/{favourite,ranked,pending,graveyard}, counted by the matching
+            // *_beatmapset_count keys.
+            new BeatmapsSection(),
+        };
 
         /// <summary>
         /// The sections to render, in the order to render them, given whatever the server had to say about it.

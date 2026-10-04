@@ -47,7 +47,7 @@ namespace typebeat.Game.Overlays
         private BeatmapListingFilterControl filterControl => Header.FilterControl;
 
         public BeatmapListingOverlay()
-            : base(OverlayColourScheme.Blue)
+            : base(OverlayColourScheme.Pink)
         {
         }
 
@@ -155,13 +155,6 @@ namespace typebeat.Game.Overlays
         private void onSearchFinished(BeatmapListingFilterControl.SearchResult searchResult)
         {
             cancellationToken?.Cancel();
-
-            if (searchResult.Type == BeatmapListingFilterControl.SearchResultType.SupporterOnlyFilters)
-            {
-                var supporterOnly = new SupporterRequiredDrawable(searchResult.SupporterOnlyFiltersUsed);
-                replaceResultsAreaContent(supporterOnly);
-                return;
-            }
 
             var newCards = createCardsFor(searchResult.Results);
 
@@ -296,66 +289,6 @@ namespace typebeat.Game.Overlays
                         }
                     }
                 });
-            }
-        }
-
-        // TODO: localisation requires Text/LinkFlowContainer support for localising strings with links inside
-        // (https://github.com/ppy/osu-framework/issues/4530)
-        public partial class SupporterRequiredDrawable : CompositeDrawable
-        {
-            private LinkFlowContainer supporterRequiredText;
-
-            private readonly List<LocalisableString> filtersUsed;
-
-            public SupporterRequiredDrawable(List<LocalisableString> filtersUsed)
-            {
-                RelativeSizeAxes = Axes.X;
-                Height = 225;
-                Alpha = 0;
-
-                this.filtersUsed = filtersUsed;
-            }
-
-            [BackgroundDependencyLoader]
-            private void load(LargeTextureStore textures)
-            {
-                AddInternal(new FillFlowContainer
-                {
-                    Anchor = Anchor.Centre,
-                    Origin = Anchor.Centre,
-                    RelativeSizeAxes = Axes.Y,
-                    AutoSizeAxes = Axes.X,
-                    Direction = FillDirection.Horizontal,
-                    Children = new Drawable[]
-                    {
-                        new Sprite
-                        {
-                            Anchor = Anchor.Centre,
-                            Origin = Anchor.Centre,
-                            RelativeSizeAxes = Axes.Both,
-                            FillMode = FillMode.Fit,
-                            Texture = textures.Get(@"Online/supporter-required"),
-                        },
-                        supporterRequiredText = new LinkFlowContainer
-                        {
-                            Anchor = Anchor.Centre,
-                            Origin = Anchor.Centre,
-                            AutoSizeAxes = Axes.Both,
-                            Margin = new MarginPadding { Bottom = 10 },
-                        },
-                    }
-                });
-
-                supporterRequiredText.AddText(
-                    BeatmapsStrings.ListingSearchSupporterFilterQuoteDefault(string.Join(" and ", filtersUsed), "").ToString(),
-                    t =>
-                    {
-                        t.Font = OsuFont.GetFont(size: 16);
-                        t.Colour = Colour4.White;
-                    }
-                );
-
-                supporterRequiredText.AddLink(BeatmapsStrings.ListingSearchSupporterFilterQuoteLinkText.ToString(), @"/store/products/supporter-tag");
             }
         }
 

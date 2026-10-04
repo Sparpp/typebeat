@@ -74,7 +74,7 @@ namespace typebeat.Game.Beatmaps.Drawables.Cards
                     Spacing = new Vector2(4, 0),
                     Children = new[]
                     {
-                        (rulesets.GetRuleset(beatmapInfo.Ruleset.OnlineID)?.CreateInstance().CreateIcon() ?? new SpriteIcon { Icon = FontAwesome.Regular.QuestionCircle }).With(icon =>
+                        DifficultyIcon.CreateRulesetGlyph(beatmapInfo.Ruleset, rulesets).With(icon =>
                         {
                             icon.Anchor = icon.Origin = Anchor.CentreLeft;
                             icon.Size = new Vector2(16);

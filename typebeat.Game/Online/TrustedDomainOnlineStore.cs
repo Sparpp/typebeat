@@ -33,5 +33,17 @@ namespace typebeat.Game.Online
 
             return url;
         }
+
+        /// <summary>
+        /// The URL to fetch <paramref name="name"/> from when it is a trusted loopback <c>http://</c> address (a local dev server), else
+        /// null. The framework's own lookup upgrades every http:// URL to https://, which fails the TLS handshake against such a server,
+        /// so <see cref="LoopbackAwareStore"/> fetches these itself.
+        /// </summary>
+        public string? GetLoopbackUrl(string name)
+        {
+            string url = GetLookupUrl(name);
+
+            return Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.IsLoopback && uri.Scheme == Uri.UriSchemeHttp ? url : null;
+        }
     }
 }

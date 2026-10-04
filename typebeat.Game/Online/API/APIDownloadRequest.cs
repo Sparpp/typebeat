@@ -31,6 +31,9 @@ namespace typebeat.Game.Online.API
             File.Move(file, filename = Path.ChangeExtension(file, FileExtension));
 
             var request = new FileWebRequest(filename, Uri);
+
+            // a loopback dev server speaks plain HTTP, which the framework would otherwise upgrade to https (TLS failure).
+            LocalDevInsecure.Allow(request, Uri);
             request.DownloadProgress += request_Progress;
             return request;
         }

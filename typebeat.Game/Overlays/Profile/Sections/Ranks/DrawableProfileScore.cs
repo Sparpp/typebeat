@@ -241,24 +241,15 @@ namespace typebeat.Game.Overlays.Profile.Sections.Ranks
             }
 
             // cross-reference: https://github.com/ppy/osu-web/blob/a6afee076f4f68bb56dea0cb8f18db63651763a7/resources/js/scores/pp-value.tsx#L19-L39
-            if (!Score.Ranked || !Score.Preserve || (Score.PP == null && Score.Processed))
+            // The server prices every play inside its submission, so a play with no pp has none: the dash, never osu's
+            // "processing" spinner.
+            if (!Score.Ranked || !Score.Preserve || Score.PP == null)
             {
                 return new SpriteTextWithTooltip
                 {
                     Text = "-",
                     Font = OsuFont.GetFont(weight: FontWeight.Bold),
                     TooltipText = ScoresStrings.StatusNoPp,
-                    Colour = colourProvider.Highlight1
-                };
-            }
-
-            if (Score.PP == null)
-            {
-                return new SpriteIconWithTooltip
-                {
-                    Icon = FontAwesome.Solid.Sync,
-                    Size = new Vector2(font.Size),
-                    TooltipText = ScoresStrings.StatusProcessing,
                     Colour = colourProvider.Highlight1
                 };
             }

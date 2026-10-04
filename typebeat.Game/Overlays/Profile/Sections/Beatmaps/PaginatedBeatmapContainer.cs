@@ -44,20 +44,11 @@ namespace typebeat.Game.Overlays.Profile.Sections.Beatmaps
                 case BeatmapSetType.Graveyard:
                     return user.GraveyardBeatmapsetCount;
 
-                case BeatmapSetType.Loved:
-                    return user.LovedBeatmapsetCount;
-
                 case BeatmapSetType.Ranked:
                     return user.RankedBeatmapsetCount;
 
                 case BeatmapSetType.Pending:
                     return user.PendingBeatmapsetCount;
-
-                case BeatmapSetType.Guest:
-                    return user.GuestBeatmapsetCount;
-
-                case BeatmapSetType.Nominated:
-                    return user.NominatedBeatmapsetCount;
 
                 default:
                     return 0;

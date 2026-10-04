@@ -19,9 +19,6 @@ namespace typebeat.Game.Overlays.BeatmapSet
 {
     public partial class SuccessRate : Container
     {
-        protected readonly FailRetryGraph Graph;
-
-        private readonly FillFlowContainer header;
         private readonly SuccessRatePercentage successPercent;
         private readonly Bar successRate;
         private readonly Container percentContainer;
@@ -51,15 +48,17 @@ namespace typebeat.Game.Overlays.BeatmapSet
             successPercent.TooltipText = $"{passCount} / {playCount}";
             successRate.Length = rate;
             percentContainer.ResizeWidthTo(successRate.Length, 250, Easing.InOutCubic);
-
-            Graph.FailTimes = beatmap?.FailTimes;
         }
 
+        /// <remarks>
+        /// The success rate only (passcount over playcount). Lazer's "Points of Failure" graph is not shown: the server
+        /// does not record where in a map a play failed or was retried.
+        /// </remarks>
         public SuccessRate()
         {
             Children = new Drawable[]
             {
-                header = new FillFlowContainer
+                new FillFlowContainer
                 {
                     RelativeSizeAxes = Axes.X,
                     AutoSizeAxes = Axes.Y,
@@ -91,21 +90,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
                                 Font = OsuFont.GetFont(size: 12),
                             },
                         },
-                        new OsuSpriteText
-                        {
-                            Anchor = Anchor.TopCentre,
-                            Origin = Anchor.TopCentre,
-                            Text = BeatmapsetsStrings.ShowInfoPointsOfFailure,
-                            Font = OsuFont.GetFont(size: 12),
-                            Margin = new MarginPadding { Vertical = 20 },
-                        },
                     },
-                },
-                Graph = new FailRetryGraph
-                {
-                    Anchor = Anchor.BottomLeft,
-                    Origin = Anchor.BottomLeft,
-                    RelativeSizeAxes = Axes.Both,
                 },
             };
         }
@@ -117,13 +102,6 @@ namespace typebeat.Game.Overlays.BeatmapSet
             successRate.BackgroundColour = colourProvider.Background6;
 
             updateDisplay();
-        }
-
-        protected override void UpdateAfterChildren()
-        {
-            base.UpdateAfterChildren();
-
-            Graph.Padding = new MarginPadding { Top = header.DrawHeight };
         }
 
         private partial class SuccessRatePercentage : OsuSpriteText, IHasTooltip

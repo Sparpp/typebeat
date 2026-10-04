@@ -20,8 +20,6 @@ namespace typebeat.Game.Overlays.Profile
         private CentreHeaderContainer centreHeaderContainer;
         private DetailHeaderContainer detailHeaderContainer;
 
-        private TopHeaderContainer topHeaderContainer = null!;
-
         public ProfileHeader()
         {
             ContentSidePadding = WaveOverlayContainer.HORIZONTAL_PADDING;
@@ -45,26 +43,18 @@ namespace typebeat.Game.Overlays.Profile
             Direction = FillDirection.Vertical,
             Children = new Drawable[]
             {
-                topHeaderContainer = new TopHeaderContainer
+                new TopHeaderContainer
                 {
                     RelativeSizeAxes = Axes.X,
                     User = { BindTarget = User },
                 },
-                new BannerHeaderContainer
-                {
-                    User = { BindTarget = User },
-                },
-                new BadgeHeaderContainer
-                {
-                    RelativeSizeAxes = Axes.X,
-                    User = { BindTarget = User },
-                },
+                // No tournament banners, badges or score-processing notice: the server keeps no banners or badges,
+                // and prices every play inside its submission, so there is never a processing backlog to announce.
                 detailHeaderContainer = new DetailHeaderContainer
                 {
                     RelativeSizeAxes = Axes.X,
                     User = { BindTarget = User },
                 },
-                new ProfileProcessingNotice(),
                 centreHeaderContainer = new CentreHeaderContainer
                 {
                     RelativeSizeAxes = Axes.X,
@@ -78,21 +68,10 @@ namespace typebeat.Game.Overlays.Profile
             }
         };
 
-        protected override void LoadComplete()
-        {
-            base.LoadComplete();
-
-            // This is basically a tooltip display on hover, so we should display above everything.
-            // If this ever breaks let's just trash the design and make it a standard tooltip.
-            AddInternal(topHeaderContainer.PreviousUsernamesDisplay.CreateProxy());
-        }
-
         protected override OverlayTitle CreateTitle() => new ProfileHeaderTitle();
 
-        protected override Drawable CreateTabControlContent() => new ProfileRulesetSelector
-        {
-            User = { BindTarget = User }
-        };
+        // No ruleset selector: type!beat has the one ruleset.
+        protected override Drawable CreateTabControlContent() => Empty();
 
         private partial class ProfileHeaderTitle : OverlayTitle
         {

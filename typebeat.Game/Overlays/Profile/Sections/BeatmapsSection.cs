@@ -14,17 +14,20 @@ namespace typebeat.Game.Overlays.Profile.Sections
 
         public override string Identifier => @"beatmaps";
 
+        /// <remarks>
+        /// The four subsections the server has data for (GET users/{id}/beatmapsets/{type}, counted by the matching
+        /// <c>*_beatmapset_count</c> keys). Loved, guest and nominated are not here: there is no loved status, a set has
+        /// one owner, and there is no nomination step. "Graveyard" is the server's unranked status (sets whose creator
+        /// opted out of ranking), the same mapping the listing overlay's graveyard category uses.
+        /// </remarks>
         public BeatmapsSection()
         {
             Children = new[]
             {
                 new PaginatedBeatmapContainer(BeatmapSetType.Favourite, User, UsersStrings.ShowExtraBeatmapsFavouriteTitle),
                 new PaginatedBeatmapContainer(BeatmapSetType.Ranked, User, UsersStrings.ShowExtraBeatmapsRankedTitle),
-                new PaginatedBeatmapContainer(BeatmapSetType.Loved, User, UsersStrings.ShowExtraBeatmapsLovedTitle),
-                new PaginatedBeatmapContainer(BeatmapSetType.Guest, User, UsersStrings.ShowExtraBeatmapsGuestTitle),
                 new PaginatedBeatmapContainer(BeatmapSetType.Pending, User, UsersStrings.ShowExtraBeatmapsPendingTitle),
                 new PaginatedBeatmapContainer(BeatmapSetType.Graveyard, User, UsersStrings.ShowExtraBeatmapsGraveyardTitle),
-                new PaginatedBeatmapContainer(BeatmapSetType.Nominated, User, UsersStrings.ShowExtraBeatmapsNominatedTitle),
             };
         }
     }
