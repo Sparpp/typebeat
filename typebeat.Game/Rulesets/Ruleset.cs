@@ -502,6 +502,11 @@ namespace typebeat.Game.Rulesets
         public virtual HitResult GetDisplayResultFor(HitResult result) => result;
 
         /// <summary>
+        /// The grade shown for a stored score. Rulesets may derive it using their current grade rules.
+        /// </summary>
+        public virtual ScoreRank GetDisplayRankForScore(ScoreInfo score) => score.Rank;
+
+        /// <summary>
         /// Applies changes to difficulty attributes for presenting to a user a rough estimate of how mods affect difficulty.
         /// Importantly, this should NOT BE USED FOR ANY CALCULATIONS.
         ///

@@ -84,7 +84,9 @@ namespace typebeat.Game.Rulesets.TypeBeat
         /// the bundled fixtures as imported by at most 0.0023 stars, a map nobody subdivided by up to
         /// about 0.1.</para>
         /// </summary>
-        public override int Version => 5;
+        // v6 removes the overlapping model's minimum character cutoff and carries played lyric
+        // duration for the short-map pp factor; invalidate previously cached difficulty attributes.
+        public override int Version => 6;
 
         protected override DifficultyAttributes CreateDifficultyAttributes(IBeatmap beatmap, Mod[] mods, Skill[] skills)
         {
@@ -108,7 +110,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
             // was computed under.
             var model = LyricDifficulty.ComputeDetail(lines, rate, PerformancePoints.IsLiterate(mods), LyricDifficulty.Live, PerformancePoints.JudgementArmFor(mods));
 
-            return new TypeBeatDifficultyAttributes(mods, model.Stars, model.DifficultCharacters);
+            return new TypeBeatDifficultyAttributes(mods, model.Stars, model.DifficultCharacters, PerformancePoints.PlayedDurationFor(lines, mods));
         }
 
         protected override IEnumerable<DifficultyHitObject> CreateDifficultyHitObjects(IBeatmap beatmap, Mod[] mods) => Enumerable.Empty<DifficultyHitObject>();

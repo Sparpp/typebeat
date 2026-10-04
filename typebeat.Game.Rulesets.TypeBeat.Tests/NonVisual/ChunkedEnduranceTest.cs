@@ -66,6 +66,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(LyricDifficulty.Live, Is.EqualTo(LyricDifficulty.EnduranceAxis.Chunked), "the sandbox's live enduranceAxis is the chunked one");
         }
 
+        [Test]
+        public void SparseMapsWithFewerThanSixteenCharactersStillRateTheirOwnWindows()
+        {
+            var sparse = new[] { line(0, 4000, ("go", 0, 1000), ("slow", 1000, 4000)) };
+            var normal = LyricDifficulty.ComputeDetail(sparse);
+            var doubleTime = LyricDifficulty.ComputeDetail(sparse, 1.5);
+            Assert.Multiple(() =>
+            {
+                Assert.That(normal.Stars, Is.GreaterThan(0), "a real low-density map must not be discarded by a minimum character count");
+                Assert.That(normal.DifficultCharacters, Is.GreaterThan(0));
+                Assert.That(doubleTime.Stars, Is.GreaterThan(normal.Stars), "the sparse map must still respond to playback rate");
+            });
+        }
+
         /// <summary>One line of a synthetic map, the same helper the envelope model's own pins use.</summary>
         private static LyricLine line(double start, double end, params (string Text, double Start, double End)[] units) => new LyricLine
         {

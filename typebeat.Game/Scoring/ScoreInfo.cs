@@ -360,6 +360,9 @@ namespace typebeat.Game.Scoring
                 : string.Empty;
         }
 
+        /// <summary>The current display grade, without changing the grade saved with the score.</summary>
+        public ScoreRank GetDisplayRank() => Ruleset.Available ? Ruleset.CreateInstance().GetDisplayRankForScore(this) : Rank;
+
         public IEnumerable<HitResultDisplayStatistic> GetStatisticsForDisplay()
         {
             var rulesetInstance = Ruleset.CreateInstance();

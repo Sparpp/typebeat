@@ -581,7 +581,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// cell is still a hit that extends the run and still counts as typed.
         /// </summary>
         [Test]
-        public void TheCapCostsAccuracyAndTotalScoreAndNothingElse()
+        public void TheCapCostsAccuracyTotalScoreAndAccuracyGrade()
         {
             var r = correctionRun();
             var capped = score(r, CorrectionCreditRule.Capped);
@@ -596,8 +596,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(capped.Mistypes, Is.EqualTo(full.Mistypes));
                 Assert.That(capped.Completion, Is.EqualTo(full.Completion).Within(1e-9));
                 Assert.That(capped.Completion, Is.EqualTo(1).Within(1e-9));
-                Assert.That(capped.Rank, Is.EqualTo(full.Rank));
-                Assert.That(capped.Rank, Is.EqualTo(ScoreRank.X));
+                Assert.That(full.Rank, Is.EqualTo(ScoreRank.S));
+                Assert.That(capped.Rank, Is.EqualTo(ScoreRank.A));
                 Assert.That(capped.MaximumStatistics, Is.EquivalentTo(full.MaximumStatistics));
 
                 // ...and the two things that DO move.
@@ -655,10 +655,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(count(account, HitResult.Miss), Is.Zero);
                 Assert.That(account.Mistypes, Is.EqualTo(2));
                 Assert.That(account.MaxCombo, Is.EqualTo(16));
-                Assert.That(account.TotalScore, Is.EqualTo(856625));
+                Assert.That(account.TotalScore, Is.EqualTo(798310));
                 Assert.That(account.Accuracy, Is.EqualTo(4550 / 4800.0).Within(1e-9));
                 Assert.That(account.Completion, Is.EqualTo(1).Within(1e-9));
-                Assert.That(account.Rank, Is.EqualTo(ScoreRank.X));
+                Assert.That(account.Rank, Is.EqualTo(ScoreRank.S));
                 Assert.That(account.UnconsumedFrames, Is.Zero, "the replay round-trips whole under the stored arm");
             });
         }
@@ -684,7 +684,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(account.MaxCombo, Is.EqualTo(16));
                 Assert.That(account.Accuracy, Is.EqualTo(4350 / 4800.0).Within(1e-9));
                 Assert.That(account.Completion, Is.EqualTo(1).Within(1e-9));
-                Assert.That(account.Rank, Is.EqualTo(ScoreRank.X));
+                Assert.That(account.Rank, Is.EqualTo(ScoreRank.A));
                 Assert.That(account.UnconsumedFrames, Is.Zero);
             });
         }

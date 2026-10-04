@@ -108,7 +108,7 @@ namespace typebeat.Game.Screens.Select
 
         private void setRankFromScore(ScoreInfo? topScore)
         {
-            updateable.Rank = topScore?.Rank;
+            updateable.Rank = topScore?.GetDisplayRank();
             updateable.Alpha = topScore != null ? 1 : 0;
         }
 

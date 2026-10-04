@@ -156,6 +156,8 @@ namespace typebeat.Game.Screens.Select
                 Score.User.AvatarUrl = api.LocalUser.Value.AvatarUrl;
             }
 
+            ScoreRank displayRank = Score.GetDisplayRank();
+
             foregroundColour = colourProvider.Background5;
             backgroundColour = colourProvider.Background3;
             totalScoreBackgroundGradient = ColourInfo.GradientHorizontal(backgroundColour.Opacity(0), backgroundColour);
@@ -365,7 +367,7 @@ namespace typebeat.Game.Screens.Select
                                     Child = new Box
                                     {
                                         RelativeSizeAxes = Axes.Both,
-                                        Colour = ColourInfo.GradientHorizontal(backgroundColour.Opacity(0), OsuColour.ForRank(Score.Rank)),
+                                        Colour = ColourInfo.GradientHorizontal(backgroundColour.Opacity(0), OsuColour.ForRank(displayRank)),
                                     },
                                 },
                                 new Box
@@ -374,7 +376,7 @@ namespace typebeat.Game.Screens.Select
                                     Width = grade_width,
                                     Anchor = Anchor.TopRight,
                                     Origin = Anchor.TopRight,
-                                    Colour = OsuColour.ForRank(Score.Rank),
+                                    Colour = OsuColour.ForRank(displayRank),
                                 },
                                 new TrianglesV2
                                 {
@@ -384,7 +386,7 @@ namespace typebeat.Game.Screens.Select
                                     Origin = Anchor.TopRight,
                                     SpawnRatio = 2,
                                     Velocity = 0.7f,
-                                    Colour = ColourInfo.GradientHorizontal(backgroundColour.Opacity(0), OsuColour.ForRank(Score.Rank).Darken(0.2f)),
+                                    Colour = ColourInfo.GradientHorizontal(backgroundColour.Opacity(0), OsuColour.ForRank(displayRank).Darken(0.2f)),
                                 },
                                 new Container
                                 {
@@ -398,9 +400,9 @@ namespace typebeat.Game.Screens.Select
                                         Anchor = Anchor.Centre,
                                         Origin = Anchor.Centre,
                                         Spacing = new Vector2(-2),
-                                        Colour = DrawableRank.GetRankLetterColour(Score.Rank),
+                                        Colour = DrawableRank.GetRankLetterColour(displayRank),
                                         Font = OsuFont.Numeric.With(size: 14),
-                                        Text = DrawableRank.GetRankLetter(Score.Rank),
+                                        Text = DrawableRank.GetRankLetter(displayRank),
                                         ShadowColour = Color4.Black.Opacity(0.3f),
                                         ShadowOffset = new Vector2(0, 0.08f),
                                         Shadow = true,
@@ -428,7 +430,7 @@ namespace typebeat.Game.Screens.Select
                                             new Box
                                             {
                                                 RelativeSizeAxes = Axes.Both,
-                                                Colour = ColourInfo.GradientHorizontal(backgroundColour.Opacity(0), OsuColour.ForRank(Score.Rank).Opacity(0.5f)),
+                                                Colour = ColourInfo.GradientHorizontal(backgroundColour.Opacity(0), OsuColour.ForRank(displayRank).Opacity(0.5f)),
                                             },
                                             new FillFlowContainer
                                             {

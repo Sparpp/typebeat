@@ -23,9 +23,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     public readonly struct LyricWpmCurve
     {
         /// <summary>
-        /// The shipped SR endurance axis's shortest window and character floor. Keep these in step
-        /// with <c>ChunkedEndurance.Live.chunk_seconds</c> and <c>minimum_chars</c>, including in
-        /// the website's mirrored copy of this file.
+        /// The graph's shortest window and smoothing threshold. The graph keeps its own 16-cell
+        /// smoothing rule; the star-rating model scores sparse windows without a character cutoff.
         /// </summary>
         public const double WINDOW_SECONDS = 1.5;
         public const int MIN_WINDOW_CELLS = 16;
