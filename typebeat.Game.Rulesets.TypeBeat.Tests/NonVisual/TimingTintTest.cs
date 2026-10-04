@@ -168,6 +168,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(LyricLineDisplay.TimingTintColour(600, windows, minStrength: -1, maxStrength: 5), Is.EqualTo(towards(TypeBeatStyle.LateTint, 1)));
         }
 
+        [TestCase(0xff8a3d, true, TestName = "default early orange")]
+        [TestCase(0x4d8bff, true, TestName = "default late blue")]
+        [TestCase(0x6644cc, true, TestName = "dark purple")]
+        [TestCase(0xffffff, false, TestName = "white")]
+        [TestCase(0xfff8c0, false, TestName = "pale yellow")]
+        [TestCase(0xc0ffff, false, TestName = "light cyan")]
+        public void TheColourRowsEyedropperIsWhiteUnlessTheColourIsLight(int rgb, bool white)
+        {
+            var swatch = new osu.Framework.Graphics.Colour4((byte)(rgb >> 16), (byte)((rgb >> 8) & 0xff), (byte)(rgb & 0xff), (byte)255);
+
+            Assert.That(typebeat.Game.Graphics.UserInterfaceV2.FormColourSwatch.IconColourFor(swatch) == osu.Framework.Graphics.Colour4.White, Is.EqualTo(white));
+        }
+
         [Test]
         public void NanPaintsClean()
         {
