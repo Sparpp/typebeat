@@ -117,7 +117,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             // Typing carries on normally: the swallowed key changed nothing at all.
             AddStep("press B", () => InputManager.Key(Key.B));
-            AddAssert("line completed as if backspace was never pressed", () => engine.IsLineComplete && engine.LiveAccuracy == 1);
+            AddAssert("every typeable cell typed correctly", () =>
+                engine.Lines[0].Cells[0].State == CellState.Correct
+                && engine.Lines[0].Cells[1].State == CellState.Correct
+                && engine.Lines[0].Cells[freestyle_slot].State == CellState.Correct
+                && engine.Lines[0].Cells[3].State == CellState.Correct);
+            // EARLY FINISH (bit 4 of the second CONFIG flags word): the final line seals the moment
+            // it is fully typed, so this single-line fixture's run ends here rather than at the line
+            // end. The caret leaves the line with the seal, so IsLineComplete (a caret read) is false.
+            AddAssert("line completed as if backspace was never pressed", () => engine.IsFinished && engine.LiveAccuracy == 1);
         }
 
         [Test]

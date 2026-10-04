@@ -112,7 +112,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("press Space (correct)", () => InputManager.Key(Key.Space));
             AddStep("press B (correct)", () => InputManager.Key(Key.B));
 
-            AddAssert("line complete", () => playfield.Engine.IsLineComplete);
+            // EARLY FINISH (bit 4 of the second CONFIG flags word, set by every live stack): this is
+            // the map's only line and every typeable cell of it is now typed correctly, so it seals
+            // at once and the run finishes, long before the line's own end at 600000. The caret
+            // leaves the line with the seal, so IsLineComplete (a caret read) is false here.
+            AddAssert("the final line sealed early and the run finished", () => playfield.Engine.IsFinished);
 
             // The two header frames, then one frame per effective input, in press order.
             AddAssert("frame sequence recorded", () =>
@@ -150,7 +154,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("press Space (correct)", () => InputManager.Key(Key.Space));
             AddStep("press B (correct)", () => InputManager.Key(Key.B));
 
-            AddAssert("line complete", () => playfield.Engine.IsLineComplete);
+            // EARLY FINISH: the map's only line is fully typed, so it seals now and the run ends
+            // (see TestKeystrokesAreRecordedAndReproduceTheLiveRun for why the caret read is false).
+            AddAssert("the final line sealed early and the run finished", () => playfield.Engine.IsFinished);
 
             AddAssert("frame sequence records the erase", () =>
                 string.Concat(frames.Select(f => f.Character)) == "\0\u0001zq\ba b");
@@ -194,7 +200,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("press Space (correct)", () => InputManager.Key(Key.Space));
             AddStep("press B (correct)", () => InputManager.Key(Key.B));
 
-            AddAssert("line complete", () => playfield.Engine.IsLineComplete);
+            // EARLY FINISH: the map's only line is fully typed, so it seals now and the run ends
+            // (see TestKeystrokesAreRecordedAndReproduceTheLiveRun for why the caret read is false).
+            AddAssert("the final line sealed early and the run finished", () => playfield.Engine.IsFinished);
             AddAssert("frame sequence recorded", () => string.Concat(frames.Select(f => f.Character)) == "\0\u0001za b");
 
             // The load-bearing difference, on a cell whose point target is nowhere near the press:
@@ -229,6 +237,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
             AddAssert("extended header records editor-aligned targets", () =>
                 frames[1].IsConfigExtended && frames[1].AlignSubdivisionTargets && playfield.Engine.AlignSubdivisionTargets);
+
+            // EARLY FINISH, bit 4 of the second CONFIG flags word: stamped for EVERY live stack, so
+            // the extended header has to say so or a re-derivation would seal the final line at its
+            // end instead of at the player's last word.
+            AddAssert("extended header records the early finish", () =>
+                frames[1].IsConfigExtended && frames[1].EarlyFinish && playfield.Engine.EarlyFinish);
 
             AddAssert("times are integral and monotonic", () =>
                 frames.All(f => f.Time == Math.Round(f.Time))
@@ -355,6 +369,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
                 foreach (var frame in frames)
                     ReplayEngineFeed.Apply(replayed, frame);
+
+                // A real playback keeps ticking its clock past the last recorded frame (the feeder
+                // drives it up to the playhead every tick), and since EARLY FINISH the final line
+                // seals on the first Update AFTER its last cell is typed. Feeding the frames alone
+                // stops one tick short of that seal, so tick the replayed engine to the last frame's
+                // own time, which is what the live playfield did the instant the player's last
+                // keystroke landed. Time-independent under the seal (finishedEarly reads no clock),
+                // so any time at or past the last press reproduces the live result.
+                replayed.Update(frames[^1].Time);
 
                 bool cellsMatch = live.Lines[0].Cells.Zip(replayed.Lines[0].Cells)
                                       .All(pair => pair.First.State == pair.Second.State

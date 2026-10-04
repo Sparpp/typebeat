@@ -117,7 +117,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("space cell accepted", () => engine.Lines[0].Cells[2].State == CellState.Correct && engine.CaretIndex == 3);
 
             AddStep("press B", () => InputManager.Key(Key.B));
-            AddAssert("line complete", () => engine.IsLineComplete);
+            AddAssert("every typeable cell of the final line is typed correctly", () =>
+                engine.Lines[0].Cells[0].State == CellState.Correct
+                && engine.Lines[0].Cells[1].State == CellState.Correct
+                && engine.Lines[0].Cells[2].State == CellState.Correct
+                && engine.Lines[0].Cells[3].State == CellState.Correct);
+
+            // EARLY FINISH (bit 4 of the second CONFIG flags word, set by every live stack): the
+            // final line seals the moment its last typeable cell is typed correctly, so this
+            // single-line map ends the run here, long before the line's own end at 600000. The
+            // caret leaves the line with it, which is why IsLineComplete (a caret read) is false.
+            AddAssert("the final line sealed early and the run finished", () => engine.IsFinished);
             AddAssert("engine accuracy reflects the one error", () => Precision.AlmostEquals(engine.LiveAccuracy, 4.0 / 5));
         }
     }
