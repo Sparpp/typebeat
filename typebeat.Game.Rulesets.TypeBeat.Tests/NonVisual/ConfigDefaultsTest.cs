@@ -15,7 +15,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     /// <summary>
     /// Pins the type!beat-specific gameplay/background config defaults so they cannot silently
     /// regress to upstream osu!lazer values. type!beat ships with the beatmap background
-    /// image/video enabled and no background dim.
+    /// image/video enabled and 40 percent background dim.
     ///
     /// These assertions read <c>Bindable.Default</c> (the value from <c>SetDefault</c>), not the
     /// current/stored value, mirroring the "change defaults only, never touch stored user
@@ -52,8 +52,36 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void BackgroundDimDefaultsToZero()
-            => Assert.That(config.GetBindable<double>(OsuSetting.DimLevel).Default, Is.EqualTo(0.0));
+        public void BackgroundDimDefaultsToFortyPercent()
+            => Assert.That(config.GetBindable<double>(OsuSetting.DimLevel).Default, Is.EqualTo(0.4));
+
+        [TestCase(0)]
+        [TestCase(0.2)]
+        [TestCase(0.4)]
+        [TestCase(0.6)]
+        [TestCase(1)]
+        public void StoredDimIsNeverTouchedByTheNewDefault(double stored)
+        {
+            // The 40% default is for NEW installs only. A stored value is whatever the player last
+            // chose, and it must survive untouched at every level - including under 40%, which is
+            // the whole point of not running a migration.
+            config.Dispose();
+            File.WriteAllText(Path.Combine(tempPath, "game.ini"), $"DimLevel = {stored.ToString(System.Globalization.CultureInfo.InvariantCulture)}\n");
+            config = new OsuConfigManager(new NativeStorage(tempPath));
+
+            Assert.That(config.Get<double>(OsuSetting.DimLevel), Is.EqualTo(stored), "a stored dim survives the new default");
+        }
+
+        [Test]
+        public void PlayerEditedDimSurvivesARestart()
+        {
+            config.SetValue(OsuSetting.DimLevel, 0.1);
+            config.Save();
+            config.Dispose();
+            config = new OsuConfigManager(new NativeStorage(tempPath));
+
+            Assert.That(config.Get<double>(OsuSetting.DimLevel), Is.EqualTo(0.1), "a player's own dim is never migrated");
+        }
 
         [Test]
         public void MenuBackgroundSourceDefaultsToBeatmapWithStoryboard()

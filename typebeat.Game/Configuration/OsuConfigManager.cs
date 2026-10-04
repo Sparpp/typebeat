@@ -142,9 +142,11 @@ namespace typebeat.Game.Configuration
 
             // Gameplay
             SetDefault(OsuSetting.PositionalHitsoundsLevel, 0.2f, 0, 1, 0.01f);
-            // type!beat ships with no gameplay background dim by default so the beatmap
-            // background image/video is fully visible. (Only affects fresh installs; see below.)
-            SetDefault(OsuSetting.DimLevel, 0, 0, 1, 0.01);
+            // type!beat ships with a 40% gameplay background dim by default so the beatmap
+            // background image/video stays partly veiled. (Only affects fresh installs: an existing
+            // install persists DimLevel to game.ini and reloads its stored value over this default,
+            // so changing it never rewrites a player's own setting.)
+            SetDefault(OsuSetting.DimLevel, 0.4, 0, 1, 0.01);
             SetDefault(OsuSetting.BlurLevel, 0, 0, 1, 0.01);
             SetDefault(OsuSetting.LightenDuringBreaks, true);
 
