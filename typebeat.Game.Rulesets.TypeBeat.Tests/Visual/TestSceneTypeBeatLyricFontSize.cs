@@ -73,6 +73,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             {
                 config.SetValue(TypeBeatRulesetSetting.LyricFontSize, TypeBeatStyle.LYRIC_FONT_SIZE);
                 config.SetValue(TypeBeatRulesetSetting.LineSpacing, 96f);
+                config.SetValue(TypeBeatRulesetSetting.TextPopIn, true);
             });
         }
 
@@ -82,6 +83,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             {
                 config.SetValue(TypeBeatRulesetSetting.LyricFontSize, fontSize);
                 config.SetValue(TypeBeatRulesetSetting.LineSpacing, min_line_spacing);
+                // Compare full-size glyph geometry with carets and rails, independently of pop-in.
+                config.SetValue(TypeBeatRulesetSetting.TextPopIn, false);
             });
 
             AddStep("create drawable ruleset", () =>

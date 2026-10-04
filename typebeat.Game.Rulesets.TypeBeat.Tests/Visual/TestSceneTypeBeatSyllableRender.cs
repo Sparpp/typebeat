@@ -104,6 +104,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         // drives the live stage exactly as moving the settings dropdown would.
         private TypeBeatRulesetConfigManager config => (TypeBeatRulesetConfigManager)RulesetConfigs.GetConfigFor(new TypeBeatRuleset())!;
 
+        public override void SetUpSteps()
+        {
+            AddStep("use immediate group highlighting for playhead independence", () =>
+            {
+                config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.None);
+                config.SetValue(TypeBeatRulesetSetting.SyllableBrightness, 50f);
+            });
+            base.SetUpSteps();
+        }
+
         private void setSungStyle(CaretStyle style)
             => AddStep($"song playhead style = {style}", () => config.SetValue(TypeBeatRulesetSetting.SungCaretStyle, style));
 

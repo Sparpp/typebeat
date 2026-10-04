@@ -4,6 +4,7 @@
 using System;
 using System.ComponentModel;
 using System.Linq;
+using osu.Framework.Bindables;
 using typebeat.Game.Configuration;
 using typebeat.Game.Rulesets.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
@@ -247,7 +248,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// </summary>
         LocalAlignerHighQuality,
 
-        /// <summary>Brighten sung text from the early Ok edge to the Great edge. Display only.</summary>
+        /// <summary>Gradually brighten sung text over the configured duration and completion point. Display only.</summary>
         SyllableFadeIn,
 
         /// <summary>Reference used to colour word and subdivision pace. Display only.</summary>
@@ -257,7 +258,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         PaceColourOpacityCurve,
 
         /// <summary>Records the one-time switch of existing players to map-relative pace colours.</summary>
-        PaceColourMapRelativeDefaultApplied
+        PaceColourMapRelativeDefaultApplied,
+
+        /// <summary>Replace the syllable brightness fade with a bottom-to-top glyph fill. Display only.</summary>
+        SyllableColourFill,
+
+        /// <summary>Fade/fill completion from the early Great edge (0%) to its centre (100%). Display only.</summary>
+        SyllableFadeInEnd,
+
+        /// <summary>Duration of the syllable brightness fade or fill in milliseconds. Display only.</summary>
+        SyllableFadeInDuration,
+
+        /// <summary>The gameplay lyric indicator style used to show the active judgement window. Display only.</summary>
+        JudgementIndicator,
+
+        /// <summary>Blend between pace colour bands, from sharp edges (0%) to smooth transitions (100%). Display only.</summary>
+        PaceColourGradient,
+
+        /// <summary>Independent bars approaching the sung target at the centre of the Great window.</summary>
+        ApproachBars,
+
+        /// <summary>Records the one-time application of the revised indicator and pace defaults.</summary>
+        IndicatorDefaultsApplied
     }
 
     /// <summary>
@@ -325,16 +347,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         MapRelative,
     }
 
+    /// <summary>How the active Great window is drawn over lyric text.</summary>
+    public enum JudgementIndicatorMode
+    {
+        [Description("None")]
+        None,
+
+        [Description("Fade-In")]
+        FadeIn,
+
+        [Description("Bottom-to-top fill")]
+        BottomToTopFill,
+
+    }
+
     public class TypeBeatRulesetConfigManager : RulesetConfigManager<TypeBeatRulesetSetting>
     {
         /// <summary>Sentinel <see cref="TypeBeatRulesetSetting.LyricFont"/> value meaning "keep the game's built-in font".</summary>
         public const string LYRIC_FONT_DEFAULT = "Default";
 
         /// <summary>Caret smoothing for a player who has not changed the slider.</summary>
-        public const float DEFAULT_CARET_SMOOTHING_MS = 35f;
+        public const float DEFAULT_CARET_SMOOTHING_MS = 20f;
 
         public const float DEFAULT_TEXT_POP_IN_AMOUNT = 5f;
+        public const float DEFAULT_SYLLABLE_FADE_IN_DURATION_MS = 800f;
+        public const float MAX_SYLLABLE_FADE_IN_DURATION_MS = 2000f;
         public const float MAX_TEXT_POP_IN_AMOUNT = 20f;
+
+        // Keep the bound copies alive: ConfigManager.GetBindable() returns weakly-bound copies,
+        // so a callback attached to a temporary copy can disappear after GC. These are assigned
+        // in the constructor body, after the base constructor has finished virtual initialization.
+        private readonly Bindable<bool> approachBarsBindable;
+        private readonly Bindable<float> paceColourGradientBindable;
 
         /// <summary>
         /// The caret style a NEW install starts on. Changing this cannot disturb an existing player, and the reason is
@@ -388,8 +432,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         public const bool LOCAL_ALIGNER_TOGGLE_SURFACED = false;
 
         public TypeBeatRulesetConfigManager(SettingsStore? settings, RulesetInfo ruleset, int? variant = null)
-            : base(migratePaceColourMode(settings, ruleset, variant ?? 0), ruleset, variant)
+            : base(migrateIndicatorDefaults(migratePaceColourMode(settings, ruleset, variant ?? 0), ruleset, variant ?? 0), ruleset, variant)
         {
+            approachBarsBindable = GetBindable<bool>(TypeBeatRulesetSetting.ApproachBars);
+            paceColourGradientBindable = GetBindable<float>(TypeBeatRulesetSetting.PaceColourGradient);
+            approachBarsBindable.BindValueChanged(change =>
+            {
+                if (change.NewValue)
+                    paceColourGradientBindable.Value = 0;
+
+                paceColourGradientBindable.Disabled = change.NewValue;
+            }, true);
         }
 
         // Run before the base constructor loads and parses any stored setting. A default alone
@@ -427,6 +480,53 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             return settings;
         }
 
+        // Apply the complete preset atomically before the base class parses settings, including
+        // retired indicator names. The separate marker preserves all later player choices.
+        private static SettingsStore? migrateIndicatorDefaults(SettingsStore? settings, RulesetInfo ruleset, int variant)
+        {
+            if (settings == null)
+                return null;
+
+            string rulesetName = ruleset.ShortName;
+            string markerKey = nameof(TypeBeatRulesetSetting.IndicatorDefaultsApplied);
+            settings.Realm.Write(realm =>
+            {
+                var rows = realm.All<RealmRulesetSetting>().Where(s => s.RulesetName == rulesetName && s.Variant == variant);
+                if (rows.Any(s => s.Key == markerKey && s.Value == bool.TrueString))
+                    return;
+
+                var defaults = new (TypeBeatRulesetSetting Setting, string Value)[]
+                {
+                    (TypeBeatRulesetSetting.UseSpaceErrorDot, bool.TrueString),
+                    (TypeBeatRulesetSetting.ApproachBars, bool.TrueString),
+                    (TypeBeatRulesetSetting.SyllableBrightness, "60"),
+                    (TypeBeatRulesetSetting.JudgementIndicator, nameof(JudgementIndicatorMode.FadeIn)),
+                    (TypeBeatRulesetSetting.SyllableFadeInEnd, "0"),
+                    (TypeBeatRulesetSetting.SyllableFadeInDuration, "800"),
+                    (TypeBeatRulesetSetting.TextPopIn, bool.TrueString),
+                    (TypeBeatRulesetSetting.TextPopInAmount, "5"),
+                    (TypeBeatRulesetSetting.ShowSyllableMarkers, bool.TrueString),
+                    (TypeBeatRulesetSetting.ShowPaceColours, bool.TrueString),
+                    (TypeBeatRulesetSetting.PaceColourMode, nameof(PaceColourMode.MapRelative)),
+                    (TypeBeatRulesetSetting.PaceColourMaxChange, "100"),
+                    (TypeBeatRulesetSetting.PaceColourOpacityCurve, "0"),
+                    (TypeBeatRulesetSetting.PaceColourGradient, "0"),
+                    (TypeBeatRulesetSetting.CaretSmoothing, "20"),
+                    (TypeBeatRulesetSetting.IndicatorDefaultsApplied, bool.TrueString),
+                };
+                foreach (var (setting, value) in defaults)
+                {
+                    string key = setting.ToString();
+                    var row = rows.FirstOrDefault(s => s.Key == key);
+                    if (row == null)
+                        realm.Add(new RealmRulesetSetting { RulesetName = rulesetName, Variant = variant, Key = key, Value = value });
+                    else
+                        row.Value = value;
+                }
+            });
+            return settings;
+        }
+
         protected override void InitialiseDefaults()
         {
             base.InitialiseDefaults();
@@ -453,11 +553,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.PaceColourMapRelativeDefaultApplied, true);
             SetDefault(TypeBeatRulesetSetting.PaceColourOpacityCurve, 0.0f, 0.0f, 100.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.PaceColourMaxChange, 100.0f, 25.0f, 150.0f, 1.0f);
-            SetDefault(TypeBeatRulesetSetting.SyllableBrightness, 50.0f, 0.0f, 100.0f, 1.0f);
+            SetDefault(TypeBeatRulesetSetting.SyllableBrightness, 60.0f, 0.0f, 100.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.ShowSyncMetric, false);
             SetDefault(TypeBeatRulesetSetting.SyllableFadeIn, false);
-            SetDefault(TypeBeatRulesetSetting.TextPopIn, false);
+            SetDefault(TypeBeatRulesetSetting.SyllableColourFill, false);
+            SetDefault(TypeBeatRulesetSetting.SyllableFadeInEnd, 0f, 0f, 100f, 1f);
+            SetDefault(TypeBeatRulesetSetting.SyllableFadeInDuration, DEFAULT_SYLLABLE_FADE_IN_DURATION_MS, 0f, MAX_SYLLABLE_FADE_IN_DURATION_MS, 1f);
+            SetDefault(TypeBeatRulesetSetting.TextPopIn, true);
             SetDefault(TypeBeatRulesetSetting.TextPopInAmount, DEFAULT_TEXT_POP_IN_AMOUNT, 0f, MAX_TEXT_POP_IN_AMOUNT, 1f);
+            SetDefault(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn);
+            SetDefault(TypeBeatRulesetSetting.PaceColourGradient, 0.0f, 0.0f, 100.0f, 1.0f);
+            SetDefault(TypeBeatRulesetSetting.ApproachBars, true);
+            SetDefault(TypeBeatRulesetSetting.IndicatorDefaultsApplied, true);
         }
     }
 }
