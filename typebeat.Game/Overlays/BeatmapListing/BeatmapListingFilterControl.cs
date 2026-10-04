@@ -255,25 +255,8 @@ namespace typebeat.Game.Overlays.BeatmapListing
                 lastResponse = response;
                 getSetsRequest = null;
 
-                // check if a non-supporter used supporter-only filters
-                if (!api.LocalUser.Value.IsSupporter)
-                {
-                    List<LocalisableString> filters = new List<LocalisableString>();
-
-                    if (searchControl.Played.Value != SearchPlayed.Any)
-                        filters.Add(BeatmapsStrings.ListingSearchFiltersPlayed);
-
-                    if (searchControl.Ranks.Any())
-                        filters.Add(BeatmapsStrings.ListingSearchFiltersRank);
-
-                    if (filters.Any())
-                    {
-                        var supporterOnlyFilters = SearchResult.SupporterOnlyFilters(filters);
-                        SearchFinished?.Invoke(supporterOnlyFilters);
-                        return;
-                    }
-                }
-
+                // No supporter-only filters: the server keeps no supporter status and answers the played and rank
+                // filters for every signed-in player.
                 var resultsReturned = SearchResult.ResultsReturned(sets);
                 SearchFinished?.Invoke(resultsReturned);
             };
@@ -310,11 +293,6 @@ namespace typebeat.Game.Overlays.BeatmapListing
             /// Actual results have been returned from API.
             /// </summary>
             ResultsReturned,
-
-            /// <summary>
-            /// The user is not a supporter, but used supporter-only search filters.
-            /// </summary>
-            SupporterOnlyFilters
         }
 
         /// <summary>
@@ -330,22 +308,10 @@ namespace typebeat.Game.Overlays.BeatmapListing
             /// </summary>
             public List<APIBeatmapSet> Results { get; private set; }
 
-            /// <summary>
-            /// Contains the names of supporter-only filters requested by the user.
-            /// Valid for read if and only if <see cref="Type"/> is <see cref="SearchResultType.SupporterOnlyFilters"/>.
-            /// </summary>
-            public List<LocalisableString> SupporterOnlyFiltersUsed { get; private set; }
-
             public static SearchResult ResultsReturned(List<APIBeatmapSet> results) => new SearchResult
             {
                 Type = SearchResultType.ResultsReturned,
                 Results = results,
-            };
-
-            public static SearchResult SupporterOnlyFilters(List<LocalisableString> filters) => new SearchResult
-            {
-                Type = SearchResultType.SupporterOnlyFilters,
-                SupporterOnlyFiltersUsed = filters
             };
         }
     }

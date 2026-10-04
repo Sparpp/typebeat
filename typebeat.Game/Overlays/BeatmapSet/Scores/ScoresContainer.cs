@@ -30,18 +30,13 @@ namespace typebeat.Game.Overlays.BeatmapSet.Scores
         private const int spacing = 15;
 
         public readonly Bindable<APIBeatmap> Beatmap = new Bindable<APIBeatmap>();
-        private readonly Bindable<IRulesetInfo> ruleset = new Bindable<IRulesetInfo>();
-        private readonly Bindable<BeatmapLeaderboardScope> scope = new Bindable<BeatmapLeaderboardScope>(BeatmapLeaderboardScope.Global);
         private readonly IBindable<APIUser> user = new Bindable<APIUser>();
 
         private readonly Box background;
         private readonly ScoreTable scoreTable;
         private readonly FillFlowContainer topScoresContainer;
         private readonly LoadingLayer loading;
-        private readonly LeaderboardModSelector modSelector;
         private readonly NoScoresPlaceholder noScoresPlaceholder;
-        private readonly NotSupporterPlaceholder notSupporterPlaceholder;
-        private readonly NoTeamPlaceholder noTeamPlaceholder;
 
         [Resolved]
         private IAPIProvider api { get; set; }
@@ -119,33 +114,13 @@ namespace typebeat.Game.Overlays.BeatmapSet.Scores
                     Margin = new MarginPadding { Vertical = 20 },
                     Children = new Drawable[]
                     {
-                        new FillFlowContainer
-                        {
-                            RelativeSizeAxes = Axes.X,
-                            AutoSizeAxes = Axes.Y,
-                            Direction = FillDirection.Vertical,
-                            Spacing = new Vector2(0, spacing),
-                            Children = new Drawable[]
-                            {
-                                new LeaderboardScopeSelector
-                                {
-                                    Anchor = Anchor.TopCentre,
-                                    Origin = Anchor.TopCentre,
-                                    Current = { BindTarget = scope }
-                                },
-                                modSelector = new LeaderboardModSelector
-                                {
-                                    Anchor = Anchor.TopCentre,
-                                    Origin = Anchor.TopCentre,
-                                    Ruleset = { BindTarget = ruleset }
-                                }
-                            }
-                        },
+                        // No scope selector (country / friends / team) or mod filter: the server always answers the global
+                        // board and ignores both, so neither could change what is shown. That also retires lazer's
+                        // supporter-only and no-team placeholders, which only those two controls could reach.
                         new Container
                         {
                             AutoSizeAxes = Axes.Y,
                             RelativeSizeAxes = Axes.X,
-                            Margin = new MarginPadding { Top = spacing },
                             Children = new Drawable[]
                             {
                                 noScoresPlaceholder = new NoScoresPlaceholder
@@ -155,20 +130,6 @@ namespace typebeat.Game.Overlays.BeatmapSet.Scores
                                     Alpha = 0,
                                     AlwaysPresent = true,
                                     Margin = new MarginPadding { Vertical = 10 }
-                                },
-                                noTeamPlaceholder = new NoTeamPlaceholder
-                                {
-                                    Anchor = Anchor.TopCentre,
-                                    Origin = Anchor.TopCentre,
-                                    Margin = new MarginPadding { Vertical = 10 },
-                                    Alpha = 0,
-                                },
-                                notSupporterPlaceholder = new NotSupporterPlaceholder
-                                {
-                                    Anchor = Anchor.TopCentre,
-                                    Origin = Anchor.TopCentre,
-                                    Margin = new MarginPadding { Vertical = 10 },
-                                    Alpha = 0,
                                 },
                                 new FillFlowContainer
                                 {
@@ -211,36 +172,9 @@ namespace typebeat.Game.Overlays.BeatmapSet.Scores
         protected override void LoadComplete()
         {
             base.LoadComplete();
-            scope.BindValueChanged(_ => getScores());
-            ruleset.BindValueChanged(_ => getScores());
 
-            modSelector.SelectedMods.CollectionChanged += (_, _) => getScores();
-
-            Beatmap.BindValueChanged(onBeatmapChanged);
-            user.BindValueChanged(onUserChanged, true);
-        }
-
-        private void onBeatmapChanged(ValueChangedEvent<APIBeatmap> beatmap)
-        {
-            var beatmapRuleset = beatmap.NewValue?.Ruleset;
-
-            if (ruleset.Value?.OnlineID == beatmapRuleset?.OnlineID)
-            {
-                modSelector.DeselectAll();
-                ruleset.TriggerChange();
-            }
-            else
-                ruleset.Value = beatmapRuleset;
-
-            scope.Value = BeatmapLeaderboardScope.Global;
-        }
-
-        private void onUserChanged(ValueChangedEvent<APIUser> user)
-        {
-            if (modSelector.SelectedMods.Any())
-                modSelector.DeselectAll();
-            else
-                getScores();
+            Beatmap.BindValueChanged(_ => getScores());
+            user.BindValueChanged(_ => getScores(), true);
         }
 
         private void getScores()
@@ -249,8 +183,6 @@ namespace typebeat.Game.Overlays.BeatmapSet.Scores
             getScoresRequest = null;
 
             noScoresPlaceholder.Hide();
-            noTeamPlaceholder.Hide();
-            notSupporterPlaceholder.Hide();
 
             if (Beatmap.Value == null || Beatmap.Value.OnlineID <= 0 || (Beatmap.Value.Status <= BeatmapOnlineStatus.Pending))
             {
@@ -259,35 +191,19 @@ namespace typebeat.Game.Overlays.BeatmapSet.Scores
                 return;
             }
 
-            if ((scope.Value == BeatmapLeaderboardScope.Team) && user.Value.Team == null)
-            {
-                Scores = null;
-                noTeamPlaceholder.Show();
-                return;
-            }
-
-            if (scope.Value.RequiresSupporter(modSelector.SelectedMods.Count > 0) && !userIsSupporter)
-            {
-                Scores = null;
-                notSupporterPlaceholder.Show();
-                return;
-            }
-
             Show();
             loading.Show();
 
-            getScoresRequest = new GetScoresRequest(Beatmap.Value, Beatmap.Value.Ruleset, scope.Value, modSelector.SelectedMods);
+            getScoresRequest = new GetScoresRequest(Beatmap.Value, Beatmap.Value.Ruleset);
             getScoresRequest.Success += scores =>
             {
                 Scores = scores;
 
                 if (!scores.Scores.Any())
-                    noScoresPlaceholder.ShowWithScope(scope.Value);
+                    noScoresPlaceholder.ShowWithScope(BeatmapLeaderboardScope.Global);
             };
 
             api.Queue(getScoresRequest);
         }
-
-        private bool userIsSupporter => api.IsLoggedIn && api.LocalUser.Value.IsSupporter;
     }
 }

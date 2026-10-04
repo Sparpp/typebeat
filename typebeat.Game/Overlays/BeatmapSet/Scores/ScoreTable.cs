@@ -160,20 +160,8 @@ namespace typebeat.Game.Overlays.BeatmapSet.Scores
                 {
                     Size = new Vector2(19, 14),
                 },
-                new FillFlowContainer
-                {
-                    AutoSizeAxes = Axes.Both,
-                    Direction = FillDirection.Horizontal,
-                    Spacing = new Vector2(4),
-                    Children = new Drawable[]
-                    {
-                        new UpdateableTeamFlag(score.User.Team)
-                        {
-                            Size = new Vector2(28, 14),
-                        },
-                        username,
-                    }
-                },
+                // No team flag: teams are not kept.
+                username,
 #pragma warning disable 618
                 new StatisticText(score.MaxCombo, score.BeatmapInfo!.MaxCombo, @"0\x"),
 #pragma warning restore 618
@@ -204,22 +192,15 @@ namespace typebeat.Game.Overlays.BeatmapSet.Scores
             // unless the ENTIRE overlay can be weaned off of `ScoreInfo` and use `SoloScoreInfo` instead
             if (showPerformancePoints)
             {
-                if (!score.Ranked)
+                // The server prices a play inside its submission, so a ranked row with no pp earns none (a custom-rate
+                // play) rather than awaiting processing: both cases are the dash, never lazer's processing spinner.
+                if (!score.Ranked || score.PP == null)
                 {
                     content.Add(new SpriteTextWithTooltip
                     {
                         Text = "-",
                         Font = OsuFont.GetFont(size: text_size),
                         TooltipText = ScoresStrings.StatusNoPp
-                    });
-                }
-                else if (score.PP == null)
-                {
-                    content.Add(new SpriteIconWithTooltip
-                    {
-                        Icon = FontAwesome.Solid.Sync,
-                        Size = new Vector2(text_size),
-                        TooltipText = ScoresStrings.StatusProcessing,
                     });
                 }
                 else

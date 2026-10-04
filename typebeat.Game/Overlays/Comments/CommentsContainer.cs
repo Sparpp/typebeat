@@ -37,7 +37,6 @@ namespace typebeat.Game.Overlays.Comments
         public IBindable<long> Id => id;
 
         public readonly Bindable<CommentsSortCriteria> Sort = new Bindable<CommentsSortCriteria>();
-        public readonly BindableBool ShowDeleted = new BindableBool();
 
         protected readonly IBindable<APIUser> User = new Bindable<APIUser>();
 
@@ -49,10 +48,8 @@ namespace typebeat.Game.Overlays.Comments
         private CancellationTokenSource loadCancellation;
         private int currentPage;
 
-        private FillFlowContainer pinnedContent;
         private NewCommentEditor newCommentEditor;
         private FillFlowContainer content;
-        private DeletedCommentsCounter deletedCommentsCounter;
         private CommentsShowMoreButton moreButton;
         private TotalCommentsCounter commentCounter;
         private UpdateableAvatar avatar;
@@ -78,25 +75,7 @@ namespace typebeat.Game.Overlays.Comments
                     Children = new Drawable[]
                     {
                         commentCounter = new TotalCommentsCounter(),
-                        new Container
-                        {
-                            RelativeSizeAxes = Axes.X,
-                            AutoSizeAxes = Axes.Y,
-                            Children = new Drawable[]
-                            {
-                                new Box
-                                {
-                                    RelativeSizeAxes = Axes.Both,
-                                    Colour = colourProvider.Background4,
-                                },
-                                pinnedContent = new FillFlowContainer
-                                {
-                                    RelativeSizeAxes = Axes.X,
-                                    AutoSizeAxes = Axes.Y,
-                                    Direction = FillDirection.Vertical,
-                                },
-                            },
-                        },
+                        // No pinned-comments area: comments are never pinned here.
                         new Container
                         {
                             RelativeSizeAxes = Axes.X,
@@ -126,7 +105,6 @@ namespace typebeat.Game.Overlays.Comments
                         new CommentsHeader
                         {
                             Sort = { BindTarget = Sort },
-                            ShowDeleted = { BindTarget = ShowDeleted }
                         },
                         content = new FillFlowContainer
                         {
@@ -147,17 +125,9 @@ namespace typebeat.Game.Overlays.Comments
                                     AutoSizeAxes = Axes.Y,
                                     Direction = FillDirection.Vertical,
                                     Margin = new MarginPadding { Bottom = 20 },
+                                    // No deleted-comments counter: deleted comments are never served.
                                     Children = new Drawable[]
                                     {
-                                        deletedCommentsCounter = new DeletedCommentsCounter
-                                        {
-                                            ShowDeleted = { BindTarget = ShowDeleted },
-                                            Margin = new MarginPadding
-                                            {
-                                                Horizontal = WaveOverlayContainer.HORIZONTAL_PADDING,
-                                                Vertical = 10
-                                            }
-                                        },
                                         new Container
                                         {
                                             AutoSizeAxes = Axes.Y,
@@ -231,10 +201,8 @@ namespace typebeat.Game.Overlays.Comments
         protected void ClearComments()
         {
             currentPage = 1;
-            deletedCommentsCounter.Count.Value = 0;
             moreButton.Show();
             moreButton.IsLoading = true;
-            pinnedContent.Clear();
             content.Clear();
             CommentDictionary.Clear();
         }
@@ -257,73 +225,34 @@ namespace typebeat.Game.Overlays.Comments
         }
 
         /// <summary>
-        /// Appends retrieved comments to the subtree rooted of comments in this page.
+        /// Appends a page of retrieved comments. Every comment here is top-level: the server's comments have no replies
+        /// and are never pinned, so lazer's reply tree and pinned area have nothing to assemble.
         /// </summary>
         /// <param name="bundle">The bundle of comments to add.</param>
         protected void AppendComments([NotNull] CommentBundle bundle)
         {
-            var topLevelComments = new List<DrawableComment>();
-            var orphaned = new List<Comment>();
+            var newComments = bundle.Comments
+                                    .Where(comment => !CommentDictionary.ContainsKey(comment.Id))
+                                    .Select(comment => GetDrawableComment(comment, bundle.CommentableMeta))
+                                    .ToList();
 
-            foreach (var comment in bundle.Comments.Concat(bundle.IncludedComments).Concat(bundle.PinnedComments))
+            if (!newComments.Any())
+                return;
+
+            LoadComponentsAsync(newComments, loaded =>
             {
-                // Exclude possible duplicated comments.
-                if (CommentDictionary.ContainsKey(comment.Id))
-                    continue;
+                content.AddRange(loaded);
 
-                addNewComment(comment);
-            }
-
-            // Comments whose parents were seen later than themselves can now be added.
-            foreach (var o in orphaned)
-                addNewComment(o);
-
-            if (topLevelComments.Any())
-            {
-                LoadComponentsAsync(topLevelComments, loaded =>
+                if (bundle.HasMore)
                 {
-                    pinnedContent.AddRange(loaded.Where(d => d.Comment.Pinned));
-                    content.AddRange(loaded.Where(d => !d.Comment.Pinned));
-                    deletedCommentsCounter.Count.Value += topLevelComments.Select(d => d.Comment).Count(c => c.IsDeleted && c.IsTopLevel);
-
-                    if (bundle.HasMore)
-                    {
-                        int loadedTopLevelComments = 0;
-                        pinnedContent.Children.OfType<DrawableComment>().ForEach(_ => loadedTopLevelComments++);
-                        content.Children.OfType<DrawableComment>().ForEach(_ => loadedTopLevelComments++);
-
-                        moreButton.Current.Value = bundle.TopLevelCount - loadedTopLevelComments;
-                        moreButton.IsLoading = false;
-                    }
-                    else
-                    {
-                        moreButton.Hide();
-                    }
-                }, (loadCancellation = new CancellationTokenSource()).Token);
-            }
-
-            void addNewComment(Comment comment)
-            {
-                var drawableComment = GetDrawableComment(comment, bundle.CommentableMeta);
-
-                if (comment.ParentId == null)
-                {
-                    // Comments that have no parent are added as top-level comments to the flow.
-                    topLevelComments.Add(drawableComment);
-                }
-                else if (CommentDictionary.TryGetValue(comment.ParentId.Value, out var parentDrawable))
-                {
-                    // The comment's parent has already been seen, so the parent<-> child links can be added.
-                    comment.ParentComment = parentDrawable.Comment;
-                    parentDrawable.Replies.Add(drawableComment);
+                    moreButton.Current.Value = bundle.TopLevelCount - content.Children.OfType<DrawableComment>().Count();
+                    moreButton.IsLoading = false;
                 }
                 else
                 {
-                    // The comment's parent has not been seen yet, so keep it orphaned for the time being. This can occur if the comments arrive out of order.
-                    // Since this comment has now been seen, any further children can be added to it without being orphaned themselves.
-                    orphaned.Add(comment);
+                    moreButton.Hide();
                 }
-            }
+            }, (loadCancellation = new CancellationTokenSource()).Token);
         }
 
         private void prependPostedComments(CommentBundle bundle)
@@ -359,21 +288,7 @@ namespace typebeat.Game.Overlays.Comments
             if (CommentDictionary.TryGetValue(comment.Id, out var existing))
                 return existing;
 
-            return CommentDictionary[comment.Id] = new DrawableComment(comment, meta)
-            {
-                ShowDeleted = { BindTarget = ShowDeleted },
-                Sort = { BindTarget = Sort },
-                RepliesRequested = onCommentRepliesRequested
-            };
-        }
-
-        private void onCommentRepliesRequested(DrawableComment drawableComment, int page)
-        {
-            var req = new GetCommentsRequest(id.Value, type.Value, Sort.Value, page, drawableComment.Comment.Id);
-
-            req.Success += response => Schedule(() => AppendComments(response));
-
-            api.PerformAsync(req);
+            return CommentDictionary[comment.Id] = new DrawableComment(comment, meta);
         }
 
         protected override void Dispose(bool isDisposing)

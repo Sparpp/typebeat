@@ -10,19 +10,14 @@ using osu.Framework.Graphics.Shapes;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Online.API.Requests.Responses;
 using typebeat.Game.Overlays.BeatmapSet.Buttons;
-using typebeat.Game.Rulesets;
 using osuTK;
 
 namespace typebeat.Game.Overlays.BeatmapSet
 {
     public partial class Details : FillFlowContainer
     {
-        protected readonly UserRatings Ratings;
-
         private readonly PreviewButton preview;
         private readonly BasicStats basic;
-        private readonly AdvancedStats advanced;
-        private readonly DetailBox ratingBox;
 
         private APIBeatmapSet beatmapSet;
 
@@ -34,9 +29,6 @@ namespace typebeat.Game.Overlays.BeatmapSet
                 if (value == beatmapSet) return;
 
                 basic.BeatmapSet = preview.BeatmapSet = beatmapSet = value;
-
-                if (IsLoaded)
-                    updateDisplay();
             }
         }
 
@@ -49,10 +41,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
             {
                 if (value == beatmapInfo) return;
 
-                basic.BeatmapInfo = advanced.BeatmapInfo = beatmapInfo = value;
-
-                if (IsLoaded)
-                    updateDisplay();
+                basic.BeatmapInfo = beatmapInfo = value;
             }
         }
 
@@ -78,41 +67,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
                         Padding = new MarginPadding { Vertical = 10 }
                     },
                 },
-                new DetailBox
-                {
-                    Child = advanced = new AdvancedStats
-                    {
-                        RelativeSizeAxes = Axes.X,
-                        AutoSizeAxes = Axes.Y,
-                        Margin = new MarginPadding { Vertical = 7.5f },
-                    },
-                },
-                ratingBox = new DetailBox
-                {
-                    Child = Ratings = new UserRatings
-                    {
-                        RelativeSizeAxes = Axes.X,
-                        Height = 95,
-                        Margin = new MarginPadding { Top = 10 },
-                    },
-                },
             };
-        }
-
-        [Resolved]
-        private RulesetStore rulesets { get; set; }
-
-        protected override void LoadComplete()
-        {
-            base.LoadComplete();
-            updateDisplay();
-        }
-
-        private void updateDisplay()
-        {
-            Ratings.Ratings = BeatmapSet?.Ratings;
-            ratingBox.Alpha = BeatmapSet?.Status > 0 ? 1 : 0;
-            advanced.Ruleset.Value = rulesets.GetRuleset(beatmapInfo?.Ruleset.OnlineID ?? 0);
         }
 
         private partial class DetailBox : Container

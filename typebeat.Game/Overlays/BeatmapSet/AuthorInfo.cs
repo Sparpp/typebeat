@@ -95,11 +95,9 @@ namespace typebeat.Game.Overlays.BeatmapSet
                 },
             };
 
-            if (BeatmapSet.Ranked.HasValue)
-            {
-                fields.Add(new Field(BeatmapSet.Status.ToString().ToLowerInvariant(), BeatmapSet.Ranked.Value, OsuFont.GetFont(weight: FontWeight.Bold)));
-            }
-            else if (BeatmapSet.LastUpdated.HasValue)
+            // Never "ranked {date}": the server records no ranked date (its ranked_date is the set's last update standing in),
+            // so the honest second line is the last update, whatever the status.
+            if (BeatmapSet.LastUpdated.HasValue)
             {
                 fields.Add(new Field("last updated", BeatmapSet.LastUpdated.Value, OsuFont.GetFont(weight: FontWeight.Bold)));
             }

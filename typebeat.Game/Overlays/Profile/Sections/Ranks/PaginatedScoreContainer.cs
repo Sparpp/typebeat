@@ -63,6 +63,8 @@ namespace typebeat.Game.Overlays.Profile.Sections.Ranks
         protected override APIRequest<List<SoloScoreInfo>> CreateRequest(UserProfileData user, PaginationParameters pagination) =>
             new GetUserScoresRequest(user.User.Id, type, pagination, user.Ruleset);
 
+        private const double pp_weight_decay = 0.92;
+
         private int drawableItemIndex;
 
         protected override Drawable CreateDrawableItem(SoloScoreInfo model)
@@ -72,8 +74,10 @@ namespace typebeat.Game.Overlays.Profile.Sections.Ranks
                 default:
                     return new DrawableProfileScore(model);
 
+                // The weight the server's total pp gives each best play: typebeat-web's PerformancePoints.DECAY (0.92), not
+                // osu's 0.95. The list is the same best-per-set, pp-ordered list that total sums over.
                 case ScoreType.Best:
-                    return new DrawableProfileWeightedScore(model, Math.Pow(0.95, drawableItemIndex++));
+                    return new DrawableProfileWeightedScore(model, Math.Pow(pp_weight_decay, drawableItemIndex++));
             }
         }
     }

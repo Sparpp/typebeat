@@ -34,6 +34,37 @@ namespace typebeat.Game.Online.API.Requests.Responses
         [JsonProperty(@"playcount")]
         public int PlayCount { get; set; }
 
+        // type!beat typing stats, served by GET beatmapsets/{id} only (null/empty elsewhere, and on rows the server has not measured yet).
+
+        [JsonProperty(@"word_count")]
+        public int? WordCount { get; set; }
+
+        [JsonProperty(@"char_count")]
+        public int? CharCount { get; set; }
+
+        /// <summary>Average words per minute (five keystrokes to the word).</summary>
+        [JsonProperty(@"wpm")]
+        public double? AverageWpm { get; set; }
+
+        [JsonProperty(@"target_wpm")]
+        public double? TargetWpm { get; set; }
+
+        [JsonProperty(@"peak_wpm")]
+        public double? PeakWpm { get; set; }
+
+        /// <summary>The pace graph's samples, first word to last.</summary>
+        [JsonProperty(@"wpm_curve")]
+        public float[]? WpmCurve { get; set; }
+
+        [JsonProperty(@"lyric_font")]
+        public string? LyricFont { get; set; }
+
+        [JsonProperty(@"lyrics")]
+        public string? Lyrics { get; set; }
+
+        [JsonProperty(@"lyrics_original")]
+        public string? LyricsOriginal { get; set; }
+
         [JsonProperty(@"current_user_playcount")]
         public int UserPlayCount { get; set; }
 

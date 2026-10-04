@@ -139,6 +139,12 @@ namespace typebeat.Game
 
         private OnScreenDisplay onScreenDisplay;
 
+        private BeatmapListingOverlay beatmapListing;
+
+        private UserProfileOverlay userProfile;
+
+        private BeatmapSetOverlay beatmapSetOverlay;
+
         private SkinEditorOverlay skinEditor;
 
         private DialogOverlay dialogOverlay;
@@ -467,28 +473,22 @@ namespace typebeat.Game
                     OpenUrlExternally(argString);
                     break;
 
-                // Online content is browsed on the website rather than in in-game overlays.
-                // Relative paths resolve against the website root in ExternalLinkOpener.
                 case LinkAction.OpenBeatmap:
-                    OpenUrlExternally($@"/beatmaps/{argString}");
+                    if (int.TryParse(argString, out int beatmapId))
+                        ShowBeatmap(beatmapId);
                     break;
 
                 case LinkAction.OpenBeatmapSet:
-                    OpenUrlExternally($@"/beatmapsets/{argString}");
+                    if (int.TryParse(argString, out int setId))
+                        ShowBeatmapSet(setId);
                     break;
 
                 case LinkAction.OpenUserProfile:
-                    string userIdentifier = link.Argument is APIUser linkUser
-                        ? (linkUser.Id > 1 ? linkUser.Id.ToString() : linkUser.Username)
-                        : argString;
-
-                    if (!string.IsNullOrEmpty(userIdentifier))
-                        OpenUrlExternally($@"/users/{Uri.EscapeDataString(userIdentifier)}");
-
+                    ShowUser(link.Argument as IUser ?? new APIUser { Username = argString });
                     break;
 
                 case LinkAction.SearchBeatmapSet:
-                    OpenUrlExternally($@"/beatmapsets?q={Uri.EscapeDataString(argString)}");
+                    SearchBeatmapSet(argString);
                     break;
 
                 // The website doesn't have these pages (yet), so avoid opening a dead browser tab.
@@ -518,6 +518,26 @@ namespace typebeat.Game
                     throw new NotImplementedException($"This {nameof(LinkAction)} ({link.Action.ToString()}) is missing an associated action.");
             }
         });
+
+        /// <summary>
+        /// Show a beatmap set as an overlay.
+        /// </summary>
+        public void ShowBeatmapSet(int setId) => waitForReady(() => beatmapSetOverlay, _ => beatmapSetOverlay.FetchAndShowBeatmapSet(setId));
+
+        /// <summary>
+        /// Show a user's profile as an overlay.
+        /// </summary>
+        public void ShowUser(IUser user) => waitForReady(() => userProfile, _ => userProfile.ShowUser(user));
+
+        /// <summary>
+        /// Show a beatmap's set as an overlay, displaying the given beatmap.
+        /// </summary>
+        public void ShowBeatmap(int beatmapId) => waitForReady(() => beatmapSetOverlay, _ => beatmapSetOverlay.FetchAndShowBeatmap(beatmapId));
+
+        /// <summary>
+        /// Shows the beatmap listing overlay, with the given <paramref name="query"/> in the search box.
+        /// </summary>
+        public void SearchBeatmapSet(string query) => waitForReady(() => beatmapListing, _ => beatmapListing.ShowWithSearch(query));
 
         public void CopyToClipboard(string value) => waitForReady(() => onScreenDisplay, _ =>
         {
@@ -1054,6 +1074,9 @@ namespace typebeat.Game
             // overlay elements
             loadComponentSingleFile(FirstRunOverlay = new FirstRunSetupOverlay(), footerBasedOverlayContent.Add, true);
             loadComponentSingleFile(new ManageCollectionsDialog(), overlayContent.Add, true);
+            loadComponentSingleFile(beatmapListing = new BeatmapListingOverlay(), overlayContent.Add, true);
+            loadComponentSingleFile(userProfile = new UserProfileOverlay(), overlayContent.Add, true);
+            loadComponentSingleFile(beatmapSetOverlay = new BeatmapSetOverlay(), overlayContent.Add, true);
             loadComponentSingleFile(skinEditor = new SkinEditorOverlay(ScreenContainer), overlayContent.Add, true);
             loadComponentSingleFile(Settings = new SettingsOverlay(), leftFloatingOverlayContent.Add, true);
 
@@ -1092,6 +1115,33 @@ namespace typebeat.Game
                     if (state.NewValue == Visibility.Hidden) return;
 
                     singleDisplaySideOverlays.Where(o => o != overlay).ForEach(o => o.Hide());
+                };
+            }
+
+            // eventually informational overlays should be displayed in a stack, but for now let's only allow one to stay open at a time.
+            var informationalOverlays = new OverlayContainer[] { beatmapSetOverlay, userProfile };
+
+            foreach (var overlay in informationalOverlays)
+            {
+                overlay.State.ValueChanged += state =>
+                {
+                    if (state.NewValue != Visibility.Hidden)
+                        showOverlayAboveOthers(overlay, informationalOverlays);
+                };
+            }
+
+            // ensure only one of these overlays are open at once.
+            var singleDisplayOverlays = new OverlayContainer[] { beatmapListing };
+
+            foreach (var overlay in singleDisplayOverlays)
+            {
+                overlay.State.ValueChanged += state =>
+                {
+                    // informational overlays should be dismissed on a show or hide of a full overlay.
+                    informationalOverlays.ForEach(o => o.Hide());
+
+                    if (state.NewValue != Visibility.Hidden)
+                        showOverlayAboveOthers(overlay, singleDisplayOverlays);
                 };
             }
 
@@ -1366,6 +1416,24 @@ namespace typebeat.Game
 
         private Task asyncLoadStream;
 
+        private void showOverlayAboveOthers(OverlayContainer overlay, OverlayContainer[] otherOverlays)
+        {
+            otherOverlays.Where(o => o != overlay).ForEach(o => o.Hide());
+
+            Settings.Hide();
+            Notifications.Hide();
+
+            // Partially visible so leave it at the current depth.
+            if (overlay.IsPresent)
+                return;
+
+            // Show above all other overlays.
+            if (overlay.IsLoaded)
+                overlayContent.ChangeChildDepth(overlay, (float)-Clock.CurrentTime);
+            else
+                overlay.Depth = (float)-Clock.CurrentTime;
+        }
+
         /// <summary>
         /// Queues loading the provided component in sequential fashion.
         /// This operation is limited to a single thread to avoid saturating all cores.
@@ -1464,6 +1532,13 @@ namespace typebeat.Game
                 case GlobalAction.ResetInputSettings:
                     Host.ResetInputHandlers();
                     frameworkConfig.GetBindable<ConfineMouseMode>(FrameworkSetting.ConfineMouseMode).SetDefault();
+                    return true;
+
+                case GlobalAction.ToggleProfile:
+                    if (userProfile.State.Value == Visibility.Visible)
+                        userProfile.Hide();
+                    else
+                        ShowUser(API.LocalUser.Value);
                     return true;
 
                 case GlobalAction.ToggleGameplayMouseButtons:

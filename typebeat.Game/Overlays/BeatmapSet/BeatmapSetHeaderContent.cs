@@ -48,14 +48,13 @@ namespace typebeat.Game.Overlays.BeatmapSet
         private readonly LinkFlowContainer title, artist;
         private readonly AuthorInfo author;
         private readonly VideoIconPill videoIconPill;
-        private readonly StoryboardIconPill storyboardIconPill;
 
         private ExternalLinkButton externalLink;
 
         private readonly FillFlowContainer downloadButtonsContainer;
+        private readonly FavouriteButton favouriteButton;
         private readonly BeatmapAvailability beatmapAvailability;
         private readonly BeatmapSetOnlineStatusPill onlineStatusPill;
-        private readonly FavouriteButton favouriteButton;
         private readonly FillFlowContainer fadeContent;
         private readonly LoadingSpinner loading;
 
@@ -193,15 +192,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
                                         TextSize = 14,
                                         TextPadding = new MarginPadding { Horizontal = 35, Vertical = 10 }
                                     },
-                                    storyboardIconPill = new StoryboardIconPill
-                                    {
-                                        AutoSizeAxes = Axes.X,
-                                        RelativeSizeAxes = Axes.Y,
-                                        Anchor = Anchor.TopRight,
-                                        Origin = Anchor.TopRight,
-                                        IconSize = new Vector2(34),
-                                        IconPadding = new MarginPadding(10),
-                                    },
+                                    // No storyboard pill: storyboards are not recorded.
                                     videoIconPill = new VideoIconPill
                                     {
                                         AutoSizeAxes = Axes.X,
@@ -253,7 +244,6 @@ namespace typebeat.Game.Overlays.BeatmapSet
                 {
                     onlineStatusPill.FadeTo(0.5f, 500, Easing.OutQuint);
                     videoIconPill.Hide();
-                    storyboardIconPill.Hide();
                     fadeContent.Hide();
 
                     loading.Show();
@@ -279,11 +269,6 @@ namespace typebeat.Game.Overlays.BeatmapSet
                     else
                         videoIconPill.Hide();
 
-                    if (newBeatmapSet.HasStoryboard)
-                        storyboardIconPill.Show();
-                    else
-                        storyboardIconPill.Hide();
-
                     var titleText = new RomanisableString(newBeatmapSet.TitleUnicode, newBeatmapSet.Title);
                     var artistText = new RomanisableString(newBeatmapSet.ArtistUnicode, newBeatmapSet.Artist);
 
@@ -301,19 +286,8 @@ namespace typebeat.Game.Overlays.BeatmapSet
                         title.AddArbitraryDrawable(new ExplicitContentBeatmapBadge());
                     }
 
-                    if (newBeatmapSet.FeaturedInSpotlight)
-                    {
-                        title.AddArbitraryDrawable(Empty().With(d => d.Width = 10));
-                        title.AddArbitraryDrawable(new SpotlightBeatmapBadge());
-                    }
-
+                    // No spotlight or featured artist badges: neither programme exists here.
                     artist.AddLink(artistText, LinkAction.SearchBeatmapSet, LocalisableString.Interpolate($@"artist=""""{artistText}"""""));
-
-                    if (newBeatmapSet.TrackId != null)
-                    {
-                        artist.AddArbitraryDrawable(Empty().With(d => d.Width = 10));
-                        artist.AddArbitraryDrawable(new FeaturedArtistBeatmapBadge());
-                    }
 
                     updateExternalLink();
 

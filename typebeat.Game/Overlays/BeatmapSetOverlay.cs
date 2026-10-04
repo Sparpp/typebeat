@@ -34,7 +34,7 @@ namespace typebeat.Game.Overlays
         private (BeatmapSetLookupType type, int id)? lastLookup;
 
         public BeatmapSetOverlay()
-            : base(OverlayColourScheme.Blue)
+            : base(OverlayColourScheme.Pink)
         {
             Info info;
             CommentsSection comments;
@@ -55,6 +55,7 @@ namespace typebeat.Game.Overlays
                     {
                         Beatmap = { BindTarget = Header.HeaderContent.Picker.Beatmap }
                     },
+                    // GET comments?commentable_type=beatmapset: the website's set comments, read only.
                     comments = new CommentsSection()
                 }
             };

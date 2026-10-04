@@ -36,7 +36,8 @@ namespace typebeat.Game.Audio
         private void load(AudioManager audioManager, IAPIProvider api)
         {
             endpoints = api.Endpoints;
-            trackStore = audioManager.GetTrackStore(new TrustedDomainOnlineStore(endpoints));
+            // previews are fetched over http from a local dev server, which the framework's own online store would upgrade to https.
+            trackStore = audioManager.GetTrackStore(new LoopbackAwareStore(new TrustedDomainOnlineStore(endpoints)));
         }
 
         /// <summary>

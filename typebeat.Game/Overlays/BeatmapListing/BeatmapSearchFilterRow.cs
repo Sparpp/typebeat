@@ -1,6 +1,7 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System.Collections.Generic;
 using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
@@ -23,8 +24,13 @@ namespace typebeat.Game.Overlays.BeatmapListing
             set => current.Current = value;
         }
 
-        public BeatmapSearchFilterRow(LocalisableString header)
+        private readonly IReadOnlyCollection<T>? values;
+
+        /// <param name="header">The row's heading.</param>
+        /// <param name="values">The values to offer; every member of an enum <typeparamref name="T"/> when null.</param>
+        public BeatmapSearchFilterRow(LocalisableString header, IReadOnlyCollection<T>? values = null)
         {
+            this.values = values;
             Drawable filter;
             AutoSizeAxes = Axes.Y;
             RelativeSizeAxes = Axes.X;
@@ -60,18 +66,23 @@ namespace typebeat.Game.Overlays.BeatmapListing
                 Current = filterWithValue.Current;
         }
 
-        protected virtual Drawable CreateFilter() => new BeatmapSearchFilter();
+        protected virtual Drawable CreateFilter() => new BeatmapSearchFilter(values);
 
         protected partial class BeatmapSearchFilter : TabControl<T>
         {
-            public BeatmapSearchFilter()
+            public BeatmapSearchFilter(IReadOnlyCollection<T>? values = null)
             {
                 RelativeSizeAxes = Axes.X;
                 AutoSizeAxes = Axes.Y;
 
                 TabContainer.Spacing = new Vector2(10, 0);
 
-                if (typeof(T).IsEnum)
+                if (values != null)
+                {
+                    foreach (var val in values)
+                        AddItem(val);
+                }
+                else if (typeof(T).IsEnum)
                 {
                     foreach (var val in EnumExtensions.GetValuesInOrder<T>())
                         AddItem(val);

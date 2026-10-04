@@ -24,11 +24,9 @@ namespace typebeat.Game.Overlays.Profile.Header.Components
         public const float BADGE_HEIGHT = 36;
 
         private readonly Dictionary<ScoreRank, ScoreRankInfo> scoreRankInfos = new Dictionary<ScoreRank, ScoreRankInfo>();
-        private ProfileValueDisplay medalInfo = null!;
         private ProfileValueDisplay ppInfo = null!;
         private GlobalRankDisplay detailGlobalRank = null!;
         private ProfileValueDisplay detailCountryRank = null!;
-        private RankGraph rankGraph = null!;
 
         public readonly Bindable<UserProfileData?> User = new Bindable<UserProfileData?>();
 
@@ -72,40 +70,12 @@ namespace typebeat.Game.Overlays.Profile.Header.Components
                                 {
                                     Title = UsersStrings.ShowRankCountrySimple,
                                 },
-                                new FillFlowContainer
-                                {
-                                    Anchor = Anchor.TopRight,
-                                    Origin = Anchor.TopRight,
-                                    Spacing = new Vector2(20),
-                                    Direction = FillDirection.Horizontal,
-                                    AutoSizeAxes = Axes.Both,
-                                    Children = new Drawable[]
-                                    {
-                                        new MatchmakingStatsDisplay
-                                        {
-                                            User = { BindTarget = User }
-                                        },
-                                        new DailyChallengeStatsDisplay
-                                        {
-                                            User = { BindTarget = User },
-                                        }
-                                    }
-                                }
+                                // No matchmaking or daily challenge stats: neither mode exists here.
+                                Empty(),
                             }
                         }
                     },
-                    new Container
-                    {
-                        RelativeSizeAxes = Axes.X,
-                        Height = 60,
-                        Children = new Drawable[]
-                        {
-                            rankGraph = new RankGraph
-                            {
-                                RelativeSizeAxes = Axes.Both,
-                            },
-                        }
-                    },
+                    // No rank graph: the server keeps no rank history (no rank_history on the wire).
                     new Container
                     {
                         RelativeSizeAxes = Axes.X,
@@ -119,12 +89,9 @@ namespace typebeat.Game.Overlays.Profile.Header.Components
                                 Origin = Anchor.CentreLeft,
                                 Direction = FillDirection.Horizontal,
                                 Spacing = new Vector2(10, 0),
+                                // No medals count: there are no medals.
                                 Children = new Drawable[]
                                 {
-                                    medalInfo = new ProfileValueDisplay
-                                    {
-                                        Title = UsersStrings.ShowStatsMedals,
-                                    },
                                     ppInfo = new ProfileValueDisplay
                                     {
                                         Title = "pp",
@@ -142,11 +109,11 @@ namespace typebeat.Game.Overlays.Profile.Header.Components
                                 Origin = Anchor.CentreRight,
                                 Direction = FillDirection.Horizontal,
                                 Spacing = new Vector2(5),
+                                // The server's grade counts fold the silver grades into SS and S (grade_counts carries
+                                // ss/s/a only), so XH and SH would always read 0.
                                 Children = new[]
                                 {
-                                    scoreRankInfos[ScoreRank.XH] = new ScoreRankInfo(ScoreRank.XH),
                                     scoreRankInfos[ScoreRank.X] = new ScoreRankInfo(ScoreRank.X),
-                                    scoreRankInfos[ScoreRank.SH] = new ScoreRankInfo(ScoreRank.SH),
                                     scoreRankInfos[ScoreRank.S] = new ScoreRankInfo(ScoreRank.S),
                                     scoreRankInfos[ScoreRank.A] = new ScoreRankInfo(ScoreRank.A),
                                 }
@@ -168,67 +135,15 @@ namespace typebeat.Game.Overlays.Profile.Header.Components
         {
             var user = data?.User;
 
-            medalInfo.Content.Text = user?.Achievements?.Length.ToString() ?? "0";
             ppInfo.Content.Text = user?.Statistics?.PP?.ToLocalisableString("#,##0") ?? (LocalisableString)"0";
-            ppInfo.Content.TooltipText = getPPInfoTooltipText(user);
 
             foreach (var scoreRankInfo in scoreRankInfos)
                 scoreRankInfo.Value.RankCount = user?.Statistics?.GradesCount[scoreRankInfo.Key] ?? 0;
 
-            detailGlobalRank.HighestRank.Value = user?.RankHighest;
             detailGlobalRank.UserStatistics.Value = user?.Statistics;
 
+            // No per-variant tooltips on the pp or country rank: ruleset variants (osu!mania's key counts) do not exist here.
             detailCountryRank.Content.Text = user?.Statistics?.CountryRank?.ToLocalisableString("\\##,##0") ?? (LocalisableString)"-";
-            detailCountryRank.Content.TooltipText = getCountryRankTooltipText(user);
-
-            rankGraph.Statistics.Value = user?.Statistics;
-        }
-
-        private static LocalisableString getCountryRankTooltipText(APIUser? user)
-        {
-            var variants = user?.Statistics?.Variants;
-
-            LocalisableString? result = null;
-
-            if (variants?.Count > 0)
-            {
-                foreach (var variant in variants)
-                {
-                    if (variant.CountryRank != null)
-                    {
-                        var variantText = LocalisableString.Interpolate($"{variant.VariantType.GetLocalisableDescription()}: {variant.CountryRank.ToLocalisableString("\\##,##0")}");
-
-                        if (result == null)
-                            result = variantText;
-                        else
-                            result = LocalisableString.Interpolate($"{result}\n{variantText}");
-                    }
-                }
-            }
-
-            return result ?? default;
-        }
-
-        private static LocalisableString getPPInfoTooltipText(APIUser? user)
-        {
-            var variants = user?.Statistics?.Variants;
-
-            LocalisableString? result = null;
-
-            if (variants?.Count > 0)
-            {
-                foreach (var variant in variants)
-                {
-                    var variantText = LocalisableString.Interpolate($"{variant.VariantType.GetLocalisableDescription()}: {variant.PP.ToLocalisableString("#,##0")}");
-
-                    if (result == null)
-                        result = variantText;
-                    else
-                        result = LocalisableString.Interpolate($"{result}\n{variantText}");
-                }
-            }
-
-            return result ?? default;
         }
 
         private partial class ScoreRankInfo : CompositeDrawable

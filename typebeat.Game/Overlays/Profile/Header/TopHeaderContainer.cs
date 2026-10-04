@@ -32,24 +32,13 @@ namespace typebeat.Game.Overlays.Profile.Header
         [Resolved]
         private IAPIProvider api { get; set; } = null!;
 
-        [Resolved]
-        private RankingsOverlay? rankingsOverlay { get; set; }
-
         private UserCoverBackground cover = null!;
-        private SupporterIcon supporterTag = null!;
         private UpdateableAvatar avatar = null!;
         private OsuSpriteText usernameText = null!;
         private ExternalLinkButton openUserExternally = null!;
-        private OsuSpriteText titleText = null!;
         private UpdateableFlag userFlag = null!;
-        private OsuHoverContainer userCountryContainer = null!;
         private OsuSpriteText userCountryText = null!;
-        private UpdateableTeamFlag teamFlag = null!;
-        private OsuSpriteText teamText = null!;
-        private GroupBadgeFlow groupBadgeFlow = null!;
         private ToggleCoverButton coverToggle = null!;
-
-        public PreviousUsernamesDisplay PreviousUsernamesDisplay { get; } = new PreviousUsernamesDisplay();
 
         private Bindable<bool> coverExpanded = null!;
 
@@ -131,84 +120,34 @@ namespace typebeat.Game.Overlays.Profile.Header
                                                         {
                                                             Font = OsuFont.GetFont(size: 24, weight: FontWeight.Regular)
                                                         },
-                                                        supporterTag = new SupporterIcon
-                                                        {
-                                                            Anchor = Anchor.CentreLeft,
-                                                            Origin = Anchor.CentreLeft,
-                                                            Height = 15,
-                                                        },
+                                                        // No supporter tag, group badges or previous usernames: none are kept server-side.
                                                         openUserExternally = new ExternalLinkButton
                                                         {
                                                             Anchor = Anchor.CentreLeft,
                                                             Origin = Anchor.CentreLeft,
                                                         },
-                                                        groupBadgeFlow = new GroupBadgeFlow
-                                                        {
-                                                            Anchor = Anchor.CentreLeft,
-                                                            Origin = Anchor.CentreLeft,
-                                                        },
-                                                        new Container
-                                                        {
-                                                            // Intentionally use a zero-size container, else the fill flow will adjust to (and cancel) the upwards animation.
-                                                            Child = PreviousUsernamesDisplay,
-                                                        }
                                                     }
                                                 },
-                                                titleText = new OsuSpriteText
-                                                {
-                                                    Font = OsuFont.GetFont(size: 16, weight: FontWeight.Regular),
-                                                    Margin = new MarginPadding { Bottom = 3 },
-                                                },
+                                                // No user title and no team: neither exists here.
                                                 new FillFlowContainer
                                                 {
                                                     Margin = new MarginPadding { Top = 3 },
                                                     AutoSizeAxes = Axes.Both,
                                                     Direction = FillDirection.Horizontal,
-                                                    Spacing = new Vector2(10, 0),
+                                                    Spacing = new Vector2(4, 0),
                                                     Children = new Drawable[]
                                                     {
-                                                        new FillFlowContainer
+                                                        userFlag = new UpdateableFlag
                                                         {
-                                                            AutoSizeAxes = Axes.Both,
-                                                            Direction = FillDirection.Horizontal,
-                                                            Spacing = new Vector2(4, 0),
-                                                            Children = new Drawable[]
-                                                            {
-                                                                userFlag = new UpdateableFlag
-                                                                {
-                                                                    Size = new Vector2(28, 20),
-                                                                },
-                                                                userCountryContainer = new OsuHoverContainer
-                                                                {
-                                                                    AutoSizeAxes = Axes.Both,
-                                                                    Anchor = Anchor.CentreLeft,
-                                                                    Origin = Anchor.CentreLeft,
-                                                                    Child = userCountryText = new OsuSpriteText
-                                                                    {
-                                                                        Font = OsuFont.GetFont(size: 14f, weight: FontWeight.Regular),
-                                                                    },
-                                                                },
-                                                            }
+                                                            Size = new Vector2(28, 20),
                                                         },
-                                                        new FillFlowContainer
+                                                        // Plain text rather than lazer's link to the country rankings, which the server does not serve.
+                                                        userCountryText = new OsuSpriteText
                                                         {
-                                                            AutoSizeAxes = Axes.Both,
-                                                            Direction = FillDirection.Horizontal,
-                                                            Spacing = new Vector2(4, 0),
-                                                            Children = new Drawable[]
-                                                            {
-                                                                teamFlag = new UpdateableTeamFlag
-                                                                {
-                                                                    Size = new Vector2(40, 20),
-                                                                },
-                                                                teamText = new OsuSpriteText
-                                                                {
-                                                                    Anchor = Anchor.CentreLeft,
-                                                                    Origin = Anchor.CentreLeft,
-                                                                    Font = OsuFont.GetFont(size: 14f, weight: FontWeight.Regular),
-                                                                },
-                                                            }
-                                                        }
+                                                            Anchor = Anchor.CentreLeft,
+                                                            Origin = Anchor.CentreLeft,
+                                                            Font = OsuFont.GetFont(size: 14f, weight: FontWeight.Regular),
+                                                        },
                                                     }
                                                 },
                                             }
@@ -248,14 +187,6 @@ namespace typebeat.Game.Overlays.Profile.Header
             openUserExternally.Link = $@"{api.Endpoints.WebsiteUrl}/users/{user?.Id ?? 0}";
             userFlag.CountryCode = user?.CountryCode ?? default;
             userCountryText.Text = (user?.CountryCode ?? default).GetDescription();
-            userCountryContainer.Action = () => rankingsOverlay?.ShowCountry(user?.CountryCode ?? default);
-            teamFlag.Team = user?.Team;
-            teamText.Text = user?.Team?.Name ?? string.Empty;
-            supporterTag.SupportLevel = user?.SupportLevel ?? 0;
-            titleText.Text = user?.Title ?? string.Empty;
-            titleText.Colour = Color4Extensions.FromHex(user?.Colour ?? "fff");
-            groupBadgeFlow.User.Value = user;
-            PreviousUsernamesDisplay.User.Value = user;
         }
 
         private void updateCoverState()

@@ -24,8 +24,6 @@ namespace typebeat.Game.Overlays.Comments
         private readonly Comment comment;
         private readonly IReadOnlyList<CommentableMeta> meta;
 
-        private OsuSpriteText deletedLabel = null!;
-
         public CommentAuthorLine(Comment comment, IReadOnlyList<CommentableMeta> meta)
         {
             this.comment = comment;
@@ -61,22 +59,8 @@ namespace typebeat.Game.Overlays.Comments
                 });
             }
 
-            if (comment.Pinned)
-                Add(new PinnedCommentNotice());
-
-            Add(new ParentUsername(comment));
-
-            Add(deletedLabel = new OsuSpriteText
-            {
-                Alpha = 0f,
-                Font = OsuFont.GetFont(size: 14, weight: FontWeight.Bold),
-                Text = CommentsStrings.Deleted
-            });
-        }
-
-        public void MarkDeleted()
-        {
-            deletedLabel.Show();
+            // No pinned notice, reply-to link or "deleted" label: comments are never pinned, have no replies, and are never
+            // listed once deleted.
         }
 
         private partial class OwnerTitleBadge : CircularContainer
@@ -109,71 +93,6 @@ namespace typebeat.Game.Overlays.Comments
                         Colour = colourProvider.Background6,
                     },
                 };
-            }
-        }
-
-        private partial class PinnedCommentNotice : FillFlowContainer
-        {
-            public PinnedCommentNotice()
-            {
-                AutoSizeAxes = Axes.Both;
-                Direction = FillDirection.Horizontal;
-                Spacing = new Vector2(2, 0);
-                Children = new Drawable[]
-                {
-                    new SpriteIcon
-                    {
-                        Icon = FontAwesome.Solid.Thumbtack,
-                        Size = new Vector2(14),
-                        Anchor = Anchor.CentreLeft,
-                        Origin = Anchor.CentreLeft,
-                    },
-                    new OsuSpriteText
-                    {
-                        Font = OsuFont.GetFont(size: 14, weight: FontWeight.Bold),
-                        Text = CommentsStrings.Pinned,
-                        Anchor = Anchor.CentreLeft,
-                        Origin = Anchor.CentreLeft,
-                    }
-                };
-            }
-        }
-
-        private partial class ParentUsername : FillFlowContainer, IHasTooltip
-        {
-            public LocalisableString TooltipText => getParentMessage();
-
-            private readonly Comment? parentComment;
-
-            public ParentUsername(Comment comment)
-            {
-                parentComment = comment.ParentComment;
-
-                AutoSizeAxes = Axes.Both;
-                Direction = FillDirection.Horizontal;
-                Spacing = new Vector2(3, 0);
-                Alpha = comment.ParentId == null ? 0 : 1;
-                Children = new Drawable[]
-                {
-                    new SpriteIcon
-                    {
-                        Icon = FontAwesome.Solid.Reply,
-                        Size = new Vector2(14),
-                    },
-                    new OsuSpriteText
-                    {
-                        Font = OsuFont.GetFont(size: 14, weight: FontWeight.Bold, italics: true),
-                        Text = parentComment?.User?.Username ?? parentComment?.LegacyName!
-                    }
-                };
-            }
-
-            private LocalisableString getParentMessage()
-            {
-                if (parentComment == null)
-                    return string.Empty;
-
-                return parentComment.HasMessage ? parentComment.Message : parentComment.IsDeleted ? CommentsStrings.Deleted : string.Empty;
             }
         }
     }

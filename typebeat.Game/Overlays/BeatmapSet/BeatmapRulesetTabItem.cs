@@ -9,6 +9,8 @@ using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
+using osu.Framework.Graphics.Sprites;
+using typebeat.Game.Beatmaps.Drawables;
 using typebeat.Game.Extensions;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
@@ -31,6 +33,12 @@ namespace typebeat.Game.Overlays.BeatmapSet
             : base(value)
         {
         }
+
+        /// <remarks>
+        /// Lazer's osu! ring, as the set's difficulty buttons draw (see <see cref="DifficultyIcon.CreateRulesetGlyph"/>): the
+        /// ruleset's own icon is a fixed-size solid circle that this tab's icon container cannot scale, so it sat off-centre.
+        /// </remarks>
+        protected override Drawable CreateRulesetIcon(RulesetInfo ruleset) => new SpriteIcon { Icon = OsuIcon.RulesetOsu };
 
         [BackgroundDependencyLoader]
         private void load()

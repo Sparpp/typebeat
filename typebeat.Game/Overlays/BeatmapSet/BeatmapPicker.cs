@@ -34,7 +34,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
         private const float tile_spacing = 2;
 
         private readonly LinkFlowContainer infoContainer;
-        private readonly Statistic nominations, plays, favourites;
+        private readonly Statistic plays, favourites;
 
         public readonly DifficultiesContainer Difficulties;
 
@@ -109,10 +109,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
                             Margin = new MarginPadding { Top = 5 },
                             Children = new[]
                             {
-                                nominations = new Statistic(FontAwesome.Solid.ThumbsUp)
-                                {
-                                    TooltipText = BeatmapsetsStrings.ShowStatsNominations,
-                                },
+                                // No nominations count: there is no nomination step.
                                 plays = new Statistic(FontAwesome.Solid.PlayCircle)
                                 {
                                     TooltipText = BeatmapsetsStrings.ShowStatsPlaycount,
@@ -184,14 +181,6 @@ namespace typebeat.Game.Overlays.BeatmapSet
 
             // Else just choose the first available difficulty for now.
             Beatmap.Value ??= Difficulties.FirstOrDefault()?.Beatmap;
-
-            if (beatmapSet?.Status == BeatmapOnlineStatus.Pending && beatmapSet.NominationStatus != null)
-            {
-                nominations.Show();
-                nominations.Value = beatmapSet.NominationStatus.Current;
-            }
-            else
-                nominations.Hide();
 
             plays.Value = BeatmapSet?.PlayCount ?? 0;
             favourites.Value = BeatmapSet?.FavouriteCount ?? 0;
@@ -337,6 +326,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
                     icon = new DifficultyIcon(beatmapInfo, ruleset)
                     {
                         TooltipType = DifficultyIconTooltipType.None,
+                        SquareBackground = true,
                         Anchor = Anchor.Centre,
                         Origin = Anchor.Centre,
                         Size = new Vector2(size - tile_icon_padding * 2),

@@ -130,22 +130,15 @@ namespace typebeat.Game.Overlays.BeatmapSet.Scores
 
                 ppColumn.Alpha = value.BeatmapInfo!.Status.GrantsPerformancePoints() ? 1 : 0;
 
-                if (!value.Ranked)
+                // As in ScoreTable: the server prices a play inside its submission, so no pp means none earned, never
+                // "processing".
+                if (!value.Ranked || value.PP is not double pp)
                 {
                     ppColumn.Drawable = new SpriteTextWithTooltip
                     {
                         Text = "-",
                         Font = smallFont,
                         TooltipText = ScoresStrings.StatusNoPp
-                    };
-                }
-                else if (value.PP is not double pp)
-                {
-                    ppColumn.Drawable = new SpriteIconWithTooltip
-                    {
-                        Icon = FontAwesome.Solid.Sync,
-                        Size = new Vector2(smallFont.Size),
-                        TooltipText = ScoresStrings.StatusProcessing,
                     };
                 }
                 else
