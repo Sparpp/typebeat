@@ -1,8 +1,6 @@
 ﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
-#nullable disable
-
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -19,6 +17,7 @@ using typebeat.Game.Localisation;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Overlays.Settings.Sections;
 using typebeat.Game.Overlays.Settings.Sections.Input;
+using typebeat.Game.Rulesets;
 using osuTK.Graphics;
 
 namespace typebeat.Game.Overlays
@@ -29,37 +28,9 @@ namespace typebeat.Game.Overlays
         public LocalisableString Title => SettingsStrings.HeaderTitle;
         public LocalisableString Description => SettingsStrings.HeaderDescription;
 
-        protected override IEnumerable<SettingsSection> CreateSections()
-        {
-            var sections = new List<SettingsSection>
-            {
-                // This list should be kept in sync with ScreenBehaviour.
-                new GeneralSection(),
-                new InputSection(createSubPanel(new KeyBindingPanel())),
-                new UserInterfaceSection(),
-                new GameplaySection(),
-                new RulesetSection(),
-                new ExperimentalSection(),
-                new AudioSection(),
-                new GraphicsSection(),
-                new MaintenanceSection()
-            };
-
-            var today = DateTimeOffset.Now;
-            if (today.Month == 4 && today.Day == 1)
-            {
-                // Add, not Insert at a hardcoded index: this always meant "last", and the index it
-                // used to spell that with silently became "before Maintenance" the moment a section
-                // was added above. Nothing catches that, the branch only runs on one day a year.
-                sections.Add(new AfToggleSection());
-            }
-
-            return sections;
-        }
-
         private readonly List<SettingsSubPanel> subPanels = new List<SettingsSubPanel>();
 
-        private SettingsSubPanel lastOpenedSubPanel;
+        private SettingsSubPanel? lastOpenedSubPanel;
 
         protected override Drawable CreateHeader() => new SettingsHeader(Title, Description);
 
@@ -77,8 +48,7 @@ namespace typebeat.Game.Overlays
 
         public override bool AcceptsFocus => lastOpenedSubPanel == null || lastOpenedSubPanel.State.Value == Visibility.Hidden;
 
-        public void ShowAtControl<T>()
-            where T : Drawable
+        public void ShowAtControl<T>() where T : Drawable
         {
             // if search isn't cleared then the target control won't be visible if it doesn't match the query
             SearchTextBox.Current.SetDefault();
@@ -93,6 +63,59 @@ namespace typebeat.Game.Overlays
             }
 
             SectionsContainer.ScrollTo(SectionsContainer.ChildrenOfType<T>().Single());
+        }
+
+        protected override float ExpandedPosition => lastOpenedSubPanel?.State.Value == Visibility.Visible ? -PANEL_WIDTH : base.ExpandedPosition;
+
+        [BackgroundDependencyLoader]
+        private void load(RulesetStore rulesets)
+        {
+            var sections = new List<SettingsSection>
+            {
+                // This list should be kept in sync with ScreenBehaviour.
+                new GeneralSection(),
+                new InputSection(createSubPanel(new KeyBindingPanel())),
+                new UserInterfaceSection(),
+                new GameplaySection()
+            };
+
+            foreach (Ruleset ruleset in rulesets.AvailableRulesets.Select(info => info.CreateInstance()))
+            {
+                try
+                {
+                    SettingsSubsection? section = ruleset.CreateSettings();
+
+                    if (section != null)
+                        sections.Add(new RulesetSection(ruleset, section));
+                }
+                catch (Exception e)
+                {
+                    RulesetStore.LogRulesetFailure(ruleset.RulesetInfo, e);
+                }
+            }
+
+            sections.AddRange(new SettingsSection[]
+            {
+                new ExperimentalSection(),
+                new AudioSection(),
+                new GraphicsSection(),
+                new MaintenanceSection()
+            });
+
+            var today = DateTimeOffset.Now;
+            if (today.Month == 4 && today.Day == 1)
+            {
+                // Add, not Insert at a hardcoded index: this always meant "last", and the index it
+                // used to spell that with silently became "before Maintenance" the moment a section
+                // was added above. Nothing catches that, the branch only runs on one day a year.
+                sections.Add(new AfToggleSection());
+            }
+
+            foreach (var s in sections)
+                AddSection(s);
+
+            foreach (var s in subPanels)
+                ContentContainer.Add(s);
         }
 
         private T createSubPanel<T>(T subPanel)
@@ -130,15 +153,6 @@ namespace typebeat.Game.Overlays
                     ContentContainer.MoveToX(0, 500, Easing.OutQuint);
                     break;
             }
-        }
-
-        protected override float ExpandedPosition => lastOpenedSubPanel?.State.Value == Visibility.Visible ? -PANEL_WIDTH : base.ExpandedPosition;
-
-        [BackgroundDependencyLoader]
-        private void load()
-        {
-            foreach (var s in subPanels)
-                ContentContainer.Add(s);
         }
     }
 }

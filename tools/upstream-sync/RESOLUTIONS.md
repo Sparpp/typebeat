@@ -56,6 +56,20 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
 - **step 82, `OnlineAssetCachingStore`** builds its `TrustedDomainOnlineStore`
   with type!beat's endpoints and wraps it in `LoopbackAwareStore`, like the
   game's other online stores.
+- **step 90, settings layout (#38640).** Adopted upstream's new layout
+  (decided 2026-10-05), keeping type!beat's own edits:
+  - Main settings: the "type!beat" section becomes upstream's per-ruleset
+    section (smaller sidebar button, type!beat's icon, still titled
+    "type!beat"). Skin, Online and Debug stay out; Experimental stays in;
+    the April Fools toggle still goes last.
+  - Key bindings: upstream's split into Global / Gameplay / Song select /
+    Editor, plus type!beat's own section. The Editor section keeps type!beat's
+    6-action list and leaves out upstream's per-ruleset editor bindings
+    (type!beat has none, see step 81).
+  - First-run setup keeps the ruleset's settings (upstream dropped them there).
+  - `TypeBeatSettingsSubsection` and `TypeBeatExperimentalSettingsSubsection`
+    lose their blank-header overrides: upstream's base class now does the same
+    thing and doesn't allow overriding it.
 
 ## Combined both sides
 
