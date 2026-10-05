@@ -3,13 +3,11 @@
 
 using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Collections;
-using typebeat.Game.Database;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.Filter;
 using typebeat.Game.Rulesets.Mods;
@@ -110,24 +108,10 @@ namespace typebeat.Game.Screens.Select
             }
         }
 
-        private ImmutableHashSet<string>? collectionBeatmapMD5Hashes;
-        private Live<BeatmapCollection>? collection;
-
         /// <summary>
         /// Hashes from the <see cref="BeatmapCollection"/> to filter to.
         /// </summary>
-        public IEnumerable<string>? CollectionBeatmapMD5Hashes =>
-            collectionBeatmapMD5Hashes ??= Collection?.PerformRead(c => c.BeatmapMD5Hashes.ToImmutableHashSet());
-
-        public Live<BeatmapCollection>? Collection
-        {
-            get => collection;
-            set
-            {
-                collection = value;
-                collectionBeatmapMD5Hashes = null;
-            }
-        }
+        public IEnumerable<string>? CollectionBeatmapMD5Hashes { get; set; }
 
         public IRulesetFilterCriteria? RulesetCriteria { get; set; }
 

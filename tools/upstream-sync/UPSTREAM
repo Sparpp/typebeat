@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@4f649c51b1b911361244e253e3469b2fb456f00e
-title    Minimize crash/freezes on multiple "block all realm operations" (#38572)
-date     2026-08-11
+commit   ppy/osu@0d82c37305e72533b4a6fe984707238b68c7221c
+title    Save last song select collection filter to local config (#38549)
+date     2026-08-12
 release  2026.807.0-tachyon (the newest osu! release that is fully merged)

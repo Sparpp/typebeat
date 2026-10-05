@@ -53,6 +53,7 @@ namespace typebeat.Game.Configuration
 
             SetDefault(OsuSetting.SongSelectGroupMode, GroupMode.None);
             SetDefault(OsuSetting.SongSelectSortingMode, SortMode.Title);
+            SetDefault(OsuSetting.SongSelectCollectionFilter, string.Empty);
 
             SetDefault(OsuSetting.RandomSelectAlgorithm, RandomSelectAlgorithm.RandomPermutation);
             SetDefault(OsuSetting.ModSelectHotkeyStyle, ModSelectHotkeyStyle.Sequential);
@@ -396,6 +397,7 @@ namespace typebeat.Game.Configuration
         DisplayStarsMaximum,
         SongSelectGroupMode,
         SongSelectSortingMode,
+        SongSelectCollectionFilter,
         RandomSelectAlgorithm,
         ModSelectHotkeyStyle,
         ShowFpsDisplay,

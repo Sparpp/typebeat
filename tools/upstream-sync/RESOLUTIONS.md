@@ -43,6 +43,8 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   event fires from type!beat's `refreshBackgroundDisplays()`. The combo colour
   suggestions it feeds live in `ColoursSection`, which type!beat's editor
   doesn't show.
+- step 70 `FilterControl.cs` (#38549): type!beat's saved-sort handling (BPM
+  falls back to Title) + upstream's remembered collection filter.
 
 ## Kept type!beat's version
 
