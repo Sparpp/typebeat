@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@f255ebcbceec8cf269100c480b65193143c85985
-title    Fix Hot Reload not working
+commit   ppy/osu@c729c6d7a2a1e3ce0d7118af3dce8ac9192d31c9
+title    Improve performance when loading chat overlay with too many channels joined (#38803)
 date     2026-09-11
 release  2026.911.0-tachyon (the newest osu! release that is fully merged)
