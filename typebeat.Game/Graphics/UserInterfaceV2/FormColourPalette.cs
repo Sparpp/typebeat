@@ -184,6 +184,15 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
             private Box background = null!;
             private OsuSpriteText hexCode = null!;
 
+            /// <summary>
+            /// type!beat: a button with no suggested colours. Upstream made suggestions a required argument;
+            /// this keeps type!beat's own callers (the freestyle and timing tint swatches) unchanged.
+            /// </summary>
+            public ColourButton()
+                : this(new BindableList<Colour4>())
+            {
+            }
+
             public ColourButton(BindableList<Colour4> suggestions)
             {
                 this.suggestions = suggestions;
@@ -253,6 +262,15 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
 
             private readonly BindableWithCurrent<Colour4> current = new BindableWithCurrent<Colour4>();
             private readonly BindableList<Colour4> suggestions;
+
+            /// <summary>
+            /// type!beat: a picker with no suggested colours. Upstream made suggestions a required argument;
+            /// this keeps type!beat's own callers (the freestyle and timing tint swatches) unchanged.
+            /// </summary>
+            public ColourPickerPopover()
+                : this(new BindableList<Colour4>())
+            {
+            }
 
             public ColourPickerPopover(BindableList<Colour4> suggestions)
                 : base(false)
