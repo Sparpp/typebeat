@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@39fd696527be8894b179d8992d03aaffdc9b0ac4
-title    Improve legibility and understandability of some settings (#38450)
+commit   ppy/osu@cb3d5da8b441afd8d2cf3e03ceebc6b027e2074d
+title    Update framework
 date     2026-07-28
 release  2026.726.0-lazer (the newest osu! release that is fully merged)

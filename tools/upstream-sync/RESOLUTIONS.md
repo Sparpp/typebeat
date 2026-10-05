@@ -35,3 +35,4 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   `typebeat.Game.Resources` package. On vendor/osu, upstream's resources
   package shows up as `ppy.typebeat.Game.Resources` (a side effect of the
   rename; the real one is `ppy.osu.Game.Resources`), so that line never applies.
+- step 43: 2026.724.0 → 2026.728.1. Built as is.
