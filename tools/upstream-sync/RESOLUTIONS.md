@@ -7,6 +7,16 @@ the way it does. Each merge on `sync/vendor` adds its own note here.
 Step numbers count vendor/osu commits after the 2026.711.0-lazer base.
 Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
 
+## Open decisions (kept type!beat's behaviour for now)
+
+- **step 60, pp on non-best profile scores (#38516).** type!beat still shows a
+  dash. This only affects the profile's Recent plays list (Best, Pinned and
+  Firsts only hold best plays). The type!beat website also shows best plays
+  only, as of 2026-10-05. Port upstream's "show it with a non-best tooltip"
+  once the server sends pp for non-best plays, without the "processing"
+  spinner: type!beat's server prices a play when it's submitted, so a missing
+  pp never arrives later.
+
 ## Changes type!beat had to make
 
 - **step 50, `FormColourSwatch`** (the freestyle colour picker) passes an empty
