@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@5fcee0e0d43f43c28036e36703fed99614a2acbd
-title    Precompile path shaders during game load (#38647)
+commit   ppy/osu@ae1f49339eaf5875e895529599065c5909ac06d9
+title    Fix presenting beatmap sometimes not working correctly when scoped to beatmap (#38639)
 date     2026-08-19
 release  2026.807.0-tachyon (the newest osu! release that is fully merged)

@@ -87,6 +87,7 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   NUnit) is in, so `TestSceneStoredBeatmapFacts`, which tests that pass,
   turns `SkipProcessing` back off.
 - step 37 `UpdateSettings.cs` (#38430): type!beat has no release-stream picker.
+- step 84 `SongSelect.cs` (#38639): type!beat removed beatmap-set scoping.
 
 ## Framework
 
