@@ -49,6 +49,8 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   falls back to Title) + upstream's remembered collection filter.
 - step 75 `OsuGame.cs` (#38604): same as step 31, for the now-playing
   overlay.
+- step 77 `OsuTextBox.cs` (#38630): upstream's overridable `Font` is the
+  default inside type!beat's `getTextFont()`; a chosen font family still wins.
 
 ## Kept type!beat's version
 
