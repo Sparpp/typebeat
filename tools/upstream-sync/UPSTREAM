@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@7306f385b8d3e6896523d2b8060dcbce9bba4582
-title    Discard unused parameters
+commit   ppy/osu@627690d1977fb3a1cb5d13f0fbeca8d9902d4632
+title    Remove unused DI parameters
 date     2026-10-01
 release  2026.1001.0-tachyon (the newest osu! release that is fully merged)

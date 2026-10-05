@@ -205,7 +205,7 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
         }
 
         [BackgroundDependencyLoader]
-        private void load(OsuColour colours, OsuGame? game)
+        private void load(OsuGame? game)
         {
             RelativeSizeAxes = Axes.X;
             AutoSizeAxes = Axes.Y;
