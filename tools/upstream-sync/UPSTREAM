@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@150d653465cfde4aa7901db0151e597a251ea8de
-title    Delay switchover of spectator client to new spectator server instance until current score is done (#38362)
+commit   ppy/osu@03eb0be6ac71a11ac28bda8f23badf6d09bd763c
+title    Implement crude memory caching of localised strings (#38360)
 date     2026-07-21
 release  2026.716.0-tachyon (the newest osu! release that is fully merged)
