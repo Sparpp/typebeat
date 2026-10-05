@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@535df55156164534b047c9038bdeae388e4d617d
-title    Fix storyboard decode hanging on self-referential variable definitions (#38505)
+commit   ppy/osu@44f96657a557980befc7bdcf29cf7c7a9ef3ab88
+title    Adjust flashlight scale animation to match stable closer in osu!, osu!taiko, and osu!catch (#38474)
 date     2026-08-03
 release  2026.731.0-tachyon (the newest osu! release that is fully merged)
