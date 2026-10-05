@@ -502,6 +502,7 @@ namespace typebeat.Game.Screens.Edit.Setup
         {
             backgroundPreview.UpdateBackground();
             editor?.ApplyToBackground(bg => ((EditorBackgroundScreen)bg).RefreshBackgroundAsync());
+            setupScreen.BackgroundChanged?.Invoke();
         }
 
         private void separateBackgroundTickChanged(ValueChangedEvent<bool> tick)

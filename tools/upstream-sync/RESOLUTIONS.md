@@ -7,6 +7,12 @@ the way it does. Each merge on `sync/vendor` adds its own note here.
 Step numbers count vendor/osu commits after the 2026.711.0-lazer base.
 Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
 
+## Changes type!beat had to make
+
+- **step 50, `FormColourSwatch`** (the freestyle colour picker) passes an empty
+  suggestions list to `FormColourPalette.ColourButton`, whose constructor
+  upstream changed.
+
 ## Combined both sides
 
 - step 5 `LocalScoreDeleteDialog.cs` (#38227): upstream's
@@ -19,6 +25,10 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   osu-server-spectator API (ppy/osu-server-spectator#523).
 - step 31 `OsuGame.cs` (#38378): re-applied upstream's login overlay change
   to type!beat's overlay layout. The overlays type!beat removed stay out.
+- step 50 `ResourcesSection.cs` (#38391): upstream's new `BackgroundChanged`
+  event fires from type!beat's `refreshBackgroundDisplays()`. The combo colour
+  suggestions it feeds live in `ColoursSection`, which type!beat's editor
+  doesn't show.
 
 ## Kept type!beat's version
 
@@ -36,3 +46,4 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   package shows up as `ppy.typebeat.Game.Resources` (a side effect of the
   rename; the real one is `ppy.osu.Game.Resources`), so that line never applies.
 - step 43: 2026.724.0 → 2026.728.1. Built as is.
+- step 50: 2026.728.1 → 2026.731.0. Needed the `FormColourSwatch` fix above.
