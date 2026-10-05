@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@7cdd7ee495cb6edf535ba89a839123790786ba7b
-title    Add ability to lock object placement to hit area in taiko/catch/mania (#38380)
+commit   ppy/osu@1032a7c31581513c8be751e46f0940e1c95ed252
+title    Implement storyboard hit sound triggers (#38387)
 date     2026-07-29
-release  2026.726.0-lazer (the newest osu! release that is fully merged)
+release  2026.730.0 (the newest osu! release that is fully merged)
