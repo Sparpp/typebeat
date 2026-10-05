@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@059634c81826db39df12e70c7f642b57faeb8515
-title    Fix screenshot rate limit error handling not working as expected (#38960)
+commit   ppy/osu@733d05700b4c47d2724e84bbd6bfdd5d3420e8bd
+title    Adjust `WebSocketChannel` logic to avoid crashes (#38962)
 date     2026-10-01
 release  2026.1001.0-tachyon (the newest osu! release that is fully merged)
