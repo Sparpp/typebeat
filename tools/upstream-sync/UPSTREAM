@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@ca5f4eb3bfa59baeef31980456ae0097bf510d5e
-title    Fix code inspection
-date     2026-07-14
+commit   ppy/osu@f197f8481faea9137322d2dc081bd18f641189d2
+title    Unify right toolbox velocity control with difficulty pieces (#38302)
+date     2026-07-15
 release  2026.711.0-lazer (the newest osu! release that is fully merged)
