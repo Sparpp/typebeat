@@ -147,6 +147,17 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
     which does what upstream's one-liner does;
   - `.config/dotnet-tools.json`: kept type!beat's newer ReSharper tools
     (2026.2.2; upstream has 2026.2.1).
+- step 124 `LocalUserState.cs`, `OsuConfigManager.cs` (#38806, "friends-only
+  private messages" synced with the website): took upstream's setting sync,
+  without its "no `last_visit` means appear offline" check, which type!beat
+  removed because its server never sends `last_visit`. type!beat had deleted
+  `AlertsAndPrivacySettings.cs`, where upstream put the checkbox, so there is
+  no checkbox and the client never calls `PUT /me/options`. The new
+  `PMFriendsOnly` setting goes after type!beat's `SeparateAllDifficulties`,
+  which needed a trailing comma. Upstream also marked
+  `APIRequest.CompletionState` `[JsonIgnore]`, so it no longer rides along in
+  request bodies; `SubmissionExplicitFlagTest`'s pin of the submission
+  request's keys drops it.
 
 ## Kept type!beat's version
 
