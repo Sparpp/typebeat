@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@fec525a51795306e87672430eb256900d28829b6
-title    Add filter to hide full rooms in multiplayer lobby (#38318)
-date     2026-07-16
+commit   ppy/osu@ce56b40461fde8680b0de250b0c7a1196c06745b
+title    Revert form dropdown padding hack again
+date     2026-07-17
 release  2026.716.0-tachyon (the newest osu! release that is fully merged)
