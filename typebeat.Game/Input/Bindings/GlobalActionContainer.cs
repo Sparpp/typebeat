@@ -110,7 +110,9 @@ namespace typebeat.Game.Input.Bindings
 
             new KeyBinding(InputKey.F10, GlobalAction.ToggleGameplayMouseButtons),
             new KeyBinding(InputKey.F12, GlobalAction.TakeScreenshot),
-            new KeyBinding(new[] { InputKey.Shift, InputKey.F12 }, GlobalAction.TakeAndUploadScreeshot),
+            // No TakeAndUploadScreeshot (Shift+F12): the type!beat server has no screenshot upload
+            // endpoint, so it could only fail. Leaving out the default also keeps it out of the key
+            // binding settings, which list the actions that have defaults.
         };
 
         private static IEnumerable<KeyBinding> overlayKeyBindings => new[]
