@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@1a75a1ccaafe720599be084d91fb3ed42938053e
-title    Use Inter font in chat for better legibility (#38630)
+commit   ppy/osu@65a6d3dbedef6c437d2e6c44c5312c25f3f62cf9
+title    Batch chat message delivery when possible (#38629)
 date     2026-08-18
 release  2026.807.0-tachyon (the newest osu! release that is fully merged)
