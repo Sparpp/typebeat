@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@28aea2b84892431d4d13aaffa7b21737ae5d1b12
-title    Adjust operation of left sidebar toggles in editor (#38648)
+commit   ppy/osu@aadb6f9f4b6c37849fc35bd662ad65539fbb8f1e
+title    Add rebind support for more editor actions (#38666)
 date     2026-08-21
 release  2026.819.0-tachyon (the newest osu! release that is fully merged)

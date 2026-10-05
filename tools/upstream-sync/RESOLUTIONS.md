@@ -70,6 +70,14 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   - `TypeBeatSettingsSubsection` and `TypeBeatExperimentalSettingsSubsection`
     lose their blank-header overrides: upstream's base class now does the same
     thing and doesn't allow overriding it.
+- **step 95, rebindable editor playback keys (#38666).** Upstream moved the
+  editor's Space / arrows / Z X C V keys from hard-coded handling into
+  rebindable global actions. type!beat's key binding settings keep their
+  trimmed editor list, so the new actions work on their default keys but
+  aren't listed for rebinding. Build fix: `PlaybackControl.cs` keeps
+  `using osuTK.Input;`, which type!beat's speed box still needs.
+  Checked: Space still taps in tap timing, because that overlay holds focus
+  and focus beats global actions in osu-framework's input order.
 
 ## Combined both sides
 
