@@ -26,6 +26,8 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   layer, which would have put them back into type!beat's HUD. Removed again
   from Argon and Triangles. Side effect: Argon's key counter now always sits
   36px in from the right edge (upstream's fixed offset).
+- **step 73, dropped an orphan file.** `PlacementStateManager.cs` is an
+  upstream refactor of hit-object editor code that type!beat deleted.
 
 ## Combined both sides
 
