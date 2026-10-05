@@ -28,6 +28,8 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   36px in from the right edge (upstream's fixed offset).
 - **step 73, dropped an orphan file.** `PlacementStateManager.cs` is an
   upstream refactor of hit-object editor code that type!beat deleted.
+- **step 79, dropped an orphan file.** `HitObjectComposer.SelectionState.cs`
+  is a partial of `HitObjectComposer`, which type!beat deleted.
 
 ## Combined both sides
 
