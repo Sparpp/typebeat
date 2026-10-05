@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@4be0451b20b41bfd9abfa5790f9f5552ec8e6774
-title    Add note about audio migration dialog being removeable in the future
+commit   ppy/osu@81397999a81109d67a764e5260837d51435d869e
+title    Add WebSocket messages for beatmap data and user activity (#38071)
 date     2026-10-05
 release  2026.1004.0-tachyon (the newest osu! release that is fully merged)
