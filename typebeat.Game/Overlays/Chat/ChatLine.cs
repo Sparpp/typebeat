@@ -16,6 +16,7 @@ using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
+using typebeat.Game.Localisation;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests.Responses;
 using typebeat.Game.Online.Chat;
@@ -232,15 +233,11 @@ namespace typebeat.Game.Overlays.Chat
                     switch (currentChannel.Value.Type)
                     {
                         case ChannelType.PM:
-                            currentChannel.Value.AddNewMessages(new InfoMessage("""
-                                                                                Chat moderators have been alerted. You have reported a private message so they will not be able to read history to maintain your privacy. Please make sure to include as much details as you can.
-                                                                                You can submit a second report with more details if required, or contact abuse@ppy.sh if a user is being extremely offensive.
-                                                                                You can also block a user via the block button on their user profile, or by right-clicking on their name in the chat and selecting "Block".
-                                                                                """));
+                            currentChannel.Value.AddNewMessages(new InfoMessage(ChatStrings.ReportConfirmationPM));
                             break;
 
                         default:
-                            currentChannel.Value.AddNewMessages(new InfoMessage(@"Chat moderators have been alerted. Thanks for your help."));
+                            currentChannel.Value.AddNewMessages(new InfoMessage(ChatStrings.ReportConfirmation));
                             break;
                     }
                 }
