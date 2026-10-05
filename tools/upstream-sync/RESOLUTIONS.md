@@ -30,6 +30,11 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   upstream refactor of hit-object editor code that type!beat deleted.
 - **step 79, dropped an orphan file.** `HitObjectComposer.SelectionState.cs`
   is a partial of `HitObjectComposer`, which type!beat deleted.
+- **step 81, `Ruleset.AllVariants`** doesn't append upstream's new
+  `EDITOR_VARIANT`. `TypeBeatRuleset` ignores the variant in
+  `GetDefaultKeyBindings`. Without this, every player would get a duplicate
+  set of gameplay bindings stored as "editor" bindings, plus a "Beatmap
+  editor" key-binding section for an editor that never reads it.
 
 ## Combined both sides
 
@@ -53,6 +58,8 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   overlay.
 - step 77 `OsuTextBox.cs` (#38630): upstream's overridable `Font` is the
   default inside type!beat's `getTextFont()`; a chosen font family still wins.
+- step 81 `EditorStrings.cs` (#38608): both new strings. The ruleset API
+  bump to 2026.818.0 is fine: `TypeBeatRuleset` reports the current constant.
 
 ## Kept type!beat's version
 

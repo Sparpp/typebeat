@@ -430,7 +430,7 @@ namespace typebeat.Game.Screens.Select
                             break;
 
                         case GroupMode.Variant:
-                            if (rulesetInstance.AvailableVariants.Count() <= 1)
+                            if (rulesetInstance.GameplayVariants.Count() <= 1)
                                 break;
 
                             items.Add(new GroupModeDropdownItem(GroupMode.Variant, rulesetInstance.VariantDescription));
