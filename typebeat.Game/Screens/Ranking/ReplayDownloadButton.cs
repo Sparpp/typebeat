@@ -7,6 +7,7 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Input.Bindings;
 using osu.Framework.Input.Events;
+using typebeat.Game.Configuration;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Input.Bindings;
@@ -50,7 +51,7 @@ namespace typebeat.Game.Screens.Ranking
         }
 
         [BackgroundDependencyLoader]
-        private void load(OsuGame? game, ScoreModelDownloader scoreDownloader)
+        private void load(OsuGame? game, ScoreModelDownloader scoreDownloader, OsuConfigManager config)
         {
             InternalChild = shakeContainer = new ShakeContainer
             {
