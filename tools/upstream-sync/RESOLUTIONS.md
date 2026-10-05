@@ -148,6 +148,9 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   removed because its server never sends `last_visit`. type!beat had deleted
   `AlertsAndPrivacySettings.cs`, where upstream put the checkbox, so there is
   no checkbox and the client never calls `PUT /me/options`.
+- step 134 `InspectCode.sh` (#38857, InspectCode without nvika): took
+  upstream's. type!beat had only added `--format=Xml` for nvika, which is gone
+  (it prints a text report to stdout now).
 
 ## Kept type!beat's version
 
