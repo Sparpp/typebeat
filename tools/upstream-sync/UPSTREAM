@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@9e3b6175a5ce35ba2bc1932d3b0185df2a65a09f
-title    Upgrade to .NET 10.0 (#38039)
+commit   ppy/osu@a14ad5f7088acd5035961c8ea8cd0935aa0c1967
+title    Update resources
 date     2026-09-09
-release  2026.821.0-tachyon (the newest osu! release that is fully merged)
+release  2026.909.0-tachyon (the newest osu! release that is fully merged)
