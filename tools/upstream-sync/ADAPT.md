@@ -28,3 +28,7 @@ When `sync/vendor` moves on, rebase this branch onto it.
 - **The settings footer shows the merged upstream release** (2026-10-05),
   as a small gray "upstream: <release>" line under the version. It reads the
   embedded tools/upstream-sync/UPSTREAM, which every sync merge rewrites.
+- **Skin is its own settings section again, like upstream** (2026-10-05).
+  Upstream always had it separate; type!beat folded it into User Interface in
+  faf82d3a ("Tidy up the settings overlay", 2026-08-10). This undoes that one
+  part: Skin sits after General in the sidebar and in first-run setup.
