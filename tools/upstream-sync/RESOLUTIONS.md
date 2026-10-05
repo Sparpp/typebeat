@@ -162,6 +162,9 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   `APIRequest.CompletionState` `[JsonIgnore]`, so it no longer rides along in
   request bodies; `SubmissionExplicitFlagTest`'s pin of the submission
   request's keys drops it.
+- step 134 `InspectCode.sh` (#38857, InspectCode without nvika): took
+  upstream's. type!beat had only added `--format=Xml` for nvika, which is gone
+  (it prints a text report to stdout now).
 
 ## Kept type!beat's version
 
