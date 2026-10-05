@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@0f3d3c3be19b134779879b3f18fe315da035c1ac
-title    Fix accuracy and combo proportions being back-to-front in mania standardised score conversion algorithm (#38321)
-date     2026-07-27
+commit   ppy/osu@52461f1b82672f019867c2078b357d3cb5d1f130
+title    Improve behaviour of sample popover volume slider when selection contains multiple volume values (#38435)
+date     2026-07-28
 release  2026.726.0-lazer (the newest osu! release that is fully merged)
