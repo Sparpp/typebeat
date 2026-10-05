@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@81397999a81109d67a764e5260837d51435d869e
-title    Add WebSocket messages for beatmap data and user activity (#38071)
+commit   ppy/osu@dbd8b17fcc6853dd96c2094f75bbcda30e7de496
+title    Change tablet x and y offset precision to 0.01 (#38718)
 date     2026-10-05
 release  2026.1004.0-tachyon (the newest osu! release that is fully merged)
