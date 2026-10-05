@@ -11,6 +11,8 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
 
 - step 5 `LocalScoreDeleteDialog.cs` (#38227): upstream's
   `LocalisableString.Interpolate` + type!beat's `GetDisplayRank()`.
+- step 26 `ResourceManagerLocalisationStore.cs` (#38360): upstream's string
+  cache (file now nullable-enabled) + type!beat's `Rebrand`, now typed `string?`.
 
 ## Kept type!beat's version
 
