@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@52461f1b82672f019867c2078b357d3cb5d1f130
-title    Improve behaviour of sample popover volume slider when selection contains multiple volume values (#38435)
+commit   ppy/osu@945c002c6a9b34fee0a305c6f2320a73b9f6eee7
+title    Adjust pause/fail menu layouts to handle better at higher UI scales (#38429)
 date     2026-07-28
 release  2026.726.0-lazer (the newest osu! release that is fully merged)
