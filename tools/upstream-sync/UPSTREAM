@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@eb52566d0d31f3b100daa3b101fd916e2cf770e8
-title    Add localisation support to rulesets' beatmaps attributes extended descriptions (#38220)
+commit   ppy/osu@42e4f2b79009c35b28af66a9d321a2280007da10
+title    Add localisation support to `Stack Leniency` in `Editor` (#37911)
 date     2026-08-03
 release  2026.731.0-tachyon (the newest osu! release that is fully merged)
