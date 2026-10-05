@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@d54366dd1192c030b133d85887a19220a4024399
-title    Improve editor object inspector display (#38320)
+commit   ppy/osu@d4819c80bf35174084fae451a95cce8d2979fd21
+title    Add marker line to show where default value is on slider bars (#38319)
 date     2026-07-16
 release  2026.711.0-lazer (the newest osu! release that is fully merged)
