@@ -27,6 +27,7 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   don't share storyboard state).
 - step 33 `LocalCachedBeatmapMetadataSource.cs` (#38379): type!beat never
   fetches osu!'s metadata cache, so upstream's test-only guard is moot.
+- step 37 `UpdateSettings.cs` (#38430): type!beat has no release-stream picker.
 
 ## Framework
 
