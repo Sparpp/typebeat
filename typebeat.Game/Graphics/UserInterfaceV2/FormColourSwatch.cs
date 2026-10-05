@@ -68,7 +68,7 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
                             LengthLimit = 9,
                         },
                         Empty(),
-                        swatch = new FormColourPalette.ColourButton(new BindableList<Colour4>())
+                        swatch = new FormColourPalette.ColourButton
                         {
                             Anchor = Anchor.CentreLeft,
                             Origin = Anchor.CentreLeft,
