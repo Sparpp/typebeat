@@ -149,6 +149,8 @@ namespace typebeat.Game
 
         private LoginOverlay loginOverlay;
 
+        private NowPlayingOverlay nowPlayingOverlay;
+
         private DialogOverlay dialogOverlay;
 
         [Resolved]
@@ -1082,7 +1084,7 @@ namespace typebeat.Game
             loadComponentSingleFile(skinEditor = new SkinEditorOverlay(ScreenContainer), overlayContent.Add, true);
             loadComponentSingleFile(Settings = new SettingsOverlay(), leftFloatingOverlayContent.Add, true);
 
-            loadComponentSingleFile(new NowPlayingOverlay
+            loadComponentSingleFile(nowPlayingOverlay = new NowPlayingOverlay
             {
                 Anchor = Anchor.TopRight,
                 Origin = Anchor.TopRight,
@@ -1108,7 +1110,7 @@ namespace typebeat.Game
             Add(new LyricImportManager());
 
             // side overlays which cancel each other.
-            var singleDisplaySideOverlays = new OverlayContainer[] { Settings, Notifications, FirstRunOverlay, loginOverlay };
+            var singleDisplaySideOverlays = new OverlayContainer[] { Settings, Notifications, FirstRunOverlay, loginOverlay, nowPlayingOverlay };
 
             foreach (var overlay in singleDisplaySideOverlays)
             {
