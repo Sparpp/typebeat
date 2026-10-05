@@ -251,7 +251,6 @@ namespace typebeat.Game.Screens.Select
             }
         }
 
-
         protected override void LoadComplete()
         {
             base.LoadComplete();
