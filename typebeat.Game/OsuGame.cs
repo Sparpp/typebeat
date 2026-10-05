@@ -45,6 +45,8 @@ using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Input;
 using typebeat.Game.Input.Bindings;
 using typebeat.Game.IO;
+using typebeat.Game.IPC;
+using typebeat.Game.IPC.DataSources;
 using typebeat.Game.Localisation;
 using typebeat.Game.Online;
 using typebeat.Game.Online.API;
@@ -331,10 +333,10 @@ namespace typebeat.Game
             return userInputManager;
         }
 
-        private DependencyContainer dependencies;
+        protected new DependencyContainer Dependencies { get; private set; }
 
         protected override IReadOnlyDependencyContainer CreateChildDependencies(IReadOnlyDependencyContainer parent) =>
-            dependencies = new DependencyContainer(base.CreateChildDependencies(parent));
+            Dependencies = new DependencyContainer(base.CreateChildDependencies(parent));
 
         private readonly List<string> dragDropFiles = new List<string>();
         private ScheduledDelegate dragDropImportSchedule;
@@ -397,9 +399,9 @@ namespace typebeat.Game
             sentryLogger.AttachUser(API.LocalUser);
 
             if (SeasonalUIConfig.ENABLED)
-                dependencies.CacheAs(osuLogo = new OsuLogoChristmas { Alpha = 0 });
+                Dependencies.CacheAs(osuLogo = new OsuLogoChristmas { Alpha = 0 });
             else
-                dependencies.CacheAs(osuLogo = new OsuLogo { Alpha = 0 });
+                Dependencies.CacheAs(osuLogo = new OsuLogo { Alpha = 0 });
 
             // bind config int to database RulesetInfo
             configRuleset = LocalConfig.GetBindable<string>(OsuSetting.Ruleset);
@@ -545,7 +547,7 @@ namespace typebeat.Game
 
         public void CopyToClipboard(string value) => waitForReady(() => onScreenDisplay, _ =>
         {
-            dependencies.Get<Clipboard>().SetText(value);
+            Dependencies.Get<Clipboard>().SetText(value);
             onScreenDisplay.Display(new CopiedToClipboardToast());
         });
 
@@ -943,7 +945,7 @@ namespace typebeat.Game
 
             ScreenFooter.BackReceptor backReceptor;
 
-            dependencies.CacheAs(idleTracker = new GameIdleTracker(6000));
+            Dependencies.CacheAs(idleTracker = new GameIdleTracker(6000));
 
             var sessionIdleTracker = new GameIdleTracker(300000);
             sessionIdleTracker.IsIdle.BindValueChanged(idle =>
@@ -1011,7 +1013,7 @@ namespace typebeat.Game
                 new ConfineMouseTracker()
             });
 
-            dependencies.Cache(ScreenFooter);
+            Dependencies.Cache(ScreenFooter);
 
             ScreenStack.ScreenPushed += screenPushed;
             ScreenStack.ScreenExited += screenExited;
@@ -1177,6 +1179,16 @@ namespace typebeat.Game
             // this MUST happen after `applyConfigMigrations()` call, as it relies on comparing the previous version.
             // debug / local compilations will reset to a non-release string.
             LocalConfig.SetValue(OsuSetting.Version, version);
+
+            var webSocketProvider = Dependencies.Get<IWebSocketProvider>();
+
+            if (webSocketProvider != null)
+            {
+                AddRange([
+                    new UserActivityWebSocketDataSource(webSocketProvider),
+                    new BeatmapStateWebSocketDataSource(webSocketProvider)
+                ]);
+            }
         }
 
         /// <summary>
@@ -1459,7 +1471,7 @@ namespace typebeat.Game
             where T : class
         {
             if (cache)
-                dependencies.CacheAs(component);
+                Dependencies.CacheAs(component);
 
             var drawableComponent = component as Drawable ?? throw new ArgumentException($"Component must be a {nameof(Drawable)}", nameof(component));
 
