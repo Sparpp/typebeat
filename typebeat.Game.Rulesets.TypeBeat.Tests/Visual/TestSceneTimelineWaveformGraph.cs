@@ -82,7 +82,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             });
             AddWaitStep("settle", 10);
             AddAssert("no resample started", () => graph.ResamplesStarted - startedBefore, () => Is.Zero);
-            AddStep("narrow back under the source", () => graph.Width = sourcePoints / 2f);
+            // A whole-pixel width: the graph resamples to the width rounded UP, and the source's point
+            // count can be odd (it is since framework 2026.918.0, which rewrote waveform generation).
+            AddStep("narrow back under the source", () => graph.Width = sourcePoints / 2);
             AddUntilStep("resampled at the new width", () => graph.Regenerations.Last(), () => Is.EqualTo(sourcePoints / 2));
         }
 

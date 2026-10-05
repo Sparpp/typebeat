@@ -93,6 +93,10 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   `latestMajor` roll-forward.
   Check on the first release: an installed 0.0.1298 client updates to a
   build packed with vpk 1.2.0. osu! made the same jump, so it should.
+- step 128: 2026.917.0 to 2026.918.0. Its rewritten waveform generation
+  can give a waveform an odd point count, so `TestSceneTimelineWaveformGraph`
+  narrows the graph to a whole-pixel width (the graph rounds a fractional
+  width up).
 
 - **step 120, no `/watch` chat command (#38152).** It opens
   `SoloSpectatorScreen`, which type!beat has never had (there is no spectator
