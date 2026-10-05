@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@e63005df4b742d5e6520cef47870b1299722cac5
-title    Make performance of "select all" in editor a little less laughably bad (#38464)
-date     2026-07-30
+commit   ppy/osu@3f3504eae4f972f4cba480a32b5dd9af8921eb00
+title    Accessibility: Make parallax a slider rather than a tickbox (#38443)
+date     2026-07-31
 release  2026.731.0-tachyon (the newest osu! release that is fully merged)
