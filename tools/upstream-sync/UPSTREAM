@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@6895dcb00647934b87ff2dc9b184a0224acf05a3
-title    Fix user tags are not showing on first beatmap selection (#38733)
-date     2026-09-07
+commit   ppy/osu@f599aa874bc09078993bee720422213a8d9f0601
+title    Fix osu! performance calculator using `LegacyTotalScore == null` checks (#38754)
+date     2026-09-08
 release  2026.821.0-tachyon (the newest osu! release that is fully merged)
