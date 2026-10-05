@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@a5917f86ad6e51e81bf5facb9fcddcbc9b74be67
-title    Update resources
+commit   ppy/osu@7a37fac464b07c01e77f33a14b9bfad72be1c5f4
+title    Update new localisation to use web source
 date     2026-09-18
 release  2026.918.0-tachyon (the newest osu! release that is fully merged)
