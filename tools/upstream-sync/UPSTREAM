@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@61e42030e767d4f9293ea4000eb43b4f0a894da0
-title    Add store for caching online assets to disk (#38454)
+commit   ppy/osu@5fcee0e0d43f43c28036e36703fed99614a2acbd
+title    Precompile path shaders during game load (#38647)
 date     2026-08-19
 release  2026.807.0-tachyon (the newest osu! release that is fully merged)
