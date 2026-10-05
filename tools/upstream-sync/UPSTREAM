@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@beee8ebefbe9fcf8be807b2f585642c5f677c8b4
-title    Clamp object positions to [0, 512] during parsing (#38844)
+commit   ppy/osu@10a087466e4bb50eb854ea34facf9776c8a74ba3
+title    Allow uploading screenshots using Shift + F12 (#36133)
 date     2026-09-24
 release  2026.921.0-lazer (the newest osu! release that is fully merged)
