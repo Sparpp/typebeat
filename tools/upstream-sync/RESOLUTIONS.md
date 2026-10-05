@@ -151,6 +151,9 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
 - step 134 `InspectCode.sh` (#38857, InspectCode without nvika): took
   upstream's. type!beat had only added `--format=Xml` for nvika, which is gone
   (it prints a text report to stdout now).
+- step 140 `LegacyStoryboardEncoder.cs` (#38895, storyboard loops shifted on
+  save): upstream's fix. Only the comment links clashed: they keep type!beat's
+  wording like the rest of the file.
 
 ## Kept type!beat's version
 

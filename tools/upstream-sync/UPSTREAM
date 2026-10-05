@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@6408b4e0e46a9f4ea1b8d263afccd1df799604e4
-title    Update SFX for the final results screen of ranked play (#38850)
+commit   ppy/osu@7e460f0a4be8ee61d0b43085ba04ecf8b85238a9
+title     Fix storyboard loops being shifted on saves due to relative time in encoder (#38895)
 date     2026-09-22
 release  2026.921.0-lazer (the newest osu! release that is fully merged)
