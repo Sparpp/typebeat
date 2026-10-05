@@ -19,6 +19,11 @@
       <PackagePath>icon.png</PackagePath>
     </None>
   </ItemGroup>
+  <ItemGroup Label="Upstream version">
+    <!-- tools/upstream-sync/UPSTREAM records which upstream osu! version type!beat has merged. It is embedded so
+         the settings footer can show it, and every sync merge rewrites it, so it stays current. -->
+    <EmbeddedResource Include="..\tools\upstream-sync\UPSTREAM" LogicalName="typebeat.Game.UPSTREAM" Condition="Exists('..\tools\upstream-sync\UPSTREAM')" />
+  </ItemGroup>
   <ItemGroup Label="Package References">
     <!-- Held back due to licencing change stupidness. Silenced vulnerability does not affect us. -->
     <PackageReference Include="AutoMapper" Version="13.0.1">
