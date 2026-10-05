@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@f197f8481faea9137322d2dc081bd18f641189d2
-title    Unify right toolbox velocity control with difficulty pieces (#38302)
+commit   ppy/osu@37d136e1967d7a525cd7ed1b6dd9d04793074082
+title    Localise `Clear binding` button in key configuration panel (#38296)
 date     2026-07-15
 release  2026.711.0-lazer (the newest osu! release that is fully merged)
