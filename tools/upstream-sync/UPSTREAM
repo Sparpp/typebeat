@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@fc819e03b3cea06b1378eb4f36ac7138a561192a
-title    Fix editor treating valid audio files with uppercase extension as "corrupted" because of taglib internals (#38367)
-date     2026-07-22
+commit   ppy/osu@5e43e62f87c690213fd09ff28c4aee62df0c75cb
+title    Implement storyboard passing, failing, & hit object hit triggers (#38335)
+date     2026-07-23
 release  2026.716.0-tachyon (the newest osu! release that is fully merged)
