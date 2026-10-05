@@ -24,6 +24,8 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   would never see an avatar change. Once confirmed, switching
   `DrawableAvatar`, `DrawableTeamFlag` and `UserCoverBackground` over is one
   line each.
+  Upstream also switched the cache itself off in step 96 (#38668), so for
+  now it only downloads either way.
 - **step 87, "Synchronise" bookmarks/preview point across difficulties
   (#38381).** Not in the editor menu. It re-saves every sibling difficulty
   through upstream's generic `GetPlayableBeatmap` + `BeatmapManager.Save`
@@ -106,6 +108,9 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
 - step 93 `OnlineAssetCachingStore.cs`, `OsuGameBase.cs` (#38656, dispose the
   cache): upstream's disposal fix and lookup rewrite, plus type!beat's
   endpoints argument.
+- step 96 `OnlineAssetCachingStore.cs` (#38668, cache switched off for
+  performance): took upstream's switch-off; it adds its own empty-URL check.
+  type!beat's trusted-domain setup stays.
 
 ## Kept type!beat's version
 
