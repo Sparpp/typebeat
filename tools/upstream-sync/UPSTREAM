@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@59cc67dcf304b100a501ccab0d31ce76f520189f
-title    Add ability to sync bookmarks/preview point across difficulties (#38381)
+commit   ppy/osu@ebd09d7cdfcf73c61e3098ad76da14d25a499ef4
+title    Add ellipsis to menu items which open a dialog (#38649)
 date     2026-08-19
 release  2026.807.0-tachyon (the newest osu! release that is fully merged)
