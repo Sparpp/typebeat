@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@d445a3509d7a8431fab910ece999419df7ece75f
-title    Fix settings sections sometimes not being highlighted when scrolling to a setting programmatically (#38331)
+commit   ppy/osu@50705d579a4c07845e0a450c1600e657f530cde4
+title    Change song select click-to-search behaviour to append rather than replace (#38333)
 date     2026-07-17
 release  2026.716.0-tachyon (the newest osu! release that is fully merged)
