@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@236e00e0b29c6e4174332eaa292bae159323388d
-title    Disable CET compatibility
+commit   ppy/osu@bf27b66ef90fb30c42515edfe67e158e04f507b5
+title    Remove link on beatmap deletion in recent activity on user profiles (#38801)
 date     2026-09-11
 release  2026.909.0-tachyon (the newest osu! release that is fully merged)
