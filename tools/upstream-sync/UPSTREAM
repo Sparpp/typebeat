@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@29cbccf57f9476daeab00844e01ba7e07800fdf7
-title    Prevent `/watch` command from spectating the local user (#38870)
+commit   ppy/osu@0f7d7a01439a1011732a7250a291dd33d81cb728
+title    Fix `ConfirmExitDialog` localisation (#38858)
 date     2026-09-21
 release  2026.921.0-lazer (the newest osu! release that is fully merged)
