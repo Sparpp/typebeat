@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@12df2e4ff254975f4b66ae9efda808837ee9beea
-title    Use colour hit error meter in catch (#38269)
-date     2026-08-07
+commit   ppy/osu@2dafddaaf6080105a57aefae3ebf050a96fcefd1
+title    Fix transcription error in `HSPAColour` formula for `P` component
+date     2026-08-10
 release  2026.807.0-tachyon (the newest osu! release that is fully merged)
