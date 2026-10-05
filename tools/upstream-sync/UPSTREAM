@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@ae1f49339eaf5875e895529599065c5909ac06d9
-title    Fix presenting beatmap sometimes not working correctly when scoped to beatmap (#38639)
+commit   ppy/osu@0139843e3cfdbc1b2741b963ba603b9ce3898677
+title    Allow reporting users in ranked play (#38632)
 date     2026-08-19
 release  2026.807.0-tachyon (the newest osu! release that is fully merged)
