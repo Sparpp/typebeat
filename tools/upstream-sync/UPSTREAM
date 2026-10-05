@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@c5daf83edf1bd69ae10a3b3d8822ab63b9fb682e
-title    Show room descriptions in multiplayer/playlists/daily challenge (#38496)
+commit   ppy/osu@df4d32df3585fe2491f6bbf0d352f5feb41ef14a
+title    Add localisation support to rulesets' variants group mode (#38222)
 date     2026-08-04
 release  2026.804.0-tachyon (the newest osu! release that is fully merged)
