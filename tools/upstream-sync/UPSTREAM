@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@de07bcf5784676aa34976cca5a645cf577662355
-title    Implement legacy bar hit error meter (#38535)
+commit   ppy/osu@c16296fefdd4795f251d0ada36d584051a14ad45
+title    Update framework
 date     2026-08-07
 release  2026.804.2-lazer (the newest osu! release that is fully merged)
