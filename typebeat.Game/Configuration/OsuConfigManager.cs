@@ -253,6 +253,8 @@ namespace typebeat.Game.Configuration
 
             SetDefault(OsuSetting.DashboardSortMode, UserSortCriteria.LastVisit);
             SetDefault(OsuSetting.DashboardDisplayStyle, OverlayPanelDisplayStyle.Card);
+
+            SetDefault(OsuSetting.PMFriendsOnly, false);
         }
 
         protected override bool CheckLookupContainsPrivateInformation(OsuSetting lookup)
@@ -496,5 +498,10 @@ namespace typebeat.Game.Configuration
         // retired rather than renamed. A stored "KeyboardLayout = ..." line in game.ini needs no
         // migration: the ini loader skips a key it cannot parse into this enum, and the next save
         // writes the file without it. Do not reuse the name for something else.
+
+        /// <summary>
+        /// Blocks private messages, multiplayer room invites, and duel requests from people not on the user's friends list.
+        /// </summary>
+        PMFriendsOnly,
     }
 }
