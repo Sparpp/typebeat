@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@981a72de38855f92b2a0215cecf72aa780f091ab
-title    Fix editor verify issue messages potentially overflowing (#38737)
+commit   ppy/osu@86435af79d459ed694d1df841ef83fe0825463d3
+title    Do not insert leading spaces into song select search bar when it is empty (#38713)
 date     2026-09-07
 release  2026.821.0-tachyon (the newest osu! release that is fully merged)
