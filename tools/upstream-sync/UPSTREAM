@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@db635ed6bdc1c9ec65f22fc0675824d92601cba9
-title    Refactor UserCoverBackground to be used with other models (#36277)
-date     2026-09-29
+commit   ppy/osu@9ace183a60a01a41a0a84222c1d5e13ba73f989a
+title    Fix input subsections leaving content rendering even when collapsed (#38949)
+date     2026-09-30
 release  2026.921.0-lazer (the newest osu! release that is fully merged)
