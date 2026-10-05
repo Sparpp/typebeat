@@ -223,6 +223,7 @@ namespace typebeat.Game.Configuration
 
             SetDefault(OsuSetting.MultiplayerRoomFilter, RoomPermissionsFilter.All);
             SetDefault(OsuSetting.MultiplayerShowInProgressFilter, true);
+            SetDefault(OsuSetting.MultiplayerShowFullFilter, false);
 
             SetDefault(OsuSetting.LastProcessedMetadataId, -1);
 
@@ -461,6 +462,7 @@ namespace typebeat.Game.Configuration
         EditorAdjustExistingObjectsOnTimingChanges,
         AlwaysRequireHoldingForPause,
         MultiplayerShowInProgressFilter,
+        MultiplayerShowFullFilter,
         BeatmapListingFeaturedArtistFilter,
         ShowMobileDisclaimer,
         EditorShowStoryboard,
