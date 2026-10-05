@@ -164,6 +164,10 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
 - step 101 `BeatmapSet/Info.cs` (#38733, user tags on first selection): type!beat
   shows no user tags there (its server has none), so upstream's fix doesn't
   apply. Its other changes (the set lookup request, song select) came in.
+- step 136 `OsuGameDesktop.cs` (#38856, no Velopack restart for
+  package-managed installs): type!beat's `RestartAppWhenExited` already
+  returns false there (`updaterCanRestart()` checks `IsPackageManaged` first),
+  and also covers builds the updater didn't install.
 
 ## Framework
 
