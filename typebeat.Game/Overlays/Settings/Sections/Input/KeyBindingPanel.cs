@@ -69,6 +69,12 @@ namespace typebeat.Game.Overlays.Settings.Sections.Input
                         GlobalAction.EditorSeekToPreviousHitObject,
                         GlobalAction.EditorSeekToNextHitObject,
                         GlobalAction.EditorDiscardUnsavedChanges,
+                        GlobalAction.EditorTogglePause,
+                        GlobalAction.EditorPlayFromStart,
+                        GlobalAction.EditorSeekBackwards,
+                        GlobalAction.EditorSeekForwards,
+                        GlobalAction.EditorSeekToStart,
+                        GlobalAction.EditorSeekToEnd,
                     }),
                     new GlobalKeyBindingsSubsection(InputSettingsStrings.EditorTestPlaySection, GlobalActionCategory.EditorTestPlay),
                 }
