@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@1a84c00929fa70b23a20e8109af1289f34b50af2
-title    Remove `FavouriteButton`'s tooltip when it's disabled (#38706)
-date     2026-09-28
+commit   ppy/osu@673954ae460e39ae38507adabc215ce044059873
+title    Update resources
+date     2026-09-29
 release  2026.921.0-lazer (the newest osu! release that is fully merged)
