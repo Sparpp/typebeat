@@ -212,10 +212,10 @@ namespace typebeat.Game.Screens.Select
                                     RelativeSizeAxes = Axes.Both,
                                     Colour = foregroundColour
                                 },
-                                new UserCoverBackground
+                                new CoverBackground
                                 {
                                     RelativeSizeAxes = Axes.Both,
-                                    User = Score.User,
+                                    Model = Score.User,
                                     Shear = sheared ? -OsuGame.SHEAR : Vector2.Zero,
                                     Anchor = Anchor.BottomLeft,
                                     Origin = Anchor.BottomLeft,
