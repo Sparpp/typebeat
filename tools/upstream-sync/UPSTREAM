@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@415ddf803b79a04d28770dff451a0a8f82911125
-title    Add localisation support to rulesets' input actions (#38238)
+commit   ppy/osu@4a52e463fe9cb1bf9f5fc10716d2095129a702e1
+title    Update editor volume popover controls (#38304)
 date     2026-07-16
 release  2026.711.0-lazer (the newest osu! release that is fully merged)
