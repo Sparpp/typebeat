@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@1032a7c31581513c8be751e46f0940e1c95ed252
-title    Implement storyboard hit sound triggers (#38387)
-date     2026-07-29
+commit   ppy/osu@cb3690c71ff1803871ee00c3d8db388f0b019ccc
+title    Add styled alert markdown component (#38393)
+date     2026-07-30
 release  2026.730.0 (the newest osu! release that is fully merged)
