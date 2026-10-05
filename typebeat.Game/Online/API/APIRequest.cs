@@ -4,6 +4,7 @@
 using System;
 using System.Diagnostics;
 using System.Globalization;
+using System.Threading;
 using Newtonsoft.Json;
 using osu.Framework.Extensions.TypeExtensions;
 using osu.Framework.IO.Network;
@@ -125,7 +126,7 @@ namespace typebeat.Game.Online.API
         /// </summary>
         public event APIFailureHandler? Failure;
 
-        private readonly object completionStateLock = new object();
+        private readonly Lock completionStateLock = new Lock();
 
         /// <summary>
         /// The state of this request, from an outside perspective.

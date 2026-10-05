@@ -186,7 +186,7 @@ namespace typebeat.Game.Graphics
             }
         });
 
-        private static readonly object filename_reservation_lock = new object();
+        private static readonly Lock filename_reservation_lock = new Lock();
 
         private (string? filename, Stream? stream) getWritableStream(ScreenshotFormat format)
         {
