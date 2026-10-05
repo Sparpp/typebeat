@@ -124,6 +124,8 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
 - step 96 `OnlineAssetCachingStore.cs` (#38668, cache switched off for
   performance): took upstream's switch-off; it adds its own empty-URL check.
   type!beat's trusted-domain setup stays.
+- step 115 `.vscode/launch.json` (#38815, VS Code executable path): upstream's
+  net10.0 folders, type!beat's `type!beat.dll` file name.
 
 ## Kept type!beat's version
 

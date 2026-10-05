@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@c729c6d7a2a1e3ce0d7118af3dce8ac9192d31c9
-title    Improve performance when loading chat overlay with too many channels joined (#38803)
-date     2026-09-11
+commit   ppy/osu@32efde5b5d65455e5fdfa9d99e2c6ac4e8aa3be8
+title    Fix VSCode executable path directory (#38815)
+date     2026-09-14
 release  2026.911.0-tachyon (the newest osu! release that is fully merged)
