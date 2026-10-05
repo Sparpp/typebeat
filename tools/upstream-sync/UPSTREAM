@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@f3ab1fcbc3f025541ad3898c05c66f1522f82e52
-title    Fix missing unsubscription
+commit   ppy/osu@29cbccf57f9476daeab00844e01ba7e07800fdf7
+title    Prevent `/watch` command from spectating the local user (#38870)
 date     2026-09-21
 release  2026.921.0-lazer (the newest osu! release that is fully merged)
