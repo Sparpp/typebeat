@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@83b8a64bec19e1463353645c2d6d10c75e275b43
-title    Add combo colour suggestions from beatmap background (#38391)
-date     2026-07-31
+commit   ppy/osu@7bacc11641952536608394a38c0adf2d450af9be
+title    Fix editor background and video drag and drop placeholder text overflowing (#38487)
+date     2026-08-01
 release  2026.731.0-tachyon (the newest osu! release that is fully merged)
