@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@beea4436748f5ed2cdc11a327d4454f6b27bf232
-title    Remove multiple unused locals
+commit   ppy/osu@3a0bc20b6aaf39be948da9666804f2c902273037
+title    Avoid using `GetDescription` for hover sounds lookups (#38655)
 date     2026-08-20
 release  2026.819.0-tachyon (the newest osu! release that is fully merged)
