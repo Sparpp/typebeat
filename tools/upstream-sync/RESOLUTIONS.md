@@ -25,3 +25,5 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
 - step 15 `BeatmapManager.cs` (#38332): type!beat already fixed "new difficulty
   loses its storyboard" its own way (copies only the video, so difficulties
   don't share storyboard state).
+- step 33 `LocalCachedBeatmapMetadataSource.cs` (#38379): type!beat never
+  fetches osu!'s metadata cache, so upstream's test-only guard is moot.

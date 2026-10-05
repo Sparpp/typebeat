@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@e643ee36788f31ac2c2d07a3e19cd6fb563f2258
-title    Add setting to disable/reduce osu! hitobject animations (#38371)
-date     2026-07-23
+commit   ppy/osu@6fc3a833b2812390417116b5118ae57cf2ac4a53
+title    Fix unit tests download online cache in some cases (#38379)
+date     2026-07-24
 release  2026.724.0-tachyon (the newest osu! release that is fully merged)
