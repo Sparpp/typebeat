@@ -85,6 +85,11 @@ namespace typebeat.Game.Localisation
         public static LocalisableString VisitWebsiteTooltip => new TranslatableString(getKey(@"visit_website_tooltip"), @"Browse beatmaps, rankings and more in your browser");
 
         /// <summary>
+        /// "Note that when using a non-stable release stream, the game may still update to a stable release if it is newer."
+        /// </summary>
+        public static LocalisableString ReleaseStreamNonStableUpgradeInformation => new TranslatableString(getKey(@"release_stream_non_stable_upgrade_information"), @"Note that when using a non-stable release stream, the game may still update to a stable release if it is newer.");
+
+        /// <summary>
         /// "You are running the latest release ({0})"
         /// </summary>
         public static LocalisableString RunningLatestRelease(string version) => new TranslatableString(getKey(@"running_latest_release"), @"You are running the latest release ({0})", version);
