@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@3937a75063d0d4525a1b3ceba298488605854e12
-title    Fix zero duration storyboard loops potentially causing load thread pool exhaustion and infinite disposal block (#38817)
-date     2026-09-14
+commit   ppy/osu@bc0c30224f1494a85c7e439c38a57e8f9c3d37b7
+title    Update framework (#38818)
+date     2026-09-15
 release  2026.911.0-tachyon (the newest osu! release that is fully merged)

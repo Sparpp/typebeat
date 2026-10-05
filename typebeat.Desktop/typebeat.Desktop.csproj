@@ -26,14 +26,14 @@
     <StartupObject>typebeat.Desktop.Program</StartupObject>
   </PropertyGroup>
   <ItemGroup Label="Project References">
-    <ProjectReference Include="..\typebeat.Game\typebeat.Game.csproj" />
-    <ProjectReference Include="..\typebeat.Game.Rulesets.TypeBeat\typebeat.Game.Rulesets.TypeBeat.csproj" />
+    <ProjectReference Include="..\typebeat.Game\typebeat.Game.csproj"/>
+    <ProjectReference Include="..\typebeat.Game.Rulesets.TypeBeat\typebeat.Game.Rulesets.TypeBeat.csproj"/>
   </ItemGroup>
   <ItemGroup Label="Package References">
-    <PackageReference Include="System.IO.Packaging" Version="10.0.9" />
+    <PackageReference Include="System.IO.Packaging" Version="10.0.12"/>
     <!-- Held back due to invite bug in newer versions. See https://github.com/Lachee/discord-rpc-csharp/issues/286 -->
-    <PackageReference Include="DiscordRichPresence" Version="1.5.0.51" />
-    <PackageReference Include="Velopack" Version="1.2.0" />
+    <PackageReference Include="DiscordRichPresence" Version="1.5.0.51"/>
+    <PackageReference Include="Velopack" Version="1.2.0"/>
   </ItemGroup>
   <ItemGroup Label="Resources">
     <!-- The runtime window icon, handed to host.Window.SetIconFromStream by OsuGameDesktop.SetHost.
@@ -45,10 +45,10 @@
          Forward slash for the same reason as the two ItemGroups below: it is the separator the
          Linux and macOS runners resolve, and MSBuild accepts it on Windows.
          Pinned by NonVisual/WindowIconTest. -->
-    <EmbeddedResource Include="../assets/typebeat.png" LogicalName="typebeat.Desktop.typebeat.png" />
+    <EmbeddedResource Include="../assets/typebeat.png" LogicalName="typebeat.Desktop.typebeat.png"/>
   </ItemGroup>
   <ItemGroup Label="Windows Icons">
-    <Content Include="*.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="*.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
   </ItemGroup>
   <ItemGroup Label="Bundled Beatmaps">
     <!-- Shipped next to the exe; imported (and consumed) on first launch; see OsuGame.importBundledBeatmaps.
@@ -57,7 +57,7 @@
          and .github/scripts/bundled-maps.sh populates it: CI runs that before publishing and ship-client.ps1
          verifies the local copy before packing. Forward slash on purpose, MSBuild accepts it on Windows and
          it is the separator the Linux and macOS runners glob with. -->
-    <Content Include="Bundled/*.typb" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="Bundled/*.typb" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
   </ItemGroup>
   <ItemGroup Label="Local Auto-Aligner Component">
     <!-- The lyriclab aligner scripts ship beside the exe; the "install local auto-aligner" action
@@ -65,6 +65,6 @@
          Python environment there, so the multi-GB venv survives Velopack updates.
          See LyricMapImportService.InstallAsync. -->
     <Content Include="../lyriclab/align_lyrics.py;../lyriclab/debug_decode.py;../lyriclab/setup.ps1;../lyriclab/setup.sh;../lyriclab/README.md"
-             LinkBase="lyriclab" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+             LinkBase="lyriclab" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
   </ItemGroup>
 </Project>

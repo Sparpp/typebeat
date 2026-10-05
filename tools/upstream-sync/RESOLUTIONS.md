@@ -126,6 +126,16 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   type!beat's trusted-domain setup stays.
 - step 115 `.vscode/launch.json` (#38815, VS Code executable path): upstream's
   net10.0 folders, type!beat's `type!beat.dll` file name.
+- step 117 (#38818, framework and package update, C# 14 clean-ups):
+  - both `.csproj` files: type!beat's project references, window icon,
+    bundled maps and lyriclab items, plus upstream's package versions and its
+    `"/>` tag style;
+  - `SubmittingPlayer.cs`: type!beat's replay uploader, plus upstream's
+    `Lock` type for the submission lock;
+  - `UserProfileOverlay.cs`: kept type!beat's `detachHeaderFromContent()`,
+    which does what upstream's one-liner does;
+  - `.config/dotnet-tools.json`: kept type!beat's newer ReSharper tools
+    (2026.2.2; upstream has 2026.2.1).
 
 ## Kept type!beat's version
 
@@ -150,3 +160,4 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
 - step 50: 2026.728.1 → 2026.731.0. Needed the `FormColourSwatch` fix above.
 - step 63: 2026.731.0 → 2026.807.0. Built as is.
 - step 103: 2026.807.0 → 2026.901.0, with the move to .NET 10 above.
+- step 117: 2026.901.0 → 2026.914.0, with Humanizer 2 → 3 and other package bumps. Built as is.

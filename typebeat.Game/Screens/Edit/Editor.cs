@@ -856,8 +856,7 @@ namespace typebeat.Game.Screens.Edit
             realm.Write(r =>
             {
                 var beatmap = r.Find<BeatmapInfo>(editorBeatmap.BeatmapInfo.ID);
-                if (beatmap != null)
-                    beatmap.EditorTimestamp = clock.CurrentTime;
+                beatmap?.EditorTimestamp = clock.CurrentTime;
             });
 
             // `resetTrack()` MUST happen before `refetchBeatmap()`, because along other things, `refetchBeatmap()` causes a global working beatmap change,
@@ -1525,8 +1524,7 @@ namespace typebeat.Game.Screens.Edit
                 foreach (var beatmapInfo in Beatmap.Value.BeatmapSetInfo.Beatmaps)
                 {
                     var menuItem = difficultyItems.OfType<DifficultyMenuItem>().FirstOrDefault(i => i.BeatmapInfo.Equals(beatmapInfo));
-                    if (menuItem != null)
-                        menuItem.Text.Value = string.IsNullOrEmpty(beatmapInfo.DifficultyName) ? "(unnamed)" : beatmapInfo.DifficultyName;
+                    menuItem?.Text.Value = string.IsNullOrEmpty(beatmapInfo.DifficultyName) ? "(unnamed)" : beatmapInfo.DifficultyName;
                 }
             };
 

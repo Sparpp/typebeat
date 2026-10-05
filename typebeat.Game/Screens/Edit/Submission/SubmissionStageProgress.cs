@@ -161,8 +161,7 @@ namespace typebeat.Game.Screens.Edit.Submission
             progress.BindValueChanged(_ => Scheduler.AddOnce(updateProgress), true);
 
             progressSampleChannel = progressSample?.GetChannel();
-            if (progressSampleChannel != null)
-                progressSampleChannel.ManualFree = true;
+            progressSampleChannel?.ManualFree = true;
         }
 
         public void SetNotStarted()

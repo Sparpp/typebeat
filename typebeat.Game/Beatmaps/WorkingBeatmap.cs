@@ -53,7 +53,7 @@ namespace typebeat.Game.Beatmaps
 
         private CancellationTokenSource loadCancellationSource = new CancellationTokenSource();
 
-        private readonly object beatmapFetchLock = new object();
+        private readonly Lock beatmapFetchLock = new Lock();
 
         private readonly Lazy<Storyboard> storyboard;
         private readonly Lazy<ISkin> skin;

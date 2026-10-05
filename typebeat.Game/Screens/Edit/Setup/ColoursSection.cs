@@ -41,8 +41,7 @@ namespace typebeat.Game.Screens.Edit.Setup
                 },
             };
 
-            if (setupScreen != null)
-                setupScreen.BackgroundChanged += refreshSuggestions;
+            setupScreen?.BackgroundChanged += refreshSuggestions;
 
             refreshSuggestions();
         }
