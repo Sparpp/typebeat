@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@a39553dd9c4c17a7c536b3e265513f9251b3beb5
-title    Adjust design of popup dialog buttons (including pause / fail menu) (#38357)
+commit   ppy/osu@a75338f9e51899d33ec92016d2953197bc1cb0b3
+title    Allow using hitsounding hotkeys while sample popover volume text box is focused (#38364)
 date     2026-07-21
 release  2026.716.0-tachyon (the newest osu! release that is fully merged)
