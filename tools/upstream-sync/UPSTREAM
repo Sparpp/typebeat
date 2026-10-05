@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@a75338f9e51899d33ec92016d2953197bc1cb0b3
-title    Allow using hitsounding hotkeys while sample popover volume text box is focused (#38364)
+commit   ppy/osu@150d653465cfde4aa7901db0151e597a251ea8de
+title    Delay switchover of spectator client to new spectator server instance until current score is done (#38362)
 date     2026-07-21
 release  2026.716.0-tachyon (the newest osu! release that is fully merged)
