@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@8bcea4c5ef3de022adc458769f098308bd668506
-title    Restore Filipino language (#38779)
-date     2026-09-09
+commit   ppy/osu@8d730969642f9eaccf510255c00d7440b9b30b86
+title    Disable startup hooks
+date     2026-09-10
 release  2026.909.0-tachyon (the newest osu! release that is fully merged)
