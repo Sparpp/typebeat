@@ -81,6 +81,19 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   Checked: Space still taps in tap timing, because that overlay holds focus
   and focus beats global actions in osu-framework's input order.
 
+- **step 103, .NET 10 (#38039).** Upstream moved `typebeat.Game` and
+  `typebeat.Desktop` to net10.0. The same merge also moves what upstream's
+  commit can't see:
+  - `typebeat.Game.Rulesets.TypeBeat` and its tests to net10.0 (a net8.0
+    project can't reference a net10.0 one);
+  - both workflows (`build-linux.yml`, `build-macos.yml`) to .NET 10.0.x;
+  - `VPK_VERSION` to 1.2.0, because upstream bumped the Velopack library from
+    0.0.1298 to 1.2.0 and the workflow says the two must match.
+  `global.json` takes upstream's 10.0.100 but keeps type!beat's
+  `latestMajor` roll-forward.
+  Check on the first release: an installed 0.0.1298 client updates to a
+  build packed with vpk 1.2.0. osu! made the same jump, so it should.
+
 ## Combined both sides
 
 - step 5 `LocalScoreDeleteDialog.cs` (#38227): upstream's
@@ -134,3 +147,4 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
 - step 43: 2026.724.0 → 2026.728.1. Built as is.
 - step 50: 2026.728.1 → 2026.731.0. Needed the `FormColourSwatch` fix above.
 - step 63: 2026.731.0 → 2026.807.0. Built as is.
+- step 103: 2026.807.0 → 2026.901.0, with the move to .NET 10 above.

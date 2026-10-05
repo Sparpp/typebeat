@@ -99,7 +99,7 @@ env:
   # Reverse-DNS CFBundleIdentifier for the .app. Arbitrary while unsigned, but it is what
   # macOS keys per-app state (window state, TCC prompts) on, so it must never change.
   BUNDLE_ID: sh.mingda.typebeat
-  VPK_VERSION: "0.0.1298"   # MUST match the Velopack lib version in typebeat.Desktop.csproj.
+  VPK_VERSION: "1.2.0"      # MUST match the Velopack lib version in typebeat.Desktop.csproj.
 
 jobs:
   build-deploy-macos:
@@ -117,7 +117,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
       # Identical to build-linux.yml's step, and for the identical reason: the cause is structural,
       # not platform-specific. typebeat.Desktop/Bundled/ is gitignored (non-redistributable audio),
