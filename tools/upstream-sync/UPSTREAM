@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@48c4800e3ae4ee752452cdff83bd3787ccf3105f
-title    Make "clear all local scores" menu item destructive (#38677)
-date     2026-08-25
+commit   ppy/osu@981a72de38855f92b2a0215cecf72aa780f091ab
+title    Fix editor verify issue messages potentially overflowing (#38737)
+date     2026-09-07
 release  2026.821.0-tachyon (the newest osu! release that is fully merged)
