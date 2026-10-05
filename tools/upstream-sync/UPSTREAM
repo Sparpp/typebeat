@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@89c81faf4cf793a396408472c7368d35a0de7550
-title    Allow searching settings by hint text (#38881)
+commit   ppy/osu@910e71e493fb4d6f2a9c2a7c6326aac253a7d228
+title    Encode all colours from beatmap skin into the `.osu` (#38828)
 date     2026-09-21
 release  2026.921.0-lazer (the newest osu! release that is fully merged)
