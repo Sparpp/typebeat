@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@ce56b40461fde8680b0de250b0c7a1196c06745b
-title    Revert form dropdown padding hack again
+commit   ppy/osu@55d72f2b9d36803e69dad6847e6e3db49c9f18bf
+title    Preserve storyboard data when creating new difficulty in editor (#38332)
 date     2026-07-17
 release  2026.716.0-tachyon (the newest osu! release that is fully merged)

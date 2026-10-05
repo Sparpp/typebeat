@@ -11,3 +11,9 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
 
 - step 5 `LocalScoreDeleteDialog.cs` (#38227): upstream's
   `LocalisableString.Interpolate` + type!beat's `GetDisplayRank()`.
+
+## Kept type!beat's version
+
+- step 15 `BeatmapManager.cs` (#38332): type!beat already fixed "new difficulty
+  loses its storyboard" its own way (copies only the video, so difficulties
+  don't share storyboard state).
