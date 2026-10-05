@@ -121,6 +121,9 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   fetches osu!'s metadata cache, so upstream's test-only guard is moot.
 - step 37 `UpdateSettings.cs` (#38430): type!beat has no release-stream picker.
 - step 84 `SongSelect.cs` (#38639): type!beat removed beatmap-set scoping.
+- step 101 `BeatmapSet/Info.cs` (#38733, user tags on first selection): type!beat
+  shows no user tags there (its server has none), so upstream's fix doesn't
+  apply. Its other changes (the set lookup request, song select) came in.
 
 ## Framework
 
