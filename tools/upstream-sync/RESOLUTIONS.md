@@ -17,6 +17,8 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   mark the score processed now" path + upstream's new `token` argument.
   If type!beat ever hosts a spectator server, it has to speak the new
   osu-server-spectator API (ppy/osu-server-spectator#523).
+- step 31 `OsuGame.cs` (#38378): re-applied upstream's login overlay change
+  to type!beat's overlay layout. The overlays type!beat removed stay out.
 
 ## Kept type!beat's version
 
