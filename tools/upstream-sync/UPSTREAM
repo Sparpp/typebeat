@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@7bd98b26f2e923198272ec74bcafaa5a2b1d95bd
-title    Fix long stutter when restoring all hidden difficulties of a beatmap with a lot of difficulties (#38346)
+commit   ppy/osu@62f759b8bacd1996db5674961b2ac74864bb5858
+title    Fix storyboard samples not playing when beatmap hitsounds disabled (#38350)
 date     2026-07-21
 release  2026.716.0-tachyon (the newest osu! release that is fully merged)
