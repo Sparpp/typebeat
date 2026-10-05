@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@257761d6c913b01566704852aa9c38998d4c0e07
-title    Fix game not always respecting user's no-video download preference (#38948)
+commit   ppy/osu@06f294931d86d32265bfc08409313a429518d5db
+title    Keep width of markers on legacy bar hit error meter constant regardless of scale (#38953)
 date     2026-09-30
 release  2026.921.0-lazer (the newest osu! release that is fully merged)
