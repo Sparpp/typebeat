@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@31668751318eb431d4342ddc0e272e932025d6fb
-title    Add "block private messages from people not on your friends list" setting synced with web (#38806)
+commit   ppy/osu@a5917f86ad6e51e81bf5facb9fcddcbc9b74be67
+title    Update resources
 date     2026-09-18
 release  2026.918.0-tachyon (the newest osu! release that is fully merged)
