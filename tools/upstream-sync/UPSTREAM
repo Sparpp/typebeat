@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@4739c5ebb36228218dcdb2a48883b0f69e86551d
-title    Force login overlay to dismiss other top level overlays (#38378)
+commit   ppy/osu@e643ee36788f31ac2c2d07a3e19cd6fb563f2258
+title    Add setting to disable/reduce osu! hitobject animations (#38371)
 date     2026-07-23
-release  2026.716.0-tachyon (the newest osu! release that is fully merged)
+release  2026.724.0-tachyon (the newest osu! release that is fully merged)
