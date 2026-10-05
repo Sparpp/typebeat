@@ -3,6 +3,7 @@
 
 using System;
 using osu.Framework.Graphics.Sprites;
+using osu.Framework.Text;
 
 namespace typebeat.Game.Graphics.Sprites
 {
@@ -19,5 +20,12 @@ namespace typebeat.Game.Graphics.Sprites
             Shadow = true;
             Font = OsuFont.Default;
         }
+
+        /// <summary>
+        /// type!beat: draws an emoji (or any character outside the BMP) as one placeholder bullet
+        /// rather than a '?' per surrogate half; see <see cref="SurrogatePlaceholderGlyphStore"/>.
+        /// </summary>
+        protected override TextBuilder CreateTextBuilder(ITexturedGlyphLookupStore store) =>
+            base.CreateTextBuilder(new SurrogatePlaceholderGlyphStore(store));
     }
 }
