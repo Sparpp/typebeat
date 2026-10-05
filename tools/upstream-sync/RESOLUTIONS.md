@@ -24,6 +24,13 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   would never see an avatar change. Once confirmed, switching
   `DrawableAvatar`, `DrawableTeamFlag` and `UserCoverBackground` over is one
   line each.
+- **step 87, "Synchronise" bookmarks/preview point across difficulties
+  (#38381).** Not in the editor menu. It re-saves every sibling difficulty
+  through upstream's generic `GetPlayableBeatmap` + `BeatmapManager.Save`
+  round trip, and nobody has checked whether that keeps type!beat's
+  per-difficulty data (lyrics, fonts, gain, stems). The dialog and strings
+  are in; enabling it means adding the menu entry plus the method from
+  upstream's commit.
 
 ## Changes type!beat had to make
 
