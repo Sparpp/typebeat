@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@1bb8cbfcbd21afd86256fe338f15ca821bb9f275
-title    Remove extra space
+commit   ppy/osu@257761d6c913b01566704852aa9c38998d4c0e07
+title    Fix game not always respecting user's no-video download preference (#38948)
 date     2026-09-30
 release  2026.921.0-lazer (the newest osu! release that is fully merged)
