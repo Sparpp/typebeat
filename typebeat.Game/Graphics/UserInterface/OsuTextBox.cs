@@ -44,7 +44,7 @@ namespace typebeat.Game.Graphics.UserInterface
         };
 
         private FontUsage getTextFont()
-            => string.IsNullOrEmpty(fontFamily) ? OsuFont.GetFont(size: FontSize) : new FontUsage(fontFamily, FontSize);
+            => string.IsNullOrEmpty(fontFamily) ? Font : new FontUsage(fontFamily, FontSize);
 
         private void updateFontFamily()
         {
@@ -328,6 +328,8 @@ namespace typebeat.Game.Graphics.UserInterface
             AutoSizeAxes = Axes.Both,
             Child = new OsuSpriteText { Text = c.ToString(), Font = getTextFont() },
         };
+
+        protected virtual FontUsage Font => OsuFont.GetFont(size: FontSize);
 
         protected override Caret CreateCaret() => caret = new OsuCaret
         {
