@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@445f356bb13f1c06d0c7550fcb008d6f01f71503
-title    Fix text clipping on form controls (#38578)
+commit   ppy/osu@f41a0e53956c6afd5536b6958dbb7cfe97fe8dfc
+title    Merge `RadioButton` model into `EditorRadioButton` drawable (#38580)
 date     2026-08-13
 release  2026.807.0-tachyon (the newest osu! release that is fully merged)
