@@ -47,6 +47,8 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   doesn't show.
 - step 70 `FilterControl.cs` (#38549): type!beat's saved-sort handling (BPM
   falls back to Title) + upstream's remembered collection filter.
+- step 75 `OsuGame.cs` (#38604): same as step 31, for the now-playing
+  overlay.
 
 ## Kept type!beat's version
 
