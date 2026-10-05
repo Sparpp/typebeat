@@ -87,6 +87,13 @@ namespace typebeat.Game.Graphics.Fonts
 
         public bool HasGlyph(char c)
         {
+            // The framework looks glyphs up one UTF-16 char at a time, so a character outside the
+            // BMP (an emoji) arrives as two surrogate halves. Neither is a code point SixLabors will
+            // accept, and a lone half has nothing to draw, so report it missing and let the
+            // framework fall through to its other fonts.
+            if (char.IsSurrogate(c))
+                return false;
+
             ensureLoaded();
 
             lock (renderLock)

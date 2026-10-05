@@ -94,6 +94,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(store.Get("OpenDyslexic/中"), Is.Null);
         }
 
+        [Test]
+        public void GlyphStoreReportsMissingGlyphForSurrogateHalves()
+        {
+            var store = openDyslexicStore();
+
+            // The framework asks for glyphs one UTF-16 char at a time, so an emoji such as 😀
+            // (U+1F600) arrives as its two surrogate halves. Neither half is a code point on its own:
+            // the store must report them missing so the framework falls back, not throw from
+            // SixLabors' CodePoint, which rejects U+D800..U+DFFF (a difficulty name with an emoji
+            // crashed the beatmap listing once the UI drew through this store).
+            const string emoji = "\U0001F600";
+
+            foreach (char half in emoji)
+            {
+                Assert.That(store.HasGlyph(half), Is.False);
+                Assert.That(store.Get(half), Is.Null);
+                Assert.That(store.Get($"OpenDyslexic/{half}"), Is.Null);
+            }
+        }
+
         private static RuntimeFontGlyphStore openDyslexicStore()
         {
             var asm = typeof(LyricFontManager).Assembly;
