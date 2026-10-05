@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@f5f9e91be6ca6097caa3aa6473f24abd02ccb670
-title    Adjust `LegacyKeyCounterDisplay` sprites alignment to match stable (#38875)
-date     2026-09-24
+commit   ppy/osu@20e82fb18cd5ec2068f4551bb1fe0b1defc61cd1
+title    Warn users when screenshot uploads are rate limited (#38922)
+date     2026-09-25
 release  2026.921.0-lazer (the newest osu! release that is fully merged)
