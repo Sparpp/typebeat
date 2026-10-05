@@ -13,6 +13,10 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   `LocalisableString.Interpolate` + type!beat's `GetDisplayRank()`.
 - step 26 `ResourceManagerLocalisationStore.cs` (#38360): upstream's string
   cache (file now nullable-enabled) + type!beat's `Rebrand`, now typed `string?`.
+- step 27 `SubmittingPlayer.cs` (#38230): type!beat's "no spectator server,
+  mark the score processed now" path + upstream's new `token` argument.
+  If type!beat ever hosts a spectator server, it has to speak the new
+  osu-server-spectator API (ppy/osu-server-spectator#523).
 
 ## Kept type!beat's version
 
