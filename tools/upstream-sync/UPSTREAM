@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@f7643ed02feacc1ce01d7e77bacc2be87ba7b8d9
-title    Adjust spectator client code to use new server API (#38230)
+commit   ppy/osu@32855caa9b50f5930d2a677be2e0a18e2e1f8e05
+title    Allow to hide hit objects instantly when hit in taiko (#38284)
 date     2026-07-22
 release  2026.716.0-tachyon (the newest osu! release that is fully merged)
