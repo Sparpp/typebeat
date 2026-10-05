@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@8f78f603ae6d249aeb5a84e55c27c8424488d0da
-title    Display queue time as hh:mm:ss for durations above 1 hour (#38275)
+commit   ppy/osu@6a04f0c072f372eecbae8470b8e8a9c57366d440
+title    Fix multiplayer spectator clock drift causing stutters when rate-adjust mods are active (#38359)
 date     2026-07-21
 release  2026.716.0-tachyon (the newest osu! release that is fully merged)
