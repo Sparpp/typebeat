@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@95fd66e4f9dc9a18be7dfd18efa9ee690963d943
-title    Move inlined usages of "stable magic ratio" to constant (#38547)
+commit   ppy/osu@12df2e4ff254975f4b66ae9efda808837ee9beea
+title    Use colour hit error meter in catch (#38269)
 date     2026-08-07
-release  2026.804.2-lazer (the newest osu! release that is fully merged)
+release  2026.807.0-tachyon (the newest osu! release that is fully merged)

@@ -22,6 +22,10 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
 - **step 50, `FormColourSwatch`** (the freestyle colour picker) passes an empty
   suggestions list to `FormColourPalette.ColourButton`, whose constructor
   upstream changed.
+- **step 66, hit-error meters.** Upstream moved them into the per-ruleset HUD
+  layer, which would have put them back into type!beat's HUD. Removed again
+  from Argon and Triangles. Side effect: Argon's key counter now always sits
+  36px in from the right edge (upstream's fixed offset).
 
 ## Combined both sides
 
