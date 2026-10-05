@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@f599aa874bc09078993bee720422213a8d9f0601
-title    Fix osu! performance calculator using `LegacyTotalScore == null` checks (#38754)
-date     2026-09-08
+commit   ppy/osu@9e3b6175a5ce35ba2bc1932d3b0185df2a65a09f
+title    Upgrade to .NET 10.0 (#38039)
+date     2026-09-09
 release  2026.821.0-tachyon (the newest osu! release that is fully merged)
