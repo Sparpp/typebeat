@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@f06789b02c75abcd711e99ae8761112bf67ec202
-title    Adjust alignment of legacy key counter display (#38838)
-date     2026-09-16
+commit   ppy/osu@b8657755ae09bad891ddb5786d8cd9b978b6ae23
+title    Update framework
+date     2026-09-17
 release  2026.916.0 (the newest osu! release that is fully merged)
