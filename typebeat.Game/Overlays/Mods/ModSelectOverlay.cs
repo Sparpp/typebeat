@@ -131,7 +131,7 @@ namespace typebeat.Game.Overlays.Mods
         }
 
         [BackgroundDependencyLoader]
-        private void load(OsuGameBase game, OsuColour colours, AudioManager audio, OsuConfigManager configManager)
+        private void load(OsuGameBase game, AudioManager audio, OsuConfigManager configManager)
         {
             Header.Title = ModSelectOverlayStrings.ModSelectTitle;
             Header.Description = ModSelectOverlayStrings.ModSelectDescription;
