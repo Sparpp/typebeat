@@ -13,3 +13,10 @@ When `sync/vendor` moves on, rebase this branch onto it.
   list required. type!beat's own swatches (freestyle colour, timing tint) don't
   offer suggestions; with the overloads, `FormColourSwatch` goes back to
   main's version and `feature/timing-tint` builds unchanged on top.
+- **Avatars, profile covers and team flags use the online asset cache**
+  (settles the step 82 open decision in RESOLUTIONS.md, 2026-10-05). The
+  type!beat server gives each of these a new URL when it changes, so a cached
+  file never hides a newer one. type!beat has no teams yet; flags assume
+  future ones get new URLs too. Upstream switched the cache itself off in
+  step 96, so for now this only downloads; when upstream turns it back on,
+  these get it with no further change.
