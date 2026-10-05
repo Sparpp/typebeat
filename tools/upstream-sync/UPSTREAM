@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@0139843e3cfdbc1b2741b963ba603b9ce3898677
-title    Allow reporting users in ranked play (#38632)
+commit   ppy/osu@eca174b2576e90e1afa860b5f0dcf56211c2bb16
+title    Fix infinite recursion in song select logic in certain circumstances (#38638)
 date     2026-08-19
 release  2026.807.0-tachyon (the newest osu! release that is fully merged)
