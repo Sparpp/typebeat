@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@d9c73e12adff2feaae4a3e158d36fe5883faf6ca
-title    Inherit previous object's sample settings in polygon tool (#38579)
-date     2026-08-13
+commit   ppy/osu@fc39aa5cecd3d87576107506fe8036fc891111bc
+title    Fix stutter on returning to song select when updating large beatmap sets (#38514)
+date     2026-08-14
 release  2026.807.0-tachyon (the newest osu! release that is fully merged)
