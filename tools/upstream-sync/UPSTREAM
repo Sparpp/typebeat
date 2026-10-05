@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@8a8fca75934647b5f693846a7aff6d6c159d2659
-title    Make pressing ESC first deselect any placement tool (#38921)
+commit   ppy/osu@59c900a536ca136703efecb5293c4be44fb707f5
+title    Fix panel flash for time signatures not fitting power-of-two rate (#38827)
 date     2026-09-29
 release  2026.921.0-lazer (the newest osu! release that is fully merged)
