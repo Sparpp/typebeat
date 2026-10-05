@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@bc0c30224f1494a85c7e439c38a57e8f9c3d37b7
-title    Update framework (#38818)
-date     2026-09-15
-release  2026.911.0-tachyon (the newest osu! release that is fully merged)
+commit   ppy/osu@98fb49876c0242fcf649e0250d6f6b3458769a9e
+title    Ensure report confirmations arrive in the correct channel (#38833)
+date     2026-09-16
+release  2026.916.0 (the newest osu! release that is fully merged)
