@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@a81971dee54bd2bbe7a584e66174c69d8a1af618
-title    Disable "reset all keys" button when all bindings are already default (#38316)
+commit   ppy/osu@33fe7f46d88eec6010c46cd2c13c5be20eee2dcb
+title    A few form control adjustments (#38317)
 date     2026-07-16
 release  2026.711.0-lazer (the newest osu! release that is fully merged)
