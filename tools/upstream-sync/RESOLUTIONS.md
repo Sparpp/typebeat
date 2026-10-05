@@ -95,6 +95,9 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   default inside type!beat's `getTextFont()`; a chosen font family still wins.
 - step 81 `EditorStrings.cs` (#38608): both new strings. The ruleset API
   bump to 2026.818.0 is fine: `TypeBeatRuleset` reports the current constant.
+- step 93 `OnlineAssetCachingStore.cs`, `OsuGameBase.cs` (#38656, dispose the
+  cache): upstream's disposal fix and lookup rewrite, plus type!beat's
+  endpoints argument.
 
 ## Kept type!beat's version
 
