@@ -57,3 +57,4 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   rename; the real one is `ppy.osu.Game.Resources`), so that line never applies.
 - step 43: 2026.724.0 → 2026.728.1. Built as is.
 - step 50: 2026.728.1 → 2026.731.0. Needed the `FormColourSwatch` fix above.
+- step 63: 2026.731.0 → 2026.807.0. Built as is.
