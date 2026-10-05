@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@32efde5b5d65455e5fdfa9d99e2c6ac4e8aa3be8
-title    Fix VSCode executable path directory (#38815)
+commit   ppy/osu@4d037d3f9ade63103e9a076276c537da0ad4555d
+title    Avoid importing case-sensitive beatmaps files leading to crashes (#38792)
 date     2026-09-14
 release  2026.911.0-tachyon (the newest osu! release that is fully merged)
