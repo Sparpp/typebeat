@@ -1482,7 +1482,7 @@ namespace typebeat.Game.Screens.Edit
             return new EditorMenuItem(EditorStrings.CreateNewDifficulty) { Items = rulesetItems };
         }
 
-        protected void CreateNewDifficulty(RulesetInfo rulesetInfo)
+        protected internal void CreateNewDifficulty(RulesetInfo rulesetInfo)
         {
             if (isNewBeatmap)
             {

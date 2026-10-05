@@ -452,7 +452,11 @@ namespace typebeat.Game.Screens.Select
                 if (Beatmap.Value.BeatmapInfo.Equals(debounceQueuedSelection))
                     return;
 
-                Beatmap.Value = beatmaps.GetWorkingBeatmap(debounceQueuedSelection);
+                var workingBeatmap = beatmaps.GetWorkingBeatmap(debounceQueuedSelection);
+                if (!checkBeatmapValidForSelection(workingBeatmap.BeatmapInfo))
+                    return;
+
+                Beatmap.Value = workingBeatmap;
             }
             finally
             {
