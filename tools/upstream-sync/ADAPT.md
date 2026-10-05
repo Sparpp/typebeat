@@ -20,3 +20,8 @@ When `sync/vendor` moves on, rebase this branch onto it.
   future ones get new URLs too. Upstream switched the cache itself off in
   step 96, so for now this only downloads; when upstream turns it back on,
   these get it with no further change.
+- **The editor's playback keys are listed in key binding settings**
+  (2026-10-05). Upstream made them rebindable in step 95 (#38666): toggle
+  pause, play from start, seek back/forward, seek to start/end. They work in
+  type!beat's editor, so its trimmed Editor list shows them. The two
+  timing-point seeks stay hidden, like the other control-point actions.
