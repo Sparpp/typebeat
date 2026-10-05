@@ -30,3 +30,10 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   Upstream's other half (`BackgroundDataStoreProcessor` skips its pass under
   NUnit) is in, so `TestSceneStoredBeatmapFacts`, which tests that pass,
   turns `SkipProcessing` back off.
+
+## Framework
+
+- step 35: `ppy.osu.Framework` 2026.629.0 → 2026.724.0. type!beat keeps its own
+  `typebeat.Game.Resources` package. On vendor/osu, upstream's resources
+  package shows up as `ppy.typebeat.Game.Resources` (a side effect of the
+  rename; the real one is `ppy.osu.Game.Resources`), so that line never applies.
