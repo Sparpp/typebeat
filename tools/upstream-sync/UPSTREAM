@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@82056109080329928c572db8851f4bcf8e04362b
-title    Fix multiple instances of culture variance in format encoding & decoding (#38451)
+commit   ppy/osu@39fd696527be8894b179d8992d03aaffdc9b0ac4
+title    Improve legibility and understandability of some settings (#38450)
 date     2026-07-28
 release  2026.726.0-lazer (the newest osu! release that is fully merged)
