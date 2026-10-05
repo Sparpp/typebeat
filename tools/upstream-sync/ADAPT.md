@@ -25,3 +25,6 @@ When `sync/vendor` moves on, rebase this branch onto it.
   pause, play from start, seek back/forward, seek to start/end. They work in
   type!beat's editor, so its trimmed Editor list shows them. The two
   timing-point seeks stay hidden, like the other control-point actions.
+- **The settings footer shows the merged upstream release** (2026-10-05),
+  as a small gray "upstream: <release>" line under the version. It reads the
+  embedded tools/upstream-sync/UPSTREAM, which every sync merge rewrites.

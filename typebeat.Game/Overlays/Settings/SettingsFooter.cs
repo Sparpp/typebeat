@@ -14,6 +14,7 @@ using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Localisation;
 using typebeat.Game.Rulesets;
+using typebeat.Game.Utils;
 using osuTK;
 using osuTK.Graphics;
 
@@ -56,6 +57,19 @@ namespace typebeat.Game.Overlays.Settings
                     Origin = Anchor.TopCentre,
                 }
             };
+
+            // type!beat: the upstream osu! release this build has fully merged (tools/upstream-sync/UPSTREAM).
+            if (UpstreamVersion.Release is string upstream)
+            {
+                Add(new OsuSpriteText
+                {
+                    Anchor = Anchor.TopCentre,
+                    Origin = Anchor.TopCentre,
+                    Text = $@"upstream: {upstream}",
+                    Font = OsuFont.GetFont(size: 12),
+                    Colour = Color4.Gray,
+                });
+            }
 
             foreach (var ruleset in rulesets.AvailableRulesets)
             {
