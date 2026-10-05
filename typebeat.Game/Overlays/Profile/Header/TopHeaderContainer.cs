@@ -32,7 +32,7 @@ namespace typebeat.Game.Overlays.Profile.Header
         [Resolved]
         private IAPIProvider api { get; set; } = null!;
 
-        private UserCoverBackground cover = null!;
+        private CoverBackground cover = null!;
         private UpdateableAvatar avatar = null!;
         private OsuSpriteText usernameText = null!;
         private ExternalLinkButton openUserExternally = null!;
@@ -181,7 +181,7 @@ namespace typebeat.Game.Overlays.Profile.Header
         {
             var user = data?.User;
 
-            cover.User = user;
+            cover.Model = user;
             avatar.User = user;
             usernameText.Text = user?.Username ?? string.Empty;
             openUserExternally.Link = $@"{api.Endpoints.WebsiteUrl}/users/{user?.Id ?? 0}";
@@ -209,7 +209,7 @@ namespace typebeat.Game.Overlays.Profile.Header
             flow.TransformTo(nameof(flow.Spacing), new Vector2(expanded ? 20f : 10f), transition_duration, Easing.OutQuint);
         }
 
-        private partial class ProfileCoverBackground : UserCoverBackground
+        private partial class ProfileCoverBackground : CoverBackground
         {
             protected override double LoadDelay => 0;
 

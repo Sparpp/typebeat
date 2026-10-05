@@ -154,6 +154,11 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
 - step 140 `LegacyStoryboardEncoder.cs` (#38895, storyboard loops shifted on
   save): upstream's fix. Only the comment links clashed: they keep type!beat's
   wording like the rest of the file.
+- step 153 `CoverBackground.cs`, `TopHeaderContainer.cs` (#36277,
+  `UserCoverBackground` became `CoverBackground` for any `IHasCover`): took the
+  rename. The cover still loads through `LargeTextureStore` (see the step 82
+  open decision), and the profile header keeps type!beat's layout without the
+  rankings link and supporter tag.
 
 ## Kept type!beat's version
 
