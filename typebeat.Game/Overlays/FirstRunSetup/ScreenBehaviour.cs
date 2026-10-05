@@ -82,6 +82,7 @@ namespace typebeat.Game.Overlays.FirstRunSetup
                     ChildrenEnumerable = new SettingsSection[]
                     {
                         new GeneralSection(),
+                        new SkinSection(),
                         // InputSection is intentionally omitted for now due to its sub-panel being a pain to set up.
                         new UserInterfaceSection(),
                         new GameplaySection(),
