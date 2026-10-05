@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@8a0a212381598acccd1e45873a68c2f5072cb010
-title    Avoid Velopack restart for package managed installs (#38856)
+commit   ppy/osu@89c81faf4cf793a396408472c7368d35a0de7550
+title    Allow searching settings by hint text (#38881)
 date     2026-09-21
 release  2026.921.0-lazer (the newest osu! release that is fully merged)
