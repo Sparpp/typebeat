@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@ed38dd34f1c5f5f26b1496af0c71f4143dae1d61
-title    Add support for customizing ruleset-specific editor key bindings (#38608)
-date     2026-08-18
+commit   ppy/osu@61e42030e767d4f9293ea4000eb43b4f0a894da0
+title    Add store for caching online assets to disk (#38454)
+date     2026-08-19
 release  2026.807.0-tachyon (the newest osu! release that is fully merged)

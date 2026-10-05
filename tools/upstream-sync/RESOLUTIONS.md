@@ -16,6 +16,14 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   once the server sends pp for non-best plays, without the "processing"
   spinner: type!beat's server prices a play when it's submitted, so a missing
   pp never arrives later.
+- **step 82, online asset disk cache (#38454).** Avatars, profile covers and
+  team flags still load uncached. The new cache keys on the URL and keeps an
+  image as long as it's viewed at least once a month. That is only safe if
+  the type!beat server gives an asset a new URL whenever it changes (a content
+  hash or an update time in the URL). If avatars stay at a fixed URL, players
+  would never see an avatar change. Once confirmed, switching
+  `DrawableAvatar`, `DrawableTeamFlag` and `UserCoverBackground` over is one
+  line each.
 
 ## Changes type!beat had to make
 
@@ -35,6 +43,12 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   `GetDefaultKeyBindings`. Without this, every player would get a duplicate
   set of gameplay bindings stored as "editor" bindings, plus a "Beatmap
   editor" key-binding section for an editor that never reads it.
+- **step 82, schema renumbered.** Upstream's Realm version 52 ("Add
+  RealmOnlineAsset") is type!beat's **65**, because type!beat had already used
+  52-64. No migration body is needed (it's a new table).
+- **step 82, `OnlineAssetCachingStore`** builds its `TrustedDomainOnlineStore`
+  with type!beat's endpoints and wraps it in `LoopbackAwareStore`, like the
+  game's other online stores.
 
 ## Combined both sides
 

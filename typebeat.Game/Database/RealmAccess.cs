@@ -151,13 +151,23 @@ namespace typebeat.Game.Database
         ///                    strips, so a set that had the stem still read as missing it and the UPDATE
         ///                    offer never cleared. A scalar recorded at import/update and backfilled here is
         ///                    copied by the detach mapper, so the carousel sees the real value.
+        /// 65   2026-10-05    Add RealmOnlineAsset (the online asset disk cache). Upstream osu!'s schema 52,
+        ///                    renumbered: type!beat had already used 52-64. No migration body: a new
+        ///                    table only needs the version bump.
         /// </summary>
-        private const int schema_version = 64;
+        private const int schema_version = 65;
 
         /// <summary>
         /// Lock object which is held during <see cref="BlockAllOperations"/> sections, blocking realm retrieval during blocking periods.
         /// </summary>
         private readonly SemaphoreSlim realmRetrievalLock = new SemaphoreSlim(1);
+
+        /// <summary>
+        /// This <see cref="CancellationTokenSource"/> is cancelled on disposal
+        /// so that all callers of <see cref="getRealmInstance"/> who are blocked on <see cref="realmRetrievalLock"/>
+        /// can hard-fail the retrieval rather than spin on the semaphore forever.
+        /// </summary>
+        private readonly CancellationTokenSource realmRetrievalCancellation = new CancellationTokenSource();
 
         private readonly CountdownEvent pendingAsyncOperations = new CountdownEvent(0);
 
@@ -462,6 +472,12 @@ namespace typebeat.Game.Database
 
                     foreach (var s in pendingDeletePresets)
                         realm.Remove(s);
+
+                    var onlineAssetAccessCutoff = DateTimeOffset.Now.AddMonths(-1);
+                    var pendingDeleteOnlineAssets = realm.All<RealmOnlineAsset>().Where(a => a.LastAccessed < onlineAssetAccessCutoff);
+
+                    foreach (var a in pendingDeleteOnlineAssets)
+                        realm.Remove(a);
 
                     transaction.Commit();
                 }
@@ -821,7 +837,7 @@ namespace typebeat.Game.Database
                 // Ensure that the thread that currently has the `realmRetrievalLock` can retrieve nested contexts and not deadlock on itself.
                 if (!currentThreadHasRealmRetrievalLock.Value)
                 {
-                    realmRetrievalLock.Wait();
+                    realmRetrievalLock.Wait(realmRetrievalCancellation.Token);
                     currentThreadHasRealmRetrievalLock.Value = true;
                     tookSemaphoreLock = true;
                 }
@@ -1672,6 +1688,8 @@ namespace typebeat.Game.Database
                 // intentionally block realm retrieval indefinitely. this ensures that nothing can start consuming a new instance after disposal.
                 realmRetrievalLock.Wait();
                 realmRetrievalLock.Dispose();
+                // also unblock all readers who may be spinning on realm retrieval.
+                realmRetrievalCancellation.Cancel();
 
                 isDisposed = true;
             }
