@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@3d139aa8928e9d40d00f37e874bc688911f74d06
-title    Update framework
+commit   ppy/osu@ebaf7e9910ef3755308dec2c7950d916aabc545b
+title    Fix ranked play chat box not getting focus on keyboard input (#38853)
 date     2026-09-18
-release  2026.918.0-tachyon (the newest osu! release that is fully merged)
+release  2026.920.0-lazer (the newest osu! release that is fully merged)
