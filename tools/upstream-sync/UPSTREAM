@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@94d9e4d6c7e7cf99c8911a13075322c224900d52
-title    Revert "Fix O(n²) overhead from individual blueprint additions / removals by batching" (#38506)
+commit   ppy/osu@d7cdac2bfe70ca6d92f34405b10389602926680a
+title    Throw when attempting to create ZIP archive with duplicated filenames in entries (#38507)
 date     2026-08-03
 release  2026.731.0-tachyon (the newest osu! release that is fully merged)
