@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@aaa75b7c0a9f21d558ce84cd0ffac6c739bad8e7
-title    Update framework
+commit   ppy/osu@2efeb3cdcca01310ee3e6b52bfdf71fb30163411
+title    Fix radians/degrees mismatch in static storyboard rotation commands decode and encode (#38877)
 date     2026-09-21
 release  2026.921.0-lazer (the newest osu! release that is fully merged)
