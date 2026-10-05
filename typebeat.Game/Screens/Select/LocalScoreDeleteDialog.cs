@@ -3,6 +3,7 @@
 
 using osu.Framework.Allocation;
 using osu.Framework.Extensions;
+using osu.Framework.Localisation;
 using typebeat.Game.Overlays.Dialog;
 using typebeat.Game.Scoring;
 
@@ -20,7 +21,7 @@ namespace typebeat.Game.Screens.Select
         [BackgroundDependencyLoader]
         private void load(ScoreManager scoreManager)
         {
-            BodyText = $"{score.User} ({score.DisplayAccuracy}, {score.GetDisplayRank().GetLocalisableDescription()})";
+            BodyText = LocalisableString.Interpolate($"{score.User} ({score.DisplayAccuracy}, {score.GetDisplayRank().GetLocalisableDescription()})");
             DangerousAction = () => scoreManager.Delete(score);
         }
     }

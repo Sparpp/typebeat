@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@fe30ae7eea2beeb1f0d3a5ce8dde12bb78ca3f48
-title    Fix `HarmonicSkill`'s `ObjectWeightSum` causing discrepancies in timed calculations (#38276)
+commit   ppy/osu@1b4343435efa8c07b3c6e06fe569d41b6ad02ee0
+title    Fix rank localisation in `LocalScoreDeleteDialog` (#38227)
 date     2026-07-15
 release  2026.711.0-lazer (the newest osu! release that is fully merged)
