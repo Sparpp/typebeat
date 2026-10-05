@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@df4d32df3585fe2491f6bbf0d352f5feb41ef14a
-title    Add localisation support to rulesets' variants group mode (#38222)
+commit   ppy/osu@7bb7df0911cc70b84c01456dfdad9b47291b83c1
+title    Show pp value of non-preserved scores (#38516)
 date     2026-08-04
-release  2026.804.0-tachyon (the newest osu! release that is fully merged)
+release  2026.804.1-lazer (the newest osu! release that is fully merged)
