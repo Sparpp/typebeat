@@ -190,6 +190,7 @@ namespace typebeat.Game.Database
             c.CreateMap<RealmUser, RealmUser>();
             c.CreateMap<RealmFile, RealmFile>();
             c.CreateMap<RealmNamedFileUsage, RealmNamedFileUsage>();
+            c.CreateMap<RealmOnlineAsset, RealmOnlineAsset>();
             c.CreateMap<SkinInfo, SkinInfo>();
         }
 
