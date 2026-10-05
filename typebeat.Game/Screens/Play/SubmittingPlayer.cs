@@ -260,7 +260,7 @@ namespace typebeat.Game.Screens.Play
             score.ScoreInfo.Date = DateTimeOffset.Now;
 
             await submitScore(score).ConfigureAwait(false);
-            spectatorClient.EndPlaying(GameplayState);
+            spectatorClient.EndPlaying(token, GameplayState);
 
             // Submission is what makes the play count, and on this backend it is also what PRICES it: the server computes the
             // score's pp and commits the row inside the PUT that just returned above, so the profile statistics are already
@@ -326,7 +326,7 @@ namespace typebeat.Game.Screens.Play
                 Task.Run(async () =>
                 {
                     await submitScore(scoreCopy).ConfigureAwait(false);
-                    spectatorClient.EndPlaying(GameplayState);
+                    spectatorClient.EndPlaying(token, GameplayState);
                 }).FireAndForget();
             }
         }
