@@ -81,6 +81,12 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
 
         public bool SelectAllOnFocus { get; init; }
 
+        /// <summary>
+        /// Extra room kept clear on the right of the caption and text, for a control that draws
+        /// something over the card's right edge (see <see cref="FormColourSwatch"/>).
+        /// </summary>
+        public float ContentRightInset { get; init; }
+
         private FormControlBackground background = null!;
         private InnerTextBox textBox = null!;
         private FormFieldCaption caption = null!;
@@ -104,7 +110,7 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
                 {
                     RelativeSizeAxes = Axes.X,
                     AutoSizeAxes = Axes.Y,
-                    Padding = new MarginPadding(9),
+                    Padding = new MarginPadding(9) { Right = 9 + ContentRightInset },
                     Spacing = new Vector2(0, 4),
                     Children = new Drawable[]
                     {

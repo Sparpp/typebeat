@@ -103,6 +103,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // scene, must start on what the game actually ships.
         private readonly Bindable<bool> syncTint = new Bindable<bool>();
 
+        // The timing tint (TypeBeatRulesetSetting.ShowTimingTint), off by default on the same terms.
+        private readonly Bindable<bool> timingTint = new Bindable<bool>();
+        private readonly BindableFloat timingTintMinStrength = new BindableFloat(TypeBeatRulesetConfigManager.DEFAULT_TIMING_TINT_MIN_STRENGTH);
+        private readonly BindableFloat timingTintMaxStrength = new BindableFloat(TypeBeatRulesetConfigManager.DEFAULT_TIMING_TINT_MAX_STRENGTH);
+        private readonly Bindable<string> timingTintEarlyColour = new Bindable<string>(TypeBeatRulesetConfigManager.FormatTintColour(TypeBeatStyle.EarlyTint));
+        private readonly Bindable<string> timingTintLateColour = new Bindable<string>(TypeBeatRulesetConfigManager.FormatTintColour(TypeBeatStyle.LateTint));
+
         // The "get ready" cue: two depleting bars under the upcoming line's first char. A solid
         // bar lands on the line BOUNDARY (StartTime) and a 50%-opaque bar lands on the FIRST
         // WORD; a mapper may set the boundary earlier than the first word, so the two can be
@@ -485,6 +492,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     d.SetSyncTintEnabled(e.NewValue);
             }, true);
 
+            // The timing tint is the same kind of readout, and measures on the engine's CURRENT
+            // ladder, pulled at paint time, so a mod's window scale moves where the tint begins
+            // exactly as it moves where a Great ends.
+            config?.BindWith(TypeBeatRulesetSetting.ShowTimingTint, timingTint);
+            timingTint.BindValueChanged(e =>
+            {
+                foreach (var d in displays)
+                    d.SetTimingTintEnabled(e.NewValue, () => engine.Windows);
+            }, true);
+
+            // Its strength range applies live, both ends pushed together so a display never holds one
+            // new end and one stale one.
+            config?.BindWith(TypeBeatRulesetSetting.TimingTintMinStrength, timingTintMinStrength);
+            config?.BindWith(TypeBeatRulesetSetting.TimingTintMaxStrength, timingTintMaxStrength);
+            timingTintMinStrength.BindValueChanged(_ => pushTimingTintStrength());
+            timingTintMaxStrength.BindValueChanged(_ => pushTimingTintStrength(), true);
+
+            // And so do its two colours, stored as #rrggbb and read with the defaults as the fallback.
+            config?.BindWith(TypeBeatRulesetSetting.TimingTintEarlyColour, timingTintEarlyColour);
+            config?.BindWith(TypeBeatRulesetSetting.TimingTintLateColour, timingTintLateColour);
+            timingTintEarlyColour.BindValueChanged(_ => pushTimingTintColours());
+            timingTintLateColour.BindValueChanged(_ => pushTimingTintColours(), true);
+
             // Line spacing is user-adjustable and applies live: a change invalidates the laid-out
             // focus so the next Update re-runs the layout with the new gap.
             config?.BindWith(TypeBeatRulesetSetting.LineSpacing, lineSpacing);
@@ -608,6 +638,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             engine.WrongKeyRejected += onWrongKeyRejected;
             engine.AbandonReclaimed += onAbandonReclaimed;
             engine.Rewound += onRewound;
+        }
+
+        private void pushTimingTintStrength()
+        {
+            foreach (var d in displays)
+                d.SetTimingTintStrength(timingTintMinStrength.Value, timingTintMaxStrength.Value);
+        }
+
+        private void pushTimingTintColours()
+        {
+            var early = TypeBeatRulesetConfigManager.TintColour(timingTintEarlyColour.Value, TypeBeatStyle.EarlyTint);
+            var late = TypeBeatRulesetConfigManager.TintColour(timingTintLateColour.Value, TypeBeatStyle.LateTint);
+
+            foreach (var d in displays)
+                d.SetTimingTintColours(early, late);
         }
 
         /// <summary>

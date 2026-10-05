@@ -5,9 +5,12 @@ using System;
 using System.ComponentModel;
 using System.Linq;
 using osu.Framework.Bindables;
+using osu.Framework.Graphics;
 using typebeat.Game.Configuration;
 using typebeat.Game.Rulesets.Configuration;
+using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using osuTK.Graphics;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 {
@@ -282,7 +285,43 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         ApproachBars,
 
         /// <summary>Records the one-time application of the revised indicator and pace defaults.</summary>
-        IndicatorDefaultsApplied
+        IndicatorDefaultsApplied,
+
+        /// <summary>
+        /// Tint each correctly typed character by WHICH WAY its keypress missed the beat: towards
+        /// <see cref="UI.TypeBeatStyle.EarlyTint"/> when early, <see cref="UI.TypeBeatStyle.LateTint"/>
+        /// when late, by how far outside the Great window it landed (see
+        /// <see cref="UI.LyricLineDisplay.TimingTintColour"/>). OFF by default and display only, on
+        /// the same terms as <see cref="ShowSyncMetric"/>: it reads the judged delta a keypress
+        /// already earned and never reaches the replay CONFIG frame. Separate from that switch
+        /// rather than a mode of it, and it wins over the sync metric's brightness ramp while both
+        /// are on, so a Great press stays the clean typed colour.
+        /// </summary>
+        ShowTimingTint,
+
+        /// <summary>
+        /// How strongly the timing tint shades a press just outside the Great window, as a percentage
+        /// of the way from the typed colour to its hue. Display only.
+        /// </summary>
+        TimingTintMinStrength,
+
+        /// <summary>
+        /// How strongly the timing tint shades a press at the Meh edge or beyond, as a percentage of
+        /// the way from the typed colour to its hue. Display only. A value below
+        /// <see cref="TimingTintMinStrength"/> is read as equal to it, so the tint never weakens with
+        /// distance.
+        /// </summary>
+        TimingTintMaxStrength,
+
+        /// <summary>
+        /// The colour an EARLY press is tinted towards, stored as <c>#rrggbb</c> (read through
+        /// <see cref="TypeBeatRulesetConfigManager.TintColour"/>, which falls back to the default for
+        /// anything malformed). Display only.
+        /// </summary>
+        TimingTintEarlyColour,
+
+        /// <summary>The colour a LATE press is tinted towards, stored and read like <see cref="TimingTintEarlyColour"/>. Display only.</summary>
+        TimingTintLateColour
     }
 
     /// <summary>
@@ -382,6 +421,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         // in the constructor body, after the base constructor has finished virtual initialization.
         private readonly Bindable<bool> approachBarsBindable;
         private readonly Bindable<float> paceColourGradientBindable;
+
+        public const float DEFAULT_TIMING_TINT_MIN_STRENGTH = 33f;
+        public const float DEFAULT_TIMING_TINT_MAX_STRENGTH = 100f;
+
+        /// <summary>
+        /// The stored spelling of a timing tint colour setting: <c>#rrggbb</c>, lowercase, opaque. The
+        /// settings are kept as strings because a ruleset setting is persisted through its string
+        /// form, which <see cref="Colour4"/> has no parser for.
+        /// </summary>
+        public static string FormatTintColour(Colour4 colour) => FreestyleColourKey.Format(colour);
+
+        /// <summary>
+        /// A stored timing tint colour, or <paramref name="fallback"/> when <paramref name="value"/> is
+        /// not exactly <c>#rrggbb</c>, so a hand-edited or corrupted setting degrades to the default
+        /// rather than to black.
+        /// </summary>
+        public static Color4 TintColour(string? value, Color4 fallback) => FreestyleColourKey.Parse(value) is Colour4 c ? c : fallback;
 
         /// <summary>
         /// The caret style a NEW install starts on. Changing this cannot disturb an existing player, and the reason is
@@ -559,6 +615,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.PaceColourMaxChange, 100.0f, 25.0f, 150.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.SyllableBrightness, 60.0f, 0.0f, 100.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.ShowSyncMetric, false);
+            SetDefault(TypeBeatRulesetSetting.ShowTimingTint, false);
+            SetDefault(TypeBeatRulesetSetting.TimingTintMinStrength, DEFAULT_TIMING_TINT_MIN_STRENGTH, 0f, 100f, 1f);
+            SetDefault(TypeBeatRulesetSetting.TimingTintMaxStrength, DEFAULT_TIMING_TINT_MAX_STRENGTH, 0f, 100f, 1f);
+            SetDefault(TypeBeatRulesetSetting.TimingTintEarlyColour, FormatTintColour(UI.TypeBeatStyle.EarlyTint));
+            SetDefault(TypeBeatRulesetSetting.TimingTintLateColour, FormatTintColour(UI.TypeBeatStyle.LateTint));
             SetDefault(TypeBeatRulesetSetting.SyllableFadeIn, false);
             SetDefault(TypeBeatRulesetSetting.SyllableColourFill, false);
             SetDefault(TypeBeatRulesetSetting.SyllableFadeInEnd, 0f, 0f, 100f, 1f);

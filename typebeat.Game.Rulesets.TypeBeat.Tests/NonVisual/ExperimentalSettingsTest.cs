@@ -8,7 +8,9 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
+using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
+using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
@@ -36,6 +38,55 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.That(ruleset.CreateExperimentalSettings(), Is.InstanceOf<TypeBeatExperimentalSettingsSubsection>(),
                 "the Experimental section is empty unless the ruleset hands it a subsection");
+        }
+
+        /// <summary>
+        /// The timing tint's settings sit under their own "Timing tint" heading, between "Visual
+        /// feedback" (which keeps the sync metric) and "Lyric timing", and their captions leave
+        /// the feature's name to the heading.
+        /// </summary>
+        [Test]
+        public void TheTimingTintSettingsSitUnderTheirOwnHeading()
+        {
+            var ruleset = new TypeBeatRuleset();
+            var subsection = (TypeBeatExperimentalSettingsSubsection)ruleset.CreateExperimentalSettings()!;
+
+            using (var config = new TypeBeatRulesetConfigManager(null, ruleset.RulesetInfo))
+            {
+                var controls = subsection.BuildControls(config).ToList();
+
+                int heading(string text) => controls.FindIndex(c => c is OsuSpriteText t && t.Text.ToString() == text);
+
+                int captioned(string caption) => controls.FindIndex(c => c is SettingsItemV2 item && item.Control.FilterTerms.Any(t => t.ToString() == caption));
+
+                Assert.That(controls.OfType<OsuSpriteText>().Select(t => t.Text.ToString()), Is.EqualTo(new[]
+                {
+                    "Visual feedback",
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_HEADING,
+                    "Lyric timing",
+                }), "the timing tint heading sits between visual feedback and lyric timing");
+
+                int visualFeedback = heading("Visual feedback");
+                int timingTint = heading(TypeBeatExperimentalSettingsSubsection.TIMING_TINT_HEADING);
+                int lyricTiming = heading("Lyric timing");
+
+                Assert.That(captioned("Show sync metric"), Is.InRange(visualFeedback + 1, timingTint - 1), "the sync metric stays under visual feedback");
+
+                string[] tintCaptions =
+                {
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_CAPTION,
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_MIN_CAPTION,
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_MAX_CAPTION,
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_EARLY_COLOUR_CAPTION,
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_LATE_COLOUR_CAPTION,
+                };
+
+                foreach (string caption in tintCaptions)
+                {
+                    Assert.That(captioned(caption), Is.InRange(timingTint + 1, lyricTiming - 1), $"'{caption}' sits under the timing tint heading");
+                    Assert.That(caption, Does.Not.StartWith("Timing tint"), "the heading names the feature, so the rows do not repeat it");
+                }
+            }
         }
 
         /// <summary>
@@ -69,10 +120,51 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Select(c => c.Caption.ToString()), Is.EqualTo(new[]
                 {
                     "Show sync metric",
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_CAPTION,
                     "High-accuracy alignment (about 4x slower per import)",
                 }), "backlog 381 hid the 'Use local auto-aligner' switch: the install is the opt-in");
 
-                Assert.That(controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>(), Is.Empty, "pop-in controls live in type!beat");
+                // The only sliders here are the timing tint's strength range; pop-in controls live in type!beat.
+                var sliders = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>().ToArray();
+
+                Assert.That(sliders.Select(c => c.Caption.ToString()), Is.EqualTo(new[]
+                {
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_MIN_CAPTION,
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_MAX_CAPTION,
+                }));
+
+                Assert.That(sliders[0].Current.Value, Is.EqualTo(33f));
+                Assert.That(sliders[1].Current.Value, Is.EqualTo(100f));
+                sliders[0].Current.Value = 50f;
+                Assert.That(config.Get<float>(TypeBeatRulesetSetting.TimingTintMinStrength), Is.EqualTo(50f), "bound to the stored setting, not a copy");
+
+                // The two colour rows, which edit a colour over a stored #rrggbb string in both directions.
+                var swatches = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormColourSwatch>().ToArray();
+
+                Assert.That(swatches.Select(s => s.Caption.ToString()), Is.EqualTo(new[]
+                {
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_EARLY_COLOUR_CAPTION,
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_LATE_COLOUR_CAPTION,
+                }));
+
+                Assert.That(swatches[0].Current.Value, Is.EqualTo((Colour4)TypeBeatStyle.EarlyTint));
+                Assert.That(swatches[1].Current.Value, Is.EqualTo((Colour4)TypeBeatStyle.LateTint));
+
+                swatches[0].Current.Value = new Colour4((byte)18, (byte)52, (byte)86, (byte)255);
+                Assert.That(config.Get<string>(TypeBeatRulesetSetting.TimingTintEarlyColour), Is.EqualTo("#123456"), "a picked colour is stored");
+
+                config.SetValue(TypeBeatRulesetSetting.TimingTintLateColour, "#abcdef");
+                Assert.That(swatches[1].Current.Value, Is.EqualTo(new Colour4((byte)0xab, (byte)0xcd, (byte)0xef, (byte)255)), "a stored change reaches the row");
+
+                swatches[0].Current.SetDefault();
+                Assert.That(config.Get<string>(TypeBeatRulesetSetting.TimingTintEarlyColour), Is.EqualTo("#ff8a3d"), "resetting the row resets the setting");
+
+                // Settings rows like the rest, so the settings search finds them by caption.
+                Assert.That(swatches.Select(s => s.FilterTerms.Single().ToString()), Is.EqualTo(new[]
+                {
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_EARLY_COLOUR_CAPTION,
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_LATE_COLOUR_CAPTION,
+                }));
                 Assert.That(controls.OfType<SettingsCheckbox>(), Is.Empty, "all experimental toggles use the shared form UI");
 
                 // The one that has to be OFF here: the whole point of the toggle is that the metric
@@ -81,6 +173,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 var syncCheckbox = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Single(c => c.Caption.ToString() == "Show sync metric");
 
                 Assert.That(syncCheckbox.Current.Value, Is.False);
+
+                // The timing tint is opt-in on the same terms, and bound to its own stored setting.
+                var timingCheckbox = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>()
+                                             .Single(c => c.Caption.ToString() == TypeBeatExperimentalSettingsSubsection.TIMING_TINT_CAPTION);
+
+                Assert.That(timingCheckbox.Current.Value, Is.False);
+                timingCheckbox.Current.Value = true;
+                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.ShowTimingTint), Is.True);
+                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.ShowSyncMetric), Is.False, "a separate switch, not a mode of the sync metric");
 
                 // Also OFF: the full tier makes every import about four times slower, a cost the
                 // player opts into. The hint is pinned whole because it is the only place the trade
@@ -131,6 +232,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(surfaced.Select(c => c.Caption.ToString()), Is.EqualTo(new[]
                 {
                     "Show sync metric",
+                    TypeBeatExperimentalSettingsSubsection.TIMING_TINT_CAPTION,
                     TypeBeatExperimentalSettingsSubsection.LOCAL_ALIGNER_CAPTION,
                     TypeBeatExperimentalSettingsSubsection.HIGH_QUALITY_CAPTION,
                 }));
