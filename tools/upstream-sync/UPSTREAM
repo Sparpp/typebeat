@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@53f8158e7f947d2f9f6f163363fa3528b9ad32bc
-title    Fix multiplayer spectator stutter from player clocks double-counting elapsed time (#38369)
+commit   ppy/osu@5da71008b082d1a77e4bb301dc98886f1f24b895
+title    Update framework
 date     2026-07-24
-release  2026.724.0-tachyon (the newest osu! release that is fully merged)
+release  2026.726.0-lazer (the newest osu! release that is fully merged)
