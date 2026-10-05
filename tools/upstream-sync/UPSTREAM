@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@c84d90f91e9be3d1b66462fafdeef7308866856f
-title    Add "notifications" as a search term for alerts and privacy section (#38892)
+commit   ppy/osu@577d29f21d816754dba28f95ef3290ffe6da1f99
+title    Add `Opacity` setting to `SkinnableSprite` (#38821)
 date     2026-09-22
 release  2026.921.0-lazer (the newest osu! release that is fully merged)
