@@ -94,6 +94,12 @@ Our own decisions made because of upstream are on `sync/adapt`, in ADAPT.md.
   Check on the first release: an installed 0.0.1298 client updates to a
   build packed with vpk 1.2.0. osu! made the same jump, so it should.
 
+- **step 120, no `/watch` chat command (#38152).** It opens
+  `SoloSpectatorScreen`, which type!beat has never had (there is no spectator
+  server). Left out `WatchCommand.cs` and its `/watch` entries in
+  `ChannelManager.cs` (the command and the `/help` line). If type!beat ever
+  hosts a spectator server, bring both back together with the screen.
+
 ## Combined both sides
 
 - step 5 `LocalScoreDeleteDialog.cs` (#38227): upstream's
