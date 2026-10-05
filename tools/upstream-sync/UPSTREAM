@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@37d136e1967d7a525cd7ed1b6dd9d04793074082
-title    Localise `Clear binding` button in key configuration panel (#38296)
+commit   ppy/osu@fe30ae7eea2beeb1f0d3a5ce8dde12bb78ca3f48
+title    Fix `HarmonicSkill`'s `ObjectWeightSum` causing discrepancies in timed calculations (#38276)
 date     2026-07-15
 release  2026.711.0-lazer (the newest osu! release that is fully merged)
