@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@0e17229087665cf30e2dc7eff4307b3296e315e9
-title    fix InspectCode scripts after nvika removal (#38857)
+commit   ppy/osu@3fe1c05a58106c57bdf7e6355f69443530e2793d
+title    Fix transform scale when key is pressed on legacy counter (#38865)
 date     2026-09-21
 release  2026.921.0-lazer (the newest osu! release that is fully merged)
