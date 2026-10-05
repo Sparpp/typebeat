@@ -32,3 +32,8 @@ When `sync/vendor` moves on, rebase this branch onto it.
   Upstream always had it separate; type!beat folded it into User Interface in
   faf82d3a ("Tidy up the settings overlay", 2026-08-10). This undoes that one
   part: Skin sits after General in the sidebar and in first-run setup.
+- **No "take and upload screenshot" key** (2026-10-05). Upstream (step 158,
+  ppy/osu#36133) added Shift+F12, which uploads a screenshot to
+  `/api/v2/screenshots`. The type!beat server has no screenshot uploads, so
+  it could only fail. Its default binding is left out, which also keeps it
+  out of the key binding settings; F12 still saves a screenshot locally.
