@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@c16296fefdd4795f251d0ada36d584051a14ad45
-title    Update framework
+commit   ppy/osu@2bc7f992391aab178f5ed5b44c46d2e985f4c0ea
+title    RankedPlay / Quickplay queue NullReferenceException  (#38490)
 date     2026-08-07
 release  2026.804.2-lazer (the newest osu! release that is fully merged)
