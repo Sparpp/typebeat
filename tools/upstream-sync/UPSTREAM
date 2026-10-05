@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@62f759b8bacd1996db5674961b2ac74864bb5858
-title    Fix storyboard samples not playing when beatmap hitsounds disabled (#38350)
+commit   ppy/osu@a39553dd9c4c17a7c536b3e265513f9251b3beb5
+title    Adjust design of popup dialog buttons (including pause / fail menu) (#38357)
 date     2026-07-21
 release  2026.716.0-tachyon (the newest osu! release that is fully merged)
