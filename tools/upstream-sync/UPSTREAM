@@ -2,7 +2,7 @@
 # tools/upstream-sync/merge_steps.sh rewrites this file in every sync merge; don't edit it by hand.
 # tools/upstream-sync/status.sh shows it, plus what's still waiting.
 
-commit   ppy/osu@20e82fb18cd5ec2068f4551bb1fe0b1defc61cd1
-title    Warn users when screenshot uploads are rate limited (#38922)
-date     2026-09-25
+commit   ppy/osu@325c8f5c68413ca3085e4faa7dbf28c237c19ae7
+title     Apply counter-padding to context menus in multiplayer and playlists (#38901)
+date     2026-09-27
 release  2026.921.0-lazer (the newest osu! release that is fully merged)
