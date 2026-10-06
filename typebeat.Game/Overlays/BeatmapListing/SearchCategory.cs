@@ -3,6 +3,7 @@
 
 using System.ComponentModel;
 using osu.Framework.Localisation;
+using typebeat.Game.Localisation;
 using typebeat.Game.Resources.Localisation.Web;
 
 namespace typebeat.Game.Overlays.BeatmapListing
@@ -22,7 +23,7 @@ namespace typebeat.Game.Overlays.BeatmapListing
         [LocalisableDescription(typeof(BeatmapsStrings), nameof(BeatmapsStrings.StatusQualified))]
         Qualified,
 
-        [LocalisableDescription(typeof(BeatmapsStrings), nameof(BeatmapsStrings.StatusLoved))]
+        [LocalisableDescription(typeof(RespectedStrings), nameof(RespectedStrings.Status))]
         Loved,
 
         [LocalisableDescription(typeof(BeatmapsStrings), nameof(BeatmapsStrings.StatusFavourites))]

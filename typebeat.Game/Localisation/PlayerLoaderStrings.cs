@@ -20,9 +20,9 @@ namespace typebeat.Game.Localisation
         public static LocalisableString EpilepsyWarningContent => new TranslatableString(getKey(@"epilepsy_warning_content"), @"Please take caution if you are affected by epilepsy.");
 
         /// <summary>
-        /// "This beatmap is loved"
+        /// "This beatmap is respected"
         /// </summary>
-        public static LocalisableString LovedBeatmapDisclaimerTitle => new TranslatableString(getKey(@"loved_beatmap_disclaimer_title"), @"This beatmap is loved");
+        public static LocalisableString LovedBeatmapDisclaimerTitle => new TranslatableString(getKey(@"respected_beatmap_disclaimer_title"), @"This beatmap is respected");
 
         /// <summary>
         /// "No performance points will be awarded.
