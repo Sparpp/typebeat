@@ -9,6 +9,8 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Cursor;
 using osu.Framework.Localisation;
+using osuTK;
+using typebeat.Game.Beatmaps.Drawables;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
@@ -22,6 +24,9 @@ namespace typebeat.Game.Overlays.BeatmapSet
         private readonly SuccessRatePercentage successPercent;
         private readonly Bar successRate;
         private readonly Container percentContainer;
+        private readonly Container paceBlock;
+        private readonly PaceGraph paceGraph;
+        private readonly OsuSpriteText paceLine;
 
         private APIBeatmap beatmap;
 
@@ -48,11 +53,25 @@ namespace typebeat.Game.Overlays.BeatmapSet
             successPercent.TooltipText = $"{passCount} / {playCount}";
             successRate.Length = rate;
             percentContainer.ResizeWidthTo(successRate.Length, 250, Easing.InOutCubic);
+
+            // The typing pace: lazer's Points of Failure graph sat here, and the server records no failure points.
+            float[] curve = TypingStatsFormat.NormalisedCurve(beatmap?.WpmCurve);
+
+            if (curve == null)
+            {
+                paceBlock.FadeOut(250, Easing.OutQuint);
+            }
+            else
+            {
+                paceGraph.Data = curve;
+                paceLine.Text = TypingStatsFormat.PaceLine(beatmap.PeakWpm, beatmap.TargetWpm, beatmap.AverageWpm);
+                paceBlock.FadeIn(250, Easing.OutQuint);
+            }
         }
 
         /// <remarks>
-        /// The success rate only (passcount over playcount). Lazer's "Points of Failure" graph is not shown: the server
-        /// does not record where in a map a play failed or was retried.
+        /// The success rate only (passcount over playcount). Lazer's Points of Failure graph is replaced by the difficulty's
+        /// typing pace (the server records no failure points).
         /// </remarks>
         public SuccessRate()
         {
@@ -90,6 +109,42 @@ namespace typebeat.Game.Overlays.BeatmapSet
                                 Font = OsuFont.GetFont(size: 12),
                             },
                         },
+                        paceBlock = new Container
+                        {
+                            Name = @"typing pace",
+                            Alpha = 0,
+                            RelativeSizeAxes = Axes.X,
+                            AutoSizeAxes = Axes.Y,
+                            Margin = new MarginPadding { Top = 20 },
+                            Child = new FillFlowContainer
+                            {
+                                RelativeSizeAxes = Axes.X,
+                                AutoSizeAxes = Axes.Y,
+                                Direction = FillDirection.Vertical,
+                                Spacing = new Vector2(0, 5),
+                                Children = new Drawable[]
+                                {
+                                    new OsuSpriteText
+                                    {
+                                        Anchor = Anchor.TopCentre,
+                                        Origin = Anchor.TopCentre,
+                                        Text = @"Typing pace",
+                                        Font = OsuFont.GetFont(size: 12),
+                                    },
+                                    paceGraph = new PaceGraph
+                                    {
+                                        RelativeSizeAxes = Axes.X,
+                                        Height = 65,
+                                    },
+                                    paceLine = new OsuSpriteText
+                                    {
+                                        Anchor = Anchor.TopCentre,
+                                        Origin = Anchor.TopCentre,
+                                        Font = OsuFont.GetFont(size: 12),
+                                    },
+                                },
+                            },
+                        },
                     },
                 },
             };
@@ -100,6 +155,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
         {
             successRate.AccentColour = colours.Green;
             successRate.BackgroundColour = colourProvider.Background6;
+            paceGraph.Colour = colours.Blue1;
 
             updateDisplay();
         }

@@ -129,8 +129,11 @@ namespace typebeat.Game.Overlays
             req.Success += res =>
             {
                 beatmapSet.Value = res;
-                if (lastLookup.Value.type == BeatmapSetLookupType.BeatmapId)
-                    Header.HeaderContent.Picker.Beatmap.Value = Header.BeatmapSet.Value.Beatmaps.First(b => b.OnlineID == lastLookup.Value.id);
+                // The difficulty a card's link named (beatmapsets/lookup?beatmap_id=). Should it be missing from the set,
+                // the picker keeps its own default selection rather than throwing on the update thread.
+                if (lastLookup.Value.type == BeatmapSetLookupType.BeatmapId
+                    && Header.BeatmapSet.Value.Beatmaps.FirstOrDefault(b => b.OnlineID == lastLookup.Value.id) is APIBeatmap requested)
+                    Header.HeaderContent.Picker.Beatmap.Value = requested;
             };
             API.Queue(req);
         }
