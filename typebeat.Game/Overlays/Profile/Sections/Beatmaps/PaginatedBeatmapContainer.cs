@@ -47,6 +47,9 @@ namespace typebeat.Game.Overlays.Profile.Sections.Beatmaps
                 case BeatmapSetType.Ranked:
                     return user.RankedBeatmapsetCount;
 
+                case BeatmapSetType.Loved:
+                    return user.LovedBeatmapsetCount;
+
                 case BeatmapSetType.Pending:
                     return user.PendingBeatmapsetCount;
 

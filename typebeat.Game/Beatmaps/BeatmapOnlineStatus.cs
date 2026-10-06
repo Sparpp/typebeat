@@ -46,7 +46,7 @@ namespace typebeat.Game.Beatmaps
         [LocalisableDescription(typeof(BeatmapsetsStrings), nameof(BeatmapsetsStrings.ShowStatusQualified))]
         Qualified = 3,
 
-        [LocalisableDescription(typeof(BeatmapsetsStrings), nameof(BeatmapsetsStrings.ShowStatusLoved))]
+        [LocalisableDescription(typeof(RespectedStrings), nameof(RespectedStrings.Status))]
         Loved = 4,
     }
 

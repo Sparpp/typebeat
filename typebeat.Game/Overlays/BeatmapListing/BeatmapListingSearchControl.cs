@@ -132,10 +132,10 @@ namespace typebeat.Game.Overlays.BeatmapListing
                                 {
                                     // Subscribed mappers only: recommended difficulty, converts, spotlights and featured artists have no data here.
                                     generalFilter = new BeatmapSearchMultipleSelectionFilterRow<SearchGeneral>(BeatmapsStrings.ListingSearchFiltersGeneral, new[] { SearchGeneral.Follows }),
-                                    // No qualified or loved status exists; "has leaderboard" and "WIP" would repeat ranked and pending.
+                                    // No qualified status exists; "has leaderboard" and "WIP" would repeat ranked + loved and pending.
                                     categoryFilter = new BeatmapSearchFilterRow<SearchCategory>(BeatmapsStrings.ListingSearchFiltersStatus, new[]
                                     {
-                                        SearchCategory.Any, SearchCategory.Ranked, SearchCategory.Favourites, SearchCategory.Pending, SearchCategory.Graveyard, SearchCategory.Mine
+                                        SearchCategory.Any, SearchCategory.Ranked, SearchCategory.Loved, SearchCategory.Favourites, SearchCategory.Pending, SearchCategory.Graveyard, SearchCategory.Mine
                                     }),
                                     languageFilter = new BeatmapSearchFilterRow<SearchLanguage>(BeatmapsStrings.ListingSearchFiltersLanguage),
                                     // Video only: storyboards are not recorded.
