@@ -6,6 +6,7 @@
 using System;
 using osu.Framework.Allocation;
 using osu.Framework.Extensions.Color4Extensions;
+using osu.Framework.Extensions.ObjectExtensions;
 using osu.Framework.Extensions.LocalisationExtensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
@@ -16,6 +17,7 @@ using typebeat.Game.Beatmaps;
 using typebeat.Game.Extensions;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
+using typebeat.Game.Online.API.Requests.Responses;
 using typebeat.Game.Resources.Localisation.Web;
 using osuTK;
 
@@ -23,7 +25,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
 {
     public partial class BasicStats : Container
     {
-        private readonly Statistic length;
+        private readonly Statistic length, bpm, words, chars;
 
         private IBeatmapSetInfo beatmapSet;
 
@@ -57,6 +59,14 @@ namespace typebeat.Game.Overlays.BeatmapSet
 
         private void updateDisplay()
         {
+            // BPM is set level: the server sends no per-difficulty BPM.
+            bpm.Value = TypingStatsFormat.Bpm((beatmapSet as APIBeatmapSet)?.BPM ?? 0);
+
+            var online = beatmapInfo as APIBeatmap;
+            words.Value = TypingStatsFormat.Count(online?.WordCount, @"words");
+            chars.Value = TypingStatsFormat.Count(online?.CharCount, @"chars");
+            chars.TooltipText = TypingStatsFormat.CharsPerWord(online?.WordCount, online?.CharCount);
+
             if (beatmapInfo == null)
             {
                 length.Value = string.Empty;
@@ -77,13 +87,27 @@ namespace typebeat.Game.Overlays.BeatmapSet
             {
                 RelativeSizeAxes = Axes.X,
                 AutoSizeAxes = Axes.Y,
-                Direction = FillDirection.Horizontal,
+                Direction = FillDirection.Full,
                 Children = new[]
                 {
                     length = new Statistic(BeatmapStatisticsIconType.Length)
                     {
-                        Width = 1f,
+                        Width = 0.5f,
                         TooltipText = default,
+                    },
+                    bpm = new Statistic(BeatmapStatisticsIconType.Bpm)
+                    {
+                        Width = 0.5f,
+                        TooltipText = BeatmapsetsStrings.ShowStatsBpm,
+                    },
+                    words = new Statistic(FontAwesome.Solid.Font)
+                    {
+                        Width = 0.5f,
+                        TooltipText = @"Words",
+                    },
+                    chars = new Statistic(FontAwesome.Solid.Keyboard)
+                    {
+                        Width = 0.5f,
                     },
                 },
             };
@@ -108,6 +132,17 @@ namespace typebeat.Game.Overlays.BeatmapSet
             }
 
             public Statistic(BeatmapStatisticsIconType icon)
+                : this(new BeatmapStatisticIcon(icon))
+            {
+            }
+
+            /// <summary>A stat with no beatmap statistic texture (the resources have none for words or characters).</summary>
+            public Statistic(IconUsage icon)
+                : this(new SpriteIcon { Icon = icon })
+            {
+            }
+
+            private Statistic(Drawable icon)
             {
                 RelativeSizeAxes = Axes.X;
                 Height = 24f;
@@ -140,14 +175,14 @@ namespace typebeat.Game.Overlays.BeatmapSet
                                 Rotation = 0,
                                 Colour = Color4Extensions.FromHex(@"f7dd55"),
                             },
-                            new BeatmapStatisticIcon(icon)
+                            icon.With(i =>
                             {
-                                Anchor = Anchor.CentreLeft,
-                                Origin = Anchor.Centre,
-                                Size = new Vector2(10),
-                                Colour = Color4Extensions.FromHex(@"f7dd55"),
-                                Scale = new Vector2(0.8f),
-                            },
+                                i.Anchor = Anchor.CentreLeft;
+                                i.Origin = Anchor.Centre;
+                                i.Size = new Vector2(10);
+                                i.Colour = Color4Extensions.FromHex(@"f7dd55");
+                                i.Scale = new Vector2(0.8f);
+                            }),
                             value = new OsuSpriteText
                             {
                                 Anchor = Anchor.CentreLeft,

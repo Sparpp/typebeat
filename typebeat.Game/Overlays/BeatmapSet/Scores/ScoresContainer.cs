@@ -17,6 +17,7 @@ using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests;
 using typebeat.Game.Online.API.Requests.Responses;
+using typebeat.Game.Online.Leaderboards;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Scoring;
 using typebeat.Game.Screens.Play.Leaderboards;
@@ -177,6 +178,15 @@ namespace typebeat.Game.Overlays.BeatmapSet.Scores
             user.BindValueChanged(_ => getScores(), true);
         }
 
+        /// <summary>
+        /// Which board the overlay shows for <paramref name="beatmap"/>: the one song select shows. Lazer's own gate
+        /// (<c>Status &lt;= Pending</c>) hid every pending and unranked map, which here are most maps and do have a
+        /// board (the server's unranked board, passed plays that count for nothing). Their rows carry no pp, as
+        /// <see cref="ScoreTable.DisplayScores"/> already knows from the status.
+        /// </summary>
+        public static GlobalLeaderboardKind BoardFor(APIBeatmap beatmap)
+            => beatmap == null ? GlobalLeaderboardKind.None : GlobalLeaderboardAvailability.Resolve(beatmap.OnlineID, beatmap.Status);
+
         private void getScores()
         {
             getScoresRequest?.Cancel();
@@ -184,7 +194,7 @@ namespace typebeat.Game.Overlays.BeatmapSet.Scores
 
             noScoresPlaceholder.Hide();
 
-            if (Beatmap.Value == null || Beatmap.Value.OnlineID <= 0 || (Beatmap.Value.Status <= BeatmapOnlineStatus.Pending))
+            if (BoardFor(Beatmap.Value) == GlobalLeaderboardKind.None)
             {
                 Scores = null;
                 Hide();

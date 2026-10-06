@@ -33,6 +33,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
         private const float tile_icon_padding = 7;
         private const float tile_spacing = 2;
 
+        private readonly StarRatingDisplay starRating;
         private readonly LinkFlowContainer infoContainer;
         private readonly Statistic plays, favourites;
 
@@ -53,9 +54,6 @@ namespace typebeat.Game.Overlays.BeatmapSet
                 updateDisplay();
             }
         }
-
-        [Resolved]
-        private OsuColour colours { get; set; } = null!;
 
         public BeatmapPicker()
         {
@@ -91,15 +89,44 @@ namespace typebeat.Game.Overlays.BeatmapSet
                                 Difficulties = new DifficultiesContainer
                                 {
                                     AutoSizeAxes = Axes.Both,
-                                    OnLostHover = () => showBeatmap(Beatmap.Value, withStarRating: false),
+                                    OnLostHover = () => showBeatmap(Beatmap.Value),
                                 },
                             }
                         },
-                        infoContainer = new LinkFlowContainer(t => t.Font = OsuFont.GetFont(weight: FontWeight.Bold, size: 11))
+                        // Song select's title wedge layout: the star rating pill, a 6px gap, then the name, both centred on the line.
+                        new GridContainer
                         {
                             RelativeSizeAxes = Axes.X,
                             AutoSizeAxes = Axes.Y,
-                            TextAnchor = Anchor.BottomLeft,
+                            RowDimensions = new[] { new Dimension(GridSizeMode.AutoSize) },
+                            ColumnDimensions = new[]
+                            {
+                                new Dimension(GridSizeMode.AutoSize),
+                                new Dimension(GridSizeMode.Absolute, 6),
+                                new Dimension(),
+                            },
+                            Content = new[]
+                            {
+                                new Drawable[]
+                                {
+                                    starRating = new StarRatingDisplay(default)
+                                    {
+                                        Anchor = Anchor.CentreLeft,
+                                        Origin = Anchor.CentreLeft,
+                                        Alpha = 0,
+                                    },
+                                    Empty(),
+                                    infoContainer = new LinkFlowContainer(t => t.Font = OsuFont.GetFont(weight: FontWeight.Bold, size: 11))
+                                    {
+                                        Anchor = Anchor.CentreLeft,
+                                        Origin = Anchor.CentreLeft,
+                                        RelativeSizeAxes = Axes.X,
+                                        AutoSizeAxes = Axes.Y,
+                                        Margin = new MarginPadding { Bottom = 2 },
+                                        TextAnchor = Anchor.BottomLeft,
+                                    },
+                                },
+                            },
                         },
                         new FillFlowContainer
                         {
@@ -123,7 +150,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
 
             Beatmap.ValueChanged += b =>
             {
-                showBeatmap(b.NewValue, withStarRating: Difficulties.Any(d => d.IsHovered));
+                showBeatmap(b.NewValue);
                 updateDifficultyButtons();
             };
         }
@@ -169,7 +196,7 @@ namespace typebeat.Game.Overlays.BeatmapSet
                                                                 State = DifficultySelectorState.NotSelected,
                                                                 OnHovered = beatmap =>
                                                                 {
-                                                                    showBeatmap(beatmap, withStarRating: true);
+                                                                    showBeatmap(beatmap);
                                                                 },
                                                                 OnClicked = beatmap => { Beatmap.Value = beatmap; },
                                                             });
@@ -189,9 +216,16 @@ namespace typebeat.Game.Overlays.BeatmapSet
             updateDifficultyButtons();
         }
 
-        private void showBeatmap(APIBeatmap? beatmapInfo, bool withStarRating)
+        /// <summary>
+        /// The difficulty line for the selected (or hovered) difficulty: its star rating pill, then its name, as song select
+        /// shows them. The pill replaces lazer's "Star Difficulty" text, which only appeared while a difficulty was hovered.
+        /// </summary>
+        private void showBeatmap(APIBeatmap? beatmapInfo)
         {
             infoContainer.Clear();
+
+            starRating.Current.Value = new StarDifficulty(beatmapInfo?.StarRating ?? 0, 0);
+            starRating.Alpha = beatmapInfo != null ? 1 : 0;
 
             infoContainer.AddText(beatmapInfo?.DifficultyName ?? string.Empty, s => s.Font = OsuFont.GetFont(size: 17, weight: FontWeight.Bold));
             infoContainer.AddArbitraryDrawable(Empty().With(e => e.Width = 5));
@@ -240,17 +274,6 @@ namespace typebeat.Game.Overlays.BeatmapSet
                 }
             }
 
-            if (withStarRating)
-            {
-                infoContainer.AddArbitraryDrawable(Empty().With(e => e.Width = 5));
-                infoContainer.AddText(
-                    LocalisableString.Interpolate($"{BeatmapsetsStrings.ShowStatsStars} {beatmapInfo?.StarRating.FormatStarRating()}"),
-                    t =>
-                    {
-                        t.Font = OsuFont.GetFont(size: 11, weight: FontWeight.Bold);
-                        t.Colour = colours.Yellow;
-                    });
-            }
         }
 
         private void updateDifficultyButtons()
