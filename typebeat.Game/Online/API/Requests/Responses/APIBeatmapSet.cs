@@ -108,15 +108,13 @@ namespace typebeat.Game.Online.API.Requests.Responses
         /// Helper property to deserialize the detailed user info to <see cref="Author"/>
         /// </summary>
         /// <remarks>
-        /// This setter implements special handling for deleted users. When received a user with ID 1, it indicates
-        /// the original user has been deleted. In such cases, the existing <see cref="Author"/> data
-        /// (filled from <see cref="AuthorID"/> and <see cref="AuthorString"/>) is preserved. For valid user,
-        /// the provided user info replaces the existing <see cref="Author"/>.
+        /// User IDs belong to the type!beat server, including ID 1. The provided user info replaces
+        /// the existing <see cref="Author"/> data so the creator's avatar is retained.
         /// </remarks>
         [JsonProperty(@"user")]
         private APIUser author
         {
-            set => Author = value.Id != 1 ? value : Author;
+            set => Author = value;
         }
 
         /// <summary>

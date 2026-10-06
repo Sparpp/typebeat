@@ -20,18 +20,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     {
         private const string avatar = "https://typebeat.sh/avatars/718/1.png";
 
-        [TestCase(true)]
-        [TestCase(false)]
-        public void TheCreatorsAvatarReachesTheAuthor(bool userFirst)
+        [TestCase(true, 718)]
+        [TestCase(true, 1)]
+        [TestCase(false, 718)]
+        [TestCase(false, 1)]
+        public void TheCreatorsAvatarReachesTheAuthor(bool userFirst, int creatorId)
         {
-            const string user = @"""user"": { ""id"": 718, ""username"": ""CrashstylerX2"", ""country_code"": ""US"", ""avatar_url"": """ + avatar + @""" }";
-            const string pair = @"""creator"": ""CrashstylerX2"", ""user_id"": 718";
+            string user = $@"""user"": {{ ""id"": {creatorId}, ""username"": ""CrashstylerX2"", ""country_code"": ""US"", ""avatar_url"": ""{avatar}"" }}";
+            string pair = $@"""creator"": ""CrashstylerX2"", ""user_id"": {creatorId}";
 
             var set = JsonConvert.DeserializeObject<APIBeatmapSet>($"{{ \"id\": 266, {(userFirst ? $"{user}, {pair}" : $"{pair}, {user}")} }}")!;
 
             Assert.Multiple(() =>
             {
-                Assert.That(set.Author.Id, Is.EqualTo(718));
+                Assert.That(set.Author.Id, Is.EqualTo(creatorId));
                 Assert.That(set.Author.Username, Is.EqualTo("CrashstylerX2"));
                 Assert.That(set.Author.AvatarUrl, Is.EqualTo(avatar));
             });
