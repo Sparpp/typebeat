@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using osu.Framework.Bindables;
 using osu.Framework.Localisation;
+using typebeat.Game.Overlays.Settings;
 using typebeat.Game.Rulesets.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
@@ -35,7 +36,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
                 yield return ("Speed change", FormattableString.Invariant($@"{SpeedChange.Value:N2}x"));
 
                 if (!AdjustPitch.IsDefault)
-                    yield return ("Adjust pitch", AdjustPitch.Value ? "On" : "Off");
+                    yield return ("Pitch adjustment", PitchSettingsSlider.FormatPitch(AdjustPitch.Value));
+
+                if (AutomaticPitchAdjustment.Value)
+                    yield return ("Adjust pitch automatically", "On");
             }
         }
 

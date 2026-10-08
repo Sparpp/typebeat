@@ -18,6 +18,11 @@ namespace typebeat.Game.Rulesets.Mods
 
         private BindableBool? adjustPitch;
 
+        private IBindableNumber<double>? pitchShift;
+
+        private readonly BindableDouble frequencyAdjust = new BindableDouble(1);
+        private readonly BindableDouble tempoAdjust = new BindableDouble(1);
+
         /// <summary>
         /// Construct a new <see cref="RateAdjustModHelper"/>.
         /// </summary>
@@ -25,6 +30,27 @@ namespace typebeat.Game.Rulesets.Mods
         public RateAdjustModHelper(IBindableNumber<double> speedChange)
         {
             SpeedChange = speedChange;
+        }
+
+        /// <summary>
+        /// Keep the pitch slider at the rate's natural pitch shift and disable manual input while automatic adjustment is enabled.
+        /// </summary>
+        public void HandleAutomaticPitchAdjustment(BindableNumber<double> pitchShift, BindableBool automaticPitchAdjustment)
+        {
+            SpeedChange.BindValueChanged(_ =>
+            {
+                if (automaticPitchAdjustment.Value)
+                    updateAutomaticPitch();
+            });
+            automaticPitchAdjustment.BindValueChanged(_ => updateAutomaticPitch(), true);
+
+            void updateAutomaticPitch()
+            {
+                pitchShift.Disabled = false;
+                if (automaticPitchAdjustment.Value)
+                    pitchShift.Value = 12 * Math.Log2(SpeedChange.Value);
+                pitchShift.Disabled = automaticPitchAdjustment.Value;
+            }
         }
 
         /// <summary>
@@ -48,12 +74,38 @@ namespace typebeat.Game.Rulesets.Mods
         }
 
         /// <summary>
+        /// Setup an independent pitch shift, measured in semitones, while preserving the selected playback rate.
+        /// </summary>
+        public void HandleAudioAdjustments(IBindableNumber<double> pitchShift)
+        {
+            this.pitchShift = pitchShift;
+            SpeedChange.BindValueChanged(_ => updatePitchAdjustments());
+            pitchShift.BindValueChanged(_ => updatePitchAdjustments(), true);
+        }
+
+        private void updatePitchAdjustments()
+        {
+            frequencyAdjust.Value = Math.Pow(2, pitchShift!.Value / 12);
+            tempoAdjust.Value = SpeedChange.Value / frequencyAdjust.Value;
+        }
+
+        /// <summary>
         /// Should be invoked when a track is obtained / changed.
         /// </summary>
         /// <param name="track">The new track.</param>
-        /// <exception cref="InvalidOperationException">If this method is called before <see cref="HandleAudioAdjustments"/>.</exception>
+        /// <exception cref="InvalidOperationException">If neither overload of <c>HandleAudioAdjustments</c> has been called.</exception>
         public void ApplyToTrack(IAdjustableAudioComponent track)
         {
+            if (pitchShift != null)
+            {
+                this.track?.RemoveAdjustment(AdjustableProperty.Frequency, frequencyAdjust);
+                this.track?.RemoveAdjustment(AdjustableProperty.Tempo, tempoAdjust);
+                this.track = track;
+                track.AddAdjustment(AdjustableProperty.Frequency, frequencyAdjust);
+                track.AddAdjustment(AdjustableProperty.Tempo, tempoAdjust);
+                return;
+            }
+
             if (adjustPitch == null)
                 throw new InvalidOperationException($"Must call {nameof(HandleAudioAdjustments)} first");
 

@@ -93,7 +93,7 @@ namespace typebeat.Game.Screens.Select
                     if (targetBindable.GetType() != sourceBindable.GetType())
                         continue;
 
-                    lastActiveRateAdjustMod.CopyAdjustedSetting(targetBindable, sourceBindable);
+                    targetMod.CopyAdjustedSetting(targetBindable, sourceBindable);
                 }
             }
 
