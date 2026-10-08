@@ -158,15 +158,37 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Is.EqualTo("Reinstall local auto-aligner"));
         }
 
+        /// <summary>
+        /// Backlog 410: a mismatched install keeps automatic alignment off, so the button names both
+        /// versions with the verb that fixes it (update an older one, reinstall a newer one) and its
+        /// hint says alignment is unavailable until then. A matching one is a plain reinstall.
+        /// </summary>
+        [Test]
+        public void TheButtonSaysAMismatchedAlignerBlocksAlignmentUntilFixed()
+        {
+            var older = new FakeAlignerManager { IsInstalled = true, InstalledVersion = "8", ShippedVersion = "9" };
+            var unversioned = new FakeAlignerManager { IsInstalled = true, InstalledVersion = null, ShippedVersion = "9" };
+            var newer = new FakeAlignerManager { IsInstalled = true, InstalledVersion = "10", ShippedVersion = "9" };
+            var matching = new FakeAlignerManager { IsInstalled = true, InstalledVersion = "9", ShippedVersion = "9" };
+
+            Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonText(older), Is.EqualTo("Update local auto-aligner (v8 → v9)"));
+            Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonText(unversioned), Is.EqualTo("Update local auto-aligner (v1 → v9)"));
+            Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonText(newer), Is.EqualTo("Reinstall local auto-aligner (v10 → v9)"));
+            Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonText(matching), Is.EqualTo("Reinstall local auto-aligner"));
+
+            Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonTooltip(older), Does.Contain("automatic alignment is unavailable until you update it"));
+            Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonTooltip(newer), Does.Contain("automatic alignment is unavailable until you reinstall it"));
+            Assert.That(TypeBeatExperimentalSettingsSubsection.InstallButtonTooltip(matching), Does.Not.Contain("unavailable"));
+        }
+
         private class FakeAlignerManager : ILocalAlignerManager
         {
             public bool IsInstalled { get; init; }
             public bool NeedsRepair { get; init; }
             public string? InstalledDevice => null;
             public bool GpuDetected => false;
-            public string? InstalledVersion => null;
-            public string? ShippedVersion => null;
-            public bool UpdateAvailable => false;
+            public string? InstalledVersion { get; init; }
+            public string? ShippedVersion { get; init; }
 
             public Task<LyricImportResult> InstallAsync(Action<string> progress, CancellationToken token) => throw new NotSupportedException();
         }

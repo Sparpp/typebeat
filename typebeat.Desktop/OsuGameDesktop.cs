@@ -204,6 +204,11 @@ namespace typebeat.Desktop
             // Added so its BDL runs (resolves the ruleset config cache); it is also cached above.
             Add(lyricMapImporter);
 
+            // Once per session: an installed aligner that is not this build's version keeps automatic
+            // alignment off until it is updated, and the player is told so here rather than only on
+            // the import screen (backlog 410). Added after the importer so its config is resolved.
+            Add(new LocalAlignerVersionNotifier());
+
             LoadComponentAsync(new DiscordRichPresence(), Add);
 
             switch (RuntimeInfo.OS)

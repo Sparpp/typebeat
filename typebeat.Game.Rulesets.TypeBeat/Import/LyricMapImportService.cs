@@ -58,14 +58,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             => language == BeatmapLanguage.Unspecified
                 ? Task.FromResult(LyricImportResult.Fail("select a language before importing"))
                 : LyricMapImporter.BuildOszAsync(audioPath, lyricsPath, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token,
-                    useAutomaticAlignment, language: language.ToCanonicalName(), highQualityAlignment: HighQualityAlignment(config()), vocalMode: vocalMode);
+                    useAutomaticAlignment, language: language.ToCanonicalName(), highQualityAlignment: HighQualityAlignment(config()), vocalMode: vocalMode,
+                    requiredAlignerVersion: ShippedVersion);
 
         public Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true, string? language = null,
             AlignerVocalMode vocalMode = AlignerVocalMode.Aligned)
             => LyricMapImporter.ProduceTimingJsonAsync(audioPath, lyricsContent, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token, useAutomaticAlignment,
-                language, HighQualityAlignment(config()), vocalMode);
+                language, HighQualityAlignment(config()), vocalMode, requiredAlignerVersion: ShippedVersion);
 
         /// <summary>
         /// Whether an import runs the aligner at its full tier. Read at the start of each import,
@@ -217,36 +218,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
         public string? InstalledVersion => IsInstalled ? LyricMapImporter.ReadAlignerVersion(resolvedAlignerDir()) : null;
 
-        public string? ShippedVersion => LyricMapImporter.ReadAlignerVersion(LyricMapImporter.ResolveLyricLabDir(null, startDirectories()));
-
         /// <summary>
-        /// An installed aligner whose script is older than the shipped one. Versions are small
-        /// integers in practice, but compared as strings when they do not parse, so a stray
-        /// non-numeric tag still reads as "different, refresh".
+        /// The version both import entry points require of the aligner they would run (backlog 410):
+        /// any other is refused by the importer itself, so no caller, the import screen, the editor's
+        /// re-align or one yet to be written, can time a map with an aligner this build was not made
+        /// for. <see cref="ILocalAlignerManager.VersionStatus"/> reads the same pair through the same
+        /// rule for the surfaces that say so in advance.
         /// </summary>
-        public bool UpdateAvailable
-        {
-            get
-            {
-                if (!IsInstalled)
-                    return false;
-
-                string? shipped = ShippedVersion;
-
-                if (shipped == null)
-                    return false;
-
-                string? installed = InstalledVersion;
-
-                if (installed == null)
-                    return true; // a version-1 script, which predates the constant
-
-                if (int.TryParse(shipped, out int s) && int.TryParse(installed, out int i))
-                    return s > i;
-
-                return !string.Equals(shipped, installed, StringComparison.Ordinal);
-            }
-        }
+        public string? ShippedVersion => LyricMapImporter.ReadAlignerVersion(LyricMapImporter.ResolveLyricLabDir(null, startDirectories()));
 
         /// <summary>
         /// Best-effort NVIDIA detection: nvidia-smi ships with the driver and is on PATH on any

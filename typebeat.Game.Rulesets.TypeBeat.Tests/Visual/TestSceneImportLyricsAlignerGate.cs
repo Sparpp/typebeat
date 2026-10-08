@@ -34,12 +34,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
 
         private ImportLyricsScreen screen = null!;
 
-        private void loadImportScreen(bool installed, bool needsRepair = false)
+        private void loadImportScreen(bool installed, bool needsRepair = false, string? installedVersion = "9", string? shippedVersion = "9")
         {
-            AddStep($"aligner installed: {installed}, needs repair: {needsRepair}", () =>
+            AddStep($"aligner installed: {installed}, needs repair: {needsRepair}, v{installedVersion} of v{shippedVersion}", () =>
             {
                 aligner.IsInstalled = installed;
                 aligner.NeedsRepair = needsRepair;
+                aligner.InstalledVersion = installedVersion;
+                aligner.ShippedVersion = shippedVersion;
             });
             AddStep("load import screen", () => LoadScreen(screen = new ImportLyricsScreen()));
             AddUntilStep("import screen current", () => screen.IsCurrentScreen());
@@ -82,6 +84,47 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("no tooltip", () => string.IsNullOrEmpty(tooltipOf(screen)));
             AddStep("tick it", () => screen.AutomaticAlignment.Current.Value = true);
             AddAssert("ticked", () => screen.AutomaticAlignment.Current.Value);
+        }
+
+        /// <summary>
+        /// Backlog 410: an installed aligner whose version is not the one this build ships is refused
+        /// by the importer, older or newer alike, so the choice is greyed out with a tooltip naming
+        /// both versions and where to update it.
+        /// </summary>
+        [TestCase("8", "Your local auto-aligner is out of date (v8, this version of type!beat needs v9). "
+                       + "Update it in Settings > Experimental > Lyric timing to use automatic alignment.")]
+        [TestCase(null, "Your local auto-aligner is out of date (v1, this version of type!beat needs v9). "
+                        + "Update it in Settings > Experimental > Lyric timing to use automatic alignment.")]
+        [TestCase("10", "Your local auto-aligner is from a newer version of type!beat (v10, this version of type!beat needs v9). "
+                        + "Reinstall it in Settings > Experimental > Lyric timing to use automatic alignment.")]
+        public void MismatchedVersionGreysOutTheChoiceAndSaysWhereToUpdate(string? installedVersion, string expectedTooltip)
+        {
+            loadImportScreen(installed: true, installedVersion: installedVersion, shippedVersion: "9");
+
+            AddAssert("checkbox disabled", () => screen.AutomaticAlignment.Current.Disabled);
+            AddAssert("checkbox unticked", () => !screen.AutomaticAlignment.Current.Value);
+            AddAssert("tooltip names both versions and the place to update", () => tooltipOf(screen) == expectedTooltip);
+        }
+
+        [Test]
+        public void MatchingVersionLeavesTheChoiceEnabled()
+        {
+            loadImportScreen(installed: true, installedVersion: "9", shippedVersion: "9");
+
+            AddAssert("checkbox enabled", () => !screen.AutomaticAlignment.Current.Disabled);
+            AddAssert("no tooltip", () => string.IsNullOrEmpty(tooltipOf(screen)));
+        }
+
+        /// <summary>A player who updates from settings and comes back finds the choice enabled again.</summary>
+        [Test]
+        public void ResumingAfterAnUpdateReEnablesTheChoice()
+        {
+            loadImportScreen(installed: true, installedVersion: "8", shippedVersion: "9");
+            AddAssert("checkbox disabled", () => screen.AutomaticAlignment.Current.Disabled);
+
+            coverAndResume(() => aligner.InstalledVersion = "9");
+            AddAssert("enabled after the update", () => !screen.AutomaticAlignment.Current.Disabled);
+            AddAssert("tooltip cleared", () => string.IsNullOrEmpty(tooltipOf(screen)));
         }
 
         /// <summary>
@@ -137,9 +180,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             public bool NeedsRepair { get; set; }
             public string? InstalledDevice => null;
             public bool GpuDetected => false;
-            public string? InstalledVersion => null;
-            public string? ShippedVersion => null;
-            public bool UpdateAvailable => false;
+            public string? InstalledVersion { get; set; }
+            public string? ShippedVersion { get; set; }
 
             public Task<LyricImportResult> InstallAsync(Action<string> progress, CancellationToken token) => throw new NotSupportedException();
         }

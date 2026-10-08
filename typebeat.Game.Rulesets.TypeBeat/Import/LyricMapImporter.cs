@@ -617,7 +617,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             string? configuredLyricLabPath, IEnumerable<string> startDirectories,
             Action<string> progress, CancellationToken token,
             bool useAutomaticAlignment = true, IAudioTrackExtractor? audioExtractor = null, string? language = null,
-            bool highQualityAlignment = false, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned)
+            bool highQualityAlignment = false, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned, string? requiredAlignerVersion = null)
         {
             if (!File.Exists(audioPath))
                 return LyricImportResult.Fail($"audio file not found: {audioPath}");
@@ -686,7 +686,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             (LyricImportResult result, string? timing, string? vocalsStemSource) = await produceTimingJsonAsync(
                 effectiveAudioPath, lyricsContent, artist, title, configuredLyricLabPath, startDirectories, progress, token, useAutomaticAlignment,
-                language, highQualityAlignment, vocalMode).ConfigureAwait(false);
+                language, highQualityAlignment, vocalMode, requiredAlignerVersion).ConfigureAwait(false);
 
             if (!result.Success || timing == null)
                 return result;
@@ -739,17 +739,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// script. <paramref name="highQualityAlignment"/> runs the aligner at its full tier (see
         /// <see cref="AlignerArguments"/>) and changes nothing on the TTML or line-stamp paths;
         /// <paramref name="vocalMode"/> is the map set's stored aligner vocal mode, which likewise
-        /// reaches only the aligner's command line.</remarks>
+        /// reaches only the aligner's command line. <paramref name="requiredAlignerVersion"/> is the
+        /// <c>ALIGNER_VERSION</c> this build ships: an installed aligner of any OTHER version is refused
+        /// rather than run (backlog 410, see <see cref="AlignerVersionRefusal"/>); null checks nothing.</remarks>
         public static async Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
             string? configuredLyricLabPath, IEnumerable<string> startDirectories,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true,
-            string? language = null, bool highQualityAlignment = false, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned)
+            string? language = null, bool highQualityAlignment = false, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned,
+            string? requiredAlignerVersion = null)
         {
             // The editor's in-place re-align uses the stem-less view: it edits the lines of a map
             // already on disk and never re-packages, so a stem this run produces is dropped.
             (LyricImportResult result, string? timing, _) = await produceTimingJsonAsync(audioPath, lyricsContent, artist, title, configuredLyricLabPath,
-                startDirectories, progress, token, useAutomaticAlignment, language, highQualityAlignment, vocalMode).ConfigureAwait(false);
+                startDirectories, progress, token, useAutomaticAlignment, language, highQualityAlignment, vocalMode, requiredAlignerVersion).ConfigureAwait(false);
 
             return (result, timing);
         }
@@ -766,7 +769,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             string audioPath, string lyricsContent, string artist, string title,
             string? configuredLyricLabPath, IEnumerable<string> startDirectories,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true,
-            string? language = null, bool highQualityAlignment = false, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned)
+            string? language = null, bool highQualityAlignment = false, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned,
+            string? requiredAlignerVersion = null)
         {
             language ??= LyricOriginals.DetectLanguage(new[] { lyricsContent });
 
@@ -834,6 +838,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             }
 
             string? lyricLabDir = ResolveLyricLabDir(configuredLyricLabPath, startDirectories);
+
+            // An installed aligner whose version is not this build's never runs, not even the adoption
+            // probe below (backlog 410). Deliberately a FAILURE rather than a quiet drop to the line
+            // stamps: the player asked for word timing, and a map timed by a different aligner than
+            // the one this build was made for, or silently timed by lines instead, is not what they
+            // asked for. Only reached when automatic alignment is on and the lyrics need aligning
+            // (a TTML or a word-stamped LRC returned above), and only for a venv that exists, since
+            // nothing can run without one and that case keeps its own "not installed" handling.
+            if (lyricLabDir != null && EnvironmentPresent(lyricLabDir))
+            {
+                string? refusal = AlignerVersionRefusal(lyricLabDir, requiredAlignerVersion);
+
+                if (refusal != null)
+                {
+                    progress($"local aligner refused: {refusal}");
+                    return (LyricImportResult.Fail(refusal), null, null);
+                }
+            }
+
             bool alignerUsable = lyricLabDir != null && EnvironmentReady(lyricLabDir);
 
             // A venv with no setup sentinel gets ONE probe here, where the import is already a
@@ -900,6 +923,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             }
 
             return synthesizeFromLrc(lyricsContent, progress, language);
+        }
+
+        /// <summary>
+        /// Why the aligner in <paramref name="lyricLabDir"/> must not run under this build, as the
+        /// import failure that says so (both versions, and where to update); null when its
+        /// <c>ALIGNER_VERSION</c> is <paramref name="requiredAlignerVersion"/>, or when no version is
+        /// required. ANY mismatch refuses, older or newer (<see cref="LocalAlignerVersion.Compare"/>).
+        /// </summary>
+        public static string? AlignerVersionRefusal(string lyricLabDir, string? requiredAlignerVersion)
+        {
+            string? installed = ReadAlignerVersion(lyricLabDir);
+            return LocalAlignerVersion.ImportRefusal(LocalAlignerVersion.Compare(installed, requiredAlignerVersion), installed, requiredAlignerVersion);
         }
 
         /// <summary>
