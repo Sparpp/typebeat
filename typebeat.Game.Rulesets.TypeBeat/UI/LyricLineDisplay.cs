@@ -1803,7 +1803,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 var (start, end) = sungSpan(i);
                 double multiplier = windowMultiplier(i);
-                double completion = SyllableFadeInCompletion(start, greatEarly * multiplier, syllableFadeInEnd);
+                // The bottom-to-top fill rises letter by letter on each cell's own target, kept inside its
+                // syllable's span. Its release stays on the syllable's end, since the whole syllable is
+                // judgeable until then. Fade-in, None, pop-in and approach bars keep the syllable's start.
+                double fillStart = glyphFillMode ? Math.Clamp(Line.Cells[i].TargetTime, start, end) : start;
+                double completion = SyllableFadeInCompletion(fillStart, greatEarly * multiplier, syllableFadeInEnd);
                 double approachStart = judgementIndicator == JudgementIndicatorMode.None ? start - greatEarly * multiplier : completion - syllableFadeInDuration;
                 float release = IndicatorRelease(time, end + greatLate * multiplier);
                 bool lit = Line.Cells[i].IsCountable && time >= approachStart && release > 0;

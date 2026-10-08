@@ -29,7 +29,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, 100f);
             });
             at("halfway through lead-in", () => 800);
-            AddUntilStep("half of each glyph is filled", () => Enumerable.Range(0, 3).All(i => Math.Abs(display.CellColourFillFraction(i) - 0.5f) < 0.0001));
+            AddUntilStep("first glyph is half filled", () => Math.Abs(display.CellColourFillFraction(0) - 0.5f) < 0.0001);
+            AddAssert("later letters wait for their own targets", () => display.CellColourFillFraction(1) == 0 && display.CellColourFillFraction(2) == 0);
             AddAssert("fill uses the selected direction", () =>
             {
                 var glyph = display.CellScreenQuad(0);
@@ -56,6 +57,72 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 config.SetValue(TypeBeatRulesetSetting.ApproachBars, true);
             });
             AddUntilStep("obsolete mask is hidden", () => display.CellColourFillAlpha(0) == 0 && display.CellSungHighlightAmount(0) > 0 && display.FloatingBarAlpha(0) > 0);
+        }
+
+        private static LyricLine twoSyllableHello => new LyricLine
+        {
+            RawText = "hello", StartTime = 0, EndTime = 6000, SingEndTime = 3000,
+            Units = new[]
+            {
+                new TimedUnit { Text = "hello", StartTime = 1000, EndTime = 3000, SyllableBoundaries = new[] { 2000.0 }, SyllableSplits = new[] { 3 } },
+            },
+        };
+
+        private const float per_character_lead_in = 1000f;
+
+        private float expectedProgress(double target) =>
+            LyricLineDisplay.SyllableFadeInProgress(songClock.CurrentTime, target, per_character_lead_in);
+
+        private void loadPerCharacterProbe(bool hardRock, JudgementIndicatorMode mode)
+        {
+            load("hello", hardRock, source: twoSyllableHello);
+            AddStep("configure indicator", () =>
+            {
+                config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, mode);
+                config.SetValue(TypeBeatRulesetSetting.SyllableFadeInDuration, per_character_lead_in);
+                config.SetValue(TypeBeatRulesetSetting.SyllableFadeInEnd, 100f);
+            });
+            AddAssert("timing mode and syllable layout", () => engine.HardRockFromMod == hardRock && engine.SyllableTiming == !hardRock
+                && Enumerable.Range(0, 3).All(i => display.Line.SyllableIndexOf(i) == 0 && !display.Line.IsCharTimedStretch(i))
+                && display.Line.SyllableIndexOf(3) == 1
+                && display.Line.Cells[0].TargetTime < display.Line.Cells[1].TargetTime && display.Line.Cells[1].TargetTime < display.Line.Cells[2].TargetTime);
+            at("between the first two letter targets", () => (display.Line.Cells[0].TargetTime + display.Line.Cells[1].TargetTime) / 2);
+        }
+
+        [Test]
+        public void BottomToTopFillRisesPerCharacterUnderSyllableTiming()
+        {
+            loadPerCharacterProbe(false, JudgementIndicatorMode.BottomToTopFill);
+            AddUntilStep("each letter is further along than the next", () => display.CellSungHighlightAmount(0) > display.CellSungHighlightAmount(1)
+                && display.CellSungHighlightAmount(1) > display.CellSungHighlightAmount(2) && display.CellSungHighlightAmount(2) > 0);
+            AddAssert("each letter fills on its own target", () => Enumerable.Range(0, 3).All(i =>
+                Math.Abs(display.CellSungHighlightAmount(i) - expectedProgress(display.Line.Cells[i].TargetTime)) < 0.0001));
+            AddAssert("partially filled letters are masked per character", () => display.CellColourFillFraction(0) == 0
+                && Math.Abs(display.CellColourFillFraction(1) - display.CellSungHighlightAmount(1)) < 0.0001
+                && Math.Abs(display.CellColourFillFraction(2) - display.CellSungHighlightAmount(2)) < 0.0001);
+            at("after the last letter's target, inside the syllable", () => display.Line.Cells[2].TargetTime + 1);
+            AddUntilStep("the whole syllable is filled", () => Enumerable.Range(0, 3).All(i => display.CellSungHighlightAmount(i) == 1));
+            at("halfway through the syllable's release", () => display.Line.Syllables[0].EndTime + engine.Windows.GreatLate + LyricLineDisplay.INDICATOR_RELEASE_DURATION_MS / 2);
+            AddUntilStep("release stays on the syllable end", () => Enumerable.Range(0, 3).All(i => Math.Abs(display.CellSungHighlightAmount(i) - 0.5f) < 0.0001));
+        }
+
+        [Test]
+        public void BottomToTopFillUnderHardRockKeepsCharacterTargets()
+        {
+            loadPerCharacterProbe(true, JudgementIndicatorMode.BottomToTopFill);
+            // Under Hard Rock each letter is its own point window, so the first one is already releasing.
+            AddUntilStep("each letter fills and releases on its own target", () => Enumerable.Range(0, 5).All(i =>
+                Math.Abs(display.CellSungHighlightAmount(i) - expectedProgress(display.Line.Cells[i].TargetTime)
+                    * LyricLineDisplay.IndicatorRelease(songClock.CurrentTime, display.Line.Cells[i].TargetTime + engine.Windows.GreatLate)) < 0.0001)
+                && display.CellSungHighlightAmount(0) < 1 && display.CellSungHighlightAmount(1) > display.CellSungHighlightAmount(2));
+        }
+
+        [Test]
+        public void FadeInUnderSyllableTimingStillLightsTheSyllableTogether()
+        {
+            loadPerCharacterProbe(false, JudgementIndicatorMode.FadeIn);
+            AddUntilStep("every letter shares the syllable's progress", () => Enumerable.Range(0, 3).All(i =>
+                Math.Abs(display.CellSungHighlightAmount(i) - LyricLineDisplay.ExponentialIndicatorProgress(expectedProgress(display.Line.Syllables[0].StartTime))) < 0.0001));
         }
 
         [TestCase(JudgementIndicatorMode.None)]
