@@ -399,6 +399,9 @@ namespace typebeat.Game.Rulesets.Scoring
         {
         }
 
+        /// <summary>Refreshes derived score after a ruleset changes scoring inputs outside a judgement.</summary>
+        protected void RefreshScore() => updateScore();
+
         private void updateScore()
         {
             Accuracy.Value = currentMaximumBaseScore > 0 ? currentBaseScore / currentMaximumBaseScore : 1;

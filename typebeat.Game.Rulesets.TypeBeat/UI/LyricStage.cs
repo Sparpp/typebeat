@@ -92,6 +92,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private readonly BindableFloat syllableBrightness = new BindableFloat(60f);
         private readonly Bindable<JudgementIndicatorMode> judgementIndicator = new Bindable<JudgementIndicatorMode>(JudgementIndicatorMode.FadeIn);
         private readonly BindableBool approachBars = new BindableBool(true);
+        private readonly Bindable<PaceBarRevealMode> paceBarReveal = new Bindable<PaceBarRevealMode>(PaceBarRevealMode.Off);
+        private readonly BindableBool judgementColouredBars = new BindableBool();
         private readonly BindableFloat syllableFadeInEnd = new BindableFloat();
         private readonly BindableFloat syllableFadeInDuration = new BindableFloat(TypeBeatRulesetConfigManager.DEFAULT_SYLLABLE_FADE_IN_DURATION_MS);
         private readonly BindableBool textPopIn = new BindableBool(true);
@@ -429,6 +431,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 foreach (var d in displays)
                     d.SetApproachBarsEnabled(e.NewValue);
+            }, true);
+
+            config?.BindWith(TypeBeatRulesetSetting.PaceBarReveal, paceBarReveal);
+            paceBarReveal.BindValueChanged(e =>
+            {
+                foreach (var d in displays)
+                    d.SetPaceBarReveal(e.NewValue);
+            }, true);
+
+            config?.BindWith(TypeBeatRulesetSetting.JudgementColouredBars, judgementColouredBars);
+            judgementColouredBars.BindValueChanged(e =>
+            {
+                foreach (var d in displays)
+                    d.SetJudgementColouredBarsEnabled(e.NewValue);
             }, true);
 
             config?.BindWith(TypeBeatRulesetSetting.JudgementIndicator, judgementIndicator);

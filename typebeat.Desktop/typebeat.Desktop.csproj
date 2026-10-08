@@ -60,4 +60,5 @@
     <Content Include="../lyriclab/align_lyrics.py;../lyriclab/debug_decode.py;../lyriclab/setup.ps1;../lyriclab/setup.sh;../lyriclab/README.md"
              LinkBase="lyriclab" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+  <Import Project="../build/MetalRendererPatch.targets" />
 </Project>

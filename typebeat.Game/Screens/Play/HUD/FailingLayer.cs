@@ -6,16 +6,11 @@
 using System;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
-using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Graphics;
-using osu.Framework.Graphics.Colour;
-using osu.Framework.Graphics.Containers;
-using osu.Framework.Graphics.Shapes;
 using osu.Framework.Utils;
 using typebeat.Game.Configuration;
-using typebeat.Game.Graphics;
+using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Rulesets.Scoring;
-using osuTK.Graphics;
 
 namespace typebeat.Game.Screens.Play.HUD
 {
@@ -31,16 +26,14 @@ namespace typebeat.Game.Screens.Play.HUD
 
         protected override bool PlayInitialIncreaseAnimation => false;
 
-        private const float max_alpha = 0.4f;
         private const int fade_time = 400;
-        private const float gradient_size = 0.2f;
 
         /// <summary>
         /// The threshold under which the current player life should be considered low and the layer should start fading in.
         /// </summary>
         private const double low_health_threshold = 0.20f;
 
-        private readonly Container boxes;
+        private readonly ScreenEdgeWarning boxes;
 
         private Bindable<bool> fadePlayfieldWhenHealthLow;
 
@@ -49,37 +42,13 @@ namespace typebeat.Game.Screens.Play.HUD
             RelativeSizeAxes = Axes.Both;
             InternalChildren = new Drawable[]
             {
-                boxes = new Container
-                {
-                    Alpha = 0,
-                    Blending = BlendingParameters.Additive,
-                    RelativeSizeAxes = Axes.Both,
-                    Children = new Drawable[]
-                    {
-                        new Box
-                        {
-                            RelativeSizeAxes = Axes.Both,
-                            Colour = ColourInfo.GradientHorizontal(Color4.White, Color4.White.Opacity(0)),
-                            Width = gradient_size,
-                        },
-                        new Box
-                        {
-                            RelativeSizeAxes = Axes.Both,
-                            Width = gradient_size,
-                            Colour = ColourInfo.GradientHorizontal(Color4.White.Opacity(0), Color4.White),
-                            Anchor = Anchor.TopRight,
-                            Origin = Anchor.TopRight,
-                        },
-                    }
-                },
+                boxes = new ScreenEdgeWarning { Alpha = 0 },
             };
         }
 
         [BackgroundDependencyLoader]
-        private void load(OsuColour color, OsuConfigManager config)
+        private void load(OsuConfigManager config)
         {
-            boxes.Colour = color.Red;
-
             fadePlayfieldWhenHealthLow = config.GetBindable<bool>(OsuSetting.FadePlayfieldWhenHealthLow);
             fadePlayfieldWhenHealthLow.BindValueChanged(_ => updateState());
             ShowHealth.BindValueChanged(_ => updateState());
@@ -102,7 +71,7 @@ namespace typebeat.Game.Screens.Play.HUD
         {
             base.Update();
 
-            double target = Math.Clamp(max_alpha * (1 - Current.Value / low_health_threshold), 0, max_alpha);
+            double target = Math.Clamp(ScreenEdgeWarning.MAX_ALPHA * (1 - Current.Value / low_health_threshold), 0, ScreenEdgeWarning.MAX_ALPHA);
 
             boxes.Alpha = (float)Interpolation.Lerp(boxes.Alpha, target, Clock.ElapsedFrameTime * 0.01f);
         }

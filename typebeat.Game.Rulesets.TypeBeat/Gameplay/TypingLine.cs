@@ -69,6 +69,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>Delta of the awarded correct keypress, or the wrong keypress.</summary>
         public double? JudgedDelta { get; internal set; }
 
+        /// <summary>The first awarded tier, including correction and rush-cap limits. Rebuilt from replay input.</summary>
+        public JudgementType? JudgedTier { get; internal set; }
+
         /// <summary>
         /// Delta of the FIRST correct judgement: set once, never cleared (survives backspace).
         /// Its presence makes later correct retypes scoring-inert, so backspace-retype cannot

@@ -69,8 +69,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Select(c => c.Caption.ToString()), Is.EqualTo(new[]
                 {
                     "Show sync metric",
+                    "Colour typed-letter bars by judgement",
+                    "Red screen edges before forced line changes",
                     "High-accuracy alignment (about 4x slower per import)",
                 }), "backlog 381 hid the 'Use local auto-aligner' switch: the install is the opt-in");
+
+                var reveal = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormDropdown<PaceBarRevealMode>>().Single();
+                Assert.That(reveal.Current.Value, Is.EqualTo(PaceBarRevealMode.Off));
+                Assert.That(reveal.Items, Is.EqualTo(new[] { PaceBarRevealMode.Off, PaceBarRevealMode.Build, PaceBarRevealMode.ColourIn }));
+                reveal.Current.Value = PaceBarRevealMode.ColourIn;
+                Assert.That(config.Get<PaceBarRevealMode>(TypeBeatRulesetSetting.PaceBarReveal), Is.EqualTo(PaceBarRevealMode.ColourIn));
+                config.SetValue(TypeBeatRulesetSetting.PaceBarReveal, PaceBarRevealMode.Off);
+                Assert.That(reveal.Current.Value, Is.EqualTo(PaceBarRevealMode.Off));
 
                 Assert.That(controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormSliderBar<float>>(), Is.Empty, "pop-in controls live in type!beat");
                 Assert.That(controls.OfType<SettingsCheckbox>(), Is.Empty, "all experimental toggles use the shared form UI");
@@ -81,6 +91,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 var syncCheckbox = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Single(c => c.Caption.ToString() == "Show sync metric");
 
                 Assert.That(syncCheckbox.Current.Value, Is.False);
+                var judgementBars = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>()
+                                            .Single(c => c.Caption.ToString() == "Colour typed-letter bars by judgement");
+                Assert.That(judgementBars.Current.Value, Is.False);
+                judgementBars.Current.Value = true;
+                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.JudgementColouredBars), Is.True);
+
+                var pushWarning = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>()
+                                          .Single(c => c.Caption.ToString() == "Red screen edges before forced line changes");
+                Assert.That(pushWarning.Current.Value, Is.False);
+                pushWarning.Current.Value = true;
+                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.LinePushWarningEdges), Is.True);
+                config.SetValue(TypeBeatRulesetSetting.LinePushWarningEdges, false);
+                Assert.That(pushWarning.Current.Value, Is.False);
 
                 // Also OFF: the full tier makes every import about four times slower, a cost the
                 // player opts into. The hint is pinned whole because it is the only place the trade
@@ -131,6 +154,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(surfaced.Select(c => c.Caption.ToString()), Is.EqualTo(new[]
                 {
                     "Show sync metric",
+                    "Colour typed-letter bars by judgement",
+                    "Red screen edges before forced line changes",
                     TypeBeatExperimentalSettingsSubsection.LOCAL_ALIGNER_CAPTION,
                     TypeBeatExperimentalSettingsSubsection.HIGH_QUALITY_CAPTION,
                 }));

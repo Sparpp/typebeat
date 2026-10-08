@@ -161,6 +161,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 
             Combo.Value += streak;
             HighestCombo.Value = Math.Max(HighestCombo.Value, Combo.Value);
+            RefreshScore();
         }
 
         /// <summary>
