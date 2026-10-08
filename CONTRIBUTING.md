@@ -51,7 +51,7 @@ When in doubt, it's probably best to start with a discussion first. We will esca
 
 ## Submitting pull requests
 
-While pull requests from unaffiliated contributors are welcome.
+Pull requests are welcome, please ensure "Allow edits by maintainers." is enabled for your submission.
 
 The [issue tracker](https://github.com/Sparpp/typebeat/issues) should provide plenty of issues to start with. 
 
