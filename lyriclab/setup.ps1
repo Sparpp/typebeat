@@ -38,6 +38,22 @@
 #            also checks that the chosen uv answers --version and falls through to the next
 #            candidate when it does not, so a stale uv on PATH or a half-extracted .uv\ copy
 #            heals instead of failing every retry the same way.
+# -Update: on a COMPLETED install (the sentinel present), bring the existing venv up to this
+#          script's dependency set in place (the aligner dependencies, then the fused-evidence
+#          pair and its weights), then exit. The torch line is not re-run and the venv and
+#          sentinel are never removed, so it costs a few small downloads at most. This is how the
+#          game's Update button gives an existing install the packages a newer aligner adds. A
+#          failure exits 1 with the usual sentence but leaves the install as it was: the aligner
+#          still runs (version 10 runs its version 9 path without the pair). Without a sentinel,
+#          -Update is an ordinary full setup.
+#
+# Fused evidence (aligner version 10, its English path): phonemizer and espeakng-loader are
+# installed by their OWN uv call after the required set, best effort, and are deliberately NOT in
+# the import check below, which is what gates the sentinel. The aligner falls back to its version 9
+# path when they are missing, so a platform with no espeakng-loader wheel (or a resolver that
+# rejects them) still gets a working aligner instead of a failed setup. Their 57 MB of weights are
+# fetched the same way (align_lyrics.qmul_weights_path, into torch hub's checkpoint dir, sha256
+# checked); when that fails the first fused import fetches them instead.
 #
 # Failure output: one plain sentence on stderr that starts "setup failed:", says what failed and
 # what the player can do (retry, check the connection, or install later from Settings), then the
@@ -52,7 +68,8 @@
 param(
     [ValidateSet('cpu', 'cuda')]
     [string]$Device = 'cpu',
-    [switch]$PlanOnly
+    [switch]$PlanOnly,
+    [switch]$Update
 )
 
 $ErrorActionPreference = 'Stop'
@@ -65,6 +82,13 @@ $uvUrl = "https://github.com/astral-sh/uv/releases/download/$uvVersion/uv-x86_64
 $pythonVersion = '3.11'
 $torchVersion = '2.5.1'
 $sentinel = '.venv\.typebeat-setup-ok'
+# The required packages besides torch, and the optional fused-evidence pair (see the header). The
+# same lists, spelled the same way, are in setup.sh; the game's tests pin both.
+$alignerPackages = 'demucs==4.0.1 soundfile pyphen num2words tqdm imageio-ffmpeg' -split ' '
+$fusedPackages = 'phonemizer espeakng-loader' -split ' '
+# True while -Update refreshes a completed install, which a failure must leave in place.
+$updating = $false
+$py = '.venv\Scripts\python.exe'
 
 # What the player can do about a failure. Anything that downloads can fail on the network; the
 # rest can only be retried. Either way the game's Settings page offers the install again later.
@@ -73,12 +97,13 @@ $retryPlain = 'retry, or install the aligner later from Settings'
 
 # The failure report (see the header): the sentence, then up to five lines of raw detail, on
 # stderr. Drops any half-built venv so the next attempt starts clean (the sentinel is inside
-# .venv, so it can never outlive a failed run), then exits 1.
+# .venv, so it can never outlive a failed run), then exits 1. Under -Update the venv is a
+# completed install that still works, so it is kept.
 function Stop-Setup([string]$what, [string]$advice = $retryPlain, [string[]]$detail = @()) {
     [Console]::Error.WriteLine("setup failed: $what; $advice.")
     $lines = @($detail | ForEach-Object { "$_" -split "`r?`n" } | Where-Object { $_.Trim() -ne '' })
     foreach ($line in ($lines | Select-Object -First 5)) { [Console]::Error.WriteLine("  detail: $($line.Trim())") }
-    if (-not $PlanOnly -and (Test-Path '.venv')) {
+    if (-not $PlanOnly -and -not $updating -and (Test-Path '.venv')) {
         try { Remove-Item '.venv' -Recurse -Force -ErrorAction Stop } catch { }
     }
     exit 1
@@ -109,6 +134,26 @@ function Test-Uv([string]$exe) {
     }
 }
 
+# The fused-evidence pair, then its weights through the aligner's own qmul_weights_path (so the
+# URL, the file name and the sha256 live in align_lyrics.py alone). Best effort (see the header):
+# each failure is one WARNING line, and $fusedInstalled says whether the packages went in. The
+# weights are skipped without them, and the first import that needs them fetches them itself.
+$fusedInstalled = $false
+function Install-FusedEvidence {
+    Write-Output 'installing the fused-evidence packages...'
+    & $uvExe pip install --python $py $fusedPackages
+    if ($LASTEXITCODE -ne 0) {
+        Write-Output "WARNING: the fused-evidence packages could not be installed (exit code $LASTEXITCODE); the aligner runs its version 9 path without them"
+        return
+    }
+    $script:fusedInstalled = $true
+    Write-Output 'fetching the fused-evidence weights (57 MB, once)...'
+    & $py -c "import align_lyrics; align_lyrics.qmul_weights_path()"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Output "WARNING: the fused-evidence weights could not be fetched (exit code $LASTEXITCODE); the first import that needs them fetches them instead"
+    }
+}
+
 # Any terminating error from here on (a failed download, a locked file, a missing cmdlet) is
 # reported as the step it happened in. A trap rather than try/catch so that nothing follows the
 # sentinel write but the final message (tests\test_setup_ps1.ps1 pins that ordering).
@@ -119,11 +164,14 @@ trap {
 }
 
 if (-not $PlanOnly -and (Test-Path $sentinel)) {
-    Write-Output 'lyriclab environment already present'
-    exit 0
+    if (-not $Update) {
+        Write-Output 'lyriclab environment already present'
+        exit 0
+    }
+    $updating = $true
 }
 
-if (-not $PlanOnly -and (Test-Path '.venv')) {
+if (-not $PlanOnly -and -not $updating -and (Test-Path '.venv')) {
     Write-Output 'removing an incomplete environment left by an earlier setup...'
     $step = 'removing the incomplete environment left by an earlier setup'
     $stepAdvice = 'close anything that might be using the aligner folder and retry, or install the aligner later from Settings'
@@ -180,8 +228,21 @@ if (-not $uvExe) {
 }
 Write-Output "using uv at $uvExe"
 
+# -Update on a completed install: the dependency lines again (uv leaves what is already satisfied,
+# torch included, alone) and the weights, then out. Nothing below this block runs. Unlike a full
+# setup, the update reports the fused-evidence pair failing: installing it is what it is for.
+if ($updating) {
+    Write-Output 'updating the aligner dependencies in the existing environment...'
+    $step = 'updating the aligner dependencies'
+    $stepAdvice = $retryNetwork
+    Invoke-Native 'updating the aligner dependencies failed' $retryNetwork { & $uvExe pip install --python $py $alignerPackages }
+    Install-FusedEvidence
+    if (-not $fusedInstalled) { Stop-Setup 'installing the fused-evidence packages failed' $retryNetwork 'the aligner keeps working on its version 9 path' }
+    Write-Output 'lyriclab environment updated'
+    exit 0
+}
+
 $torchIndex = if ($Device -eq 'cuda') { 'https://download.pytorch.org/whl/cu121' } else { 'https://download.pytorch.org/whl/cpu' }
-$py = '.venv\Scripts\python.exe'
 
 Write-Output 'creating venv with uv...'
 $step = "creating the Python $pythonVersion environment"
@@ -191,7 +252,7 @@ $step = 'installing torch'
 Invoke-Native 'installing torch failed' $retryNetwork { & $uvExe pip install --python $py --index-url $torchIndex "torch==$torchVersion" "torchaudio==$torchVersion" }
 Write-Output 'installing aligner dependencies...'
 $step = 'installing the aligner dependencies'
-Invoke-Native 'installing the aligner dependencies failed' $retryNetwork { & $uvExe pip install --python $py demucs==4.0.1 soundfile pyphen num2words tqdm imageio-ffmpeg }
+Invoke-Native 'installing the aligner dependencies failed' $retryNetwork { & $uvExe pip install --python $py $alignerPackages }
 
 if (-not (Test-Path $py)) { Stop-Setup 'the Python environment was not created' $retryPlain "no $py after uv venv" }
 
@@ -202,6 +263,8 @@ Invoke-Native 'provisioning ffmpeg failed' $retryPlain { & $py -c "import imagei
 Write-Output 'verifying the installed packages import...'
 $step = 'verifying the installed packages'
 Invoke-Native 'the installed packages do not import' $retryPlain { & $py -c "import torch, torchaudio, demucs, soundfile, pyphen, num2words" }
+
+Install-FusedEvidence
 
 if ($Device -eq 'cuda') {
     Write-Output 'verifying CUDA is usable by torch...'

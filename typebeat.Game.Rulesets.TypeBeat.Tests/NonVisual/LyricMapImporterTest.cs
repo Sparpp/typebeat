@@ -189,7 +189,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.That(LyricMapImporter.AlignerHasQualityTiers(lab), Is.EqualTo(expectFlag));
 
-            var args = LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", "[00:01.00] hello\n", true);
+            var args = withoutFusedEvidenceFlags(LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", "[00:01.00] hello\n", true));
 
             if (expectFlag)
                 Assert.That(args.TakeLast(2), Is.EqualTo(new[] { "--quality", "full" }));
@@ -220,7 +220,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.That(LyricMapImporter.EstimatedVocalsApply(lab, lyrics, mode), Is.EqualTo(expectFlag));
 
-            var args = LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", lyrics, false, mode);
+            var args = withoutFusedEvidenceFlags(LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", lyrics, false, mode));
             string anchors = LyricMapImporter.AlignerAnchorMode(lyrics);
 
             if (expectFlag)
@@ -247,6 +247,98 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.That(LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, true),
                 Is.EqualTo(LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, true, AlignerVocalMode.Aligned)));
+        }
+
+        /// <summary>The command line with backlog 411's fused-evidence flags taken out, for tests about the other flags.</summary>
+        private static List<string> withoutFusedEvidenceFlags(IReadOnlyList<string> args)
+        {
+            var kept = new List<string>();
+
+            for (int i = 0; i < args.Count; i++)
+            {
+                if (args[i] == "--evidence" || args[i] == "--lyrics-language")
+                    i++;
+                else
+                    kept.Add(args[i]);
+            }
+
+            return kept;
+        }
+
+        /// <summary>
+        /// Backlog 411: every run of a version 10 or newer script asks for the fused evidence path
+        /// and names the import's language, which the aligner routes on (only English takes the path).
+        /// An older script would exit 2 on either unknown option and cost the import its word timing,
+        /// so it gets neither, read off its version like <c>--quality</c>. The flags come last and ride
+        /// alongside every other option; no language means no <c>--lyrics-language</c>, so the
+        /// aligner's own detector decides.
+        /// </summary>
+        [TestCase("ALIGNER_VERSION = \"9\"\n", "english", null)]
+        [TestCase("ALIGNER_VERSION = \"10\"\n", "english", "english")]
+        [TestCase("ALIGNER_VERSION = \"12\"\n", "japanese", "japanese")]
+        [TestCase("ALIGNER_VERSION = \"10\"\n", "  English ", "english")]
+        [TestCase("ALIGNER_VERSION = \"10\"\n", null, "")]
+        [TestCase("ALIGNER_VERSION = \"10\"\n", "   ", "")]
+        [TestCase("ALIGNER_VERSION = \"10b\"\n", "english", null)]
+        [TestCase("# a version-1 script, no constant\n", "english", null)]
+        public void FusedEvidenceFlagsAreGatedOnTheScriptVersion(string script, string? language, string? expectedLanguage)
+        {
+            string lab = makeLab();
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), script);
+            const string stamped = "[00:01.00] hello\n[00:02.00] world\n";
+            var core = new List<string> { "align_lyrics.py", "a.mp3", "l.txt", "-o", "out", "--anchors", "ref" };
+
+            // The unreadable versions predate the tiers too.
+            if (LyricMapImporter.AlignerHasQualityTiers(lab))
+                core.AddRange(new[] { "--quality", "full" });
+
+            var args = LyricMapImporter.AlignerArguments(lab, "a.mp3", "l.txt", "out", stamped, true, language: language);
+
+            Assert.That(LyricMapImporter.AlignerHasFusedEvidence(lab), Is.EqualTo(expectedLanguage != null));
+
+            if (expectedLanguage == null)
+                Assert.That(args, Is.EqualTo(core));
+            else if (expectedLanguage.Length == 0)
+                Assert.That(args, Is.EqualTo(core.Concat(new[] { "--evidence", "fused" })));
+            else
+                Assert.That(args, Is.EqualTo(core.Concat(new[] { "--evidence", "fused", "--lyrics-language", expectedLanguage })));
+        }
+
+        /// <summary>
+        /// The game ships the aligner whose flags it passes: the vendored script is version 10 or
+        /// newer and declares both options, so a fresh install or an update is never handed a flag
+        /// it would reject. Found the way <see cref="ShippedAlignerAcceptsVocalModes"/> finds it.
+        /// </summary>
+        [Test]
+        public void ShippedAlignerAcceptsFusedEvidence()
+        {
+            string lab = Path.GetDirectoryName(vendoredAlignerScript())!;
+            string script = File.ReadAllText(vendoredAlignerScript());
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(LyricMapImporter.AlignerHasFusedEvidence(lab), Is.True, $"vendored aligner version {LyricMapImporter.ReadAlignerVersion(lab)}");
+                Assert.That(script, Does.Contain("ap.add_argument(\"--evidence\", choices=[\"mms\", \"fused\"]"));
+                Assert.That(script, Does.Contain("ap.add_argument(\"--lyrics-language\""));
+
+                // The weights fetch the setup scripts call (see ShippedSetupScriptsInstallTheFusedEvidencePackages).
+                Assert.That(script, Does.Contain("def qmul_weights_path():"));
+            });
+        }
+
+        /// <summary>The vendored aligner script, the closest <c>lyriclab/align_lyrics.py</c> above the test directory.</summary>
+        private static string vendoredAlignerScript()
+        {
+            for (var dir = new DirectoryInfo(TestContext.CurrentContext.TestDirectory); dir != null; dir = dir.Parent)
+            {
+                string candidate = Path.Combine(dir.FullName, "lyriclab", "align_lyrics.py");
+
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+
+            Assert.Fail("the vendored lyriclab/align_lyrics.py was not found above the test directory");
+            return null!;
         }
 
         /// <summary>
@@ -1460,6 +1552,185 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.That(lines, Has.Some.Contains("verifying the installed packages import"));
         }
 
+        /// <summary>
+        /// Backlog 411: both shipped setup scripts install the same required set and the same
+        /// version 10 fused-evidence pair (phonemizer, espeakng-loader) by its own call, and fetch
+        /// its weights through the aligner's own function; and the pair stays OUT of the import
+        /// check that gates the sentinel (and of the adoption probe, which shares it), so a platform
+        /// without an espeakng-loader wheel still gets an installed aligner that runs the version 9
+        /// path.
+        /// </summary>
+        [Test]
+        public void ShippedSetupScriptsInstallTheFusedEvidencePackages()
+        {
+            string lab = vendoredLyricLab();
+            string ps1 = File.ReadAllText(Path.Combine(lab, "setup.ps1"));
+            string sh = File.ReadAllText(Path.Combine(lab, "setup.sh"));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ps1, Does.Contain($"$alignerPackages = '{LyricMapImporter.ALIGNER_PACKAGES}' -split ' '"));
+                Assert.That(sh, Does.Contain($"ALIGNER_PACKAGES='{LyricMapImporter.ALIGNER_PACKAGES}'"));
+                Assert.That(ps1, Does.Contain($"$fusedPackages = '{LyricMapImporter.FUSED_EVIDENCE_PACKAGES}' -split ' '"));
+                Assert.That(sh, Does.Contain($"FUSED_PACKAGES='{LyricMapImporter.FUSED_EVIDENCE_PACKAGES}'"));
+                Assert.That(ps1, Does.Contain("& $uvExe pip install --python $py $fusedPackages"));
+                Assert.That(sh, Does.Contain("\"$UV\" pip install --python \"$PY\" $FUSED_PACKAGES"));
+                Assert.That(ps1, Does.Contain("align_lyrics.qmul_weights_path()"));
+                Assert.That(sh, Does.Contain("align_lyrics.qmul_weights_path()"));
+                Assert.That(ps1, Does.Contain("[switch]$Update"));
+                Assert.That(sh, Does.Contain("--update) UPDATE=1 ;;"));
+
+                Assert.That(LyricMapImporter.ALIGNER_IMPORTS, Does.Not.Contain("phonemizer").And.Not.Contain("espeakng"));
+                Assert.That(LyricMapImporter.ALIGNER_PACKAGES, Does.Not.Contain("phonemizer").And.Not.Contain("espeakng"));
+            });
+        }
+
+        /// <summary>Fake setup scripts that record the arguments they were run with (into setup-args.txt) and exit with <paramref name="exitCode"/>.</summary>
+        private static void writeRecordingSetupScripts(string lab, int exitCode)
+        {
+            File.WriteAllText(Path.Combine(lab, "setup.ps1"), $"Set-Content -Path 'setup-args.txt' -Value ($args -join ' ')\nexit {exitCode}\n");
+            File.WriteAllText(Path.Combine(lab, "setup.sh"), $"echo \"$*\" > setup-args.txt\nexit {exitCode}\n");
+        }
+
+        /// <summary>A completed install: a venv python whose imports load, its setup sentinel, and a canary in the venv.</summary>
+        private string makeCompletedInstall()
+        {
+            string lab = makeLab();
+            writeFakePython(lab, importsLoad: true);
+            File.WriteAllText(LyricMapImporter.SetupSentinelFor(lab), "python=3.11");
+            File.WriteAllText(Path.Combine(lab, ".venv", "canary.txt"), "the existing environment");
+            return lab;
+        }
+
+        [Test]
+        public async Task BootstrapRunsTheSetupUpdateOnACompletedInstallWhenAsked()
+        {
+            // The Update button (InstallAsync) copies new scripts over a completed install. Before
+            // backlog 411 the bootstrap then returned at once, so a venv never got the packages the
+            // new aligner added. With updateExisting it runs the setup's update mode, in place.
+            string lab = makeCompletedInstall();
+            writeRecordingSetupScripts(lab, exitCode: 0);
+            string argsFile = Path.Combine(lab, "setup-args.txt");
+
+            var plain = await LyricMapImporter.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None).ConfigureAwait(false);
+
+            Assert.That(plain.Success, Is.True, plain.Error);
+            Assert.That(File.Exists(argsFile), Is.False, "without updateExisting a completed install is left as it stands");
+
+            var lines = new List<string>();
+            var updated = await LyricMapImporter.BootstrapEnvironmentAsync(
+                lab, line => { lock (lines) lines.Add(line); }, CancellationToken.None, "cpu", updateExisting: true).ConfigureAwait(false);
+
+            Assert.That(updated.Success, Is.True, updated.Error);
+            Assert.That(File.Exists(argsFile), Is.True, "the setup script did not run");
+            Assert.That(File.ReadAllText(argsFile).Trim(), Does.EndWith(OperatingSystem.IsWindows() ? "-Update" : "--update"));
+            Assert.That(File.Exists(Path.Combine(lab, ".venv", "canary.txt")), Is.True, "an update must not touch the venv");
+            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+        }
+
+        [Test]
+        public async Task BootstrapUpdatesAnAdoptedSentinelLessVenvToo()
+        {
+            // A pre-sentinel install is adopted in place and then updated, since it is just as
+            // likely to lack the new packages.
+            string lab = makeLab();
+            writeFakePython(lab, importsLoad: true);
+            writeRecordingSetupScripts(lab, exitCode: 0);
+
+            var result = await LyricMapImporter.BootstrapEnvironmentAsync(lab, _ => { }, CancellationToken.None, "cpu", updateExisting: true).ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.True, result.Error);
+            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+            Assert.That(File.ReadAllText(Path.Combine(lab, "setup-args.txt")).Trim(), Does.EndWith(OperatingSystem.IsWindows() ? "-Update" : "--update"));
+        }
+
+        [Test]
+        public async Task AFailedSetupUpdateKeepsTheInstallAndSaysSo()
+        {
+            // The install still works without the new packages (the aligner runs its version 9
+            // path), so a failed update is said and logged, never returned as a failed install.
+            string lab = makeCompletedInstall();
+            writeRecordingSetupScripts(lab, exitCode: 1);
+
+            var lines = new List<string>();
+            var result = await LyricMapImporter.BootstrapEnvironmentAsync(
+                lab, line => { lock (lines) lines.Add(line); }, CancellationToken.None, "cpu", updateExisting: true).ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.True, result.Error);
+            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+            Assert.That(File.Exists(Path.Combine(lab, ".venv", "canary.txt")), Is.True);
+            lock (lines)
+                Assert.That(lines, Has.Some.EqualTo(LyricMapImporter.ENVIRONMENT_UPDATE_INCOMPLETE));
+        }
+
+        [Test]
+        public async Task ShippedSetupScriptUpdateAgainstAFakeUvInstallsTheNewPackagesInPlace()
+        {
+            // The real vendored setup script in its update mode, driven by the game's bootstrap
+            // against a fake uv that logs every call (nothing is downloaded): the required set and then
+            // the version 10 pair, installed into the existing venv; no venv created, torch untouched.
+            string shipped = vendoredLyricLab();
+            string lab = makeCompletedInstall();
+            File.Copy(Path.Combine(shipped, LyricMapImporter.SetupScriptName), Path.Combine(lab, LyricMapImporter.SetupScriptName));
+            string sentinelBefore = File.ReadAllText(LyricMapImporter.SetupSentinelFor(lab));
+
+            string fakeUv = Path.Combine(tempRoot, "fakeuv");
+            Directory.CreateDirectory(fakeUv);
+            string path;
+
+            if (OperatingSystem.IsWindows())
+            {
+                // The redirect comes first so a trailing digit in the arguments cannot read as a handle.
+                File.WriteAllText(Path.Combine(fakeUv, "uv.cmd"), string.Join("\r\n", "@echo off", ">>uv-calls.txt echo %*", "exit /b 0") + "\r\n");
+                path = string.Join(Path.PathSeparator, fakeUv, Environment.SystemDirectory, Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0"));
+            }
+            else
+            {
+                string uv = Path.Combine(fakeUv, "uv");
+                File.WriteAllText(uv, "#!/bin/sh\necho \"$*\" >> uv-calls.txt\nexit 0\n");
+                File.SetUnixFileMode(uv, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                path = string.Join(Path.PathSeparator, fakeUv, "/usr/bin", "/bin");
+            }
+
+            string? originalPath = Environment.GetEnvironmentVariable("PATH");
+            var lines = new List<string>();
+            LyricImportResult result;
+
+            try
+            {
+                Environment.SetEnvironmentVariable("PATH", path);
+                result = await LyricMapImporter.BootstrapEnvironmentAsync(
+                    lab, line => { lock (lines) lines.Add(line); }, CancellationToken.None, "cpu", updateExisting: true).ConfigureAwait(false);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("PATH", originalPath);
+            }
+
+            string callsFile = Path.Combine(lab, "uv-calls.txt");
+            // The script's own "is this uv usable" probe (--version) is not an install.
+            string[] calls = File.Exists(callsFile)
+                ? File.ReadAllLines(callsFile).Select(l => l.Trim()).Where(l => l.Length > 0 && l != "--version").ToArray()
+                : Array.Empty<string>();
+
+            lock (lines)
+            {
+                Assert.Multiple(() =>
+                {
+                    Assert.That(result.Success, Is.True, $"{result.Error}\n{string.Join("\n", lines)}");
+                    Assert.That(lines, Has.Some.Contains("lyriclab environment updated"));
+                    Assert.That(lines, Has.None.EqualTo(LyricMapImporter.ENVIRONMENT_UPDATE_INCOMPLETE));
+                    Assert.That(lines, Has.Some.Contains("fetching the fused-evidence weights"));
+                    Assert.That(calls, Has.Length.EqualTo(2), string.Join("\n", calls));
+                    Assert.That(calls.ElementAtOrDefault(0), Does.StartWith("pip install").And.EndWith(LyricMapImporter.ALIGNER_PACKAGES));
+                    Assert.That(calls.ElementAtOrDefault(1), Does.StartWith("pip install").And.EndWith(" " + LyricMapImporter.FUSED_EVIDENCE_PACKAGES));
+                    Assert.That(calls, Has.None.Contains("torch"));
+                    Assert.That(File.Exists(Path.Combine(lab, ".venv", "canary.txt")), Is.True);
+                    Assert.That(File.ReadAllText(LyricMapImporter.SetupSentinelFor(lab)), Is.EqualTo(sentinelBefore));
+                });
+            }
+        }
+
         [Test]
         public async Task ImportWithABrokenSentinelLessVenvPointsAtRepairAndDeletesNothing()
         {
@@ -1518,6 +1789,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.That(other.Error, Does.StartWith("aligner exited with code 2"));
             Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+        }
+
+        /// <summary>
+        /// Version 10 logs a WARNING when its fused path falls back for want of an OPTIONAL package,
+        /// and the line names the missing module. An unrelated failure later in the same run, with
+        /// that line still in the tail, must not read as a broken install (which would withdraw the
+        /// sentinel of a venv whose required imports load); a real import failure still does.
+        /// </summary>
+        [Test]
+        public void AFusedEvidenceFallbackWarningIsNotAMissingPackage()
+        {
+            const string warning = "[12:40:02] WARNING: fused evidence failed (RuntimeError: a dependency is missing (No module named 'phonemizer'); "
+                                   + "install phonemizer and espeakng-loader); keeping the version 9 path";
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(LyricMapImporter.IsMissingPackageFailure($"{warning} | Traceback (most recent call last): | OSError: [Errno 28] No space left on device"), Is.False);
+                Assert.That(LyricMapImporter.IsMissingPackageFailure("WARNING: something optional raised ImportError, carrying on"), Is.False);
+                Assert.That(LyricMapImporter.IsMissingPackageFailure($"{warning} | Traceback (most recent call last): | ModuleNotFoundError: No module named 'torch'"), Is.True);
+                Assert.That(LyricMapImporter.IsMissingPackageFailure("Traceback (most recent call last):\nModuleNotFoundError: No module named 'torch'"), Is.True);
+                Assert.That(LyricMapImporter.IsMissingPackageFailure("ImportError: DLL load failed while importing _C"), Is.True);
+            });
         }
 
         #endregion
@@ -1842,8 +2135,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(body, Does.Contain("env[\"PYTHONUTF8\"] = \"1\""));
                 Assert.That(body, Does.Contain("env[\"PYTHONIOENCODING\"] = \"utf-8\""));
-                Assert.That(script, Does.Contain($"ALIGNER_VERSION = \"{LyricMapImporter.PERSISTS_VOCALS_STEM_ALIGNER_VERSION}\""),
-                    "installed older copies must be offered the update, and the stem needs version 9");
+                Assert.That(LyricMapImporter.AlignerPersistsVocalsStem(Path.GetDirectoryName(vendored!)!), Is.True,
+                    "installed older copies must be offered the update, and the stem needs version 9 or newer");
             });
         }
 

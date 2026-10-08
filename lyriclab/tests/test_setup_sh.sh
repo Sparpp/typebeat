@@ -71,16 +71,22 @@ check "setup.sh never builds a venv from the system python" $? "$bad"
 # ---- Setup sentinel (backlog 353): full runs against a FAKE uv, nothing downloaded. ----
 # 'uv venv' writes .venv/bin/python as a script exiting 0 (every python -c step "succeeds") or,
 # with FAKE_PY_BROKEN, exiting 1 (the first python step fails, as a venv without torch does).
-# 'uv pip' succeeds unless FAKE_UV_FAIL_TORCH is set and the call installs torch.
+# 'uv pip' succeeds unless FAKE_UV_FAIL_TORCH is set and the call installs torch, FAKE_UV_FAIL_DEPS
+# is set and it installs the aligner dependencies (demucs), or FAKE_UV_FAIL_FUSED is set and it
+# installs the fused-evidence pair (phonemizer). Every call is logged to uv-calls.txt in the lab.
+# The venv python fails the weights fetch alone under FAKE_PY_NO_WEIGHTS.
 mkdir -p "$work/fakeuv"
 cat > "$work/fakeuv/uv" <<'FAKE'
 #!/bin/sh
+echo "$*" >> uv-calls.txt
 case "$1" in
     venv)
         mkdir -p .venv/bin
-        if [ -n "${FAKE_PY_BROKEN:-}" ]; then printf '#!/bin/sh\nexit 1\n'; else printf '#!/bin/sh\nexit 0\n'; fi > .venv/bin/python
+        if [ -n "${FAKE_PY_BROKEN:-}" ]; then printf '#!/bin/sh\nexit 1\n'; else printf '#!/bin/sh\ncase "$*" in *qmul_weights_path*) [ -z "${FAKE_PY_NO_WEIGHTS:-}" ] || exit 1 ;; esac\nexit 0\n'; fi > .venv/bin/python
         chmod +x .venv/bin/python ;;
     pip)
+        if [ -n "${FAKE_UV_FAIL_DEPS:-}" ]; then case "$*" in *demucs*) exit 1 ;; esac; fi
+        if [ -n "${FAKE_UV_FAIL_FUSED:-}" ]; then case "$*" in *phonemizer*) exit 1 ;; esac; fi
         if [ -n "${FAKE_UV_FAIL_TORCH:-}" ]; then case "$*" in *torch==*) exit 1 ;; esac; fi ;;
 esac
 exit 0
@@ -100,9 +106,75 @@ content="$(cat "$work/run-ok/.venv/.typebeat-setup-ok" 2>/dev/null)"
 check "sentinel: a successful setup writes it" $? "$out
 sentinel: $content"
 
+# The full run installs the fused-evidence pair (aligner version 10) by its own call after the aligner
+# dependencies, never with torch, and fetches the weights before the sentinel.
+calls="$(cat "$work/run-ok/uv-calls.txt" 2>/dev/null)"
+pips="$(printf '%s\n' "$calls" | grep '^pip install' | grep -v 'torch==')"
+[ "$(printf '%s\n' "$pips" | grep -c .)" -eq 2 ] \
+    && printf '%s\n' "$pips" | sed -n 1p | grep -qE 'demucs==4\.0\.1 soundfile pyphen num2words tqdm imageio-ffmpeg$' \
+    && printf '%s\n' "$pips" | sed -n 2p | grep -qE ' phonemizer espeakng-loader$' \
+    && printf '%s' "$out" | grep -q 'fetching the fused-evidence weights'
+check "fused: a full setup installs the pair by its own call after the aligner dependencies" $? "$calls
+$out"
+
+rm -f "$work/run-ok/uv-calls.txt"
 out="$(run_lab run-ok)"; rc=$?
-[ $rc -eq 0 ] && printf '%s' "$out" | grep -q 'already present' && ! printf '%s' "$out" | grep -q 'creating venv'
+[ $rc -eq 0 ] && printf '%s' "$out" | grep -q 'already present' && ! printf '%s' "$out" | grep -q 'creating venv' \
+    && [ ! -e "$work/run-ok/uv-calls.txt" ]
 check "sentinel: present -> already present, nothing rebuilt" $? "$out"
+
+# --update on that completed install (the game's Update button): both dependency calls again and the
+# weights, in the venv as it stands. No venv is created, torch is not reinstalled, and the venv (a
+# canary in it) and the sentinel are untouched.
+update_lab() { PATH="$work/fakeuv:$base_path" bash "$work/$1/setup.sh" --update 2>&1; }
+before="$(cat "$work/run-ok/.venv/.typebeat-setup-ok")"
+echo 'the existing environment' > "$work/run-ok/.venv/canary.txt"
+out="$(update_lab run-ok)"; rc=$?
+calls="$(cat "$work/run-ok/uv-calls.txt" 2>/dev/null)"
+pips="$(printf '%s\n' "$calls" | grep '^pip install')"
+[ $rc -eq 0 ] && printf '%s' "$out" | grep -q 'lyriclab environment updated' \
+    && printf '%s' "$out" | grep -q 'fetching the fused-evidence weights' \
+    && ! printf '%s' "$out" | grep -qE 'creating venv|already present' \
+    && [ "$(printf '%s\n' "$pips" | grep -c .)" -eq 2 ] && printf '%s\n' "$pips" | sed -n 1p | grep -qE 'imageio-ffmpeg$' \
+    && printf '%s\n' "$pips" | sed -n 2p | grep -qE ' phonemizer espeakng-loader$' \
+    && ! printf '%s' "$pips" | grep -q torch && ! printf '%s\n' "$calls" | grep -q '^venv' \
+    && [ -f "$work/run-ok/.venv/canary.txt" ] && [ "$(cat "$work/run-ok/.venv/.typebeat-setup-ok")" = "$before" ]
+check "update: --update installs both dependency calls in place, nothing rebuilt" $? "$calls
+$out"
+
+# Weights that cannot be fetched are one WARNING line, never a failure.
+out="$(FAKE_PY_NO_WEIGHTS=1 update_lab run-ok)"; rc=$?
+[ $rc -eq 0 ] && printf '%s' "$out" | grep -q '^WARNING: the fused-evidence weights could not be fetched' \
+    && printf '%s' "$out" | grep -q 'lyriclab environment updated'
+check "update: weights that cannot be fetched only warn" $? "$out"
+
+# A failed update keeps the completed install, whichever call failed: exit 1 with the usual
+# sentence, the venv and its sentinel left as they were (the aligner keeps working).
+while read -r var says; do
+    out="$(env "$var=1" PATH="$work/fakeuv:$base_path" bash "$work/run-ok/setup.sh" --update 2>&1)"; rc=$?
+    [ $rc -eq 1 ] && printf '%s' "$out" | grep -q "^setup failed: $says" \
+        && [ -f "$work/run-ok/.venv/canary.txt" ] && [ "$(cat "$work/run-ok/.venv/.typebeat-setup-ok")" = "$before" ]
+    check "update: a failed --update ($var) keeps the venv and its sentinel" $? "$out"
+done <<'EOF2'
+FAKE_UV_FAIL_DEPS updating the aligner dependencies failed
+FAKE_UV_FAIL_FUSED installing the fused-evidence packages failed
+EOF2
+
+# The pair is optional in a full setup: when it cannot be installed (no espeakng-loader wheel for the
+# platform) the setup still completes, says so in one WARNING line, and skips the weights.
+new_lab run-no-fused
+out="$(FAKE_UV_FAIL_FUSED=1 run_lab run-no-fused)"; rc=$?
+[ $rc -eq 0 ] && printf '%s' "$out" | grep -q 'lyriclab environment ready' && [ -f "$work/run-no-fused/.venv/.typebeat-setup-ok" ] \
+    && printf '%s' "$out" | grep -q '^WARNING: the fused-evidence packages could not be installed' \
+    && ! printf '%s' "$out" | grep -q 'fetching the fused-evidence weights'
+check "fused: a full setup without the pair still completes" $? "$out"
+
+# --update with no completed install is an ordinary full setup.
+new_lab run-update-fresh
+out="$(update_lab run-update-fresh)"; rc=$?
+[ $rc -eq 0 ] && printf '%s' "$out" | grep -q 'creating venv' && printf '%s' "$out" | grep -q 'lyriclab environment ready' \
+    && [ -f "$work/run-update-fresh/.venv/.typebeat-setup-ok" ]
+check "update: --update without a sentinel runs the full setup" $? "$out"
 
 new_lab run-stale
 mkdir -p "$work/run-stale/.venv/bin"

@@ -117,11 +117,16 @@ Write-Output "probe survived LASTEXITCODE=$LASTEXITCODE"
     # uv.cmd answers 'venv' by creating .venv\Scripts\python.exe as a copy of doskey.exe (which
     # exits 0 whatever it is given, so every python -c step "succeeds") or, with FAKE_PY_BROKEN,
     # of where.exe (which exits 1, so the first python step fails the way a venv without torch
-    # does). 'pip' succeeds unless FAKE_UV_FAIL_TORCH is set and the call installs torch.
+    # does). 'pip' succeeds unless FAKE_UV_FAIL_TORCH is set and the call installs torch,
+    # FAKE_UV_FAIL_DEPS is set and it installs the aligner dependencies (demucs), or
+    # FAKE_UV_FAIL_FUSED is set and it installs the fused-evidence pair (phonemizer). Every call is
+    # logged to uv-calls.txt in the lab (the redirect comes first so a trailing digit in the
+    # arguments cannot read as a handle number).
     $fakeUv = Join-Path $work 'fakeuv'
     New-Item -ItemType Directory -Force -Path $fakeUv | Out-Null
     [IO.File]::WriteAllText((Join-Path $fakeUv 'uv.cmd'), (@(
         '@echo off'
+        '>>uv-calls.txt echo %*'
         'if /i "%~1"=="venv" goto venv'
         'if /i "%~1"=="pip" goto pip'
         'exit /b 0'
@@ -132,6 +137,14 @@ Write-Output "probe survived LASTEXITCODE=$LASTEXITCODE"
         'copy /y "%FAKE_PY%" .venv\Scripts\python.exe >nul'
         'exit /b %errorlevel%'
         ':pip'
+        'if not defined FAKE_UV_FAIL_DEPS goto fused'
+        'echo %* | findstr /c:"demucs" >nul'
+        'if not errorlevel 1 exit /b 1'
+        ':fused'
+        'if not defined FAKE_UV_FAIL_FUSED goto torch'
+        'echo %* | findstr /c:"phonemizer" >nul'
+        'if not errorlevel 1 exit /b 1'
+        ':torch'
         'if not defined FAKE_UV_FAIL_TORCH exit /b 0'
         'echo %* | findstr /c:"torch==" >nul'
         'if errorlevel 1 exit /b 0'
@@ -158,10 +171,64 @@ Write-Output "probe survived LASTEXITCODE=$LASTEXITCODE"
         $content -match '(?m)^python=3\.11$' -and $content -match '(?m)^torch=2\.5\.1$' -and
         $content -match '(?m)^device=cpu$' -and $content -match '(?m)^created=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$') ($r.Output + "`nsentinel: " + $content)
 
+    # The full run installs the fused-evidence pair (aligner version 10) by its own call after the
+    # aligner dependencies, never with torch, and fetches the weights before the sentinel.
+    $calls = @(Get-Content (Join-Path $l 'uv-calls.txt'))
+    $pips = @($calls | Where-Object { $_ -match '^pip install' -and $_ -notmatch 'torch==' })
+    Check 'fused: a full setup installs the pair by its own call after the aligner dependencies' (
+        $pips.Count -eq 2 -and $pips[0] -match 'demucs==4\.0\.1 soundfile pyphen num2words tqdm imageio-ffmpeg$' -and
+        $pips[1] -match ' phonemizer espeakng-loader$' -and
+        $r.Output -match 'fetching the fused-evidence weights') (($calls -join "`n") + "`n" + $r.Output)
+
     # With the sentinel in place a re-run is a no-op.
+    Remove-Item (Join-Path $l 'uv-calls.txt')
     $r = Invoke-Child (Join-Path $l 'setup.ps1') '' $fakeUv
     Check 'sentinel: present -> already present, nothing rebuilt' (
-        $r.ExitCode -eq 0 -and $r.Output -match 'already present' -and $r.Output -notmatch 'creating venv') $r.Output
+        $r.ExitCode -eq 0 -and $r.Output -match 'already present' -and $r.Output -notmatch 'creating venv' -and
+        -not (Test-Path (Join-Path $l 'uv-calls.txt'))) $r.Output
+
+    # -Update on that completed install (the game's Update button): both dependency calls again and
+    # the weights, in the venv as it stands. No venv is created, torch is not reinstalled, and the
+    # venv (a canary in it) and the sentinel are untouched.
+    $sentinelPath = Join-Path $l $sentinelName
+    $before = [IO.File]::ReadAllText($sentinelPath)
+    [IO.File]::WriteAllText((Join-Path $l '.venv\canary.txt'), 'the existing environment')
+    $r = Invoke-Child (Join-Path $l 'setup.ps1') '-Update' $fakeUv
+    $calls = @(if (Test-Path (Join-Path $l 'uv-calls.txt')) { Get-Content (Join-Path $l 'uv-calls.txt') })
+    $pips = @($calls | Where-Object { $_ -match '^pip install' })
+    Check 'update: -Update installs both dependency calls in place, nothing rebuilt' (
+        $r.ExitCode -eq 0 -and $r.Output -match 'lyriclab environment updated' -and $r.Output -match 'fetching the fused-evidence weights' -and
+        $r.Output -notmatch 'creating venv|already present' -and
+        $pips.Count -eq 2 -and $pips[0] -match 'imageio-ffmpeg$' -and $pips[1] -match ' phonemizer espeakng-loader$' -and
+        -not ($pips -match 'torch') -and -not ($calls -match '^venv') -and
+        (Test-Path (Join-Path $l '.venv\canary.txt')) -and [IO.File]::ReadAllText($sentinelPath) -eq $before) (($calls -join "`n") + "`n" + $r.Output)
+
+    # A failed update keeps the completed install, whichever call failed: exit 1 with the usual
+    # sentence, the venv and its sentinel left as they were (the aligner keeps working).
+    foreach ($case in @(
+            @{ Env = 'FAKE_UV_FAIL_DEPS'; Says = 'updating the aligner dependencies failed' },
+            @{ Env = 'FAKE_UV_FAIL_FUSED'; Says = 'installing the fused-evidence packages failed' })) {
+        $r = Invoke-Child (Join-Path $l 'setup.ps1') '-Update' $fakeUv @{ $case.Env = '1' }
+        Check "update: a failed -Update ($($case.Env)) keeps the venv and its sentinel" (
+            $r.ExitCode -eq 1 -and $r.Output -match ('setup failed: ' + $case.Says) -and
+            (Test-Path (Join-Path $l '.venv\canary.txt')) -and [IO.File]::ReadAllText($sentinelPath) -eq $before) $r.Output
+    }
+
+    # The pair is optional in a full setup: when it cannot be installed (no espeakng-loader wheel
+    # for the platform) the setup still completes, says so in one WARNING line, and skips the weights.
+    $l = New-Lab 'run-no-fused'
+    $r = Invoke-Child (Join-Path $l 'setup.ps1') '' $fakeUv @{ FAKE_UV_FAIL_FUSED = '1' }
+    Check 'fused: a full setup without the pair still completes' (
+        $r.ExitCode -eq 0 -and $r.Output -match 'lyriclab environment ready' -and (Test-Path (Join-Path $l $sentinelName)) -and
+        $r.Output -match 'WARNING: the fused-evidence packages could not be installed' -and
+        $r.Output -notmatch 'fetching the fused-evidence weights') $r.Output
+
+    # -Update with no completed install is an ordinary full setup.
+    $l = New-Lab 'run-update-fresh'
+    $r = Invoke-Child (Join-Path $l 'setup.ps1') '-Update' $fakeUv
+    Check 'update: -Update without a sentinel runs the full setup' (
+        $r.ExitCode -eq 0 -and $r.Output -match 'creating venv' -and $r.Output -match 'lyriclab environment ready' -and
+        (Test-Path (Join-Path $l $sentinelName))) $r.Output
 
     # A venv with python.exe but NO sentinel (a pre-349 half install) is rebuilt, not trusted.
     $l = New-Lab 'run-stale'
