@@ -21,6 +21,9 @@ namespace typebeat.Game.Online.API.Requests
         }
 
         protected override string Target => $@"users/{userId}/beatmapsets/{type.ToString().ToSnakeCase()}";
+
+        // public read: the website shows the same profile maps to anyone.
+        public override bool AllowsAnonymous => true;
     }
 
     public enum BeatmapSetType

@@ -18,6 +18,11 @@ namespace typebeat.Game.Online
     /// A <see cref="Container"/> for displaying online content which require a local user to be logged in.
     /// Shows its children only when the local user is logged in and supports displaying a placeholder if not.
     /// </summary>
+    /// <remarks>
+    /// Constructed with <c>guestReadable</c>, the content is a public read and a guest
+    /// (<see cref="APIState.Offline"/>) sees it as a signed-in user would: no placeholder, content shown. The
+    /// connecting and failing states still cover it with the spinner either way.
+    /// </remarks>
     public partial class OnlineViewContainer : Container
     {
         protected LoadingSpinner LoadingSpinner { get; private set; }
@@ -25,6 +30,8 @@ namespace typebeat.Game.Online
         protected override Container<Drawable> Content { get; } = new Container { RelativeSizeAxes = Axes.Both };
 
         private readonly string placeholderMessage;
+
+        private readonly bool guestReadable;
 
         private Drawable placeholder;
 
@@ -37,9 +44,11 @@ namespace typebeat.Game.Online
         /// Construct a new instance of an online view container.
         /// </summary>
         /// <param name="placeholderMessage">The message to display when not logged in. If empty, no button will display.</param>
-        public OnlineViewContainer(string placeholderMessage)
+        /// <param name="guestReadable">Whether a guest may see the content (see the remarks on this class).</param>
+        public OnlineViewContainer(string placeholderMessage, bool guestReadable = false)
         {
             this.placeholderMessage = placeholderMessage;
+            this.guestReadable = guestReadable;
         }
 
         private readonly IBindable<APIState> apiState = new Bindable<APIState>();
@@ -65,6 +74,12 @@ namespace typebeat.Game.Online
         {
             switch (state.NewValue)
             {
+                case APIState.Offline when guestReadable:
+                    PopContentIn(Content);
+                    placeholder.FadeOut(transform_duration / 2, Easing.OutQuint);
+                    LoadingSpinner.Hide();
+                    break;
+
                 case APIState.Offline:
                     PopContentOut(Content);
                     placeholder.ScaleTo(0.8f).Then().ScaleTo(1, 3 * transform_duration, Easing.OutQuint);

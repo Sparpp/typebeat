@@ -16,12 +16,10 @@ using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Online;
-using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests.Responses;
 using typebeat.Game.Resources.Localisation.Web;
 using osuTK;
 using osuTK.Graphics;
-using APIUser = typebeat.Game.Online.API.Requests.Responses.APIUser;
 using CommonStrings = typebeat.Game.Localisation.CommonStrings;
 
 namespace typebeat.Game.Overlays.BeatmapSet.Buttons
@@ -33,8 +31,6 @@ namespace typebeat.Game.Overlays.BeatmapSet.Buttons
         private readonly bool noVideo;
 
         public LocalisableString TooltipText => BeatmapsetsStrings.ShowDetailsDownloadDefault;
-
-        private readonly IBindable<APIUser> localUser = new Bindable<APIUser>();
 
         private ShakeContainer shakeContainer;
         private HeaderButton button;
@@ -53,7 +49,7 @@ namespace typebeat.Game.Overlays.BeatmapSet.Buttons
         }
 
         [BackgroundDependencyLoader]
-        private void load(IAPIProvider api, BeatmapModelDownloader beatmaps)
+        private void load(BeatmapModelDownloader beatmaps)
         {
             FillFlowContainer textSprites;
 
@@ -113,8 +109,8 @@ namespace typebeat.Game.Overlays.BeatmapSet.Buttons
                 beatmaps.Download(beatmapSet, noVideo);
             };
 
-            localUser.BindTo(api.LocalUser);
-            localUser.BindValueChanged(userChanged, true);
+            // no guest gate: a guest downloads too, the download being a public read
+            // (DownloadBeatmapSetRequest.AllowsAnonymous).
             button.Enabled.BindValueChanged(enabledChanged, true);
 
             downloadTracker.State.BindValueChanged(state =>
@@ -166,8 +162,6 @@ namespace typebeat.Game.Overlays.BeatmapSet.Buttons
                 }
             }, true);
         }
-
-        private void userChanged(ValueChangedEvent<APIUser> e) => button.Enabled.Value = !(e.NewValue is GuestUser);
 
         private void enabledChanged(ValueChangedEvent<bool> e) => this.FadeColour(e.NewValue ? Color4.White : Color4.Gray, 200, Easing.OutQuint);
 

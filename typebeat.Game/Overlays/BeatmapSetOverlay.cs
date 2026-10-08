@@ -34,7 +34,7 @@ namespace typebeat.Game.Overlays
         private (BeatmapSetLookupType type, int id)? lastLookup;
 
         public BeatmapSetOverlay()
-            : base(OverlayColourScheme.Pink)
+            : base(OverlayColourScheme.Pink, guestReadable: true)
         {
             Info info;
             CommentsSection comments;
@@ -71,11 +71,9 @@ namespace typebeat.Game.Overlays
         private void load()
         {
             apiUser = api.LocalUser.GetBoundCopy();
-            apiUser.BindValueChanged(_ => Schedule(() =>
-            {
-                if (api.IsLoggedIn)
-                    performFetch();
-            }));
+            // refetched for a guest too: the set is a public read, and the signed-in user's own fields on it
+            // (has favourited, their score) belong to whoever is signed in now.
+            apiUser.BindValueChanged(_ => Schedule(performFetch));
         }
 
         protected override BeatmapSetHeader CreateHeader() => new BeatmapSetHeader();
@@ -119,9 +117,6 @@ namespace typebeat.Game.Overlays
 
         private void performFetch()
         {
-            if (!api.IsLoggedIn)
-                return;
-
             if (lastLookup == null)
                 return;
 

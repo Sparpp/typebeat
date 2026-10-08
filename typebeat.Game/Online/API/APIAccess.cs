@@ -209,6 +209,10 @@ namespace typebeat.Game.Online.API
                 if (!HasLogin)
                 {
                     state.Value = APIState.Offline;
+
+                    // a guest still reads: whatever `Queue` let in while Offline is sent with no token.
+                    processQueuedRequests(anonymousOnly: true);
+
                     Thread.Sleep(50);
                     continue;
                 }
@@ -310,7 +314,13 @@ namespace typebeat.Game.Online.API
         /// <summary>
         /// Dequeue from the queue and run each request synchronously until the queue is empty.
         /// </summary>
-        private void processQueuedRequests()
+        /// <param name="anonymousOnly">
+        /// There is no login, so only <see cref="APIRequest.AllowsAnonymous"/> requests may be sent. Any other
+        /// request still in the queue got there while a login existed or the API was <see cref="APIState.Failing"/>
+        /// (where <see cref="Queue"/> admits everything), and is failed exactly as <see cref="Queue"/> would have
+        /// failed it, rather than being sent without the token it was written for.
+        /// </param>
+        private void processQueuedRequests(bool anonymousOnly = false)
         {
             while (true)
             {
@@ -323,7 +333,13 @@ namespace typebeat.Game.Online.API
                     req = queue.Dequeue();
                 }
 
-                handleRequest(req);
+                if (anonymousOnly && !req.AllowsAnonymous)
+                {
+                    req.Fail(new WebException(NOT_LOGGED_IN_MESSAGE));
+                    continue;
+                }
+
+                handleRequest(req, sentAnonymously: anonymousOnly);
             }
         }
 
@@ -577,8 +593,13 @@ namespace typebeat.Game.Online.API
         /// Ensures all exceptions are caught and dealt with correctly.
         /// </summary>
         /// <param name="req">The request.</param>
+        /// <param name="sentAnonymously">
+        /// The request goes out with no login (a guest's read). A 401 on it then says the server will not serve
+        /// that read anonymously, not that a session died, so it must not log out: there is no session, and the
+        /// logout would flush every other queued guest read and throw away a login the player may be typing.
+        /// </param>
         /// <returns>true if the request succeeded.</returns>
-        private bool handleRequest(APIRequest req)
+        private bool handleRequest(APIRequest req, bool sentAnonymously = false)
         {
             try
             {
@@ -607,7 +628,7 @@ namespace typebeat.Game.Online.API
             catch (WebException we)
             {
                 log.Add($"{nameof(WebException)} while performing request {req}: {we.Message}");
-                handleWebException(we);
+                handleWebException(we, sentAnonymously);
                 return false;
             }
             catch (WebRequestFlushedException wrf)
@@ -640,7 +661,7 @@ namespace typebeat.Game.Online.API
 
         private readonly Bindable<string> userFacingOutageMessage = new Bindable<string>(string.Empty);
 
-        private void handleWebException(WebException we)
+        private void handleWebException(WebException we, bool sentAnonymously)
         {
             HttpStatusCode statusCode = (we.Response as HttpWebResponse)?.StatusCode
                                         ?? (we.Status == WebExceptionStatus.UnknownError ? HttpStatusCode.NotAcceptable : HttpStatusCode.RequestTimeout);
@@ -657,7 +678,8 @@ namespace typebeat.Game.Online.API
             switch (statusCode)
             {
                 case HttpStatusCode.Unauthorized:
-                    Logout();
+                    if (!sentAnonymously)
+                        Logout();
                     break;
 
                 case HttpStatusCode.RequestTimeout:
@@ -705,15 +727,27 @@ namespace typebeat.Game.Online.API
 
         public bool IsLoggedIn => State.Value > APIState.Offline;
 
+        /// <summary>
+        /// The failure a request that needs a login is given when there is none.
+        /// </summary>
+        internal const string NOT_LOGGED_IN_MESSAGE = @"User not logged in";
+
+        /// <summary>
+        /// Whether <see cref="Queue"/> admits <paramref name="request"/> in <paramref name="state"/>: always once a
+        /// login exists in any form, and with none (<see cref="APIState.Offline"/>) only a request a guest may
+        /// make (<see cref="APIRequest.AllowsAnonymous"/>). Everything else fails on the spot, as it always did.
+        /// </summary>
+        internal static bool Admits(APIState state, APIRequest request) => state != APIState.Offline || request.AllowsAnonymous;
+
         public void Queue(APIRequest request)
         {
             lock (queue)
             {
                 request.AttachAPI(this);
 
-                if (state.Value == APIState.Offline)
+                if (!Admits(state.Value, request))
                 {
-                    request.Fail(new WebException(@"User not logged in"));
+                    request.Fail(new WebException(NOT_LOGGED_IN_MESSAGE));
                     return;
                 }
 

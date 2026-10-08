@@ -24,11 +24,17 @@ namespace typebeat.Game.Overlays
         private readonly Container loadingContainer;
         private readonly Container content;
 
-        protected OnlineOverlay(OverlayColourScheme colourScheme, bool requiresSignIn = true)
+        /// <param name="colourScheme">The overlay's colour scheme.</param>
+        /// <param name="requiresSignIn">Whether the content sits behind the API's online state at all.</param>
+        /// <param name="guestReadable">
+        /// With <paramref name="requiresSignIn"/>, whether a guest may read the content anyway (see
+        /// <see cref="OnlineViewContainer"/>): it is a public read, so only the connecting and failing spinner applies.
+        /// </param>
+        protected OnlineOverlay(OverlayColourScheme colourScheme, bool requiresSignIn = true, bool guestReadable = false)
             : base(colourScheme)
         {
             var mainContent = requiresSignIn
-                ? new OnlineViewContainer($"Sign in to view the {Header.Title.Title}")
+                ? new OnlineViewContainer($"Sign in to view the {Header.Title.Title}", guestReadable)
                 : new Container();
 
             mainContent.RelativeSizeAxes = Axes.Both;

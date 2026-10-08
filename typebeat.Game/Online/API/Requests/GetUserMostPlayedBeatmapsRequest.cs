@@ -17,5 +17,8 @@ namespace typebeat.Game.Online.API.Requests
         }
 
         protected override string Target => $@"users/{userId}/beatmapsets/most_played";
+
+        // public read: the website shows the same profile history to anyone.
+        public override bool AllowsAnonymous => true;
     }
 }

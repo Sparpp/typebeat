@@ -8,5 +8,8 @@ namespace typebeat.Game.Online.API.Requests
     public class GetSeasonalBackgroundsRequest : APIRequest<APISeasonalBackgrounds>
     {
         protected override string Target => @"seasonal-backgrounds";
+
+        // public read, nothing user-specific.
+        public override bool AllowsAnonymous => true;
     }
 }

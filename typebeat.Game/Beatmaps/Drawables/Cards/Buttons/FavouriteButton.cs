@@ -28,6 +28,8 @@ namespace typebeat.Game.Beatmaps.Drawables.Cards.Buttons
 
         private PostBeatmapFavouriteRequest? favouriteRequest;
 
+        private readonly IBindable<APIUser> localUser = new Bindable<APIUser>();
+
         [Resolved]
         private IAPIProvider api { get; set; } = null!;
 
@@ -46,10 +48,17 @@ namespace typebeat.Game.Beatmaps.Drawables.Cards.Buttons
 
             Action = toggleFavouriteStatus;
             current.BindValueChanged(_ => updateState(), true);
+
+            // a guest can read the listing these cards sit on, but favouriting is a signed-in write.
+            localUser.BindTo(api.LocalUser);
+            localUser.BindValueChanged(u => Enabled.Value = !(u.NewValue is GuestUser), true);
         }
 
         private void toggleFavouriteStatus()
         {
+            if (localUser.Value is GuestUser)
+                return;
+
             var actionType = current.Value.Favourited ? BeatmapFavouriteAction.UnFavourite : BeatmapFavouriteAction.Favourite;
 
             favouriteRequest?.Cancel();

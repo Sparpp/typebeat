@@ -66,7 +66,8 @@ namespace typebeat.Game.Overlays
                 RelativeSizeAxes = Axes.Both,
                 Children = new Drawable[]
                 {
-                    onlineViewContainer = new OnlineViewContainer($"Sign in to view the {Header.Title.Title}")
+                    // a profile is a public read (GetUserRequest.AllowsAnonymous), so a guest sees it too.
+                    onlineViewContainer = new OnlineViewContainer($"Sign in to view the {Header.Title.Title}", guestReadable: true)
                     {
                         RelativeSizeAxes = Axes.Both
                     },
@@ -133,14 +134,8 @@ namespace typebeat.Game.Overlays
 
             recreateBaseContent();
 
-            if (API.State.Value == APIState.Offline)
-            {
-                // OnlineViewContainer takes over the surface with its sign-in placeholder, and no request is
-                // going to resolve the spinner, so it must not be left up over the top of that placeholder.
-                loadingLayer.Hide();
-                return;
-            }
-
+            // no sign-in gate: a guest (Offline) reads the profile anonymously, and the request's own Failure arm
+            // below resolves the spinner if the server refuses it.
             var req = user.OnlineID > 1 ? new GetUserRequest(user.OnlineID, ruleset) : new GetUserRequest(user.Username, ruleset);
             var reqRuleset = ruleset;
 

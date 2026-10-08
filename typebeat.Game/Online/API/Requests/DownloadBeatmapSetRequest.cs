@@ -26,5 +26,8 @@ namespace typebeat.Game.Online.API.Requests
         protected override string FileExtension => ".osz";
 
         protected override string Target => $@"beatmapsets/{Model.OnlineID}/download{(noVideo ? "?noVideo=1" : "")}";
+
+        // public read: the website serves the same download to anyone.
+        public override bool AllowsAnonymous => true;
     }
 }

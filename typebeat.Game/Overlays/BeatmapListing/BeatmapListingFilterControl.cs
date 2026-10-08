@@ -214,9 +214,7 @@ namespace typebeat.Game.Overlays.BeatmapListing
 
             resetSearch();
 
-            if (!api.IsLoggedIn)
-                return;
-
+            // no sign-in gate: the search is a public read (SearchBeatmapSetsRequest.AllowsAnonymous).
             queryChangedDebounce = Scheduler.AddDelayed(() =>
             {
                 resetSearch();

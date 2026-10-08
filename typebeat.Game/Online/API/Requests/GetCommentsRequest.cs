@@ -41,6 +41,9 @@ namespace typebeat.Game.Online.API.Requests
         }
 
         protected override string Target => "comments";
+
+        // public read: the website shows the same comments to anyone. Posting stays signed-in.
+        public override bool AllowsAnonymous => true;
     }
 
     public enum CommentableType

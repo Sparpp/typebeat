@@ -47,7 +47,7 @@ namespace typebeat.Game.Overlays
         private BeatmapListingFilterControl filterControl => Header.FilterControl;
 
         public BeatmapListingOverlay()
-            : base(OverlayColourScheme.Pink)
+            : base(OverlayColourScheme.Pink, guestReadable: true)
         {
         }
 
@@ -95,11 +95,9 @@ namespace typebeat.Game.Overlays
             filterControl.CardSize.BindValueChanged(_ => onCardSizeChanged());
 
             apiUser = api.LocalUser.GetBoundCopy();
-            apiUser.BindValueChanged(_ => Schedule(() =>
-            {
-                if (api.IsLoggedIn)
-                    replaceResultsAreaContent(Empty());
-            }));
+            // the filter control searches again on every user change, a sign-out to a guest included (the
+            // listing is a public read), so the previous user's results are always stale here.
+            apiUser.BindValueChanged(_ => Schedule(() => replaceResultsAreaContent(Empty())));
         }
 
         public void ShowWithSearch(string query)

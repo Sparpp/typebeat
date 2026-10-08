@@ -118,5 +118,8 @@ namespace typebeat.Game.Online.API.Requests
         }
 
         protected override string Target => @"beatmapsets/search";
+
+        // public read: the website's listing is open to anyone.
+        public override bool AllowsAnonymous => true;
     }
 }
