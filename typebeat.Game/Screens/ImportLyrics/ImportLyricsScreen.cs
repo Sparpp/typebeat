@@ -10,7 +10,9 @@ using System.Threading.Tasks;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.Cursor;
 using osu.Framework.Graphics.Shapes;
+using osu.Framework.Localisation;
 using osu.Framework.Logging;
 using osu.Framework.Screens;
 using typebeat.Game.Beatmaps;
@@ -47,6 +49,19 @@ namespace typebeat.Game.Screens.ImportLyrics
         public const string ESTIMATED_VOCALS_LABEL = "estimated vocals (when the aligned words come out wrong, e.g. screamed or effect-heavy vocals: "
                                                      + "pace every line evenly from its [mm:ss.xx] stamp instead; remembered for this map)";
 
+        /// <summary>
+        /// Tooltip on the greyed-out automatic alignment choice when the local auto-aligner is not
+        /// installed (backlog 409). The path is the one the settings overlay shows: the "Experimental"
+        /// section, its "Lyric timing" heading, where the install button sits.
+        /// </summary>
+        public const string ALIGNER_NOT_INSTALLED_TOOLTIP = "Install the local auto-aligner in Settings > Experimental > Lyric timing to use automatic alignment.";
+
+        /// <summary>As <see cref="ALIGNER_NOT_INSTALLED_TOOLTIP"/>, for an install that never finished (the button there reads "Repair").</summary>
+        public const string ALIGNER_NEEDS_REPAIR_TOOLTIP = "The local auto-aligner's install is incomplete. Repair it in Settings > Experimental > Lyric timing to use automatic alignment.";
+
+        /// <summary>As <see cref="ALIGNER_NOT_INSTALLED_TOOLTIP"/>, for a build with no aligner installer at all (headless, tests).</summary>
+        public const string ALIGNER_UNAVAILABLE_TOOLTIP = "Automatic alignment is not available in this build.";
+
         [Resolved]
         private OsuGameBase game { get; set; } = null!;
 
@@ -55,6 +70,10 @@ namespace typebeat.Game.Screens.ImportLyrics
 
         [Resolved(CanBeNull = true)]
         private IDialogOverlay? dialogOverlay { get; set; }
+
+        // Cached by typebeat.Desktop beside the importer; absent in headless scenes.
+        [Resolved(CanBeNull = true)]
+        private ILocalAlignerManager? alignerManager { get; set; }
 
         [Resolved(CanBeNull = true)]
         private BeatmapManager? beatmaps { get; set; }
@@ -72,7 +91,7 @@ namespace typebeat.Game.Screens.ImportLyrics
         private LabelledTextBox artistBox = null!;
         private LabelledTextBox titleBox = null!;
         private FormEnumDropdown<BeatmapLanguage> languageDropdown = null!;
-        private OsuCheckbox automaticAlignmentCheckbox = null!;
+        private AutomaticAlignmentCheckbox automaticAlignmentCheckbox = null!;
         private OsuCheckbox estimatedVocalsCheckbox = null!;
         private RoundedButton importButton = null!;
         private OsuSpriteText statusText = null!;
@@ -140,7 +159,7 @@ namespace typebeat.Game.Screens.ImportLyrics
                                     HintText = "Choose the song's language for map metadata and lyric romanisation. Japanese kanji use dictionary readings; check unusual names and sung pronunciations in the editor.",
                                     Current = { Value = BeatmapLanguage.Unspecified },
                                 },
-                                automaticAlignmentCheckbox = new OsuCheckbox
+                                automaticAlignmentCheckbox = new AutomaticAlignmentCheckbox
                                 {
                                     RelativeSizeAxes = Axes.X,
                                     LabelText = "automatic alignment (time each word from the audio, slower, needs the local auto-aligner; off = use your [mm:ss.xx] line stamps)",
@@ -188,7 +207,53 @@ namespace typebeat.Game.Screens.ImportLyrics
                 estimatedVocalsCheckbox.Current.Disabled = !auto.NewValue;
             }, true);
 
+            refreshAlignerAvailability();
+
             AddFiles(initialFiles);
+        }
+
+        /// <summary>The automatic alignment choice, exposed for tests.</summary>
+        internal OsuCheckbox AutomaticAlignment => automaticAlignmentCheckbox;
+
+        /// <summary>The estimated vocals choice, exposed for tests.</summary>
+        internal OsuCheckbox EstimatedVocals => estimatedVocalsCheckbox;
+
+        /// <summary>
+        /// Why automatic alignment cannot run here, as the tooltip that tells the player what to do
+        /// about it; null when the local auto-aligner is installed and ready. Only an installed
+        /// aligner can time words, so without one the import would fail AFTER the player pressed it.
+        /// </summary>
+        public static string? AlignerUnavailableReason(ILocalAlignerManager? manager)
+        {
+            if (manager == null)
+                return ALIGNER_UNAVAILABLE_TOOLTIP;
+
+            if (manager.IsInstalled)
+                return null;
+
+            return manager.NeedsRepair ? ALIGNER_NEEDS_REPAIR_TOOLTIP : ALIGNER_NOT_INSTALLED_TOOLTIP;
+        }
+
+        /// <summary>
+        /// Greys out (and unticks) the automatic alignment choice while the local auto-aligner is not
+        /// installed, with a tooltip saying where to install it. Re-read on entry and on resume, so a
+        /// player who installs from settings and comes back finds it enabled. The checkbox's own
+        /// value binding then keeps the estimated vocals choice off and disabled with it.
+        /// </summary>
+        private void refreshAlignerAvailability()
+        {
+            string? reason = AlignerUnavailableReason(alignerManager);
+            var current = automaticAlignmentCheckbox.Current;
+
+            current.Disabled = false;
+
+            if (reason != null)
+            {
+                current.Value = false;
+                current.Disabled = true;
+            }
+
+            automaticAlignmentCheckbox.TooltipText = reason ?? default(LocalisableString);
         }
 
         /// <summary>
@@ -261,6 +326,11 @@ namespace typebeat.Game.Screens.ImportLyrics
             if (importing || importer == null || string.IsNullOrEmpty(audioPath)
                           || languageDropdown.Current.Value == BeatmapLanguage.Unspecified)
                 return;
+
+            // The aligner may have gone since the screen last looked. Re-reading it here unticks the
+            // choice when it cannot run, so automatic alignment is only asked for when it can and no
+            // path reaches the importer's "not installed" error.
+            refreshAlignerAvailability();
 
             importing = true;
             updateImportButton();
@@ -369,6 +439,12 @@ namespace typebeat.Game.Screens.ImportLyrics
             this.FadeInFromZero(300);
         }
 
+        public override void OnResuming(ScreenTransitionEvent e)
+        {
+            base.OnResuming(e);
+            refreshAlignerAvailability();
+        }
+
         public override bool OnExiting(ScreenExitEvent e)
         {
             // An import in flight, especially a multi-minute local alignment run, shouldn't be torn
@@ -395,6 +471,16 @@ namespace typebeat.Game.Screens.ImportLyrics
         {
             exitConfirmed = true;
             this.Exit();
+        }
+
+        /// <summary>
+        /// The automatic alignment checkbox with a tooltip, which explains why it is greyed out. Hover
+        /// still reaches a disabled checkbox (only the click is refused), so the tooltip shows exactly
+        /// when it is needed; it is empty, and so hidden, while the aligner is available.
+        /// </summary>
+        private partial class AutomaticAlignmentCheckbox : OsuCheckbox, IHasTooltip
+        {
+            public LocalisableString TooltipText { get; set; }
         }
 
         /// <summary>A labelled drop target that shows the currently assigned filename.</summary>
