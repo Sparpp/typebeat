@@ -158,5 +158,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [TestCase("")]
         public void TestNoProgressFraction(string line)
             => Assert.That(ImportProgressParser.ParseProgress(line), Is.Null);
+
+        /// <summary>
+        /// Aligner version 10's fused evidence lines (backlog 411, on for every import) arrive after
+        /// the version 9 decode, so at most they hold the display on aligning: none may read as a
+        /// fall-back (the path falling back to version 9 is not the aligner being unavailable) or
+        /// send it back to an earlier stage, and none carries a bogus progress fraction.
+        /// </summary>
+        [TestCase("[12:34:56] fused evidence: lyrics language english (flag); fuse median3")]
+        [TestCase("[12:34:56] fused evidence: lyrics language japanese (flag); only English is validated, running the version 9 path")]
+        [TestCase("[12:34:56] fused evidence: not available with vocal mode estimated; running the version 9 path")]
+        [TestCase("[12:40:01] fused evidence: downloading the QMUL multilingual weights (57 MB, https://raw.githubusercontent.com/jhuang448/LyricsAlignment-Multilingual/ca1a3923d6c8bf7d20eefa1080f3f104a6173d38/checkpoints/checkpoint_Baseline)")]
+        [TestCase("[12:40:09] fused evidence: QMUL multilingual pass, 11873 frames in 6.2s")]
+        [TestCase("[12:40:10] fused evidence: decoding the QMUL path ('*' penalty 2)")]
+        [TestCase("[12:40:13] fused evidence: decoding the ep path (weight 1, floor -8)")]
+        [TestCase("[12:40:16] fused evidence: fuse median3, 41 word start(s) moved from version 9, 17 word(s) flagged for review")]
+        [TestCase("[12:40:02] WARNING: fused evidence failed (RuntimeError: a dependency is missing (No module named 'phonemizer'); install phonemizer and espeakng-loader); keeping the version 9 path")]
+        public void FusedEvidenceLinesNeverMoveTheDisplayBack(string line)
+        {
+            var update = ImportProgressParser.Parse(line);
+
+            Assert.That(update.Stage, Is.Null.Or.EqualTo(ImportStage.AligningLyrics));
+            Assert.That(update.Progress, Is.Null);
+        }
     }
 }

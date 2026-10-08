@@ -10,12 +10,27 @@
 # back to "any python3": torch 2.5.1 publishes wheels for CPython 3.9 to 3.12 only, so a 3.13+
 # venv can never install it, while the uv-managed 3.11 works everywhere (backlog 349).
 #
-# Usage: setup.sh [cpu|cuda] [--plan-only]
+# Usage: setup.sh [cpu|cuda] [--plan-only] [--update]
 #   cpu (default) or cuda (CUDA 12.1 torch wheels).
 #   --plan-only prints which uv would be used (or downloaded) and exits without changing anything.
 #   It decides by presence alone; a real run also checks that the chosen uv answers --version and
 #   falls through to the next candidate when it does not, so a stale uv on PATH or a damaged .uv/
 #   copy heals instead of failing every retry the same way.
+#   --update, on a COMPLETED install (the sentinel present), brings the existing venv up to this
+#   script's dependency set in place (the aligner dependencies, then the fused-evidence pair and
+#   its weights), then exits. The torch line is not re-run and the venv and sentinel are never
+#   removed, so it costs a few small downloads at most. This is how the game's Update button gives
+#   an existing install the packages a newer aligner adds. A failure exits 1 with the usual
+#   sentence but leaves the install as it was: the aligner still runs (version 10 runs its version
+#   9 path without the pair). Without a sentinel, --update is an ordinary full setup.
+#
+# Fused evidence (aligner version 10, its English path): phonemizer and espeakng-loader are
+# installed by their OWN uv call after the required set, best effort, and are deliberately NOT in
+# the import check below, which is what gates the sentinel. The aligner falls back to its version 9
+# path when they are missing, so a platform with no espeakng-loader wheel (or a resolver that
+# rejects them) still gets a working aligner instead of a failed setup. Their 57 MB of weights are
+# fetched the same way (align_lyrics.qmul_weights_path, into torch hub's checkpoint dir, sha256
+# checked); when that fails the first fused import fetches them instead.
 #
 # Failure output: one plain sentence on stderr that starts "setup failed:", says what failed and
 # what the player can do (retry, check the connection, or install later from Settings), then the
@@ -42,6 +57,11 @@ UV_VERSION='0.5.14'
 PYTHON_VERSION='3.11'
 TORCH_VERSION='2.5.1'
 SENTINEL='.venv/.typebeat-setup-ok'
+# The required packages besides torch, and the optional fused-evidence pair (see the header). The
+# same lists, spelled the same way, are in setup.ps1; the game's tests pin both. Expanded unquoted,
+# so each splits into one argument per package.
+ALIGNER_PACKAGES='demucs==4.0.1 soundfile pyphen num2words tqdm imageio-ffmpeg'
+FUSED_PACKAGES='phonemizer espeakng-loader'
 
 # What the player can do about a failure. Anything that downloads can fail on the network; the
 # rest can only be retried. Either way the game's Settings page offers the install again later.
@@ -50,11 +70,15 @@ RETRY_PLAIN='retry, or install the aligner later from Settings'
 
 DEVICE='cpu'
 PLAN_ONLY=0
+UPDATE=0
+# True while --update refreshes a completed install, which a failure must leave in place.
+UPDATING=0
 for arg in "$@"; do
     case "$arg" in
         cpu|cuda) DEVICE="$arg" ;;
         --plan-only) PLAN_ONLY=1 ;;
-        *) echo "setup failed: unknown argument '$arg' (expected cpu, cuda or --plan-only)" >&2; exit 1 ;;
+        --update) UPDATE=1 ;;
+        *) echo "setup failed: unknown argument '$arg' (expected cpu, cuda, --plan-only or --update)" >&2; exit 1 ;;
     esac
 done
 
@@ -67,7 +91,8 @@ PY=".venv/bin/python"
 
 # The failure report (see the header): fail WHAT [ADVICE] [DETAIL...] prints the sentence, then up
 # to five detail lines, on stderr. Drops any half-built venv so the next attempt starts clean (the
-# sentinel is inside .venv, so it can never outlive a failed run), then exits 1.
+# sentinel is inside .venv, so it can never outlive a failed run), then exits 1. Under --update
+# the venv is a completed install that still works, so it is kept.
 fail() {
     local what="$1" advice="${2:-$RETRY_PLAIN}" shown=0 line
     echo "setup failed: $what; $advice." >&2
@@ -79,7 +104,7 @@ fail() {
         echo "  detail: $line" >&2
         shown=$((shown + 1))
     done
-    [ "$PLAN_ONLY" -eq 1 ] || rm -rf .venv
+    [ "$PLAN_ONLY" -eq 1 ] || [ "$UPDATING" -eq 1 ] || rm -rf .venv
     exit 1
 }
 
@@ -94,9 +119,33 @@ uv_runs() {
     return 1
 }
 
+# The fused-evidence pair, then its weights through the aligner's own qmul_weights_path (so the
+# URL, the file name and the sha256 live in align_lyrics.py alone). Best effort (see the header):
+# each failure is one WARNING line, and the return status says whether the packages went in. The
+# weights are skipped without them, and the first import that needs them fetches them itself.
+install_fused_evidence() {
+    local rc=0
+    echo 'installing the fused-evidence packages...'
+    # shellcheck disable=SC2086
+    "$UV" pip install --python "$PY" $FUSED_PACKAGES || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        echo "WARNING: the fused-evidence packages could not be installed (exit code $rc); the aligner runs its version 9 path without them"
+        return 1
+    fi
+    echo 'fetching the fused-evidence weights (57 MB, once)...'
+    "$PY" -c "import align_lyrics; align_lyrics.qmul_weights_path()" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        echo "WARNING: the fused-evidence weights could not be fetched (exit code $rc); the first import that needs them fetches them instead"
+    fi
+    return 0
+}
+
 if [ "$PLAN_ONLY" -eq 0 ] && [ -f "$SENTINEL" ]; then
-    echo 'lyriclab environment already present'
-    exit 0
+    if [ "$UPDATE" -eq 0 ]; then
+        echo 'lyriclab environment already present'
+        exit 0
+    fi
+    UPDATING=1
 fi
 
 # torch 2.5.1 publishes no macOS x86_64 wheel (the last one was 2.2), so on an Intel Mac, or on an
@@ -112,7 +161,7 @@ if [ "$PLAN_ONLY" -eq 0 ] && [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = x86
         "the local auto-aligner needs an Apple Silicon Mac, and imports use your lyrics' line stamps instead"
 fi
 
-if [ "$PLAN_ONLY" -eq 0 ] && [ -e .venv ]; then
+if [ "$PLAN_ONLY" -eq 0 ] && [ "$UPDATING" -eq 0 ] && [ -e .venv ]; then
     echo 'removing an incomplete environment left by an earlier setup...'
     rm -rf .venv || fail 'the incomplete environment left by an earlier setup could not be removed' \
         'close anything that might be using the aligner folder and retry, or install the aligner later from Settings'
@@ -177,12 +226,25 @@ if [ -z "$UV" ]; then
 fi
 echo "using uv at $UV"
 
+# --update on a completed install: the dependency lines again (uv leaves what is already satisfied,
+# torch included, alone) and the weights, then out. Nothing below this block runs. Unlike a full
+# setup, the update reports the fused-evidence pair failing: installing it is what it is for.
+if [ "$UPDATING" -eq 1 ]; then
+    echo 'updating the aligner dependencies in the existing environment...'
+    # shellcheck disable=SC2086
+    "$UV" pip install --python "$PY" $ALIGNER_PACKAGES || fail 'updating the aligner dependencies failed' "$RETRY_NETWORK" "exit code $?; the tool's own output is above"
+    install_fused_evidence || fail 'installing the fused-evidence packages failed' "$RETRY_NETWORK" 'the aligner keeps working on its version 9 path'
+    echo 'lyriclab environment updated'
+    exit 0
+fi
+
 echo 'creating venv with uv...'
 "$UV" venv .venv --python "$PYTHON_VERSION" || fail "creating the Python $PYTHON_VERSION environment failed" "$RETRY_NETWORK" "exit code $?; the tool's own output is above"
 echo "installing torch ($DEVICE), this is the big download..."
 "$UV" pip install --python "$PY" --index-url "$TORCH_INDEX" "torch==$TORCH_VERSION" "torchaudio==$TORCH_VERSION" || fail 'installing torch failed' "$RETRY_NETWORK" "exit code $?; the tool's own output is above"
 echo 'installing aligner dependencies...'
-"$UV" pip install --python "$PY" demucs==4.0.1 soundfile pyphen num2words tqdm imageio-ffmpeg || fail 'installing the aligner dependencies failed' "$RETRY_NETWORK" "exit code $?; the tool's own output is above"
+# shellcheck disable=SC2086
+"$UV" pip install --python "$PY" $ALIGNER_PACKAGES || fail 'installing the aligner dependencies failed' "$RETRY_NETWORK" "exit code $?; the tool's own output is above"
 
 [ -x "$PY" ] || fail 'the Python environment was not created' "$RETRY_PLAIN" "no $PY after uv venv"
 
@@ -191,6 +253,8 @@ echo 'provisioning ffmpeg into the venv...'
 
 echo 'verifying the installed packages import...'
 "$PY" -c "import torch, torchaudio, demucs, soundfile, pyphen, num2words" || fail 'the installed packages do not import' "$RETRY_PLAIN" "exit code $?; the tool's own output is above"
+
+install_fused_evidence || true
 
 # LAST act, after every step above checked out: the sentinel the game reads as "installed".
 printf 'python=%s\ntorch=%s\ndevice=%s\ncreated=%s\n' "$PYTHON_VERSION" "$TORCH_VERSION" "$DEVICE" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$SENTINEL" || fail 'writing the setup sentinel failed'

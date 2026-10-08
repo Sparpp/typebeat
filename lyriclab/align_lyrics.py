@@ -39,6 +39,22 @@ Pipeline:
                        stamp plus the song's stamp lead
        (version 8)     the demucs child runs with PYTHONUTF8/PYTHONIOENCODING set, so a
                        non-Latin song title no longer kills the separation on Windows
+       --evidence fused (version 10, opt-in; the default is version 9 unchanged)
+                       English lyrics also get a second acoustic model: the QMUL
+                       singing-trained phoneme CTC (Huang, Benetos, Ewert; DALI, MIT
+                       licensed, 57 MB) on the same stem. Its evidence goes through the
+                       same decoders (pseudo-letters, a constant '*' at -2 nats in stamped
+                       modes), and inside the stamped decoder as a per-letter emission
+                       product on the MMS_FA letters; --fuse median3 takes each word's
+                       median start of the three paths (auto: the QMUL path alone).
+                       --fuse qmul under stamps keeps version 9's start where the QMUL
+                       path's is more than 5 s from it. Words
+                       where the MMS_FA and QMUL paths disagree by more than 200 ms carry
+                       "review": true. Other languages (--lyrics-language, else a
+                       conservative English detector), missing dependencies (phonemizer,
+                       espeakng-loader) or missing weights fall back to version 9 with a
+                       logged reason. Measured on the ranked-map corpus in
+                       bench/altmodels (RESULTS.md, results/exp_*.md).
   7. char spans -> syllables (authored hyphens first, else pyphen + naive
      fallback) -> words -> lines; end times extended through sustained
      voiced audio (RMS gate); a validator repairs/rejects impossible output
@@ -234,7 +250,7 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 
 # Bumped when the output of the same inputs changes. The game compares the shipped copy's
 # version with the installed one and offers a reinstall; `--version` prints it.
-ALIGNER_VERSION = "9"
+ALIGNER_VERSION = "10"
 
 SAMPLE_RATE = 16000
 FRAME_SAMPLES = 320          # wav2vec2 stride: 20 ms at 16 kHz
@@ -320,6 +336,7 @@ class Word:
     untimed: bool = False
     syllables: list = field(default_factory=list)  # list[dict]
     authored: bool = False       # the display carries hyphens: tokens ARE the syllables
+    review: bool = False         # version 10, fused evidence only: the two evidence paths disagree
 
 
 @dataclass
@@ -648,11 +665,22 @@ def run_ffmpeg(args: list) -> None:
 
 
 def ensure_wav(src: Path, dst: Path, rate: int, channels: int) -> None:
+    """Converts src to a PCM wav at dst unless dst is already newer than src. Written to a
+    per-process temporary name and renamed into place, so two runs sharing a work dir (the same
+    song in two anchor modes at once) never read a file another one is still writing: ffmpeg -y
+    truncates in place, and a reader meeting a half-rewritten wav decodes a full-length file with
+    the wrong samples in it."""
     if dst.exists() and dst.stat().st_mtime >= src.stat().st_mtime:
         return
     dst.parent.mkdir(parents=True, exist_ok=True)
-    run_ffmpeg(["-i", str(src), "-ac", str(channels), "-ar", str(rate),
-                "-c:a", "pcm_s16le", str(dst)])
+    tmp = dst.with_name(f"{dst.stem}.{os.getpid()}.part{dst.suffix}")
+    try:
+        run_ffmpeg(["-i", str(src), "-ac", str(channels), "-ar", str(rate),
+                    "-c:a", "pcm_s16le", str(tmp)])
+        os.replace(tmp, dst)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
 
 
 def persist_vocals_stem(out_dir: Path, stem: str, vocals_wav: Path) -> Path:
@@ -1219,6 +1247,7 @@ def write_outputs(out_dir: Path, stem: str, audio_name: str, lines: list,
                         "score": round(w.score, 3),
                         "prob": round(w.prob, 3),
                         **({"untimed": True} if w.untimed else {}),
+                        **({"review": True} if w.review else {}),
                         "syllables": w.syllables,
                     }
                     for w in ln.words
@@ -1272,7 +1301,7 @@ def validate_and_repair(lines: list, song_end_ms: int) -> list:
     return notes
 
 
-def write_report(out_dir: Path, lines: list, voiced, mode: str):
+def write_report(out_dir: Path, lines: list, voiced, mode: str, extra=None):
     import numpy as np
 
     rows = []
@@ -1317,6 +1346,10 @@ def write_report(out_dir: Path, lines: list, voiced, mode: str):
     out.append("")
     out.append(f"=== estimated (evidence-free) lines: {len(est)} ===")
     out.extend(est or ["  (none)"])
+    if extra:
+        # version 10: the fused evidence path's section (never written on the default path)
+        out.append("")
+        out.extend(extra)
     text = "\n".join(out)
     (out_dir / "report.txt").write_text(text, encoding="utf-8")
     return text
@@ -3592,8 +3625,9 @@ def joint_banded(ctx):
         ctx["unst_band_s"] = ub
         lab0, sk0 = fixed_piece([star])
         parts = [free_piece(lab0, sk0)]
+        hook = ctx.get("emit_hook")     # version 10, --evidence fused only (fused_ep_hook)
         for k in range(len(ctx["sections"])):
-            parts.append(section_piece(ctx, k))
+            parts.append(section_piece(ctx, k) if hook is None else hook(section_piece(ctx, k)))
         parts.append(free_piece([0], [NEG]))
         chain = Chain(parts)
         path, stats = decode_chain(chain, ctx["lp"], 0, ctx["T"], allow=lambda cells: spend(ctx, cells))
@@ -3758,13 +3792,17 @@ def ref_context(lines, ref_end_ms, log_probs, dictionary, star_id, voiced, pyphe
     return ctx
 
 
-def align_ref(lines, ref_end_ms, log_probs, dictionary, star_id, voiced, pyphen_dic="en_US"):
+def align_ref(lines, ref_end_ms, log_probs, dictionary, star_id, voiced, pyphen_dic="en_US", emit_hook=None):
     """
     Any stamped file: the STAMPED decoder (see the section comment above). Works in float32 on the
     emission tensor and reads prob and margin off it. May raise; align_ref_mode is the entry point
-    that never does. pyphen_dic: see pacing_pyphen.
+    that never does. pyphen_dic: see pacing_pyphen. emit_hook (version 10, the fused path's emission
+    product): Piece -> Piece, applied to every section piece of the whole-song pass; None (always, on
+    the default path) leaves the pass exactly as version 9 runs it.
     """
     ctx = ref_context(lines, ref_end_ms, log_probs, dictionary, star_id, voiced, pyphen_dic)
+    if emit_hook is not None:
+        ctx["emit_hook"] = emit_hook
     sections, windows = ctx["sections"], ctx["windows"]
     per_word = first_pass(ctx)
     char_dur = median_char_dur_frames(per_word, lines)
@@ -3807,20 +3845,21 @@ def align_ref(lines, ref_end_ms, log_probs, dictionary, star_id, voiced, pyphen_
 # --------------------------------------------------------------------------
 
 def align_ref_mode(lines, ref_end_ms, log_probs, dictionary, star_id, voiced, char_dur_holder=None,
-                   pyphen_dic="en_US"):
+                   pyphen_dic="en_US", emit_hook=None):
     """
     --anchors ref (a stamped file, fully or sparsely): the version 6 STAMPED decoder. Never raises:
     on any failure every section is paced evenly inside its (clamped) window and flagged estimated
     (REF RAISE lets the exception out instead, for tests). sanitize then keeps every span inside the
     audio and the word starts in lyric order, so validate_and_repair's 1 ms nudges never reorder
     words. char_dur_holder, when a list, receives the song's median letter length (version 5's
-    signature; nothing downstream reads it). pyphen_dic: see pacing_pyphen.
+    signature; nothing downstream reads it). pyphen_dic: see pacing_pyphen. emit_hook: see align_ref.
     """
     T = log_probs.size(0)
     try:
         if star_id is None:
             raise RuntimeError("no '*' in the dictionary")
-        per_word = align_ref(lines, ref_end_ms, log_probs, dictionary, star_id, voiced, pyphen_dic)
+        per_word = align_ref(lines, ref_end_ms, log_probs, dictionary, star_id, voiced, pyphen_dic,
+                             emit_hook=emit_hook)
     except Exception as exc:
         if REF["RAISE"]:
             raise
@@ -4075,6 +4114,43 @@ def self_test_cache() -> int:
     ])
 
 
+def self_test_fused() -> int:
+    """Pins the pure parts of the version 10 fused evidence path (standard library only): the
+    language name and detector, the QMUL column layout, the letter-to-phone DTW, the median of three
+    paths, the review flags, and apply_word_starts keeping every syllable inside its word."""
+    def word(text, start, end, syls):
+        return Word(display=text, norm=text, start_ms=start, end_ms=end,
+                    syllables=[{"text": t, "start_ms": a, "end_ms": b} for t, a, b in syls])
+
+    lines = [Line(display="hello world", words=[word("hello", 1000, 1600, [("hel", 1000, 1300), ("lo", 1300, 1600)]),
+                                                word("world", 1700, 2200, [("world", 1700, 2200)])])]
+    notes = apply_word_starts(lines, [1200, 1500], 10000)
+    w0, w1 = lines[0].words
+    _, _, qdic, qstar, _ = qmul_columns()
+    return _check_all("fused", [
+        ("lang: en", fused_language_name("en"), "english"),
+        ("lang: en_GB", fused_language_name("EN_gb"), "english"),
+        ("lang: other names lower-cased", fused_language_name(" Japanese "), "japanese"),
+        ("detect: English", detect_english(["I know you love me baby", "and you can never leave"])[0], True),
+        ("detect: romaji", detect_english(["Yoru no tobari dake ga", "machi mo nemuru koro"])[0], False),
+        ("detect: Spanish", detect_english(["Si senor efectos especiales", "te quiero mucho"])[0], False),
+        ("detect: nothing", detect_english(["...", ""])[0], False),
+        ("columns: blank 0, '*' last", (qdic[chr(PSEUDO_BASE)], qstar, qdic["*"], len(qdic)), (0, 71, 71, 72)),
+        ("dtw: cat", letters_to_phones("cat", [False, True, False]), [0, 1, 2]),
+        ("dtw: no phones", letters_to_phones("hm", []), [-1, -1]),
+        ("median3", median3_starts([1, None, 5], [2, 3, None], [3, 4, 6]), [2, None, 5]),
+        ("review", review_flags([0, 0, None], [201, 200, 0]), [True, False, False]),
+        ("guard", guard_starts([0, 6001, 4000, None, 9000], [1000, 1000, 1000, 5, None], 5000),
+         ([0, 1000, 4000, None, 9000], 1)),
+        ("guard: none", guard_starts([0, 99999], [0, 0], None), ([0, 99999], 0)),
+        ("apply: starts", (w0.start_ms, w1.start_ms), (1200, 1500)),
+        ("apply: end cut at the next start", w0.end_ms, 1500),
+        ("apply: syllables inside the word",
+         all(w.start_ms <= x["start_ms"] < x["end_ms"] <= w.end_ms for w in (w0, w1) for x in w.syllables), True),
+        ("apply: no repairs", notes, []),
+    ])
+
+
 def self_test_dup() -> int:
     """Pins dup_share, which decides whether auto's voiced '*' is charged (complete lyrics) or free
     (a sheet that repeats almost no line, AUTO UNIQ_DUP)."""
@@ -4096,6 +4172,803 @@ def self_test_dup() -> int:
          dup_share(lines(*"a b c d e f g h i a".split())) <= AUTO["UNIQ_DUP"], True),
         ("dup: no lyrics", dup_share([]), 0.0),
     ])
+
+
+# --------------------------------------------------------------------------
+# Version 10: the opt-in fused evidence path (--evidence fused)
+# --------------------------------------------------------------------------
+#
+# Nothing in this section runs, and none of its dependencies (phonemizer, espeakng_loader, the
+# QMUL weights) is imported or loaded, unless --evidence fused is on the command line; the default
+# path never calls into it. See the module docstring's version 10 entry for what it does and the
+# measured effects.
+
+FUSED_REVIEW_MS = 200            # |version 9 start - QMUL path start| above this flags a word "review"
+FUSED_STAR_PENALTY = {"ref": 2.0, "auto": 0.0}   # the QMUL path's constant '*' column: -penalty nats
+FUSED_EP_WEIGHT = 1.0            # the emission product: w * max(log P_QMUL(phone), floor) per letter
+FUSED_EP_FLOOR = -8.0
+FUSED_GUARD_MS = {"ref": 5000, "auto": None}   # --fuse qmul only: a QMUL-path start this far
+                                 # from version 9's keeps version 9's (None: no guard); guard_starts
+FUSE_CHOICES = ("median3", "qmul", "ep")
+FUSED_ENGLISH_ASCII = 0.9        # the language detector: this share of letters ASCII ...
+FUSED_ENGLISH_COMMON = 0.2       # ... and this share of word tokens among ENGLISH_COMMON
+
+# QMUL multilingual (Jiawen Huang, Emmanouil Benetos, Sebastian Ewert; ISMIR 2025 LBD; MIT), a mel
+# CRNN trained with CTC on 16 kHz DALI vocals: 69 espeak IPA phones, ' ' (69, between words), unk
+# (70, any phone outside the inventory) and blank (71). The checkpoint is fetched once from a pinned
+# commit and checked against its sha256.
+QMUL_COMMIT = "ca1a3923d6c8bf7d20eefa1080f3f104a6173d38"
+QMUL_URL = ("https://raw.githubusercontent.com/jhuang448/LyricsAlignment-Multilingual/"
+            f"{QMUL_COMMIT}/checkpoints/checkpoint_Baseline")
+QMUL_SHA256 = "d541bde0a0e2759c5eac1ee7b70e06169a2aada504bc2359a98c7de4344d4dfe"
+QMUL_FILE = f"qmul_multilingual_baseline_{QMUL_COMMIT[:10]}.pt"
+QMUL_SR = 22050
+QMUL_N_FFT = 512
+QMUL_MEL_HOP = 256
+QMUL_POOL_T = 3
+QMUL_HOP_S = QMUL_POOL_T * QMUL_MEL_HOP / QMUL_SR      # 768 / 22050 s per output frame
+# output frame k is the max-pool of mel frames 3k .. 3k + 2 (centred on samples (3k + 1) * 256), so
+# its 768-sample cell starts 128 samples before 768k
+QMUL_OFFSET_S = -(QMUL_MEL_HOP // 2) / QMUL_SR
+QMUL_PROB_FLOOR = 5.5e-11        # the authors add uniform(1e-11, 1e-10) before the log: its mean
+QMUL_CNN_CHUNK = 1500            # output frames per CNN chunk (exact: the CNN sees +-3 mel frames)
+QMUL_IPA = ['a', 'aɪ', 'aʊ', 'b', 'd', 'dʒ', 'e', 'ee', 'eɪ', 'eː', 'f', 'h', 'i', 'iː', 'j',
+            'k', 'l', 'm', 'n', 'o', 'oʊ', 'oː', 'p', 'r', 's', 'ss', 't', 'ts', 'tʃ', 'tː',
+            'u', 'uː', 'v', 'w', 'x', 'y', 'z', 'æ', 'ç', 'ð', 'ŋ', 'ɐ', 'ɑː', 'ɑːɹ', 'ɑ̃',
+            'ɔ', 'ɔː', 'ɔ̃', 'ə', 'ɚ', 'ɛ', 'ɛ̃', 'ɜ', 'ɜː', 'ɡ', 'ɣ', 'ɪ', 'ɲ', 'ɹ', 'ɾ', 'ʁ',
+            'ʃ', 'ʊ', 'ʊɹ', 'ʌ', 'ʒ', 'ʝ', 'β', 'θ', ' ']
+QMUL_VOCAB = QMUL_IPA + ["unk", "blank"]
+QMUL_SEP, QMUL_UNK, QMUL_BLANK = 69, 70, 71
+# Every QMUL column the decoders place becomes one pseudo-letter from the CJK Unified Ideographs
+# block: alphabetic (syllable_count keeps it), caseless and matched by no pyphen pattern.
+PSEUDO_BASE = 0x4E00
+IPA_VOWEL_LEADS = set("aeiouyæɐɑɒɔəɚɛɜɞɘɤɨɪɯɵøœɶʉʊʌ")
+LETTER_VOWELS = set("aeiouy")
+
+# The ~150 most common words of English song lyrics, minus the short ones that are just as common
+# in romaji or the other big lyric languages (a, i, no, to, me, so, do, in, on, an, am, he, man, go,
+# oh, yeah): a romaji or Spanish sheet must not read as English through its particles.
+ENGLISH_COMMON = frozenset("""
+the and you it is of that my your we for with this all what don't can when are know just like love
+but not be was have will they she her his him there from out up get got now one time never every
+baby see say way make take want need feel heart night day down let come if how why where who would
+could should been had has our us them their then than only still back into over away too more here
+can't won't i'm i'll i've i'd you're you'll you've we're we'll they're that's there's it's what's
+she's he's gonna wanna think tell give keep look life world eyes mind light right something nothing
+everything always really good little some about because cause were did does didn't doesn't isn't
+ain't said at by or as ever again around through without inside tonight forever together alone
+hold home dream fall run stay leave find found lost free bring remember believe everybody someone
+anything maybe girl boy hand hands face these those which while same other another even much many
+own new old made knew let's myself yourself far long last
+""".split())
+
+
+def fused_language_name(name: str) -> str:
+    """The game's canonical language name ('english', 'japanese', ...) from --lyrics-language,
+    lower-cased; English codes (en, en-us, en_GB, ...) read as 'english'. Pure."""
+    n = (name or "").strip().lower()
+    if n in ("en", "eng") or re.fullmatch(r"en[-_][a-z]{2}", n):
+        return "english"
+    return n
+
+
+def detect_english(texts) -> tuple:
+    """The conservative detector behind --evidence fused when --lyrics-language is absent: English
+    only when the lyrics are ASCII-dominant (FUSED_ENGLISH_ASCII of their letters) AND at least
+    FUSED_ENGLISH_COMMON of their word tokens are ENGLISH_COMMON words. texts: the lyric lines.
+    Returns (is_english, ascii share of letters, common-word share of tokens). Standard library only."""
+    letters = [c for t in texts for c in t if c.isalpha()]
+    ascii_share = sum(1 for c in letters if c.isascii()) / len(letters) if letters else 0.0
+    toks = []
+    for t in texts:
+        for w in t.replace("’", "'").replace("‘", "'").lower().split():
+            w = re.sub(r"^[^\w']+|[^\w']+$", "", w).strip("'")
+            if any(c.isalpha() for c in w):
+                toks.append(w)
+    common = sum(1 for w in toks if w in ENGLISH_COMMON) / len(toks) if toks else 0.0
+    return (bool(toks) and ascii_share >= FUSED_ENGLISH_ASCII and common >= FUSED_ENGLISH_COMMON,
+            ascii_share, common)
+
+
+def fused_plan(lines, mode: str, vocal_mode: str, lyrics_language, fuse: str) -> dict:
+    """Decides whether --evidence fused applies to this song (logged either way). It applies to an
+    aligned stamped (ref) or plain (auto) song whose language is English: given by
+    --lyrics-language, else by detect_english. Returns {"apply", "meta", ...}; the meta goes into the
+    timing.json engine block whether or not the path applies, so the game can see why."""
+    import copy
+
+    meta = {"evidence": "mms", "evidence_requested": "fused"}
+    plan = {"apply": False, "fuse": fuse, "meta": meta}
+    if lyrics_language:
+        lang, how = fused_language_name(lyrics_language), "flag"
+    else:
+        ok, a, c = detect_english([ln.display for ln in lines])
+        lang = "english" if ok else "unknown"
+        how = f"detected (ASCII share {a:.2f} of letters, common English share {c:.2f} of words)"
+    meta.update(lyrics_language=lang, lyrics_language_source=how)
+    if lang != "english":
+        log(f"fused evidence: lyrics language {lang} ({how}); only English is validated, "
+            f"running the version 9 path")
+        meta["evidence_note"] = "not English"
+        return plan
+    if vocal_mode != "aligned" or mode not in ("ref", "auto"):
+        why = f"vocal mode {vocal_mode}" if vocal_mode != "aligned" else f"anchor mode {mode}"
+        log(f"fused evidence: not available with {why}; running the version 9 path")
+        meta["evidence_note"] = f"not available with {why}"
+        return plan
+    log(f"fused evidence: lyrics language english ({how}); fuse {fuse}")
+    plan.update(apply=True, pristine=copy.deepcopy(lines))
+    return plan
+
+
+# --- evidence -> the decoders' matrix (the same construction the bench validated)
+
+def fused_lse(x, axis: int = 1):
+    m = x.max(axis=axis, keepdims=True)
+    m = np.where(np.isfinite(m), m, 0.0)
+    return (m + np.log(np.exp(x - m).sum(axis=axis, keepdims=True))).squeeze(axis)
+
+
+def fused_resample(logp, hop_s: float, offset_s: float, n_out: int, frame_s: float = FRAME_SEC):
+    """[T, V] log-posteriors whose frame k covers offset_s + [k, k + 1) x hop_s -> [n_out, V] on the
+    decoders' frame_s grid (frame g covers [g, g + 1) x frame_s), each target frame the
+    overlap-weighted mean of the source PROBABILITIES, then the log, renormalised per frame (a
+    20 ms frame straddling two source frames holds a mixture of what each heard). Frames outside
+    the source repeat its edge frame. numpy only."""
+    T, V = logp.shape
+    if abs(hop_s - frame_s) < 1e-12 and abs(offset_s) < 1e-12:
+        if T >= n_out:
+            return logp[:n_out]
+        return np.concatenate([logp, np.repeat(logp[-1:], n_out - T, axis=0)], axis=0)
+    X = np.exp(logp.astype(np.float64))
+    C = np.concatenate([np.zeros((1, V)), np.cumsum(X, axis=0)], axis=0)
+    edges = (np.arange(n_out + 1) * frame_s - offset_s) / hop_s
+    u = np.clip(edges, 0.0, float(T))
+
+    def cum(x):
+        k = np.minimum(np.floor(x).astype(np.int64), T - 1)
+        return C[k] + (x - k)[:, None] * X[k]
+
+    a, b = u[:-1], u[1:]
+    width = b - a
+    out = np.empty((n_out, V))
+    ok = width > 1e-9
+    out[ok] = (cum(b[ok]) - cum(a[ok])) / width[ok, None]
+    left = (~ok) & (edges[:-1] < 0.5 * T)
+    out[left] = X[0]
+    out[(~ok) & ~left] = X[T - 1]
+    out = np.log(np.maximum(out, 1e-38))
+    out -= fused_lse(out)[:, None]
+    return out.astype(np.float32)
+
+
+def qmul_columns():
+    """The QMUL columns the decoders see, in matrix order after the blank: every column but the
+    blank and the word separator (merged into the blank). Returns (tokens, char_of {column: pseudo
+    letter}, dictionary {char: matrix column, '*' last}, star_id, vowel_chars). Pure."""
+    tokens = [c for c in range(len(QMUL_VOCAB)) if c not in (QMUL_BLANK, QMUL_SEP)]
+    char_of = {c: chr(PSEUDO_BASE + j) for j, c in enumerate(tokens, start=1)}
+    dictionary = {chr(PSEUDO_BASE): 0}
+    dictionary.update({ch: j for j, ch in enumerate(char_of.values(), start=1)})
+    star_id = len(tokens) + 1
+    dictionary["*"] = star_id
+    # a word's syllables are its vowel-phone groups (syllabify_token reads VOWELS); the unk class
+    # counts as a vowel (on English lyrics 98 % of the phones it stands for are vowels)
+    vowel_cols = {i for i, v in enumerate(QMUL_VOCAB) if i != QMUL_BLANK and v and v[0] in IPA_VOWEL_LEADS}
+    vowel_cols.add(QMUL_UNK)
+    vowels = {char_of[c] for c in vowel_cols if c in char_of}
+    return tokens, char_of, dictionary, star_id, vowels
+
+
+def qmul_prepare(logp, n_frames: int, star_penalty: float):
+    """QMUL log-posteriors [Tq, 72] on its own grid -> float32 [n_frames, 72] on the 20 ms grid:
+    blank first, the 70 placed columns, then a constant '*' column of -star_penalty, renormalised
+    (MMS_FA's untrained '*' is the same construction with penalty 0). numpy only."""
+    tokens, _, _, _, _ = qmul_columns()
+    lp = logp.astype(np.float32).copy()
+    cols = [QMUL_BLANK, QMUL_SEP]
+    lp[:, QMUL_BLANK] = fused_lse(lp[:, cols].astype(np.float64)).astype(np.float32)
+    lp = lp[:, [QMUL_BLANK] + tokens]
+    lp = fused_resample(lp, QMUL_HOP_S, QMUL_OFFSET_S, n_frames)
+    full = np.concatenate([lp.astype(np.float64), np.full((len(lp), 1), -float(star_penalty))], axis=1)
+    return np.ascontiguousarray((full - fused_lse(full)[:, None]).astype(np.float32))
+
+
+# --- lyrics -> QMUL pseudo-letters
+
+def fused_normalise_word(word: str) -> str:
+    """Lower-case, curly apostrophes to straight, accents stripped."""
+    w = word.replace("’", "'").replace("‘", "'").replace("`", "'").lower()
+    return "".join(c for c in unicodedata.normalize("NFD", w) if unicodedata.category(c) != "Mn")
+
+
+class QmulTokenizer:
+    """English espeak IPA (phonemizer's EspeakBackend, en-us), one phone per QMUL inventory entry,
+    an unknown phone -> the trained unk class. Raises ImportError when phonemizer or the espeak-ng
+    library (espeakng_loader, or PHONEMIZER_ESPEAK_LIBRARY) is missing."""
+
+    def __init__(self):
+        if not os.environ.get("PHONEMIZER_ESPEAK_LIBRARY"):
+            import espeakng_loader
+            from phonemizer.backend.espeak.wrapper import EspeakWrapper
+            EspeakWrapper.set_library(espeakng_loader.get_library_path())
+            EspeakWrapper.set_data_path(espeakng_loader.get_data_path())
+        from phonemizer.backend import EspeakBackend
+        from phonemizer.punctuation import Punctuation
+        from phonemizer.separator import Separator
+        self.ids = {p: i for i, p in enumerate(QMUL_IPA)}
+        self._punct = Punctuation(';:,.!"?()-')
+        self._sep = Separator(phone=";", word=" ")
+        self._backend = EspeakBackend("en-us", language_switch="remove-flags")
+        self._cache = {}
+
+    def phones(self, word: str) -> list:
+        w = self._punct.remove(fused_normalise_word(word))
+        w = "".join(" " if unicodedata.category(c).startswith("P") and c != "'" else c for c in w).strip()
+        if not any(c.isalnum() for c in w):
+            return []
+        s = self._backend.phonemize([w], separator=self._sep, strip=True)[0]
+        return [p for chunk in s.split(" ") for p in chunk.split(";") if p]
+
+    def tokenize(self, word: str) -> list:
+        if word not in self._cache:
+            out = []
+            for p in self.phones(word):
+                i = self.ids.get(p, QMUL_UNK)
+                if i != QMUL_SEP:
+                    out.append(i)
+            self._cache[word] = out
+        return list(self._cache[word])
+
+
+def spell_digits(frag: str, num2words_fn) -> list:
+    """A fragment with digits -> its pieces with every number spelled out (as normalize_word spells
+    them for MMS_FA). Pure given num2words."""
+    if not re.search(r"\d", frag):
+        return [frag]
+    out = []
+    for part in re.split(r"(\d+)", frag):
+        if part.isdigit():
+            out += [t for t in re.split(r"[\s,\-]+", num2words_fn(int(part))) if t]
+        elif part:
+            out.append(part)
+    return out
+
+
+def qmul_groups(display: str, tokenize, num2words_fn):
+    """One display word -> (token groups as QMUL column lists, authored). Authored hyphen fragments
+    are tokenized one by one and stay separate groups (each is one syllable, as for MMS_FA)."""
+    frags = split_fragments(display)
+    gs = [[i for piece in spell_digits(f, num2words_fn) for i in tokenize(piece) if i != QMUL_SEP] for f in frags]
+    return [g for g in gs if g], len(frags) > 1
+
+
+def qmul_lines(pristine, tokenize, num2words_fn):
+    """The freshly parsed lyrics with QMUL pseudo-letter tokens (a deep copy; pristine is not touched)."""
+    import copy
+
+    _, char_of, _, _, _ = qmul_columns()
+    lines = copy.deepcopy(pristine)
+    for ln in lines:
+        for w in ln.words:
+            gs, authored = qmul_groups(w.display, tokenize, num2words_fn)
+            toks = ["".join(char_of[i] for i in g if i in char_of) for g in gs]
+            w.tokens = [t for t in toks if t]
+            w.authored = authored
+            w.norm = "".join(w.tokens)
+            w.untimed = not w.norm
+    return lines
+
+
+def mms_lines(pristine, dict_chars, num2words_fn):
+    """The freshly parsed lyrics normalised for MMS_FA exactly as main normalises them (a deep copy)."""
+    import copy
+
+    lines = copy.deepcopy(pristine)
+    for ln in lines:
+        for w in ln.words:
+            w.tokens, w.authored = normalize_display(w.display, dict_chars, num2words_fn)
+            w.norm = "".join(w.tokens)
+            if not w.norm:
+                w.untimed = True
+    return lines
+
+
+# --- the emission product (ep): QMUL's phone evidence added to each MMS_FA letter state
+
+def letters_to_phones(letters: str, phone_is_vowel: list) -> list:
+    """Monotone DTW of a word's letters against its phones (vowel letters a e i o u y to vowel phones
+    and consonants to consonants at no cost, any other pairing 1, the apostrophe 0.5): per letter,
+    the index of the first phone on the path (-1 for every letter when there is no phone). Pure."""
+    n, m = len(letters), len(phone_is_vowel)
+    if m == 0:
+        return [-1] * n
+    C = [[0.5 if ch == "'" else (0.0 if (ch in LETTER_VOWELS) == v else 1.0) for v in phone_is_vowel]
+         for ch in letters]
+    inf = float("inf")
+    D = [[inf] * (m + 1) for _ in range(n + 1)]
+    D[0][0] = 0.0
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            D[i][j] = C[i - 1][j - 1] + min(D[i - 1][j - 1], D[i - 1][j], D[i][j - 1])
+    i, j = n, m
+    first = [m - 1] * n
+    while i > 0 and j > 0:
+        first[i - 1] = j - 1
+        moves = [(D[i - 1][j - 1], i - 1, j - 1), (D[i - 1][j], i - 1, j), (D[i][j - 1], i, j - 1)]
+        _, i, j = min(moves, key=lambda x: x[0])
+    return first
+
+
+def ep_columns(lines, tokenize, num2words_fn) -> dict:
+    """{(line, word): [QMUL matrix column per letter of w.norm, -1 where none]} for MMS_FA lines."""
+    _, char_of, dictionary, _, _ = qmul_columns()
+    vow = {i for i, v in enumerate(QMUL_VOCAB) if i != QMUL_BLANK and v and v[0] in IPA_VOWEL_LEADS} | {QMUL_UNK}
+    out = {}
+    for i, ln in enumerate(lines):
+        for wi, w in enumerate(ln.words):
+            if w.untimed or not w.norm:
+                continue
+            gs, _ = qmul_groups(w.display, tokenize, num2words_fn)
+            ph = [c for g in gs for c in g if c in char_of]
+            if not ph:
+                continue
+            cols = [dictionary[char_of[c]] for c in ph]
+            first = letters_to_phones(w.norm, [c in vow for c in ph])
+            out[(i, wi)] = [cols[j] if j >= 0 else -1 for j in first]
+    return out
+
+
+def fused_ep_hook(pcols: dict, qx, star_id: int, errors: list):
+    """The stamped decoder's emit_hook for the emission product. qx: float32 [T, C + 1], the
+    weighted, floored QMUL log-probs with a zero column last; each letter state of a section piece
+    gets qx's column of the phone its letter aligns to added to its emissions. A piece the hook
+    cannot read is left as it is (counted in errors)."""
+    Z = qx.shape[1] - 1
+
+    def hook(p):
+        try:
+            pc = np.full(p.n, Z, dtype=np.int64)
+            cnt = {}
+            for s, own in enumerate(p.owner):
+                if own is None or p.lab[s] == 0 or p.lab[s] == star_id:
+                    continue
+                c = cnt.get(own, 0)
+                cnt[own] = c + 1
+                cols = pcols.get(tuple(own))
+                if cols is not None and c < len(cols) and cols[c] >= 0:
+                    pc[s] = cols[c]
+            if (pc == Z).all():
+                return p
+            orig = p.emit
+
+            def emit(lp, t0, t1, a, b):
+                E = orig(lp, t0, t1, a, b)
+                sub = pc[a:b]
+                sel = np.nonzero(sub != Z)[0]
+                if len(sel):
+                    E = np.array(E, dtype=np.float32, copy=True)
+                    E[:, sel] += qx[t0:t1][:, sub[sel]]
+                return E
+            p.emit = emit
+        except Exception:
+            errors.append(1)
+        return p
+    return hook
+
+
+# --- combining the paths
+
+def median3_starts(a, b, c) -> list:
+    """Per word, the median of three start lists (None: that path did not time the word). A word
+    fewer than three paths timed keeps the first list's start (version 9's). Pure."""
+    out = []
+    for x, y, z in zip(a, b, c):
+        if x is None or y is None or z is None:
+            out.append(x)
+        else:
+            out.append(sorted((x, y, z))[1])
+    return out
+
+
+def apply_word_starts(lines, starts, song_end_ms: int) -> list:
+    """Moves every timed word of `lines` (in place) to its new start in `starts` (one per word in
+    lyric order; None keeps it), its end and syllables by the same offset; word ends are then cut
+    at the next word's start as assemble cuts them, line spans rebuilt from their words, and
+    validate_and_repair keeps starts strictly increasing and every end after its start. Returns the
+    repair notes. Pure (standard library)."""
+    flat = [w for ln in lines for w in ln.words]
+    for w, s in zip(flat, starts):
+        if s is None or w.untimed:
+            continue
+        d = int(s) - w.start_ms
+        if d:
+            w.start_ms += d
+            w.end_ms += d
+            for syl in w.syllables:
+                syl["start_ms"] += d
+                syl["end_ms"] += d
+    timed = [w for w in flat if not w.untimed]
+    for w, nxt in zip(timed, timed[1:]):
+        if nxt.start_ms > w.start_ms:
+            w.end_ms = min(w.end_ms, nxt.start_ms)
+    for w in timed:
+        # a word whose end was cut keeps its syllables inside it, their proportions kept
+        if w.syllables and w.syllables[-1]["end_ms"] > w.end_ms:
+            s0, old_len = w.start_ms, max(1, w.syllables[-1]["end_ms"] - w.start_ms)
+            for syl in w.syllables:
+                for k in ("start_ms", "end_ms"):
+                    syl[k] = s0 + (syl[k] - s0) * (w.end_ms - s0) // old_len
+    for ln in lines:
+        tw = [w for w in ln.words if not w.untimed]
+        if tw:
+            ln.start_ms = tw[0].start_ms
+            ln.end_ms = max(w.end_ms for w in tw)
+    for i in range(len(lines) - 1):
+        if lines[i].end_ms > lines[i + 1].start_ms and lines[i + 1].start_ms > lines[i].start_ms:
+            lines[i].end_ms = lines[i + 1].start_ms
+    return validate_and_repair(lines, song_end_ms)
+
+
+def guard_starts(fused_starts, v9_starts, guard_ms) -> tuple:
+    """Per word: the fused start, unless it is more than guard_ms from version 9's, when version 9's
+    is kept (guard_ms None: no guard). fused_stage applies it to --fuse qmul under line stamps
+    only. Ranked corpus, English maps, exact stamps: the QMUL path alone moves 26 words more than
+    5 s from version 9's start, 1 of them to within 200 ms of the map and 12 of them away from a
+    correct version 9 start (within 200 ms 95.13 -> 95.16 %, MAE 126 -> 110 ms with the guard).
+    The median needs two paths to agree and made only 5 such moves (all on one song, none right),
+    and the guard made those words worse; the ep path's large moves were mostly right (3 of 5).
+    Plain lyrics are unguarded: there version 9 is the path that fails. Returns (starts, number
+    of words guarded). Pure."""
+    if guard_ms is None:
+        return list(fused_starts), 0
+    out, n = [], 0
+    for f, v in zip(fused_starts, v9_starts):
+        if f is not None and v is not None and abs(f - v) > guard_ms:
+            out.append(v)
+            n += 1
+        else:
+            out.append(f)
+    return out, n
+
+
+def review_flags(v9_starts, qmul_starts, threshold_ms: int = FUSED_REVIEW_MS) -> list:
+    """Per word: True when both paths timed it and their starts are more than threshold_ms apart. Pure."""
+    return [a is not None and b is not None and abs(a - b) > threshold_ms for a, b in zip(v9_starts, qmul_starts)]
+
+
+def word_starts(lines) -> list:
+    return [None if w.untimed else w.start_ms for ln in lines for w in ln.words]
+
+
+# --- the QMUL model
+
+def qmul_network(n_class: int = 72):
+    """The QMUL CRNN (the authors' model.py structure with identical parameter names, so the
+    checkpoint loads with strict=True): one conv, one residual CNN block, a (2, 3) max-pool, a linear
+    to 256, three BiLSTMs and the classifier. forward_chunked runs the CNN part in time chunks with
+    enough overlap to be exact (it sees +-3 mel frames), so the peak memory does not grow with the
+    song's length (the whole-song CNN activations of a 5-minute song are over a gigabyte)."""
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+
+    n_feats, rnn_dim, dropout = 32, 256, 0.1
+
+    class CNNLayerNorm(nn.Module):
+        def __init__(self, n_feats):
+            super().__init__()
+            self.layer_norm = nn.LayerNorm(n_feats)
+
+        def forward(self, x):
+            x = x.transpose(2, 3).contiguous()
+            x = self.layer_norm(x)
+            return x.transpose(2, 3).contiguous()
+
+    class ResidualCNN(nn.Module):
+        def __init__(self, in_channels, out_channels, kernel, stride, dropout, n_feats):
+            super().__init__()
+            self.cnn1 = nn.Conv2d(in_channels, out_channels, kernel, stride, padding=kernel // 2)
+            self.cnn2 = nn.Conv2d(out_channels, out_channels, kernel, stride, padding=kernel // 2)
+            self.dropout1 = nn.Dropout(dropout)
+            self.dropout2 = nn.Dropout(dropout)
+            self.layer_norm1 = CNNLayerNorm(n_feats)
+            self.layer_norm2 = CNNLayerNorm(n_feats)
+
+        def forward(self, x):
+            residual = x
+            x = self.cnn1(self.dropout1(F.gelu(self.layer_norm1(x))))
+            x = self.cnn2(self.dropout2(F.gelu(self.layer_norm2(x))))
+            return x + residual
+
+    class BidirectionalLSTM(nn.Module):
+        def __init__(self, rnn_dim, hidden_size, dropout, batch_first):
+            super().__init__()
+            self.BiLSTM = nn.LSTM(input_size=rnn_dim, hidden_size=hidden_size, num_layers=1,
+                                  batch_first=batch_first, bidirectional=True)
+            self.dropout = nn.Dropout(dropout)
+
+        def forward(self, x):
+            x, _ = self.BiLSTM(x)
+            return self.dropout(x)
+
+    class AcousticModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.n_class = n_class
+            self.cnn_layers = nn.Sequential(nn.Conv2d(1, n_feats, 3, stride=1, padding=1), nn.ReLU())
+            self.rescnn_layers = nn.Sequential(ResidualCNN(n_feats, n_feats, kernel=3, stride=1, dropout=dropout,
+                                                           n_feats=128))
+            self.maxpooling = nn.MaxPool2d(kernel_size=(2, QMUL_POOL_T))
+            self.fully_connected = nn.Linear(n_feats * 64, rnn_dim)
+            # As published: only the first BiLSTM is batch_first; with batch 1 the second and third
+            # see a length-1 sequence per frame (frame-wise), which is how the weights were trained.
+            self.bilstm = nn.Sequential(
+                BidirectionalLSTM(rnn_dim=rnn_dim, hidden_size=rnn_dim, dropout=dropout, batch_first=True),
+                BidirectionalLSTM(rnn_dim=rnn_dim * 2, hidden_size=rnn_dim, dropout=dropout, batch_first=False),
+                BidirectionalLSTM(rnn_dim=rnn_dim * 2, hidden_size=rnn_dim, dropout=dropout, batch_first=False))
+            self.classifier = nn.Sequential(nn.Linear(rnn_dim * 2, n_class))
+
+        def front(self, x):                          # (1, 1, 128 mels, T) -> (1, T // 3, 256)
+            x = self.maxpooling(self.rescnn_layers(self.cnn_layers(x)))
+            sizes = x.size()
+            x = x.view(sizes[0], sizes[1] * sizes[2], sizes[3]).transpose(1, 2)
+            return self.fully_connected(x)
+
+        def forward(self, x):
+            return self.classifier(self.bilstm(self.front(x)))
+
+        def forward_chunked(self, x, chunk: int = QMUL_CNN_CHUNK):
+            n_mel = x.size(3)
+            n_out = n_mel // QMUL_POOL_T
+            parts = []
+            for o0 in range(0, n_out, chunk):
+                o1 = min(n_out, o0 + chunk)
+                m0 = max(0, QMUL_POOL_T * o0 - 2 * QMUL_POOL_T)
+                m1 = min(n_mel, QMUL_POOL_T * o1 + 2 * QMUL_POOL_T)
+                y = self.front(x[:, :, :, m0:m1])
+                k0 = o0 - m0 // QMUL_POOL_T
+                parts.append(y[:, k0:k0 + (o1 - o0)])
+            return self.classifier(self.bilstm(torch.cat(parts, dim=1)))
+
+    return AcousticModel()
+
+
+def qmul_weights_path():
+    """The QMUL checkpoint in torch hub's checkpoint dir (where torchaudio keeps MMS_FA), fetched
+    from the pinned commit on first use and checked against QMUL_SHA256. Raises on any failure (a
+    failed download, a hash mismatch); a bad file is deleted so the next run fetches it again."""
+    import hashlib
+
+    import torch
+
+    d = Path(torch.hub.get_dir()) / "checkpoints"
+    path = d / QMUL_FILE
+
+    def sha(p):
+        h = hashlib.sha256()
+        with open(p, "rb") as f:
+            for block in iter(lambda: f.read(1 << 20), b""):
+                h.update(block)
+        return h.hexdigest()
+
+    if not path.exists():
+        d.mkdir(parents=True, exist_ok=True)
+        log(f"fused evidence: downloading the QMUL multilingual weights (57 MB, {QMUL_URL})")
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.part")
+        try:
+            torch.hub.download_url_to_file(QMUL_URL, str(tmp), progress=False)
+            os.replace(tmp, path)
+        finally:
+            if tmp.exists():
+                tmp.unlink()
+    got = sha(path)
+    if got != QMUL_SHA256:
+        path.unlink()
+        raise RuntimeError(f"the QMUL weights' sha256 is {got}, expected {QMUL_SHA256}; deleted")
+    return path
+
+
+def qmul_evidence(wav, audio_key: str, work: Path, device: str):
+    """QMUL log-posteriors, float32 [Tq, 72] on QMUL's own grid (QMUL_HOP_S, QMUL_OFFSET_S), for the
+    16 kHz stem the MMS_FA views were computed from (wav [1, N]), upsampled to the model's 22050 Hz
+    (the model was trained on 16 kHz audio upsampled the same way). Cached in the work dir by the
+    audio's content address and the weights' hash, written atomically like the MMS_FA views."""
+    import warnings
+
+    import torch
+    import torchaudio
+
+    cache = work / f"qmul_{audio_key}_{QMUL_SHA256[:12]}.npy"
+    if cache.exists():
+        try:
+            lp = np.load(cache)
+            if lp.ndim == 2 and lp.shape[1] == len(QMUL_VOCAB) and np.isfinite(lp).all():
+                log(f"fused evidence: QMUL evidence cached ({cache.name})")
+                return lp
+        except Exception:
+            pass
+        log(f"fused evidence: QMUL cache unreadable ({cache.name}), recomputing")
+    weights = qmul_weights_path()
+    t0 = time.time()
+    state = torch.load(weights, map_location="cpu", weights_only=True)
+    model = qmul_network(len(QMUL_VOCAB))
+    model.load_state_dict(state["model_state_dict"])
+    model.eval().to(device)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")              # 128 mels on 257 bins: one empty filter, as published
+        mel = torchaudio.transforms.MelSpectrogram(sample_rate=QMUL_SR, n_mels=128, n_fft=QMUL_N_FFT).to(device)
+    with torch.no_grad():
+        x = torchaudio.functional.resample(wav.reshape(1, -1).float(), SAMPLE_RATE, QMUL_SR)
+        out = model.forward_chunked(mel(x.to(device)).unsqueeze(1))
+        lp = torch.log_softmax(out, dim=2)[0].float().cpu().numpy()
+    lp = np.logaddexp(lp, np.float32(np.log(QMUL_PROB_FLOOR))).astype(np.float32)
+    log(f"fused evidence: QMUL multilingual pass, {lp.shape[0]} frames in {time.time() - t0:.1f}s")
+    tmp = cache.with_name(f"{cache.name}.{os.getpid()}.tmp.npy")
+    try:
+        np.save(tmp, lp)
+        os.replace(tmp, cache)
+    except Exception as exc:
+        log(f"WARNING: could not cache the QMUL evidence ({type(exc).__name__}: {exc})")
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+    return lp
+
+
+# --- the fused stage
+
+def fused_decode(lines, mode: str, ref_end_ms, lp, dictionary: dict, star_id: int, voiced, pyphen_dic,
+                 offset_ms: float, song_end_ms: int, vowel_chars=(), emit_hook=None):
+    """One decode exactly as main runs it (the mode's decoder, assemble, validate_and_repair) on
+    `lines` (already tokenized for `dictionary`) and the float32 matrix lp [T, C]. vowel_chars:
+    pseudo-letters syllabify_token must read as vowels, added to VOWELS for the call only."""
+    import torch
+
+    t = torch.from_numpy(lp)
+    added = set(vowel_chars) - VOWELS
+    VOWELS.update(added)
+    try:
+        if mode == "ref":
+            per_word = align_ref_mode(lines, ref_end_ms, t, dictionary, star_id, voiced, pyphen_dic=pyphen_dic,
+                                      emit_hook=emit_hook)
+        else:
+            per_word = align_auto_mode(lines, t, dictionary, star_id, voiced)
+        assemble(lines, per_word, voiced, offset_ms, pyphen_dic, t.size(0))
+        validate_and_repair(lines, song_end_ms)
+    finally:
+        VOWELS.difference_update(added)
+    return lines
+
+
+def fused_stage(plan: dict, lines, mode: str, ref_end_ms, wav, audio_key: str, work: Path, device: str,
+                voiced, log_probs, dictionary: dict, star_id: int, pyphen_dic, offset_ms: float,
+                song_end_ms: int, dict_chars, num2words_fn):
+    """--evidence fused, after the version 9 decode (`lines`, final): the QMUL path, the ep path
+    and their combination. Returns (lines, report section); on any failure logs one WARNING and
+    returns the version 9 lines unchanged (the meta then says why)."""
+    import copy
+
+    meta = plan["meta"]
+    fuse = plan["fuse"]
+    applied = "qmul" if mode == "auto" else fuse
+    t0 = time.time()
+    try:
+        try:
+            tok = QmulTokenizer()
+        except ImportError as exc:
+            raise RuntimeError(f"a dependency is missing ({exc}); install phonemizer and espeakng-loader") from None
+        qlp_raw = qmul_evidence(wav, audio_key, work, device)
+        n = len(voiced)
+        tokens, char_of, qdic, qstar, qvowels = qmul_columns()
+        penalty = FUSED_STAR_PENALTY[mode]
+        v9_starts = word_starts(lines)
+
+        log(f"fused evidence: decoding the QMUL path ('*' penalty {penalty:g})")
+        ql = fused_decode(qmul_lines(plan["pristine"], tok.tokenize, num2words_fn), mode, ref_end_ms,
+                          qmul_prepare(qlp_raw, n, penalty), qdic, qstar, voiced, pyphen_dic, offset_ms,
+                          song_end_ms, vowel_chars=qvowels)
+        q_starts = word_starts(ql)
+        if len(q_starts) != len(v9_starts):
+            raise RuntimeError("the QMUL path's lyrics do not match")
+
+        el, ep_errors = None, []
+        if applied in ("median3", "ep"):
+            log(f"fused evidence: decoding the ep path (weight {FUSED_EP_WEIGHT:g}, floor {FUSED_EP_FLOOR:g})")
+            T = log_probs.size(0)
+            q0 = qmul_prepare(qlp_raw, n, 0.0)[:, :-1].astype(np.float64)
+            q0 = q0 - fused_lse(q0)[:, None]
+            if len(q0) < T:
+                q0 = np.concatenate([q0, np.repeat(q0[-1:], T - len(q0), axis=0)], axis=0)
+            qx = (FUSED_EP_WEIGHT * np.maximum(q0[:T], FUSED_EP_FLOOR)).astype(np.float32)
+            qx = np.concatenate([qx, np.zeros((T, 1), np.float32)], axis=1)
+            el = mms_lines(plan["pristine"], dict_chars, num2words_fn)
+            hook = fused_ep_hook(ep_columns(el, tok.tokenize, num2words_fn), qx, star_id, ep_errors)
+            el = fused_decode(el, mode, ref_end_ms, log_probs.detach().cpu().numpy(), dictionary, star_id, voiced,
+                              pyphen_dic, offset_ms, song_end_ms, emit_hook=hook)
+            if ep_errors:
+                log(f"fused evidence: {len(ep_errors)} section(s) of the ep path decoded without the product")
+
+        ep_starts = word_starts(el) if el is not None else None
+        if applied == "ep":
+            raw = ep_starts
+        elif applied == "qmul":
+            raw = q_starts
+        else:
+            raw = median3_starts(v9_starts, q_starts, ep_starts)
+        guard_ms = FUSED_GUARD_MS[mode] if applied == "qmul" else None
+        new, n_guarded = guard_starts(raw, v9_starts, guard_ms)
+        if applied == "ep":
+            out = el
+            if n_guarded:
+                for note in apply_word_starts(out, new, song_end_ms):
+                    log(f"validator (fused): {note}")
+        else:
+            out = copy.deepcopy(lines)
+            members = [ql] if applied == "qmul" else [lines, ql, el]
+            for i, ln in enumerate(out):
+                votes = sum(1 for m in members if m[i].estimated)
+                ln.estimated = votes * 2 > len(members)
+            for note in apply_word_starts(out, new, song_end_ms):
+                log(f"validator (fused): {note}")
+        flags = review_flags(v9_starts, q_starts)
+        flat = [w for ln in out for w in ln.words]
+        for w, f in zip(flat, flags):
+            w.review = bool(f) and not w.untimed
+        n_review = sum(1 for w in flat if w.review)
+        moved = sum(1 for a, w in zip(v9_starts, flat) if a is not None and not w.untimed and w.start_ms != a)
+    except Exception as exc:
+        log(f"WARNING: fused evidence failed ({type(exc).__name__}: {exc}); keeping the version 9 path")
+        meta["evidence_note"] = f"failed: {type(exc).__name__}: {exc}"[:300]
+        return lines, None
+
+    if plan.get("paths_file"):
+        def spans(ls):
+            # per word [start_ms, end_ms, [[syllable text, start_ms, end_ms], ...]], None if untimed
+            return None if ls is None else [
+                None if w.untimed else [w.start_ms, w.end_ms, [[x["text"], x["start_ms"], x["end_ms"]] for x in w.syllables]]
+                for ln in ls for w in ln.words]
+
+        try:
+            Path(plan["paths_file"]).parent.mkdir(parents=True, exist_ok=True)
+            Path(plan["paths_file"]).write_text(json.dumps({
+                "anchor_mode": mode, "fuse_applied": applied, "guard_ms": guard_ms,
+                "words": [w.display for ln in lines for w in ln.words],
+                "v9": v9_starts, "qmul": q_starts, "ep": ep_starts, "combined": raw, "guarded": new,
+                "spans": {"v9": spans(lines), "qmul": spans(ql), "ep": spans(el), "out": spans(out)},
+            }), encoding="utf-8")
+        except Exception as exc:
+            log(f"WARNING: could not write the fused paths ({type(exc).__name__}: {exc})")
+
+    meta.update(evidence="fused", fuse=fuse, fuse_applied=applied)
+    meta.pop("evidence_requested", None)
+    meta.update({
+        "qmul_weights": QMUL_URL,
+        "qmul_weights_sha256": QMUL_SHA256,
+        "qmul_star_penalty": FUSED_STAR_PENALTY[mode],
+        **({"ep_weight": FUSED_EP_WEIGHT, "ep_floor": FUSED_EP_FLOOR} if applied in ("median3", "ep") else {}),
+        **({"guard_ms": guard_ms, "guarded_words": n_guarded} if guard_ms is not None else {}),
+        "review_threshold_ms": FUSED_REVIEW_MS,
+        "review_words": n_review,
+    })
+    if mode == "auto" and fuse != "qmul":
+        meta["fuse_note"] = "auto mode: the ep path has no hook in the auto decoder, so the QMUL path is used alone"
+    guarded = f", {n_guarded} kept at version 9 by the {guard_ms / 1000:g} s guard" if guard_ms is not None else ""
+    log(f"fused evidence: fuse {applied}, {moved} word start(s) moved from version 9{guarded}, {n_review} word(s) "
+        f"flagged for review; {time.time() - t0:.0f}s")
+    rows = [f"=== review (version 9 and QMUL starts more than {FUSED_REVIEW_MS} ms apart): {n_review} words ==="]
+    for li, ln in enumerate(out):
+        for wi, w in enumerate(ln.words):
+            if w.review:
+                k = sum(len(x.words) for x in out[:li]) + wi
+                rows.append(f"  line {li + 1}: '{w.display}' at {w.start_ms / 1000.0:.2f}s "
+                            f"(version 9 {v9_starts[k] / 1000.0:.2f}s, QMUL {q_starts[k] / 1000.0:.2f}s)")
+    if n_review == 0:
+        rows.append("  (none)")
+    head = [f"evidence: fused (fuse {applied}; {moved} of {sum(1 for s in v9_starts if s is not None)} word starts "
+            f"moved from version 9{guarded})", ""]
+    return out, head + rows
 
 
 # --------------------------------------------------------------------------
@@ -4139,6 +5012,22 @@ def main():
     # fp32; int8 = fail loudly when it cannot (no quantised engine, a failed probe, a GPU device or
     # --quality single, which is fp32 by definition); fp32 = every view in fp32.
     ap.add_argument("--quant", choices=["auto", "int8", "fp32"], default="auto", help=argparse.SUPPRESS)
+    # Version 10, opt-in: without --evidence fused every output is version 9's.
+    ap.add_argument("--evidence", choices=["mms", "fused"], default="mms",
+                    help="mms: MMS_FA evidence only (default, version 9); fused: also run the QMUL "
+                         "multilingual phoneme model on the same stem and combine (English only; "
+                         "needs phonemizer and espeakng-loader, downloads 57 MB of weights once)")
+    ap.add_argument("--lyrics-language", default=None, metavar="NAME",
+                    help="the map's lyric language (english, japanese, spanish, ...); with --evidence "
+                         "fused only English takes the fused path. Absent: a conservative detector decides")
+    ap.add_argument("--fuse", choices=list(FUSE_CHOICES), default="median3",
+                    help="with --evidence fused: median3 = per-word median of the version 9, QMUL and "
+                         "emission-product starts (default); qmul = the QMUL path alone; ep = MMS_FA "
+                         "with the QMUL emission product. Plain lyrics (auto) always use the QMUL path")
+    ap.add_argument("--fused-paths", type=Path, default=None, metavar="FILE",
+                    help="with --evidence fused: also write every path's word starts (version 9, QMUL, "
+                         "ep, their combination before and after the guard) and each path's word and "
+                         "syllable spans to this JSON file, for benchmarking; the outputs are unchanged")
     args = ap.parse_args()
 
     t0 = time.time()
@@ -4188,6 +5077,10 @@ def main():
     if vocal_mode == "estimated" and mode != "ref":
         log(f"WARNING: --vocal-mode estimated needs line stamps (anchor mode ref, here {mode}); aligning as usual")
         vocal_mode = "aligned"
+    # version 10: decided (and logged) here, before the lyrics are normalised for MMS_FA
+    fused = fused_plan(lines, mode, vocal_mode, args.lyrics_language, args.fuse) if args.evidence == "fused" else None
+    if fused is not None:
+        fused["paths_file"] = args.fused_paths
 
     # ---- audio prep
     song_wav = work / f"{stem}.wav"
@@ -4264,6 +5157,11 @@ def main():
     repairs = validate_and_repair(lines, song_end_ms)
     for note in repairs:
         log(f"validator: {note}")
+    report_extra = None
+    if fused is not None and fused["apply"]:
+        lines, report_extra = fused_stage(fused, lines, mode, ref_end_ms, wav, audio_key, work, args.device, voiced,
+                                          log_probs, dictionary, star_id, pyphen_dic, args.offset_ms, song_end_ms,
+                                          dict_chars, num2words)
     meta = {
         "separator": ("none" if args.no_separate else args.demucs_model),
         "aligner": "torchaudio MMS_FA (wav2vec2 CTC forced alignment)",
@@ -4275,6 +5173,8 @@ def main():
         "language": args.language,
         "offset_ms": args.offset_ms,
         "repairs": len(repairs),
+        # version 10: only when --evidence fused was asked for (fused_plan, fused_stage)
+        **(fused["meta"] if fused is not None else {}),
     }
     write_outputs(out_dir, stem, args.audio.name, lines, song_end_ms, meta)
     # Keep the isolated vocals stem beside the outputs (backlog 392). Only when this run actually
@@ -4285,7 +5185,7 @@ def main():
             persist_vocals_stem(out_dir, stem, wav16)
         except Exception as e:
             log(f"WARNING: could not write the vocals stem ({e})")
-    report = write_report(out_dir, lines, voiced, mode)
+    report = write_report(out_dir, lines, voiced, mode, report_extra)
     print()
     print(report)
     log(f"outputs written to {out_dir}")
@@ -4320,8 +5220,10 @@ if __name__ == "__main__":
         sys.exit(self_test_dup())
     if "--self-test-cache" in sys.argv:
         sys.exit(self_test_cache())
+    if "--self-test-fused" in sys.argv:
+        sys.exit(self_test_fused())
     if "--self-test" in sys.argv:
         sys.exit(max(self_test_syllables(), self_test_normalize(), self_test_sections(), self_test_garbage(),
                      self_test_even_letters(), self_test_estimated(), self_test_spacing(), self_test_late(), self_test_band(),
-                     self_test_dup(), self_test_cache()))
+                     self_test_dup(), self_test_cache(), self_test_fused()))
     main()

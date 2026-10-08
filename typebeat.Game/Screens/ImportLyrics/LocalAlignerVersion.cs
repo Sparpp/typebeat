@@ -27,9 +27,9 @@ namespace typebeat.Game.Screens.ImportLyrics
     /// <summary>
     /// The one rule for whether the installed local auto-aligner may run (backlog 410): ANY mismatch
     /// with the version this build ships blocks automatic alignment, older or newer, until the player
-    /// presses the settings button that copies the shipped scripts over (the environment is kept, so
-    /// it takes seconds). Nothing is forced: the player is told why and where, and every other import
-    /// path keeps working. Every surface that reports the block (the import screen's tooltip, the
+    /// presses the settings button that copies the shipped scripts over (the environment is kept and
+    /// only what the new scripts add is downloaded, so it usually takes under a minute). Nothing is
+    /// forced: the player is told why and where, and every other import path keeps working. Every surface that reports the block (the import screen's tooltip, the
     /// importer's refusal, the session prompt, the settings button and the first-run screen) builds
     /// its words here, so they name the same versions and the same place.
     /// </summary>
@@ -135,7 +135,7 @@ namespace typebeat.Game.Screens.ImportLyrics
 
             string verb = ActionVerb(status);
             return $"The local auto-aligner is installed, but it {what}, so automatic alignment is unavailable until you {verb.ToLowerInvariant()} it: "
-                   + $"press {verb} in {SETTINGS_PATH} (seconds; the downloaded environment is kept).";
+                   + $"press {verb} in {SETTINGS_PATH} (usually under a minute; the downloaded environment is kept).";
         }
     }
 }

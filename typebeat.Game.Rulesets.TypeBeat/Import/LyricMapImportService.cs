@@ -345,7 +345,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 ? "NVIDIA GPU detected, installing the GPU aligner"
                 : "no NVIDIA GPU detected, installing the CPU aligner");
 
-            var result = await LyricMapImporter.BootstrapEnvironmentAsync(target, progress, token, device).ConfigureAwait(false);
+            // An existing environment is UPDATED rather than trusted as it stands (backlog 411): the
+            // scripts just copied may need packages the venv does not have yet (version 10's
+            // fused-evidence pair), and only the setup's update mode installs them.
+            var result = await LyricMapImporter.BootstrapEnvironmentAsync(target, progress, token, device, updateExisting: true).ConfigureAwait(false);
 
             if (!result.Success)
                 return result;

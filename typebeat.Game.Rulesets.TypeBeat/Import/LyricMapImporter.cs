@@ -150,8 +150,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// </summary>
         public static bool EnvironmentNeedsRepair(string lyricLabDir) => EnvironmentPresent(lyricLabDir) && !EnvironmentReady(lyricLabDir);
 
-        /// <summary>The modules the aligner imports, checked by the setup scripts and by the adoption probe alike.</summary>
+        /// <summary>
+        /// The modules the aligner imports, checked by the setup scripts and by the adoption probe
+        /// alike. Deliberately NOT the fused-evidence modules (phonemizer, espeakng_loader, aligner
+        /// version 10): the aligner falls back to its version 9 path without them, so a platform
+        /// with no espeakng-loader wheel must still read as installed.
+        /// </summary>
         public const string ALIGNER_IMPORTS = "torch, torchaudio, demucs, soundfile, pyphen, num2words";
+
+        /// <summary>
+        /// The REQUIRED packages the setup scripts install besides torch, in the order and spelling
+        /// both scripts carry (a test pins them). A failure to install them fails the setup.
+        /// </summary>
+        public const string ALIGNER_PACKAGES = "demucs==4.0.1 soundfile pyphen num2words tqdm imageio-ffmpeg";
+
+        /// <summary>
+        /// The OPTIONAL fused-evidence pair (aligner version 10), installed by its own uv call after
+        /// <see cref="ALIGNER_PACKAGES"/> so a platform with no espeakng-loader wheel still completes
+        /// its setup (the aligner then runs its version 9 path). A full setup installs it best
+        /// effort; the update path (<see cref="BootstrapEnvironmentAsync"/> with
+        /// <c>updateExisting</c>) is how an existing venv gets it, and reports when it could not.
+        /// </summary>
+        public const string FUSED_EVIDENCE_PACKAGES = "phonemizer espeakng-loader";
 
         /// <summary>
         /// How long the adoption probe may take. A cold torch import is a few seconds on an SSD and
@@ -254,10 +274,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// Whether an aligner failure's output says the venv cannot import what the aligner needs,
         /// the runtime signature of an install that never finished.
         /// </summary>
+        /// <remarks>
+        /// The aligner's own <c>WARNING:</c> lines are skipped: each names something it survived,
+        /// and since version 10 one of them is the fused evidence path falling back for want of an
+        /// OPTIONAL package ("a dependency is missing (No module named 'phonemizer')"). Read as a
+        /// broken install, a later unrelated failure with that line still in the tail would withdraw
+        /// the sentinel of a venv whose required imports load fine.
+        /// </remarks>
         public static bool IsMissingPackageFailure(string output)
-            => output.Contains("ModuleNotFoundError", StringComparison.Ordinal)
-               || output.Contains("No module named", StringComparison.Ordinal)
-               || output.Contains("ImportError", StringComparison.Ordinal);
+            => output.Split(new[] { " | ", "\n" }, StringSplitOptions.None)
+                     .Where(line => !aligner_warning_line.IsMatch(line))
+                     .Any(line => line.Contains("ModuleNotFoundError", StringComparison.Ordinal)
+                                  || line.Contains("No module named", StringComparison.Ordinal)
+                                  || line.Contains("ImportError", StringComparison.Ordinal));
+
+        /// <summary>An aligner log line reporting what it survived: an optional "[hh:mm:ss] " then "WARNING:".</summary>
+        private static readonly Regex aligner_warning_line = new Regex(@"^\s*(\[\d{1,2}:\d{2}:\d{2}\]\s*)?WARNING:", RegexOptions.Compiled);
 
         /// <summary>
         /// What a player is told to do about a venv that cannot import its packages. A bare clause,
@@ -360,11 +392,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// (<see cref="TryAdoptEnvironmentAsync"/>): when its imports load it is adopted as it stands,
         /// in seconds, and when they do not it is DELETED and the setup re-run from scratch, which is
         /// how a half-broken install heals on one click.</para>
+        ///
+        /// <para>UPDATE (backlog 411). With <paramref name="updateExisting"/>, a completed (or just
+        /// adopted) install is not left as it stands: the setup script runs in its update mode
+        /// (<c>-Update</c> / <c>--update</c>), which installs <see cref="ALIGNER_PACKAGES"/> and then
+        /// <see cref="FUSED_EVIDENCE_PACKAGES"/> into the existing venv (torch is not re-run, what
+        /// is already satisfied is left alone) and fetches the fused-evidence weights. Without it the Update button would copy a version 10 script
+        /// over a venv that never got phonemizer and espeakng-loader, and every import would
+        /// silently run the version 9 path. The update is best effort: a failure is logged and
+        /// said, never returned as one, since the install still works (on that version 9 path).</para>
         /// </summary>
-        public static async Task<LyricImportResult> BootstrapEnvironmentAsync(string lyricLabDir, Action<string> progress, CancellationToken token, string device = "cpu")
+        public static async Task<LyricImportResult> BootstrapEnvironmentAsync(string lyricLabDir, Action<string> progress, CancellationToken token, string device = "cpu",
+                                                                              bool updateExisting = false)
         {
             if (EnvironmentReady(lyricLabDir))
-                return LyricImportResult.Ok(string.Empty);
+                return updateExisting ? await updateEnvironmentAsync(lyricLabDir, progress, token, device).ConfigureAwait(false) : LyricImportResult.Ok(string.Empty);
 
             if (EnvironmentPresent(lyricLabDir))
             {
@@ -372,6 +414,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
                 if (await TryAdoptEnvironmentAsync(lyricLabDir, token).ConfigureAwait(false))
                 {
+                    if (updateExisting)
+                        return await updateEnvironmentAsync(lyricLabDir, progress, token, device).ConfigureAwait(false);
+
                     progress("aligner environment ready");
                     return LyricImportResult.Ok(string.Empty);
                 }
@@ -407,38 +452,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 ? "setting up the aligner environment (GPU), one-time download of packages (~2.5 GB), please wait..."
                 : "setting up the aligner environment, one-time download of packages (~2 GB), please wait...");
 
-            var psi = new ProcessStartInfo
-            {
-                WorkingDirectory = lyricLabDir,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            RunPythonInUtf8(psi);
-
-            if (OperatingSystem.IsWindows())
-            {
-                psi.FileName = "powershell.exe";
-                psi.ArgumentList.Add("-NoProfile");
-                psi.ArgumentList.Add("-ExecutionPolicy");
-                psi.ArgumentList.Add("Bypass");
-                psi.ArgumentList.Add("-File");
-                psi.ArgumentList.Add(script);
-                psi.ArgumentList.Add("-Device");
-                psi.ArgumentList.Add(device);
-            }
-            else
-            {
-                // POSIX shells run the .sh bootstrap directly. Invoking through "bash" (rather than
-                // executing the script path) means we don't depend on the executable bit surviving a
-                // checkout or zip extraction.
-                psi.FileName = "bash";
-                psi.ArgumentList.Add(script);
-                psi.ArgumentList.Add(device);
-            }
-
-            (int exitCode, string tail) = await RunProcessAsync(psi, progress, token).ConfigureAwait(false);
+            (int exitCode, string tail) = await RunProcessAsync(setupStartInfo(lyricLabDir, script, device, update: false), progress, token).ConfigureAwait(false);
 
             if (exitCode == cancelled_exit_code)
                 return LyricImportResult.Fail("environment setup cancelled");
@@ -471,6 +485,95 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             progress("aligner environment ready");
             return LyricImportResult.Ok(string.Empty);
+        }
+
+        /// <summary>
+        /// Said when the update mode of the setup could not bring a completed install up to date
+        /// (no connection, no wheel for this platform). The install still works: the aligner runs
+        /// its version 9 path without the fused-evidence packages, and pressing the button again
+        /// retries the update.
+        /// </summary>
+        public const string ENVIRONMENT_UPDATE_INCOMPLETE = "the aligner's newer packages could not be installed, so imports keep the previous accuracy until they are "
+                                                            + "(press Reinstall local auto-aligner in Settings to retry; the details are in the game log)";
+
+        /// <summary>
+        /// The update half of <see cref="BootstrapEnvironmentAsync"/>: runs the setup script in its
+        /// update mode on a completed install. Never fails the install over it (see
+        /// <see cref="ENVIRONMENT_UPDATE_INCOMPLETE"/>); only a cancellation is returned as one.
+        /// </summary>
+        private static async Task<LyricImportResult> updateEnvironmentAsync(string lyricLabDir, Action<string> progress, CancellationToken token, string device)
+        {
+            string script = Path.Combine(lyricLabDir, SetupScriptName);
+
+            if (!File.Exists(script))
+            {
+                Logger.Log($"Aligner environment kept as it is: no {SetupScriptName} in {lyricLabDir} to update it with", LoggingTarget.Runtime, LogLevel.Important);
+                progress("aligner environment ready");
+                return LyricImportResult.Ok(string.Empty);
+            }
+
+            progress("updating the aligner's packages in the existing environment (a short download)...");
+
+            (int exitCode, string tail) = await RunProcessAsync(setupStartInfo(lyricLabDir, script, device, update: true), progress, token).ConfigureAwait(false);
+
+            if (exitCode == cancelled_exit_code)
+                return LyricImportResult.Fail("environment setup cancelled");
+
+            if (exitCode != 0)
+            {
+                Logger.Log($"Aligner environment update exited with code {exitCode}, the environment is kept as it was: {tail}", LoggingTarget.Runtime, LogLevel.Important);
+                progress(ENVIRONMENT_UPDATE_INCOMPLETE);
+                return LyricImportResult.Ok(string.Empty);
+            }
+
+            progress("aligner environment ready");
+            return LyricImportResult.Ok(string.Empty);
+        }
+
+        /// <summary>
+        /// The setup script's process: powershell on Windows, bash elsewhere, with the torch
+        /// flavour and, for <paramref name="update"/>, the script's update switch.
+        /// </summary>
+        private static ProcessStartInfo setupStartInfo(string lyricLabDir, string script, string device, bool update)
+        {
+            var psi = new ProcessStartInfo
+            {
+                WorkingDirectory = lyricLabDir,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            RunPythonInUtf8(psi);
+
+            if (OperatingSystem.IsWindows())
+            {
+                psi.FileName = "powershell.exe";
+                psi.ArgumentList.Add("-NoProfile");
+                psi.ArgumentList.Add("-ExecutionPolicy");
+                psi.ArgumentList.Add("Bypass");
+                psi.ArgumentList.Add("-File");
+                psi.ArgumentList.Add(script);
+                psi.ArgumentList.Add("-Device");
+                psi.ArgumentList.Add(device);
+
+                if (update)
+                    psi.ArgumentList.Add("-Update");
+            }
+            else
+            {
+                // POSIX shells run the .sh bootstrap directly. Invoking through "bash" (rather than
+                // executing the script path) means we don't depend on the executable bit surviving a
+                // checkout or zip extraction.
+                psi.FileName = "bash";
+                psi.ArgumentList.Add(script);
+                psi.ArgumentList.Add(device);
+
+                if (update)
+                    psi.ArgumentList.Add("--update");
+            }
+
+            return psi;
         }
 
         /// <summary>
@@ -882,7 +985,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 try
                 {
                     (LyricImportResult alignerResult, string? timingJson, string? vocalsStem) = await runAlignerAsync(
-                        lyricLabDir!, audioPath, lyricsTemp, artist, title, lyricsContent, highQualityAlignment, vocalMode, progress, token).ConfigureAwait(false);
+                        lyricLabDir!, audioPath, lyricsTemp, artist, title, lyricsContent, highQualityAlignment, vocalMode, language, progress, token).ConfigureAwait(false);
 
                     if (alignerResult.Success && timingJson != null)
                     {
@@ -1038,10 +1141,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// mode paces every line from its stamp (the script would ignore it on bare text anyway, and
         /// leaving it out keeps that command line the one every version accepts).
         /// <see cref="AlignerVocalMode.Aligned"/> adds nothing.</para>
+        ///
+        /// <para>Every run of a version 10 or newer script (<see cref="AlignerHasFusedEvidence"/>)
+        /// adds <c>--evidence fused</c> (backlog 411, the owner's call: on for every English import,
+        /// not behind a setting) and, when the import has one, <c>--lyrics-language</c> with its
+        /// canonical language (<paramref name="language"/>, "english", "japanese", ...). The aligner
+        /// decides per song: only English takes the fused path, and anything else (another
+        /// language, estimated vocals, the packages or weights missing) runs its version 9 path and
+        /// says why. Without a language the aligner's own conservative detector decides. An older
+        /// script gets neither flag, which it would reject.</para>
         /// </summary>
         public static IReadOnlyList<string> AlignerArguments(
             string lyricLabDir, string audioPath, string lyricsPath, string outDir, string lyricsContent, bool highQuality,
-            AlignerVocalMode vocalMode = AlignerVocalMode.Aligned)
+            AlignerVocalMode vocalMode = AlignerVocalMode.Aligned, string? language = null)
         {
             var args = new List<string> { aligner_script, audioPath, lyricsPath, "-o", outDir };
 
@@ -1072,8 +1184,42 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 args.Add("estimated");
             }
 
+            if (AlignerHasFusedEvidence(lyricLabDir))
+            {
+                args.Add("--evidence");
+                args.Add("fused");
+
+                string? lyricsLanguage = AlignerLyricsLanguage(language);
+
+                if (lyricsLanguage != null)
+                {
+                    args.Add("--lyrics-language");
+                    args.Add(lyricsLanguage);
+                }
+            }
+
             return args;
         }
+
+        /// <summary>
+        /// The <c>--lyrics-language</c> value for an import's language: its canonical lowercase name,
+        /// or null (no flag, the aligner's detector decides) when there is none.
+        /// </summary>
+        public static string? AlignerLyricsLanguage(string? language)
+            => string.IsNullOrWhiteSpace(language) ? null : language.Trim().ToLowerInvariant();
+
+        /// <summary>
+        /// The first aligner version with the fused evidence path (<c>--evidence</c>,
+        /// <c>--lyrics-language</c>; backlog 411).
+        /// </summary>
+        public const int FUSED_EVIDENCE_ALIGNER_VERSION = 10;
+
+        /// <summary>
+        /// Whether the aligner script in <paramref name="lyricLabDir"/> accepts <c>--evidence</c> and
+        /// <c>--lyrics-language</c>, read off its version exactly as <see cref="AlignerHasQualityTiers"/>
+        /// reads it.
+        /// </summary>
+        public static bool AlignerHasFusedEvidence(string lyricLabDir) => alignerVersionAtLeast(lyricLabDir, FUSED_EVIDENCE_ALIGNER_VERSION);
 
         /// <summary>
         /// Whether a run asked for <paramref name="vocalMode"/> actually passes
@@ -1174,7 +1320,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// </summary>
         private static async Task<(LyricImportResult Result, string? TimingJson, string? VocalsStemPath)> runAlignerAsync(
             string lyricLabDir, string audioPath, string lyricsPath, string artist, string title,
-            string lyricsContent, bool highQuality, AlignerVocalMode vocalMode, Action<string> progress, CancellationToken token)
+            string lyricsContent, bool highQuality, AlignerVocalMode vocalMode, string? language, Action<string> progress, CancellationToken token)
         {
             string python = PythonExeFor(lyricLabDir);
             string outDir = Path.Combine(lyricLabDir, "out", "typebeat_import_" + SanitizeFolderName($"{artist} - {title}"));
@@ -1197,7 +1343,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             psi.Environment["PATH"] = venvBin + Path.PathSeparator + existingPath;
             RunPythonInUtf8(psi);
 
-            foreach (string arg in AlignerArguments(lyricLabDir, audioPath, lyricsPath, outDir, lyricsContent, highQuality, vocalMode))
+            foreach (string arg in AlignerArguments(lyricLabDir, audioPath, lyricsPath, outDir, lyricsContent, highQuality, vocalMode, language))
                 psi.ArgumentList.Add(arg);
 
             if (AlignerAnchorMode(lyricsContent) == "auto")

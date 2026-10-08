@@ -194,12 +194,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 case AlignerVersionStatus.Older:
                     return "The installed aligner is older than the one this build ships, so automatic alignment is unavailable until you update it. "
-                           + "Updating replaces the scripts and clears the old aligner's caches; the environment already downloaded is kept, so it takes seconds.";
+                           + "Updating replaces the scripts, clears the old aligner's caches and adds any packages the new aligner needs; the environment already downloaded is kept, so it usually takes under a minute.";
 
                 case AlignerVersionStatus.Newer:
                 case AlignerVersionStatus.Different:
                     return "The installed aligner is not the one this build ships, so automatic alignment is unavailable until you reinstall it. "
-                           + "Reinstalling puts this build's scripts in place and clears the other aligner's caches; the environment already downloaded is kept, so it takes seconds.";
+                           + "Reinstalling puts this build's scripts in place, clears the other aligner's caches and adds any packages they need; the environment already downloaded is kept, so it usually takes under a minute.";
             }
 
             return "One-time download of the AI that times lyrics word-by-word on your own machine, recommended if you have a good GPU. Installs the GPU build automatically when an NVIDIA card is detected.";
