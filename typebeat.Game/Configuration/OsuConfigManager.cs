@@ -35,6 +35,13 @@ namespace typebeat.Game.Configuration
             // The seasonal backgrounds row has no settings UI (removed pending a possible
             // return), so pin the value regardless of what an older install had stored.
             SetValue(OsuSetting.SeasonalBackgroundMode, SeasonalBackgroundMode.Never);
+
+            if (!Get<bool>(OsuSetting.BackgroundDimDefaultApplied))
+            {
+                if (Get<double>(OsuSetting.DimLevel) < 0.4)
+                    SetValue(OsuSetting.DimLevel, 0.4);
+                SetValue(OsuSetting.BackgroundDimDefaultApplied, true);
+            }
         }
 
         protected override void InitialiseDefaults()
@@ -142,11 +149,8 @@ namespace typebeat.Game.Configuration
 
             // Gameplay
             SetDefault(OsuSetting.PositionalHitsoundsLevel, 0.2f, 0, 1, 0.01f);
-            // type!beat ships with a 40% gameplay background dim by default so the beatmap
-            // background image/video stays partly veiled. (Only affects fresh installs: an existing
-            // install persists DimLevel to game.ini and reloads its stored value over this default,
-            // so changing it never rewrites a player's own setting.)
             SetDefault(OsuSetting.DimLevel, 0.4, 0, 1, 0.01);
+            SetDefault(OsuSetting.BackgroundDimDefaultApplied, false);
             SetDefault(OsuSetting.BlurLevel, 0, 0, 1, 0.01);
             SetDefault(OsuSetting.LightenDuringBreaks, true);
 
@@ -343,6 +347,7 @@ namespace typebeat.Game.Configuration
         AutoCursorSize,
         GameplayCursorDuringTouch,
         DimLevel,
+        BackgroundDimDefaultApplied,
         BlurLevel,
         EditorDim,
         LightenDuringBreaks,
