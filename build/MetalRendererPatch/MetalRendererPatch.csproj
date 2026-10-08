@@ -3,6 +3,8 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
     <AssemblyName>typebeat.Build.MetalRendererPatch</AssemblyName>
+    <!-- Runs during every desktop build; machines with only a newer runtime must still run it. -->
+    <RollForward>Major</RollForward>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Mono.Cecil" Version="0.11.6" PrivateAssets="all" />
