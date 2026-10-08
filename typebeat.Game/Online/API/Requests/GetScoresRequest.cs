@@ -45,6 +45,9 @@ namespace typebeat.Game.Online.API.Requests
 
         protected override string Target => $@"beatmaps/{beatmapInfo.OnlineID}/scores";
 
+        // only the global board is public; the friend, country and team boards are the signed-in user's own view.
+        public override bool AllowsAnonymous => scope == BeatmapLeaderboardScope.Global;
+
         protected override WebRequest CreateWebRequest()
         {
             var req = base.CreateWebRequest();

@@ -78,6 +78,37 @@ namespace typebeat.Game.Online.API
         protected WebRequest? WebRequest;
 
         /// <summary>
+        /// Whether this request may be sent with no login at all, so that a guest can perform it.
+        /// </summary>
+        /// <remarks>
+        /// Opt-in, and only for READS of data the website already shows to anyone: map lookups, set
+        /// listings, the global leaderboard, public profiles, comments, downloads. <see cref="APIAccess"/>
+        /// queues and sends such a request while <see cref="APIState.Offline"/> (no Authorization header is
+        /// attached, as there is no token), and still fails every other request on the spot with
+        /// "User not logged in". Anything that writes, or reads the signed-in user's own state (score
+        /// tokens and submission, favourites, friends, chat, comments posting, <c>/me</c>), must leave
+        /// this false: the server refuses those anonymously, and a refusal here is a fast local failure
+        /// rather than a round trip.
+        /// <para>
+        /// Never serialised: some requests are their own JSON body (see <c>PutBeatmapSetRequest</c>), and this is
+        /// client-side routing, not something to put on the wire.
+        /// </para>
+        /// </remarks>
+        [JsonIgnore]
+        public virtual bool AllowsAnonymous => false;
+
+        /// <summary>
+        /// The exception this request failed with, or null while it has not failed.
+        /// </summary>
+        /// <remarks>
+        /// Set at the same moment <see cref="CompletionState"/> becomes <see cref="APIRequestCompletionState.Failed"/>,
+        /// so a caller that performed the request synchronously can tell WHY it failed without waiting on the
+        /// <see cref="Failure"/> callback, which runs later on the update thread.
+        /// </remarks>
+        [JsonIgnore]
+        public Exception? FailureException { get; private set; }
+
+        /// <summary>
         /// The currently logged in user. Note that this will only be populated during <see cref="Perform"/>.
         /// </summary>
         protected APIUser? User { get; private set; }
@@ -192,6 +223,7 @@ namespace typebeat.Game.Online.API
                     return;
 
                 CompletionState = APIRequestCompletionState.Failed;
+                FailureException = e;
             }
 
             API.Schedule(() => Failure?.Invoke(e));

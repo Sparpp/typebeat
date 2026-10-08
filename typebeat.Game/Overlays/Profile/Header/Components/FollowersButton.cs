@@ -81,6 +81,10 @@ namespace typebeat.Game.Overlays.Profile.Header.Components
                 if (User.Value == null)
                     return;
 
+                // a guest can read the profile, but following is a signed-in write.
+                if (localUser.Value is GuestUser)
+                    return;
+
                 if (status.Value == FriendStatus.Self)
                     return;
 
@@ -132,6 +136,8 @@ namespace typebeat.Game.Overlays.Profile.Header.Components
                 followerCount = u.NewValue?.User.FollowerCount ?? 0;
                 updateStatus();
             }, true);
+
+            localUser.BindValueChanged(u => Enabled.Value = !(u.NewValue is GuestUser), true);
         }
 
         protected override bool OnHover(HoverEvent e)

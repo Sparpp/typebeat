@@ -3,6 +3,7 @@
 
 using System;
 using System.Diagnostics;
+using System.Net;
 using typebeat.Game.Database;
 using typebeat.Game.Online.API;
 using typebeat.Game.Online.API.Requests;
@@ -21,11 +22,43 @@ namespace typebeat.Game.Beatmaps
             this.api = api;
         }
 
-        public bool Available => api.State.Value == APIState.Online;
+        /// <summary>
+        /// Online, or a guest (<see cref="APIState.Offline"/>: no login at all), since a lookup is a public read
+        /// (<see cref="GetBeatmapRequest.AllowsAnonymous"/>) and a guest's imports must learn their online id and
+        /// ranked status too. Not while <see cref="APIState.Connecting"/> or <see cref="APIState.Failing"/>, as before.
+        /// </summary>
+        public bool Available => IsAvailableIn(api.State.Value);
+
+        internal static bool IsAvailableIn(APIState state) => state == APIState.Online || state == APIState.Offline;
+
+        /// <summary>
+        /// Whether a failed lookup is the server's verdict that the map is not online, which is what clears a
+        /// map's online state, rather than a lookup that never got an answer.
+        /// </summary>
+        /// <remarks>
+        /// A signed-in lookup has always treated every failure as the verdict, and still does: an
+        /// <see cref="APIState.Online"/> session has just reached the server. A GUEST lookup must not. A guest is
+        /// <see cref="APIState.Offline"/> whether or not there is any network, so the cases a session's own
+        /// state used to screen out (no connection at all, a server that refuses anonymous lookups) all arrive
+        /// here, and reading them as "not online" would wipe the online id of every map a guest imports with
+        /// the network down, which no later lookup recovers (the reprocess pass only revisits maps that still
+        /// HAVE an online id). Only a 404 is a verdict; anything else reports the source unavailable, so the
+        /// lookup leaves the map exactly as its file states.
+        /// </remarks>
+        internal static bool IsNotFoundVerdict(APIState stateAtLookup, Exception? failure)
+        {
+            if (stateAtLookup != APIState.Offline)
+                return true;
+
+            return failure is APIException { StatusCode: HttpStatusCode.NotFound }
+                   || (failure is WebException webException && webException.Message == nameof(HttpStatusCode.NotFound));
+        }
 
         public bool TryLookup(BeatmapInfo beatmapInfo, out OnlineBeatmapMetadata? onlineMetadata)
         {
-            if (!Available)
+            var stateAtLookup = api.State.Value;
+
+            if (!IsAvailableIn(stateAtLookup))
             {
                 onlineMetadata = null;
                 return false;
@@ -44,7 +77,7 @@ namespace typebeat.Game.Beatmaps
                 {
                     logForModel(beatmapInfo.BeatmapSet, $@"Online retrieval failed for {beatmapInfo}");
                     onlineMetadata = null;
-                    return true;
+                    return IsNotFoundVerdict(stateAtLookup, req.FailureException);
                 }
 
                 var res = req.Response;

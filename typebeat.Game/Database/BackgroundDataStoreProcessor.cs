@@ -18,7 +18,6 @@ using osu.Framework.Platform;
 using typebeat.Game.Beatmaps;
 using typebeat.Game.Configuration;
 using typebeat.Game.Extensions;
-using typebeat.Game.Online.API;
 using typebeat.Game.Overlays;
 using typebeat.Game.Overlays.Notifications;
 using typebeat.Game.Performance;
@@ -63,9 +62,6 @@ namespace typebeat.Game.Database
 
         [Resolved]
         private INotificationOverlay? notificationOverlay { get; set; }
-
-        [Resolved]
-        private IAPIProvider api { get; set; } = null!;
 
         [Resolved]
         private Storage storage { get; set; } = null!;
@@ -342,17 +338,14 @@ namespace typebeat.Game.Database
 
             realmAccess.Run(r =>
             {
-                // BeatmapProcessor is responsible for both online and local processing.
-                // In the case a user isn't logged in, it won't update LastOnlineUpdate and therefore re-queue,
-                // causing overhead from the non-online processing to redundantly run every startup.
-                //
-                // We may eventually consider making the Process call more specific (or avoid this in any number
-                // of other possible ways), but for now avoid queueing if the user isn't logged in at startup.
-                if (api.IsLoggedIn)
-                {
-                    foreach (var b in r.All<BeatmapInfo>().Where(b => b.OnlineID > 0 && b.LastOnlineUpdate == null && b.BeatmapSet != null))
-                        beatmapSetIds.Add(b.BeatmapSet!.ID);
-                }
+                // BeatmapProcessor is responsible for both online and local processing. This pass used to be
+                // skipped with no login, because a guest's lookup never ran, so LastOnlineUpdate was never set
+                // and every startup re-queued the same sets for nothing. A guest's lookup is a public read now
+                // (APIBeatmapMetadataSource.Available), so the pass runs for everyone. A guest with no network
+                // still re-queues (the lookup reports itself unavailable and the date stays unset), exactly as a
+                // signed-in player whose connection is down always has.
+                foreach (var b in r.All<BeatmapInfo>().Where(b => b.OnlineID > 0 && b.LastOnlineUpdate == null && b.BeatmapSet != null))
+                    beatmapSetIds.Add(b.BeatmapSet!.ID);
             });
 
             if (beatmapSetIds.Count == 0)

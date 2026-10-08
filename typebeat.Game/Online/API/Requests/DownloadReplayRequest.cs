@@ -29,5 +29,8 @@ namespace typebeat.Game.Online.API.Requests
         public static string TargetFor(long scoreId) => $@"scores/{scoreId}/replay";
 
         protected override string Target => TargetFor(Model.OnlineID);
+
+        // public read: the website serves the same replay to anyone. Upload stays signed-in.
+        public override bool AllowsAnonymous => true;
     }
 }

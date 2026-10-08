@@ -41,5 +41,8 @@ namespace typebeat.Game.Online.API.Requests
         }
 
         protected override string Target => @"beatmaps/lookup";
+
+        // public read: the website shows the same map to anyone.
+        public override bool AllowsAnonymous => true;
     }
 }

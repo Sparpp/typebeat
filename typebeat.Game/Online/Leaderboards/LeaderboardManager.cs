@@ -90,7 +90,7 @@ namespace typebeat.Game.Online.Leaderboards
                     if (newCriteria.Sorting != LeaderboardSortMode.Score)
                         throw new NotSupportedException($@"Requesting online scores with a {nameof(LeaderboardSortMode)} other than {nameof(LeaderboardSortMode.Score)} is not supported");
 
-                    if (!api.IsLoggedIn)
+                    if (RequiresSignIn(newCriteria.Scope, api.IsLoggedIn))
                     {
                         scores.Value = LeaderboardScores.Failure(LeaderboardFailState.NotLoggedIn);
                         return;
@@ -189,6 +189,14 @@ namespace typebeat.Game.Online.Leaderboards
                 }
             }
         }
+
+        /// <summary>
+        /// Whether an online board in <paramref name="scope"/> needs a sign-in the player does not have. The global
+        /// board is a public read (<see cref="GetScoresRequest.AllowsAnonymous"/>), so a guest gets it; the friend,
+        /// country and team boards are defined by who is asking, so a guest keeps the sign-in placeholder for those.
+        /// </summary>
+        internal static bool RequiresSignIn(BeatmapLeaderboardScope scope, bool isLoggedIn)
+            => !isLoggedIn && scope != BeatmapLeaderboardScope.Global;
 
         private void localScoresChanged(IRealmCollection<ScoreInfo> sender, ChangeSet? changes)
         {

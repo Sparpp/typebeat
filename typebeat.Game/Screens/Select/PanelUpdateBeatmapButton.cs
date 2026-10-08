@@ -16,7 +16,6 @@ using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Graphics.UserInterface;
 using typebeat.Game.Localisation;
-using typebeat.Game.Online.API;
 using typebeat.Game.Overlays;
 using osuTK;
 using osuTK.Graphics;
@@ -45,12 +44,6 @@ namespace typebeat.Game.Screens.Select
 
         [Resolved]
         private BeatmapModelDownloader beatmapDownloader { get; set; } = null!;
-
-        [Resolved]
-        private IAPIProvider api { get; set; } = null!;
-
-        [Resolved]
-        private LoginOverlay? loginOverlay { get; set; }
 
         [Resolved]
         private IDialogOverlay? dialogOverlay { get; set; }
@@ -153,12 +146,8 @@ namespace typebeat.Game.Screens.Select
         {
             Debug.Assert(beatmapSet != null);
 
-            if (!api.IsLoggedIn)
-            {
-                loginOverlay?.Show();
-                return;
-            }
-
+            // no sign-in gate: the download is a public read (DownloadBeatmapSetRequest.AllowsAnonymous), and the
+            // downloader performs it directly rather than through the API queue in any case.
             if (dialogOverlay != null && beatmapSet.Status == BeatmapOnlineStatus.LocallyModified && !updateConfirmed)
             {
                 dialogOverlay.Push(new UpdateLocalConfirmationDialog(() =>

@@ -17,6 +17,9 @@ namespace typebeat.Game.Online.API.Requests
         }
 
         protected override string Target => Type == BeatmapSetLookupType.SetId ? $@"beatmapsets/{ID}" : $@"beatmapsets/lookup?beatmap_id={ID}";
+
+        // public read: the website shows the same set to anyone.
+        public override bool AllowsAnonymous => true;
     }
 
     public enum BeatmapSetLookupType

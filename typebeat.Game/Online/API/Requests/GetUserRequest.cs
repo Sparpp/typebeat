@@ -38,6 +38,9 @@ namespace typebeat.Game.Online.API.Requests
 
         protected override string Target => $@"users/{Lookup}/{Ruleset?.ShortName}?key={lookupType.ToString().ToLowerInvariant()}";
 
+        // a named profile is public. An empty lookup names no profile, so it keeps the signed-in rule.
+        public override bool AllowsAnonymous => !string.IsNullOrEmpty(Lookup);
+
         private enum LookupType
         {
             Id,

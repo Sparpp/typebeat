@@ -35,6 +35,9 @@ namespace typebeat.Game.Online.API.Requests
         }
 
         protected override string Target => $@"users/{userId}/scores/{type.ToString().ToLowerInvariant()}";
+
+        // public read: the website shows the same profile scores to anyone.
+        public override bool AllowsAnonymous => true;
     }
 
     public enum ScoreType
