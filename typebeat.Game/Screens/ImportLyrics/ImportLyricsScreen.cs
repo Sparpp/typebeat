@@ -220,8 +220,11 @@ namespace typebeat.Game.Screens.ImportLyrics
 
         /// <summary>
         /// Why automatic alignment cannot run here, as the tooltip that tells the player what to do
-        /// about it; null when the local auto-aligner is installed and ready. Only an installed
-        /// aligner can time words, so without one the import would fail AFTER the player pressed it.
+        /// about it; null when the local auto-aligner is installed, ready and the version this build
+        /// ships. Only an installed aligner can time words, so without one the import would fail
+        /// AFTER the player pressed it. An installed one whose version does not match, older or newer,
+        /// is refused by the importer too (backlog 410), so it greys the choice out the same way, with
+        /// both versions and the place to update it (<see cref="LocalAlignerVersion.Advice(ILocalAlignerManager)"/>).
         /// </summary>
         public static string? AlignerUnavailableReason(ILocalAlignerManager? manager)
         {
@@ -229,16 +232,17 @@ namespace typebeat.Game.Screens.ImportLyrics
                 return ALIGNER_UNAVAILABLE_TOOLTIP;
 
             if (manager.IsInstalled)
-                return null;
+                return LocalAlignerVersion.Advice(manager);
 
             return manager.NeedsRepair ? ALIGNER_NEEDS_REPAIR_TOOLTIP : ALIGNER_NOT_INSTALLED_TOOLTIP;
         }
 
         /// <summary>
         /// Greys out (and unticks) the automatic alignment choice while the local auto-aligner is not
-        /// installed, with a tooltip saying where to install it. Re-read on entry and on resume, so a
-        /// player who installs from settings and comes back finds it enabled. The checkbox's own
-        /// value binding then keeps the estimated vocals choice off and disabled with it.
+        /// installed or does not match this build's version, with a tooltip saying where to fix it.
+        /// Re-read on entry and on resume, so a player who installs or updates from settings and comes
+        /// back finds it enabled. The checkbox's own value binding then keeps the estimated vocals
+        /// choice off and disabled with it.
         /// </summary>
         private void refreshAlignerAvailability()
         {

@@ -1522,6 +1522,137 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
+        #region Aligner version gate (backlog 410)
+
+        private const string fully_stamped_lyrics = "[00:01.00] hello\n[00:02.00] world\n";
+
+        /// <summary>
+        /// A completed install (venv python and setup sentinel) whose script declares
+        /// <paramref name="version"/>, null for a version-1 script with no constant. Its python is
+        /// the do-nothing fake, so a run that DID happen produces no timing and the ladder falls back
+        /// to the line stamps, which is what makes a refusal distinguishable from a run.
+        /// </summary>
+        private string makeInstalledLab(string? version)
+        {
+            string lab = makeLab();
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), version == null ? "# predates the constant\n" : $"ALIGNER_VERSION = \"{version}\"\n");
+            writeFakePython(lab, importsLoad: true);
+            File.WriteAllText(LyricMapImporter.SetupSentinelFor(lab), "python=3.11\n");
+            Assert.That(LyricMapImporter.EnvironmentReady(lab), Is.True);
+            return lab;
+        }
+
+        private string writeFakeAudio()
+        {
+            string audioPath = Path.Combine(tempRoot, "Some Artist - Some Song.mp3");
+            File.WriteAllText(audioPath, "fake audio");
+            return audioPath;
+        }
+
+        [TestCase("8", "9", AlignerVersionStatus.Older)]
+        [TestCase(null, "9", AlignerVersionStatus.Older)]
+        [TestCase("10", "9", AlignerVersionStatus.Newer)]
+        [TestCase("9", "10", AlignerVersionStatus.Older)]
+        [TestCase("9", "9", AlignerVersionStatus.Matches)]
+        [TestCase(null, "1", AlignerVersionStatus.Matches)]
+        [TestCase("9b", "9", AlignerVersionStatus.Different)]
+        [TestCase("9b", "9b", AlignerVersionStatus.Matches)]
+        [TestCase("8", null, AlignerVersionStatus.Matches)]
+        public void VersionRuleRefusesAnyMismatch(string? installed, string? shipped, AlignerVersionStatus expected)
+        {
+            Assert.That(LocalAlignerVersion.Compare(installed, shipped), Is.EqualTo(expected));
+            Assert.That(LocalAlignerVersion.StatusOf(false, installed, shipped), Is.EqualTo(AlignerVersionStatus.Matches), "nothing installed is never a mismatch");
+        }
+
+        /// <summary>
+        /// The guard every import entry point goes through: an installed aligner of any version but the
+        /// required one is refused with the advice, and never run (no "aligner unavailable ... trying
+        /// next option" line, which a run of the fake python would produce on its way to the line
+        /// stamps), and the import does NOT quietly fall back to those stamps.
+        /// </summary>
+        [TestCase("8", "your local auto-aligner is out of date (v8, this version of type!beat needs v9). "
+                       + "Update it in Settings > Experimental > Lyric timing to use automatic alignment.")]
+        [TestCase(null, "your local auto-aligner is out of date (v1, this version of type!beat needs v9). "
+                        + "Update it in Settings > Experimental > Lyric timing to use automatic alignment.")]
+        [TestCase("10", "your local auto-aligner is from a newer version of type!beat (v10, this version of type!beat needs v9). "
+                        + "Reinstall it in Settings > Experimental > Lyric timing to use automatic alignment.")]
+        public async Task MismatchedAlignerIsRefusedAndNeverRun(string? installedVersion, string expectedError)
+        {
+            string lab = makeInstalledLab(installedVersion);
+            string audioPath = writeFakeAudio();
+
+            var lines = new List<string>();
+            var (result, timing) = await LyricMapImporter.ProduceTimingJsonAsync(
+                audioPath, fully_stamped_lyrics, "A", "B", lab, Array.Empty<string>(),
+                line => { lock (lines) lines.Add(line); }, CancellationToken.None,
+                useAutomaticAlignment: true, requiredAlignerVersion: "9").ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.False, "refused, not fallen back to the line stamps");
+            Assert.That(timing, Is.Null);
+            Assert.That(result.Error, Is.EqualTo(expectedError));
+
+            lock (lines)
+                Assert.That(lines, Has.None.Contains("trying next option"), "the aligner never ran");
+        }
+
+        /// <summary>
+        /// The packaging entry point refuses the same way with automatic alignment on, and with it off
+        /// imports exactly as before: the line-stamp path never consults the aligner, mismatched or not.
+        /// </summary>
+        [Test]
+        public async Task BuildOszRefusesAMismatchedAlignerOnlyWhenAlignmentIsOn()
+        {
+            string lab = makeInstalledLab("8");
+            string audioPath = writeFakeAudio();
+            string lyricsPath = Path.Combine(tempRoot, "lyrics.lrc");
+            File.WriteAllText(lyricsPath, fully_stamped_lyrics);
+
+            var lines = new List<string>();
+            var refused = await LyricMapImporter.BuildOszAsync(audioPath, lyricsPath, "Some Artist", "Some Song", lab, Array.Empty<string>(),
+                line => { lock (lines) lines.Add(line); }, CancellationToken.None, useAutomaticAlignment: true, requiredAlignerVersion: "9").ConfigureAwait(false);
+
+            Assert.That(refused.Success, Is.False);
+            Assert.That(refused.Error, Does.StartWith("your local auto-aligner is out of date (v8, this version of type!beat needs v9)"));
+            lock (lines)
+                Assert.That(lines, Has.None.Contains("trying next option"), "the aligner never ran");
+
+            var lineStamped = await LyricMapImporter.BuildOszAsync(audioPath, lyricsPath, "Some Artist", "Some Song", lab, Array.Empty<string>(),
+                _ => { }, CancellationToken.None, useAutomaticAlignment: false, requiredAlignerVersion: "9").ConfigureAwait(false);
+
+            Assert.That(lineStamped.Success, Is.True, lineStamped.Error);
+        }
+
+        /// <summary>
+        /// Lyrics that need no aligner (an enhanced LRC carries its own word stamps) import with
+        /// automatic alignment on even when the installed aligner mismatches: the refusal sits where
+        /// the aligner would run, not in front of the whole ladder.
+        /// </summary>
+        [Test]
+        public async Task WordStampedLyricsImportPastAMismatchedAligner()
+        {
+            string lab = makeInstalledLab("8");
+            string audioPath = writeFakeAudio();
+
+            var (result, timing) = await LyricMapImporter.ProduceTimingJsonAsync(
+                audioPath, enhanced_lyrics, "A", "B", lab, Array.Empty<string>(), _ => { }, CancellationToken.None,
+                useAutomaticAlignment: true, requiredAlignerVersion: "9").ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.True, result.Error);
+            Assert.That(timing, Is.Not.Null);
+        }
+
+        [Test]
+        public void MatchingOrUnrequiredVersionIsNotRefused()
+        {
+            string lab = makeInstalledLab("9");
+
+            Assert.That(LyricMapImporter.AlignerVersionRefusal(lab, "9"), Is.Null);
+            Assert.That(LyricMapImporter.AlignerVersionRefusal(lab, null), Is.Null, "no required version checks nothing");
+            Assert.That(LyricMapImporter.AlignerVersionRefusal(lab, "10"), Does.StartWith("your local auto-aligner is out of date (v9, this version of type!beat needs v10)"));
+        }
+
+        #endregion
+
         #region Authoring marks through the import (backlog 202)
 
         [Test]

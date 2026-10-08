@@ -139,11 +139,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     Child = installButton = new InstallAlignerButton
                     {
                         Caption = InstallButtonText(alignerManager),
-                        TooltipText = alignerManager?.NeedsRepair == true
-                            ? "The aligner's environment on this machine never finished installing, or predates the check that confirms it did. Repair tests it first and keeps it if it works (seconds); if it does not, it is deleted and downloaded again (~2 GB)."
-                            : alignerManager?.UpdateAvailable == true
-                                ? "This build ships a newer aligner than the one installed. Updating replaces the scripts and clears the old aligner's caches; the environment already downloaded is kept, so it takes seconds."
-                                : "One-time download of the AI that times lyrics word-by-word on your own machine, recommended if you have a good GPU. Installs the GPU build automatically when an NVIDIA card is detected.",
+                        TooltipText = InstallButtonTooltip(alignerManager),
                         Action = startInstall,
                     },
                 },
@@ -160,9 +156,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>
         /// What the one button offers: a first install, a REPAIR of a venv whose setup never
         /// completed (backlog 353: it used to read as installed and stayed broken forever), a plain
-        /// reinstall, or, when the build ships a newer aligner than the one installed, an update
-        /// naming both versions so a player can see why pressing it changes anything. Public static
-        /// so the test can pin the texts without a manager to resolve.
+        /// reinstall, or, when the installed aligner is not the version this build ships (which
+        /// keeps automatic alignment off until it is fixed, backlog 410), an update of an older one
+        /// or a reinstall of a newer one, naming both versions so a player can see why pressing it
+        /// changes anything. Public static so the test can pin the texts without a manager to resolve.
         /// </summary>
         public static string InstallButtonText(ILocalAlignerManager? manager)
         {
@@ -172,10 +169,40 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             if (manager?.IsInstalled != true)
                 return "Install local auto-aligner (~2 GB)";
 
-            if (manager.UpdateAvailable)
-                return $"Update local auto-aligner (v{manager.InstalledVersion ?? "1"} → v{manager.ShippedVersion})";
+            var status = manager.VersionStatus;
+
+            if (status != AlignerVersionStatus.Matches)
+            {
+                return $"{LocalAlignerVersion.ActionVerb(status)} local auto-aligner "
+                       + $"(v{LocalAlignerVersion.Display(manager.InstalledVersion)} → v{LocalAlignerVersion.Display(manager.ShippedVersion)})";
+            }
 
             return "Reinstall local auto-aligner";
+        }
+
+        /// <summary>
+        /// The button's hint, which for a mismatched aligner says that automatic alignment is off
+        /// until the button is pressed, not merely that something newer exists. Public static for
+        /// the same reason as <see cref="InstallButtonText"/>.
+        /// </summary>
+        public static string InstallButtonTooltip(ILocalAlignerManager? manager)
+        {
+            if (manager?.NeedsRepair == true)
+                return "The aligner's environment on this machine never finished installing, or predates the check that confirms it did. Repair tests it first and keeps it if it works (seconds); if it does not, it is deleted and downloaded again (~2 GB).";
+
+            switch (manager?.IsInstalled == true ? manager.VersionStatus : AlignerVersionStatus.Matches)
+            {
+                case AlignerVersionStatus.Older:
+                    return "The installed aligner is older than the one this build ships, so automatic alignment is unavailable until you update it. "
+                           + "Updating replaces the scripts and clears the old aligner's caches; the environment already downloaded is kept, so it takes seconds.";
+
+                case AlignerVersionStatus.Newer:
+                case AlignerVersionStatus.Different:
+                    return "The installed aligner is not the one this build ships, so automatic alignment is unavailable until you reinstall it. "
+                           + "Reinstalling puts this build's scripts in place and clears the other aligner's caches; the environment already downloaded is kept, so it takes seconds.";
+            }
+
+            return "One-time download of the AI that times lyrics word-by-word on your own machine, recommended if you have a good GPU. Installs the GPU build automatically when an NVIDIA card is detected.";
         }
 
         private partial class InstallAlignerButton : FormButton, IHasTooltip, IFilterable
@@ -231,6 +258,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         // Refreshed on failure too: a failed repair has deleted the broken venv,
                         // so the button now offers a plain install.
                         installButton.Caption = InstallButtonText(alignerManager);
+                        installButton.TooltipText = InstallButtonTooltip(alignerManager);
                         installButton.Enabled.Value = true;
                     });
                 }
