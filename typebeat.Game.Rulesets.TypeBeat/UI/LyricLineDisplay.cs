@@ -17,6 +17,8 @@ using osu.Framework.Utils;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Scoring;
+using typebeat.Game.Rulesets.Scoring;
 using osuTK;
 using osuTK.Graphics;
 
@@ -138,6 +140,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // --- The sung-sweep underline ---
         // The track is a solid core per pace band plus a short gradient at each interior boundary.
         // Together they tile the full-width rail; a display with no bands gets one neutral core.
+        private Container paceRail = null!;
+        private Box unrevealedPaceBar = null!;
         private Box[] sweepTracks = Array.Empty<Box>();
         private Box[] sweepBlends = Array.Empty<Box>();
         private PaceBand[] trackBands = Array.Empty<PaceBand>();
@@ -301,6 +305,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private readonly float[] indicatorRelease;
         private JudgementIndicatorMode judgementIndicator;
         private bool approachBarsEnabled;
+        private PaceBarRevealMode paceBarReveal = PaceBarRevealMode.Off;
+        private bool judgementColouredBarsEnabled;
+        private JudgementColourBar[] judgementColourBars = Array.Empty<JudgementColourBar>();
+        private float revealedPaceWidth;
         private float paceColourGradient = 100f;
         private FloatingIndicatorBar[] floatingBars = Array.Empty<FloatingIndicatorBar>();
         public const double INDICATOR_RELEASE_DURATION_MS = 100;
@@ -406,10 +414,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             float alpha = sweepTracks.Length > 0 ? sweepTracks[0].Alpha : 1f;
 
             foreach (var track in sweepTracks)
-                content.Remove(track, disposeImmediately: true);
+                paceRail.Remove(track, disposeImmediately: true);
 
             foreach (var blend in sweepBlends)
-                content.Remove(blend, disposeImmediately: true);
+                paceRail.Remove(blend, disposeImmediately: true);
 
             buildPaceTracks(cells.Length);
 
@@ -419,14 +427,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 track.Depth = 1;
                 track.Alpha = alpha;
-                content.Add(track);
+                paceRail.Add(track);
             }
 
             foreach (var blend in sweepBlends)
             {
                 blend.Depth = 1;
                 blend.Alpha = alpha;
-                content.Add(blend);
+                paceRail.Add(blend);
             }
 
             measureAndLayout();
@@ -444,6 +452,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // Glyphs may shrink, but their slots and the line's centre must stay fixed.
             content.Add(layoutBounds = new Box { Alpha = 0, AlwaysPresent = true });
 
+            // Only the future portion stays gray; arrived segments retain their pace opacity.
+            content.Add(unrevealedPaceBar = new Box
+            {
+                Colour = TypeBeatStyle.UntypedChar.Opacity(0.25f),
+                Alpha = 0,
+                AlwaysPresent = true,
+                BypassAutoSizeAxes = Axes.Both,
+            });
+            content.Add(paceRail = new Container
+            {
+                AlwaysPresent = true,
+                BypassAutoSizeAxes = Axes.Both,
+            });
             buildPaceTracks(n);
 
             sweepFill = new Box
@@ -473,13 +494,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             };
 
             foreach (var track in sweepTracks)
-                content.Add(track);
+                paceRail.Add(track);
 
             foreach (var blend in sweepBlends)
-                content.Add(blend);
+                paceRail.Add(blend);
 
-            content.Add(sweepFill);
-            content.Add(sweepGlow);
+            paceRail.Add(sweepFill);
+            paceRail.Add(sweepGlow);
             content.Add(selectionBox);
 
             addSpaceErrorDots(n);
@@ -508,11 +529,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     Colour = TypeBeatStyle.UntypedChar,
                     Anchor = Anchor.TopLeft,
                     Origin = Anchor.Centre,
-                    // Always present for layout: a cell the flashlight hides (alpha 0) must still
-                    // occupy its slot in the auto-size box, or the line would collapse and re-centre
-                    // onto whatever run is currently lit, snapping the whole line sideways when the
-                    // window slides or the line activates. Alpha 0 still draws nothing.
+                    // The measured layoutBounds reserves every slot, even while glyphs are hidden.
+                    // Pulses and wrong-character shakes must never resize or re-centre the line.
                     AlwaysPresent = true,
+                    BypassAutoSizeAxes = Axes.Both,
                     // Drop shadow (OsuSpriteText enables Shadow by default, but faintly): darken it
                     // so glyphs stay legible over a beatmap video/image, not just the flat panel.
                     ShadowColour = TypeBeatStyle.TextShadow,
@@ -805,6 +825,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         protected override void Update()
         {
             base.Update();
+            updatePaceRail(Time.Current);
 
             // A resized window changes the width the line has to fit in; re-fit (a scale change
             // only, the measured layout stands) so the stage reads the new geometry this frame.
@@ -926,7 +947,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
 
             cellX[n] = x;
-            layoutBounds.Size = new Vector2(x, glyphHeight);
+            // The clipped pace rail bypasses auto-size, so reserve its full fixed height here.
+            layoutBounds.Size = new Vector2(x, glyphHeight + (SWEEP_RAIL_OFFSET + SWEEP_RAIL_HEIGHT) * SizeRatio);
 
 
             applyFit();
@@ -989,7 +1011,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 sweepTracks[k].Y = railY;
             }
 
+            unrevealedPaceBar.Y = railY;
+            unrevealedPaceBar.Height = SWEEP_RAIL_HEIGHT * SizeRatio;
             sweepFill.Y = sweepGlow.Y = railY;
+            paceRail.Height = railY + SWEEP_RAIL_HEIGHT * SizeRatio;
+            updatePaceRail(Time.Current);
 
             // The syllable markers ride the same coordinates: X is the cell's LEFT EDGE, which is
             // the inter-character gap the boundary falls in (the marker is drawn Origin.TopCentre,
@@ -1822,6 +1848,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 applyTextPopIn(i);
             }
             sungSyllable = primary;
+            updatePaceRail(time);
         }
 
         private double freestyleWindowMultiplier = SyncWindows.FREESTYLE_WINDOW_SCALE;
@@ -1910,6 +1937,51 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
         }
 
+        public void SetPaceBarReveal(PaceBarRevealMode mode)
+        {
+            paceBarReveal = mode;
+            if (IsLoaded)
+                updatePaceRail(Time.Current);
+        }
+
+        public void SetJudgementColouredBarsEnabled(bool enabled)
+        {
+            judgementColouredBarsEnabled = enabled;
+            if (IsLoaded)
+                createIndicatorDrawables();
+        }
+
+        // The rail is revealed from absolute song time, including seeks and off-screen lines.
+        // Only its mask changes; glyph positions, band geometry and flashlight fades stay fixed.
+        private void updatePaceRail(double time)
+        {
+            if (paceRail.IsNull())
+                return;
+            bool revealing = paceBarReveal != PaceBarRevealMode.Off && approachBarsEnabled;
+            int arrived = 0;
+            if (revealing && !double.IsNaN(time))
+            {
+                for (int i = 0; i < Line.Cells.Count; i++)
+                {
+                    if (Line.Cells[i].IsCountable)
+                    {
+                        if (time < sungSpan(i).start)
+                            break;
+                        arrived = i + 1;
+                    }
+                    else if (arrived > 0)
+                        arrived = i + 1;
+                }
+            }
+            revealedPaceWidth = revealing ? cellX[Math.Min(arrived, cellX.Length - 1)] : FullSweepWidth;
+            paceRail.Masking = revealing;
+            paceRail.Width = revealedPaceWidth;
+            unrevealedPaceBar.X = revealedPaceWidth;
+            unrevealedPaceBar.Width = Math.Max(0, FullSweepWidth - revealedPaceWidth);
+            // Share the rail's flashlight fade so the gray preview cannot reveal hidden lines.
+            unrevealedPaceBar.Alpha = revealing && paceBarReveal == PaceBarRevealMode.ColourIn ? sweepFill.Alpha : 0;
+        }
+
         public void SetPaceColourGradient(float percent)
         {
             paceColourGradient = Math.Clamp(percent, 0, 100);
@@ -1921,6 +1993,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             if (glyphFillMode)
                 createGlyphColourFills();
+            if (judgementColouredBarsEnabled && judgementColourBars.Length == 0)
+            {
+                judgementColourBars = new JudgementColourBar[cells.Length];
+                for (int i = 0; i < cells.Length; i++)
+                    content.Add(judgementColourBars[i] = new JudgementColourBar(this, i));
+            }
             if (approachBarsEnabled && floatingBars.Length == 0)
             {
                 floatingBars = new FloatingIndicatorBar[cells.Length];
@@ -2094,6 +2172,61 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 Colour = owner.paceColourFor(index);
             }
         }
+
+        private sealed partial class JudgementColourBar : Box
+        {
+            private readonly LyricLineDisplay owner;
+            private readonly int index;
+
+            public JudgementColourBar(LyricLineDisplay owner, int index)
+            {
+                this.owner = owner;
+                this.index = index;
+                AlwaysPresent = true;
+                BypassAutoSizeAxes = Axes.Both;
+                Depth = -1;
+                Alpha = 0;
+            }
+
+            protected override void Update()
+            {
+                base.Update();
+                Alpha = 0;
+                if (!owner.judgementColouredBarsEnabled || !owner.Line.Cells[index].IsCountable)
+                    return;
+                var source = owner.Line.Cells[index];
+                JudgementType? tier = source.State switch
+                {
+                    CellState.Correct => source.JudgedTier,
+                    CellState.Wrong => source.JudgedTier ?? JudgementType.WrongChar,
+                    CellState.Missed => source.JudgedTier ?? JudgementType.Miss,
+                    _ => null,
+                };
+                if (tier == null)
+                    return;
+                float width = Math.Clamp(owner.revealedPaceWidth - owner.cellX[index], 0, owner.advances[index]);
+                Position = new Vector2(owner.cellX[index], owner.sweepFill.Y);
+                Size = new Vector2(width, SWEEP_RAIL_HEIGHT * owner.SizeRatio);
+                Colour = JudgementBarColourFor(tier.Value);
+                Alpha = width > 0 ? owner.sweepFill.Alpha * owner.cells[index].Alpha : 0;
+            }
+        }
+
+        // Use the gameplay result mapping: correct off-time inputs score Meh, and a recoverable
+        // wrong input has no result yet. Neither is a Miss.
+        public static Color4 JudgementBarColourFor(JudgementType tier) => TypeBeatResultMapping.CellResult(tier, TypoRule.Deferred) switch
+        {
+            HitResult.Great => TypeBeatStyle.SungAccent,
+            HitResult.Ok => TypeBeatStyle.PaceSlowAccent,
+            HitResult.Meh => Color4.Orange,
+            HitResult.Miss => TypeBeatStyle.ErrorChar,
+            _ => TypeBeatStyle.UntypedChar,
+        };
+
+        public float RevealedPaceWidth => revealedPaceWidth;
+        public float JudgementBarAlpha(int index) => index >= 0 && index < judgementColourBars.Length ? judgementColourBars[index].Alpha : 0;
+        public ColourInfo JudgementBarColour(int index) => judgementColourBars[index].Colour;
+        public osu.Framework.Graphics.Primitives.Quad JudgementBarScreenQuad(int index) => judgementColourBars[index].ScreenSpaceDrawQuad;
 
         private Color4 paceColourFor(int index)
         {
@@ -2599,6 +2732,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         public float SweepFillAlpha => sweepFill.IsNotNull() ? sweepFill.Alpha : 0f;
+
+        public float UnrevealedPaceBarWidth => unrevealedPaceBar.IsNotNull() ? unrevealedPaceBar.Width : 0f;
+        public float UnrevealedPaceBarAlpha => unrevealedPaceBar.IsNotNull() ? unrevealedPaceBar.Alpha : 0f;
+        public ColourInfo UnrevealedPaceBarColour => unrevealedPaceBar.Colour;
+        public osu.Framework.Graphics.Primitives.Quad UnrevealedPaceBarScreenQuad => unrevealedPaceBar.ScreenSpaceDrawQuad;
 
         /// <summary>The colour a cell is currently drawn in; test support for the freestyle tint.</summary>
         public ColourInfo CellColour(int index) =>

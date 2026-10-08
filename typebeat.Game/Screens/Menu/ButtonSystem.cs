@@ -42,6 +42,7 @@ namespace typebeat.Game.Screens.Menu
 
         public Action<UIEvent>? OnExit;
         public Action? OnImportLyrics;
+        public Action? OnBrowse;
         public Action? OnSolo;
         public Action? OnSettings;
 
@@ -147,8 +148,8 @@ namespace typebeat.Game.Screens.Menu
             });
             // type!beat: Import snaps to the brand's deep lime (#8db12e — the accent itself is too
             // light behind white text); Exit was osu-pink #ee3399, now the website's coral --bad.
-            buttonsTopLevel.Add(new MainMenuButton(ButtonSystemStrings.Import, @"button-default-select", OsuIcon.Beatmap, new Color4(141, 177, 46, 255), (_, _) => OnImportLyrics?.Invoke(), Key.B,
-                Key.I));
+            buttonsTopLevel.Add(new MainMenuButton(ButtonSystemStrings.Import, @"button-default-select", OsuIcon.Beatmap, new Color4(141, 177, 46, 255), (_, _) => OnImportLyrics?.Invoke(), Key.I));
+            buttonsTopLevel.Add(new MainMenuButton(ButtonSystemStrings.Browse, @"button-default-select", OsuIcon.Beatmap, new Color4(51, 153, 204, 255), (_, _) => OnBrowse?.Invoke(), Key.B));
 
             if (host.CanExit)
                 buttonsTopLevel.Add(new MainMenuButton(ButtonSystemStrings.Exit, string.Empty, OsuIcon.CrossCircle, new Color4(255, 106, 90, 255), (_, e) => OnExit?.Invoke(e), Key.Q));

@@ -158,7 +158,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 ReplayEngineFeed.RebuildTo(reference, replay.Frames, source.Max(l => l.EndTime), expectedRate);
                 expectedWpm = reference.LiveRollingWpm.ToString("0");
             });
-            AddUntilStep("pp preview uses the expected rate", () =>
+            AddUntilStep("pp preview uses the expected rate and duration", () =>
                 playfield()!.ChildrenOfType<TypeBeatPpCounter>().Single().DisplayedText == expectedPp);
             AddUntilStep("wpm preview uses the expected rate", () =>
                 playfield()!.ChildrenOfType<TypeBeatWpmCounter>().Single().DisplayedText == expectedWpm);

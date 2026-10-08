@@ -1,0 +1,45 @@
+<Project>
+  <PropertyGroup>
+    <ApplyMetalFramePacingFix Condition="'$(ApplyMetalFramePacingFix)' == ''">true</ApplyMetalFramePacingFix>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(ApplyMetalFramePacingFix)' == 'true'">
+    <ProjectReference Include="$(MSBuildThisFileDirectory)MetalRendererPatch/MetalRendererPatch.csproj"
+                      ReferenceOutputAssembly="false" Private="false" PrivateAssets="all"
+                      GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained;PublishSingleFile;PublishReadyToRun;PublishTrimmed;PublishAot" />
+  </ItemGroup>
+
+  <!-- Replace the copy-local asset, not the NuGet cache or the compile-time reference.
+       Publish resolves its runtime assets from the package separately, so replace that item too. -->
+  <Target Name="PatchMetalFramePacing" AfterTargets="ResolveReferences" Condition="'$(DesignTimeBuild)' != 'true' and '$(ApplyMetalFramePacingFix)' == 'true'">
+    <PropertyGroup>
+      <_MetalPatcher>$(MSBuildThisFileDirectory)MetalRendererPatch/bin/$(Configuration)/net8.0/typebeat.Build.MetalRendererPatch.dll</_MetalPatcher>
+      <_PatchedVeldrid>$(IntermediateOutputPath)metal/ppy.Veldrid.dll</_PatchedVeldrid>
+      <_MetalPatchReferences>$(IntermediateOutputPath)metal/reference-paths.txt</_MetalPatchReferences>
+    </PropertyGroup>
+    <ItemGroup>
+      <_UpstreamVeldrid Include="@(ReferenceCopyLocalPaths)" Condition="'%(Filename)%(Extension)' == 'ppy.Veldrid.dll'" />
+    </ItemGroup>
+    <Error Condition="'@(_UpstreamVeldrid)' == ''" Text="Cannot apply the Metal frame pacing fix: ppy.Veldrid was not resolved." />
+    <MakeDir Directories="$(IntermediateOutputPath)metal" />
+    <WriteLinesToFile File="$(_MetalPatchReferences)" Lines="@(ReferenceCopyLocalPaths->'%(FullPath)')" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <Exec Command="dotnet &quot;$(_MetalPatcher)&quot; &quot;@(_UpstreamVeldrid)&quot; &quot;$(_PatchedVeldrid)&quot; &quot;$(_MetalPatchReferences)&quot;" />
+    <ItemGroup>
+      <ReferenceCopyLocalPaths Remove="@(_UpstreamVeldrid)" />
+      <ReferenceCopyLocalPaths Include="$(_PatchedVeldrid)">
+        <DestinationSubDirectory></DestinationSubDirectory>
+        <Private>true</Private>
+      </ReferenceCopyLocalPaths>
+      <FileWrites Include="$(_PatchedVeldrid);$(_MetalPatchReferences)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="PublishPatchedMetalFramePacing" AfterTargets="ComputeResolvedFilesToPublishList" DependsOnTargets="PatchMetalFramePacing" Condition="'$(DesignTimeBuild)' != 'true' and '$(ApplyMetalFramePacingFix)' == 'true'">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Filename)%(Extension)' == 'ppy.Veldrid.dll'" />
+      <ResolvedFileToPublish Include="$(_PatchedVeldrid)">
+        <RelativePath>ppy.Veldrid.dll</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+</Project>

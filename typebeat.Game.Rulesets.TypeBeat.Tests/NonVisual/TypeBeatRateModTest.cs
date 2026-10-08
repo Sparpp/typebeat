@@ -70,8 +70,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.IsTrue(dc.Ranked, $"Daycore must stay ranked at {rate:N2}x.");
             }
 
-            // Pitch is not a difficulty lever, so toggling it must not unrank either.
-            dt.AdjustPitch.Value = true;
+            // Pitch is not a difficulty lever, so adjusting it must not unrank either.
+            dt.AdjustPitch.Value = 6;
             Assert.IsTrue(dt.Ranked);
         }
 
@@ -624,12 +624,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             assertDescribesRate(new TypeBeatModHalfTime { SpeedChange = { Value = 0.62 } }, "0.62x");
             assertDescribesRate(new TypeBeatModDaycore { SpeedChange = { Value = 0.62 } }, "0.62x");
 
-            // The pitch toggle still describes itself, and only when it is actually on. Daycore holds
-            // the pitch constant and carries no toggle, so it describes the rate alone.
-            var pitched = new TypeBeatModDoubleTime { AdjustPitch = { Value = true } };
-            Assert.IsTrue(pitched.SettingDescription.Any(d => d.setting.ToString() == "Adjust pitch"));
-            Assert.IsFalse(new TypeBeatModDoubleTime().SettingDescription.Any(d => d.setting.ToString() == "Adjust pitch"));
-            Assert.IsFalse(new TypeBeatModDaycore().SettingDescription.Any(d => d.setting.ToString() == "Adjust pitch"));
+            // A pitch shift describes itself when non-zero. Daycore keeps its fixed pitch.
+            var pitched = new TypeBeatModDoubleTime { AdjustPitch = { Value = 6 } };
+            Assert.IsTrue(pitched.SettingDescription.Any(d => d.setting.ToString() == "Pitch adjustment"));
+            Assert.IsFalse(new TypeBeatModDoubleTime().SettingDescription.Any(d => d.setting.ToString() == "Pitch adjustment"));
+            Assert.IsFalse(new TypeBeatModDaycore().SettingDescription.Any(d => d.setting.ToString() == "Pitch adjustment"));
         }
 
         private static void assertDescribesRate(Mod mod, string expected)

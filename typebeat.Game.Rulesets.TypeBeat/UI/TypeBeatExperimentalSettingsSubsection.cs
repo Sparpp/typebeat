@@ -110,6 +110,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     HintText = "Show keypress timing beside wpm and shade typed characters by how closely they match the beat. Display only; does not affect grades, scores or judgements.",
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.ShowSyncMetric),
                 }),
+                new SettingsItemV2(new FormEnumDropdown<PaceBarRevealMode>
+                {
+                    Caption = "Pace bar reveal",
+                    HintText = "Build the pace bar as Approach bars arrive, or colour in a faint gray bar. Off shows the full pace bar immediately. Requires Approach bars. Display only.",
+                    Current = config.GetBindable<PaceBarRevealMode>(TypeBeatRulesetSetting.PaceBarReveal),
+                }),
+                new SettingsItemV2(new FormCheckBox
+                {
+                    Caption = "Colour typed-letter bars by judgement",
+                    HintText = "Colour the underline beneath judged letters blue for Great, green for Ok, orange for Meh, and red for a resolved miss. Recoverable wrong inputs stay neutral until corrected or the line ends. Display only.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.JudgementColouredBars),
+                }),
+                new SettingsItemV2(new FormCheckBox
+                {
+                    Caption = "Red screen edges before forced line changes",
+                    HintText = "Fade the screen edges to red during the final 1.5 seconds before you are forced onto the next line. Display only; does not affect health, scores or timing.",
+                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.LinePushWarningEdges),
+                }),
                 CreateSubsectionHeader("Lyric timing"),
             };
 

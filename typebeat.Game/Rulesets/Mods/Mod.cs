@@ -243,7 +243,8 @@ namespace typebeat.Game.Rulesets.Mods
                 if (!source.SettingsMap.TryGetValue(name, out IBindable? sourceSetting))
                     continue;
 
-                if (sourceSetting.IsDefault)
+                // Another setting may make this a derived, read-only value (such as automatic pitch).
+                if (sourceSetting.IsDefault || targetSetting.Disabled)
                     continue;
 
                 var targetBindableType = targetSetting.GetType();

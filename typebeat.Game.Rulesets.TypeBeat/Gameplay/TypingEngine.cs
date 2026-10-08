@@ -2266,6 +2266,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     cell.State = CellState.Untyped;
                     cell.TypedChar = null;
                     cell.JudgedDelta = null;
+                    cell.JudgedTier = null;
                     cell.FirstCorrectDelta = null;
 
                     // The one place backlog 210's correction flag is ever cleared: it survives a
@@ -2467,6 +2468,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     // reason a still-Wrong cell does not: that break was taken at the skip.
                     if (!cell.IsTypeable)
                         continue;
+
+                    // A recoverable typo gets its final zero-credit result only when the line seals.
+                    // Preserve any earlier award: erasing and mistyping a judged cell cannot revoke it.
+                    if (cell.State == CellState.Wrong)
+                        cell.JudgedTier ??= JudgementType.Miss;
 
                     bool phantom = cell.State == CellState.Abandoned;
 
@@ -3722,6 +3728,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
                 counts[type]++;
             }
+
+            // A retype cannot replace the original awarded result, including if window settings changed.
+            // Retain it for visual feedback through silent replay reconstruction too.
+            cell.JudgedTier ??= type;
 
             // Log the press for the HUD's rolling WPM. Both branches above land the cell Correct, so a
             // scoring-inert retype still counts here: this is a record of keystrokes, not of cell states.

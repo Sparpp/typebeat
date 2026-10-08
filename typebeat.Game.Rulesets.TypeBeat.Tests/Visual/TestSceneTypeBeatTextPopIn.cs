@@ -37,6 +37,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         [TearDownSteps]
         public void RestoreSettings() => AddStep("restore pop-in defaults", () =>
         {
+            config.SetValue(TypeBeatRulesetSetting.PaceBarReveal, PaceBarRevealMode.Build);
+            config.SetValue(TypeBeatRulesetSetting.JudgementColouredBars, false);
+            config.SetValue(TypeBeatRulesetSetting.ShowPaceColours, true);
             config.SetValue(TypeBeatRulesetSetting.ApproachBars, false);
             config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn);
             config.SetValue(TypeBeatRulesetSetting.PaceColourGradient, 0f);
@@ -53,6 +56,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             AddStep("create lyrics with pop-in", () =>
             {
+                config.SetValue(TypeBeatRulesetSetting.PaceBarReveal, PaceBarRevealMode.Build);
+                config.SetValue(TypeBeatRulesetSetting.JudgementColouredBars, false);
+                config.SetValue(TypeBeatRulesetSetting.ShowPaceColours, true);
                 config.SetValue(TypeBeatRulesetSetting.ApproachBars, false);
                 config.SetValue(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.None);
                 config.SetValue(TypeBeatRulesetSetting.PaceColourGradient, 100f);

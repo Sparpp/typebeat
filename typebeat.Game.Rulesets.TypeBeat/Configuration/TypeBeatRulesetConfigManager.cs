@@ -144,7 +144,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// </summary>
         LyricFont,
 
-        /// <summary>Use the player's typing font for editor lyrics; map fonts never apply in the editor.</summary>
+        /// <summary>
+        /// Use the player's typing font for editor lyrics; otherwise keep the built-in editor font.
+        /// Map fonts never apply to editor lyric text. Enabled by default, and updates live.
+        /// </summary>
         UseTypingFontInEditor,
 
         /// <summary>
@@ -282,7 +285,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         ApproachBars,
 
         /// <summary>Records the one-time application of the revised indicator and pace defaults.</summary>
-        IndicatorDefaultsApplied
+        IndicatorDefaultsApplied,
+
+        /// <summary>Retired checkbox, retained only to migrate its saved choice to PaceBarReveal.</summary>
+        BuildPaceBarWithApproach,
+
+        /// <summary>Experimental per-letter underline colours for the awarded judgement. Display only.</summary>
+        JudgementColouredBars,
+
+        /// <summary>Build or colour in the pace underline as Approach bars arrive. Display only.</summary>
+        PaceBarReveal,
+
+        /// <summary>Experimental red screen edges warning of an approaching forced line change. Display only.</summary>
+        LinePushWarningEdges
     }
 
     /// <summary>
@@ -348,6 +363,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
 
         [Description("Map-relative")]
         MapRelative,
+    }
+
+    public enum PaceBarRevealMode
+    {
+        [Description("Off")]
+        Off,
+
+        [Description("Build pace bar")]
+        Build,
+
+        [Description("Colour in pace bar")]
+        ColourIn,
     }
 
     /// <summary>How the active Great window is drawn over lyric text.</summary>
@@ -435,7 +462,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         public const bool LOCAL_ALIGNER_TOGGLE_SURFACED = false;
 
         public TypeBeatRulesetConfigManager(SettingsStore? settings, RulesetInfo ruleset, int? variant = null)
-            : base(migrateIndicatorDefaults(migratePaceColourMode(settings, ruleset, variant ?? 0), ruleset, variant ?? 0), ruleset, variant)
+            : base(migratePaceBarReveal(migrateIndicatorDefaults(migratePaceColourMode(settings, ruleset, variant ?? 0), ruleset, variant ?? 0), ruleset, variant ?? 0), ruleset, variant)
         {
             approachBarsBindable = GetBindable<bool>(TypeBeatRulesetSetting.ApproachBars);
             paceColourGradientBindable = GetBindable<float>(TypeBeatRulesetSetting.PaceColourGradient);
@@ -530,6 +557,33 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             return settings;
         }
 
+        // The new row is the migration marker: once it exists, later choices survive restarts
+        // even if an older build changes the retired checkbox again.
+        private static SettingsStore? migratePaceBarReveal(SettingsStore? settings, RulesetInfo ruleset, int variant)
+        {
+            if (settings == null)
+                return null;
+
+            string rulesetName = ruleset.ShortName;
+            string modeKey = nameof(TypeBeatRulesetSetting.PaceBarReveal);
+            string legacyKey = nameof(TypeBeatRulesetSetting.BuildPaceBarWithApproach);
+            settings.Realm.Write(realm =>
+            {
+                var rows = realm.All<RealmRulesetSetting>().Where(s => s.RulesetName == rulesetName && s.Variant == variant);
+                var mode = rows.FirstOrDefault(s => s.Key == modeKey);
+                if (mode != null && Enum.TryParse<PaceBarRevealMode>(mode.Value, out var value) && Enum.IsDefined(value))
+                    return;
+
+                var legacy = rows.FirstOrDefault(s => s.Key == legacyKey);
+                var migrated = bool.TryParse(legacy?.Value, out bool enabled) && enabled ? PaceBarRevealMode.Build : PaceBarRevealMode.Off;
+                if (mode == null)
+                    realm.Add(new RealmRulesetSetting { RulesetName = rulesetName, Variant = variant, Key = modeKey, Value = migrated.ToString() });
+                else
+                    mode.Value = migrated.ToString();
+            });
+            return settings;
+        }
+
         protected override void InitialiseDefaults()
         {
             base.InitialiseDefaults();
@@ -568,6 +622,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.JudgementIndicator, JudgementIndicatorMode.FadeIn);
             SetDefault(TypeBeatRulesetSetting.PaceColourGradient, 0.0f, 0.0f, 100.0f, 1.0f);
             SetDefault(TypeBeatRulesetSetting.ApproachBars, true);
+            SetDefault(TypeBeatRulesetSetting.BuildPaceBarWithApproach, false);
+            SetDefault(TypeBeatRulesetSetting.PaceBarReveal, PaceBarRevealMode.Off);
+            SetDefault(TypeBeatRulesetSetting.JudgementColouredBars, false);
+            SetDefault(TypeBeatRulesetSetting.LinePushWarningEdges, false);
             SetDefault(TypeBeatRulesetSetting.IndicatorDefaultsApplied, true);
         }
     }
