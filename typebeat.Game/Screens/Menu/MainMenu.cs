@@ -103,7 +103,7 @@ namespace typebeat.Game.Screens.Menu
         private IDisposable logoProxy;
 
         [BackgroundDependencyLoader(true)]
-        private void load(SettingsOverlay settings, OsuConfigManager config, SessionStatics statics, AudioManager audio)
+        private void load(SettingsOverlay settings, BeatmapListingOverlay beatmapListing, OsuConfigManager config, SessionStatics statics, AudioManager audio)
         {
             holdDelay = config.GetBindable<double>(OsuSetting.UIHoldActivationDelay);
             showMobileDisclaimer = config.GetBindable<bool>(OsuSetting.ShowMobileDisclaimer);
@@ -187,6 +187,7 @@ namespace typebeat.Game.Screens.Menu
             };
 
             Buttons.OnSettings = () => settings?.ToggleVisibility();
+            Buttons.OnBrowse = () => beatmapListing?.ToggleVisibility();
             Buttons.OnImportLyrics = () => this.Push(new ImportLyricsScreen());
 
             reappearSampleSwoosh = audio.Samples.Get(@"Menu/reappear-swoosh");
