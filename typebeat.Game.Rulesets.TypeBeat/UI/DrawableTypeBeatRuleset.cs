@@ -132,6 +132,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
         }
 
+        [BackgroundDependencyLoader]
+        private void load() => Overlays.Add(new LinePushWarning((TypeBeatPlayfield)Playfield));
+
         protected override Playfield CreatePlayfield() => new TypeBeatPlayfield(Engine);
 
         public override DrawableHitObject<TypeBeatHitObject> CreateDrawableRepresentation(TypeBeatHitObject h) => new DrawableTypeBeatHitObject(h);
