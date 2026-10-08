@@ -33,4 +33,5 @@
          language version clears the false positive without touching the shipped assemblies. -->
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
+  <Import Project="../build/MetalRendererPatch.targets" />
 </Project>
