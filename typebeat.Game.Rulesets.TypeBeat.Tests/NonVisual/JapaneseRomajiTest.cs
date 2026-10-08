@@ -285,13 +285,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void FreestyleStillAcceptsSpaceOnJapaneseMaps()
+        public void FreestyleStillRefusesSpaceOnJapaneseMaps()
         {
+            // Backlog 50 holds under Japanese input too: a freestyle slot refuses the space key, so
+            // the romaji processor must not turn the skip key into a fill.
             var engine = create("&");
             engine.SpaceSkipsWord = true;
             Assert.That(engine.ProcessKey(' ', 1100), Is.True);
-            Assert.That(engine.Lines[0].Cells.Single().State, Is.EqualTo(CellState.Correct));
-            Assert.That(engine.Lines[0].Cells.Single().TypedChar, Is.EqualTo(' '));
+            Assert.That(engine.Lines[0].Cells.Single().State, Is.EqualTo(CellState.Untyped));
+            Assert.That(engine.Lines[0].Cells.Single().TypedChar, Is.Null);
         }
 
         [TestCase("、")]

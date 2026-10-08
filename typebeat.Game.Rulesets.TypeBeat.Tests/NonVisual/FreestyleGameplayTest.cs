@@ -68,10 +68,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var judged = new List<CharJudgement>();
             run.CharJudged += judged.Add;
             run.ProcessKey('a', 1000);
-            run.ProcessKey(' ', 2000 + delta);
+            run.ProcessKey('q', 2000 + delta);
             Assert.That(judged.Last().Type, Is.EqualTo(expected));
             Assert.That(judged.Last().Delta, Is.EqualTo(delta));
-            Assert.That(run.Lines[0].Cells[1].TypedChar, Is.EqualTo(' '));
+            Assert.That(run.Lines[0].Cells[1].TypedChar, Is.EqualTo('q'));
             Assert.That(run.Mistypes, Is.Zero);
         }
 
@@ -98,7 +98,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var judged = new List<CharJudgement>();
             run.CharJudged += judged.Add;
             run.ProcessKey('a', 1000);
-            run.ProcessKey(' ', 2250);
+            run.ProcessKey('q', 2250);
             long firstScore = run.Score;
             Assert.That(run.LiveSyncPercent, Is.EqualTo(100 * (1 + 1 - 250 / 1200.0) / 2).Within(1e-9));
             Assert.That(run.ProcessBackspace(), Is.True);
@@ -142,7 +142,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(run.EffectiveSealTime(run.Lines[0]), Is.EqualTo(target + 1201));
             run.Update(target + delta);
             Assert.That(run.LineIsActive, Is.True, "pinned caret keeps a freestyle endpoint open through Meh");
-            Assert.That(run.ProcessKey(' ', target + delta), Is.True);
+            Assert.That(run.ProcessKey('q', target + delta), Is.True);
             Assert.That(judged.Last().Type, Is.EqualTo(expected));
         }
 
@@ -173,32 +173,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         [TestCase(WordSkipRule.Reclaimable)]
         [TestCase(WordSkipRule.ImmediateMiss)]
-        public void WordSkipStopsAtFreestyleAndTheSpaceFillsIt(WordSkipRule skipRule)
+        public void WordSkipAbandonsTheFreestyleSlotsToo(WordSkipRule skipRule)
         {
-            var run = engine(line("ab" + Typeability.FREESTYLE_MARKER + Typeability.FREESTYLE_MARKER + "c", 1000, 10000));
+            // Backlog 50: a freestyle slot is just another cell of the word run, so a word skip gives
+            // it up along with every other untyped cell. The space is the SKIP, never a fill.
+            var run = engine(line("a" + Typeability.FREESTYLE_MARKER + Typeability.FREESTYLE_MARKER + "b", 1000, 10000));
             run.SpaceSkipsWord = true;
             run.WordSkip = skipRule;
             var cells = run.Lines[0].Cells;
+            var abandoned = skipRule == WordSkipRule.Reclaimable ? CellState.Abandoned : CellState.Missed;
             run.ProcessKey('a', 1000);
             run.ProcessKey(' ', cells[2].TargetTime);
-            Assert.That(cells[1].State, Is.EqualTo(skipRule == WordSkipRule.Reclaimable ? CellState.Abandoned : CellState.Missed));
-            Assert.That(cells[2].State, Is.EqualTo(CellState.Correct));
-            Assert.That(cells[2].TypedChar, Is.EqualTo(' '));
-            Assert.That(cells[3].State, Is.EqualTo(CellState.Untyped));
-            Assert.That(cells[4].State, Is.EqualTo(CellState.Untyped));
-            Assert.That(run.CaretIndex, Is.EqualTo(3));
-            run.ProcessKey(' ', cells[3].TargetTime);
-            Assert.That(cells[3].State, Is.EqualTo(CellState.Correct));
-            Assert.That(cells[3].TypedChar, Is.EqualTo(' '));
-            Assert.That(run.Mistypes, Is.Zero);
+            Assert.That(cells[1].State, Is.EqualTo(abandoned), "the first freestyle slot is given up with the word");
+            Assert.That(cells[2].State, Is.EqualTo(abandoned), "so is the one the space was pressed over");
+            Assert.That(cells[3].State, Is.EqualTo(abandoned), "and the trailing letter");
+            Assert.That(cells[1].TypedChar, Is.Null);
+            Assert.That(cells[2].TypedChar, Is.Null, "the skip leaves no typed char behind");
         }
 
         [Test]
-        public void RecordedSpacesReplayWithTheSameFreestyleJudgementsAndSync()
+        public void SpaceNeverFillsAFreestyleSlot()
         {
-            string text = "a" + Typeability.FREESTYLE_MARKER + Typeability.FREESTYLE_MARKER + "c";
+            // The one key a freestyle cell does not take: it falls through the ordinary non-match
+            // path, so the slot stays open and the press reads as a wrong key on any other cell.
+            var run = engine(line("a" + Typeability.FREESTYLE_MARKER + "b", 1000, 10000));
+            run.ProcessKey('a', 1000);
+            run.Update(2000);
+            Assert.That(run.ProcessKey(' ', 2000), Is.True);
+
+            var cell = run.Lines[0].Cells[1];
+            Assert.That(cell.State, Is.EqualTo(CellState.Untyped));
+            Assert.That(cell.TypedChar, Is.Null);
+            Assert.That(run.CaretIndex, Is.EqualTo(1), "caret unmoved: the slot is still open");
+
+            run.Update(2400);
+            Assert.That(run.ProcessKey('7', 2400), Is.True);
+            Assert.That(run.Lines[0].Cells[1].State, Is.EqualTo(CellState.Correct));
+            Assert.That(run.Lines[0].Cells[1].TypedChar, Is.EqualTo('7'));
+        }
+
+        [Test]
+        public void RecordedFreestylePressesReplayWithTheSameJudgementsAndSync()
+        {
+            string text = "a" + Typeability.FREESTYLE_MARKER + "c";
             var live = engine(line(text, 1000, 10000));
-            live.SpaceSkipsWord = true;
             live.InputEra2 = true;
             var playback = engine(line(text, 1000, 10000));
             ReplayEngineFeed.Apply(playback, TypeBeatReplayFrame.CreateConfigFrame(0, allowWrongInput: true, spaceSkipsWord: true));
@@ -206,8 +224,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             foreach (var frame in new[]
                      {
                          new TypeBeatReplayFrame(1000, 'a'),
-                         new TypeBeatReplayFrame(2000, ' '),
-                         new TypeBeatReplayFrame(2500, ' '),
+                         new TypeBeatReplayFrame(2000, 'q'),
                          new TypeBeatReplayFrame(3250, 'c'),
                      })
             {
@@ -218,43 +235,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(playback.BuildResults().Counts, Is.EquivalentTo(live.BuildResults().Counts));
             Assert.That(playback.Score, Is.EqualTo(live.Score));
             Assert.That(playback.BuildResults().SyncPercent, Is.EqualTo(live.BuildResults().SyncPercent));
-            Assert.That(playback.Lines[0].Cells.Select(c => c.TypedChar), Is.EqualTo(new char?[] { 'a', ' ', ' ', 'c' }));
-        }
-
-        [Test]
-        public void FreestyleInputAvailabilityUsesCurrentCaretAndDoubledWindow()
-        {
-            var run = engine(line("a" + Typeability.FREESTYLE_MARKER + "b", 1000, 10000));
-            Assert.That(run.FreestyleInputWindowOpen(1000), Is.False, "ordinary caret is not a freestyle slot");
-            run.ProcessKey('a', 1000);
-            Assert.That(run.FreestyleInputWindowOpen(799), Is.False);
-            Assert.That(run.FreestyleInputWindowOpen(800), Is.True);
-            Assert.That(run.FreestyleInputWindowOpen(1800), Is.True, "early Great space is valid");
-            Assert.That(run.FreestyleInputWindowOpen(3200), Is.True);
-            Assert.That(run.FreestyleInputWindowOpen(3201), Is.False);
-            Assert.That(run.CaretIndex, Is.EqualTo(1), "availability query does not mutate input state");
-        }
-
-        [Test]
-        public void FreestyleInputAvailabilityPreservesHistoricalSpanTiming()
-        {
-            var run = engine(line(new string(Typeability.FREESTYLE_MARKER, 2), 1000, 10000));
-            run.SyllableTiming = true;
-            run.CharTimedStretch = false;
-            run.ProcessKey('x', 1000);
-            Assert.That(run.FreestyleInputWindowOpen(5000), Is.True, "historic span ends at 4000 with 1200 late tolerance");
-            run.CharTimedStretch = true;
-            Assert.That(run.FreestyleInputWindowOpen(5000), Is.False, "live timing uses the second cell target at 2500");
-        }
-
-        [Test]
-        public void FreestyleInputAvailabilityRespectsManualEntryWindow()
-        {
-            var run = finishedFreestyle(Typeability.FREESTYLE_MARKER.ToString());
-            run.WindowScale = 2;
-            run.ProcessKey(' ', 2600);
-            Assert.That(run.FreestyleInputWindowOpen(5400), Is.False, "entry is closed even when the widened ladder fits");
-            Assert.That(run.FreestyleInputWindowOpen(5500), Is.True);
+            Assert.That(playback.Lines[0].Cells.Select(c => c.TypedChar), Is.EqualTo(new char?[] { 'a', 'q', 'c' }));
         }
 
         private static TypingEngine finishedFreestyle(string nextText = "cd", bool caseSensitive = false)
