@@ -509,7 +509,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// character the player pressed.
         /// </summary>
         [Test]
-        public void AFreestyleSlotStillRefusesTheSpaceKey()
+        public void AFreestyleSlotStoresSpaceAsCorrectInput()
         {
             var freestyle = new LyricBeatmap
             {
@@ -543,10 +543,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(engine.Lines[0].Cells[1].State, Is.EqualTo(CellState.Untyped), "NOT Wrong: the slot would render blank");
-                Assert.That(engine.Lines[0].Cells[1].TypedChar, Is.Null);
-                Assert.That(engine.CaretIndex, Is.EqualTo(1), "caret unmoved: the slot is still open");
-                Assert.That(engine.ConsecutiveWrongKeys, Is.EqualTo(1), "the strict path, exactly as before");
+                Assert.That(engine.Lines[0].Cells[1].State, Is.EqualTo(CellState.Correct));
+                Assert.That(engine.Lines[0].Cells[1].TypedChar, Is.EqualTo(' '));
+                Assert.That(engine.CaretIndex, Is.EqualTo(2));
+                Assert.That(engine.ConsecutiveWrongKeys, Is.Zero);
             });
         }
 

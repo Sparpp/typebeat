@@ -66,12 +66,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddStep("observe actual input judgements", () => engine.CharJudged += result => lastJudgement = result.Type);
         }
 
+        [TestCase(2700, false)]
+        [TestCase(2900, true)]
+        [TestCase(3800, true)]
+        public void EarlyFreestyleSpaceUsesTheLiveInputHandler(double time, bool accepted)
+        {
+            load("a", "&&b");
+            AddStep("finish the first line", () => InputManager.Key(Key.A));
+            AddStep("move song into the next entry window", () => songClock.CurrentTime = time);
+            AddStep("manually enter the next line", () => InputManager.Key(Key.Enter));
+            AddAssert("parked untouched ahead of the song", () => engine.ActiveLineIndex == 1 && engine.ActiveLineUntouched
+                && !engine.SongIsOnTheCaretsLine && !engine.AwaitingEntry);
+            AddStep("press space on the first freestyle slot", () => InputManager.Key(Key.Space));
+            AddAssert("space is consumed only inside the freestyle window", () => accepted
+                ? engine.CaretIndex == 1 && engine.Lines[1].Cells[0].State == CellState.Correct && engine.Lines[1].Cells[0].TypedChar == ' '
+                : engine.CaretIndex == 0 && engine.Lines[1].Cells[0].State == CellState.Untyped);
+            AddAssert("space never abandons either freestyle slot", () => engine.Lines[1].Cells[1].State == CellState.Untyped);
+            if (time == 3800)
+                AddAssert("200ms early receives Great", () => engine.Lines[1].Cells[0].JudgedDelta == -200 && lastJudgement == JudgementType.Great);
+        }
+
         [Test]
         public void WrongCharacterCannotStartTheLineAfterFreestyle()
         {
             load("&", "cd");
-            AddStep("fill freestyle with q", () => InputManager.Key(Key.Q));
-            AddAssert("freestyle is complete", () => engine.IsLineComplete && engine.Lines[0].Cells[0].TypedChar == 'q');
+            AddStep("fill freestyle with space", () => InputManager.Key(Key.Space));
+            AddAssert("freestyle is complete", () => engine.IsLineComplete && engine.Lines[0].Cells[0].TypedChar == ' ');
             AddStep("open the next entry window", () => songClock.CurrentTime = 3800);
             AddStep("press an incorrect character", () => InputManager.Key(Key.Z));
             AddAssert("caret waits on the freestyle line", () => engine.ActiveLineIndex == 0 && engine.IsLineComplete

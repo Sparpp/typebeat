@@ -71,7 +71,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [TestCase(2, 1)]
         [TestCase(0.5, 0.75)]
         [TestCase(0.5, 1.5)]
-        public void EditorPpUsesThePlaybackTempoForDifficulty(double editorRate, double modRate)
+        public void EditorPpUsesThePlaybackTempoForDifficultyAndShortMapPenalty(double editorRate, double modRate)
         {
             var playback = new EditorTestPlayback(editorRate);
             var source = Enumerable.Range(0, 8).Select(i => new LyricLine
@@ -94,12 +94,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var expected = LyricDifficulty.ComputeDetail(source, expectedRate);
             Assert.That(preview.Stars, Is.EqualTo(expected.Stars).Within(1e-12));
             Assert.That(preview.DifficultCharacters, Is.EqualTo(expected.DifficultCharacters).Within(1e-12));
-            double duration = 32 / (modRate * playback.StatisticsRate);
+            double duration = PerformancePoints.PlayedDurationFor(source, mods) / playback.StatisticsRate;
             Assert.That(duration, Is.EqualTo(32 / expectedRate).Within(1e-12));
             var counts = new PerformancePoints.NoteCounts(160, 0, 0) { DifficultCharacters = preview.DifficultCharacters };
             var expectedCounts = counts with { DifficultCharacters = expected.DifficultCharacters };
-            Assert.That(PerformancePoints.ForPlay(preview.Stars, counts, 1, 160, mods),
-                Is.EqualTo(PerformancePoints.ForPlay(expected.Stars, expectedCounts, 1, 160, mods)).Within(1e-12));
+            Assert.That(PerformancePoints.ForPlay(preview.Stars, counts, 1, 160, mods, duration),
+                Is.EqualTo(PerformancePoints.ForPlay(expected.Stars, expectedCounts, 1, 160, mods, 32 / expectedRate)).Within(1e-12));
 
             // An editor preview must not alter the price of actual gameplay or finished scores.
             Assert.That(PerformancePointsDisplay.StarRatingFor(map, mods, requireRankedMap: false),

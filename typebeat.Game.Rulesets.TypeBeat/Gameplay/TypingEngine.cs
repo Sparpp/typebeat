@@ -522,6 +522,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public SyncWindows WindowsFor(TypingCell cell) => cell.IsFreestyle ? freestyleWindows : Windows;
 
         /// <summary>
+        /// Whether space can currently fill the caret's freestyle slot within its timing window.
+        /// Uses the same point/span era and scaled ladder as ProcessKey so input UI can distinguish
+        /// a valid early freestyle press from a space intended to skip an instrumental gap.
+        /// </summary>
+        public bool FreestyleInputWindowOpen(double time)
+        {
+            if (isFinished || activeLineIndex < 0 || awaitingEntry(time))
+                return false;
+
+            var line = lines[activeLineIndex];
+            if (caretIndex < 0 || caretIndex >= line.Cells.Count)
+                return false;
+
+            var cell = line.Cells[caretIndex];
+            if (!cell.IsFreestyle)
+                return false;
+
+            double delta = judgedDeltaFor(line, caretIndex, time);
+            var windows = WindowsFor(cell);
+            return delta >= -windows.MehEarly && delta <= windows.MehLate;
+        }
+
+        /// <summary>
         /// A line's hard deadline, preserving the full late window of every freestyle target.
         /// Completed lines can still seal at EndTime, and manual newlines can advance at once.
         /// </summary>
@@ -917,7 +940,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// already typed the moment the leftmost one is finally struck
         /// (<see cref="advanceCaretToFrontier"/>).</para>
         ///
-        /// <para>A FREESTYLE slot is not an any-order target. It matches every key but space, so a
+        /// <para>A FREESTYLE slot is not an any-order target. It matches every key, so a
         /// scan that offered it would consume it with the first press and starve the exact match the
         /// player meant; it still accepts anything AT THE CARET, exactly as it does today, which is
         /// reached whenever the scan finds nothing (so the slot fills with the key that fits nothing
@@ -3215,22 +3238,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (processJapaneseKey(c, time, line) is bool japaneseConsumed)
                 return japaneseConsumed;
 
-            // Mashing mod: any key is the right key; judge it as the caret cell's expected char.
-            // A FREESTYLE cell is exempt: it already accepts any key, and rewriting c here would
-            // stamp the authoring marker over the char the player actually pressed (the one thing
-            // a freestyle cell must remember). No double effect, mashing simply has nothing to add.
-            // Space is the single exception to that exemption: a freestyle cell REJECTS space (see
-            // the match below), so mashing's "any key is the right key" promise needs a substitute
-            // to hand it, and the char an automated player presses into a freestyle slot is the
-            // canonical one. Nothing else about the exemption changes, the pressed char still
-            // survives on every other key.
-            if (MashingEnabled)
-            {
-                if (!cell.IsFreestyle)
-                    c = cell.Expected;
-                else if (c == ' ')
-                    c = Typeability.FREESTYLE_AUTO_CHAR;
-            }
+            // Mashing substitutes ordinary cells only. Freestyle already accepts every char,
+            // including space, and must keep exactly the character the player pressed.
+            if (MashingEnabled && !cell.IsFreestyle)
+                c = cell.Expected;
 
             // Backlog 243: set when this press is a skip that left a claim outstanding, so the combo
             // the SAME press goes on to earn on the word gap is recorded as the claim's OWN credit
@@ -3253,7 +3264,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // Under InputEra2 the skip also needs wrong input allowed: Gatekeeper refuses a
             // mid-word space like any other wrong key. Every run stored before that era skipped
             // under Gatekeeper too, so the AllowWrongInput term is ignored when the era is clear.
-            if (SpaceSkipsWord && (AllowWrongInput || !InputEra2) && c == ' ' && cell.Expected != ' ')
+            if (SpaceSkipsWord && !cell.IsFreestyle && (AllowWrongInput || !InputEra2) && c == ' ' && cell.Expected != ' ')
             {
                 caretBeforeSkip = caretIndex;
                 skipLeftAClaimOutstanding = skipCurrentWord(time);
@@ -3350,21 +3361,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (untimedSpace)
                 delta = 0;
 
-            // FREESTYLE cell: every char EXCEPT SPACE matches, in any case, under every mod (so the
-            // Literate mod's exact-case rule and the allow-wrong-input path are both bypassed for
-            // it). The press is then judged exactly like a correct char: same windows, points,
-            // combo, accuracy and completion, with the pressed char kept in TypedChar.
-            // SPACE is carved out (backlog 50): it is the word-advance key, not a glyph a player
-            // means to leave sitting in a lyric, so it falls through to the ordinary non-match path
-            // below and is judged exactly as a wrong key on any other cell would be. The strict
-            // rejection is the only outcome available to it, because neither allow-wrong-input path
-            // will type a space through (c != ' ' guards both arms). With SpaceSkipsWord on the space
-            // was consumed by the word skip above (freestyle slot included), except under Gatekeeper
-            // in InputEra2, where it reaches the strict rejection below.
-            // Literate mod folds nothing: the typed char must match the target's exact case.
-            // Default gameplay is case-insensitive (both sides lower-cased through Fold).
-            bool matched = (cell.IsFreestyle && c != ' ')
-                           || charMatches(c, cell.Expected);
+            // Freestyle accepts every pressed character, including spaces, preserving TypedChar.
+            // Ordinary cells retain the exact-case Literate / folded default matching rules.
+            bool matched = cell.IsFreestyle || charMatches(c, cell.Expected);
 
             if (!matched)
             {
@@ -3390,9 +3389,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // a non-problem). With SpaceSkipsWord ON the skip gate above consumed it, except
                 // under Gatekeeper in InputEra2, where the press falls through to rejection.
                 //
-                // A FREESTYLE slot keeps refusing the space key under every arm. Its promise is "any
-                // character except the word-advance key" (backlog 50) and it has no expected glyph to
-                // redden, so a space typed into one would blank the cell rather than mark it.
+                // Freestyle cells matched above already; this wrong-space permission is only
+                // relevant to ordinary lyric cells.
                 bool spaceMayLand = StrictSpaces && !SpaceSkipsWord && !cell.IsFreestyle;
 
                 if (AllowWrongInput && (c != ' ' || spaceMayLand) && (WrongInputOnWordGaps || cell.Expected != ' '))
@@ -3502,7 +3500,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // SPACES ARE UNTIMED (backlog 148); the zeroing itself is done above the match, where a
             // typed-through gap typo can read the same value. Reaching HERE on a space CELL means a
             // SPACE was typed on it: Fold is only ToLowerInvariant, so nothing but ' ' folds onto
-            // ' ', a freestyle cell refuses space outright, and under Mashing the press was already
+            // ' ', freestyle uses its own timed slot, and under Mashing the press was already
             // rewritten to the cell's expected char, which is the space it stood for anyway. The
             // spacebar is deliberately outside the timing challenge (the word gap is where a
             // typist's hands reset, not a note to hit), so the press is judged as though it landed
@@ -3811,12 +3809,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             var japanesePlan = JapaneseRomajiInput && UsesJapaneseRomaji ? lines[activeLineIndex].JapaneseInput : null;
             bool canSkip(int index) => japanesePlan == null || !cells[index].IsTypeable || japanesePlan.IsRomanCell(index);
 
-            while (!singleJapaneseCharacter && start > 0 && !isWordGap(cells[start - 1]) && canSkip(start - 1))
+            while (!singleJapaneseCharacter && start > 0 && !isWordGap(cells[start - 1]) && !cells[start - 1].IsFreestyle && canSkip(start - 1))
                 start--;
 
-            while (!singleJapaneseCharacter && end < cells.Count && !isWordGap(cells[end]) && canSkip(end))
+            while (!singleJapaneseCharacter && end < cells.Count && !isWordGap(cells[end]) && !cells[end].IsFreestyle && canSkip(end))
                 end++;
 
+            // A freestyle slot is a hard stop: skip only ordinary cells before it, then let
+            // this same space fill the freestyle slot through the ordinary matching path.
             var abandoned = new List<int>();
 
             for (int i = start; i < end; i++)
