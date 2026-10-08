@@ -68,7 +68,7 @@ env:
   APP_CONTAINER: typebeat-web-app-1
   # Stable download name so TYPEBEAT_GAME_DOWNLOAD_LINUX is set once (see header).
   APPIMAGE_NAME: typebeat-linux.AppImage
-  VPK_VERSION: "0.0.1298"   # MUST match the Velopack lib version in typebeat.Desktop.csproj.
+  VPK_VERSION: "1.2.0"      # MUST match the Velopack lib version in typebeat.Desktop.csproj.
 
 jobs:
   build-deploy-linux:
@@ -84,7 +84,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
       # typebeat.Desktop/Bundled/ (the fresh-install beatmap payload) is gitignored: the packages
       # carry real, non-redistributable audio and must never be committed. So actions/checkout

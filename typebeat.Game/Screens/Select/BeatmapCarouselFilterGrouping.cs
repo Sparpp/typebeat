@@ -246,7 +246,7 @@ namespace typebeat.Game.Screens.Select
                 {
                     var rulesetInstance = criteria.Ruleset?.CreateInstance();
 
-                    if (rulesetInstance == null || rulesetInstance.AvailableVariants.Count() <= 1)
+                    if (rulesetInstance == null || rulesetInstance.GameplayVariants.Count() <= 1)
                         goto case GroupMode.None;
 
                     return getGroupsBy(b => defineGroupByVariant(rulesetInstance, b, criteria.Mods), items);
@@ -510,6 +510,9 @@ namespace typebeat.Game.Screens.Select
             foreach (var item in carouselItems)
             {
                 var beatmap = (BeatmapInfo)item.Model;
+
+                if (string.IsNullOrEmpty(beatmap.MD5Hash))
+                    continue;
 
                 // as a side note, even reading the `MD5Hash` off a realm model is slow if done enough times,
                 // so it definitely helps that thanks to the mapping it needs to only be retrieved once

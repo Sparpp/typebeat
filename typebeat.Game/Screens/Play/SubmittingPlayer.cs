@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
 using osu.Framework.Allocation;
@@ -61,7 +62,7 @@ namespace typebeat.Game.Screens.Play
         [CanBeNull]
         private ReplayUploader replayUploader { get; set; }
 
-        private readonly object scoreSubmissionLock = new object();
+        private readonly Lock scoreSubmissionLock = new Lock();
         private TaskCompletionSource<bool> scoreSubmissionSource;
 
         protected SubmittingPlayer(PlayerConfiguration configuration = null)
@@ -260,7 +261,7 @@ namespace typebeat.Game.Screens.Play
             score.ScoreInfo.Date = DateTimeOffset.Now;
 
             await submitScore(score).ConfigureAwait(false);
-            spectatorClient.EndPlaying(GameplayState);
+            spectatorClient.EndPlaying(token, GameplayState);
 
             // Submission is what makes the play count, and on this backend it is also what PRICES it: the server computes the
             // score's pp and commits the row inside the PUT that just returned above, so the profile statistics are already
@@ -283,8 +284,7 @@ namespace typebeat.Game.Screens.Play
             realm.WriteAsync(r =>
             {
                 var realmBeatmap = r.Find<BeatmapInfo>(Beatmap.Value.BeatmapInfo.ID);
-                if (realmBeatmap != null)
-                    realmBeatmap.LastPlayed = DateTimeOffset.Now;
+                realmBeatmap?.LastPlayed = DateTimeOffset.Now;
             });
 
             spectatorClient.BeginPlaying(token, GameplayState, Score);
@@ -326,7 +326,7 @@ namespace typebeat.Game.Screens.Play
                 Task.Run(async () =>
                 {
                     await submitScore(scoreCopy).ConfigureAwait(false);
-                    spectatorClient.EndPlaying(GameplayState);
+                    spectatorClient.EndPlaying(token, GameplayState);
                 }).FireAndForget();
             }
         }

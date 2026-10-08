@@ -1,4 +1,4 @@
-// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
+﻿// Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
 #nullable disable
@@ -13,6 +13,7 @@ using osu.Framework.Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Cursor;
+using osu.Framework.Graphics.Sprites;
 using osu.Framework.Graphics.UserInterface;
 using osu.Framework.Localisation;
 using osu.Framework.Logging;
@@ -28,17 +29,18 @@ using osuTK;
 using Realms;
 using WebCommonStrings = typebeat.Game.Resources.Localisation.Web.CommonStrings;
 
-namespace typebeat.Game.Overlays.Settings.Sections.UserInterface
+namespace typebeat.Game.Overlays.Settings.Sections
 {
-    /// <summary>
-    /// Skin selection and management. This used to be a section of its own; it now leads the
-    /// User Interface section.
-    /// </summary>
-    public partial class SkinSettings : SettingsSubsection
+    public partial class SkinSection : SettingsSection
     {
         private SkinDropdown skinDropdown;
 
-        protected override LocalisableString Header => SkinSettingsStrings.SkinSectionHeader;
+        public override LocalisableString Header => SkinSettingsStrings.SkinSectionHeader;
+
+        public override Drawable CreateIcon() => new SpriteIcon
+        {
+            Icon = OsuIcon.SkinB
+        };
 
         public override IEnumerable<LocalisableString> FilterTerms => base.FilterTerms.Concat(new LocalisableString[] { "skins" });
 

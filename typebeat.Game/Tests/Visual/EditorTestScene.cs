@@ -70,8 +70,7 @@ namespace typebeat.Game.Tests.Visual
         {
             Beatmap.Value = CreateWorkingBeatmap(Ruleset.Value);
 
-            if (testBeatmapManager != null)
-                testBeatmapManager.TestBeatmap = Beatmap.Value;
+            testBeatmapManager?.TestBeatmap = Beatmap.Value;
 
             LoadScreen(editorLoader = new TestEditorLoader());
         }
@@ -116,8 +115,6 @@ namespace typebeat.Game.Tests.Visual
             public new void Clone() => base.Clone();
 
             public new void SwitchToDifficulty(BeatmapInfo beatmapInfo) => base.SwitchToDifficulty(beatmapInfo);
-
-            public new void CreateNewDifficulty(RulesetInfo rulesetInfo) => base.CreateNewDifficulty(rulesetInfo);
 
             public new bool HasUnsavedChanges => base.HasUnsavedChanges;
 

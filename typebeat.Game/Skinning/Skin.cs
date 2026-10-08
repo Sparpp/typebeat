@@ -19,14 +19,16 @@ using osu.Framework.Graphics.Textures;
 using osu.Framework.IO.Stores;
 using osu.Framework.Logging;
 using typebeat.Game.Audio;
+using typebeat.Game.Beatmaps.Formats;
 using typebeat.Game.Database;
 using typebeat.Game.IO;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Screens.Play.HUD;
+using osuTK.Graphics;
 
 namespace typebeat.Game.Skinning
 {
-    public abstract class Skin : IDisposable, ISkin
+    public abstract class Skin : IDisposable, ISkin, IHasComboColours, IHasCustomColours
     {
         private readonly IStorageResourceProvider? resources;
 
@@ -407,5 +409,13 @@ namespace typebeat.Game.Skinning
             Enter,
             Exit
         }
+
+        #region Delegated colour access
+
+        IReadOnlyList<Color4>? IHasComboColours.ComboColours => Configuration.ComboColours;
+        List<Color4> IHasComboColours.CustomComboColours => Configuration.CustomComboColours;
+        Dictionary<string, Color4> IHasCustomColours.CustomColours => Configuration.CustomColours;
+
+        #endregion
     }
 }

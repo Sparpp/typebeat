@@ -7,7 +7,7 @@
             "request": "launch",
             "program": "dotnet",
             "args": [
-                "${workspaceRoot}/typebeat.Desktop/bin/Debug/net8.0/type!beat.dll"
+                "${workspaceRoot}/typebeat.Desktop/bin/Debug/net10.0/type!beat.dll"
             ],
             "cwd": "${workspaceRoot}",
             "preLaunchTask": "Build type!beat (Debug)",
@@ -19,7 +19,7 @@
             "request": "launch",
             "program": "dotnet",
             "args": [
-                "${workspaceRoot}/typebeat.Desktop/bin/Debug/net8.0/type!beat.dll",
+                "${workspaceRoot}/typebeat.Desktop/bin/Debug/net10.0/type!beat.dll",
                 "--debug-client-id=1"
             ],
             "cwd": "${workspaceRoot}",
@@ -32,7 +32,7 @@
             "request": "launch",
             "program": "dotnet",
             "args": [
-                "${workspaceRoot}/typebeat.Desktop/bin/Release/net8.0/type!beat.dll"
+                "${workspaceRoot}/typebeat.Desktop/bin/Release/net10.0/type!beat.dll"
             ],
             "cwd": "${workspaceRoot}",
             "preLaunchTask": "Build type!beat (Release)",
@@ -44,7 +44,7 @@
             "request": "launch",
             "program": "dotnet",
             "args": [
-                "${workspaceRoot}/typebeat.Game.Tests/bin/Debug/net8.0/typebeat.Game.Tests.dll"
+                "${workspaceRoot}/typebeat.Game.Tests/bin/Debug/net10.0/typebeat.Game.Tests.dll"
             ],
             "cwd": "${workspaceRoot}",
             "preLaunchTask": "Build tests (Debug)",
@@ -56,7 +56,7 @@
             "request": "launch",
             "program": "dotnet",
             "args": [
-                "${workspaceRoot}/typebeat.Game.Tests/bin/Release/net8.0/typebeat.Game.Tests.dll"
+                "${workspaceRoot}/typebeat.Game.Tests/bin/Release/net10.0/typebeat.Game.Tests.dll"
             ],
             "cwd": "${workspaceRoot}",
             "preLaunchTask": "Build tests (Release)",
@@ -68,7 +68,7 @@
             "request": "launch",
             "program": "dotnet",
             "args": [
-                "${workspaceRoot}/typebeat.Desktop/bin/Debug/net8.0/type!beat.dll",
+                "${workspaceRoot}/typebeat.Desktop/bin/Debug/net10.0/type!beat.dll",
                 "--tournament"
             ],
             "cwd": "${workspaceRoot}",
@@ -81,7 +81,7 @@
             "request": "launch",
             "program": "dotnet",
             "args": [
-                "${workspaceRoot}/typebeat.Desktop/bin/Release/net8.0/type!beat.dll",
+                "${workspaceRoot}/typebeat.Desktop/bin/Release/net10.0/type!beat.dll",
                 "--tournament"
             ],
             "cwd": "${workspaceRoot}",
@@ -94,7 +94,7 @@
             "request": "launch",
             "program": "dotnet",
             "args": [
-                "${workspaceRoot}/typebeat.Game.Tournament.Tests/bin/Debug/net8.0/typebeat.Game.Tournament.Tests.dll",
+                "${workspaceRoot}/typebeat.Game.Tournament.Tests/bin/Debug/net10.0/typebeat.Game.Tournament.Tests.dll",
                 "--tournament"
             ],
             "cwd": "${workspaceRoot}",
@@ -107,7 +107,7 @@
             "request": "launch",
             "program": "dotnet",
             "args": [
-                "${workspaceRoot}/typebeat.Game.Tournament.Tests/bin/Debug/net8.0/typebeat.Game.Tournament.Tests.dll",
+                "${workspaceRoot}/typebeat.Game.Tournament.Tests/bin/Debug/net10.0/typebeat.Game.Tournament.Tests.dll",
                 "--tournament"
             ],
             "cwd": "${workspaceRoot}",
@@ -118,7 +118,7 @@
             "name": "Benchmark",
             "type": "coreclr",
             "request": "launch",
-            "program": "${workspaceRoot}/typebeat.Game.Benchmarks/bin/Release/net8.0/typebeat.Game.Benchmarks.dll",
+            "program": "${workspaceRoot}/typebeat.Game.Benchmarks/bin/Release/net10.0/typebeat.Game.Benchmarks.dll",
             "args": [
                 "--filter",
                 "*"

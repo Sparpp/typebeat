@@ -39,7 +39,6 @@ namespace typebeat.Game.Overlays.Settings
 
             FlowContent = new GroupingFlow
             {
-                Margin = new MarginPadding { Top = SettingsSection.ITEM_SPACING_V2 },
                 Direction = FillDirection.Vertical,
                 Spacing = new Vector2(0, SettingsSection.ITEM_SPACING_V2),
                 RelativeSizeAxes = Axes.X,
@@ -56,7 +55,14 @@ namespace typebeat.Game.Overlays.Settings
             AddRangeInternal(new[]
             {
                 CreateHeader(),
-                FlowContent
+                // Separate container to ensure margin remains even if FlowContent is hidden.
+                new Container
+                {
+                    RelativeSizeAxes = Axes.X,
+                    AutoSizeAxes = Axes.Y,
+                    Margin = new MarginPadding { Top = SettingsSection.ITEM_SPACING_V2 },
+                    Child = FlowContent
+                },
             });
         }
 
@@ -76,7 +82,7 @@ namespace typebeat.Game.Overlays.Settings
             {
                 Text = header,
                 Font = OsuFont.GetFont(size: header_font_size),
-                Margin = new MarginPadding { Vertical = VERTICAL_PADDING },
+                Margin = new MarginPadding { Vertical = VERTICAL_PADDING, Horizontal = 5 },
                 Padding = SettingsPanel.CONTENT_PADDING,
             };
         }

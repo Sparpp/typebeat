@@ -10,6 +10,8 @@ using typebeat.Game.Configuration;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Containers;
 using typebeat.Game.Graphics.Sprites;
+using typebeat.Game.Localisation.SkinComponents;
+using typebeat.Game.Overlays.Settings;
 using osuTK;
 using osuTK.Graphics;
 
@@ -26,10 +28,10 @@ namespace typebeat.Game.Skinning.Components
         [SettingSource("Spinning text", "Whether the big text should spin")]
         public Bindable<bool> TextSpin { get; } = new BindableBool();
 
-        [SettingSource("Alpha", "The alpha value of this box")]
-        public BindableNumber<float> BoxAlpha { get; } = new BindableNumber<float>(1)
+        [SettingSource(typeof(SkinnableComponentStrings), nameof(SkinnableComponentStrings.Opacity), SettingControlType = typeof(SettingsPercentageSlider<float>))]
+        public BindableNumber<float> Opacity { get; } = new BindableNumber<float>(1)
         {
-            MinValue = 0,
+            MinValue = 0.01f,
             MaxValue = 1,
             Precision = 0.01f,
         };
@@ -77,7 +79,7 @@ namespace typebeat.Game.Skinning.Components
         {
             base.LoadComplete();
 
-            BoxAlpha.BindValueChanged(alpha => box.Alpha = alpha.NewValue, true);
+            Opacity.BindValueChanged(opacity => box.Alpha = opacity.NewValue, true);
             TextSpin.BindValueChanged(spin =>
             {
                 if (spin.NewValue)

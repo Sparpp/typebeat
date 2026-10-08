@@ -4,6 +4,8 @@
 #nullable disable
 
 using osu.Framework.Allocation;
+using osu.Framework.Graphics;
+using osu.Framework.Localisation;
 using typebeat.Game.Configuration;
 using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.Configuration;
@@ -37,5 +39,8 @@ namespace typebeat.Game.Overlays.Settings
 
             return dependencies;
         }
+
+        protected sealed override LocalisableString Header => string.Empty;
+        protected sealed override Drawable CreateHeader() => Empty();
     }
 }

@@ -64,7 +64,7 @@ namespace typebeat.Game.Overlays
             info.BeatmapSet.BindTo(beatmapSet);
             comments.BeatmapSet.BindTo(beatmapSet);
 
-            Header.HeaderContent.Picker.Beatmap.ValueChanged += b => ScrollFlow.ScrollToStart();
+            Header.HeaderContent.Picker.Beatmap.ValueChanged += _ => ScrollFlow.ScrollToStart();
         }
 
         [BackgroundDependencyLoader]

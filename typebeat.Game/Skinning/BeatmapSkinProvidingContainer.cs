@@ -4,6 +4,7 @@
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using typebeat.Game.Audio;
+using typebeat.Game.Storyboards;
 
 namespace typebeat.Game.Skinning
 {
@@ -24,7 +25,7 @@ namespace typebeat.Game.Skinning
 
         protected override bool AllowTextureLookup(string componentName) => BeatmapSkins.Value;
 
-        protected override bool AllowSampleLookup(ISampleInfo sampleInfo) => BeatmapHitsounds.Value;
+        protected override bool AllowSampleLookup(ISampleInfo sampleInfo) => sampleInfo is StoryboardSampleInfo || BeatmapHitsounds.Value;
 
         private readonly ISkin skin;
         private readonly ISkin? classicFallback;

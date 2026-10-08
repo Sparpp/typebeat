@@ -39,12 +39,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// </summary>
     public partial class TypeBeatExperimentalSettingsSubsection : RulesetSettingsSubsection
     {
-        // Blank: the enclosing settings section is itself titled "Experimental", so a subsection
-        // heading here would just repeat it. CreateHeader is suppressed so no gap is left.
-        protected override LocalisableString Header => default;
-
-        protected override Drawable CreateHeader() => Empty();
-
         [Resolved(CanBeNull = true)]
         private ILocalAlignerManager? alignerManager { get; set; }
 

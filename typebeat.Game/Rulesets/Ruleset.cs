@@ -49,8 +49,15 @@ namespace typebeat.Game.Rulesets
         /// Version history:
         /// 2022.205.0   FramedReplayInputHandler.CollectPendingInputs renamed to FramedReplayHandler.CollectReplayInputs.
         /// 2022.822.0   All strings return values have been converted to LocalisableString to allow for localisation support.
+        /// 2026.818.0   Support for ruleset-specific key bindings in editor:
+        ///              - `Ruleset.AvailableVariants` renamed to <see cref="GameplayVariants"/>
+        ///              - Variant ID <see cref="EDITOR_VARIANT"/> reserved for editor key bindings
+        ///              - Overriders of <see cref="GetVariantName"/> should ensure to return an appropriate string for <see cref="EDITOR_VARIANT"/>
+        ///              - <see cref="HitObjectComposer{TObject,TAction}"/> gains a second generic parameter, representing the enumeration type with relevant actions
+        ///                (it is strongly encouraged to keep it the same as the type in <see cref="RulesetInputManager{T}"/>,
+        ///                as the same ID space is used in realm for storing them)
         /// </summary>
-        public const string CURRENT_RULESET_API_VERSION = "2022.822.0";
+        public const string CURRENT_RULESET_API_VERSION = "2026.818.0";
 
         /// <summary>
         /// Define the ruleset API version supported by this ruleset.
@@ -391,9 +398,22 @@ namespace typebeat.Game.Rulesets
         public virtual string PlayingVerb => "Playing";
 
         /// <summary>
-        /// A list of available variant ids.
+        /// A list of available gameplay variant IDs.
         /// </summary>
-        public virtual IEnumerable<int> AvailableVariants => new[] { 0 };
+        public virtual IEnumerable<int> GameplayVariants => new[] { 0 };
+
+        /// <summary>
+        /// A list of all available variants.
+        /// type!beat: the same as <see cref="GameplayVariants"/>. Upstream also appends <see cref="EDITOR_VARIANT"/>
+        /// for its hit object composer's tool keys, but type!beat has no composer, so an editor variant would only
+        /// store a copy of the gameplay bindings and show an empty-purpose "Beatmap editor" key binding section.
+        /// </summary>
+        public IEnumerable<int> AllVariants => GameplayVariants;
+
+        /// <summary>
+        /// A special variant used for supporting editor-specific customisable key bindings.
+        /// </summary>
+        public const int EDITOR_VARIANT = int.MaxValue;
 
         /// <summary>
         /// Get a list of default keys for the specified variant.

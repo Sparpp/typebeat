@@ -39,8 +39,7 @@ namespace typebeat.Game.Graphics.Containers
 
                 handleColour = value;
 
-                if (handle != null)
-                    handle.Colour = value;
+                handle?.Colour = value;
             }
         }
 

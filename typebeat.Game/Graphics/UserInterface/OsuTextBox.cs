@@ -44,7 +44,7 @@ namespace typebeat.Game.Graphics.UserInterface
         };
 
         private FontUsage getTextFont()
-            => string.IsNullOrEmpty(fontFamily) ? OsuFont.GetFont(size: FontSize) : new FontUsage(fontFamily, FontSize);
+            => string.IsNullOrEmpty(fontFamily) ? Font : new FontUsage(fontFamily, FontSize);
 
         private void updateFontFamily()
         {
@@ -135,8 +135,7 @@ namespace typebeat.Game.Graphics.UserInterface
             BackgroundCommit = BorderColour = colourProvider?.Highlight1 ?? colour.Yellow;
             selectionColour = colourProvider?.Background1 ?? new Color4(249, 90, 255, 255);
 
-            if (caret != null)
-                caret.SelectionColour = selectionColour;
+            caret?.SelectionColour = selectionColour;
 
             Placeholder.Colour = colourProvider?.Foreground1 ?? new Color4(180, 180, 180, 255);
 
@@ -328,6 +327,8 @@ namespace typebeat.Game.Graphics.UserInterface
             AutoSizeAxes = Axes.Both,
             Child = new OsuSpriteText { Text = c.ToString(), Font = getTextFont() },
         };
+
+        protected virtual FontUsage Font => OsuFont.GetFont(size: FontSize);
 
         protected override Caret CreateCaret() => caret = new OsuCaret
         {

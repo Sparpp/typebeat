@@ -225,7 +225,9 @@ namespace typebeat.Game
         public readonly Bindable<Dictionary<ModType, IReadOnlyList<Mod>>> AvailableMods = new Bindable<Dictionary<ModType, IReadOnlyList<Mod>>>(new Dictionary<ModType, IReadOnlyList<Mod>>());
 
         private BeatmapDifficultyCache difficultyCache;
+
         private IBeatmapUpdater beatmapUpdater;
+        private OnlineAssetCachingStore onlineAssetStore;
 
         private UserLookupCache userCache;
         private BeatmapLookupCache beatmapCache;
@@ -322,6 +324,8 @@ namespace typebeat.Game
             var onlineStore = CreateOnlineStore();
             largeStore.AddTextureSource(Host.CreateTextureLoaderStore(onlineStore is TrustedDomainOnlineStore trusted ? new LoopbackAwareStore(trusted) : onlineStore));
             dependencies.Cache(largeStore);
+
+            dependencies.Cache(onlineAssetStore = new OnlineAssetCachingStore(Host, realm, CreateEndpoints()));
 
             dependencies.CacheAs(LocalConfig);
             dependencies.CacheAs<IGameplaySettings>(LocalConfig);
@@ -812,6 +816,8 @@ namespace typebeat.Game
             LocalConfig?.Dispose();
 
             beatmapUpdater?.Dispose();
+
+            onlineAssetStore?.Dispose();
 
             realm?.Dispose();
 
