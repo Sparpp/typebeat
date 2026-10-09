@@ -10,9 +10,11 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using osu.Framework.Allocation;
+using osu.Framework.Bindables;
 using osu.Framework.Graphics;
 using osu.Framework.Platform;
 using typebeat.Game.Beatmaps;
+using typebeat.Game.Online.API;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Screens.ImportLyrics;
 
@@ -21,19 +23,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
     /// <summary>
     /// DI adapter bridging the shell's <see cref="ILyricMapImporter"/> seam to the static
     /// <see cref="LyricMapImporter"/> core. Owns the concerns the core cannot reach on its own: the
-    /// ruleset-scoped <see cref="TypeBeatRulesetSetting.LyricLabPath"/> override and the game's
-    /// runtime location (start directories for aligner discovery). A <see cref="Component"/> so it
-    /// can resolve the ruleset config cache; typebeat.Desktop caches it and adds it to the hierarchy.
+    /// ruleset-scoped <see cref="TypeBeatRulesetSetting.LyricLabPath"/> override, the game's
+    /// runtime location (start directories for aligner discovery), and the API session behind the
+    /// server aligner (<see cref="RemoteAlignClient"/>). A <see cref="Component"/> so it can resolve
+    /// the ruleset config cache; typebeat.Desktop caches it and adds it to the hierarchy.
     ///
-    /// There is no remote seam any more: the server-side aligner is retired, so the ladder is the
-    /// LOCAL aligner then the LRC line stamps, identically in a dev and a deployed build (the older
-    /// shape withheld the remote rung from dev builds off <c>IsDeployedBuild</c>, which is now moot).
+    /// <para>The server aligner (backlog 413) is offered to an import only when the import screen's
+    /// opt-in asks for it, in a dev build and a deployed one alike: it is the player's choice now,
+    /// not a fallback the build decides on. Otherwise the ladder is the LOCAL aligner, used whenever
+    /// it is installed, then the LRC line stamps. The editor's re-align stays local-only.</para>
     ///
     /// Also implements <see cref="ILocalAlignerManager"/>: installing the local auto-aligner into
     /// the game's DATA directory (so its multi-GB environment survives Velopack updates, which
-    /// replace the application directory wholesale) and gating the local path behind
-    /// <see cref="TypeBeatRulesetSetting.LocalAlignerEnabled"/>, a gate that stays open while that
-    /// switch is hidden (see <see cref="LocalAlignerEnabled"/>).
+    /// replace the application directory wholesale).
     /// </summary>
     public partial class LyricMapImportService : Component, ILyricMapImporter, ILocalAlignerManager
     {
@@ -49,30 +51,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         [Resolved(CanBeNull = true)]
         private Storage? storage { get; set; }
 
+        [Resolved(CanBeNull = true)]
+        private IAPIProvider? api { get; set; }
+
         public (string Artist, string Title) GuessArtistTitle(string audioPath) => LyricMapImporter.GuessArtistTitle(audioPath);
 
         public Task<LyricImportResult> BuildOszAsync(
             string audioPath, string? lyricsPath, string artist, string title,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment, BeatmapLanguage language,
-            AlignerVocalMode vocalMode = AlignerVocalMode.Aligned)
+            AlignerVocalMode vocalMode = AlignerVocalMode.Aligned, bool useServerAligner = false)
             => language == BeatmapLanguage.Unspecified
                 ? Task.FromResult(LyricImportResult.Fail("select a language before importing"))
-                : LyricMapImporter.BuildOszAsync(audioPath, lyricsPath, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token,
+                : LyricMapImporter.BuildOszAsync(audioPath, lyricsPath, artist, title, effectiveConfiguredPath(), startDirectories(), progress, token,
                     useAutomaticAlignment, language: language.ToCanonicalName(), highQualityAlignment: HighQualityAlignment(config()), vocalMode: vocalMode,
-                    requiredAlignerVersion: ShippedVersion);
+                    requiredAlignerVersion: ShippedVersion, remoteAlign: useServerAligner ? ServerAligner(api) : null);
 
         public Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true, string? language = null,
             AlignerVocalMode vocalMode = AlignerVocalMode.Aligned)
-            => LyricMapImporter.ProduceTimingJsonAsync(audioPath, lyricsContent, artist, title, effectiveConfiguredPath(), effectiveStartDirectories(), progress, token, useAutomaticAlignment,
+            => LyricMapImporter.ProduceTimingJsonAsync(audioPath, lyricsContent, artist, title, effectiveConfiguredPath(), startDirectories(), progress, token, useAutomaticAlignment,
                 language, HighQualityAlignment(config()), vocalMode, requiredAlignerVersion: ShippedVersion);
+
+        public Bindable<bool>? ServerAlignerPreference => config()?.GetBindable<bool>(TypeBeatRulesetSetting.UseServerAligner);
+
+        /// <summary>
+        /// The server rung for an import that opted in (backlog 413). Never null once asked for: with
+        /// no API session to send it on the job fails with the sign-in message, which is the truth,
+        /// rather than the import quietly running locally instead. Static over an explicit provider
+        /// so a test can drive it.
+        /// </summary>
+        internal static RemoteAligner ServerAligner(IAPIProvider? api)
+            => (request, progress, token) => api == null
+                ? Task.FromResult(RemoteAlignOutcome.Fail(RemoteAlignClient.SIGN_IN_REQUIRED))
+                : RemoteAlignClient.AlignAsync(api, request, progress, token);
 
         /// <summary>
         /// Whether an import runs the aligner at its full tier. Read at the start of each import,
-        /// so a change in Settings applies to the next one. Off when there is no config to read,
-        /// the opposite of <see cref="localAlignerEnabled"/>'s fallback on purpose: a missing config
-        /// must never make every import four times slower. Static over an explicit config so a test
+        /// so a change in Settings applies to the next one. Off when there is no config to read: a
+        /// missing config must never make every import four times slower. Static over an explicit config so a test
         /// can pin the setting's effect without resolving this component.
         /// </summary>
         internal static bool HighQualityAlignment(TypeBeatRulesetConfigManager? config)
@@ -91,31 +108,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             }
         }
 
-        private bool localAlignerEnabled() => LocalAlignerEnabled(config());
-
         /// <summary>
-        /// Whether the import path may use an installed local aligner. While the switch is hidden
-        /// (<see cref="TypeBeatRulesetConfigManager.LOCAL_ALIGNER_TOGGLE_SURFACED"/>, backlog 381) this is
-        /// always true: being installed is the opt-in, and a stored <c>False</c> left by an older
-        /// install is ignored rather than migrated, so the row survives for a returning hosted aligner
-        /// but cannot strand a player with an aligner that never runs and a failure telling them to
-        /// install it. With the switch surfaced, the stored value is honoured and a missing config
-        /// reads as on. Static over an explicit config so a test can pin both arms.
-        /// </summary>
-        internal static bool LocalAlignerEnabled(TypeBeatRulesetConfigManager? config,
-                                                 bool toggleSurfaced = TypeBeatRulesetConfigManager.LOCAL_ALIGNER_TOGGLE_SURFACED)
-            => !toggleSurfaced || (config?.Get<bool>(TypeBeatRulesetSetting.LocalAlignerEnabled) ?? true);
-
-        /// <summary>
-        /// The configured lyriclab path for import runs; null when the local aligner is switched
-        /// off, which (together with empty start directories) makes discovery find nothing and the
-        /// pipeline go straight to the LRC line-stamp fallback.
+        /// The configured lyriclab path for import runs: the explicit setting, else the managed
+        /// install when it exists, else null (discovery then walks up from the start directories).
+        /// There is no switch in front of it any more (backlog 413 deleted the hidden "use local
+        /// auto-aligner" one): an installed aligner is used unless the import opted in to the server.
         /// </summary>
         private string? effectiveConfiguredPath()
         {
-            if (!localAlignerEnabled())
-                return null;
-
             string? configured = config()?.Get<string>(TypeBeatRulesetSetting.LyricLabPath);
 
             if (!string.IsNullOrWhiteSpace(configured))
@@ -125,9 +125,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             string? managed = managedInstallDir();
             return managed != null && LyricMapImporter.IsLyricLabDir(managed) ? managed : null;
         }
-
-        private IEnumerable<string> effectiveStartDirectories()
-            => localAlignerEnabled() ? startDirectories() : Array.Empty<string>();
 
         /// <summary>
         /// Where directory discovery starts walking up from: next to the running assembly (deployed
@@ -158,20 +155,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
         /// <summary>The directory an alignment run would actually use, or null.</summary>
         private string? resolvedAlignerDir()
-            => LyricMapImporter.ResolveLyricLabDir(effectiveConfiguredPathIgnoringEnable(), startDirectories());
-
-        // Install state must be reportable whatever the (currently hidden) "use local aligner"
-        // switch holds, so the settings button reads the install itself, never the switch.
-        private string? effectiveConfiguredPathIgnoringEnable()
-        {
-            string? configured = config()?.Get<string>(TypeBeatRulesetSetting.LyricLabPath);
-
-            if (!string.IsNullOrWhiteSpace(configured))
-                return configured;
-
-            string? managed = managedInstallDir();
-            return managed != null && LyricMapImporter.IsLyricLabDir(managed) ? managed : null;
-        }
+            => LyricMapImporter.ResolveLyricLabDir(effectiveConfiguredPath(), startDirectories());
 
         public bool IsInstalled
         {
@@ -353,9 +337,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             if (!result.Success)
                 return result;
 
-            // Point the importer at the managed install and make sure the local path is active.
+            // Point the importer at the managed install.
             config()?.SetValue(TypeBeatRulesetSetting.LyricLabPath, target);
-            config()?.SetValue(TypeBeatRulesetSetting.LocalAlignerEnabled, true);
 
             return result;
         }

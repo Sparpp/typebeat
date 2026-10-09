@@ -81,9 +81,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         /// <summary>
-        /// No aligner installed: the whole run IS the line stamps. This replaces the old server-run
-        /// transcript (upload, queue wait, remote separation), which no import can produce now that
-        /// server-side alignment is retired. The timing step is instant, so nothing narrates a wait.
+        /// No aligner installed and the server not opted in to: the whole run IS the line stamps. The
+        /// timing step is instant, so nothing narrates a wait.
         /// </summary>
         [Test]
         public void TestLineStampOnlyRun()
@@ -102,6 +101,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 "packaging map",
                 "importing beatmap",
             }));
+        }
+
+        /// <summary>
+        /// A server aligner run (backlog 413): the upload, the queue wait with its position as a note
+        /// that follows the queue, then ONE row for the server's run, whose note names the step the
+        /// server's aligner is on. The server's own log lines never grow local-stage rows.
+        /// </summary>
+        [Test]
+        public void TestServerRun()
+        {
+            AddStep("report an upload and a queue wait", () => report(
+                "starting import",
+                ImportProgressParser.SERVER_UPLOADING,
+                ImportProgressParser.SERVER_UPLOADING + " 50%",
+                ImportProgressParser.ServerQueueLine(3)));
+
+            AddAssert("waiting row notes the position", () => display.NoteFor(ImportStage.WaitingForServer), () => Is.EqualTo("position 3 in the queue"));
+
+            AddStep("move up the queue", () => report(ImportProgressParser.ServerQueueLine(1)));
+            AddAssert("the note follows the queue", () => display.NoteFor(ImportStage.WaitingForServer), () => Is.EqualTo("next in the queue"));
+
+            AddStep("report the server's run", () => report(
+                ImportProgressParser.ServerProgressLine(null),
+                ImportProgressParser.ServerProgressLine("[12:34:57] separation: running demucs (htdemucs) on cpu ..."),
+                ImportProgressParser.ServerProgressLine("[12:35:41] emissions: chunk 7/31 frames=1490"),
+                ImportProgressParser.ServerProgressLine("done"),
+                "packaging map",
+                "importing beatmap"));
+
+            AddAssert("server steps lead the run", () => labels(), () => Is.EqualTo(new[]
+            {
+                "preparing",
+                "uploading to the server",
+                "waiting for the server",
+                "aligning on the server",
+                "packaging map",
+                "importing beatmap",
+            }));
+
+            AddAssert("the server row notes the server's step", () => display.NoteFor(ImportStage.ServerAligning), () => Is.EqualTo("aligning lyrics"));
         }
 
         [Test]

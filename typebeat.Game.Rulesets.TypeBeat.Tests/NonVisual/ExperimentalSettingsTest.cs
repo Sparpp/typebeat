@@ -41,7 +41,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// <summary>
         /// Everything still on trial in the section, in source order: the sync metric (backlog 251 put
         /// it behind a switch) and the local auto-aligner's high-accuracy tier (its on/off switch
-        /// was hidden by backlog 381, so it must NOT be listed). Pinned by their
+        /// was hidden by backlog 381 and deleted by backlog 413, so it must NOT be listed). Pinned by their
         /// labels because that is the only thing a player sees: the bindables behind them deliberately
         /// did not move (Realm keys stored rows by enum member name), so nothing else here would
         /// notice a control quietly going missing.
@@ -72,7 +72,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                     "Colour typed-letter bars by judgement",
                     "Red screen edges before forced line changes",
                     "High-accuracy alignment (about 4x slower per import)",
-                }), "backlog 381 hid the 'Use local auto-aligner' switch: the install is the opt-in");
+                }), "backlog 413 deleted the 'Use local auto-aligner' switch: the install is the opt-in");
 
                 var reveal = controls.OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormDropdown<PaceBarRevealMode>>().Single();
                 Assert.That(reveal.Current.Value, Is.EqualTo(PaceBarRevealMode.Off));
@@ -133,38 +133,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// Backlog 381: the local-aligner switch is hidden, not deleted. With the surfacing flag
-        /// on, the row comes back in its old place (between the sync metric and the high-accuracy
-        /// tier) still bound to the same setting, so a returning hosted aligner only has to flip
-        /// <see cref="TypeBeatRulesetConfigManager.LOCAL_ALIGNER_TOGGLE_SURFACED"/>.
+        /// Backlog 413: the "use local auto-aligner" switch backlog 381 hid is deleted for good. A player
+        /// opts IN to the server aligner on the import screen instead, so Settings carries no switch of
+        /// either kind: no local-aligner row, and no server-aligner row either.
         /// </summary>
         [Test]
-        public void TheLocalAlignerSwitchIsHiddenButComesBackWithItsFlag()
+        public void ThereIsNoAlignerSwitchInSettings()
         {
             var ruleset = new TypeBeatRuleset();
             var subsection = (TypeBeatExperimentalSettingsSubsection)ruleset.CreateExperimentalSettings()!;
 
             using (var config = new TypeBeatRulesetConfigManager(null, ruleset.RulesetInfo))
             {
-                var hidden = subsection.BuildControls(config).OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>();
-                Assert.That(hidden.Select(c => c.Caption.ToString()), Does.Not.Contain(TypeBeatExperimentalSettingsSubsection.LOCAL_ALIGNER_CAPTION));
+                var captions = subsection.BuildControls(config).OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().Select(c => c.Caption.ToString()).ToArray();
 
-                var surfaced = subsection.BuildControls(config, showLocalAlignerToggle: true).OfType<SettingsItemV2>().Select(c => c.Control).OfType<FormCheckBox>().ToArray();
-
-                Assert.That(surfaced.Select(c => c.Caption.ToString()), Is.EqualTo(new[]
-                {
-                    "Show sync metric",
-                    "Colour typed-letter bars by judgement",
-                    "Red screen edges before forced line changes",
-                    TypeBeatExperimentalSettingsSubsection.LOCAL_ALIGNER_CAPTION,
-                    TypeBeatExperimentalSettingsSubsection.HIGH_QUALITY_CAPTION,
-                }));
-
-                var toggle = surfaced.Single(c => c.Caption.ToString() == TypeBeatExperimentalSettingsSubsection.LOCAL_ALIGNER_CAPTION);
-                Assert.That(toggle.Current.Value, Is.True, "defaults on");
-
-                toggle.Current.Value = false;
-                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.LocalAlignerEnabled), Is.False, "still bound to the stored setting, not a copy");
+                Assert.That(captions, Does.Not.Contain("Use local auto-aligner"));
+                Assert.That(captions.Where(c => c.Contains("server", StringComparison.OrdinalIgnoreCase)), Is.Empty);
             }
         }
 

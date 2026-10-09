@@ -24,7 +24,8 @@ namespace typebeat.Game.Screens.ImportLyrics
     /// importing looks and sounds like submitting.
     ///
     /// Where submission knows its four steps up front, an import's route is decided as it runs
-    /// (the local aligner, or straight from the lyrics' line stamps), so rows are revealed as their
+    /// (the local aligner, the server aligner the player opted in to, or straight from the lyrics'
+    /// line stamps), so rows are revealed as their
     /// stage is first reached: entering a stage completes every row above it. Raw pipeline chatter
     /// is classified by <see cref="ImportProgressParser"/> and never rendered; unrecognised lines
     /// leave the current row alone rather than printing internals.
@@ -102,7 +103,18 @@ namespace typebeat.Game.Screens.ImportLyrics
 
             var update = ImportProgressParser.Parse(cleaned);
             enter(update.Stage ?? currentStage ?? ImportStage.Preparing, update.Progress);
+
+            // The queue position while waiting for the server, or the step the server's aligner is
+            // on: a note under the running row, never a row of its own.
+            if (update.Note != null && lastUnfinishedIndex() is int index and >= 0 && rows[index].Stage == currentStage)
+            {
+                rows[index].Note = update.Note;
+                rows[index].Drawable.SetProgressNote(update.Note);
+            }
         }
+
+        /// <summary>The note on the row for <paramref name="stage"/>, if it has one; for tests.</summary>
+        internal string? NoteFor(ImportStage stage) => rows.LastOrDefault(r => r.Stage == stage)?.Note;
 
         /// <summary>Marks the import finished: every outstanding row ticks over and the fanfare plays.</summary>
         public void Complete()
@@ -242,6 +254,7 @@ namespace typebeat.Game.Screens.ImportLyrics
 
             public bool Finished;
             public float? LastProgress;
+            public string? Note;
 
             public Row(ImportStage stage, SubmissionStageProgress drawable)
             {

@@ -92,41 +92,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         /// <summary>
-        /// Backlog 381: with the "use local auto-aligner" switch hidden, an installed aligner always
-        /// runs. A stored False left by an older install (the player who once switched it off) is
-        /// IGNORED, not migrated: the import path opens the gate anyway, and the stored value is left
-        /// exactly as it was so a surfaced switch would honour it again. Both arms pinned, plus the
-        /// shipped default, so flipping the flag back cannot silently strand anyone either.
-        /// </summary>
-        [Test]
-        public void HiddenLocalAlignerSwitchIgnoresAStoredFalseWithoutRewritingIt()
-        {
-            using (var config = new TypeBeatRulesetConfigManager(null, new TypeBeatRuleset().RulesetInfo))
-            {
-                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.LocalAlignerEnabled), Is.True, "the dormant setting defaults on");
-                Assert.That(LyricMapImportService.LocalAlignerEnabled(config), Is.True);
-
-                // An old install's stored opt-out.
-                config.SetValue(TypeBeatRulesetSetting.LocalAlignerEnabled, false);
-
-                Assert.That(LyricMapImportService.LocalAlignerEnabled(config), Is.True,
-                    "a hidden switch must not keep an installed aligner from running");
-                Assert.That(config.Get<bool>(TypeBeatRulesetSetting.LocalAlignerEnabled), Is.False,
-                    "the stored choice is kept for a returning hosted aligner, never rewritten");
-
-                // Surfaced again, the same stored row is honoured as it was left.
-                Assert.That(LyricMapImportService.LocalAlignerEnabled(config, toggleSurfaced: true), Is.False);
-
-                config.SetValue(TypeBeatRulesetSetting.LocalAlignerEnabled, true);
-                Assert.That(LyricMapImportService.LocalAlignerEnabled(config, toggleSurfaced: true), Is.True);
-            }
-
-            // No config to read (the service before the cache resolves) reads as on in both arms.
-            Assert.That(LyricMapImportService.LocalAlignerEnabled(null), Is.True);
-            Assert.That(LyricMapImportService.LocalAlignerEnabled(null, toggleSurfaced: true), Is.True);
-        }
-
-        /// <summary>
         /// The high-accuracy setting reaches the aligner as <c>--quality full</c>, and ONLY then: off
         /// (the default) adds no quality flag at all, so the run takes the script's own fast default.
         /// Walked from the setting itself through the service's read of it to the built command line,

@@ -71,20 +71,61 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             => Assert.That(ImportProgressParser.Parse(line).Stage, Is.Null);
 
         /// <summary>
-        /// The server-side aligner is retired, so no stage may promise one. An import now runs
-        /// entirely on this machine (the local aligner, else the lyrics' own line stamps), so there is
-        /// no upload step, no queue wait, and nothing on screen that names a server. This is the pin
-        /// that keeps a reinstated upload/wait pair from sneaking the old promise back into the UI.
+        /// Backlog 413 INVERTS the retirement pin (backlog 287's <c>TestNoStagePromisesAServer</c>, which
+        /// held while no import could reach a server): the server aligner is back as an opt-in, so
+        /// exactly three stages name it, the upload, the queue wait and the server's own run, and
+        /// every other stage still must not. A local run, or a line-stamped one, never says it is on a
+        /// server, and a server run never shows the local aligner's steps as rows of its own.
         /// </summary>
         [Test]
-        public void TestNoStagePromisesAServer()
+        public void TestOnlyTheServerStagesNameTheServer()
         {
+            var server = new[] { ImportStage.Uploading, ImportStage.WaitingForServer, ImportStage.ServerAligning };
+
             foreach (ImportStage stage in Enum.GetValues<ImportStage>())
             {
-                Assert.That(stage.ToString(), Does.Not.Contain("Server").IgnoreCase, "no stage names a server");
-                Assert.That(stage.ToString(), Does.Not.Contain("Upload").IgnoreCase, "nothing is uploaded by an import");
-                Assert.That(ImportProgressParser.LabelFor(stage), Does.Not.Contain("server").IgnoreCase, $"{stage}'s label names a server");
+                string label = ImportProgressParser.LabelFor(stage);
+
+                if (server.Contains(stage))
+                    Assert.That(label, Does.Contain("server"), $"{stage} is a server stage and should say so");
+                else
+                    Assert.That(label, Does.Not.Contain("server").IgnoreCase, $"{stage}'s label names a server");
             }
+
+            Assert.That(server.Select(ImportProgressParser.LabelFor), Is.EqualTo(new[] { "uploading to the server", "waiting for the server", "aligning on the server" }));
+        }
+
+        /// <summary>
+        /// The server aligner client's lines (backlog 413), produced by the very builders it uses: the
+        /// upload with its percentage, the queue position as a NOTE (never in the label, which may not
+        /// carry digits), and the server's own aligner log relayed under one prefix, so the server's
+        /// steps become the server row's note and bar rather than local-stage rows.
+        /// </summary>
+        [Test]
+        public void TestServerLines()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(ImportProgressParser.Parse(ImportProgressParser.SERVER_UPLOADING), Is.EqualTo(new ImportProgressUpdate(ImportStage.Uploading, null)));
+                Assert.That(ImportProgressParser.Parse(ImportProgressParser.SERVER_UPLOADING + " 45%"), Is.EqualTo(new ImportProgressUpdate(ImportStage.Uploading, 0.45f)));
+
+                Assert.That(ImportProgressParser.Parse(ImportProgressParser.ServerQueueLine(3)), Is.EqualTo(new ImportProgressUpdate(ImportStage.WaitingForServer, null, "position 3 in the queue")));
+                Assert.That(ImportProgressParser.Parse(ImportProgressParser.ServerQueueLine(1)), Is.EqualTo(new ImportProgressUpdate(ImportStage.WaitingForServer, null, "next in the queue")));
+                Assert.That(ImportProgressParser.Parse(ImportProgressParser.ServerQueueLine(null)), Is.EqualTo(new ImportProgressUpdate(ImportStage.WaitingForServer, null)));
+
+                Assert.That(ImportProgressParser.Parse(ImportProgressParser.ServerProgressLine(null)), Is.EqualTo(new ImportProgressUpdate(ImportStage.ServerAligning, null)));
+                Assert.That(ImportProgressParser.Parse(ImportProgressParser.ServerProgressLine("[12:34:57] separation: running demucs (htdemucs) on cpu ...")),
+                    Is.EqualTo(new ImportProgressUpdate(ImportStage.ServerAligning, null, "separating vocals")));
+                Assert.That(ImportProgressParser.Parse(ImportProgressParser.ServerProgressLine("[12:35:41] emissions: chunk 7/31 frames=1490")),
+                    Is.EqualTo(new ImportProgressUpdate(ImportStage.ServerAligning, 7f / 31f, "aligning lyrics")));
+                Assert.That(ImportProgressParser.Parse(ImportProgressParser.ServerProgressLine("[12:35:21] loading MMS_FA aligner model (first run downloads ~1.2 GB)...")),
+                    Is.EqualTo(new ImportProgressUpdate(ImportStage.ServerAligning, null, "loading model")));
+
+                // A failure the server relays mid-run is still the server's run, never the local
+                // aligner's hand-over to the line stamps.
+                Assert.That(ImportProgressParser.Parse(ImportProgressParser.ServerProgressLine("aligner unavailable (x), trying next option")).Stage, Is.EqualTo(ImportStage.ServerAligning));
+                Assert.That(ImportProgressParser.Parse(ImportProgressParser.ServerProgressLine("done")), Is.EqualTo(new ImportProgressUpdate(ImportStage.ServerAligning, null)));
+            });
         }
 
         /// <summary>

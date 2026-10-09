@@ -720,7 +720,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             string? configuredLyricLabPath, IEnumerable<string> startDirectories,
             Action<string> progress, CancellationToken token,
             bool useAutomaticAlignment = true, IAudioTrackExtractor? audioExtractor = null, string? language = null,
-            bool highQualityAlignment = false, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned, string? requiredAlignerVersion = null)
+            bool highQualityAlignment = false, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned, string? requiredAlignerVersion = null,
+            RemoteAligner? remoteAlign = null)
         {
             if (!File.Exists(audioPath))
                 return LyricImportResult.Fail($"audio file not found: {audioPath}");
@@ -789,7 +790,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             (LyricImportResult result, string? timing, string? vocalsStemSource) = await produceTimingJsonAsync(
                 effectiveAudioPath, lyricsContent, artist, title, configuredLyricLabPath, startDirectories, progress, token, useAutomaticAlignment,
-                language, highQualityAlignment, vocalMode, requiredAlignerVersion).ConfigureAwait(false);
+                language, highQualityAlignment, vocalMode, requiredAlignerVersion, remoteAlign).ConfigureAwait(false);
 
             if (!result.Success || timing == null)
                 return result;
@@ -829,9 +830,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// granularity). Never triggers the ~2 GB local bootstrap. The lyrics text is written to a
         /// temp file for the aligner and cleaned up.
         ///
-        /// <para>There is no third rung: the server-side aligner this ladder used to offload to is
-        /// retired, so the LOCAL install (Settings &gt; Experimental) is the only automatic path and
-        /// [mm:ss.xx] line stamps are the only other source of timing.</para>
+        /// <para>This entry point is LOCAL only: the editor's re-align uses it, and the server aligner
+        /// (backlog 413) is an opt-in of the import screen's <see cref="BuildOszAsync"/> alone.</para>
         ///
         /// <para>A TTML (<see cref="TtmlParser.LooksLikeTtml"/>) short-circuits the whole ladder:
         /// the file is already word-timed, so it is converted directly and neither the aligner nor
@@ -867,13 +867,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// one, null when it did not (no separation, an older aligner, or a non-aligner path). The
         /// stem is kept ONLY by the packaging import; the editor's in-place re-align drops it, since
         /// the map's folder is what an import writes and the editor does not own it.
+        ///
+        /// <para>THE LADDER, once automatic alignment is on and the lyrics need aligning (a TTML or a
+        /// word-stamped LRC short-circuits it): <paramref name="remoteAlign"/> set (the import opted
+        /// in to the server aligner, backlog 413) means the server, and ONLY the server, whatever is
+        /// installed here; else the local aligner when it is installed and the version this build
+        /// ships; else the line stamps. A failed server job fails the import with the server's own
+        /// reason rather than dropping silently to the local aligner or to the line stamps: the player
+        /// asked for word timing from the server.</para>
         /// </summary>
         private static async Task<(LyricImportResult Result, string? TimingJson, string? VocalsStemPath)> produceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
             string? configuredLyricLabPath, IEnumerable<string> startDirectories,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true,
             string? language = null, bool highQualityAlignment = false, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned,
-            string? requiredAlignerVersion = null)
+            string? requiredAlignerVersion = null, RemoteAligner? remoteAlign = null)
         {
             language ??= LyricOriginals.DetectLanguage(new[] { lyricsContent });
 
@@ -922,9 +930,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 return (LyricImportResult.Ok(string.Empty) with { Notice = clampNotice }, wordTiming, null);
             }
 
-            // Automatic alignment (the local aligner subprocess) is opt-in: off by default so an
-            // import uses the user's own line stamps without a slow multi-minute run. When off, jump
-            // straight to the LRC line-stamp path below.
+            // Automatic alignment (the local aligner subprocess, or the server aligner the import
+            // opted in to) is opt-in: off by default so an import uses the user's own line stamps
+            // without a slow multi-minute run. When off, jump straight to the LRC line-stamp path.
             if (!useAutomaticAlignment)
             {
                 progress("automatic alignment off, using your line timestamps");
@@ -939,6 +947,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
                 return synthesizeFromLrc(lyricsContent, progress, language);
             }
+
+            if (remoteAlign != null)
+                return await alignOnServerAsync(remoteAlign, audioPath, lyricsContent, artist, title, language, vocalMode, progress, token).ConfigureAwait(false);
 
             string? lyricLabDir = ResolveLyricLabDir(configuredLyricLabPath, startDirectories);
 
@@ -1016,10 +1027,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             bool needsRepair = lyricLabDir != null && EnvironmentNeedsRepair(lyricLabDir);
 
-            // LRC-only fallback: line-granularity timing straight from the line stamps, and the last
-            // rung now that server-side alignment is retired. With nothing to fall back on, the hint
-            // names the two things the user can actually do: install the local aligner, or stamp the
-            // lines. It no longer offers signing in, which bought alignment and now buys nothing.
+            // LRC-only fallback: line-granularity timing straight from the line stamps, the last rung.
+            // With nothing to fall back on, the hint names what the user can actually do: install the
+            // local aligner, opt in to the server aligner, or stamp the lines.
             if (!HasLineStamps(lyricsContent))
             {
                 return (LyricImportResult.Fail(NoFallbackFailureMessage(HasAnyLineStamp(lyricsContent), needsRepair, alignerFailure)), null, null);
@@ -1027,6 +1037,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             return synthesizeFromLrc(lyricsContent, progress, language);
         }
+
+        /// <summary>
+        /// The server rung (backlog 413): one job on the server aligner, its timing.json post-processed
+        /// exactly as a local run's is (freestyle flags, romanisation, import-time syllables). The
+        /// server never sends a vocals stem, so the map packages without one. Failure is the server's
+        /// own message and is final; cancellation reads as the cancelled import it is.
+        /// </summary>
+        private static async Task<(LyricImportResult Result, string? TimingJson, string? VocalsStemPath)> alignOnServerAsync(
+            RemoteAligner remoteAlign, string audioPath, string lyricsContent, string artist, string title, string? language,
+            AlignerVocalMode vocalMode, Action<string> progress, CancellationToken token)
+        {
+            RemoteAlignOutcome outcome;
+
+            try
+            {
+                outcome = await remoteAlign(ServerAlignRequest(audioPath, lyricsContent, artist, title, language, vocalMode), progress, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                return (LyricImportResult.Fail("import cancelled"), null, null);
+            }
+
+            if (!outcome.Success || outcome.TimingJson == null)
+                return (LyricImportResult.Fail(outcome.Error ?? "the server aligner failed"), null, null);
+
+            progress(ImportProgressParser.ServerProgressLine("done"));
+            return (LyricImportResult.Ok(string.Empty), ImportSyllables.ApplyToTimingJson(RomaniseLines(FlagFreestyleLines(outcome.TimingJson), language)), null);
+        }
+
+        /// <summary>
+        /// The server job for one import: the same choices the local command line carries
+        /// (<see cref="AlignerArguments"/>). The language is what <c>--lyrics-language</c> would get
+        /// (empty for none), and estimated vocals are asked for on the local rule's terms, only when
+        /// the lyrics carry a line stamp to pace from. The server picks the anchors itself
+        /// (<see cref="AlignerAnchorMode"/>) and always runs its default (fast) quality tier.
+        /// </summary>
+        public static RemoteAlignRequest ServerAlignRequest(string audioPath, string lyricsContent, string artist, string title, string? language, AlignerVocalMode vocalMode)
+            => new RemoteAlignRequest(audioPath, lyricsContent, artist, title, AlignerLyricsLanguage(language) ?? string.Empty,
+                vocalMode == AlignerVocalMode.Estimated && HasAnyLineStamp(lyricsContent) ? "estimated" : "aligned");
 
         /// <summary>
         /// Why the aligner in <paramref name="lyricLabDir"/> must not run under this build, as the

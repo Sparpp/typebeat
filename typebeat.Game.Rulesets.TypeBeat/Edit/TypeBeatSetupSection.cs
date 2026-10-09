@@ -451,6 +451,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 try
                 {
+                    // Local only: the server aligner (backlog 413) is an opt-in of the import screen,
+                    // and this re-align does not offer it.
                     var (result, timingJson) = await importer.ProduceTimingJsonAsync(
                         tempAudio, lyricsContent, artist, title,
                         reportProgress,
