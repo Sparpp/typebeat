@@ -55,6 +55,17 @@ Pipeline:
                        espeakng-loader) or missing weights fall back to version 9 with a
                        logged reason. Measured on the ranked-map corpus in
                        bench/altmodels (RESULTS.md, results/exp_*.md).
+       (version 11)    the fused path's espeak-ng start-up can no longer end the whole run.
+                       espeak reads its data dir through the narrow (ANSI) C API, so on Windows
+                       a data path with a non-ASCII character (an install under a user profile
+                       named José) sent it to the default compiled into the espeakng-loader
+                       wheel (D:/a/espeakng-loader/...) and then to C exit(1), which no except
+                       or finally survives, so version 9 never took over. espeak_data_path
+                       hands espeak an ASCII path (a versioned copy in a typebeat folder
+                       under %ProgramData% when its own is not) or raises first, and
+                       espeak_probe starts espeak in a child process before this one does,
+                       so any start-up failure is the usual logged fall back to version 9.
+                       Every output is unchanged.
   7. char spans -> syllables (authored hyphens first, else pyphen + naive
      fallback) -> words -> lines; end times extended through sustained
      voiced audio (RMS gate); a validator repairs/rejects impossible output
@@ -250,7 +261,7 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 
 # Bumped when the output of the same inputs changes. The game compares the shipped copy's
 # version with the installed one and offers a reinstall; `--version` prints it.
-ALIGNER_VERSION = "10"
+ALIGNER_VERSION = "11"
 
 SAMPLE_RATE = 16000
 FRAME_SAMPLES = 320          # wav2vec2 stride: 20 ms at 16 kHz
@@ -4174,6 +4185,117 @@ def self_test_dup() -> int:
     ])
 
 
+def self_test_espeak() -> int:
+    """Pins the version 11 espeak-ng start-up guards (standard library only): espeak_data_path's
+    decision order on scratch trees with an injected platform and cache root, and espeak_probe
+    turning a child that ends in os._exit(1) (what espeak's C exit(1) looks like from outside), or
+    hangs, into a RuntimeError, once per process and arguments."""
+    import tempfile
+
+    def outcome(fn):
+        try:
+            return fn()
+        except RuntimeError as exc:
+            return f"RuntimeError: {exc}"
+
+    def raises(fn):
+        got = outcome(fn)
+        return isinstance(got, str) and got.startswith("RuntimeError: ")
+
+    tmp = tempfile.mkdtemp(prefix="espeak-selftest-")
+    try:
+        def tree(*parts, phontab=True):
+            d = os.path.join(tmp, *parts)
+            os.makedirs(os.path.join(d, "voices"))
+            Path(d, "voices", "en").write_text("en", encoding="utf-8")
+            if phontab:
+                Path(d, "phontab").write_bytes(b"phontab")
+            return d
+
+        lab = tree("lab", "espeak-ng-data")
+        jose = tree("Jos\u00e9", "espeak-ng-data")
+        bare = tree("bare", "espeak-ng-data", phontab=False)
+        cache = os.path.join(tmp, "cache")
+        sub = os.path.join(cache, ESPEAK_CACHE_SUBDIR)
+        dest = os.path.join(sub, "espeak-ng-data-0.0.test")
+
+        def pick(src, root="", tag="0.0.test", windows=True):
+            return outcome(lambda: espeak_data_path(src, windows=windows, cache_root=root, tag=tag))
+
+        cases = [
+            ("ascii: is_ascii_path", (is_ascii_path("C:/lab/x"), is_ascii_path("C:/Jos\u00e9/x")), (True, False)),
+            ("not Windows: a non-ASCII path passes through", pick(jose, windows=False), jose),
+            ("no phontab: raises", raises(lambda: espeak_data_path(bare, windows=False)), True),
+            ("non-ASCII on Windows, no cache root: raises", raises(lambda: espeak_data_path(
+                jose, windows=True, cache_root="")), True),
+            ("non-ASCII cache root: raises before creating anything",
+             (raises(lambda: espeak_data_path(jose, windows=True, cache_root=os.path.join(tmp, "Jos\u00e9-cache"),
+                                              tag="t")),
+              os.path.exists(os.path.join(tmp, "Jos\u00e9-cache"))), (True, False)),
+        ]
+        # the cases below need an ASCII scratch dir (a profile named José has none under TEMP)
+        if resolves_ascii(tmp):
+            first = pick(jose, root=cache)
+            Path(dest, "marker").write_text("kept", encoding="utf-8")
+            again = pick(jose, root=cache)
+            stray = os.path.join(sub, "espeak-ng-data-s")
+            os.makedirs(stray)
+            Path(sub, "espeak-ng-data-f").write_text("a file where the copy goes", encoding="utf-8")
+            a_file = os.path.join(tmp, "a-file")
+            Path(a_file).write_text("x", encoding="utf-8")
+            cases += [
+                ("ascii: passes through on Windows", pick(lab), lab),
+                ("non-ASCII: copied to the cache", first, dest),
+                ("copy: the whole tree", Path(dest, "voices", "en").is_file(), True),
+                ("copy: reused, not copied again", (again, Path(dest, "marker").is_file()), (dest, True)),
+                ("copy: a stray tree without phontab is replaced",
+                 (pick(jose, root=cache, tag="s"), Path(stray, "phontab").is_file()), (stray, True)),
+                ("copy: a failed rename raises and leaves no temporary",
+                 (raises(lambda: espeak_data_path(jose, windows=True, cache_root=cache, tag="f")),
+                  [n for n in os.listdir(sub) if n.endswith(".tmp")]), (True, [])),
+                ("copy: a cache root that cannot be written raises",
+                 raises(lambda: espeak_data_path(jose, windows=True, cache_root=a_file, tag="t")), True),
+            ]
+            # an ASCII name that resolves to a non-ASCII dir (a junction; phonemizer resolves it)
+            link = os.path.join(tmp, "link")
+            try:
+                import _winapi
+                _winapi.CreateJunction(os.path.dirname(jose), link)
+            except Exception:
+                link = None
+            if link:
+                cases.append(("ASCII junction to a non-ASCII dir: copied",
+                               pick(os.path.join(link, "espeak-ng-data"), root=cache, tag="j"),
+                               os.path.join(sub, "espeak-ng-data-j")))
+
+        exits = [sys.executable, "-c", "import os, sys; sys.stderr.write('Error processing file phontab' + chr(10)); "
+                                       "sys.stderr.flush(); os._exit(1)"]
+        calls = os.path.join(tmp, "probe-calls.txt")
+        counted = [sys.executable, "-c", f"open({calls!r}, 'a').write('x'); import os; os._exit(1)"]
+        cases += [
+            ("probe: a passing child", outcome(lambda: espeak_probe("lib", "data", cmd=[sys.executable, "-c", "pass"])),
+             None),
+            ("probe: a child ending in exit(1) raises, naming the exit code and its last line",
+             outcome(lambda: espeak_probe("lib", "data", cmd=exits)),
+             "RuntimeError: espeak-ng failed its start-up check in a child process "
+             "(exit code 1: Error processing file phontab)"),
+            ("probe: a hung child raises",
+             outcome(lambda: espeak_probe("lib", "data", cmd=[sys.executable, "-c", "import time; time.sleep(30)"],
+                                          timeout=1.0)),
+             "RuntimeError: espeak-ng failed its start-up check in a child process (no answer within 1 s)"),
+            ("probe: once per process and arguments",
+             (raises(lambda: espeak_probe("lib", "data", cmd=counted)),
+              raises(lambda: espeak_probe("lib", "data", cmd=counted)),
+              Path(calls).read_text(encoding="utf-8")), (True, True, "x")),
+        ]
+        return _check_all("espeak", cases)
+    finally:
+        link = os.path.join(tmp, "link")
+        if os.path.isdir(link):
+            os.rmdir(link)          # the junction alone, never what it points at
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 # --------------------------------------------------------------------------
 # Version 10: the opt-in fused evidence path (--evidence fused)
 # --------------------------------------------------------------------------
@@ -4382,17 +4504,158 @@ def fused_normalise_word(word: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", w) if unicodedata.category(c) != "Mn")
 
 
+# --- espeak-ng start-up (version 11)
+#
+# espeak-ng opens its data dir through the narrow (ANSI) C file API. On Windows a data path with any
+# non-ASCII character (espeakng-loader installed under a user profile named José) therefore cannot
+# be read, espeak falls back to the default compiled into the espeakng-loader wheel (its CI build
+# dir, D:/a/espeakng-loader/...), and espeak_Initialize calls C exit(1) when phontab is not there
+# either: the process ends with no except or finally running, so fused_stage never fell back to
+# version 9. espeak_data_path hands espeak an ASCII path or raises before espeak is touched, and
+# espeak_probe starts espeak in a child process first, so any other exit inside espeak's start-up
+# is a RuntimeError (and the usual logged fall back) too. An 8.3 short name is no way round it:
+# phonemizer's EspeakWrapper resolves the data path it is given (pathlib's resolve), which turns a
+# short name back into the long one before espeak sees it.
+
+ESPEAK_CACHE_SUBDIR = "typebeat"    # the ASCII copy: <ProgramData>/typebeat/espeak-ng-data-<tag>
+ESPEAK_PROBE_TIMEOUT_S = 15.0       # a child Python, phonemizer's import and one word: about 1 s
+_ESPEAK_PROBES = {}                 # one probe per process and (library, data path, command)
+
+
+def is_ascii_path(path) -> bool:
+    return all(ord(c) < 128 for c in str(path))
+
+
+def resolves_ascii(path) -> bool:
+    """The path, and what it resolves to (what phonemizer hands espeak), are both ASCII."""
+    return is_ascii_path(path) and is_ascii_path(os.path.realpath(path))
+
+
+def espeak_data_tag(src: str) -> str:
+    """The ASCII copy's name tag: the espeakng-loader version (file-name safe), so an upgrade never
+    reads an older copy; without readable metadata, a hash of the source's phontab instead."""
+    try:
+        from importlib.metadata import version
+        tag = re.sub(r"[^A-Za-z0-9._-]", "_", version("espeakng-loader"))
+        if tag:
+            return tag
+    except Exception:
+        pass
+    import hashlib
+    with open(os.path.join(src, "phontab"), "rb") as f:
+        return "h" + hashlib.sha256(f.read()).hexdigest()[:16]
+
+
+def espeak_data_path(src=None, *, windows=None, cache_root=None, tag=None) -> str:
+    """The espeak-ng data dir to hand espeak, or a RuntimeError raised before espeak is touched.
+    In order, the first that applies:
+      1. src (default espeakng_loader.get_data_path()) without phontab: RuntimeError;
+      2. src itself, when the platform is not Windows or src resolves to an ASCII path;
+      3. a copy at <cache_root>/typebeat/espeak-ng-data-<tag> (cache_root default %ProgramData%,
+         tag default espeak_data_tag), only when cache_root is set and resolves to an ASCII path:
+         reused when its phontab exists, else copied once into a temporary sibling that is renamed
+         into place, so an interrupted or concurrent copy never leaves a half tree under the final
+         name;
+      4. RuntimeError.
+    The keyword arguments exist for the self-test."""
+    if src is None:
+        import espeakng_loader
+        src = espeakng_loader.get_data_path()
+    src = str(src)
+    windows = sys.platform == "win32" if windows is None else windows
+
+    def has_phontab(d):
+        return os.path.isfile(os.path.join(d, "phontab"))
+
+    if not has_phontab(src):
+        raise RuntimeError(f"the espeak-ng data has no phontab ({src})")
+    if not windows or resolves_ascii(src):
+        return src
+    root = os.environ.get("ProgramData", "") if cache_root is None else str(cache_root)
+    if not root or not resolves_ascii(root):
+        raise RuntimeError(f"the espeak-ng data path is not ASCII ({src}) and there is no ASCII folder "
+                           f"to copy it to (ProgramData: {root or 'unset'})")
+    dest = os.path.join(root, ESPEAK_CACHE_SUBDIR, f"espeak-ng-data-{tag or espeak_data_tag(src)}")
+    if has_phontab(dest):
+        return dest
+    tmp = f"{dest}.{os.getpid()}.tmp"
+    try:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.rmtree(tmp, ignore_errors=True)
+        shutil.copytree(src, tmp)
+        if os.path.isdir(dest) and not has_phontab(dest):   # not a copy this function made
+            shutil.rmtree(dest)
+        try:
+            os.rename(tmp, dest)
+        except OSError:
+            if not has_phontab(dest):  # unless a concurrent run renamed its own copy in first
+                raise
+    except OSError as exc:
+        raise RuntimeError(f"could not copy the espeak-ng data to an ASCII folder ({dest}: {exc})") from None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    if not has_phontab(dest):
+        raise RuntimeError(f"the espeak-ng data copy has no phontab ({dest})")
+    log(f"fused evidence: the espeak-ng data path is not ASCII, copied it to {dest}")
+    return dest
+
+
+_ESPEAK_PROBE_CODE = """\
+import sys
+from phonemizer.backend.espeak.wrapper import EspeakWrapper
+if sys.argv[1]:
+    EspeakWrapper.set_library(sys.argv[1])
+if sys.argv[2]:
+    EspeakWrapper.set_data_path(sys.argv[2])
+from phonemizer.backend import EspeakBackend
+from phonemizer.separator import Separator
+out = EspeakBackend("en-us", language_switch="remove-flags").phonemize(
+    ["hello"], separator=Separator(phone=";", word=" "), strip=True)
+sys.exit(0 if out and out[0].strip() else 3)
+"""
+
+
+def espeak_probe(library, data_path, *, cmd=None, timeout: float = ESPEAK_PROBE_TIMEOUT_S) -> None:
+    """Starts espeak-ng with this library and data dir (None: phonemizer's own default) and
+    phonemizes one word in a CHILD process; raises RuntimeError when the child exits non-zero or
+    does not answer within timeout seconds. espeak calls C exit() on some start-up failures, which
+    in this process would end the run with no except or finally running. Once per process and
+    arguments. cmd replaces the child's command line (the self-test)."""
+    key = (library, data_path, tuple(cmd) if cmd else None)
+    if key not in _ESPEAK_PROBES:
+        argv = list(cmd) if cmd else [sys.executable, "-c", _ESPEAK_PROBE_CODE, library or "", data_path or ""]
+        env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                               env=env, timeout=timeout)
+            tail = [s.strip() for s in f"{r.stdout}\n{r.stderr}".splitlines() if s.strip()]
+            err = None if r.returncode == 0 else f"exit code {r.returncode}" + (f": {tail[-1]}" if tail else "")
+        except subprocess.TimeoutExpired:
+            err = f"no answer within {timeout:g} s"
+        except OSError as exc:
+            err = f"could not start: {exc}"
+        _ESPEAK_PROBES[key] = err
+    if _ESPEAK_PROBES[key]:
+        raise RuntimeError(f"espeak-ng failed its start-up check in a child process ({_ESPEAK_PROBES[key]})")
+
+
 class QmulTokenizer:
     """English espeak IPA (phonemizer's EspeakBackend, en-us), one phone per QMUL inventory entry,
     an unknown phone -> the trained unk class. Raises ImportError when phonemizer or the espeak-ng
-    library (espeakng_loader, or PHONEMIZER_ESPEAK_LIBRARY) is missing."""
+    library (espeakng_loader, or PHONEMIZER_ESPEAK_LIBRARY) is missing, and RuntimeError when espeak
+    cannot be given an ASCII data path or fails its start-up in a child process (espeak_data_path,
+    espeak_probe), both before espeak is started in this process."""
 
     def __init__(self):
+        from phonemizer.backend.espeak.wrapper import EspeakWrapper
         if not os.environ.get("PHONEMIZER_ESPEAK_LIBRARY"):
             import espeakng_loader
-            from phonemizer.backend.espeak.wrapper import EspeakWrapper
-            EspeakWrapper.set_library(espeakng_loader.get_library_path())
-            EspeakWrapper.set_data_path(espeakng_loader.get_data_path())
+            library, data = espeakng_loader.get_library_path(), espeak_data_path()
+            espeak_probe(library, data)
+            EspeakWrapper.set_library(library)
+            EspeakWrapper.set_data_path(data)
+        else:
+            espeak_probe(None, None)
         from phonemizer.backend import EspeakBackend
         from phonemizer.punctuation import Punctuation
         from phonemizer.separator import Separator
@@ -5222,8 +5485,10 @@ if __name__ == "__main__":
         sys.exit(self_test_cache())
     if "--self-test-fused" in sys.argv:
         sys.exit(self_test_fused())
+    if "--self-test-espeak" in sys.argv:
+        sys.exit(self_test_espeak())
     if "--self-test" in sys.argv:
         sys.exit(max(self_test_syllables(), self_test_normalize(), self_test_sections(), self_test_garbage(),
                      self_test_even_letters(), self_test_estimated(), self_test_spacing(), self_test_late(), self_test_band(),
-                     self_test_dup(), self_test_cache(), self_test_fused()))
+                     self_test_dup(), self_test_cache(), self_test_fused(), self_test_espeak()))
     main()

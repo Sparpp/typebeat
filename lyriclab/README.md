@@ -189,6 +189,26 @@ reason. The weights are downloaded once from a pinned commit and checked by sha2
 effect and the evidence behind every choice: `bench/altmodels/RESULTS.md`. Shipping it in the
 game needs the steps in `bench/altmodels/PORTING.md`.
 
+### espeak-ng on a non-ASCII path (version 11)
+
+Version 11 changes no output; it keeps the fused path's espeak-ng start-up from ending the
+whole run. espeak-ng reads its data dir through the narrow (ANSI) C file API, so on Windows
+an `espeakng-loader` installed under a path with any non-ASCII character (a user profile named
+José) could not be read: espeak fell back to the data path compiled into the wheel
+(`D:/a/espeakng-loader/...`, its CI build dir) and then called C `exit(1)`, which no Python
+`except` survives, so the run failed instead of falling back to version 9. Now:
+
+- `espeak_data_path` hands espeak the wheel's own data dir when it (and what it resolves to) is
+  ASCII, else a copy at `%ProgramData%\typebeat\espeak-ng-data-<espeakng-loader version>`
+  (about 18 MB, made once per version into a temporary sibling renamed into place, reused
+  after), else raises before espeak is touched. An 8.3 short name does not work: phonemizer
+  resolves the data path it is given, which turns a short name back into the long one.
+- `espeak_probe` first starts espeak and phonemizes one word in a child Python (15 s timeout,
+  once per process), so any other `exit()` inside espeak's start-up is a logged fall back too.
+
+`--self-test-espeak` pins both. The "version 11 candidates" in `bench/altmodels/RESULTS.md`
+are version 12 candidates now.
+
 ## Evidence tiers (`--quality`, version 6)
 
 One MMS_FA pass guesses at what it barely hears, and its chunk seams every

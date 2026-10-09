@@ -326,6 +326,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             });
         }
 
+        /// <summary>
+        /// The vendored aligner starts espeak-ng only through its guards (backlog 412): an ASCII data
+        /// path, else a RuntimeError, and a child-process probe first, so a player whose install path
+        /// is not ASCII falls back to version 9 instead of losing the whole run to espeak's C exit(1).
+        /// Version 11 or newer, so the version gate offers every installed version 10 the update.
+        /// </summary>
+        [Test]
+        public void ShippedAlignerGuardsEspeakStartup()
+        {
+            string lab = Path.GetDirectoryName(vendoredAlignerScript())!;
+            string script = File.ReadAllText(vendoredAlignerScript());
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(int.TryParse(LyricMapImporter.ReadAlignerVersion(lab), out int version) && version >= 11, Is.True,
+                    $"vendored aligner version {LyricMapImporter.ReadAlignerVersion(lab)}");
+                Assert.That(script, Does.Contain("library, data = espeakng_loader.get_library_path(), espeak_data_path()"));
+                Assert.That(script, Does.Contain("espeak_probe(library, data)"));
+                Assert.That(script, Does.Not.Contain("EspeakWrapper.set_data_path(espeakng_loader.get_data_path())"));
+            });
+        }
+
         /// <summary>The vendored aligner script, the closest <c>lyriclab/align_lyrics.py</c> above the test directory.</summary>
         private static string vendoredAlignerScript()
         {
