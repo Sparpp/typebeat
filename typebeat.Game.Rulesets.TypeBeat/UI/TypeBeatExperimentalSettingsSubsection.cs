@@ -23,12 +23,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// The ruleset's half of Settings > Experimental: the settings that work but are not settled.
     /// What is left here is the sync metric, put back on screen for anyone who wants it (backlog 251
     /// took it off by default and cut it out of the grade), and the local auto-aligner, an opt-in
-    /// multi-gigabyte install that times imported lyrics word-by-word on this machine. Since the
-    /// server-side aligner was retired that install is the ONLY automatic timing path in the game,
-    /// so this is where an import without [mm:ss.xx] line stamps is sent. The install IS the opt-in:
-    /// the separate "use local auto-aligner" switch was hidden by backlog 381 (see
-    /// <see cref="TypeBeatRulesetConfigManager.LOCAL_ALIGNER_TOGGLE_SURFACED"/>), leaving the
-    /// high-accuracy tier and the install button.
+    /// multi-gigabyte install that times imported lyrics word-by-word on this machine. The install IS
+    /// the opt-in: an installed aligner runs for every import with automatic alignment on, unless
+    /// that import ticks the import screen's own "use server aligner" box (backlog 413, the opt-in
+    /// for a player who cannot run the local one). The "use local auto-aligner" switch backlog 381
+    /// hid is deleted for good, leaving the high-accuracy tier and the install button.
     ///
     /// <para>The four typing behaviours that used to sit above them - space skipping a word, manual
     /// newlines, the space error dot and the syllable markers - have SETTLED, so their controls now
@@ -69,13 +68,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                                                 + "correctly on stamped lyrics, and about two more when the lyrics have no timestamps at all. On a 6-core CPU "
                                                 + "a 4 minute song takes roughly 2 minutes to import instead of 30 seconds; on a 2-core machine, about twice that.";
 
-        /// <summary>
-        /// Caption of the hidden <see cref="TypeBeatRulesetSetting.LocalAlignerEnabled"/> switch, kept
-        /// for when <see cref="TypeBeatRulesetConfigManager.LOCAL_ALIGNER_TOGGLE_SURFACED"/> brings it
-        /// back. Public so the settings test can assert its absence by the same string.
-        /// </summary>
-        public const string LOCAL_ALIGNER_CAPTION = "Use local auto-aligner";
-
         public TypeBeatExperimentalSettingsSubsection(Ruleset ruleset)
             : base(ruleset)
         {
@@ -92,14 +84,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// Builds this subsection's controls against an explicitly supplied config, rather than
         /// reading <see cref="RulesetSettingsSubsection.Config"/> directly, so a headless test can
         /// pin the set of controls without standing up a game host to run the dependency loader.
-        ///
-        /// <para><paramref name="showLocalAlignerToggle"/> defaults to
-        /// <see cref="TypeBeatRulesetConfigManager.LOCAL_ALIGNER_TOGGLE_SURFACED"/> (off since backlog
-        /// 381: installing the aligner is the opt-in, uninstalling it the opt-out). It is a parameter
-        /// rather than a read of the constant so the test can pin that the row, and only the row,
-        /// comes back when the flag does.</para>
         /// </summary>
-        internal Drawable[] BuildControls(TypeBeatRulesetConfigManager config, bool showLocalAlignerToggle = TypeBeatRulesetConfigManager.LOCAL_ALIGNER_TOGGLE_SURFACED)
+        internal Drawable[] BuildControls(TypeBeatRulesetConfigManager config)
         {
             var controls = new List<Drawable>
             {
@@ -129,20 +115,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     Current = config.GetBindable<bool>(TypeBeatRulesetSetting.LinePushWarningEdges),
                 }),
                 CreateSubsectionHeader("Lyric timing"),
-            };
-
-            if (showLocalAlignerToggle)
-            {
-                controls.Add(new SettingsItemV2(new FormCheckBox
-                {
-                    Caption = LOCAL_ALIGNER_CAPTION,
-                    HintText = "Time imported lyrics word by word on this machine when the aligner is installed. Turn off to use imported line timestamps. Nothing is uploaded.",
-                    Current = config.GetBindable<bool>(TypeBeatRulesetSetting.LocalAlignerEnabled),
-                }));
-            }
-
-            controls.AddRange(new Drawable[]
-            {
                 new SettingsItemV2(new FormCheckBox
                 {
                     Caption = HIGH_QUALITY_CAPTION,
@@ -161,7 +133,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         Action = startInstall,
                     },
                 },
-            });
+            };
 
             // ILocalAlignerManager is registered CanBeNull (headless scenes have no installer), so
             // the button has to be dead rather than throwing when nothing can service the click.
@@ -220,7 +192,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                            + "Reinstalling puts this build's scripts in place, clears the other aligner's caches and adds any packages they need; the environment already downloaded is kept, so it usually takes under a minute.";
             }
 
-            return "One-time download of the AI that times lyrics word-by-word on your own machine, recommended if you have a good GPU. Installs the GPU build automatically when an NVIDIA card is detected.";
+            return "One-time download of the AI that times lyrics word-by-word on your own machine, recommended if you have a good GPU. Installs the GPU build automatically when an NVIDIA card is detected. "
+                   + "If your machine cannot run it, sign in and tick \"use server aligner\" on the import screen instead.";
         }
 
         private partial class InstallAlignerButton : FormButton, IHasTooltip, IFilterable

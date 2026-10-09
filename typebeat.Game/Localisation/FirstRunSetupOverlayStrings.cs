@@ -67,7 +67,7 @@ type!beat is a very configurable game, and diving straight into the settings can
 
 The aligner runs on your own machine: install it once and every map you import gets word-by-word timing, with nothing uploaded anywhere. It is a one-time download of roughly 2 GB (about 2.5 GB for the GPU build), and it is worth installing if you have a decent graphics card or a fast CPU.
 
-Without it, imports are timed from the [mm:ss.xx] line stamps in your lyrics file: instant, but only accurate to the start of each line. You can always install the aligner later from Settings.");
+If your machine cannot run it, sign in and tick ""use server aligner"" on the import screen: the type!beat server times the words for you instead, though jobs queue up and can take a few minutes per song. Without either, imports are timed from the [mm:ss.xx] line stamps in your lyrics file: instant, but only accurate to the start of each line. You can always install the aligner later from Settings.");
 
         /// <summary>
         /// "Install the local auto-aligner"
