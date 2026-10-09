@@ -9,7 +9,8 @@ produces:
   <stem>.words.lrc      enhanced LRC with <mm:ss.xx> word tags
   <stem>.syllables.lrc  enhanced LRC with syllable-level tags (normalized text)
   <stem>.timing.json    rich word+syllable timings with confidence scores
-  vocals.wav            the isolated vocals stem, 16 kHz mono (a --no-separate run writes none)
+  vocals.wav            the isolated vocals stem, 16 kHz mono (a --no-separate run writes none;
+                        a --separate-only run writes nothing else)
   report.txt            QC report (vs reference times if available)
 
 Pipeline:
@@ -66,6 +67,11 @@ Pipeline:
                        espeak_probe starts espeak in a child process before this one does,
                        so any start-up failure is the usual logged fall back to version 9.
                        Every output is unchanged.
+       --separate-only (version 11, no lyrics needed) stops after step 3: the song is decoded
+                       and separated exactly as an alignment run does it (same work-dir caches,
+                       --demucs-model, --device, --threads) and only vocals.wav is written to
+                       -o, no timing. The game runs it for imports that never align (line or
+                       word stamps, TTML, blank maps), so the editor still gets a vocals waveform.
   7. char spans -> syllables (authored hyphens first, else pyphen + naive
      fallback) -> words -> lines; end times extended through sustained
      voiced audio (RMS gate); a validator repairs/rejects impossible output
@@ -733,6 +739,29 @@ def separate_vocals(song_wav: Path, work: Path, model: str, device: str,
     if not out.exists():
         raise RuntimeError(f"demucs did not produce {out}")
     return out
+
+
+def audio_stem(audio: Path) -> str:
+    """The per-song name of every work-dir file and output (the audio file's own name, made safe)."""
+    return re.sub(r"[^\w\-]+", "_", audio.stem).strip("_")
+
+
+def separate_only(audio: Path, out_dir: Path, work: Path, model: str, device: str, threads: int,
+                  *, to_wav=ensure_wav, separate=separate_vocals, persist=persist_vocals_stem) -> Path:
+    """--separate-only: the audio half of an alignment run and nothing else (backlog 414). The song
+    is decoded, separated and resampled exactly as main() does it, through the same work-dir file
+    names, so a later alignment of the same song reuses this separation and the other way round; the
+    16 kHz mono stem is then written to out_dir as vocals.wav. No lyrics, no model, no timing.json.
+    The three steps are parameters only so the self-test can run the plumbing without ffmpeg or
+    Demucs. Returns the written stem."""
+    stem = audio_stem(audio)
+    work.mkdir(parents=True, exist_ok=True)
+    song_wav = work / f"{stem}.wav"
+    to_wav(audio, song_wav, 44100, 2)
+    vocals = separate(song_wav, work, model, device, threads)
+    wav16 = work / f"{stem}.vocals16k.wav"
+    to_wav(vocals, wav16, SAMPLE_RATE, 1)
+    return persist(out_dir, stem, wav16)
 
 
 # --------------------------------------------------------------------------
@@ -4185,6 +4214,67 @@ def self_test_dup() -> int:
     ])
 
 
+def self_test_separate_only() -> int:
+    """Pins --separate-only (backlog 414, standard library only): the lyrics argument is optional
+    under the flag and required without it, and separate_only's file plumbing, with ffmpeg and
+    Demucs replaced by stubs that record their calls: the alignment run's work-dir names, the
+    model, device and thread count passed through, vocals.wav in the output dir carrying the 16 kHz
+    file's bytes, and nothing else written there."""
+    import contextlib
+    import io
+    import tempfile
+
+    def parsed(argv):
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                args = parse_arguments(argv)
+        except SystemExit as exc:
+            return f"exit {exc.code}: " + ("lyrics" if "lyrics file is required" in err.getvalue() else
+                                            "contradiction" if "contradict" in err.getvalue() else err.getvalue())
+        return (args.separate_only, None if args.lyrics is None else args.lyrics.name,
+                None if args.out_dir is None else args.out_dir.name)
+
+    tmp = Path(tempfile.mkdtemp(prefix="separate-selftest-"))
+    try:
+        audio = tmp / "My Song (live).mp3"
+        audio.write_bytes(b"mp3")
+        work, out = tmp / "work", tmp / "out"
+        calls = []
+
+        def to_wav(src, dst, rate, channels):
+            calls.append(("wav", Path(src).name, Path(dst).name, rate, channels))
+            Path(dst).parent.mkdir(parents=True, exist_ok=True)
+            Path(dst).write_bytes(f"{rate}/{channels}".encode())
+
+        def separate(song_wav, work_dir, model, device, threads):
+            calls.append(("demucs", Path(song_wav).name, Path(work_dir) == work, model, device, threads))
+            vocals = Path(work_dir) / model / Path(song_wav).stem / "vocals.wav"
+            vocals.parent.mkdir(parents=True, exist_ok=True)
+            vocals.write_bytes(b"44.1k vocals")
+            return vocals
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            written = separate_only(audio, out, work, "htdemucs", "cuda", 3, to_wav=to_wav, separate=separate)
+        return _check_all("separate only", [
+            ("args: no lyrics under the flag", parsed(["a.mp3", "--separate-only", "-o", "x"]), (True, None, "x")),
+            ("args: lyrics still accepted under the flag", parsed(["a.mp3", "l.txt", "--separate-only"]), (True, "l.txt", None)),
+            ("args: an ordinary run is unchanged", parsed(["a.mp3", "l.txt", "-o", "x"]), (False, "l.txt", "x")),
+            ("args: no lyrics without the flag is an error", parsed(["a.mp3", "-o", "x"]), "exit 2: lyrics"),
+            ("args: --no-separate contradicts it", parsed(["a.mp3", "--separate-only", "--no-separate"]),
+             "exit 2: contradiction"),
+            ("plumbing: the alignment run's steps and names", calls, [
+                ("wav", "My Song (live).mp3", "My_Song_live.wav", 44100, 2),
+                ("demucs", "My_Song_live.wav", True, "htdemucs", "cuda", 3),
+                ("wav", "vocals.wav", "My_Song_live.vocals16k.wav", SAMPLE_RATE, 1)]),
+            ("plumbing: vocals.wav in the output dir", written, out / "vocals.wav"),
+            ("plumbing: it is the 16 kHz mono file", written.read_bytes(), f"{SAMPLE_RATE}/1".encode()),
+            ("plumbing: nothing else written (no timing)", sorted(p.name for p in out.iterdir()), ["vocals.wav"]),
+        ])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def self_test_espeak() -> int:
     """Pins the version 11 espeak-ng start-up guards (standard library only): espeak_data_path's
     decision order on scratch trees with an injected platform and cache root, and espeak_probe
@@ -5238,10 +5328,17 @@ def fused_stage(plan: dict, lines, mode: str, ref_end_ms, wav, audio_key: str, w
 # Main
 # --------------------------------------------------------------------------
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
+    """The command line. A function of its own so the self-test can parse with it."""
     ap = argparse.ArgumentParser(description="Word/syllable-level lyric aligner")
     ap.add_argument("audio", type=Path)
-    ap.add_argument("lyrics", type=Path)
+    # Required for every run but --separate-only (parse_arguments enforces it): argparse cannot
+    # make a positional conditional on a flag.
+    ap.add_argument("lyrics", type=Path, nargs="?", default=None)
+    ap.add_argument("--separate-only", action="store_true",
+                    help="only separate the vocals: write the isolated stem to -o as vocals.wav and "
+                         "stop (no lyrics needed, no timing written; the separation is cached in the "
+                         "work dir like an alignment run's)")
     ap.add_argument("-o", "--out-dir", type=Path, default=None)
     ap.add_argument("--work-dir", type=Path, default=Path(__file__).parent / "work")
     ap.add_argument("--no-separate", action="store_true",
@@ -5291,11 +5388,50 @@ def main():
                     help="with --evidence fused: also write every path's word starts (version 9, QMUL, "
                          "ep, their combination before and after the guard) and each path's word and "
                          "syllable spans to this JSON file, for benchmarking; the outputs are unchanged")
-    args = ap.parse_args()
+    return ap
+
+
+def parse_arguments(argv=None):
+    """Parses a command line (sys.argv when None). The lyrics file is required unless
+    --separate-only is given, and --separate-only refuses --no-separate (there would be nothing to
+    do); both are argparse errors, exit code 2, like any other bad command line."""
+    ap = build_parser()
+    args = ap.parse_args(argv)
+    if args.separate_only and args.no_separate:
+        ap.error("--separate-only and --no-separate contradict each other")
+    if not args.separate_only and args.lyrics is None:
+        ap.error("the lyrics file is required (only --separate-only runs without one)")
+    return args
+
+
+def resolve_device(device: str, torch) -> str:
+    """The game passes --device cuda for an environment built with the CUDA wheels; a driver that
+    went missing since must not cost the player the import, so the run falls back to the CPU."""
+    if str(device).startswith("cuda") and not torch.cuda.is_available():
+        log(f"WARNING: --device {device} was requested but torch sees no usable CUDA device "
+            f"here (torch {torch.__version__}); running on the CPU instead")
+        return "cpu"
+    return device
+
+
+def main():
+    args = parse_arguments()
 
     t0 = time.time()
     os.environ["OMP_NUM_THREADS"] = str(args.threads)
     os.environ["MKL_NUM_THREADS"] = str(args.threads)
+
+    if args.separate_only:
+        # Demucs runs in a child process, but on the device this one decides, so the CUDA check is
+        # the alignment run's. torch is in every environment that can run Demucs at all.
+        import torch
+        args.device = resolve_device(args.device, torch)
+        if args.lyrics is not None:
+            log("separate-only: the lyrics file is not read")
+        out_dir = args.out_dir or (Path(__file__).parent / "out" / audio_stem(args.audio))
+        separate_only(args.audio, out_dir, args.work_dir, args.demucs_model, args.device, args.threads)
+        log(f"separation: done, total time: {time.time() - t0:.0f}s")
+        return
 
     import soundfile as sf
     import torch
@@ -5309,14 +5445,9 @@ def main():
         pyphen_dic = None
 
     torch.set_num_threads(args.threads)
-    if str(args.device).startswith("cuda") and not torch.cuda.is_available():
-        # The game passes --device cuda for an environment built with the CUDA wheels; a driver
-        # that went missing since must not cost the player the import, so run on the CPU instead.
-        log(f"WARNING: --device {args.device} was requested but torch sees no usable CUDA device "
-            f"here (torch {torch.__version__}); running on the CPU instead")
-        args.device = "cpu"
+    args.device = resolve_device(args.device, torch)
 
-    stem = re.sub(r"[^\w\-]+", "_", args.audio.stem).strip("_")
+    stem = audio_stem(args.audio)
     out_dir = args.out_dir or (Path(__file__).parent / "out" / stem)
     work = args.work_dir
     work.mkdir(parents=True, exist_ok=True)
@@ -5487,8 +5618,10 @@ if __name__ == "__main__":
         sys.exit(self_test_fused())
     if "--self-test-espeak" in sys.argv:
         sys.exit(self_test_espeak())
+    if "--self-test-separate" in sys.argv:
+        sys.exit(self_test_separate_only())
     if "--self-test" in sys.argv:
         sys.exit(max(self_test_syllables(), self_test_normalize(), self_test_sections(), self_test_garbage(),
                      self_test_even_letters(), self_test_estimated(), self_test_spacing(), self_test_late(), self_test_band(),
-                     self_test_dup(), self_test_cache(), self_test_fused(), self_test_espeak()))
+                     self_test_dup(), self_test_cache(), self_test_fused(), self_test_espeak(), self_test_separate_only()))
     main()

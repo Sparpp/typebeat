@@ -50,6 +50,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             {
                 dummyApi.SetState(APIState.Online);
                 importer.Preference.Value = false;
+                importer.IsolatePreference.Value = true;
                 importer.CallQueue.Clear();
             });
         }
@@ -283,6 +284,137 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("server asked for exactly when ticked", () => importer.Calls.Single().Server, () => Is.EqualTo(ticked));
         }
 
+        // -----------------------------------------------------------------------------------------
+        // Backlog 414: the isolate vocals choice
+        // -----------------------------------------------------------------------------------------
+
+        [Test]
+        public void IsolateVocalsIsTickedByDefaultAndLabelledAsSpecified()
+        {
+            loadImportScreen(installed: true);
+
+            AddAssert("label constant", () => ImportLyricsScreen.ISOLATE_VOCALS_LABEL,
+                () => Is.EqualTo("isolate vocals (for the editor's vocals waveform, adds a few minutes)"));
+            AddAssert("label shown", () => string.Concat(screen.IsolateVocals.ChildrenOfType<SpriteText>().Select(t => t.Text.ToString())).Replace(" ", string.Empty),
+                () => Is.EqualTo(ImportLyricsScreen.ISOLATE_VOCALS_LABEL.Replace(" ", string.Empty)));
+            AddAssert("ticked", () => screen.IsolateVocals.Current.Value);
+            AddAssert("enabled", () => !screen.IsolateVocals.Current.Disabled);
+            AddAssert("no tooltip", () => string.IsNullOrEmpty(isolateTooltipOf(screen)));
+        }
+
+        /// <summary>The player's untick is remembered, and comes back unticked on the next visit.</summary>
+        [Test]
+        public void IsolateVocalsRemembersThePlayersChoice()
+        {
+            loadImportScreen(installed: true);
+
+            AddStep("untick it", () => screen.IsolateVocals.Current.Value = false);
+            AddAssert("remembered", () => !importer.IsolatePreference.Value);
+
+            loadImportScreen(installed: true);
+            AddAssert("comes back unticked", () => !screen.IsolateVocals.Current.Value && !screen.IsolateVocals.Current.Disabled);
+
+            AddStep("tick it again", () => screen.IsolateVocals.Current.Value = true);
+            AddAssert("remembered ticked", () => importer.IsolatePreference.Value);
+        }
+
+        /// <summary>
+        /// The separation is the local aligner's, so the choice greys out for the reasons automatic
+        /// alignment's local path does (backlogs 409/410), with the local reason alone as its tooltip,
+        /// and the stored choice is left alone.
+        /// </summary>
+        [TestCase(false, false, "9", ImportLyricsScreen.ALIGNER_NOT_INSTALLED_TOOLTIP)]
+        [TestCase(false, true, "9", ImportLyricsScreen.ALIGNER_NEEDS_REPAIR_TOOLTIP)]
+        [TestCase(true, false, "8", "Your local auto-aligner is out of date (v8, this version of type!beat needs v9). "
+                                    + "Update it in Settings > Experimental > Lyric timing to use automatic alignment.")]
+        public void IsolateVocalsGreysOutWithTheLocalReason(bool installed, bool needsRepair, string installedVersion, string expectedTooltip)
+        {
+            loadImportScreen(installed, needsRepair, installedVersion, "9");
+
+            AddAssert("disabled", () => screen.IsolateVocals.Current.Disabled);
+            AddAssert("unticked", () => !screen.IsolateVocals.Current.Value);
+            AddAssert("tooltip is the local reason", () => isolateTooltipOf(screen), () => Is.EqualTo(expectedTooltip));
+            AddAssert("the stored choice is left alone", () => importer.IsolatePreference.Value);
+
+            // The server aligner sends no stem, so ticking it changes nothing here.
+            AddStep("tick the server choice", () => screen.ServerAligner.Current.Value = true);
+            AddAssert("still disabled and unticked", () => screen.IsolateVocals.Current.Disabled && !screen.IsolateVocals.Current.Value);
+
+            // Fixing the aligner and coming back brings the remembered choice back.
+            coverAndResume(() =>
+            {
+                aligner.IsInstalled = true;
+                aligner.NeedsRepair = false;
+                aligner.InstalledVersion = "9";
+            });
+            AddAssert("enabled and ticked again", () => !screen.IsolateVocals.Current.Disabled && screen.IsolateVocals.Current.Value);
+            AddAssert("tooltip cleared", () => string.IsNullOrEmpty(isolateTooltipOf(screen)));
+        }
+
+        /// <summary>
+        /// Local automatic alignment isolates the vocals anyway: the choice shows ticked and disabled
+        /// with a tooltip saying so, without touching the stored choice, which comes back when
+        /// automatic alignment goes off or moves to the server.
+        /// </summary>
+        [Test]
+        public void LocalAutomaticAlignmentShowsIsolateVocalsTickedAndDisabled()
+        {
+            AddStep("untick remembered", () => importer.IsolatePreference.Value = false);
+            loadImportScreen(installed: true);
+            AddAssert("unticked from the stored choice", () => !screen.IsolateVocals.Current.Value);
+
+            AddStep("tick automatic alignment", () => screen.AutomaticAlignment.Current.Value = true);
+            AddAssert("ticked and disabled", () => screen.IsolateVocals.Current.Value && screen.IsolateVocals.Current.Disabled);
+            AddAssert("tooltip says alignment isolates them", () => isolateTooltipOf(screen), () => Is.EqualTo("Automatic alignment already isolates the vocals."));
+            AddAssert("the stored choice is left alone", () => !importer.IsolatePreference.Value);
+
+            AddStep("tick the server choice", () => screen.ServerAligner.Current.Value = true);
+            AddAssert("the server leaves it the player's choice", () => !screen.IsolateVocals.Current.Value && !screen.IsolateVocals.Current.Disabled);
+            AddAssert("no tooltip", () => string.IsNullOrEmpty(isolateTooltipOf(screen)));
+
+            AddStep("untick the server choice", () => screen.ServerAligner.Current.Value = false);
+            AddAssert("local again: ticked and disabled", () => screen.IsolateVocals.Current.Value && screen.IsolateVocals.Current.Disabled);
+
+            AddStep("untick automatic alignment", () => screen.AutomaticAlignment.Current.Value = false);
+            AddAssert("back to the stored choice", () => !screen.IsolateVocals.Current.Value && !screen.IsolateVocals.Current.Disabled);
+            AddAssert("still not overwritten", () => !importer.IsolatePreference.Value);
+        }
+
+        /// <summary>The import asks for isolated vocals exactly as the choice is shown.</summary>
+        [TestCase(true)]
+        [TestCase(false)]
+        public void TheImportPassesTheIsolateVocalsChoice(bool ticked)
+        {
+            loadImportScreen(installed: true);
+
+            AddStep("add audio and choose a language", () =>
+            {
+                screen.AddFiles(new[] { "Some Artist - A Song.mp3" });
+                screen.Language.Value = BeatmapLanguage.English;
+            });
+            AddStep($"isolate vocals: {ticked}", () => screen.IsolateVocals.Current.Value = ticked);
+            AddStep("import", () => screen.ImportButton.TriggerClick());
+            AddUntilStep("importer called", () => importer.Calls.Count, () => Is.EqualTo(1));
+            AddAssert("no automatic alignment", () => !importer.Calls.Single().Automatic);
+            AddAssert("isolation asked for exactly when ticked", () => importer.Calls.Single().Isolate, () => Is.EqualTo(ticked));
+        }
+
+        [Test]
+        public void AGreyedOutIsolateVocalsChoiceIsNotAskedFor()
+        {
+            loadImportScreen(installed: false);
+
+            AddStep("add audio and choose a language", () =>
+            {
+                screen.AddFiles(new[] { "Some Artist - A Song.mp3" });
+                screen.Language.Value = BeatmapLanguage.English;
+            });
+            AddStep("import", () => screen.ImportButton.TriggerClick());
+            AddUntilStep("importer called", () => importer.Calls.Count, () => Is.EqualTo(1));
+            AddAssert("isolation not asked for", () => !importer.Calls.Single().Isolate);
+            AddAssert("the stored choice survives", () => importer.IsolatePreference.Value);
+        }
+
         private void coverAndResume(Action change)
         {
             BlankScreen? cover = null;
@@ -297,6 +429,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         private static string tooltipOf(ImportLyricsScreen screen) => ((IHasTooltip)screen.AutomaticAlignment).TooltipText.ToString();
 
         private static string serverTooltipOf(ImportLyricsScreen screen) => ((IHasTooltip)screen.ServerAligner).TooltipText.ToString();
+
+        private static string isolateTooltipOf(ImportLyricsScreen screen) => ((IHasTooltip)screen.IsolateVocals).TooltipText.ToString();
 
         /// <summary>The visible tooltip's text, spaces dropped (the text flow lays each word out as its own sprite).</summary>
         private string shownTooltipText()
@@ -326,19 +460,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         {
             public readonly Bindable<bool> Preference = new Bindable<bool>();
 
-            public readonly System.Collections.Concurrent.ConcurrentQueue<(bool Automatic, bool Server)> CallQueue = new System.Collections.Concurrent.ConcurrentQueue<(bool Automatic, bool Server)>();
+            /// <summary>The remembered isolate vocals choice (backlog 414), on by default like the real setting.</summary>
+            public readonly Bindable<bool> IsolatePreference = new Bindable<bool>(true);
 
-            public System.Collections.Generic.List<(bool Automatic, bool Server)> Calls => CallQueue.ToList();
+            public readonly System.Collections.Concurrent.ConcurrentQueue<(bool Automatic, bool Server, bool Isolate)> CallQueue =
+                new System.Collections.Concurrent.ConcurrentQueue<(bool Automatic, bool Server, bool Isolate)>();
+
+            public System.Collections.Generic.List<(bool Automatic, bool Server, bool Isolate)> Calls => CallQueue.ToList();
 
             public Bindable<bool>? ServerAlignerPreference => Preference.GetBoundCopy();
+
+            public Bindable<bool>? IsolateVocalsPreference => IsolatePreference.GetBoundCopy();
 
             public (string Artist, string Title) GuessArtistTitle(string audioPath) => ("Some Artist", "A Song");
 
             public Task<LyricImportResult> BuildOszAsync(string audioPath, string? lyricsPath, string artist, string title, Action<string> progress, CancellationToken token,
                                                          bool useAutomaticAlignment, BeatmapLanguage language, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned,
-                                                         bool useServerAligner = false)
+                                                         bool useServerAligner = false, bool isolateVocals = false)
             {
-                CallQueue.Enqueue((useAutomaticAlignment, useServerAligner));
+                CallQueue.Enqueue((useAutomaticAlignment, useServerAligner, isolateVocals));
                 return Task.FromResult(LyricImportResult.Fail("stub"));
             }
 

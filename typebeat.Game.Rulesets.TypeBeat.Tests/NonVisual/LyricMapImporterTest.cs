@@ -1933,6 +1933,393 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         #endregion
 
+        #region Isolated vocals without alignment (backlog 414)
+
+        private const string separate_only_version = "11";
+
+        /// <summary>
+        /// A stand-in for the <c>--separate-only</c> subprocess: records each start info's file name,
+        /// working directory, arguments and UTF-8 environment, then does what <c>behaviour</c>
+        /// says. "ok" writes a vocals.wav into the -o dir and exits 0 as the script does; "silent" exits
+        /// 0 having written nothing; "fail" exits 1 with a traceback tail; "throw" cannot start;
+        /// "cancel" fires <c>cancel</c> mid-run.
+        /// </summary>
+        private sealed class FakeSeparation
+        {
+            public readonly List<(string FileName, string WorkingDirectory, List<string> Args, string? Utf8)> Runs = new List<(string, string, List<string>, string?)>();
+
+            private readonly string behaviour;
+            private readonly CancellationTokenSource? cancel;
+
+            public FakeSeparation(string behaviour = "ok", CancellationTokenSource? cancel = null)
+            {
+                this.behaviour = behaviour;
+                this.cancel = cancel;
+            }
+
+            public Task<(int ExitCode, string Tail)> Run(System.Diagnostics.ProcessStartInfo psi, Action<string> progress, CancellationToken token)
+            {
+                var args = psi.ArgumentList.ToList();
+                Runs.Add((psi.FileName, psi.WorkingDirectory, args, psi.Environment.TryGetValue("PYTHONUTF8", out string? utf8) ? utf8 : null));
+
+                switch (behaviour)
+                {
+                    case "ok":
+                        string outDir = args[args.IndexOf("-o") + 1];
+                        Directory.CreateDirectory(outDir);
+                        File.WriteAllBytes(Path.Combine(outDir, VocalsStem.WAV_FILENAME), new byte[] { 0x52, 0x49, 0x46, 0x46 });
+                        progress("[12:00:00] separation: running demucs (htdemucs) on cpu ...");
+                        return Task.FromResult((0, string.Empty));
+
+                    case "silent":
+                        return Task.FromResult((0, string.Empty));
+
+                    case "fail":
+                        return Task.FromResult((1, "Traceback (most recent call last): | RuntimeError: demucs did not produce vocals.wav"));
+
+                    case "cancel":
+                        cancel!.Cancel();
+                        return Task.FromResult((int.MinValue, string.Empty));
+
+                    default:
+                        throw new System.ComponentModel.Win32Exception("The system cannot find the file specified.");
+                }
+            }
+        }
+
+        private string writeStampedLyrics()
+        {
+            string lyricsPath = Path.Combine(tempRoot, "lyrics.lrc");
+            File.WriteAllText(lyricsPath, fully_stamped_lyrics);
+            return lyricsPath;
+        }
+
+        private static bool carriesAStem(LyricImportResult result)
+        {
+            using var archive = ZipFile.OpenRead(result.OszPath!);
+            return archive.GetEntry(VocalsStem.WAV_FILENAME) != null || archive.GetEntry(VocalsStem.OGG_FILENAME) != null;
+        }
+
+        private static void deleteOszDir(LyricImportResult result)
+        {
+            try
+            {
+                if (result.OszPath != null)
+                    Directory.Delete(Path.GetDirectoryName(result.OszPath)!, true);
+            }
+            catch
+            {
+                // best effort
+            }
+        }
+
+        /// <summary>
+        /// A line-stamped import with automatic alignment off never aligns, so it never had a stem.
+        /// Asked to isolate the vocals with a usable version 11 aligner installed, it runs the script's
+        /// --separate-only mode with the venv's python in UTF-8 and packages the stem it wrote.
+        /// </summary>
+        [Test]
+        public async Task ALineStampedImportSeparatesTheVocalsWhenAsked()
+        {
+            string lab = makeInstalledLab(separate_only_version);
+            string audioPath = writeFakeAudio();
+            var separation = new FakeSeparation();
+            var lines = new List<string>();
+
+            var result = await LyricMapImporter.BuildOszAsync(audioPath, writeStampedLyrics(), "Some Artist", "Some Song", lab, Array.Empty<string>(),
+                line => { lock (lines) lines.Add(line); }, CancellationToken.None, useAutomaticAlignment: false, requiredAlignerVersion: separate_only_version,
+                isolateVocals: true, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
+
+            try
+            {
+                Assert.That(result.Success, Is.True, result.Error);
+                Assert.That(separation.Runs, Has.Count.EqualTo(1));
+
+                var run = separation.Runs.Single();
+                string expectedOut = Path.Combine(lab, "out", "typebeat_vocals_Some Artist - Some Song");
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(run.FileName, Is.EqualTo(LyricMapImporter.PythonExeFor(lab)));
+                    Assert.That(run.WorkingDirectory, Is.EqualTo(lab));
+                    Assert.That(run.Args, Is.EqualTo(new[] { "align_lyrics.py", audioPath, "--separate-only", "-o", expectedOut }));
+                    Assert.That(run.Utf8, Is.EqualTo("1"), "demucs prints the track's name, which must not kill a non-Latin title");
+                    Assert.That(carriesAStem(result), Is.True, "the separated stem is packaged");
+                    Assert.That(result.Notice, Is.Null);
+                });
+
+                lock (lines)
+                {
+                    Assert.That(lines, Has.Member(LyricMapImporter.SEPARATING_VOCALS_PROGRESS));
+                    Assert.That(lines.IndexOf(LyricMapImporter.SEPARATING_VOCALS_PROGRESS), Is.LessThan(lines.IndexOf("packaging map")), "separated before packaging");
+                }
+            }
+            finally
+            {
+                deleteOszDir(result);
+            }
+        }
+
+        [Test]
+        public void SeparateOnlyArgumentsCarryTheGpuDevice()
+        {
+            string lab = makeInstalledLab(separate_only_version);
+            File.WriteAllText(Path.Combine(lab, LyricMapImporter.DEVICE_MARKER_FILE), "cuda\n");
+
+            Assert.That(LyricMapImporter.SeparateOnlyArguments(lab, "song.mp3", "out"),
+                Is.EqualTo(new[] { "align_lyrics.py", "song.mp3", "--separate-only", "-o", "out", "--device", "cuda" }));
+        }
+
+        [Test]
+        public async Task IsolationOffNeverSeparates()
+        {
+            string lab = makeInstalledLab(separate_only_version);
+            var separation = new FakeSeparation();
+
+            var result = await LyricMapImporter.BuildOszAsync(writeFakeAudio(), writeStampedLyrics(), "Some Artist", "Some Song", lab, Array.Empty<string>(),
+                _ => { }, CancellationToken.None, useAutomaticAlignment: false, requiredAlignerVersion: separate_only_version,
+                isolateVocals: false, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
+
+            try
+            {
+                Assert.That(result.Success, Is.True, result.Error);
+                Assert.That(separation.Runs, Is.Empty);
+                Assert.That(carriesAStem(result), Is.False);
+                Assert.That(result.Notice, Is.Null);
+            }
+            finally
+            {
+                deleteOszDir(result);
+            }
+        }
+
+        /// <summary>
+        /// The other imports that never align: a blank map (audio only) and a word-stamped LRC (which
+        /// short-circuits the ladder even with automatic alignment on) separate too.
+        /// </summary>
+        [TestCase(null)]
+        [TestCase(enhanced_lyrics)]
+        public async Task BlankAndWordStampedImportsSeparateTooWhenAsked(string? lyrics)
+        {
+            string lab = makeInstalledLab(separate_only_version);
+            string? lyricsPath = null;
+
+            if (lyrics != null)
+            {
+                lyricsPath = Path.Combine(tempRoot, "words.lrc");
+                File.WriteAllText(lyricsPath, lyrics);
+            }
+
+            var separation = new FakeSeparation();
+
+            var result = await LyricMapImporter.BuildOszAsync(writeFakeAudio(), lyricsPath, "Some Artist", "Some Song", lab, Array.Empty<string>(),
+                _ => { }, CancellationToken.None, useAutomaticAlignment: true, requiredAlignerVersion: separate_only_version,
+                isolateVocals: true, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
+
+            try
+            {
+                Assert.That(result.Success, Is.True, result.Error);
+                Assert.That(separation.Runs, Has.Count.EqualTo(1));
+                Assert.That(carriesAStem(result), Is.True);
+            }
+            finally
+            {
+                deleteOszDir(result);
+            }
+        }
+
+        /// <summary>The server aligner sends no stem, so a usable local aligner separates one after it.</summary>
+        [Test]
+        public async Task AServerAlignedImportSeparatesLocallyWhenItCan()
+        {
+            string lab = makeInstalledLab(separate_only_version);
+            var separation = new FakeSeparation();
+            const string server_timing = "{\"version\":2,\"song_end_ms\":8000,\"lines\":[{\"text\":\"hello world\",\"start_ms\":1000,\"end_ms\":3000}]}";
+
+            var result = await LyricMapImporter.BuildOszAsync(writeFakeAudio(), writeStampedLyrics(), "Some Artist", "Some Song", lab, Array.Empty<string>(),
+                _ => { }, CancellationToken.None, useAutomaticAlignment: true, requiredAlignerVersion: separate_only_version,
+                remoteAlign: (_, _, _) => Task.FromResult(RemoteAlignOutcome.Ok(server_timing)),
+                isolateVocals: true, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
+
+            try
+            {
+                Assert.That(result.Success, Is.True, result.Error);
+                Assert.That(separation.Runs, Has.Count.EqualTo(1));
+                Assert.That(carriesAStem(result), Is.True);
+            }
+            finally
+            {
+                deleteOszDir(result);
+            }
+        }
+
+        /// <summary>
+        /// Without a usable local aligner (an older one without --separate-only, a version this build
+        /// does not ship, none at all) the separation never runs and the import still succeeds, its
+        /// notice saying why the map has no stem.
+        /// </summary>
+        [TestCase("10", "10", "vocals not isolated: the local auto-aligner is v10, which cannot isolate the vocals on its own (v11 or newer needed). "
+                              + "Update it in Settings > Experimental > Lyric timing.")]
+        [TestCase("9", "11", "vocals not isolated: your local auto-aligner is out of date (v9, this version of type!beat needs v11). "
+                             + "Update it in Settings > Experimental > Lyric timing to use automatic alignment.")]
+        [TestCase(null, "11", "vocals not isolated: " + LyricMapImporter.VOCALS_NEED_THE_ALIGNER)]
+        public async Task WithoutAUsableAlignerTheImportSucceedsWithoutAStem(string? installedVersion, string requiredVersion, string expectedNotice)
+        {
+            string? lab = installedVersion == null ? null : makeInstalledLab(installedVersion);
+            var separation = new FakeSeparation();
+            var lines = new List<string>();
+
+            var result = await LyricMapImporter.BuildOszAsync(writeFakeAudio(), writeStampedLyrics(), "Some Artist", "Some Song", lab, Array.Empty<string>(),
+                line => { lock (lines) lines.Add(line); }, CancellationToken.None, useAutomaticAlignment: false, requiredAlignerVersion: requiredVersion,
+                isolateVocals: true, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
+
+            try
+            {
+                Assert.That(result.Success, Is.True, result.Error);
+                Assert.That(separation.Runs, Is.Empty, "never run");
+                Assert.That(carriesAStem(result), Is.False);
+                Assert.That(result.Notice, Is.EqualTo(expectedNotice));
+
+                lock (lines)
+                    Assert.That(lines, Has.Member(expectedNotice), "said as the import goes too");
+            }
+            finally
+            {
+                deleteOszDir(result);
+            }
+        }
+
+        [Test]
+        public void AnIncompleteInstallIsNotUsedForIsolation()
+        {
+            string lab = makeLab();
+            File.WriteAllText(Path.Combine(lab, "align_lyrics.py"), $"ALIGNER_VERSION = \"{separate_only_version}\"\n");
+            writeFakePython(lab, importsLoad: true);
+
+            Assert.That(LyricMapImporter.VocalsIsolationRefusal(lab, separate_only_version), Is.EqualTo(LyricMapImporter.VOCALS_NEED_A_REPAIR));
+            File.WriteAllText(LyricMapImporter.SetupSentinelFor(lab), "python=3.11\n");
+            Assert.That(LyricMapImporter.VocalsIsolationRefusal(lab, separate_only_version), Is.Null);
+            Assert.That(LyricMapImporter.VocalsIsolationRefusal(lab, null), Is.Null, "no required version checks only the flag's own version");
+        }
+
+        /// <summary>A separation that fails, writes nothing, or cannot start is never fatal: the map packages without a stem and says why.</summary>
+        [TestCase("fail", "vocals not isolated: the separation failed (RuntimeError: demucs did not produce vocals.wav).")]
+        [TestCase("silent", "vocals not isolated: the separation wrote no vocals.wav.")]
+        [TestCase("throw", "vocals not isolated: the separation could not run (The system cannot find the file specified.).")]
+        public async Task AFailedSeparationImportsWithoutAStem(string behaviour, string expectedNotice)
+        {
+            string lab = makeInstalledLab(separate_only_version);
+            var separation = new FakeSeparation(behaviour);
+
+            var result = await LyricMapImporter.BuildOszAsync(writeFakeAudio(), writeStampedLyrics(), "Some Artist", "Some Song", lab, Array.Empty<string>(),
+                _ => { }, CancellationToken.None, useAutomaticAlignment: false, requiredAlignerVersion: separate_only_version,
+                isolateVocals: true, vocalsSeparationRunner: separation.Run).ConfigureAwait(false);
+
+            try
+            {
+                Assert.That(result.Success, Is.True, result.Error);
+                Assert.That(separation.Runs, Has.Count.EqualTo(1));
+                Assert.That(carriesAStem(result), Is.False);
+                Assert.That(result.Notice, Is.EqualTo(expectedNotice));
+            }
+            finally
+            {
+                deleteOszDir(result);
+            }
+        }
+
+        /// <summary>A stem left in the out dir by an earlier same-named import is never packaged as this one's.</summary>
+        [Test]
+        public async Task AStaleStemIsNotPackaged()
+        {
+            string lab = makeInstalledLab(separate_only_version);
+            string outDir = Path.Combine(lab, "out", "typebeat_vocals_Some Artist - Some Song");
+            Directory.CreateDirectory(outDir);
+            File.WriteAllBytes(Path.Combine(outDir, VocalsStem.WAV_FILENAME), new byte[] { 1, 2, 3 });
+
+            var result = await LyricMapImporter.BuildOszAsync(writeFakeAudio(), writeStampedLyrics(), "Some Artist", "Some Song", lab, Array.Empty<string>(),
+                _ => { }, CancellationToken.None, useAutomaticAlignment: false, requiredAlignerVersion: separate_only_version,
+                isolateVocals: true, vocalsSeparationRunner: new FakeSeparation("silent").Run).ConfigureAwait(false);
+
+            try
+            {
+                Assert.That(result.Success, Is.True, result.Error);
+                Assert.That(carriesAStem(result), Is.False);
+            }
+            finally
+            {
+                deleteOszDir(result);
+            }
+        }
+
+        /// <summary>Esc during the separation cancels the whole import, as it does during an alignment.</summary>
+        [Test]
+        public async Task CancellingDuringTheSeparationCancelsTheImport()
+        {
+            string lab = makeInstalledLab(separate_only_version);
+            using var cancellation = new CancellationTokenSource();
+
+            var result = await LyricMapImporter.BuildOszAsync(writeFakeAudio(), writeStampedLyrics(), "Some Artist", "Some Song", lab, Array.Empty<string>(),
+                _ => { }, cancellation.Token, useAutomaticAlignment: false, requiredAlignerVersion: separate_only_version,
+                isolateVocals: true, vocalsSeparationRunner: new FakeSeparation("cancel", cancellation).Run).ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Error, Is.EqualTo("import cancelled"));
+        }
+
+        /// <summary>
+        /// A local alignment run already wrote the stem (backlog 392): it is packaged as it stands and
+        /// the vocals are not separated a second time, whatever the isolate choice says.
+        /// </summary>
+        [Test]
+        public async Task AnAlignmentRunsOwnStemIsNotSeparatedAgain()
+        {
+            string lab = makeInstalledLab(separate_only_version);
+            string producedStem = Path.Combine(tempRoot, VocalsStem.WAV_FILENAME);
+            File.WriteAllBytes(producedStem, new byte[] { 0x52, 0x49, 0x46, 0x46 });
+            string oszDir = Path.Combine(tempRoot, "osz");
+            Directory.CreateDirectory(oszDir);
+            var separation = new FakeSeparation();
+
+            (string? stem, string? notice, bool cancelled) = await LyricMapImporter.VocalsStemForPackageAsync(producedStem, true, writeFakeAudio(), "A", "B", oszDir,
+                lab, Array.Empty<string>(), separate_only_version, _ => { }, CancellationToken.None, separation.Run).ConfigureAwait(false);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(separation.Runs, Is.Empty);
+                Assert.That(stem, Is.Not.Null);
+                Assert.That(VocalsStem.IsStemFileName(Path.GetFileName(stem)), Is.True, "the produced stem, or its Ogg encoding");
+                Assert.That(notice, Is.Null);
+                Assert.That(cancelled, Is.False);
+            });
+        }
+
+        [Test]
+        public void ShippedAlignerSeparatesOnly()
+        {
+            string? vendored = null;
+
+            for (var dir = new DirectoryInfo(TestContext.CurrentContext.TestDirectory); dir != null && vendored == null; dir = dir.Parent)
+            {
+                if (File.Exists(Path.Combine(dir.FullName, "lyriclab", "align_lyrics.py")))
+                    vendored = Path.Combine(dir.FullName, "lyriclab", "align_lyrics.py");
+            }
+
+            Assert.That(vendored, Is.Not.Null);
+
+            string script = File.ReadAllText(vendored!);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(script, Does.Contain("\"--separate-only\""));
+                Assert.That(script, Does.Contain("def separate_only("));
+                Assert.That(script, Does.Contain("persist(out_dir, stem, wav16)"), "the stem is persisted the way an alignment run persists it");
+                Assert.That(LyricMapImporter.AlignerSeparatesOnly(Path.GetDirectoryName(vendored!)!), Is.True);
+            });
+        }
+
+        #endregion
+
         #region Authoring marks through the import (backlog 202)
 
         [Test]

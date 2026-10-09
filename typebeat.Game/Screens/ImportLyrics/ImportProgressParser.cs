@@ -121,6 +121,14 @@ namespace typebeat.Game.Screens.ImportLyrics
             }
         }
 
+        /// <summary>
+        /// Opens the importer's line when the vocals were asked for and could not be isolated
+        /// (backlog 414), followed by the reason. Such a line claims NO stage: its reason names the
+        /// aligner, which the broad "align" arm would otherwise read as an alignment starting, and
+        /// the import goes on to package the map regardless.
+        /// </summary>
+        public const string VOCALS_NOT_ISOLATED_PREFIX = "vocals not isolated: ";
+
         /// <summary>The server aligner client's line for the upload (backlog 413).</summary>
         public const string SERVER_UPLOADING = "uploading to the server aligner...";
 
@@ -222,6 +230,9 @@ namespace typebeat.Game.Screens.ImportLyrics
         private static ImportStage? stageFor(string line)
         {
             string l = line.ToLowerInvariant();
+
+            if (l.StartsWith(VOCALS_NOT_ISOLATED_PREFIX, StringComparison.Ordinal))
+                return null;
 
             // Order matters: the later, broader keyword tests would otherwise swallow lines that
             // merely mention "align" or "model" in passing.

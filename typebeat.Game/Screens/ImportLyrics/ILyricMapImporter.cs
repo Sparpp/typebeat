@@ -41,11 +41,15 @@ namespace typebeat.Game.Screens.ImportLyrics
         /// <para><paramref name="vocalMode"/> is how the local aligner times the words (see
         /// <see cref="AlignerVocalMode"/>); it reaches the aligner's command line and nothing else,
         /// so the packaged map carries no trace of it. The caller persists it on the imported set.</para>
+        /// <para><paramref name="isolateVocals"/> (backlog 414) asks for the isolated vocals stem the
+        /// editor's vocals waveform reads even when the timing step produces none (no local alignment
+        /// ran): the local aligner then separates the vocals on their own. It never fails the import;
+        /// a stem that could not be made is said in the result's notice.</para>
         /// </summary>
         Task<LyricImportResult> BuildOszAsync(
             string audioPath, string? lyricsPath, string artist, string title,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment, BeatmapLanguage language,
-            AlignerVocalMode vocalMode = AlignerVocalMode.Aligned, bool useServerAligner = false);
+            AlignerVocalMode vocalMode = AlignerVocalMode.Aligned, bool useServerAligner = false, bool isolateVocals = false);
 
         /// <summary>
         /// Aligns raw lyrics text to an audio file and returns timing.json (v2) text WITHOUT
@@ -68,6 +72,12 @@ namespace typebeat.Game.Screens.ImportLyrics
         /// the stored ruleset setting; null when this build has nowhere to keep it (headless, tests).
         /// </summary>
         Bindable<bool>? ServerAlignerPreference => null;
+
+        /// <summary>
+        /// The import screen's remembered "isolate vocals" choice (backlog 414), a bound copy of the
+        /// stored ruleset setting (on by default); null when this build has nowhere to keep it.
+        /// </summary>
+        Bindable<bool>? IsolateVocalsPreference => null;
     }
 
     /// <summary>
