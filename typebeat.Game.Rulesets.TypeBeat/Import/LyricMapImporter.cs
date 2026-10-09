@@ -714,6 +714,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// AudioFilename and the thing every later step consumes, the container stays on as the
         /// map's [Events] video, and both travel in the .osz. With no extractor on the machine the
         /// container keeps doing both jobs, as it always did.</para>
+        ///
+        /// <para>ISOLATED VOCALS (backlog 414). With <paramref name="isolateVocals"/> an import whose
+        /// timing step produced no vocals stem (line stamps, a TTML or word-stamped LRC, the server
+        /// aligner, a blank map) runs the local aligner's <c>--separate-only</c> mode after it, so the
+        /// editor's vocals waveform has a stem; see <see cref="VocalsIsolationRefusal"/> for when it
+        /// can. A LOCAL alignment run already wrote one and is not repeated. Failure is never fatal:
+        /// the map packages without a stem and the result's notice says why. Cancelling still cancels
+        /// the import. <paramref name="vocalsSeparationRunner"/> replaces the process runner for that
+        /// one step (tests); null runs the real subprocess.</para>
         /// </summary>
         public static async Task<LyricImportResult> BuildOszAsync(
             string audioPath, string? lyricsPath, string artist, string title,
@@ -721,7 +730,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             Action<string> progress, CancellationToken token,
             bool useAutomaticAlignment = true, IAudioTrackExtractor? audioExtractor = null, string? language = null,
             bool highQualityAlignment = false, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned, string? requiredAlignerVersion = null,
-            RemoteAligner? remoteAlign = null)
+            RemoteAligner? remoteAlign = null, bool isolateVocals = false, ProcessRunner? vocalsSeparationRunner = null)
         {
             if (!File.Exists(audioPath))
                 return LyricImportResult.Fail($"audio file not found: {audioPath}");
@@ -780,8 +789,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             if (string.IsNullOrWhiteSpace(lyricsContent))
             {
                 progress("no lyrics, creating a blank map");
+
+                (string? blankStem, string? blankNotice, bool blankCancelled) = await VocalsStemForPackageAsync(null, isolateVocals, effectiveAudioPath, artist, title, oszDir,
+                    configuredLyricLabPath, startDirectories, requiredAlignerVersion, progress, token, vocalsSeparationRunner).ConfigureAwait(false);
+
+                if (blankCancelled)
+                    return LyricImportResult.Fail("import cancelled");
+
                 progress("packaging map");
-                return PackageOsz(oszPath, artist, title, effectiveAudioPath, BLANK_TIMING_JSON, string.Empty, videoSourcePath, language);
+                return withNotice(PackageOsz(oszPath, artist, title, effectiveAudioPath, BLANK_TIMING_JSON, string.Empty, videoSourcePath, language,
+                    vocalsStemSourcePath: blankStem), blankNotice);
             }
 
             // The import screen's language is authoritative. Older callers without a selection
@@ -795,31 +812,190 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             if (!result.Success || timing == null)
                 return result;
 
+            (string? vocalsStemSourceFile, string? vocalsNotice, bool cancelled) = await VocalsStemForPackageAsync(vocalsStemSource, isolateVocals, effectiveAudioPath, artist, title,
+                oszDir, configuredLyricLabPath, startDirectories, requiredAlignerVersion, progress, token, vocalsSeparationRunner).ConfigureAwait(false);
+
+            if (cancelled)
+                return LyricImportResult.Fail("import cancelled");
+
             progress("packaging map");
-
-            // The aligner writes the isolated vocals stem as 16 kHz mono PCM (backlog 392); the
-            // archive carries it re-encoded to Ogg Vorbis when an encoder is available, because a map
-            // a mapper downloads should not carry ~1.9 MB a minute for a view-only surface. When no
-            // encoder is on the machine the wav is packaged as it stands; the editor reads either.
-            string? vocalsStemSourceFile = vocalsStemSource;
-
-            if (vocalsStemSource != null)
-            {
-                // No encoder leaves the wav as it stands (already beside the .osz, cleaned up with
-                // the import temp dir); otherwise the smaller Ogg is packaged.
-                vocalsStemSourceFile = await EncodedVocalsStemAsync(vocalsStemSource, oszDir, configuredLyricLabPath, startDirectories, token).ConfigureAwait(false)
-                                       ?? vocalsStemSource;
-            }
 
             var packaged = PackageOsz(oszPath, artist, title, effectiveAudioPath, timing, lyricsContent, videoSourcePath, language, progress, vocalsStemSourceFile);
 
             // The timing step's own notice (an enhanced LRC's clamped stamps) rides with the
-            // packaging summary rather than being replaced by it.
-            if (packaged.Success && result.Notice != null)
-                packaged = packaged with { Notice = packaged.Notice == null ? result.Notice : result.Notice + " " + packaged.Notice };
-
-            return packaged;
+            // packaging summary rather than being replaced by it, and the vocals note after both.
+            return withNotice(withNotice(packaged, result.Notice, first: true), vocalsNotice);
         }
+
+        /// <summary>
+        /// A successful result with <paramref name="notice"/> joined to its own notice (after it, or
+        /// before it with <paramref name="first"/>); a failure or a null notice is returned unchanged.
+        /// </summary>
+        private static LyricImportResult withNotice(LyricImportResult result, string? notice, bool first = false)
+        {
+            if (!result.Success || notice == null)
+                return result;
+
+            return result with
+            {
+                Notice = result.Notice == null ? notice : first ? notice + " " + result.Notice : result.Notice + " " + notice
+            };
+        }
+
+        /// <summary>
+        /// The vocals stem file the .osz carries, from the stem the timing step produced (a local
+        /// alignment run's, backlog 392) or, failing that and with <paramref name="isolateVocals"/>,
+        /// a <c>--separate-only</c> run of the local aligner (backlog 414). The 16 kHz mono wav is
+        /// re-encoded to Ogg Vorbis beside the .osz when an encoder is available, because a map a
+        /// mapper downloads should not carry ~1.9 MB a minute for a view-only surface; with no
+        /// encoder the wav is packaged as it stands (the editor reads either).
+        ///
+        /// <para>The second element is the import's note when the vocals were asked for and could not
+        /// be isolated (<see cref="ImportProgressParser.VOCALS_NOT_ISOLATED_PREFIX"/> and the reason),
+        /// also said as a progress line; null otherwise. The third is true only when the token fired
+        /// during the separation, which cancels the import: anything else is a map without a stem.</para>
+        /// </summary>
+        internal static async Task<(string? StemFile, string? Notice, bool Cancelled)> VocalsStemForPackageAsync(
+            string? producedStem, bool isolateVocals, string audioPath, string artist, string title, string oszDir,
+            string? configuredLyricLabPath, IEnumerable<string> startDirectories, string? requiredAlignerVersion,
+            Action<string> progress, CancellationToken token, ProcessRunner? runner)
+        {
+            string? stem = producedStem;
+            string? notice = null;
+
+            if (stem == null && isolateVocals)
+            {
+                string? lyricLabDir = ResolveLyricLabDir(configuredLyricLabPath, startDirectories);
+                string? failure = VocalsIsolationRefusal(lyricLabDir, requiredAlignerVersion);
+
+                if (failure == null)
+                {
+                    (string? separated, string? separationFailure, bool cancelled) = await separateVocalsAsync(lyricLabDir!, audioPath, artist, title, progress, token, runner)
+                        .ConfigureAwait(false);
+
+                    if (cancelled)
+                        return (null, null, true);
+
+                    stem = separated;
+                    failure = separationFailure;
+                }
+
+                if (failure != null)
+                {
+                    notice = ImportProgressParser.VOCALS_NOT_ISOLATED_PREFIX + failure;
+                    Logger.Log($"Vocals not isolated for {artist} - {title}: {failure}", LoggingTarget.Runtime);
+                    progress(notice);
+                }
+            }
+
+            if (stem == null)
+                return (null, notice, false);
+
+            string stemFile = await EncodedVocalsStemAsync(stem, oszDir, configuredLyricLabPath, startDirectories, token).ConfigureAwait(false) ?? stem;
+            return (stemFile, notice, false);
+        }
+
+        /// <summary>
+        /// Why the local aligner in <paramref name="lyricLabDir"/> cannot isolate the vocals for an
+        /// import, as the reason the import's note gives; null when it can: it is installed (the setup
+        /// sentinel, <see cref="EnvironmentReady"/>; a sentinel-less venv is not probed here), it is
+        /// the version this build ships (backlog 410's rule, <see cref="AlignerVersionRefusal"/>) and
+        /// it has <c>--separate-only</c> (<see cref="AlignerSeparatesOnly"/>). Signing in is irrelevant:
+        /// the separation is local only (the server never sends a stem).
+        /// </summary>
+        public static string? VocalsIsolationRefusal(string? lyricLabDir, string? requiredAlignerVersion)
+        {
+            if (lyricLabDir == null || !EnvironmentPresent(lyricLabDir))
+                return VOCALS_NEED_THE_ALIGNER;
+
+            if (!EnvironmentReady(lyricLabDir))
+                return VOCALS_NEED_A_REPAIR;
+
+            string? versionRefusal = AlignerVersionRefusal(lyricLabDir, requiredAlignerVersion);
+
+            if (versionRefusal != null)
+                return versionRefusal;
+
+            if (!AlignerSeparatesOnly(lyricLabDir))
+                return $"the local auto-aligner is v{ReadAlignerVersion(lyricLabDir) ?? "1"}, which cannot isolate the vocals on its own "
+                       + $"(v{SEPARATE_ONLY_ALIGNER_VERSION} or newer needed). Update it in Settings > Experimental > Lyric timing.";
+
+            return null;
+        }
+
+        /// <summary>The isolation note's reason when no local auto-aligner is installed.</summary>
+        public const string VOCALS_NEED_THE_ALIGNER = "the local auto-aligner is not installed. Install it in Settings > Experimental > Lyric timing.";
+
+        /// <summary>The isolation note's reason when the local auto-aligner's install never finished.</summary>
+        public const string VOCALS_NEED_A_REPAIR = "the local auto-aligner's install is incomplete. Repair it in Settings > Experimental > Lyric timing.";
+
+        /// <summary>
+        /// The progress line said as the separation starts. Worded to claim the separating vocals
+        /// stage in <see cref="ImportProgressParser"/>, which the aligner's own "separation: ..." lines
+        /// then drive.
+        /// </summary>
+        public const string SEPARATING_VOCALS_PROGRESS = "separating vocals for the editor's vocals waveform";
+
+        /// <summary>
+        /// One <c>--separate-only</c> run of the aligner (backlog 414): the venv's python with the
+        /// alignment run's environment (<see cref="pythonStartInfo"/>), the produced stem found as an
+        /// alignment run's is (<see cref="FindProducedVocalsStem"/>). Returns the stem, or why there is
+        /// none (never throws), or Cancelled when the token fired.
+        /// </summary>
+        private static async Task<(string? StemPath, string? Failure, bool Cancelled)> separateVocalsAsync(
+            string lyricLabDir, string audioPath, string artist, string title, Action<string> progress, CancellationToken token, ProcessRunner? runner)
+        {
+            if (token.IsCancellationRequested)
+                return (null, null, true);
+
+            string outDir = Path.Combine(lyricLabDir, "out", "typebeat_vocals_" + SanitizeFolderName($"{artist} - {title}"));
+
+            try
+            {
+                // A stem left by an earlier import of the same name must never be packaged as this one's.
+                string stale = Path.Combine(outDir, VocalsStem.WAV_FILENAME);
+
+                if (File.Exists(stale))
+                    File.Delete(stale);
+
+                var psi = pythonStartInfo(lyricLabDir);
+
+                foreach (string arg in SeparateOnlyArguments(lyricLabDir, audioPath, outDir))
+                    psi.ArgumentList.Add(arg);
+
+                progress(SEPARATING_VOCALS_PROGRESS);
+
+                (int exitCode, string tail) = await (runner ?? RunProcessAsync)(psi, progress, token).ConfigureAwait(false);
+
+                if (exitCode == cancelled_exit_code || token.IsCancellationRequested)
+                    return (null, null, true);
+
+                if (exitCode != 0)
+                {
+                    string why = string.IsNullOrWhiteSpace(tail) ? $"exit code {exitCode}" : ShortAlignerFailure(tail);
+                    Logger.Log($"Vocals separation exited with code {exitCode}: {tail}", LoggingTarget.Runtime, LogLevel.Important);
+                    return (null, $"the separation failed ({why}).", false);
+                }
+
+                string? stem = FindProducedVocalsStem(lyricLabDir, outDir);
+                return stem == null ? (null, $"the separation wrote no {VocalsStem.WAV_FILENAME}.", false) : (stem, null, false);
+            }
+            catch (Exception e)
+            {
+                if (token.IsCancellationRequested)
+                    return (null, null, true);
+
+                Logger.Error(e, "Vocals separation could not run");
+                return (null, $"the separation could not run ({e.Message}).", false);
+            }
+        }
+
+        /// <summary>
+        /// A process run the importer can hand to a stand-in: the exit code (the cancelled sentinel
+        /// when the token fired) and the last output lines joined by " | ", as
+        /// <see cref="RunProcessAsync"/> returns them.
+        /// </summary>
+        public delegate Task<(int ExitCode, string Tail)> ProcessRunner(ProcessStartInfo psi, Action<string> progress, CancellationToken token);
 
         /// <summary>
         /// Produces timing.json (v2) text from an audio file and raw lyrics WITHOUT packaging an
@@ -1206,15 +1382,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         {
             var args = new List<string> { aligner_script, audioPath, lyricsPath, "-o", outDir };
 
-            // Environments built with CUDA torch (device marker "cuda") align on the GPU,
-            // dramatically faster separation/emission on machines with a good NVIDIA card.
-            string deviceMarker = Path.Combine(lyricLabDir, DEVICE_MARKER_FILE);
-
-            if (File.Exists(deviceMarker) && File.ReadAllText(deviceMarker).Trim().Equals("cuda", StringComparison.OrdinalIgnoreCase))
-            {
-                args.Add("--device");
-                args.Add("cuda");
-            }
+            addDevice(args, lyricLabDir);
 
             // Explicit either way: "ref" as soon as ONE line is stamped (sparse anchors place the
             // unstamped lines inside their section's window), "auto" only for bare text.
@@ -1249,6 +1417,47 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             return args;
         }
+
+        /// <summary>
+        /// Environments built with CUDA torch (device marker "cuda") run on the GPU, dramatically
+        /// faster separation/emission on machines with a good NVIDIA card.
+        /// </summary>
+        private static void addDevice(List<string> args, string lyricLabDir)
+        {
+            string deviceMarker = Path.Combine(lyricLabDir, DEVICE_MARKER_FILE);
+
+            if (File.Exists(deviceMarker) && File.ReadAllText(deviceMarker).Trim().Equals("cuda", StringComparison.OrdinalIgnoreCase))
+            {
+                args.Add("--device");
+                args.Add("cuda");
+            }
+        }
+
+        /// <summary>
+        /// The command line of one <c>--separate-only</c> run (backlog 414), script first, as
+        /// <see cref="AlignerArguments"/> is for an alignment: the audio, the flag, the output dir the
+        /// stem is written to, and the device an alignment run would use. No lyrics, quality, vocal
+        /// mode or evidence: the separation is the same for all of them, and it is cached in the
+        /// aligner's work dir under the names an alignment of the same song uses.
+        /// </summary>
+        public static IReadOnlyList<string> SeparateOnlyArguments(string lyricLabDir, string audioPath, string outDir)
+        {
+            var args = new List<string> { aligner_script, audioPath, "--separate-only", "-o", outDir };
+            addDevice(args, lyricLabDir);
+            return args;
+        }
+
+        /// <summary>
+        /// The first aligner version with <c>--separate-only</c> (backlog 414). Version 11 never
+        /// shipped before the flag did, so every version 11 install carries it.
+        /// </summary>
+        public const int SEPARATE_ONLY_ALIGNER_VERSION = 11;
+
+        /// <summary>
+        /// Whether the aligner script in <paramref name="lyricLabDir"/> accepts <c>--separate-only</c>,
+        /// read off its version exactly as <see cref="AlignerHasQualityTiers"/> reads it.
+        /// </summary>
+        public static bool AlignerSeparatesOnly(string lyricLabDir) => alignerVersionAtLeast(lyricLabDir, SEPARATE_ONLY_ALIGNER_VERSION);
 
         /// <summary>
         /// The <c>--lyrics-language</c> value for an import's language: its canonical lowercase name,
@@ -1371,26 +1580,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             string lyricLabDir, string audioPath, string lyricsPath, string artist, string title,
             string lyricsContent, bool highQuality, AlignerVocalMode vocalMode, string? language, Action<string> progress, CancellationToken token)
         {
-            string python = PythonExeFor(lyricLabDir);
             string outDir = Path.Combine(lyricLabDir, "out", "typebeat_import_" + SanitizeFolderName($"{artist} - {title}"));
 
-            var psi = new ProcessStartInfo
-            {
-                FileName = python,
-                WorkingDirectory = lyricLabDir,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-
-            // The venv's scripts dir carries the provisioned ffmpeg (setup copies the static
-            // imageio-ffmpeg build there); prepend it so align_lyrics.py's `ffmpeg` shell-out
-            // resolves without a system-wide install.
-            string venvBin = Path.GetDirectoryName(python)!;
-            string existingPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-            psi.Environment["PATH"] = venvBin + Path.PathSeparator + existingPath;
-            RunPythonInUtf8(psi);
+            var psi = pythonStartInfo(lyricLabDir);
 
             foreach (string arg in AlignerArguments(lyricLabDir, audioPath, lyricsPath, outDir, lyricsContent, highQuality, vocalMode, language))
                 psi.ArgumentList.Add(arg);
@@ -1440,6 +1632,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             string timingJson = await File.ReadAllTextAsync(timingPath, token).ConfigureAwait(false);
             return (LyricImportResult.Ok(string.Empty), timingJson, FindProducedVocalsStem(lyricLabDir, outDir));
+        }
+
+        /// <summary>
+        /// The start info of one aligner script run, arguments still to add: the venv's python in the
+        /// lyriclab dir, output redirected, UTF-8 (<see cref="RunPythonInUtf8"/>), and the venv's
+        /// scripts dir first on PATH, which carries the provisioned ffmpeg (setup copies the static
+        /// imageio-ffmpeg build there), so align_lyrics.py's `ffmpeg` shell-out resolves without a
+        /// system-wide install. Shared by an alignment run and a <c>--separate-only</c> one.
+        /// </summary>
+        private static ProcessStartInfo pythonStartInfo(string lyricLabDir)
+        {
+            string python = PythonExeFor(lyricLabDir);
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = python,
+                WorkingDirectory = lyricLabDir,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+
+            string venvBin = Path.GetDirectoryName(python)!;
+            string existingPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+            psi.Environment["PATH"] = venvBin + Path.PathSeparator + existingPath;
+            RunPythonInUtf8(psi);
+            return psi;
         }
 
         /// <summary>

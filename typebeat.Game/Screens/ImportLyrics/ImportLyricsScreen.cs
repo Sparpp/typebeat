@@ -82,6 +82,15 @@ namespace typebeat.Game.Screens.ImportLyrics
         /// <summary>As <see cref="SERVER_ALIGNER_ALTERNATIVE"/>, for a guest, who has to sign in first.</summary>
         public const string SERVER_ALIGNER_ALTERNATIVE_GUEST = "Or sign in and tick \"use server aligner\" below to time the words on the type!beat server instead.";
 
+        /// <summary>
+        /// The isolate vocals choice's label (backlog 414): separate the vocals with the local aligner
+        /// even when nothing aligns them, so the editor's vocals waveform has a stem.
+        /// </summary>
+        public const string ISOLATE_VOCALS_LABEL = "isolate vocals (for the editor's vocals waveform, adds a few minutes)";
+
+        /// <summary>Tooltip on the isolate vocals choice while local automatic alignment is on, which isolates them anyway.</summary>
+        public const string ISOLATE_VOCALS_UNDER_ALIGNMENT_TOOLTIP = "Automatic alignment already isolates the vocals.";
+
         [Resolved]
         private OsuGameBase game { get; set; } = null!;
 
@@ -117,6 +126,7 @@ namespace typebeat.Game.Screens.ImportLyrics
         private TooltipCheckbox automaticAlignmentCheckbox = null!;
         private TooltipCheckbox serverAlignerCheckbox = null!;
         private OsuCheckbox estimatedVocalsCheckbox = null!;
+        private TooltipCheckbox isolateVocalsCheckbox = null!;
         private RoundedButton importButton = null!;
         private OsuSpriteText statusText = null!;
         private ImportProgressDisplay progressDisplay = null!;
@@ -136,6 +146,16 @@ namespace typebeat.Game.Screens.ImportLyrics
 
         /// <summary>Set while <see cref="refreshAlignerAvailability"/> drives the checkboxes, so its own writes are not taken for the player's choice.</summary>
         private bool refreshingAligners;
+
+        /// <summary>
+        /// The stored "isolate vocals" choice (on by default), or a screen-local stand-in when the
+        /// build has nowhere to keep it, so the screen always has the player's choice to come back to.
+        /// Null only until LoadComplete.
+        /// </summary>
+        private Bindable<bool>? isolateVocalsPreference;
+
+        /// <summary>As <see cref="refreshingAligners"/>, for <see cref="refreshIsolateVocals"/>.</summary>
+        private bool refreshingIsolateVocals;
 
         public ImportLyricsScreen(params string[] initialFiles)
         {
@@ -213,6 +233,12 @@ namespace typebeat.Game.Screens.ImportLyrics
                                     LabelText = ESTIMATED_VOCALS_LABEL,
                                     Current = { Value = false },
                                 },
+                                isolateVocalsCheckbox = new TooltipCheckbox
+                                {
+                                    RelativeSizeAxes = Axes.X,
+                                    LabelText = ISOLATE_VOCALS_LABEL,
+                                    Current = { Value = true },
+                                },
                                 importButton = new RoundedButton
                                 {
                                     Text = "import",
@@ -240,6 +266,16 @@ namespace typebeat.Game.Screens.ImportLyrics
             base.LoadComplete();
             languageDropdown.Current.BindValueChanged(_ => updateImportButton());
 
+            isolateVocalsPreference = importer?.IsolateVocalsPreference ?? new Bindable<bool>(true);
+
+            // Only the player's own clicks are remembered: greying the choice out, or showing it ticked
+            // under local automatic alignment, is the screen's doing and leaves the stored choice alone.
+            isolateVocalsCheckbox.Current.BindValueChanged(isolate =>
+            {
+                if (!refreshingIsolateVocals)
+                    isolateVocalsPreference.Value = isolate.NewValue;
+            });
+
             // Estimated vocals only change how the aligner runs, so without automatic alignment there is
             // nothing for them to change: the choice goes dead (and off) rather than being silently ignored.
             automaticAlignmentCheckbox.Current.BindValueChanged(auto =>
@@ -252,6 +288,8 @@ namespace typebeat.Game.Screens.ImportLyrics
                 // alignment off turns it off too (and that is remembered: the player chose it).
                 if (!auto.NewValue && serverAlignerCheckbox.Current.Value && !serverAlignerCheckbox.Current.Disabled)
                     serverAlignerCheckbox.Current.Value = false;
+
+                refreshIsolateVocals();
             }, true);
 
             serverAlignerPreference = importer?.ServerAlignerPreference;
@@ -286,6 +324,9 @@ namespace typebeat.Game.Screens.ImportLyrics
 
         /// <summary>The server aligner opt-in, exposed for tests.</summary>
         internal OsuCheckbox ServerAligner => serverAlignerCheckbox;
+
+        /// <summary>The isolate vocals choice, exposed for tests.</summary>
+        internal OsuCheckbox IsolateVocals => isolateVocalsCheckbox;
 
         /// <summary>The language choice, exposed for tests.</summary>
         internal Bindable<BeatmapLanguage> Language => languageDropdown.Current;
@@ -387,6 +428,57 @@ namespace typebeat.Game.Screens.ImportLyrics
             {
                 refreshingAligners = false;
             }
+
+            refreshIsolateVocals();
+        }
+
+        /// <summary>
+        /// Sets the isolate vocals choice (backlog 414) from what can run, after the alignment choices.
+        /// The separation is the LOCAL aligner's, so it greys out (and shows unticked) for exactly the
+        /// reasons automatic alignment's local path does (<see cref="AlignerUnavailableReason"/>:
+        /// backlogs 409/410), with that reason as its tooltip and no server alternative, since the
+        /// server never sends a stem. While LOCAL automatic alignment is on it shows ticked and
+        /// disabled: that run isolates the vocals anyway. Otherwise it is the player's remembered
+        /// choice. None of these writes reaches the stored choice.
+        /// </summary>
+        private void refreshIsolateVocals()
+        {
+            // The automatic alignment binding runs once before LoadComplete has the preference.
+            if (refreshingIsolateVocals || isolateVocalsPreference == null)
+                return;
+
+            refreshingIsolateVocals = true;
+
+            try
+            {
+                var isolate = isolateVocalsCheckbox.Current;
+                string? reason = AlignerUnavailableReason(alignerManager);
+                bool localAlignment = automaticAlignmentCheckbox.Current.Value && !serverAlignerCheckbox.Current.Value;
+
+                isolate.Disabled = false;
+
+                if (reason != null)
+                {
+                    isolate.Value = false;
+                    isolate.Disabled = true;
+                    isolateVocalsCheckbox.TooltipText = reason;
+                }
+                else if (localAlignment)
+                {
+                    isolate.Value = true;
+                    isolate.Disabled = true;
+                    isolateVocalsCheckbox.TooltipText = ISOLATE_VOCALS_UNDER_ALIGNMENT_TOOLTIP;
+                }
+                else
+                {
+                    isolate.Value = isolateVocalsPreference.Value;
+                    isolateVocalsCheckbox.TooltipText = default;
+                }
+            }
+            finally
+            {
+                refreshingIsolateVocals = false;
+            }
         }
 
         /// <summary>
@@ -473,6 +565,9 @@ namespace typebeat.Game.Screens.ImportLyrics
             bool useAutomaticAlignment = automaticAlignmentCheckbox.Current.Value;
             bool useServerAligner = useAutomaticAlignment && serverAlignerCheckbox.Current.Value;
             AlignerVocalMode vocalMode = useAutomaticAlignment && estimatedVocalsCheckbox.Current.Value ? AlignerVocalMode.Estimated : AlignerVocalMode.Aligned;
+            // As shown: off while the local aligner cannot run, on under local automatic alignment
+            // (whose own stem the importer keeps without separating again), else the player's choice.
+            bool isolateVocals = isolateVocalsCheckbox.Current.Value;
             BeatmapLanguage language = languageDropdown.Current.Value;
 
             var cancellation = importCancellation = new CancellationTokenSource();
@@ -489,7 +584,8 @@ namespace typebeat.Game.Screens.ImportLyrics
                 try
                 {
                     result = await importer.BuildOszAsync(audioPath, lyricsPath, artist, title,
-                        line => Schedule(() => report(line)), cancellation.Token, useAutomaticAlignment, language, vocalMode, useServerAligner).ConfigureAwait(false);
+                        line => Schedule(() => report(line)), cancellation.Token, useAutomaticAlignment, language, vocalMode, useServerAligner,
+                        isolateVocals).ConfigureAwait(false);
                 }
                 catch (Exception e)
                 {

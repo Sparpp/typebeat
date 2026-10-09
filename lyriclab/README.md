@@ -209,6 +209,22 @@ José) could not be read: espeak fell back to the data path compiled into the wh
 `--self-test-espeak` pins both. The "version 11 candidates" in `bench/altmodels/RESULTS.md`
 are version 12 candidates now.
 
+### Separate only (`--separate-only`, version 11)
+
+```powershell
+.venv\Scripts\python.exe align_lyrics.py "<song.mp3>" --separate-only -o out\mysong
+```
+
+Runs the audio half of an alignment and stops: the song is decoded, Demucs separates the vocals
+and the stem is resampled to 16 kHz mono exactly as an alignment run does it (same `work/` file
+names, so either run reuses the other's separation; `--demucs-model`, `--device` and `--threads`
+apply), and only `vocals.wav` is written to `-o`. The lyrics argument is optional under the flag
+(given, it is not read) and still required without it; `--no-separate` contradicts it and is
+refused. The game runs it after an import that never aligned (line or word stamps, a TTML, a blank
+map) when the player asked for the vocals to be isolated, so the editor's vocals waveform has a
+stem. No output changes for any other run; `--self-test-separate` pins the argument rules and the
+file plumbing with ffmpeg and Demucs stubbed.
+
 ## Evidence tiers (`--quality`, version 6)
 
 One MMS_FA pass guesses at what it barely hears, and its chunk seams every

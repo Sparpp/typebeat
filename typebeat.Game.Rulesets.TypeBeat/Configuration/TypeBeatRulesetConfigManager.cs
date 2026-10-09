@@ -294,6 +294,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// member name, and nothing asks for that name any more.</para>
         /// </summary>
         UseServerAligner,
+
+        /// <summary>
+        /// The import screen's "isolate vocals" choice (backlog 414), remembered between imports. ON
+        /// by default (the owner's call): an import that never runs automatic alignment (line or word
+        /// stamps, a TTML, a blank map, the server aligner) then runs the local aligner's
+        /// separate-only mode so the editor's vocals waveform has a stem. Only the import screen reads
+        /// or writes it, through <c>ILyricMapImporter.IsolateVocalsPreference</c>, and only from the
+        /// player's own clicks: the screen greying the choice out (no usable local aligner) or showing
+        /// it ticked under local automatic alignment never writes it.
+        /// </summary>
+        IsolateVocalsOnImport,
     }
 
     /// <summary>
@@ -610,6 +621,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
             SetDefault(TypeBeatRulesetSetting.LinePushWarningEdges, false);
             SetDefault(TypeBeatRulesetSetting.IndicatorDefaultsApplied, true);
             SetDefault(TypeBeatRulesetSetting.UseServerAligner, false);
+            SetDefault(TypeBeatRulesetSetting.IsolateVocalsOnImport, true);
         }
     }
 }

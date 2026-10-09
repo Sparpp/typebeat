@@ -33,6 +33,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [TestCase("[12:34:57] separation: running demucs (htdemucs) on cuda ...", ImportStage.SeparatingVocals)]
         [TestCase(@"[12:34:57] separation: cached (C:\lyriclab\work\htdemucs\song\vocals.wav)", ImportStage.SeparatingVocals)]
         [TestCase("Separating track C:\\music\\song.wav", ImportStage.SeparatingVocals)]
+        // Backlog 414: the importer's own line as the --separate-only run starts, and the run's last.
+        [TestCase(LyricMapImporter.SEPARATING_VOCALS_PROGRESS, ImportStage.SeparatingVocals)]
+        [TestCase("[12:36:40] separation: done, total time: 71s", ImportStage.SeparatingVocals)]
         [TestCase("[12:35:21] loading MMS_FA aligner model (first run downloads ~1.2 GB)...", ImportStage.LoadingModel)]
         [TestCase("[12:35:40] computing emissions...", ImportStage.AligningLyrics)]
         [TestCase("[12:35:41] emissions: chunk 7/31 frames=1490", ImportStage.AligningLyrics)]
@@ -67,6 +70,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         // The split's degrade: nothing was extracted, so it must not light the extraction step (and
         // "extractor available" must not read as the aligner handover's "unavailable" either).
         [TestCase("no audio extractor available (no ffmpeg found on this machine), keeping the video file as the map's audio")]
+        // Backlog 414: an import that could not isolate the vocals packages the map anyway. Its reason
+        // names the aligner (and could say "unavailable"), which must not read as an alignment
+        // starting or as the aligner handover.
+        [TestCase(ImportProgressParser.VOCALS_NOT_ISOLATED_PREFIX + LyricMapImporter.VOCALS_NEED_THE_ALIGNER)]
+        [TestCase("vocals not isolated: the separation failed (aligner unavailable, trying next option).")]
+        [TestCase(@"[12:36:40] vocals stem written to C:\lyriclab\out\typebeat_vocals_Some Artist - A Song\vocals.wav")]
         public void TestUnknownLinesClaimNoStage(string line)
             => Assert.That(ImportProgressParser.Parse(line).Stage, Is.Null);
 

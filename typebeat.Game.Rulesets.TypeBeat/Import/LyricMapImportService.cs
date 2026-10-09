@@ -59,12 +59,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         public Task<LyricImportResult> BuildOszAsync(
             string audioPath, string? lyricsPath, string artist, string title,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment, BeatmapLanguage language,
-            AlignerVocalMode vocalMode = AlignerVocalMode.Aligned, bool useServerAligner = false)
+            AlignerVocalMode vocalMode = AlignerVocalMode.Aligned, bool useServerAligner = false, bool isolateVocals = false)
             => language == BeatmapLanguage.Unspecified
                 ? Task.FromResult(LyricImportResult.Fail("select a language before importing"))
                 : LyricMapImporter.BuildOszAsync(audioPath, lyricsPath, artist, title, effectiveConfiguredPath(), startDirectories(), progress, token,
                     useAutomaticAlignment, language: language.ToCanonicalName(), highQualityAlignment: HighQualityAlignment(config()), vocalMode: vocalMode,
-                    requiredAlignerVersion: ShippedVersion, remoteAlign: useServerAligner ? ServerAligner(api) : null);
+                    requiredAlignerVersion: ShippedVersion, remoteAlign: useServerAligner ? ServerAligner(api) : null, isolateVocals: isolateVocals);
 
         public Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
@@ -74,6 +74,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 language, HighQualityAlignment(config()), vocalMode, requiredAlignerVersion: ShippedVersion);
 
         public Bindable<bool>? ServerAlignerPreference => config()?.GetBindable<bool>(TypeBeatRulesetSetting.UseServerAligner);
+
+        public Bindable<bool>? IsolateVocalsPreference => config()?.GetBindable<bool>(TypeBeatRulesetSetting.IsolateVocalsOnImport);
 
         /// <summary>
         /// The server rung for an import that opted in (backlog 413). Never null once asked for: with
