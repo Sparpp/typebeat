@@ -1019,6 +1019,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>Extended replay bit 7: single-character Japanese skips and keystroke WPM.</summary>
         public bool JapaneseInputEra2 { get; set; } = true;
 
+        /// <summary>Extended replay bit 8: Space skips the remainder of the authored Japanese word.</summary>
+        public bool JapaneseWordSkip { get; set; } = true;
+
         private bool UsesJapaneseKeystrokeWpm => JapaneseInputEra2 && JapaneseRomajiInput && UsesJapaneseRomaji;
         private int japaneseWpmInputs;
         private int japaneseCompletionLine = -1;
@@ -1088,7 +1091,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                         return false;
 
                     clearJapanesePending();
-                    skipCurrentWord(time, singleJapaneseCharacter: true);
+                    skipCurrentWord(time, singleJapaneseCharacter: !JapaneseWordSkip, japaneseWord: JapaneseWordSkip);
                     advanceCaretToFrontier();
                     rollForwardIfFinishedEarly(time);
                     return true;
@@ -1250,8 +1253,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// "Space to skip current word" (backlog 110), a local SETTING and not a mod, OFF by default.
         /// When on, a space pressed while the caret sits inside a word abandons the rest of that word
         /// and lands the caret on the word gap, so one bad character costs a word instead of the run.
-        /// Japanese romaji input skips a single unfinished character. A complete reading uses
-        /// space as confirmation, and repeated confirmation spaces preserve the next character.
+        /// Japanese romaji input skips the remainder of the authored word from an unfinished
+        /// character. A complete reading uses space as confirmation, and repeated confirmation
+        /// spaces preserve the next character. Older replays retain single-character skipping.
         ///
         /// <para>What "abandons" means precisely, since backlog 167: every
         /// <see cref="CellState.Untyped"/> cell of that word enters
@@ -3279,7 +3283,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // a normally typed space would.
                 cell = line.Cells[caretIndex];
                 // A Roman run in a mixed Japanese word stops at the next script. The skip's space
-                // is not a typo on that Japanese character (freestyle still accepts it normally).
+                // is not a typo on that Japanese character.
                 if (JapaneseRomajiInput && UsesJapaneseRomaji && cell.Expected != ' ' && !cell.IsFreestyle
                     && line.JapaneseInput?.IsRomanCell(caretIndex) == false)
                     return true;
@@ -3795,8 +3799,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// one it passively left alone, because the argument is about the press and not about which
         /// break wrote the claim.</para>
         /// </summary>
-        // Japanese input shares the abandonment/reclaim accounting but limits the range to one cell.
-        private bool skipCurrentWord(double time, bool singleJapaneseCharacter = false)
+        // Japanese input shares abandonment/reclaim accounting while retaining untyped word seams.
+        private bool skipCurrentWord(double time, bool singleJapaneseCharacter = false, bool japaneseWord = false)
         {
             var cells = lines[activeLineIndex].Cells;
 
@@ -3821,11 +3825,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             var japanesePlan = JapaneseRomajiInput && UsesJapaneseRomaji ? lines[activeLineIndex].JapaneseInput : null;
             bool canSkip(int index) => japanesePlan == null || !cells[index].IsTypeable || japanesePlan.IsRomanCell(index);
 
-            while (!singleJapaneseCharacter && start > 0 && !isWordGap(cells[start - 1]) && canSkip(start - 1))
-                start--;
+            if (japaneseWord)
+            {
+                int wordEnd = japanesePlan?.WordAt(caretIndex)?.EndCellExclusive ?? caretIndex + 1;
+                while (end < wordEnd && !isWordGap(cells[end]) && !cells[end].IsFreestyle)
+                    end++;
+            }
+            else
+            {
+                while (!singleJapaneseCharacter && start > 0 && !isWordGap(cells[start - 1]) && canSkip(start - 1))
+                    start--;
 
-            while (!singleJapaneseCharacter && end < cells.Count && !isWordGap(cells[end]) && canSkip(end))
-                end++;
+                while (!singleJapaneseCharacter && end < cells.Count && !isWordGap(cells[end]) && canSkip(end))
+                    end++;
+            }
 
             var abandoned = new List<int>();
 
@@ -4734,7 +4747,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             if (isFinished || activeLineIndex == -1)
                 return null;
 
-            var cells = lines[activeLineIndex].Cells;
+            var line = lines[activeLineIndex];
+            var cells = line.Cells;
+            if (JapaneseWordSkip && JapaneseRomajiInput && UsesJapaneseRomaji && caretIndex > 0
+                && line.JapaneseInput?.WordAt(caretIndex - 1) is { } japaneseWord
+                && japaneseWord.EndCellExclusive == caretIndex)
+            {
+                for (int i = japaneseWord.StartCell; i < caretIndex; i++)
+                {
+                    if (cells[i].State == CellState.Abandoned)
+                        return (i, caretIndex, -1);
+                }
+                return null;
+            }
+
             int wordEnd;
             int gapIndex = -1;
 
@@ -4826,7 +4852,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// the one route into a spoiled cell), an Abandoned one is reclaimed by the backspace its own
         /// feature promises, and a non-typeable one is the auto-skip's business. A FREESTYLE slot is
         /// excluded for the reason given on <see cref="AnyOrderWithinWord"/>: it matches every key
-        /// including space, so offering it here would swallow the first press of the word and starve every
+        /// except space, so offering it here would swallow the first press of the word and starve every
         /// exact match in it.</para>
         ///
         /// <para>The match is the SAME test the caret cell is matched with in

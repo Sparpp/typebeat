@@ -174,6 +174,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     ButtonText = "Generate timing",
                     Action = runImport,
                 },
+                generateLyricsButton = new FormButton
+                {
+                    Caption = "Add original script lyrics to this map",
+                    ButtonText = "Generate lyrics",
+                    Action = generateLyrics,
+                },
                 estimatedVocalsToggle = new FormCheckBox
                 {
                     Caption = ESTIMATED_VOCALS_CAPTION,
@@ -813,6 +819,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         protected override void Dispose(bool isDisposing)
         {
             importCancellation?.Cancel();
+            lyricsCancellation?.Cancel();
             base.Dispose(isDisposing);
         }
     }

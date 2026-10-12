@@ -9,6 +9,7 @@ using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Containers;
+using osu.Framework.Graphics.Cursor;
 using osu.Framework.Graphics.Sprites;
 using osu.Framework.Input.Events;
 using osu.Framework.Localisation;
@@ -21,7 +22,7 @@ using osuTK.Graphics;
 
 namespace typebeat.Game.Graphics.UserInterfaceV2
 {
-    public partial class FormButton : CompositeDrawable
+    public partial class FormButton : CompositeDrawable, IHasTooltip
     {
         private LocalisableString caption;
 
@@ -38,6 +39,21 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
 
                 if (text != null)
                     text.Text = value;
+            }
+        }
+
+        private LocalisableString tooltipText;
+
+        /// <summary>Hover explanation for the row and its button, including when disabled.</summary>
+        public LocalisableString TooltipText
+        {
+            get => tooltipText;
+            set
+            {
+                tooltipText = value;
+
+                if (button != null)
+                    button.TooltipText = value;
             }
         }
 
@@ -125,6 +141,7 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
                             {
                                 Action = () => Action?.Invoke(),
                                 Text = ButtonText,
+                                TooltipText = TooltipText,
                                 Icon = ButtonIcon,
                                 Anchor = Anchor.CentreRight,
                                 Origin = Anchor.CentreRight,
@@ -192,8 +209,10 @@ namespace typebeat.Game.Graphics.UserInterfaceV2
             // TODO: Support BackgroundColour?
         }
 
-        public partial class Button : OsuButton
+        public partial class Button : OsuButton, IHasTooltip
         {
+            public LocalisableString TooltipText { get; set; }
+
             private TrianglesV2? triangles { get; set; }
 
             protected override float HoverLayerFinalAlpha => 0;

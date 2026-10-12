@@ -180,6 +180,20 @@ namespace typebeat.Game.Screens.Edit.Setup
             updateReadOnlyState();
         }
 
+        protected override void UpdateAfterChildren()
+        {
+            base.UpdateAfterChildren();
+
+            // Native-format undo restores metadata in place. Follow its language without
+            // committing another metadata edit or adding an undo state.
+            if (languageDropdown.Current.Value != Beatmap.Metadata.Language)
+            {
+                reloading = true;
+                languageDropdown.Current.Value = Beatmap.Metadata.Language;
+                reloading = false;
+            }
+        }
+
         private void transferIfRomanised(string value, FormTextBox target)
         {
             if (MetadataUtils.IsRomanised(value))

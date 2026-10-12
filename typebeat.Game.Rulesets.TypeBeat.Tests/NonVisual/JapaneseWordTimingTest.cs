@@ -26,10 +26,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var japanese = TypingLine.ForMods(source, literate, true, "japanese", aligned);
             Assert.Multiple(() =>
             {
-                Assert.That(japanese.DisplayText, Is.EqualTo(source.Original));
+                Assert.That(japanese.DisplayText, Is.EqualTo(source.Original!.Replace(" ", string.Empty)));
                 Assert.That(japanese.Syllables.Select(s => (s.StartCell, s.EndCellExclusive, s.StartTime, s.EndTime)),
-                    Is.EqualTo(new[] { (0, 2, 1000.0, 2000.0), (2, 4, 2000.0, 3000.0), (5, 9, 3500.0, 4500.0), (10, 15, 5000.0, 6500.0) }));
-                Assert.That(japanese.Source.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 2000.0 }), "only the mapper word seam remains");
+                    Is.EqualTo(new[] { (0, 2, 1000.0, 2000.0), (2, 4, 2000.0, 3000.0), (4, 8, 3500.0, 4500.0), (8, 13, 5000.0, 6500.0) }));
+                Assert.That(japanese.Source.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 2000.0 }), "adjacent mapper words keep their seam");
                 Assert.That(japanese.Source.Units.Skip(1).All(u => u.SyllableBoundaries.Count == 0), Is.True);
                 Assert.That(source.Units.Sum(u => u.SyllableBoundaries.Count), Is.EqualTo(12), "the authored romanised map is preserved");
                 Assert.That(TypingLine.ForMods(source, literate, false, "japanese", aligned).Syllables.Count, Is.EqualTo(16));
@@ -103,8 +103,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void ExampleCanBeTypedAtTheFourWordOnsets()
         {
             var engine = create(example());
-            string[] inputs = { "yumemi", "kokochi", " ", "fureai", " ", "madowasetai" };
-            double[] times = { 1000, 2000, 3000, 3500, 4500, 5000 };
+            string[] inputs = { "yumemi", "kokochi", "fureai", "madowasetai" };
+            double[] times = { 1000, 2000, 3500, 5000 };
             for (int i = 0; i < inputs.Length; i++)
                 foreach (char c in inputs[i])
                     Assert.That(engine.ProcessKey(c, times[i]), Is.True, $"{inputs[i]}: {c}");
