@@ -135,6 +135,12 @@ namespace typebeat.Game.Screens.Select
             if (comparison == 0)
                 comparison = b.BeatmapSet!.ID.CompareTo(a.BeatmapSet!.ID);
 
+            // If the user's preference is to separate all difficulties then there are way more cases where
+            // the initial sort could not differentiate which results in undesirable ordering
+            if (comparison == 0 && !aggregate)
+                comparison = a.StarRating.CompareTo(b.StarRating);
+
+
             return comparison;
         }
 

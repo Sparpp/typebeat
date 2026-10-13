@@ -47,6 +47,7 @@ namespace typebeat.Game.Configuration
             SetDefault(OsuSetting.BeatmapLeaderboardSortMode, LeaderboardSortMode.Score);
             SetDefault(OsuSetting.BeatmapDetailModsFilter, false);
 
+            SetDefault(OsuSetting.SeparateAllDifficulties, false);
             SetDefault(OsuSetting.ShowConvertedBeatmaps, true);
             SetDefault(OsuSetting.DisplayStarsMinimum, 0.0, 0, 10, 0.1);
             SetDefault(OsuSetting.DisplayStarsMaximum, 10.1, 0, 10.1, 0.1);
@@ -478,6 +479,7 @@ namespace typebeat.Game.Configuration
 
         DashboardSortMode,
         DashboardDisplayStyle,
+        SeparateAllDifficulties
 
         // NOTE (backlog 383): there used to be a KeyboardLayout member here, the layout the player's
         // keycaps follow. Gameplay typing reads the OS's committed text since 383, and the shortcuts

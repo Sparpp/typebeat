@@ -23,6 +23,14 @@ namespace typebeat.Game.Overlays.Settings.Sections.UserInterface
             {
                 new SettingsItemV2(new FormCheckBox
                 {
+                    Caption = UserInterfaceStrings.SeparateAllDifficulties,
+                    Current = config.GetBindable<bool>(OsuSetting.SeparateAllDifficulties),
+                })
+                {
+                    Keywords = new[] { "separate", "difficulties", "all" }
+                },
+                new SettingsItemV2(new FormCheckBox
+                {
                     Caption = UserInterfaceStrings.ShowConvertedBeatmaps,
                     Current = config.GetBindable<bool>(OsuSetting.ShowConvertedBeatmaps),
                 })

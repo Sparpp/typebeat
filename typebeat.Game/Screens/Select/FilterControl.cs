@@ -44,6 +44,7 @@ namespace typebeat.Game.Screens.Select
         private ShearedDropdown<SortMode> sortDropdown = null!;
         private ShearedDropdown<GroupModeDropdownItem> groupDropdown = null!;
         private CollectionDropdown collectionDropdown = null!;
+        private BindableBool separateAllDifficulties = null!;
 
         /// <summary>
         /// An optional method which can force certain criteria adjustments.
@@ -80,6 +81,8 @@ namespace typebeat.Game.Screens.Select
         [BackgroundDependencyLoader]
         private void load(IAPIProvider api)
         {
+            separateAllDifficulties = new BindableBool();
+
             RelativeSizeAxes = Axes.X;
             AutoSizeAxes = Axes.Y;
 
@@ -213,6 +216,7 @@ namespace typebeat.Game.Screens.Select
             difficultyRangeSlider.LowerBound = config.GetBindable<double>(OsuSetting.DisplayStarsMinimum);
             difficultyRangeSlider.UpperBound = config.GetBindable<double>(OsuSetting.DisplayStarsMaximum);
             config.BindWith(OsuSetting.ShowConvertedBeatmaps, showConvertedBeatmapsButton.Active);
+            config.BindWith(OsuSetting.SeparateAllDifficulties, separateAllDifficulties);
             var savedSort = config.GetBindable<SortMode>(OsuSetting.SongSelectSortingMode);
             if (savedSort.Value == SortMode.BPM)
                 savedSort.Value = SortMode.Title;
@@ -252,6 +256,7 @@ namespace typebeat.Game.Screens.Select
 
             showConvertedBeatmapsButton.Active.BindValueChanged(_ => updateCriteria());
             sortDropdown.Current.BindValueChanged(_ => updateCriteria());
+            separateAllDifficulties.BindValueChanged(_ => updateCriteria());
             groupDropdown.Current.BindValueChanged(_ => updateCriteria());
             collectionDropdown.Current.BindValueChanged(v =>
             {
@@ -293,6 +298,7 @@ namespace typebeat.Game.Screens.Select
                 Sort = sortDropdown.Current.Value,
                 Group = groupDropdown.Current.Value?.Value ?? GroupMode.None,
                 AllowConvertedBeatmaps = showConvertedBeatmapsButton.Active.Value,
+                SeparateAllDifficulties = separateAllDifficulties.Value,
                 Ruleset = ruleset.Value,
                 Mods = mods.Value,
                 Collection = collectionDropdown.Current.Value?.Collection,
