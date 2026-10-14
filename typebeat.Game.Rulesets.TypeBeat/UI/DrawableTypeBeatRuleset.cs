@@ -266,7 +266,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             bool polyglot = Mods?.Any(m => m is TypeBeatModPolyglot) == true;
             string? polyglotLanguage = polyglot ? TypeBeatModPolyglot.LanguageFor(Beatmap) : null;
 
-            return new TypingEngine(lyricBeatmap, literate, polyglot, polyglotLanguage)
+            // SHORTHAND changes the cell list too.
+            bool shorthand = Mods?.Any(m => m is TypeBeatModShorthand) == true;
+
+            return new TypingEngine(lyricBeatmap, literate, polyglot, polyglotLanguage, shorthand)
             {
                 // THE live judgement rule since backlog 179, for every player and (since backlog
                 // 180) every mod stack but Hard Rock: a character typed while its syllable is being

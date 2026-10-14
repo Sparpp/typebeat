@@ -204,6 +204,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 engine.ProcessBackspace();
             else if (frame.IsEnter)
                 engine.ProcessEnter(frame.Time);
+            else if (frame.IsRelease)
+                engine.ProcessRelease(frame.Time);
             else if (frame.Character >= first_typeable_code_point)
                 engine.ProcessKey(frame.Character, frame.Time);
         }

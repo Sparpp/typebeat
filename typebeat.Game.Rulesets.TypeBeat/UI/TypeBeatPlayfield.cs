@@ -323,6 +323,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             Engine.WordAbandoned += onWordAbandoned;
             Engine.AbandonSealed += onAbandonSealed;
             Engine.Rewound += onRewound;
+            Engine.HoldTickJudged += onHoldTickJudged;
+            Engine.HoldTailJudged += onHoldTailJudged;
 
             // HEALTH's six result-less seams (the typo drain and its refund, the word skip's drain
             // and its two refunds, the mash guard) go through TypeBeatHealthFeed, the one place they
@@ -399,6 +401,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // and under InputEra2 (every new live run) there is no cap at all.
             if (Engine.FletcherEnabled && judgement.ComboAfter == 0 && scoreProcessor != null)
                 scoreProcessor.Combo.Value = 0;
+        }
+
+        /// <summary>A hold tick takes its own result; a never-opened hold's are marked neutral first (see <see cref="onHoldTailJudged"/>).</summary>
+        private void onHoldTickJudged(HoldTickJudgement judgement)
+        {
+            lineDrawables.TryGetValue(judgement.LineIndex, out var line);
+
+            if (judgement.Neutral && line != null && cellWasDueBeforeThePlayStarted(line, judgement.CellIndex))
+            {
+                line.ApplyHoldTickResult(judgement.CellIndex, judgement.TickIndex, HitResult.LargeTickHit);
+                return;
+            }
+
+            if (judgement.Neutral)
+            {
+                (scoreProcessor as TypeBeatScoreProcessor)?.MarkTickComboNeutral(judgement.LineIndex, judgement.CellIndex, judgement.TickIndex);
+                TypeBeatHealthFeed.OnHoldTickJudged(healthProcessor as TypeBeatHealthProcessor, judgement);
+            }
+
+            line?.ApplyHoldTickJudgement(judgement);
+        }
+
+        /// <summary>
+        /// A hold tail takes its own result, which moves combo by itself. A seal Miss (head never pressed) is
+        /// marked combo- and HP-neutral first, since the head took the break. In a test play started past the
+        /// head, it is granted instead, as <see cref="onLineSealed"/> grants the head.
+        /// </summary>
+        private void onHoldTailJudged(HoldTailJudgement judgement)
+        {
+            lineDrawables.TryGetValue(judgement.LineIndex, out var line);
+
+            if (judgement.AtSeal && line != null && cellWasDueBeforeThePlayStarted(line, judgement.CellIndex))
+            {
+                line.ApplyHoldTailResult(judgement.CellIndex, HitResult.Great);
+                return;
+            }
+
+            if (judgement.AtSeal)
+            {
+                (scoreProcessor as TypeBeatScoreProcessor)?.MarkTailComboNeutral(judgement.LineIndex, judgement.CellIndex);
+                TypeBeatHealthFeed.OnHoldTailJudged(healthProcessor as TypeBeatHealthProcessor, judgement);
+            }
+
+            line?.ApplyHoldTailJudgement(judgement);
         }
 
         /// <summary>
@@ -628,8 +674,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// forward.
         /// Health is not re-derived here because, unlike the mistype count, the engine does not hold
         /// an authoritative total to copy: HP is the health processor's own running account.</para>
+        ///
+        /// <para>The health processor's HP-neutral hold marks are dropped for the same reason.</para>
         /// </summary>
-        private void onRewound() => (scoreProcessor as TypeBeatScoreProcessor)?.ResyncAfterRewind(Engine.Mistypes);
+        private void onRewound()
+        {
+            (scoreProcessor as TypeBeatScoreProcessor)?.ResyncAfterRewind(Engine.Mistypes);
+            (healthProcessor as TypeBeatHealthProcessor)?.ClearNeutralLedgersAfterRewind();
+        }
 
         protected override void Dispose(bool isDisposing)
         {
@@ -640,6 +692,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             Engine.WordAbandoned -= onWordAbandoned;
             Engine.AbandonSealed -= onAbandonSealed;
             Engine.Rewound -= onRewound;
+            Engine.HoldTickJudged -= onHoldTickJudged;
+            Engine.HoldTailJudged -= onHoldTailJudged;
             healthFeed?.Dispose();
             base.Dispose(isDisposing);
         }
@@ -1102,6 +1156,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (!usesIme)
                     pairCommittedText();
 
+                // The engine completed the hold itself (a Great at its end): its key no longer ends anything.
+                if (engine.ActiveHold == null)
+                    heldKey = null;
+
                 if (engine.UsesJapaneseRomaji)
                     playfield.setImeComposition(engine.JapanesePending);
             }
@@ -1190,6 +1248,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             private sealed class PendingPress
             {
                 public PressPlan Plan;
+
+                /// <summary>The physical key behind the press, whose release ends a hold it opens.</summary>
+                public Key? Key;
 
                 /// <summary>When the press was made, on <see cref="pairingClock"/>.</summary>
                 public double Since;
@@ -1320,7 +1381,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     return;
 
                 foreach (var (press, text) in resolved)
-                    resolvePress(press.Plan, text, time);
+                    resolvePress(press.Plan, text, time, press.Key);
             }
 
             /// <summary>
@@ -1372,7 +1433,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             /// (<paramref name="text"/>, null when it committed nothing), at <paramref name="time"/>.
             /// Returns whether anything was typed.
             /// </summary>
-            private bool resolvePress(PressPlan plan, string? text, double time)
+            private bool resolvePress(PressPlan plan, string? text, double time, Key? key = null)
             {
                 switch (plan)
                 {
@@ -1380,10 +1441,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         return false;
 
                     case PressPlan.Space when text == null:
-                        return TypeLatinText(" ", time);
+                        return TypeLatinText(" ", time, key);
 
                     default:
-                        return text != null && TypeLatinText(text, time);
+                        return text != null && TypeLatinText(text, time, key);
                 }
             }
 
@@ -1391,21 +1452,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             /// Registers one fresh press for the pairing and resolves it on the spot when its commit
             /// is already here. Returns whether anything was typed.
             /// </summary>
-            private bool pressFor(PressPlan plan, double time)
+            private bool pressFor(PressPlan plan, double time, Key? key = null)
             {
                 if (!latinTextInputActive)
                 {
                     // No text source at all (a bare scene) or none live: the spacebar alone still works,
                     // by its key, which is the fallback the text path promises.
-                    return plan == PressPlan.Space && TypeLatinText(" ", time);
+                    return plan == PressPlan.Space && TypeLatinText(" ", time, key);
                 }
 
                 string? text = claimCommittedText();
 
                 if (text != null)
-                    return resolvePress(plan, text, time);
+                    return resolvePress(plan, text, time, key);
 
-                waitingPresses.Add(new PendingPress { Plan = plan, Since = pairingNow });
+                waitingPresses.Add(new PendingPress { Plan = plan, Key = key, Since = pairingNow });
                 return false;
             }
 
@@ -1419,8 +1480,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             /// had on the key path: nothing before the line (or the first line's head start) opens, and
             /// on a finished line only the typed-through newline may take a letter. Returns whether
             /// anything was typed.
+            ///
+            /// <para><paramref name="key"/> is the physical key behind the press: its release ends a hold the press opens.</para>
             /// </summary>
-            internal bool TypeLatinText(string text, double time)
+            internal bool TypeLatinText(string text, double time, Key? key = null)
             {
                 // Nothing while paused, during playback, or while another control holds focus (a chat
                 // box can have activated text input too, and its characters are its own).
@@ -1441,10 +1504,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // line is the manual newline, which the spacebar's key decides (OnKeyDown).
                     if (engine.IsLineComplete && playfield.CurrentRetypeSelection is null)
                     {
+                        var finishedHoldBefore = engine.ActiveHold;
+
                         if (c != ' ' && engine.NewlineOnTypedLetter && engine.ProcessKey(c, time))
                         {
                             drawableRuleset?.RecordTypingInput(c, time);
                             typed = true;
+                            rememberHeldKey(key, text, finishedHoldBefore);
                         }
 
                         continue;
@@ -1454,20 +1520,113 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // mass backspace, then the ordinary judged keypress (backlog 182).
                     collapseSelection(time);
 
+                    var holdBefore = engine.ActiveHold;
+
                     if (engine.ProcessKey(c, time))
                     {
                         drawableRuleset?.RecordTypingInput(c, time);
                         typed = true;
+                        rememberHeldKey(key, text, holdBefore);
                     }
                 }
+
+                // The key went up before its commit resolved, so end the hold now.
+                if (heldKey is Key held && !isDown(held))
+                    releaseHold(time);
 
                 return typed;
             }
 
             #endregion
 
+            #region Holds
+
+            /// <summary>
+            /// The key whose press opened the active hold; its key-up ends it. A key let go during a pause
+            /// is seen as a key-up on resume.
+            /// </summary>
+            private Key? heldKey;
+
+            /// <summary>After a press: if it opened a new hold, remember its key and what that key's OS repeat commits.</summary>
+            private void rememberHeldKey(Key? key, string text, TypingEngine.ActiveHoldInfo? holdBefore)
+            {
+                if (key != null && engine.ActiveHold is TypingEngine.ActiveHoldInfo hold && hold != holdBefore)
+                {
+                    heldKey = key;
+
+                    // Only a key still down can repeat.
+                    if (isDown(key.Value))
+                    {
+                        repeatingKey = key;
+                        repeatingText = text;
+                    }
+                }
+            }
+
+            /// <summary>
+            /// The held key and its OS-repeated text while it is down. When it stops repeating, its pending
+            /// commits are dropped, so the hand-off key pressed during the rollover cannot claim one of them.
+            /// </summary>
+            private Key? repeatingKey;
+
+            /// <inheritdoc cref="repeatingKey"/>
+            private string? repeatingText;
+            private void dropHeldKeyRepeats()
+            {
+                if (repeatingText != null)
+                {
+                    lock (committedLock)
+                        committed.RemoveAll(t => t.Text == repeatingText);
+                }
+
+                repeatingKey = null;
+                repeatingText = null;
+            }
+
+            private bool isDown(Key key) => GetContainingInputManager()?.CurrentState.Keyboard.Keys.IsPressed(key) == true;
+
+            /// <summary>Modifiers never end a hold (Shift for capitals; Windows reports AltGr as Ctrl+Alt).</summary>
+            private static bool isModifier(Key k) => k is Key.LShift or Key.RShift or Key.LControl or Key.RControl or Key.LAlt or Key.RAlt or Key.LWin or Key.RWin;
+
+            /// <summary>
+            /// Ends the active hold at <paramref name="time"/> and records a release frame. The engine is advanced
+            /// first, so a hold already past its end completes as Great with nothing recorded. Inert during playback.
+            /// </summary>
+            private void releaseHold(double time)
+            {
+                heldKey = null;
+
+                if (engine.ActiveHold == null || drawableRuleset?.ReplayScore != null)
+                    return;
+
+                engine.Update(time, wpmClockRate(gameplayClock, editorPlayback));
+
+                if (engine.ProcessRelease(time))
+                    drawableRuleset?.RecordTypingInput(TypeBeatReplayFrame.RELEASE, time);
+            }
+
+            protected override void OnKeyUp(KeyUpEvent e)
+            {
+                if (heldKey != null && e.Key == heldKey)
+                    releaseHold(Math.Round(Time.Current));
+
+                if (repeatingKey != null && e.Key == repeatingKey)
+                    dropHeldKeyRepeats();
+
+                base.OnKeyUp(e);
+            }
+
+            #endregion
+
             protected override bool OnKeyDown(KeyDownEvent e)
             {
+                // Another key going down ends a hold first, as its own recorded frame, and drops the held key's repeats.
+                if (engine.ActiveHold != null && !e.Repeat && e.Key != heldKey && !isModifier(e.Key))
+                    releaseHold(Math.Round(Time.Current));
+
+                if (repeatingKey != null && !e.Repeat && e.Key != repeatingKey && !isModifier(e.Key))
+                    dropHeldKeyRepeats();
+
                 // POLYGLOT (backlog 331): while an IME composition is open, the keys that edit it are the
                 // IME's (a backspace shortens the composition, a space converts it, enter commits it), so
                 // the engine sees none of them. Swallowed, so none reaches a global binding either.
@@ -1525,7 +1684,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // layout reaches the characters it has no plain key for ('@', '[', a Polish 'ę').
                     // A real shortcut commits nothing, so its press simply expires.
                     if (freshTextPress)
-                        pressFor(PressPlan.Type, Math.Round(Time.Current));
+                        pressFor(PressPlan.Type, Math.Round(Time.Current), e.Key);
 
                     return false;
                 }
@@ -1703,7 +1862,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // answer decides the fall-through exactly as before; when it lands a frame later
                     // the press has already fallen through, and the letter still hands the line on.
                     if (engine.NewlineOnTypedLetter && freshTextPress && e.Key != Key.Space)
-                        return pressFor(PressPlan.Type, time);
+                        return pressFor(PressPlan.Type, time, e.Key);
 
                     return dropPress(freshTextPress, time);
                 }
@@ -1746,11 +1905,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     if (!engine.Polyglot && !engine.Literate && TypingKeys.TryPositionalDigit(e.Key, out char digit))
                     {
                         dropPress(true, time);
-                        TypeLatinText(digit.ToString(), time);
+                        TypeLatinText(digit.ToString(), time, e.Key);
                         return true;
                     }
 
-                    bool typed = pressFor(e.Key == Key.Space ? PressPlan.Space : PressPlan.Type, time);
+                    bool typed = pressFor(e.Key == Key.Space ? PressPlan.Space : PressPlan.Type, time, e.Key);
 
                     // A letter, a digit and the spacebar are swallowed whatever they committed, as
                     // they always were. The rest of the block (the punctuation positions, the keypad

@@ -620,6 +620,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             base.LoadComplete();
             engine.LineActivated += onLineActivated;
             engine.CharJudged += onCharJudged;
+            engine.HoldTickJudged += onHoldTickJudged;
+            engine.HoldTailJudged += onHoldTailJudged;
             engine.LineSealed += onLineSealed;
             engine.WrongKeyRejected += onWrongKeyRejected;
             engine.AbandonReclaimed += onAbandonReclaimed;
@@ -718,6 +720,48 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             playerCaret.NotifyTyped();
         }
 
+        private void onHoldTickJudged(HoldTickJudgement judgement)
+        {
+            if (DisplayAt(judgement.LineIndex) is not LyricLineDisplay d)
+                return;
+
+            if (judgement.Hit)
+                d.ShowHoldTickHit(judgement.CellIndex, judgement.TickIndex);
+            else
+                d.ShowHoldTickMissed(judgement.CellIndex, judgement.TickIndex);
+        }
+
+        /// <summary>
+        /// A hold's tail was judged. The fill is first settled at the release time (the per-frame feed runs a
+        /// frame behind). A hold that never opened (a seal Miss, or a head pressed at or after the end, the
+        /// only Miss released at or past the end) shows the empty miss track instead.
+        /// </summary>
+        private void onHoldTailJudged(HoldTailJudgement judgement)
+        {
+            if (DisplayAt(judgement.LineIndex) is not LyricLineDisplay d)
+                return;
+
+            var cell = d.Line.Cells[judgement.CellIndex];
+
+            bool neverOpened = judgement.Type == JudgementType.Miss
+                               && (judgement.AtSeal || (cell.HoldEnd is double holdEnd && judgement.ReleaseTime >= holdEnd));
+
+            if (neverOpened)
+            {
+                d.SetHoldFill(judgement.CellIndex, 0);
+                d.ShowHoldMissed(judgement.CellIndex);
+                return;
+            }
+
+            if (cell is { HoldStart: double start, HoldEnd: double end })
+                d.SetHoldFill(judgement.CellIndex, holdFillAt(judgement.ReleaseTime, start, end));
+
+            d.ShowHoldResult(judgement.CellIndex, judgement.Type);
+        }
+
+        /// <summary>The held share of a hold's span at <paramref name="time"/> (the bar clamps it).</summary>
+        private static float holdFillAt(double time, double start, double end) => (float)((time - start) / Math.Max(1, end - start));
+
         private void onLineSealed(LineSealResult result)
         {
             if (result.LineIndex >= 0 && result.LineIndex < displays.Length)
@@ -742,6 +786,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             laidOutFocus = int.MinValue;
             pendingSnap = true;
+
+            // A rebuild announces no hold tails, so every bar goes back to empty.
+            foreach (var display in displays)
+                display.ResetHoldBars();
         }
 
         protected override void Update()
@@ -766,6 +814,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     pendingSnap = true;
                 }
             }
+
+            // The hold down fills its track on the sweep's clock; once it ends nothing is fed, freezing the fill.
+            if (engine.ActiveHold is { } hold && DisplayAt(hold.LineIndex) is LyricLineDisplay holdDisplay)
+                holdDisplay.SetHoldFill(hold.CellIndex, holdFillAt(Time.Current, hold.StartTime, hold.EndTime));
 
             int active = engine.ActiveLineIndex;
 
@@ -1543,6 +1595,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         {
             engine.LineActivated -= onLineActivated;
             engine.CharJudged -= onCharJudged;
+            engine.HoldTickJudged -= onHoldTickJudged;
+            engine.HoldTailJudged -= onHoldTailJudged;
             engine.LineSealed -= onLineSealed;
             engine.WrongKeyRejected -= onWrongKeyRejected;
             engine.AbandonReclaimed -= onAbandonReclaimed;

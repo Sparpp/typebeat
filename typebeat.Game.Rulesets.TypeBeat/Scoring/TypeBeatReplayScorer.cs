@@ -315,6 +315,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 cells.Seal(scoreProcessor, sealResult.LineIndex, engine, rule);
             }
 
+            // As TypeBeatPlayfield.onHoldTailJudged / onHoldTickJudged.
+            void onHoldTailJudged(HoldTailJudgement judgement)
+            {
+                if (judgement.AtSeal)
+                    scoreProcessor.MarkTailComboNeutral(judgement.LineIndex, judgement.CellIndex);
+
+                cells.ResolveHoldPart(scoreProcessor, judgement.LineIndex, judgement.CellIndex, -1, TypeBeatResultMapping.TailResult(judgement.Type));
+            }
+
+            void onHoldTickJudged(HoldTickJudgement judgement)
+            {
+                if (judgement.Neutral)
+                    scoreProcessor.MarkTickComboNeutral(judgement.LineIndex, judgement.CellIndex, judgement.TickIndex);
+
+                cells.ResolveHoldPart(scoreProcessor, judgement.LineIndex, judgement.CellIndex, judgement.TickIndex, TypeBeatResultMapping.TickResult(judgement.Hit));
+            }
+
             void onMistyped()
             {
                 if (TypeBeatResultMapping.MistypeCarriesTheComboBreak(rule))
@@ -358,6 +375,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             engine.ComboRestored += onComboRestored;
             engine.WordAbandoned += onWordAbandoned;
             engine.AbandonSealed += onAbandonSealed;
+            engine.HoldTickJudged += onHoldTickJudged;
+            engine.HoldTailJudged += onHoldTailJudged;
 
             int consumed = feed(engine, replay);
 
@@ -368,6 +387,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             engine.ComboRestored -= onComboRestored;
             engine.WordAbandoned -= onWordAbandoned;
             engine.AbandonSealed -= onAbandonSealed;
+            engine.HoldTickJudged -= onHoldTickJudged;
+            engine.HoldTailJudged -= onHoldTailJudged;
 
             var populated = new ScoreInfo { Ruleset = ruleset.RulesetInfo };
             scoreProcessor.PopulateScore(populated);
@@ -432,7 +453,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // POLYGLOT (backlog 331) is identified by the mod in the score, like Literate: no era bit.
             bool polyglot = mods.Any(m => m is TypeBeatModPolyglot);
 
-            var engine = new TypingEngine(lyricBeatmap, literate, polyglot, polyglot ? TypeBeatModPolyglot.LanguageFor(playable) : null);
+            // SHORTHAND, likewise.
+            bool shorthand = mods.Any(m => m is TypeBeatModShorthand);
+
+            var engine = new TypingEngine(lyricBeatmap, literate, polyglot, polyglot ? TypeBeatModPolyglot.LanguageFor(playable) : null, shorthand);
 
             // SyllableTiming is NOT selected here, and deliberately not: it is the one era axis
             // that travels in the replay itself (CONFIG frame, bit 2), so ReplayEngineFeed.Apply
@@ -690,6 +714,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                     foreach (var nested in lineObject.NestedHitObjects.OfType<TypeBeatCharObject>())
                         line.Cells[nested.CellIndex] = new Cell(nested);
 
+                    foreach (var nested in lineObject.NestedHitObjects)
+                    {
+                        if (TypeBeatResultMapping.HoldPartKey(nested) is { } key)
+                            line.HoldParts[(key.Cell, key.Tick)] = new Cell(nested);
+                    }
+
                     lines[lineObject.LineIndex] = line;
                 }
             }
@@ -700,6 +730,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                     return;
 
                 cell.Apply(scoreProcessor, result);
+            }
+
+            /// <summary><see cref="Resolve"/> for a hold's tail (tick -1) or tick.</summary>
+            public void ResolveHoldPart(ScoreProcessor scoreProcessor, int lineIndex, int cellIndex, int tickIndex, HitResult result)
+            {
+                if (lines.TryGetValue(lineIndex, out var line) && line.HoldParts.TryGetValue((cellIndex, tickIndex), out var part))
+                    part.Apply(scoreProcessor, result);
             }
 
             public void Seal(ScoreProcessor scoreProcessor, int lineIndex, TypingEngine engine, TypoRule rule)
@@ -740,14 +777,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             /// </summary>
             public readonly SortedDictionary<int, Cell> Cells = new SortedDictionary<int, Cell>();
 
+            /// <summary>Hold tails (tick -1) and ticks, keyed by (held cell, tick).</summary>
+            public readonly Dictionary<(int Cell, int Tick), Cell> HoldParts = new Dictionary<(int, int), Cell>();
+
             private readonly Slot slot = new Slot(lineObject);
 
             public void Apply(ScoreProcessor scoreProcessor, HitResult result) => slot.Apply(scoreProcessor, result);
         }
 
-        private sealed class Cell(TypeBeatCharObject charObject)
+        /// <summary>A cell, hold tail or hold tick.</summary>
+        private sealed class Cell(HitObject hitObject)
         {
-            private readonly Slot slot = new Slot(charObject);
+            private readonly Slot slot = new Slot(hitObject);
 
             /// <summary><c>DrawableHitObject.Judged</c>: this cell has already taken its one result.</summary>
             public bool Judged => slot.Judged;

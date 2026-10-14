@@ -37,6 +37,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// <summary>The recorded song times, ascending. One per timed word, in queue order.</summary>
         public IReadOnlyList<double> Taps => taps;
 
+        private readonly List<double?> releases = new List<double?>();
+
+        /// <summary>How long the timing key must stay down for a press to be a hold rather than a tap.</summary>
+        public const double HOLD_THRESHOLD_MS = 250;
+
+        /// <summary>The key-up time of each tap that was held long enough to be a hold, else null. Parallel to <see cref="Taps"/>.</summary>
+        public IReadOnlyList<double?> Releases => releases;
+
         public TapTimingSession(IReadOnlyList<LyricLine> lines, IReadOnlyList<TapTarget> queue)
         {
             Lines = lines;
@@ -117,6 +125,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 return false;
 
             taps.Add(time);
+            releases.Add(null);
+            return true;
+        }
+
+        /// <summary>
+        /// Records the key-up of the last tap at <paramref name="songTime"/>. It becomes a hold only when
+        /// the key was down at least <see cref="HOLD_THRESHOLD_MS"/>; returns whether it did.
+        /// </summary>
+        public bool Release(double songTime)
+        {
+            if (taps.Count == 0 || songTime - taps[^1] < HOLD_THRESHOLD_MS)
+                return false;
+
+            releases[^1] = songTime;
             return true;
         }
 
@@ -127,6 +149,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 return false;
 
             taps.RemoveAt(taps.Count - 1);
+            releases.RemoveAt(releases.Count - 1);
             return true;
         }
 
@@ -145,10 +168,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 return false;
 
             taps.RemoveRange(keep, taps.Count - keep);
+            releases.RemoveRange(keep, releases.Count - keep);
             return true;
         }
 
         /// <summary>The sheet this session commits to, built in one shot from the recorded taps.</summary>
-        public IReadOnlyList<LyricLine> BuildCommit() => TapTimingBuilder.Build(Lines, Queue, taps);
+        public IReadOnlyList<LyricLine> BuildCommit() => TapTimingBuilder.Build(Lines, Queue, taps, releases);
     }
 }

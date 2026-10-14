@@ -144,6 +144,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             // Ghost markers of a live tap-timing pass (nothing committed yet).
             ghostLayer.UpdateGhosts(state.TapSession?.Taps, PositionOf);
+            ghostLayer.UpdateHold(state.TapHoldStart, editorClock.CurrentTime, PositionOf);
 
             double now = editorClock.CurrentTime;
             bool playheadVisible = now >= windowStart && now <= windowStart + windowLength;

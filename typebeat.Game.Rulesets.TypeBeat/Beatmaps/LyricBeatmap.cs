@@ -660,6 +660,24 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// key, written only when it differs from <see cref="Text"/>.</para>
         /// </summary>
         public string? Original { get; init; }
+
+        /// <summary>The word's mapper-authored objects (auto-fill, holds).</summary>
+        public WordObjects Objects { get; init; } = WordObjects.None;
+
+        /// <summary>This word with <paramref name="objects"/> in place of its own.</summary>
+        public TimedUnit WithObjects(WordObjects objects) => new TimedUnit
+        {
+            Text = Text,
+            StartTime = StartTime,
+            EndTime = EndTime,
+            Source = Source,
+            Confidence = Confidence,
+            SyllableBoundaries = SyllableBoundaries,
+            Pauses = Pauses,
+            SyllableSplits = SyllableSplits,
+            Original = Original,
+            Objects = objects,
+        };
     }
 
     /// <summary>

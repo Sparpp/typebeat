@@ -201,6 +201,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private void end()
         {
             Session = null;
+            timingKeyDown = null;
+            state.TapHoldStart = null;
             state.TapSession = null;
             // The hidden lines come back exactly here, so Finish, Escape and every other exit path
             // restore the sheet identically.
@@ -232,7 +234,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // A backward seek (waveform drag, timeline click, rewind) drops the taps it undid. The
             // tolerance is well under the minimum gap between two real taps, so it can only ever
             // absorb clock jitter, never a tap the mapper just made at the current time.
-            session.TruncateFrom(editorClock.CurrentTime + seek_tolerance_ms);
+            // A seek that drops taps also forgets a key still down: its release would land on an older tap.
+            if (session.TruncateFrom(editorClock.CurrentTime + seek_tolerance_ms))
+                timingKeyDown = null;
+
+            // The stretching ghost bar: shown once the press has lasted long enough to count as a hold.
+            state.TapHoldStart = timingKeyDown != null && session.LastTapTime is double heldFrom
+                                 && editorClock.CurrentTime - heldFrom >= TapTimingSession.HOLD_THRESHOLD_MS
+                ? heldFrom
+                : null;
 
             int done = session.TappedCount;
             int total = session.Queue.Count;
@@ -250,6 +260,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             }
         }
 
+        /// <summary>The timing key currently held down (a tap that may become a hold), or null.</summary>
+        private Key? timingKeyDown;
+
+        protected override void OnKeyUp(KeyUpEvent e)
+        {
+            if (timingKeyDown != null && e.Key == timingKeyDown)
+            {
+                Session?.Release(editorClock.CurrentTime);
+                timingKeyDown = null;
+            }
+
+            base.OnKeyUp(e);
+        }
+
         protected override bool OnKeyDown(KeyDownEvent e)
         {
             if (!Active || e.Repeat)
@@ -260,7 +284,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 case Key.Space:
                 case Key.Enter:
                 case Key.KeypadEnter:
-                    tap();
+                    // Mappers alternate Space and Enter: a still-held key ends its hold at this press.
+                    if (timingKeyDown != null)
+                        Session?.Release(editorClock.CurrentTime);
+
+                    timingKeyDown = tap() ? e.Key : null;
                     return true;
 
                 case Key.P:
@@ -272,6 +300,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
                 case Key.BackSpace:
                     Session?.UndoLastTap();
+                    timingKeyDown = null;
                     return true;
 
                 case Key.Escape:
@@ -320,13 +349,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
         }
 
-        private void tap()
+        private bool tap()
         {
             if (Session is not TapTimingSession session)
-                return;
+                return false;
 
             if (!session.Tap(editorClock.CurrentTime))
-                return;
+                return false;
 
             var channel = tapSample?.GetChannel();
 
@@ -340,6 +369,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             // not left listening past the section they timed.
             if (session.QueueComplete)
                 editorClock.Stop();
+
+            return true;
         }
 
         /// <summary>

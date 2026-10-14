@@ -25,6 +25,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// input so the frames survive .osr encoding untouched. The rounding is re-clamped against the
     /// window afterwards, because rounding a fractional activation DOWN would put the press on the
     /// wrong side of a line boundary (see <see cref="GenerateFrames"/>).
+    ///
+    /// <para>Holds: no release frames (a hold still down at its end is Great). A held head is pressed at
+    /// the earliest perfect instant from its hold's start, and a press due while autoplay's hold is down
+    /// waits for its end when still perfect. Either move is capped so no later cell leaves its perfect window.</para>
     /// </summary>
     public class TypeBeatAutoGenerator : AutoGenerator<TypeBeatReplayFrame>
     {
@@ -120,11 +124,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
 
             double lastTime = double.NegativeInfinity;
 
+            // The end of the hold autoplay's last held press opened, while it is still down.
+            double holdUntil = double.NegativeInfinity;
+
             foreach (var lineObject in lineObjects)
             {
                 // A Polyglot play (backlog 331) is stamped on the line objects by the mod, so the frames
-                // follow the original-script cells the engine will judge.
-                var line = TypingLine.ForMods(lineObject.Line, literate, lineObject.Polyglot, lineObject.PolyglotLanguage);
+                // follow the original-script cells the engine will judge. Shorthand likewise.
+                var line = TypingLine.ForMods(lineObject.Line, literate, lineObject.Polyglot, lineObject.PolyglotLanguage, shorthand: lineObject.Shorthand);
                 line.SetAlignedSubdivisionTargets(alignSubdivisionTargets);
 
                 // The line is typeable in [ActivationTime, EndTime + SealGraceMs); keep a margin
@@ -146,6 +153,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // fails the play. So round UP to the open, never past it.
                 double openMs = Math.Ceiling(windowStart);
 
+                // Built only when a hold first moves an aim.
+                double[]? capAfter = null;
+
                 for (int i = 0; i < line.Cells.Count; i++)
                 {
                     var cell = line.Cells[i];
@@ -153,11 +163,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                     if (!cell.IsTypeable)
                         continue;
 
-                    double time = Math.Clamp(perfectTimeFor(line, i), windowStart, windowEnd);
+                    // Aim at the target, a held head's hold start, or past autoplay's open hold, within the perfect window.
+                    var (perfectFrom, perfectTo) = perfectWindowFor(line, i);
+                    double aim = cell.TargetTime;
+
+                    if (cell.HoldStart != null || holdUntil > cell.TargetTime)
+                    {
+                        capAfter ??= perfectEndsAfter(line);
+                        aim = Math.Min(Math.Max(cell.HoldStart ?? cell.TargetTime, holdUntil), capAfter[i]);
+                    }
+                    double time = Math.Clamp(Math.Clamp(aim, perfectFrom, perfectTo), windowStart, windowEnd);
 
                     // Monotonic, integral (matches live capture; lossless in .osr).
                     time = Math.Max(Math.Round(Math.Max(time, lastTime)), openMs);
                     lastTime = time;
+
+                    if (cell.HoldEnd is double holdEnd)
+                        holdUntil = time < holdEnd ? holdEnd : double.NegativeInfinity;
 
                     // A freestyle cell accepts any key but space, so the perfect play presses a
                     // fixed letter rather than the authoring marker (which would be rejected, as a
@@ -186,9 +208,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             }
         }
 
+        /// <summary>Per cell, the earliest perfect-window end of any typeable cell after it: the latest a press may be made.</summary>
+        private double[] perfectEndsAfter(TypingLine line)
+        {
+            double[] caps = new double[line.Cells.Count];
+            double min = double.PositiveInfinity;
+
+            for (int i = caps.Length - 1; i >= 0; i--)
+            {
+                caps[i] = min;
+
+                if (line.Cells[i].IsTypeable)
+                    min = Math.Min(min, perfectWindowFor(line, i).to);
+            }
+
+            return caps;
+        }
+
         /// <summary>
-        /// The instant cell <paramref name="cellIndex"/> is judged delta 0 at, before the window,
-        /// monotonic and rounding machinery in <see cref="GenerateFrames"/> gets to it.
+        /// The instants [from, to] cell <paramref name="cellIndex"/> is judged delta 0 at, before the
+        /// window, monotonic and rounding machinery in <see cref="GenerateFrames"/> gets to it.
         ///
         /// <para>Classic era: the cell's own point target, which is what
         /// <c>TypingEngine.judgedDeltaFor</c> measures against. Under
@@ -225,19 +264,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// millisecond against the game's Great window (150 ms, one ladder for every cell) is not
         /// a judgement anyone can lose.</para>
         /// </summary>
-        private double perfectTimeFor(TypingLine line, int cellIndex)
+        private (double from, double to) perfectWindowFor(TypingLine line, int cellIndex)
         {
             double target = line.Cells[cellIndex].TargetTime;
 
             if (!syllableTiming)
-                return target;
+                return (target, target);
 
             // The grouping the grading engine reads (backlog 363), which is also what decides the
             // stretch runs.
             SyllableGrouping grouping = line.GroupingFor(authoredSyllablesOnly);
 
             if (charTimedStretch && grouping.IsCharTimedStretch(cellIndex))
-                return target;
+                return (target, target);
 
             // Same span the engine measures against: the word under Easy's shelter, the syllable
             // otherwise. Both are read the same way below.
@@ -249,7 +288,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 int word = line.WordIndexOf(cellIndex);
 
                 if (word < 0)
-                    return target;
+                    return (target, target);
 
                 WordGroup group = line.Words[word];
                 startCell = group.StartCell;
@@ -261,7 +300,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 int syllable = grouping.IndexOf(cellIndex);
 
                 if (syllable < 0)
-                    return target;
+                    return (target, target);
 
                 SyllableGroup group = grouping.Groups[syllable];
                 startCell = group.StartCell;
@@ -277,9 +316,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             // (TypingLine clamps them so at construction) and every later cell of the group is
             // clamped to at least this same start, so the generated press times stay monotonic.
             if (firstCharTiming && cellIndex == startCell)
-                return startTime;
+                return (startTime, startTime);
 
-            return Math.Clamp(target, startTime, endTime);
+            return (startTime, endTime);
         }
     }
 }

@@ -15,7 +15,7 @@ using typebeat.Game.Rulesets.TypeBeat.Scoring;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 {
-    public sealed class TypingEngine
+    public sealed partial class TypingEngine
     {
         /// <summary>
         /// How long before a line's first typeable cell's target the line becomes typeable
@@ -975,6 +975,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// carry a mod that did not exist.
         /// </summary>
         public bool Polyglot { get; }
+
+        /// <summary>
+        /// Shorthand mod: only word and syllable onsets are typed (see <see cref="TypingLine.ForMods"/>).
+        /// Every space is completed, so a pressed space is inert.
+        /// </summary>
+        public bool Shorthand { get; }
 
         /// <summary>Japanese Polyglot uses the internal romaji processor instead of an OS IME.</summary>
         public bool UsesJapaneseRomaji { get; }
@@ -2014,7 +2020,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         ///
         /// <para><c>runPositions.Count == combo</c> is the invariant, and it holds by construction
         /// because the four ways combo moves all move this with it: an increment appends
-        /// (<see cref="creditCombo"/>), a break clears (<see cref="breakRun"/>, which hands the list
+        /// (<see cref="creditCombo(int, int)"/>), a break clears (<see cref="breakRun"/>, which hands the list
         /// to a redeemable break's snapshot), a restore puts the snapshot's own entries back, and the
         /// back-dated seal drops exactly the entries it destroys.</para>
         ///
@@ -2097,7 +2103,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
         private SpaceTimingRule spaceTiming = SpaceTimingRule.Untimed;
 
-        public TypingEngine(LyricBeatmap beatmap, bool literate = false, bool polyglot = false, string? polyglotLanguage = null)
+        public TypingEngine(LyricBeatmap beatmap, bool literate = false, bool polyglot = false, string? polyglotLanguage = null, bool shorthand = false)
         {
             Beatmap = beatmap ?? throw new ArgumentNullException(nameof(beatmap));
 
@@ -2110,13 +2116,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             Literate = literate;
             CaseSensitive = literate;
             Polyglot = polyglot;
+            Shorthand = shorthand;
             UsesJapaneseRomaji = polyglot && JapaneseReading.IsJapanese(polyglotLanguage);
             JapaneseRomajiInput = UsesJapaneseRomaji;
 
             lines = new List<TypingLine>(beatmap.Lines.Count);
 
             foreach (var line in beatmap.Lines)
-                lines.Add(TypingLine.ForMods(line, literate, polyglot, polyglotLanguage));
+                lines.Add(TypingLine.ForMods(line, literate, polyglot, polyglotLanguage, shorthand: shorthand));
 
             lineSealed = new bool[lines.Count];
             lineAbandoned = new bool[lines.Count];
@@ -2128,6 +2135,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             foreach (JudgementType type in Enum.GetValues<JudgementType>())
                 counts[type] = 0;
+
+            resetHolds();
 
             countableBase = new int[lines.Count];
             countablePrefix = new int[lines.Count][];
@@ -2287,6 +2296,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             foreach (JudgementType type in Enum.GetValues<JudgementType>())
                 counts[type] = 0;
 
+            resetHolds();
+
             nextSealIndex = 0;
             activeLineIndex = -1;
             caretIndex = 0;
@@ -2408,6 +2419,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             lastUpdateTime = time;
 
+            // Holds settle ahead of this update's seals.
+            creditTicksDueBy(time);
+            completeHoldsDueBy(time);
+
             // A final n is already a complete reading. If no confirmation key arrives before the
             // line ends, resolve it at its typed timestamp before sealing can turn it into a miss.
             if (activeLineIndex >= 0 && time >= lines[activeLineIndex].EndTime)
@@ -2424,10 +2439,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             //     EndTime; lines with a seal grace (vocals overrunning into the next line, or a
             //     boundary-pinned last target) stay typeable through the grace window and seal
             //     early the moment nothing is left to type, so the next line isn't held up.
-            while (nextSealIndex < lines.Count && (canSeal(lines[nextSealIndex], time) || finishedEarly(nextSealIndex)) && sealPermitted(nextSealIndex, time))
+            while (nextSealIndex < lines.Count && (canSeal(nextSealIndex, time) || finishedEarly(nextSealIndex)) && sealPermitted(nextSealIndex, time))
             {
                 int index = nextSealIndex;
                 var line = lines[index];
+
+                // A hold still down is graded before the seal's break, so SurvivingCombo counts it.
+                closeOpenHoldAtSeal(index, time);
 
                 int missed = 0;
 
@@ -2563,6 +2581,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 if (broke)
                     raise(ComboBroken);
 
+                sealHolds(index);
                 raise(LineSealed, new LineSealResult(index, missed, broke, survivingCombo));
             }
 
@@ -2931,16 +2950,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// only the DEADLINE half: whether the seal may actually run is
         /// <see cref="sealPermitted"/>'s, and a line is held past this point both by drag protection
         /// and by a manual caret that has finished it (<see cref="manualNewlineHoldsLineOpen"/>).
+        /// An open hold blocks the early arm.
         /// </summary>
-        private bool canSeal(TypingLine line, double time)
+        private bool canSeal(int index, double time)
         {
+            var line = lines[index];
+
             if (time < line.EndTime)
                 return false;
 
             if (time >= EffectiveSealTime(line))
                 return true;
 
-            return !hasUntypedTypeable(line);
+            return !hasUntypedTypeable(line) && !holdOpenOn(index);
         }
 
         /// <summary>
@@ -2952,7 +2974,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private bool finishedEarly(int index)
         {
-            if (!EarlyFinish || index != lines.Count - 1)
+            if (!EarlyFinish || index != lines.Count - 1 || holdOpenOn(index))
                 return false;
 
             bool anyTypeable = false;
@@ -3208,6 +3230,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     return false;
                 }
             }
+
+            // A space where spaces are completed (Shorthand, or just past an auto-fill word) is habit, so inert.
+            // After the finished-line branch, so the spacebar still works as the manual newline there.
+            if (Shorthand && c == ' ')
+                return false;
+
+            if (c == ' ' && caretIndex > 0 && line.Cells[caretIndex - 1] is { IsAutoCompleted: true, Expected: ' ' })
+                return false;
 
             // The press is going to do something, so the player is typing on this line; if the song
             // has not reached it yet, that is the instant the WPM clock starts counting (backlog 222,
@@ -3542,6 +3572,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             // spacebar back inside the timing challenge or its tier counts and its max_combo come
             // back as a ladder it was never played on. Live play never selects the other arm.
 
+            closeHoldHandedOff(activeLineIndex, targetIndex, time);
+
             // COMBO RESTORE (backlog 140, widened to the word skip by backlog 167), before anything
             // about this press is judged: if this is the cell a wrong keypress spoiled or a skip
             // abandoned, the run resumes at the streak that break cost plus everything earned since.
@@ -3760,6 +3792,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             advanceCaretToFrontier();
 
             raise(CharJudged, new CharJudgement(activeLineIndex, judgedCellIndex, type, delta, points, combo));
+            openHoldIfHeld(activeLineIndex, judgedCellIndex, time);
             rollForwardIfFinishedEarly(time);
             if (completedJapanese)
                 protectJapaneseCompletion();
@@ -3948,11 +3981,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <see cref="combo"/> grows by a keypress, so <see cref="runPositions"/> cannot fall behind
         /// it.
         /// </summary>
-        private void creditCombo(int cellIndex)
+        private void creditCombo(int cellIndex) => creditCombo(activeLineIndex, cellIndex);
+
+        /// <summary><see cref="creditCombo(int)"/> on an explicit line (a hold's line need not be the active one).</summary>
+        private void creditCombo(int lineIndex, int cellIndex)
         {
             combo++;
             maxCombo = Math.Max(maxCombo, combo);
-            runPositions.Add(new ComboPosition(activeLineIndex, cellIndex));
+            runPositions.Add(new ComboPosition(lineIndex, cellIndex));
         }
 
         /// <summary>
@@ -4361,6 +4397,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         private double judgedDeltaFor(TypingLine line, int cellIndex, double time)
         {
+            // The letter after a held one, pressed inside its hold's release slack, is on time.
+            if (inHandoffWindow(line, cellIndex, time))
+                return 0;
+
             SyllableGrouping grouping = GroupingOf(line);
 
             if (SyllableTiming && !(CharTimedStretch && grouping.IsCharTimedStretch(cellIndex)))
