@@ -181,8 +181,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         ///
         /// <para>The metric was removed from the game because it AFFECTED things, and the fix was to
         /// stop it affecting them rather than to delete it: since backlog 251 no grade, score,
-        /// judgement or submission reads sync anywhere (<see cref="Gameplay.ResultsSummary.Grade"/>
-        /// is accuracy alone), so this key decides nothing but whether the tint is drawn. The
+        /// judgement or submission reads sync anywhere (the rank, <c>TypeBeatScoreProcessor</c>'s
+        /// ladder, is accuracy plus a missed-cell limit), so this key decides nothing but whether the tint is drawn. The
         /// numbers behind it (<see cref="Gameplay.TypingEngine.LiveSyncPercent"/>,
         /// <see cref="Gameplay.ResultsSummary.SyncPercent"/>) are computed either way, which is what
         /// lets the toggle be a pure display switch with no mid-play consequence.</para>

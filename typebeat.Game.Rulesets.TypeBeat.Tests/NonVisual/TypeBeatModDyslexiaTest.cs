@@ -303,7 +303,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(a.MaxCombo, b.MaxCombo);
             Assert.AreEqual(a.Accuracy, b.Accuracy, 1e-12);
             Assert.AreEqual(a.SyncPercent, b.SyncPercent, 1e-12);
-            Assert.AreEqual(a.Grade, b.Grade);
 
             foreach (JudgementType type in Enum.GetValues<JudgementType>())
                 Assert.AreEqual(a.Counts[type], b.Counts[type], $"{type} count moved");

@@ -231,8 +231,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public required double Wpm { get; init; }
 
         /// <summary>
-        /// 0..100. DISPLAY ONLY since backlog 251: nothing derives from it, <see cref="Grade"/>
-        /// included, and it is only rendered where the player has asked for the sync metric
+        /// 0..100. DISPLAY ONLY since backlog 251: nothing derives from it (the rank is
+        /// <c>TypeBeatScoreProcessor</c>'s accuracy ladder), and it is only rendered where the
+        /// player has asked for the sync metric
         /// (<c>TypeBeatRulesetSetting.ShowSyncMetric</c>, off by default). Kept on the type, and
         /// kept computed, precisely so that toggle has something to show.
         /// </summary>
@@ -248,30 +249,5 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public required string Artist { get; init; }
 
         public required string Title { get; init; }
-
-        /// <summary>
-        /// ACCURACY alone: S >=0.95; A >=0.90; B >=0.80; C >=0.65; else D.
-        ///
-        /// <para>It used to require a matching <see cref="SyncPercent"/> floor at every tier (95 / 90
-        /// / 80 / 65) as well. That second gate is gone since backlog 251, and the tier floors on
-        /// accuracy are the ones the pair already used, so a play's grade can only ever come out the
-        /// same or higher than it did. Sync is now a DISPLAY figure and nothing else: it is still
-        /// computed and still shown to anyone who turns
-        /// <c>TypeBeatRulesetSetting.ShowSyncMetric</c> on, but with the metric off by default a
-        /// hidden number silently demoting a clean run was the whole objection, and no grade, score,
-        /// judgement or submission reads it any more.</para>
-        /// </summary>
-        public string Grade
-        {
-            get
-            {
-                if (Accuracy >= 0.95) return "S";
-                if (Accuracy >= 0.90) return "A";
-                if (Accuracy >= 0.80) return "B";
-                if (Accuracy >= 0.65) return "C";
-
-                return "D";
-            }
-        }
     }
 }

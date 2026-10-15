@@ -986,7 +986,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(stored.MaxCombo, today.MaxCombo);
             Assert.AreEqual(stored.Accuracy, today.Accuracy, 1e-12);
             Assert.AreEqual(stored.SyncPercent, today.SyncPercent, 1e-12);
-            Assert.AreEqual(stored.Grade, today.Grade);
         }
 
         /// <summary>

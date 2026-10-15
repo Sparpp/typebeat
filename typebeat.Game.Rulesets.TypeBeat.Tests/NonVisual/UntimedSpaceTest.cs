@@ -288,7 +288,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// hurts. Neutrality, not credit: the exemption is meant to stop spaces being a timing
         /// hazard, and turning them into free sync would have lifted the letter grade for nothing
         /// back when the grade was gated on SyncPercent. Backlog 251 cut that gate, so the readouts
-        /// are display-only now (<see cref="ResultsSummary.Grade"/> is accuracy alone) and the
+        /// are display-only now (the rank reads accuracy and missed cells, never sync) and the
         /// exemption is simply about them telling the truth.
         /// </summary>
         [Test]
