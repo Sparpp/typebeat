@@ -22,7 +22,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
     /// on trial, and the move is of the CONTROLS and not of the settings: Realm keys the stored rows
     /// by enum member name, so every value a player already has reads exactly as it did. The settings
     /// still on trial (the sync metric and the local auto-aligner) stay in Experimental.
-    /// (LyricOffsetMs/LyricLabPath surfacing remains deferred to M7.)
+    /// (LyricOffsetMs and LyricLabPath have no control here.)
     /// </summary>
     public partial class TypeBeatSettingsSubsection : RulesetSettingsSubsection
     {

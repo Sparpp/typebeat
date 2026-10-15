@@ -16,14 +16,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Configuration
         /// <summary>
         /// Positive = lyrics later relative to the music, negative = earlier. Applied at the
         /// playfield's single engine-feed seam (the lyric-offset clock the engine, stage, HUD
-        /// extras and key handler all read). Settings UI surfacing is deferred to M7.
+        /// extras and key handler all read). Has no settings UI today.
         /// </summary>
         LyricOffsetMs,
 
         /// <summary>
         /// Optional explicit path to the vendored lyriclab aligner directory (the folder holding
         /// align_lyrics.py). Empty = auto-discover by walking up from the game's runtime location.
-        /// Read by the import pipeline's directory resolution; UI surfacing is deferred to M7.
+        /// Read by the import pipeline's directory resolution, and set by the managed aligner install.
+        /// Has no settings control of its own.
         /// </summary>
         LyricLabPath,
 
