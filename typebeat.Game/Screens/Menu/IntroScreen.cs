@@ -164,8 +164,8 @@ namespace typebeat.Game.Screens.Menu
                 {
                     var usableBeatmapSets = r.All<BeatmapSetInfo>().Where(s => !s.DeletePending && !s.Protected).AsRealmCollection();
 
-                    // Human-feeling shuffle (à la Spotify): rather than a uniform random pick — which
-                    // happily repeats the same map two launches running — we bias away from what was
+                    // Human-feeling shuffle (à la Spotify): rather than a uniform random pick (which
+                    // happily repeats the same map two launches running), we bias away from what was
                     // recently played. Unplayed maps come first in a fresh random order; recently-played
                     // ones are pushed to the back, oldest-first, so the most recent map is dead last and
                     // only resurfaces when nothing else is in the pool. Taking the first pool member in
@@ -409,7 +409,7 @@ namespace typebeat.Game.Screens.Menu
 
         /// <summary>
         /// Starts the selected beatdrop beatmap's track, timed so the beatdrop lands
-        /// <paramref name="dropTime"/> ms from now — the moment the intro animation reveals the
+        /// <paramref name="dropTime"/> ms from now, the moment the intro animation reveals the
         /// menu. If the drop sits earlier in the song than <paramref name="dropTime"/>, playback
         /// is instead delayed (silence first) so the drop still lands on cue.
         /// No-op when no beatdrop beatmap was selected (<see cref="HasBeatdropTrack"/>).

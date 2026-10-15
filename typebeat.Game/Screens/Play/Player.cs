@@ -764,8 +764,8 @@ namespace typebeat.Game.Screens.Play
         /// <remarks>
         /// Mirrors <see cref="PerformIntroSkip"/> (same sample handling and clock seek), but seeks to an
         /// explicit target rather than <see cref="IGameplayClock.GameplayStartTime"/>. Unlike the intro
-        /// skip — which lands before <see cref="IGameplayClock.GameplayStartTime"/> where the frame-stable
-        /// clock jumps freely — a jump past that point is otherwise clamped/rejected by frame stability, so
+        /// skip (which lands before <see cref="IGameplayClock.GameplayStartTime"/> where the frame-stable
+        /// clock jumps freely), a jump past that point is otherwise clamped/rejected by frame stability, so
         /// (as in <see cref="SetGameplayStartTime"/>) frame stability is dropped for the seek and restored a
         /// frame later. Only used across instrumental gaps that contain no judgements, so the non-frame-stable
         /// jump has nothing to mis-apply.

@@ -1155,7 +1155,7 @@ namespace typebeat.Game
 
             // Bundled maps are a FRESH-INSTALL payload, so only import them while the first-run
             // setup is still pending. An app update re-lays Bundled/ next to the exe, so without
-            // this gate every update would re-import the whole set — resurrecting maps the player
+            // this gate every update would re-import the whole set, resurrecting maps the player
             // had deleted, on a launch they never asked for.
             if (LocalConfig.Get<bool>(OsuSetting.ShowFirstRunSetup))
                 importBundledBeatmaps();
@@ -1267,7 +1267,7 @@ namespace typebeat.Game
         /// <summary>
         /// Imports any beatmap packages shipped in the install's <c>Bundled</c> directory
         /// (next to the executable). The import pipeline deletes each package after a
-        /// successful import — including a dedup skip — so this is naturally one-shot;
+        /// successful import (including a dedup skip), so this is naturally one-shot;
         /// realm hash-dedup makes a re-run (e.g. after re-unzipping over an install)
         /// a harmless no-op. The packages carry their server ids/checksums, so the
         /// post-import online lookup stamps whatever status the server holds right now.

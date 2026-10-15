@@ -335,7 +335,7 @@ namespace typebeat.Game.Rulesets
         /// Only called when <see cref="CanEncodeToNativeFormat"/> is true.
         /// </summary>
         /// <param name="beatmap">The beatmap to encode.</param>
-        /// <param name="storyboard">The beatmap's storyboard, when available — carries the background video.</param>
+        /// <param name="storyboard">The beatmap's storyboard, when available, carries the background video.</param>
         /// <param name="writer">The output writer.</param>
         public virtual void EncodeToNativeFormat(IBeatmap beatmap, Storyboard? storyboard, TextWriter writer) =>
             throw new NotSupportedException($"{GetType().Name} does not support native-format encoding.");

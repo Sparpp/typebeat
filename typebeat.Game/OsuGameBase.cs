@@ -108,7 +108,7 @@ namespace typebeat.Game
 
         public virtual EndpointConfiguration CreateEndpoints()
         {
-            // Every build — debug included — targets the production typebeat-web server by
+            // Every build (debug included) targets the production typebeat-web server by
             // default. To develop against a local server instead, point the override at it:
             //   TYPEBEAT_API_URL=http://localhost:5089 type!beat.exe
             string envOverride = Environment.GetEnvironmentVariable("TYPEBEAT_API_URL");

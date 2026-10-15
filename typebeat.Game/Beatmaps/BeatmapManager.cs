@@ -42,7 +42,7 @@ namespace typebeat.Game.Beatmaps
 
         private readonly BeatmapImporter beatmapImporter;
 
-        // Central beatmap file store — used to read a difficulty's previously-saved .osu back during
+        // Central beatmap file store, used to read a difficulty's previously-saved .osu back during
         // save() so a cosmetic-only edit can be detected (see the substantive check there).
         private readonly RealmFileStore beatmapFiles;
 
@@ -576,8 +576,8 @@ namespace typebeat.Game.Beatmaps
 
                 // Whether this save substantively changes the map for ONLINE-STATUS purposes. For a
                 // native-format ruleset we ask it to compare the new encoding against the stored one
-                // ignoring cosmetic-only fields (type!beat's beatdrop); anything else — or a first save
-                // with no stored file — is substantive and demotes as usual. Read the previously-stored
+                // ignoring cosmetic-only fields (type!beat's beatdrop); anything else, or a first save
+                // with no stored file, is substantive and demotes as usual. Read the previously-stored
                 // file now, before it's deleted just below.
                 bool substantive = true;
 
