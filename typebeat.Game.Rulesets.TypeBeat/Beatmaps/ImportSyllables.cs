@@ -6,7 +6,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using osu.Framework.Logging;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
@@ -218,8 +220,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 return changed ? root.ToJsonString() : timingJson;
             }
-            catch (Exception)
+            catch (JsonException)
             {
+                // A document that does not parse is returned verbatim, as documented above.
+                return timingJson;
+            }
+            catch (Exception e)
+            {
+                // Anything else is a failure of the syllabifier pass itself, and since backlog 363
+                // import is the only place the syllabifier runs, so it is logged instead of storing
+                // the map unsplit without a trace. The document is still returned verbatim.
+                Logger.Error(e, "Automatic syllable split failed; the timing.json was imported unsplit");
                 return timingJson;
             }
         }

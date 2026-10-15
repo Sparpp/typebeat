@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using osu.Framework.Logging;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
@@ -515,6 +516,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             return new Piece { Unit = unit, Natural = natural, Cluster = cluster.ToArray() };
         }
 
+        /// <summary>Whether <see cref="carry"/> has already logged a romanisation failure this session.</summary>
+        private static bool carryFailureLogged;
+
         /// <summary>
         /// Carries romanised <paramref name="cuts"/> (indices into <paramref name="romanised"/>) onto
         /// the cell text of the original: each one through the romaniser's units in reverse onto the
@@ -532,8 +536,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             {
                 word = LyricOriginals.RomaniseWord(nfcOriginal, language);
             }
-            catch (Exception)
+            catch (Exception e)
             {
+                // Logged once per session rather than per failure: this runs for every word with a
+                // cut while a Polyglot line is built, so a systematic failure would otherwise post
+                // one error per word. The fallback is unchanged.
+                if (!carryFailureLogged)
+                {
+                    carryFailureLogged = true;
+                    Logger.Error(e, "Romanising a Polyglot word failed; its syllable cuts were not carried");
+                }
+
                 return null;
             }
 

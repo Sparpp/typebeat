@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
+using osu.Framework.Logging;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
@@ -248,8 +249,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         return (null, null);
                 }
             }
-            catch (Exception)
+            catch (JsonException)
             {
+                // Foreign or malformed clipboard text. This runs on every clipboard change, so it
+                // stays silent: copying something JSON-like in another application is not an error.
+                return (null, null);
+            }
+            catch (Exception e)
+            {
+                Logger.Error(e, "Failed to read lyric timings from the clipboard");
                 return (null, null);
             }
         }
