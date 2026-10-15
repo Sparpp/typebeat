@@ -198,9 +198,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             }
         }
 
-        private bool? gpuDetected;
+        // Probed once, and only once even when the first-run screen and an install ask together.
+        private readonly Lazy<bool> gpuDetected = new Lazy<bool>(detectNvidiaGpu);
 
-        public bool GpuDetected => gpuDetected ??= detectNvidiaGpu();
+        public bool GpuDetected => gpuDetected.Value;
 
         public string? InstalledVersion => IsInstalled ? LyricMapImporter.ReadAlignerVersion(resolvedAlignerDir()) : null;
 
@@ -234,9 +235,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 if (process == null)
                     return false;
 
-                string output = process.StandardOutput.ReadToEnd();
+                // Read without blocking so the 5 s bound also covers an nvidia-smi that hangs: a
+                // ReadToEnd here would wait for it before the timeout was ever checked.
+                var outputRead = process.StandardOutput.ReadToEndAsync();
 
-                if (!process.WaitForExit(5000))
+                if (!process.WaitForExit(5000) || !outputRead.Wait(5000))
                 {
                     try { process.Kill(); }
                     catch { }
@@ -244,7 +247,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                     return false;
                 }
 
-                return process.ExitCode == 0 && output.Contains("GPU", StringComparison.OrdinalIgnoreCase);
+                return process.ExitCode == 0 && outputRead.Result.Contains("GPU", StringComparison.OrdinalIgnoreCase);
             }
             catch
             {
