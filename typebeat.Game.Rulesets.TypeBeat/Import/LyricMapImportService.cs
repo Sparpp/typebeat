@@ -252,7 +252,29 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             }
         }
 
+        /// <summary>
+        /// Held for the whole of an install. Two entry points start one (Settings and the first-run
+        /// screen), and a second run would clear work/ and out/, or the venv, under the first.
+        /// </summary>
+        private readonly SemaphoreSlim installLock = new SemaphoreSlim(1, 1);
+
         public async Task<LyricImportResult> InstallAsync(Action<string> progress, CancellationToken token)
+        {
+            // A second install while one runs fails at once rather than queueing to redo the same work.
+            if (!installLock.Wait(0))
+                return LyricImportResult.Fail("the local auto-aligner is already being installed, wait for that install to finish");
+
+            try
+            {
+                return await installAsync(progress, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                installLock.Release();
+            }
+        }
+
+        private async Task<LyricImportResult> installAsync(Action<string> progress, CancellationToken token)
         {
             string? target = managedInstallDir();
 
