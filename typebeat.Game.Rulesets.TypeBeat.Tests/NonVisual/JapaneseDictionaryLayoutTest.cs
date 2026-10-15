@@ -13,9 +13,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
     [TestFixture]
     public class JapaneseDictionaryLayoutTest
     {
-        [TestCase("sekai", "世界")]
+        [TestCase("qwerty sekai", "qwerty 世界")]
         [TestCase("tabeta", "食べた")]
-        [TestCase("konnichiha sekai", "こんにちは 世界")]
+        [TestCase("konnichiwa sekai", "こんにちは 世界")]
         public void TheBundledDictionaryLoadsAndReverseLooksUpReadings(string romaji, string expected)
             => Assert.That(JapaneseLyricGenerator.Generate(romaji), Is.EqualTo(expected));
 
