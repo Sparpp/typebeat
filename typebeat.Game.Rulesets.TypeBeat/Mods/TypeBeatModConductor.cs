@@ -322,7 +322,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         private ConductorState state = ConductorState.Initial;
 
         private TypingEngine? boundEngine;
-        private DrawableTypeBeatRuleset? drawableRuleset;
 
         /// <summary>Countable-character density of each line, in cells per second. Built once per engine.</summary>
         private double[]? lineDemand;
@@ -410,16 +409,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         }
 
         /// <summary>
-        /// Captures the drawable ruleset so the live rate can be published, and publishes the
-        /// starting value from the first frame. This is the
-        /// <see cref="DrawableTypeBeatRuleset.ConductorRate"/> half of the
-        /// <c>FlashlightVisibleRadius</c> pattern: the mod writes to the ruleset and no mod type is
-        /// named by the consumer.
+        /// Publishes the starting rate from the first frame.
         /// </summary>
         public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset)
         {
-            this.drawableRuleset = (DrawableTypeBeatRuleset)drawableRuleset;
-
             reset();
             publish();
         }
@@ -699,9 +692,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         private void publish()
         {
             SpeedChange.Value = state.Rate;
-
-            if (drawableRuleset != null)
-                drawableRuleset.ConductorRate = state.Rate;
         }
     }
 }

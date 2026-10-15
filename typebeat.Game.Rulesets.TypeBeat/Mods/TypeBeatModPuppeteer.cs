@@ -562,7 +562,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         private readonly BindableDouble frequencyAdjustment = new BindableDouble(1);
 
         private IAdjustableAudioComponent? track;
-        private DrawableTypeBeatRuleset? drawableRuleset;
 
         /// <summary>
         /// Wall clock, and the model's whole time base. Nothing derived from it reaches a target
@@ -623,10 +622,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// and before the first keypress, exactly as Easy and the rate mods do it. EXEMPT
         /// THE RUSH CAP (<see cref="Gameplay.TypingEngine.RushCapExempt"/>, backlog 261), set at the
         /// same seam for the same reason: it is read at every press rather than at construction, and
-        /// no replay recorder stamps it. And capture the drawable ruleset so the live rate can be
-        /// published, the <see cref="DrawableTypeBeatRuleset.ConductorRate"/>
-        /// half of the <c>FlashlightVisibleRadius</c> pattern: the mod writes to the ruleset and no
-        /// mod type is named by the consumer.
+        /// no replay recorder stamps it. And publish the starting rate from the first frame.
         /// </summary>
         public void ApplyToDrawableRuleset(DrawableRuleset<TypeBeatHitObject> drawableRuleset)
         {
@@ -640,8 +636,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             // judging Great, and could not re-arm while the sprint continued. The flag's own doc has
             // the whole argument, including why no finite cap value fixes it.
             typeBeatRuleset.Engine.RushCapExempt = true;
-
-            this.drawableRuleset = typeBeatRuleset;
 
             reset();
             publish();
@@ -891,9 +885,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
             wallClock.Restart();
 
             SpeedChange.Value = 1;
-
-            if (drawableRuleset != null)
-                drawableRuleset.ConductorRate = 1;
         }
 
         private void addAdjustments(IAdjustableAudioComponent target, bool adjustPitch)
@@ -940,9 +931,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
                 : 1;
 
             SpeedChange.Value = rate;
-
-            if (drawableRuleset != null)
-                drawableRuleset.ConductorRate = rate;
         }
     }
 }
