@@ -113,6 +113,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // direct per-frame sets (no transforms; must behave under frozen/scrubbed clocks).
         private const double approach_lead_ms = TypingEngine.CUE_LEAD_MS;
         // Values at the DEFAULT font size; each is drawn times sizeRatio (backlog 334).
+        // Mirrored in typebeat-web: typebeat-player.js CUE_BAR_MAX_PX.
         private const float approach_bar_max_width = 140;
         private const float approach_bar_height = 4;
 
@@ -131,7 +132,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         // How long the push warning takes to reach its full strength once its window opens. It is a
         // warning the player did not ask for, so it announces itself instead of appearing at half
         // brightness between one frame and the next; the WIDTH drain, not the entrance, is what
-        // carries the countdown.
+        // carries the countdown. Mirrored in typebeat-web: typebeat-player.js PUSH_FADE_IN_MS.
         private const double push_fade_in_ms = 400;
 
         private readonly TypingEngine engine;
