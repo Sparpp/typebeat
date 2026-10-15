@@ -1467,6 +1467,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             => System.Text.RegularExpressions.Regex.Match(File.ReadAllText(Path.Combine(shippedLab, "setup.sh")), "^UV_VERSION='([^']+)'",
                 System.Text.RegularExpressions.RegexOptions.Multiline).Groups[1].Value;
 
+        /// <summary>
+        /// lyriclab/VENDORED.md records which upstream state the vendored copy matches; the aligner
+        /// version it names must be the one the shipped script declares, so a sync cannot leave it behind.
+        /// </summary>
+        [Test]
+        public void VendoredRecordNamesTheShippedAlignerVersion()
+        {
+            string lab = vendoredLyricLab();
+            string? version = LyricMapImporter.ReadAlignerVersion(lab);
+
+            Assert.That(version, Is.Not.Null);
+            Assert.That(File.ReadAllLines(Path.Combine(lab, "VENDORED.md")), Has.Member($"- ALIGNER_VERSION: {version}"));
+        }
+
         [Test]
         public void ShippedSetupScriptsWriteTheSentinelTheGameReads()
         {
