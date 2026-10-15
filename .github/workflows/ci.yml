@@ -21,7 +21,9 @@
 #
 # DASHES
 #   On pull requests only, .github/scripts/check-dashes.sh fails when the diff against the base
-#   commit adds an em or en dash. Only added lines count, hence the full-history checkout.
+#   commit adds an em or en dash, and also when that commit is missing from the checkout. Only added
+#   lines count, hence the full-history checkout on pull requests (pushes stay shallow; the quoted
+#   '0' and '1' matter, because an expression treats a bare 0 as false and would pick 1 for both).
 #
 # REAL-MAP FIXTURES
 #   The real-map pins need per-machine map directories (TYPEBEAT_MAPS_DIR, TYPEBEAT_GAP_OSU_DIR,
@@ -64,8 +66,9 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          # The dash check below diffs against the pull request's base commit.
-          fetch-depth: 0
+          # The dash check below diffs against the pull request's base commit, so a pull request
+          # needs full history; a push does not.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
 
       # Only lines a pull request adds are checked, so upstream's own dashes never trip it.
       - name: Check for em and en dashes
