@@ -122,9 +122,11 @@ namespace typebeat.Game.Screens.Ranking.Expanded.Accuracy
         private RankText failedSRankText = null!;
 
         /// <summary>
-        /// The 0..1 value the gauge fills to — the metric the rank is graded on (accuracy by
-        /// default; completion in type!beat), so the gauge lands on the shown grade rather than
-        /// on a timing-accuracy figure that no longer decides the rank.
+        /// The 0..1 value the gauge fills to: the metric the rank is graded on
+        /// (<see cref="ScoreProcessor.GradeProgress"/>), so the gauge lands on the shown grade. That
+        /// is accuracy, in type!beat too, where <c>TypeBeatScoreProcessor</c> grades on the
+        /// <c>ACCURACY_CUTOFF_*</c> bands plus a missed-cell limit (<c>S_MISS_LIMIT</c>) and a play
+        /// that clears the S band but misses too many cells shows A.
         /// </summary>
         private readonly double gradeProgress;
 
