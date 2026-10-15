@@ -138,7 +138,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsFalse(frame.InputEra2);
             Assert.IsFalse(frame.JapaneseWordTiming);
             Assert.IsFalse(frame.JapaneseInputEra2);
-            Assert.IsFalse(frame.JapaneseWordSkip);
+            Assert.IsFalse(frame.JapaneseInputEra3);
             Assert.AreEqual(4, (int)frame.ToLegacy(new Beatmap()).MouseY!.Value, "re-encoding writes the bits it knows");
         }
 

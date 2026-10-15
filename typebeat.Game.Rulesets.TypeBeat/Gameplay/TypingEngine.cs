@@ -1019,8 +1019,31 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// <summary>Extended replay bit 7: single-character Japanese skips and keystroke WPM.</summary>
         public bool JapaneseInputEra2 { get; set; } = true;
 
-        /// <summary>Extended replay bit 8: Space skips the remainder of the authored Japanese word.</summary>
-        public bool JapaneseWordSkip { get; set; } = true;
+        private bool japaneseInputEra3 = true;
+
+        /// <summary>
+        /// Extended replay bit 8, the third Japanese input era: Space skips the remainder of the
+        /// authored Japanese word, and each line's romaji input plan is the word-aware one (a
+        /// single-word line original read per timed unit, punctuation-tolerant surface matching,
+        /// recorded word windows). Clear, a replay re-derives the single-character skip and the plan
+        /// it was played on. The plan is swapped on the SAME cells, like
+        /// <see cref="JapaneseWordTiming"/>'s timing.
+        /// </summary>
+        public bool JapaneseInputEra3
+        {
+            get => japaneseInputEra3;
+            set
+            {
+                if (japaneseInputEra3 == value)
+                    return;
+                japaneseInputEra3 = value;
+                if (!UsesJapaneseRomaji)
+                    return;
+                foreach (var line in lines)
+                    line.SetJapaneseInputEra3(value);
+                clearJapanesePending();
+            }
+        }
 
         private bool UsesJapaneseKeystrokeWpm => JapaneseInputEra2 && JapaneseRomajiInput && UsesJapaneseRomaji;
         private int japaneseWpmInputs;
@@ -1091,7 +1114,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                         return false;
 
                     clearJapanesePending();
-                    skipCurrentWord(time, singleJapaneseCharacter: !JapaneseWordSkip, japaneseWord: JapaneseWordSkip);
+                    skipCurrentWord(time, singleJapaneseCharacter: !JapaneseInputEra3, japaneseWord: JapaneseInputEra3);
                     advanceCaretToFrontier();
                     rollForwardIfFinishedEarly(time);
                     return true;
@@ -4749,7 +4772,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             var line = lines[activeLineIndex];
             var cells = line.Cells;
-            if (JapaneseWordSkip && JapaneseRomajiInput && UsesJapaneseRomaji && caretIndex > 0
+            if (JapaneseInputEra3 && JapaneseRomajiInput && UsesJapaneseRomaji && caretIndex > 0
                 && line.JapaneseInput?.WordAt(caretIndex - 1) is { } japaneseWord
                 && japaneseWord.EndCellExclusive == caretIndex)
             {

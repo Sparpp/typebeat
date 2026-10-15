@@ -145,10 +145,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void ReplayRoundTripAndRewindRetainTheSkipRule(bool wordSkip)
         {
             var extended = TypeBeatReplayFrame.CreateExtendedConfigFrame(0, inputEra2: true, authoredSyllablesOnly: true,
-                japaneseRomajiInput: true, japaneseWordTiming: true, japaneseInputEra2: true, japaneseWordSkip: wordSkip);
+                japaneseRomajiInput: true, japaneseWordTiming: true, japaneseInputEra2: true, japaneseInputEra3: wordSkip);
             var decoded = new TypeBeatReplayFrame { Time = 0 };
             decoded.FromLegacy(extended.ToLegacy(new Beatmap()), new Beatmap());
-            Assert.That(decoded.JapaneseWordSkip, Is.EqualTo(wordSkip));
+            Assert.That(decoded.JapaneseInputEra3, Is.EqualTo(wordSkip));
             var frames = new ReplayFrame[]
             {
                 TypeBeatReplayFrame.CreateConfigFrame(0, true, spaceSkipsWord: true), decoded,

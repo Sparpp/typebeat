@@ -19,7 +19,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void LegacySpaceSkipsOneUnfinishedKanjiAndLeavesTheRestTypeable(string prefix)
         {
             var engine = create("天使と");
-            engine.JapaneseWordSkip = false;
+            engine.JapaneseInputEra3 = false;
             foreach (char c in prefix)
                 engine.ProcessKey(c, 1100);
             Assert.That(engine.ProcessKey(' ', 1200), Is.True);
@@ -41,7 +41,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void LegacySkippingKanaAndBackspacingCanReclaimJustTheSkippedCharacter()
         {
             var engine = create("つきと");
-            engine.JapaneseWordSkip = false;
+            engine.JapaneseInputEra3 = false;
             engine.ProcessKey('t', 1100);
             engine.ProcessKey(' ', 1200);
             Assert.That(engine.CaretIndex, Is.EqualTo(1));
