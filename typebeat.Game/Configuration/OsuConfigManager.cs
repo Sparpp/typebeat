@@ -162,6 +162,7 @@ namespace typebeat.Game.Configuration
             SetDefault(OsuSetting.ReplayPlaybackControlsExpanded, true);
             SetDefault(OsuSetting.GameplayLeaderboard, true);
             SetDefault(OsuSetting.AlwaysPlayFirstComboBreak, true);
+            SetDefault(OsuSetting.SkipMapEndings, false);
 
             SetDefault(OsuSetting.FloatingComments, false);
 
@@ -352,6 +353,7 @@ namespace typebeat.Game.Configuration
         GameplayLeaderboard,
         PositionalHitsoundsLevel,
         AlwaysPlayFirstComboBreak,
+        SkipMapEndings,
         FloatingComments,
         HUDVisibilityMode,
 

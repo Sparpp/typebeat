@@ -21,6 +21,7 @@ using typebeat.Game.Rulesets;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Objects;
+using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Screens.Edit;
 using typebeat.Game.Screens.Edit.Compose.Components.Timeline;
 using osuTK.Input;
@@ -157,7 +158,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             {
                 // No per-line bars here any more. The word-block strip directly beneath the
                 // waveform carries the lines (select, add, drag); the waveform stays clean.
-                new BeatdropMarkerPart(),
+                new TimestampMarkerPart(b => b.IntroBeatdrop.Value, TypeBeatStyle.ErrorChar),
+                new TimestampMarkerPart(b => b.IntendedEnd.Value, new Colour4(0.31f, 0.76f, 0.97f, 1f)),
             },
         };
 

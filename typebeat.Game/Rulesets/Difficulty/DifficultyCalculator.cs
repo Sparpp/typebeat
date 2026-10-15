@@ -356,6 +356,12 @@ namespace typebeat.Game.Rulesets.Difficulty
                 set => baseBeatmap.IntroBeatdropTime = value;
             }
 
+            public double? IntendedEndTime
+            {
+                get => baseBeatmap.IntendedEndTime;
+                set => baseBeatmap.IntendedEndTime = value;
+            }
+
             public Colour4? FreestyleColour
             {
                 get => baseBeatmap.FreestyleColour;

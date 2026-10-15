@@ -105,6 +105,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private LyricFontManager? fontManager { get; set; }
 
         private FormNumberBox beatdropBox = null!;
+        private FormNumberBox endBox = null!;
         private FormNumberBox offsetBox = null!;
         private FormButton demoButton = null!;
         private FormFileSelector lyricsSelector = null!;
@@ -150,6 +151,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     Caption = IntroBeatdropDemo.CAPTION,
                     ButtonText = "Restart & demo",
                     Action = requestBeatdropDemo,
+                },
+                endBox = new FormNumberBox(allowDecimals: true)
+                {
+                    Caption = "Ending (ms)",
+                    HintText = "Optional. When set, the song keeps playing after the last word until this time, with a skip button, before the results open. Must fall after the last line. Leave empty to unset.",
+                    PlaceholderText = "unset",
+                },
+                new FormButton
+                {
+                    Caption = "Stamp the ending at the editor's current playhead position",
+                    ButtonText = "Set ending @ playhead",
+                    Action = () => setEnd(editorClock.CurrentTime),
                 },
                 offsetBox = new FormNumberBox(allowDecimals: true)
                 {
@@ -235,6 +248,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             estimatedVocalsToggle.Current.Value = storedVocalMode() == AlignerVocalMode.Estimated;
 
             beatdropBox.OnCommit += (_, _) => commitBeatdrop();
+            endBox.OnCommit += (_, _) => commitEnd();
 
             // Files with their own word timing are applied on arrival, whether selected or
             // dropped. Plain lyrics still wait for the Generate timing button.
@@ -278,6 +292,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 demoButton.Caption = IntroBeatdropDemo.CaptionFor(drop.NewValue);
                 demoButton.Enabled.Value = IntroBeatdropDemo.CanDemo(drop.NewValue);
             }, true);
+
+            Beatmap.IntendedEnd.BindValueChanged(end => endBox.Current.Value = formatEnd(end.NewValue), true);
         }
 
         /// <summary>
@@ -334,6 +350,39 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 var current = Beatmap.IntroBeatdrop.Value;
                 beatdropBox.Current.Value = current is double d ? d.ToString("0", CultureInfo.InvariantCulture) : string.Empty;
             }
+        }
+
+        private static string formatEnd(double? end) => end is double d ? d.ToString("0", CultureInfo.InvariantCulture) : string.Empty;
+
+        private void commitEnd()
+        {
+            string text = endBox.Current.Value?.Trim() ?? string.Empty;
+
+            if (text.Length == 0)
+            {
+                Beatmap.IntendedEnd.Value = null;
+                return;
+            }
+
+            if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed))
+            {
+                endBox.Current.Value = formatEnd(Beatmap.IntendedEnd.Value);
+                return;
+            }
+
+            setEnd(parsed);
+        }
+
+        private void setEnd(double requestedMs)
+        {
+            double lastLineEnd = MapEndTime.LastLineEnd(Beatmap);
+
+            if (MapEndTime.TryNormalise(requestedMs, lastLineEnd, working.Value.Track.Length, out double end))
+                Beatmap.IntendedEnd.Value = end;
+            else
+                notify($"The ending has to fall after the last line ({lastLineEnd:0} ms) and within the song.");
+
+            endBox.Current.Value = formatEnd(Beatmap.IntendedEnd.Value);
         }
 
         private void applyShift()

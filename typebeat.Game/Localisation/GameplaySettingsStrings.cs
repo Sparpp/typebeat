@@ -20,6 +20,11 @@ namespace typebeat.Game.Localisation
         public static LocalisableString BeatmapHeader => new TranslatableString(getKey(@"beatmap_header"), @"Beatmap");
 
         /// <summary>
+        /// "Skip map endings automatically"
+        /// </summary>
+        public static LocalisableString SkipMapEndings => new TranslatableString(getKey(@"skip_map_endings"), @"Skip map endings automatically");
+
+        /// <summary>
         /// "HUD"
         /// </summary>
         public static LocalisableString HUDHeader => new TranslatableString(getKey(@"h_u_d"), @"HUD");

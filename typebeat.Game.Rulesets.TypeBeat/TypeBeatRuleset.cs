@@ -174,7 +174,7 @@ namespace typebeat.Game.Rulesets.TypeBeat
         public override string? GetSubmissionRefusal(IBeatmap beatmap) => LyricOriginals.SubmissionRefusal(beatmap);
 
         private static string normaliseForStatus(string encoded) =>
-            LyricOsuFormat.StripUnassignedOnlineIds(LyricOsuFormat.StripOriginals(LyricOsuFormat.StripFormatVersion(LyricOsuFormat.StripVideoOffset(LyricOsuFormat.StripBeatdrop(encoded)))));
+            LyricOsuFormat.StripUnassignedOnlineIds(LyricOsuFormat.StripOriginals(LyricOsuFormat.StripFormatVersion(LyricOsuFormat.StripVideoOffset(LyricOsuFormat.StripPresentationTiming(encoded)))));
 
         /// <summary>Compose mode is type!beat's own lyric surface, not a circle composer.</summary>
         public override typebeat.Game.Screens.Edit.EditorScreen CreateEditorComposeScreen() => new LyricComposeScreen();

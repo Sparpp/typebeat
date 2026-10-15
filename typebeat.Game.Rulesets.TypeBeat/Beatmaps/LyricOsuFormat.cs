@@ -125,6 +125,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <param name="editorTimingPoints">Authored editor timing sections; null uses the import default.</param>
         /// <param name="editorEffectPoints">Existing kiai effect points to preserve on save.</param>
         /// <param name="beatDivisor">The editor subdivision preference.</param>
+        /// <param name="endTimeMs">Optional map ending in milliseconds.</param>
         /// <exception cref="ArgumentException">When the timing.json is not a supported v2 document.</exception>
         public static string GenerateOsu(string artist, string title, string audioFilename, string creator, string timingJsonText,
                                          double previewTime = -1, double audioLeadIn = 0, double? beatdropMs = null,
@@ -136,7 +137,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                                          Colour4? freestyleColour = null,
                                          IReadOnlyList<TimingControlPoint>? editorTimingPoints = null,
                                          IReadOnlyList<EffectControlPoint>? editorEffectPoints = null, int? beatDivisor = null,
-                                         string? source = null)
+                                         string? source = null, double? endTimeMs = null)
         {
             using var doc = JsonDocument.Parse(timingJsonText);
             JsonElement root = doc.RootElement;
@@ -309,6 +310,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 header.Append($",\"song_end_ms\":{end.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
             if (beatdropMs is double drop)
                 header.Append($",\"beatdrop_ms\":{drop.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+
+            if (endTimeMs is double endTime)
+                header.Append($",\"end_time_ms\":{endTime.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
             header.Append($",\"granularity\":\"{(anySyllables ? TimingGranularity.Syllable : anyWords ? TimingGranularity.Word : TimingGranularity.Line)}\"}}");
             sb.AppendLine(header.ToString());
 
@@ -325,16 +329,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         private static string formatMs(double ms)
             => ((long)Math.Round(ms)).ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-        private static readonly System.Text.RegularExpressions.Regex beatdrop_field =
-            new System.Text.RegularExpressions.Regex(",?\"beatdrop_ms\":[-0-9.eE+]+", System.Text.RegularExpressions.RegexOptions.Compiled);
+        private static readonly System.Text.RegularExpressions.Regex presentation_timing_fields =
+            new System.Text.RegularExpressions.Regex(",?\"(?:beatdrop_ms|end_time_ms)\":[-0-9.eE+]+", System.Text.RegularExpressions.RegexOptions.Compiled);
 
         /// <summary>
-        /// Removes the menu-only <c>beatdrop_ms</c> field (in the [Lyrics] header) from a type!beat
-        /// .osu, so two encodings that differ only by the beatdrop compare equal. Used to keep a
-        /// beatdrop-only editor save from demoting a ranked map's online status. The encoder always
-        /// writes the field after another header key, so the leading comma is what's stripped.
+        /// Removes presentation-only timestamps so changing them preserves online status.
+        /// The encoder writes these after another header key, so their leading commas are stripped.
         /// </summary>
-        public static string StripBeatdrop(string osu) => beatdrop_field.Replace(osu, string.Empty);
+        public static string StripPresentationTiming(string osu) => presentation_timing_fields.Replace(osu, string.Empty);
 
         private static readonly System.Text.RegularExpressions.Regex video_offset_field =
             new System.Text.RegularExpressions.Regex(@"^Video,-?[0-9]+,",
@@ -343,7 +345,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// Normalises the [Events] video event's OFFSET (its start time, the second field) to 0, so
         /// two encodings that differ only by how the background video is synced to the song compare
-        /// equal. Same purpose as <see cref="StripBeatdrop"/>: the offset moves a decorative clip
+        /// equal. Same purpose as <see cref="StripPresentationTiming"/>: the offset moves a decorative clip
         /// and touches neither gameplay nor scoring (the server excludes the video from its gameplay
         /// fingerprint outright), so re-syncing a video must not demote a ranked map.
         ///
@@ -359,7 +361,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// Removes every <c>"original"</c> key (backlog 330, line and word alike) from a type!beat
         /// .osu, so two encodings that differ only by the ORIGINAL-SCRIPT text compare equal. Same
-        /// purpose as <see cref="StripBeatdrop"/>: the original is display and authoring data, never
+        /// purpose as <see cref="StripPresentationTiming"/>: the original is display and authoring data, never
         /// typed and never rated, so adding a map's source script (or correcting it) must not demote
         /// a ranked map. The server's gameplay fingerprint strips the same key with the same pattern.
         ///
@@ -386,7 +388,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         /// <summary>
         /// Normalises the magic line's FORMAT VERSION away, so two encodings that differ only by it
-        /// compare equal. Same purpose as <see cref="StripBeatdrop"/> and
+        /// compare equal. Same purpose as <see cref="StripPresentationTiming"/> and
         /// <see cref="StripVideoOffset"/>: without it, backlog 255's v1 to v2 bump would demote
         /// every ranked map to locally-modified the first time its author opened the editor and
         /// saved, since the writer's version moved under them and nothing else had to change.

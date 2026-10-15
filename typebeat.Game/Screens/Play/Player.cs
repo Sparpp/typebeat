@@ -158,6 +158,10 @@ namespace typebeat.Game.Screens.Play
         protected SkipOverlay SkipIntroOverlay { get; private set; }
         private SkipOverlay skipOutroOverlay;
 
+        private bool waitingForEnding;
+
+        private IBindable<bool> skipMapEndings;
+
         private readonly List<SkipOverlay> skipInstrumentalOverlays = new List<SkipOverlay>();
 
         protected ScoreProcessor ScoreProcessor { get; private set; }
@@ -293,6 +297,7 @@ namespace typebeat.Game.Screens.Play
             config.BindWith(OsuSetting.BeatmapSkins, rulesetSkinProvider.BeatmapSkins);
             config.BindWith(OsuSetting.BeatmapColours, rulesetSkinProvider.BeatmapColours);
             config.BindWith(OsuSetting.BeatmapHitsounds, rulesetSkinProvider.BeatmapHitsounds);
+            skipMapEndings = config.GetBindable<bool>(OsuSetting.SkipMapEndings);
 
             GameplayClockContainer.Add(new GameplayScrollWheelHandling());
 
@@ -516,9 +521,9 @@ namespace typebeat.Game.Screens.Play
                     {
                         o.RequestSkip = RequestIntroSkip;
                     }),
-                    skipOutroOverlay = new SkipOverlay(GameplayState.Storyboard.LatestEventTime ?? 0)
+                    skipOutroOverlay = new SkipOverlay(EndingHold.OverlayStartTime(GameplayState.Storyboard.LatestEventTime, GameplayState.Beatmap.IntendedEndTime))
                     {
-                        RequestSkip = () => progressToResults(false),
+                        RequestSkip = skipEnding,
                         Alpha = 0
                     },
                     DrawableRuleset.ResumeOverlay?.CreateProxy() ?? new Container(),
@@ -888,6 +893,7 @@ namespace typebeat.Game.Screens.Play
                 GameplayState.HasPassed = false;
                 ValidForResume = true;
                 skipOutroOverlay.Hide();
+                waitingForEnding = false;
                 return;
             }
 
@@ -902,16 +908,42 @@ namespace typebeat.Game.Screens.Play
             ValidForResume = false;
 
             bool storyboardStillRunning = DimmableStoryboard.ContentDisplayed && !DimmableStoryboard.HasStoryboardEnded.Value;
+            bool endingHeld = isEndingHeld;
 
-            // If the current beatmap has a storyboard, this method will be called again on storyboard completion.
-            // Alternatively, the user may press the outro skip button, forcing immediate display of the results screen.
-            if (storyboardStillRunning)
+            // Storyboard completion triggers this check; intended endings are checked in Update.
+            if (storyboardStillRunning || endingHeld)
             {
+                waitingForEnding = endingHeld;
                 skipOutroOverlay.Show();
                 return;
             }
 
+            waitingForEnding = false;
             progressToResults(true);
+        }
+
+        private bool isEndingHeld => EndingHold.IsHeld(
+            GameplayState.Beatmap.IntendedEndTime,
+            GameplayClockContainer.CurrentTime,
+            skipMapEndings.Value,
+            Configuration.AllowSkipping && DrawableRuleset.AllowGameplayOverlays);
+
+        private void skipEnding()
+        {
+            waitingForEnding = false;
+            progressToResults(false);
+        }
+
+        protected override void Update()
+        {
+            base.Update();
+
+            // The hold lapses with the clock alone, which nothing else reports.
+            if (waitingForEnding && !isEndingHeld)
+            {
+                waitingForEnding = false;
+                checkScoreCompleted();
+            }
         }
 
         /// <summary>

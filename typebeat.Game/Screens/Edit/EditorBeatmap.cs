@@ -101,6 +101,11 @@ namespace typebeat.Game.Screens.Edit
         public Bindable<double?> IntroBeatdrop { get; }
 
         /// <summary>
+        /// The map's optional intended end (ms); null when unset. See <see cref="IBeatmap.IntendedEndTime"/>.
+        /// </summary>
+        public Bindable<double?> IntendedEnd { get; }
+
+        /// <summary>
         /// The map's freestyle character colour; null when the map carries none (the default). See
         /// <see cref="IBeatmap.FreestyleColour"/>.
         /// </summary>
@@ -165,6 +170,14 @@ namespace typebeat.Game.Screens.Edit
             {
                 BeginChange();
                 PlayableBeatmap.IntroBeatdropTime = s.NewValue;
+                EndChange();
+            });
+
+            IntendedEnd = new Bindable<double?>(playableBeatmap.IntendedEndTime);
+            IntendedEnd.BindValueChanged(s =>
+            {
+                BeginChange();
+                PlayableBeatmap.IntendedEndTime = s.NewValue;
                 EndChange();
             });
 
@@ -258,6 +271,12 @@ namespace typebeat.Game.Screens.Edit
         {
             get => PlayableBeatmap.IntroBeatdropTime;
             set => PlayableBeatmap.IntroBeatdropTime = value;
+        }
+
+        public double? IntendedEndTime
+        {
+            get => PlayableBeatmap.IntendedEndTime;
+            set => PlayableBeatmap.IntendedEndTime = value;
         }
 
         Colour4? IBeatmap.FreestyleColour

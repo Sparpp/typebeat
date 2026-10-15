@@ -125,6 +125,8 @@ namespace typebeat.Game.Beatmaps
 
         public double? IntroBeatdropTime { get; set; }
 
+        public double? IntendedEndTime { get; set; }
+
         [JsonIgnore]
         public Colour4? FreestyleColour { get; set; }
 

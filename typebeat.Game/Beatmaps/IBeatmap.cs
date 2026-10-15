@@ -73,6 +73,11 @@ namespace typebeat.Game.Beatmaps
         double? IntroBeatdropTime { get; internal set; }
 
         /// <summary>
+        /// Optional ending time (ms) to wait for after gameplay, with a skip button. Null disables the wait.
+        /// </summary>
+        double? IntendedEndTime { get; internal set; }
+
+        /// <summary>
         /// The colour a type!beat map's FREESTYLE characters render in, chosen by the mapper and stored
         /// as the <c>[General] FreestyleColour:</c> key. Null means the key is absent, which is every map
         /// written before it existed, and resolves to the ruleset's default freestyle colour.

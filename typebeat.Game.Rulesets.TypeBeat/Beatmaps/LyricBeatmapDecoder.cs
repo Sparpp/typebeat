@@ -102,6 +102,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
         private double? songEndMs;
         private double? beatdropMs;
+        private double? endTimeMs;
         private TimingGranularity? headerGranularity;
 
         /// <summary>
@@ -167,12 +168,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 if (!root.TryGetProperty("text", out _))
                 {
-                    // Header object: {"version":2,"song_end_ms":...,"beatdrop_ms":...,"granularity":"Word"}.
+                    // Header object: {"version":2,"song_end_ms":...,"beatdrop_ms":...,"end_time_ms":...,"granularity":"Word"}.
                     if (root.TryGetProperty("song_end_ms", out JsonElement songEnd) && songEnd.ValueKind == JsonValueKind.Number)
                         songEndMs = songEnd.GetDouble();
 
                     if (root.TryGetProperty("beatdrop_ms", out JsonElement beatdrop) && beatdrop.ValueKind == JsonValueKind.Number)
                         beatdropMs = beatdrop.GetDouble();
+
+                    if (root.TryGetProperty("end_time_ms", out JsonElement endTime) && endTime.ValueKind == JsonValueKind.Number)
+                        endTimeMs = endTime.GetDouble();
 
                     if (root.TryGetProperty("granularity", out JsonElement gran) && gran.ValueKind == JsonValueKind.String
                         && Enum.TryParse<TimingGranularity>(gran.GetString(), true, out var parsed))
@@ -206,6 +210,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             beatmap.BeatmapInfo.Ruleset = new TypeBeatRuleset().RulesetInfo;
 
             beatmap.IntroBeatdropTime = beatdropMs;
+            beatmap.IntendedEndTime = endTimeMs;
 
             if (rawLines.Count == 0)
                 return;

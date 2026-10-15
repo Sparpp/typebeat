@@ -45,6 +45,15 @@ namespace typebeat.Game.Overlays.Settings.Sections.Gameplay
                     Caption = GraphicsSettingsStrings.StoryboardVideo,
                     Current = config.GetBindable<bool>(OsuSetting.ShowStoryboard)
                 }),
+                new SettingsItemV2(new FormCheckBox
+                {
+                    Caption = GameplaySettingsStrings.SkipMapEndings,
+                    HintText = "When a map sets an ending, open the results as soon as you finish instead of letting the song play out.",
+                    Current = config.GetBindable<bool>(OsuSetting.SkipMapEndings)
+                })
+                {
+                    Keywords = new[] { "skip", "ending", "outro", "results" },
+                },
                 // Combo colour normalisation is not surfaced here any more; it remains adjustable
                 // from the in-game visual settings panel.
             };
