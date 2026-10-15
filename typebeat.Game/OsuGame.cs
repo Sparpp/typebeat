@@ -1291,9 +1291,11 @@ namespace typebeat.Game
 
                 // Import silently: no boot-time "Imported ... Click to view" toast and no jump to
                 // the map. Driving the importer with a notification we never post skips both — the
-                // toast text and its click-to-present action live on that notification. The
-                // packages are deleted afterwards as cleanup; the caller's first-run gate is what
-                // actually keeps this one-shot (an update re-lays them next to the exe).
+                // toast text and its click-to-present action live on that notification. The importer
+                // deletes each package itself once that package has imported (or deduplicated), so a
+                // package whose import failed stays put and is retried on the next launch while the
+                // first-run setup is still pending. That gate is what actually keeps this one-shot
+                // (an update re-lays them next to the exe).
                 var tasks = packages.Select(p => new ImportTask(p)).ToArray();
 
                 Task.Run(async () =>
@@ -1305,12 +1307,6 @@ namespace typebeat.Game
                     catch (Exception e)
                     {
                         Logger.Error(e, "Failed to import bundled beatmaps.");
-                    }
-
-                    foreach (string package in packages)
-                    {
-                        try { File.Delete(package); }
-                        catch { /* best-effort cleanup; dedup makes a leftover package a no-op */ }
                     }
                 });
             }
