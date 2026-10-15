@@ -19,6 +19,10 @@
 #   fails above the baseline held in that script (26). Raise or lower it there, deliberately. It
 #   must be a -t:Rebuild: an incremental build skips unchanged projects and hides their warnings.
 #
+# DASHES
+#   On pull requests only, .github/scripts/check-dashes.sh fails when the diff against the base
+#   commit adds an em or en dash. Only added lines count, hence the full-history checkout.
+#
 # REAL-MAP FIXTURES
 #   The real-map pins need per-machine map directories (TYPEBEAT_MAPS_DIR, TYPEBEAT_GAP_OSU_DIR,
 #   TYPEBEAT_TTML_DIR) that this runner does not have, so they Assert.Ignore here and show as
@@ -59,6 +63,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # The dash check below diffs against the pull request's base commit.
+          fetch-depth: 0
+
+      # Only lines a pull request adds are checked, so upstream's own dashes never trip it.
+      - name: Check for em and en dashes
+        if: github.event_name == 'pull_request'
+        run: bash .github/scripts/check-dashes.sh ${{ github.event.pull_request.base.sha }}
 
       # Both bands, as the web CI installs them: global.json rolls forward to the newest major, and the
       # warning baseline below was counted on the .NET 10 SDK, so the build must not depend on which SDKs
