@@ -626,14 +626,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         private const double easy_multiplier = 0.85;
 
         /// <summary>
-        /// Hard Rock (backlog 150): every character is judged on its own point target rather than on
-        /// its syllable's sung span, at the same windows as an unmodded play. From backlog 150 until
-        /// backlog 264 the mod also HALVED every window, the mirror of Easy; 264 dropped the halving,
-        /// and a stored replay from before it still resolves under the halved ladder through its
-        /// CONFIG frame (bit 13). Hard Rock is a JUDGEMENT ARM of the star rating
-        /// (<see cref="JudgementArmFor"/>), so this flat term prices only what is left after that.
-        /// Separate from the mod's 1.10x SCORE multiplier, exactly as Easy's flat term is separate
-        /// from its 0.5x.
+        /// Hard Rock (backlog 150, and its rule since backlog 180): every character is judged on its
+        /// own point target rather than on its syllable's sung span, at the same windows as an
+        /// unmodded play. From backlog 150 until backlog 264 the mod also HALVED every window, the
+        /// mirror of Easy; 264 dropped the halving, and a stored replay from before it still resolves
+        /// under the halved ladder through its CONFIG frame (bit 13). Hard Rock is a JUDGEMENT ARM of
+        /// the star rating (<see cref="JudgementArmFor"/>), so this flat term prices only what is
+        /// left after that. Separate from the mod's 1.10x SCORE multiplier, exactly as Easy's flat
+        /// term is separate from its 0.5x.
         /// </summary>
         // NEUTRAL at the PP Sandbox's active dials: Hard Rock's judgement windows are what the
         // rhythm arm reads, so the sandbox leaves the flat term at 1.0 rather than paying for the
