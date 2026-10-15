@@ -49,10 +49,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // invented. Hard Rock is the harsher mod of the two, which argues for MORE, and the
             // headroom argues back: the fattest reachable ranked stack becomes
             // DT@2.00 (1.46) x FL (1.05) x LT (1.05) x HR (1.10) = 1.770615, against the server's
-            // absolute STACK_CAP of 2.0. At the mod's pp value of 1.25 that product is 2.0121, over
-            // the cap, so an honest maximal stack would be clamped and stored UNRANKED. The score
-            // multiplier and the pp multiplier are separate numbers (as they are for Easy and No
-            // Fail), and this is the one with a ceiling to respect.
+            // absolute STACK_CAP of 2.0. Pricing the mod at a pp-style 1.25 instead would make that
+            // product 2.0121, over the cap, so an honest maximal stack would be clamped and stored
+            // UNRANKED. The score multiplier and the pp multiplier are separate numbers (the pp
+            // side prices Hard Rock flat at 1.0, as Easy and No Fail have their own flat terms),
+            // and this is the one with a ceiling to respect.
             Single<TypeBeatModHardRock>(hasMultiplier: 1.10);
             // Sudden Death (1.0x), Gatekeeper (1.0x): both deliberately absent. Gatekeeper swaps one
             // wrong-key model for another rather than adding a handicap on top of the same model,

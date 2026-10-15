@@ -11,8 +11,8 @@ using typebeat.Game.Scoring;
 namespace typebeat.Game.Rulesets.TypeBeat.Scoring
 {
     /// <summary>
-    /// type!beat scores use pp's accuracy, missed-cell and longest-streak quality, normalised to
-    /// one million for a perfect play. Grades use accuracy with additional missed-cell limits
+    /// type!beat's total score is 300000 x accuracy x combo progress plus 700000 x accuracy^5 x map
+    /// progress, so a perfect play totals one million. Grades use accuracy with additional missed-cell limits
     /// for SS and S. An unfixed typo counts as a missed cell; recovered wrong keypresses remain
     /// a separate, scoring-neutral statistic. The server scoring contract must mirror these rules.
     /// </summary>
