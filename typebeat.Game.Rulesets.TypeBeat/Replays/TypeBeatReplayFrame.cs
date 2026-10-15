@@ -690,9 +690,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
 
         /// <summary>Bit 4: the final line seals as soon as it is fully typed (see <see cref="EarlyFinish"/>).</summary>
         private const int ext_flag_early_finish = 16;
+
+        /// <summary>Bit 5 of the EXTENDED CONFIG frame's (second) flags word: a Japanese Polyglot run
+        /// typed romaji through the internal processor, so its frames carry raw romaji rather than
+        /// committed text (see <see cref="JapaneseRomajiInput"/>).</summary>
         private const int ext_flag_japanese_romaji_input = 32;
+
+        /// <summary>Bit 6 of the EXTENDED CONFIG frame's (second) flags word: Japanese Polyglot words
+        /// were timed as whole words, ignoring romanised subdivisions (see
+        /// <see cref="JapaneseWordTiming"/>).</summary>
         private const int ext_flag_japanese_word_timing = 64;
+
+        /// <summary>Bit 7 of the EXTENDED CONFIG frame's (second) flags word: the second Japanese input
+        /// era, where Space skips one unfinished character and WPM counts actual inputs (see
+        /// <see cref="JapaneseInputEra2"/>).</summary>
         private const int ext_flag_japanese_input_era_2 = 128;
+
+        /// <summary>Bit 8 of the EXTENDED CONFIG frame's (second) flags word: the third Japanese input
+        /// era, where Space skips the remainder of the authored word on the word-aware romaji input
+        /// plan (see <see cref="JapaneseInputEra3"/>).</summary>
         private const int ext_flag_japanese_input_era_3 = 256;
 
         /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>

@@ -39,8 +39,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         {
             if (frame.IsConfig)
             {
-                // The recorded machine's judgement-relevant settings win over local config, all
-                // ten of them: a replay of a run played WITHOUT space-skip must not start skipping
+                // The recorded machine's judgement-relevant settings win over local config, every
+                // one of them: a replay of a run played WITHOUT space-skip must not start skipping
                 // words because the watcher turned the setting on, and vice versa. Every replay
                 // recorded before a setting existed carries its bit clear, which decodes to false,
                 // i.e. to exactly the model those runs were played under.
@@ -179,7 +179,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // TypeBeatReplayFrame's remarks for the full list); it is applied here for the same
                 // reason, before the first keystroke it could move. AuthoredSyllablesOnly (bit 2,
                 // backlog 363) selects which of the line's two syllable groupings a press is judged
-                // against, so it too lands before the first keystroke.
+                // against, so it too lands before the first keystroke. Bits 3 to 8
+                // (AlignSubdivisionTargets, EarlyFinish and the four Japanese eras) land here on the
+                // same terms.
                 engine.RushCapCostsAccuracy = frame.RushCapCostsAccuracy;
                 engine.InputEra2 = frame.InputEra2;
                 engine.AuthoredSyllablesOnly = frame.AuthoredSyllablesOnly;

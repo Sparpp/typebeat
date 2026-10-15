@@ -396,9 +396,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <c>WrongInputOnWordGaps</c>, <c>StrictSpaces</c>, <c>CharTimedStretch</c>,
         /// <c>FlexibleLineSnap</c>, <c>BoundedRush</c>, <c>FirstCharTiming</c>,
         /// <c>BackDatedSealBreak</c>, <c>LosslessSkipReclaim</c>, <c>FoldsDisplacedClaim</c>,
-        /// <c>UnhalvedHardRockWindows</c> and <c>FirstLineLeadIn</c> are
-        /// deliberately NOT set from the mods or from any config: the replay's CONFIG frame carries
-        /// what the run was judged under and overwrites all fourteen, which is the only thing that judges
+        /// <c>UnhalvedHardRockWindows</c>, <c>ManualNewlines</c>, <c>NewlineOnTypedLetter</c> and
+        /// <c>FirstLineLeadIn</c>, and every era on the extended frame's second word, are
+        /// deliberately NOT set from the mods or from any config: the replay's CONFIG frames carry
+        /// what the run was judged under and overwrite every one of them (see
+        /// <see cref="ReplayEngineFeed.Apply"/> and the flag table in
+        /// <see cref="TypeBeatReplayFrame"/>), which is the only thing that judges
         /// a pre-Gatekeeper strict run right. The one flag the frame cannot carry is which MODS the
         /// score holds, so <c>HardRockFromMod</c> (like <c>FlexibleCaretFromMod</c>) IS set here, and
         /// the engine pairs it with the frame's era bit.
@@ -508,6 +511,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // selects it, and this builder chooses neither arm. AuthoredSyllablesOnly (bit 2,
             // backlog 363) is the third, on the same terms: the lines carry both groupings and the
             // replay's own header picks one.
+            //
+            // This list stops there. The bits since (AlignSubdivisionTargets, EarlyFinish and the
+            // four Japanese eras on the second word, and ManualNewlines and NewlineOnTypedLetter on
+            // the first) are on the same terms, and the complete set is the flag table in
+            // TypeBeatReplayFrame and the assignments in ReplayEngineFeed.Apply.
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the arms below compose in any order. A replay carries
@@ -592,7 +600,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
                 }
             }
 
-            // BoundedRush (backlog 218, CONFIG frame bit 7) is the fifth, and it is a CARET era
+            // BoundedRush (backlog 218, CONFIG frame bit 7) is another of the frame-selected eras
+            // above (left out of their count when it was written), and it is a CARET era
             // rather than a judgement one: the default is the unbounded roll every stored replay was
             // played with (finish a line and you are on the next one however far off its cue it is),
             // and the bit is set for every live stack, inert wherever the caret is pinned.
@@ -601,7 +610,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // that is the whole shape of backlog 208's flip: the mod named Fletcher now PINS the
             // caret, which is this engine's default, so it needs no arm at all. The unpinned caret
             // travels in the CONFIG frame (bit 5), which ReplayEngineFeed.Apply reads, exactly like
-            // the four era bits above.
+            // the era bits above.
             //
             // The one arm that IS needed is the retired "FT" mod, because it is the only thing a
             // stored score can carry that means "unpinned caret, and NO line-start snap": the bit
