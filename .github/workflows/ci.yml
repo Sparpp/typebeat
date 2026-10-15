@@ -1,0 +1,91 @@
+# The push and pull request gate: a clean rebuild of typebeat.Desktop.slnf held to the known
+# warning baseline, then the ruleset test suite, then a report of vulnerable packages. Nothing is
+# published or deployed here; the two build-*.yml workflows remain the (manual) release path.
+#
+# ---------------------------------------------------------------------------------------------
+# WHY windows-latest
+#   It is the platform the maintainers build, test and count warnings on, so a green run here
+#   means the same thing as a green run on the dev box. The Debug-only NoWarn in
+#   Directory.Build.props is part of that baseline, which is why the build stays in Debug.
+#
+# RESTORE NEEDS NO SECRET
+#   Every package, typebeat.Game.Resources included, restores from nuget.org through the repo's
+#   own nuget.config (the game consumes the PUBLISHED resources package), so this workflow holds
+#   no secret and runs the same for a pull request from a fork. Do not add one: a gate that needs
+#   a secret cannot run on outside contributions, which is the whole point of it.
+#
+# WARNINGS
+#   .github/scripts/check-warning-count.sh counts the distinct warnings in the rebuild log and
+#   fails above the baseline held in that script (26). Raise or lower it there, deliberately. It
+#   must be a -t:Rebuild: an incremental build skips unchanged projects and hides their warnings.
+#
+# REAL-MAP FIXTURES
+#   The real-map pins need per-machine map directories (TYPEBEAT_MAPS_DIR, TYPEBEAT_GAP_OSU_DIR,
+#   TYPEBEAT_TTML_DIR) that this runner does not have, so they Assert.Ignore here and show as
+#   skipped. Do NOT set TYPEBEAT_REQUIRE_FIXTURES in this workflow: it turns every missing
+#   fixture into a failure, and is meant for a machine that has them (see StandaloneMaps).
+#
+# VULNERABLE PACKAGES
+#   Report-only (continue-on-error). The graph carries upstream-inherited transitive advisories
+#   (the System.* 4.3.0 packages under NETStandard.Library 1.6.1) that would keep the step red
+#   forever, so a failure shows as a warning on the run rather than blocking the merge. It also
+#   calls out the two font packages type!beat added (SixLabors.Fonts, SixLabors.ImageSharp.Drawing),
+#   which parse font files bundled in downloaded beatmaps; a finding there deserves a real look.
+#
+# Actions are pinned to full commit SHAs, with the tag they were resolved from in a comment.
+# ---------------------------------------------------------------------------------------------
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore typebeat.Desktop.slnf
+
+      # Terminal logger off so the log carries MSBuild's plain "file(line,col): warning CODE:" lines
+      # the counting script reads, whichever SDK global.json rolls forward to.
+      - name: Rebuild
+        run: dotnet build typebeat.Desktop.slnf -t:Rebuild --no-restore -tl:off 2>&1 | tee build.log
+
+      - name: Check the warning count
+        run: bash .github/scripts/check-warning-count.sh build.log
+
+      - name: Test the ruleset
+        run: dotnet test typebeat.Game.Rulesets.TypeBeat.Tests --no-build
+
+      - name: Report vulnerable packages
+        continue-on-error: true
+        run: |
+          dotnet list typebeat.Desktop package --vulnerable --include-transitive 2>&1 | tee vulnerable.log
+          if grep -qE 'SixLabors\.(Fonts|ImageSharp\.Drawing) ' vulnerable.log; then
+            echo "::warning::a SixLabors font package has an advisory: it parses font files bundled in downloaded beatmaps, check it first"
+          fi
+          if grep -q 'has the following vulnerable packages' vulnerable.log; then
+            echo "::warning::vulnerable packages found, see the log of this step"
+            exit 1
+          fi
