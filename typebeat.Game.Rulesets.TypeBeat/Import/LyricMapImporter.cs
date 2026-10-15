@@ -1212,7 +1212,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             // The aligner ran and failed: a caller that would write the result over word timing
             // gets the failure rather than line timing reported as a success.
-            if (alignerFailure != null && !allowLineFallback)
+            // Without line stamps there is nothing to fall back to anyway, and the message below also
+            // tells the user how to add them, so only a refusal in place of a real fallback goes here.
+            if (alignerFailure != null && !allowLineFallback && HasLineStamps(lyricsContent))
                 return (LyricImportResult.Fail(AlignerRunFailedMessage(alignerFailure)), null, null);
 
             bool needsRepair = lyricLabDir != null && EnvironmentNeedsRepair(lyricLabDir);
