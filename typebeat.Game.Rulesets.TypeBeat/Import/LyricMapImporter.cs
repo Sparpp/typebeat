@@ -1811,6 +1811,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// ampersand as ordinary lyric punctuation and strips it. A document with no ampersand
         /// anywhere is returned VERBATIM, so nothing an aligner has ever produced before moves.
         /// Any parse problem also returns the input unchanged: this is a polish pass, not a gate.
+        /// Any other failure does the same but is logged as an error.
         /// </summary>
         public static string FlagFreestyleLines(string timingJson)
         {
@@ -1841,8 +1842,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
                 return changed ? root.ToJsonString() : timingJson;
             }
-            catch (Exception)
+            catch (JsonException)
             {
+                return timingJson;
+            }
+            catch (Exception e)
+            {
+                Logger.Error(e, "Flagging freestyle lines in the aligner's timing failed; the lines keep their raw text");
                 return timingJson;
             }
         }
@@ -1864,7 +1870,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// (see <see cref="LyricOriginals.RomanisedWord.MapSplits"/>), merging the syllables whose
         /// cut does not carry. Without words[] the line is romanised as a whole and an unspellable
         /// word survives only in the line's original. A document with nothing to romanise is
-        /// returned VERBATIM, and any parse problem returns the input unchanged.</para>
+        /// returned VERBATIM, and any parse problem returns the input unchanged (any other failure
+        /// too, logged as an error).</para>
         /// </summary>
         public static string RomaniseLines(string timingJson, string? language)
         {
@@ -1964,8 +1971,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
                 return changed ? root.ToJsonString() : timingJson;
             }
-            catch (Exception)
+            catch (JsonException)
             {
+                return timingJson;
+            }
+            catch (Exception e)
+            {
+                Logger.Error(e, "Romanising the aligner's timing failed; the lines keep their raw text");
                 return timingJson;
             }
         }
@@ -2193,7 +2205,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// outcome as the decode dropping it (the previous line's window runs to the next surviving
         /// line's start). A document whose line texts carry no bracket at all is returned VERBATIM,
         /// so no map that could not have been affected has a single byte moved, and any parse
-        /// problem also returns the input unchanged: this is a polish pass, not a gate.</para>
+        /// problem also returns the input unchanged: this is a polish pass, not a gate. Any other
+        /// failure does the same but is logged as an error.</para>
         /// </summary>
         public static string StripBackingVocalLines(string timingJson)
         {
@@ -2255,8 +2268,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 root["lines"] = kept;
                 return root.ToJsonString();
             }
-            catch (Exception)
+            catch (JsonException)
             {
+                return timingJson;
+            }
+            catch (Exception e)
+            {
+                Logger.Error(e, "Stripping backing vocals from the timing failed; the lines keep their raw text");
                 return timingJson;
             }
         }
