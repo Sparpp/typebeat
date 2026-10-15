@@ -270,8 +270,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // only to the lyric stack. Resolved once here: an unset/unknown/failed font stays null so
             // the displays fall back to the built-in lyric font.
             string? lyricFont = resolveLyricFont(config, fontManager);
-            float lyricFontSize = config?.GetBindable<float>(TypeBeatRulesetSetting.LyricFontSize).Value
-                                  ?? TypeBeatStyle.LYRIC_FONT_SIZE;
 
             // POLYGLOT (backlog 331): the lines are drawn in their original script, which the lyric
             // font may not cover. Every character they can show (the cells and the originals, a hangul
