@@ -239,11 +239,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 {
                     case line_type:
                         var lines = JsonConvert.DeserializeObject<LineTimingsPayload>(content);
-                        return lines?.Lines.Count > 0 ? (lines, null) : (null, null);
+                        return lines?.Lines?.Count > 0 ? (lines, null) : (null, null);
 
                     case unit_type:
                         var units = JsonConvert.DeserializeObject<UnitTimingsPayload>(content);
-                        return units?.Units.Count > 0 ? (null, units) : (null, null);
+                        return units?.Units?.Count > 0 ? (null, units) : (null, null);
 
                     default:
                         return (null, null);

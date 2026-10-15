@@ -131,8 +131,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
 
         /// <summary>
         /// The drawable carrying <paramref name="cellIndex"/>'s score, or null when this line has no such
-        /// cell. Exposed for the playfield's seal, which needs a cell's own target time to tell what the
-        /// play actually reached (see <c>TypeBeatPlayfield.cellWasDueBeforeThePlayStarted</c>).
+        /// cell. Exposed for the playfield's seal, which grants a cell the play started past (see
+        /// <c>TypeBeatPlayfield.cellWasDueBeforeThePlayStarted</c>; the time it compares is the engine's
+        /// own target, this drawable only carries the cell's result).
         /// </summary>
         public DrawableTypeBeatCharObject? CellAt(int cellIndex)
             => charDrawablesByCell.TryGetValue(cellIndex, out var cell) ? cell : null;
