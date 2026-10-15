@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
-using osu.Framework.Graphics.Cursor;
 using typebeat.Game.Graphics.UserInterfaceV2;
 using osu.Framework.Localisation;
 using osu.Framework.Logging;
@@ -196,9 +195,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                    + "If your machine cannot run it, sign in and tick \"use server aligner\" on the import screen instead.";
         }
 
-        private partial class InstallAlignerButton : FormButton, IHasTooltip, IFilterable
+        // The tooltip is FormButton's own (it covers the row and its button), so the filter reads it.
+        private partial class InstallAlignerButton : FormButton, IFilterable
         {
-            public LocalisableString TooltipText { get; set; }
             public IEnumerable<LocalisableString> FilterTerms => new[] { Caption, TooltipText };
             public bool FilteringActive { get; set; }
             public bool MatchingFilter { set => this.FadeTo(value ? 1 : 0); }
