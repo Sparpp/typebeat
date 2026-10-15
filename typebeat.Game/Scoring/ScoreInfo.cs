@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using JetBrains.Annotations;
@@ -360,8 +361,17 @@ namespace typebeat.Game.Scoring
                 : string.Empty;
         }
 
+        /// <summary>
+        /// One ruleset instance per ruleset type for <see cref="GetDisplayRank"/>, which runs once per leaderboard
+        /// row. <see cref="Rulesets.Ruleset.GetDisplayRankForScore"/> reads only the score it is given, so sharing an
+        /// instance gives the same grade as creating one per call.
+        /// </summary>
+        private static readonly ConcurrentDictionary<string, Ruleset> display_rank_rulesets = new ConcurrentDictionary<string, Ruleset>();
+
         /// <summary>The current display grade, without changing the grade saved with the score.</summary>
-        public ScoreRank GetDisplayRank() => Ruleset.Available ? Ruleset.CreateInstance().GetDisplayRankForScore(this) : Rank;
+        public ScoreRank GetDisplayRank() => Ruleset.Available
+            ? display_rank_rulesets.GetOrAdd(Ruleset.InstantiationInfo, _ => Ruleset.CreateInstance()).GetDisplayRankForScore(this)
+            : Rank;
 
         public IEnumerable<HitResultDisplayStatistic> GetStatisticsForDisplay()
         {
