@@ -434,7 +434,7 @@ namespace typebeat.Game.Beatmaps
                     {
                         // A sibling is only consulted for its video, so a broken one must not raise a
                         // user notification on every load of this difficulty. Logged, not surfaced.
-                        Logger.Log($"Shared beatmap video failed to load from {difficulty.Path}: {e.Message}");
+                        Logger.Log($"Shared beatmap video failed to load from {difficulty.Path}: {e}");
                     }
                 }
 

@@ -60,9 +60,17 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      # Both bands, as the web CI installs them: global.json rolls forward to the newest major, and the
+      # warning baseline below was counted on the .NET 10 SDK, so the build must not depend on which SDKs
+      # the runner image happens to carry. The version actually used is printed in the next step.
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: SDK in use
+        run: dotnet --version
 
       - name: Restore
         run: dotnet restore typebeat.Desktop.slnf
