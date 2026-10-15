@@ -38,6 +38,11 @@ namespace typebeat.Game.Graphics.Fonts
         /// used when the bundled copy is absent.</summary>
         public const string OPEN_DYSLEXIC_DROP_IN = "Fonts/OpenDyslexic-Regular.otf";
 
+        /// <summary>The largest bundled font file <see cref="EnsureRegisteredFromStream"/> hands to the font parser.
+        /// Generous (real faces, CJK included, are well under it); a bigger file comes from a downloaded map and
+        /// is skipped unparsed.</summary>
+        public const long MAX_BUNDLED_FONT_BYTES = 32 * 1024 * 1024;
+
         private readonly FontStore? fonts;
         private readonly Storage? storage;
 
@@ -172,7 +177,9 @@ namespace typebeat.Game.Graphics.Fonts
 
                     using (var stream = openStream())
                     {
-                        if (stream != null)
+                        if (stream != null && stream.CanSeek && stream.Length > MAX_BUNDLED_FONT_BYTES)
+                            Logger.Log($"Skipped the bundled lyric font '{name}': {stream.Length} bytes is over the {MAX_BUNDLED_FONT_BYTES} byte limit; falling back.");
+                        else if (stream != null)
                             family = streamCollection.Add(stream, CultureInfo.InvariantCulture);
                     }
 
