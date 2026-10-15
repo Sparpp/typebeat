@@ -499,7 +499,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     try { File.Delete(tempAudio); }
                     catch { /* best-effort */ }
                 }
-            }, token);
+            });
         }
 
         // ---- the lyric font picker (backlog 291) ----
