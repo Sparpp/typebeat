@@ -74,12 +74,15 @@ check "setup.sh never builds a venv from the system python" $? "$bad"
 # 'uv pip' succeeds unless FAKE_UV_FAIL_TORCH is set and the call installs torch, FAKE_UV_FAIL_DEPS
 # is set and it installs the aligner dependencies (demucs), or FAKE_UV_FAIL_FUSED is set and it
 # installs the fused-evidence pair (phonemizer). Every call is logged to uv-calls.txt in the lab.
-# The venv python fails the weights fetch alone under FAKE_PY_NO_WEIGHTS.
+# The venv python fails the weights fetch alone under FAKE_PY_NO_WEIGHTS. '--version' answers
+# FAKE_UV_VERSION, the pinned version unless a case says otherwise.
+export FAKE_UV_VERSION="$version"
 mkdir -p "$work/fakeuv"
 cat > "$work/fakeuv/uv" <<'FAKE'
 #!/bin/sh
 echo "$*" >> uv-calls.txt
 case "$1" in
+    --version) echo "uv $FAKE_UV_VERSION" ;;
     venv)
         mkdir -p .venv/bin
         if [ -n "${FAKE_PY_BROKEN:-}" ]; then printf '#!/bin/sh\nexit 1\n'; else printf '#!/bin/sh\ncase "$*" in *qmul_weights_path*) [ -z "${FAKE_PY_NO_WEIGHTS:-}" ] || exit 1 ;; esac\nexit 0\n'; fi > .venv/bin/python
@@ -194,6 +197,38 @@ new_lab run-python-broken
 out="$(FAKE_PY_BROKEN=1 run_lab run-python-broken)"; rc=$?
 [ $rc -eq 1 ] && printf '%s' "$out" | grep -q '^setup failed:' && [ ! -e "$work/run-python-broken/.venv" ]
 check "sentinel: absent, and the venv removed, when the venv python fails" $? "$out"
+
+# ---- The pinned uv (G2-018): a uv on PATH at another version is passed over for the pinned copy,
+# and a downloaded archive whose sha256 is not the pinned one is never unpacked. ----
+new_lab run-uv-other-version
+mkdir -p "$work/olduv" "$work/run-uv-other-version/.uv"
+printf '#!/bin/sh\necho "uv 0.4.0"\n' > "$work/olduv/uv"; chmod +x "$work/olduv/uv"
+cp "$work/fakeuv/uv" "$work/run-uv-other-version/.uv/uv"
+printf '#!/bin/sh\ncase "$1" in -s) echo Linux ;; -m) echo x86_64 ;; esac\n' > "$work/fakebin/uname"; chmod +x "$work/fakebin/uname"
+out="$(PATH="$work/olduv:$base_path" bash "$work/run-uv-other-version/setup.sh" 2>&1)"; rc=$?
+[ $rc -eq 0 ] && printf '%s' "$out" | grep -q "uv at $work/olduv/uv is not the pinned $version (uv 0.4.0)" \
+    && printf '%s' "$out" | grep -q "^using uv at $work/run-uv-other-version/.uv/uv$" \
+    && printf '%s' "$out" | grep -q 'lyriclab environment ready'
+check "uv: a uv on PATH at another version is passed over for the pinned copy" $? "$out"
+
+# A fake curl "downloads" an archive that is not uv's; nothing is unpacked and no .uv/uv appears.
+new_lab run-uv-bad-sum
+mkdir -p "$work/fakecurl"
+printf '#!/bin/sh\necho "not the uv archive" > "$3"\n' > "$work/fakecurl/curl"; chmod +x "$work/fakecurl/curl"
+out="$(PATH="$work/fakecurl:$base_path" bash "$work/run-uv-bad-sum/setup.sh" 2>&1)"; rc=$?
+[ $rc -eq 1 ] && printf '%s' "$out" | grep -q "^setup failed: the downloaded uv $version does not match its pinned sha256" \
+    && printf '%s' "$out" | grep -q "detail: expected $(sed -n 's/^ *x86_64-unknown-linux-musl) *echo .\([0-9a-f]\{64\}\).*$/\1/p' "$here/../setup.sh")" \
+    && [ ! -e "$work/run-uv-bad-sum/.uv" ]
+check "uv: a download whose sha256 is not the pinned one fails before unpacking" $? "$out"
+
+# Every archive either script can download has a pinned sha256 (64 hex digits).
+missing=''
+for triple in x86_64-unknown-linux-musl aarch64-unknown-linux-musl x86_64-apple-darwin aarch64-apple-darwin; do
+    grep -qE "^ *$triple\) *echo '[0-9a-f]{64}' ;;$" "$here/../setup.sh" || missing="$missing setup.sh:$triple"
+done
+grep -qE "^[\$]uvSha256 = '[0-9a-f]{64}'\$" "$here/../setup.ps1" || missing="$missing setup.ps1"
+[ -z "$missing" ]
+check "uv: every downloadable archive has a pinned sha256" $? "missing:$missing"
 
 # The failure cleanup removes the sentinel with the venv, so the runs above cannot see WHERE it is
 # written; the ordering protects against a run KILLED part way (the game kills the process on

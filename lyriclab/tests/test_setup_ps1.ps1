@@ -15,6 +15,8 @@
 $ErrorActionPreference = 'Stop'
 
 $setup = Join-Path (Split-Path $PSScriptRoot -Parent) 'setup.ps1'
+# The fake uv below answers --version with the pinned version, which setup.ps1 requires of a uv on PATH.
+$uvVersion = [regex]::Match((Get-Content $setup -Raw), '(?m)^\$uvVersion = ''([^'']+)''').Groups[1].Value
 $work = Join-Path ([IO.Path]::GetTempPath()) ("lyriclab-setup-test-" + [Guid]::NewGuid().ToString('N'))
 $fake = Join-Path $work 'fakebin'
 $lab = Join-Path $work 'lab'
@@ -127,8 +129,12 @@ Write-Output "probe survived LASTEXITCODE=$LASTEXITCODE"
     [IO.File]::WriteAllText((Join-Path $fakeUv 'uv.cmd'), (@(
         '@echo off'
         '>>uv-calls.txt echo %*'
+        'if /i "%~1"=="--version" goto version'
         'if /i "%~1"=="venv" goto venv'
         'if /i "%~1"=="pip" goto pip'
+        'exit /b 0'
+        ':version'
+        "echo uv $uvVersion"
         'exit /b 0'
         ':venv'
         'if not exist .venv\Scripts mkdir .venv\Scripts'

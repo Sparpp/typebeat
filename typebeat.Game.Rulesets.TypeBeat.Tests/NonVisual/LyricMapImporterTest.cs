@@ -1462,6 +1462,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             return null!;
         }
 
+        /// <summary>The uv version the shipped setup scripts pin, which they require of a uv on PATH.</summary>
+        private static string pinnedUvVersion(string shippedLab)
+            => System.Text.RegularExpressions.Regex.Match(File.ReadAllText(Path.Combine(shippedLab, "setup.sh")), "^UV_VERSION='([^']+)'",
+                System.Text.RegularExpressions.RegexOptions.Multiline).Groups[1].Value;
+
         [Test]
         public void ShippedSetupScriptsWriteTheSentinelTheGameReads()
         {
@@ -1483,11 +1488,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             // The real vendored setup script, driven end to end by the game's bootstrap against a
             // fake uv (nothing is downloaded): uv "venv" drops a python that exits 0 for every
-            // "-c" step, "pip" succeeds. PATH is narrowed to the fake plus the system, so a real
-            // uv on this machine can never be reached.
+            // "-c" step, "pip" succeeds, "--version" answers the pinned version. PATH is narrowed to
+            // the fake plus the system, so a real uv on this machine can never be reached.
             string shipped = vendoredLyricLab();
             string lab = makeLab();
             File.Copy(Path.Combine(shipped, LyricMapImporter.SetupScriptName), Path.Combine(lab, LyricMapImporter.SetupScriptName));
+            string uvVersion = pinnedUvVersion(shipped);
 
             string fakeUv = Path.Combine(tempRoot, "fakeuv");
             Directory.CreateDirectory(fakeUv);
@@ -1497,6 +1503,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 File.WriteAllText(Path.Combine(fakeUv, "uv.cmd"), string.Join("\r\n",
                     "@echo off",
+                    "if /i \"%~1\"==\"--version\" echo uv " + uvVersion,
                     "if /i \"%~1\"==\"venv\" goto venv",
                     "exit /b 0",
                     ":venv",
@@ -1508,7 +1515,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             else
             {
                 string uv = Path.Combine(fakeUv, "uv");
-                File.WriteAllText(uv, "#!/bin/sh\nif [ \"$1\" = venv ]; then mkdir -p .venv/bin; printf '#!/bin/sh\\nexit 0\\n' > .venv/bin/python; chmod +x .venv/bin/python; fi\nexit 0\n");
+                File.WriteAllText(uv, "#!/bin/sh\nif [ \"$1\" = --version ]; then echo \"uv " + uvVersion + "\"; fi\nif [ \"$1\" = venv ]; then mkdir -p .venv/bin; printf '#!/bin/sh\\nexit 0\\n' > .venv/bin/python; chmod +x .venv/bin/python; fi\nexit 0\n");
                 File.SetUnixFileMode(uv, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                 path = string.Join(Path.PathSeparator, fakeUv, "/usr/bin", "/bin");
             }
@@ -1660,6 +1667,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             string lab = makeCompletedInstall();
             File.Copy(Path.Combine(shipped, LyricMapImporter.SetupScriptName), Path.Combine(lab, LyricMapImporter.SetupScriptName));
             string sentinelBefore = File.ReadAllText(LyricMapImporter.SetupSentinelFor(lab));
+            string uvVersion = pinnedUvVersion(shipped);
 
             string fakeUv = Path.Combine(tempRoot, "fakeuv");
             Directory.CreateDirectory(fakeUv);
@@ -1668,13 +1676,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             if (OperatingSystem.IsWindows())
             {
                 // The redirect comes first so a trailing digit in the arguments cannot read as a handle.
-                File.WriteAllText(Path.Combine(fakeUv, "uv.cmd"), string.Join("\r\n", "@echo off", ">>uv-calls.txt echo %*", "exit /b 0") + "\r\n");
+                File.WriteAllText(Path.Combine(fakeUv, "uv.cmd"), string.Join("\r\n", "@echo off", ">>uv-calls.txt echo %*",
+                    "if /i \"%~1\"==\"--version\" echo uv " + uvVersion, "exit /b 0") + "\r\n");
                 path = string.Join(Path.PathSeparator, fakeUv, Environment.SystemDirectory, Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0"));
             }
             else
             {
                 string uv = Path.Combine(fakeUv, "uv");
-                File.WriteAllText(uv, "#!/bin/sh\necho \"$*\" >> uv-calls.txt\nexit 0\n");
+                File.WriteAllText(uv, "#!/bin/sh\necho \"$*\" >> uv-calls.txt\nif [ \"$1\" = --version ]; then echo \"uv " + uvVersion + "\"; fi\nexit 0\n");
                 File.SetUnixFileMode(uv, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                 path = string.Join(Path.PathSeparator, fakeUv, "/usr/bin", "/bin");
             }
