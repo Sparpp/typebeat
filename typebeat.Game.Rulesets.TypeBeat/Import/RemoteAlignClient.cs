@@ -165,7 +165,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
                 if (status == null)
                 {
-                    if (isNotFound(poll.FailureException))
+                    if (isNotFound(poll))
                         return RemoteAlignOutcome.Fail("the server no longer has this alignment job");
 
                     // Transient network blip tolerance; sustained failure ends the wait.
@@ -229,9 +229,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             }
         }
 
-        private static bool isNotFound(Exception? failure)
-            => failure is APIException { StatusCode: HttpStatusCode.NotFound }
-               || (failure is WebException webException && webException.Message == nameof(HttpStatusCode.NotFound));
+        /// <summary>
+        /// Whether a failed poll was the server saying the job is gone. The response's own status is
+        /// read first; the failure's shapes are the fallback, the second of which depends on the
+        /// framework raising a non-success status as a <see cref="WebException"/> whose message is the
+        /// status enum's name, the coupling <c>UploadRetryPolicy.IsGatewayTransient</c> documents.
+        /// </summary>
+        private static bool isNotFound(GetServerAlignJobRequest poll)
+            => poll.ResponseStatusCode == HttpStatusCode.NotFound
+               || poll.FailureException is APIException { StatusCode: HttpStatusCode.NotFound }
+               || (poll.FailureException is WebException webException && webException.Message == nameof(HttpStatusCode.NotFound));
 
         private static async Task tryCancelServerJobAsync(IAPIProvider api, string jobId)
         {
@@ -342,6 +349,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         }
 
         protected override string Target => $@"{CreateServerAlignJobRequest.TARGET}/{jobId}";
+
+        /// <summary>The status code of the server's answer, null when the request was never sent.</summary>
+        public HttpStatusCode? ResponseStatusCode => WebRequest?.ResponseStatusCode;
     }
 
     /// <summary>

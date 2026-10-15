@@ -358,6 +358,8 @@ namespace typebeat.Game.Screens.Edit.Submission
                 return isGatewayStatus(fromResponse);
 
             // otherwise the message is the status enum's name, or its number if some other caller built it.
+            // That couples this decision to the framework's message text: the exception carries no typed
+            // status, and the tests build the same shape by hand, so a change there would go unnoticed.
             return Enum.TryParse(exception.Message, out HttpStatusCode fromMessage) && isGatewayStatus(fromMessage);
         }
 
