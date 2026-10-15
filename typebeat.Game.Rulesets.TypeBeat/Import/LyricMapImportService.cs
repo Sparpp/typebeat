@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
+using osu.Framework.Extensions;
 using osu.Framework.Graphics;
 using osu.Framework.Platform;
 using typebeat.Game.Beatmaps;
@@ -247,7 +248,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                     return false;
                 }
 
-                return process.ExitCode == 0 && outputRead.Result.Contains("GPU", StringComparison.OrdinalIgnoreCase);
+                return process.ExitCode == 0 && outputRead.GetResultSafely().Contains("GPU", StringComparison.OrdinalIgnoreCase);
             }
             catch
             {
