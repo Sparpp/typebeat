@@ -428,7 +428,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// reference_notes 100, Recite 2.0, Hard Rock neutral, Fletcher and No Fail 0.9.
         /// </summary>
         /// <summary>v25 adds the played-duration penalty: 15% at 30 seconds, up to 60% near zero.</summary>
-        public const int VERSION = 25;
+        /// <summary>
+        /// v26 leaves the formula alone: PR 35 counts the spaces punctuation produces (hyphen breaks
+        /// included) in the star rating's cells, so the ratings and difficult-character counts a
+        /// price reads can move, and the bump reprices every stored row against them.
+        /// </summary>
+        public const int VERSION = 26;
 
         // ---- formula constants (the PP Sandbox's active dials) ----
 
