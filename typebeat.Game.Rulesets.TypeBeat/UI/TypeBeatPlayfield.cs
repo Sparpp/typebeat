@@ -346,7 +346,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             if (lyricClock.Source != Clock)
                 lyricClock.ChangeSource(Clock);
 
-            // Live-applied (M7 will surface a slider; the setting already works end-to-end).
+            // Live-applied (the setting already works end-to-end; it has no settings UI yet).
             lyricClock.Offset = -lyricOffset.Value;
 
             // A retype selection is a gesture held open on the ACTIVE line between two keystrokes,
