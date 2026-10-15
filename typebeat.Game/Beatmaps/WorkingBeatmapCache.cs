@@ -432,7 +432,9 @@ namespace typebeat.Game.Beatmaps
                     }
                     catch (Exception e)
                     {
-                        Logger.Error(e, "Shared beatmap video failed to load");
+                        // A sibling is only consulted for its video, so a broken one must not raise a
+                        // user notification on every load of this difficulty. Logged, not surfaced.
+                        Logger.Log($"Shared beatmap video failed to load from {difficulty.Path}: {e.Message}");
                     }
                 }
 
