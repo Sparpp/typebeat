@@ -266,7 +266,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             bool polyglot = Mods?.Any(m => m is TypeBeatModPolyglot) == true;
             string? polyglotLanguage = polyglot ? TypeBeatModPolyglot.LanguageFor(Beatmap) : null;
 
-            return new TypingEngine(lyricBeatmap, literate, polyglot, polyglotLanguage)
+            var created = new TypingEngine(lyricBeatmap, literate, polyglot, polyglotLanguage)
             {
                 // THE live judgement rule since backlog 179, for every player and (since backlog
                 // 180) every mod stack but Hard Rock: a character typed while its syllable is being
@@ -478,6 +478,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // era flag here; every replay recorded before it seals the final line at its end.
                 EarlyFinish = true,
 
+                // THE JAPANESE ERAS (bits 6 to 8 of the second CONFIG word): whole-word timing for
+                // Japanese Polyglot words, and the second and third Japanese input eras. Set
+                // UNCONDITIONALLY like every era flag here, inert on any map that does not use the
+                // internal romaji processor, and to the values the engine already defaults to, so
+                // naming them here changes nothing; it only stops this factory relying on defaults.
+                JapaneseWordTiming = true,
+                JapaneseInputEra2 = true,
+                JapaneseInputEra3 = true,
+
                 FlexibleCaretFromMod = legacyFletcher,
 
                 // THE ONE MOD FLAG SET HERE THAT IS NOT AN ERA (backlog 231). A stored replay can
@@ -486,6 +495,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // whole mechanism (TypeBeatReplayScorer.createEngine reads the same list).
                 AnyOrderWithinWord = anyOrderWithinWord,
             };
+
+            // The fourth Japanese era (bit 5 of the second CONFIG word) is NOT unconditional: romaji
+            // input is on exactly where the engine uses the internal romaji processor, which is the
+            // value its constructor already gives it. Named here for the same reason as the three
+            // above.
+            created.JapaneseRomajiInput = created.UsesJapaneseRomaji;
+
+            return created;
         }
     }
 }
