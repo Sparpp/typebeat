@@ -279,7 +279,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// and since version 10 one of them is the fused evidence path falling back for want of an
         /// OPTIONAL package ("a dependency is missing (No module named 'phonemizer')"). Read as a
         /// broken install, a later unrelated failure with that line still in the tail would withdraw
-        /// the sentinel of a venv whose required imports load fine.
+        /// the sentinel of a venv whose required imports load fine. Its <c>fallback:</c> lines are
+        /// skipped for the same reason: each reports a broad handler carrying on without something.
         /// </remarks>
         public static bool IsMissingPackageFailure(string output)
             => output.Split(new[] { " | ", "\n" }, StringSplitOptions.None)
@@ -288,8 +289,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                                   || line.Contains("No module named", StringComparison.Ordinal)
                                   || line.Contains("ImportError", StringComparison.Ordinal));
 
-        /// <summary>An aligner log line reporting what it survived: an optional "[hh:mm:ss] " then "WARNING:".</summary>
-        private static readonly Regex aligner_warning_line = new Regex(@"^\s*(\[\d{1,2}:\d{2}:\d{2}\]\s*)?WARNING:", RegexOptions.Compiled);
+        /// <summary>An aligner log line reporting what it survived: an optional "[hh:mm:ss] " then "WARNING:", or a "fallback:" line.</summary>
+        private static readonly Regex aligner_warning_line = new Regex(@"^\s*((\[\d{1,2}:\d{2}:\d{2}\]\s*)?WARNING:|fallback:)", RegexOptions.Compiled);
 
         /// <summary>
         /// What a player is told to do about a venv that cannot import its packages. A bare clause,

@@ -1817,6 +1817,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             {
                 Assert.That(LyricMapImporter.IsMissingPackageFailure($"{warning} | Traceback (most recent call last): | OSError: [Errno 28] No space left on device"), Is.False);
                 Assert.That(LyricMapImporter.IsMissingPackageFailure("WARNING: something optional raised ImportError, carrying on"), Is.False);
+                Assert.That(LyricMapImporter.IsMissingPackageFailure("fallback: hyphenation dictionary en: ModuleNotFoundError: No module named 'pyphen' | "
+                                                                     + "Traceback (most recent call last): | OSError: [Errno 28] No space left on device"), Is.False);
                 Assert.That(LyricMapImporter.IsMissingPackageFailure($"{warning} | Traceback (most recent call last): | ModuleNotFoundError: No module named 'torch'"), Is.True);
                 Assert.That(LyricMapImporter.IsMissingPackageFailure("Traceback (most recent call last):\nModuleNotFoundError: No module named 'torch'"), Is.True);
                 Assert.That(LyricMapImporter.IsMissingPackageFailure("ImportError: DLL load failed while importing _C"), Is.True);
