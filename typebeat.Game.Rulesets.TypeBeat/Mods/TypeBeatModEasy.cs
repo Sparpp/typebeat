@@ -34,10 +34,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
     /// untouched: the cells, their target times, the Great/Ok/Meh names and the points each tier
     /// pays are exactly as they are without the mod.</para>
     ///
-    /// <para>The scale reaches the sync readout as well as the <c>Classify</c> calls, which
+    /// <para>The scale reaches both sync readouts as well as both <c>Classify</c> calls, which
     /// is correct rather than an oversight: <c>SyncQuality</c> measures a delta against the Meh
     /// window, so a wider window really is easier to sit inside, and it would be incoherent to grade
-    /// a press Great while the sync readout scored it as though the window were half as wide.</para>
+    /// a press Great while the sync readouts scored it as though the window were half as wide.</para>
     /// </summary>
     public class TypeBeatModEasy : ModEasy, IApplicableToDrawableRuleset<TypeBeatHitObject>
     {
