@@ -558,9 +558,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // test starts at the mapper's playhead - and the part it jumped past is not a miss
                 // anybody earned, so it resolves as the perfect hit the run is credited with. The engine
                 // reads the same start time to place its caret past exactly these characters
-                // (see TypingEngine.PlayStartTime), so the two never disagree about what the play
-                // reached.
-                if (cellWasDueBeforeThePlayStarted(line, cellIndex))
+                // (see TypingEngine.PlayStartTime), and both compare it against the ENGINE's cell
+                // target, so the two agree about what the play reached.
+                if (cellWasDueBeforeThePlayStarted(sealResult.LineIndex, line, cellIndex))
                     return line.CellAt(cellIndex)!.HitObject.Judgement.MaxResult;
 
                 var result = TypeBeatResultMapping.UnresolvedCellResult(Engine.CellLeftWrong(sealResult.LineIndex, cellIndex), TypoRule.Deferred);
@@ -577,14 +577,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// whether the play reached it at all (see the seal above, and
         /// <see cref="TypingEngine.PlayStartTime"/>).
         ///
-        /// <para>The time it is measured against is the CELL OBJECT's own start, which
-        /// <c>TypeBeatHitObject.CreateNestedHitObjects</c> takes straight from the engine's flattening:
-        /// the playfield cannot form a second opinion about when a character was due.</para>
+        /// <para>The time it is measured against is the engine's own <see cref="TypingCell.TargetTime"/>
+        /// for the cell, the one its caret walk reads, and NOT the cell object's start. The nested
+        /// objects are flattened by <c>TypingLine.ForMods</c> with its defaults, which leave
+        /// subdivision targets unaligned, while the live engine aligns them
+        /// (<see cref="TypingEngine.AlignSubdivisionTargets"/>), so on a subdivided word without
+        /// <c>split_chars</c> the two times can differ. Only the editor's gameplay test declares a
+        /// play start, so this decides nothing a submitted or re-derived score reads.</para>
         /// </summary>
-        private bool cellWasDueBeforeThePlayStarted(DrawableTypeBeatHitObject line, int cellIndex)
+        private bool cellWasDueBeforeThePlayStarted(int lineIndex, DrawableTypeBeatHitObject line, int cellIndex)
             => Engine.PlayStartTime is double start
-               && line.CellAt(cellIndex) is DrawableTypeBeatCharObject cell
-               && cell.HitObject.StartTime < start;
+               && line.CellAt(cellIndex) != null
+               && lineIndex >= 0 && lineIndex < Engine.Lines.Count
+               && cellIndex >= 0 && cellIndex < Engine.Lines[lineIndex].Cells.Count
+               && Engine.Lines[lineIndex].Cells[cellIndex].TargetTime < start;
 
         /// <summary>
         /// The engine has been re-derived to an earlier time after a backwards seek during replay or
