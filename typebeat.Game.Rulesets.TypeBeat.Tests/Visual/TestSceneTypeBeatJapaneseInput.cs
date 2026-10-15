@@ -126,18 +126,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 },
             });
             load();
-            AddAssert("only original spaces are typeable", () => engine.Lines[0].DisplayText == (originalSpaces ? "月 と テンシ" : "月とテンシ"));
+            AddAssert("original spaces are joined too", () => engine.Lines[0].DisplayText == "月とテンシ");
             AddAssert("scoring objects use the same cell stream", () => Player.GameplayState.Beatmap.HitObjects.OfType<TypeBeatHitObject>().Single().NestedHitObjects.OfType<TypeBeatCharObject>().Count()
                 == engine.Lines[0].Cells.Count(c => c.IsTypeable));
-            press("tuki");
-            if (originalSpaces)
-                AddStep("type the first original space", () => InputManager.Key(Key.Space));
-            press("to");
-            if (originalSpaces)
-                AddStep("type the second original space", () => InputManager.Key(Key.Space));
-            press("tennshi");
+            press("tukitotennshi");
             AddAssert("kanji, hiragana and katakana are correct", () => engine.Lines[0].Cells.All(c => c.State == CellState.Correct) && engine.Mistypes == 0);
-            AddAssert("spaced or joined play replays exactly", reDerivedMatchesLive);
+            AddAssert("spaced or unspaced originals replay exactly", reDerivedMatchesLive);
         }
 
         [TestCase("typing")]
@@ -183,10 +177,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
         }
 
         [Test]
-        public void TestSpaceSkipsOnlyAnIncompleteJapaneseCharacter()
+        public void TestSpaceSkipsTheRestOfAnAuthoredJapaneseWord()
+        {
+            AddStep("word skipping on, three mapper words", () =>
+            {
+                config.SetValue(TypeBeatRulesetSetting.SpaceSkipsWord, true);
+                testLine = new LyricLine
+                {
+                    RawText = "tsuki to tenshi", Original = "月と天使", StartTime = 0, EndTime = 600000, SingEndTime = 300000,
+                    Units = new[]
+                    {
+                        new TimedUnit { Text = "tsuki", Original = "月", StartTime = 0, EndTime = 100000 },
+                        new TimedUnit { Text = "to", Original = "と", StartTime = 100000, EndTime = 200000 },
+                        new TimedUnit { Text = "tenshi", Original = "天使", StartTime = 200000, EndTime = 300000 },
+                    },
+                };
+            });
+            load();
+            press("t");
+            AddStep("skip the unfinished moon", () => InputManager.Key(Key.Space));
+            AddAssert("月 was skipped as a word", () => engine.CaretIndex == 1 && engine.JapanesePending.Length == 0
+                && engine.Lines[0].Cells[0].State == CellState.Abandoned
+                && engine.Lines[0].Cells.Skip(1).All(c => c.State == CellState.Untyped));
+            press("to");
+            AddStep("confirmation space after と", () => InputManager.Key(Key.Space));
+            AddAssert("天 stays untyped", () => engine.CaretIndex == 2 && engine.Lines[0].Cells[2].State == CellState.Untyped);
+            press("t");
+            AddStep("skip 天使 from inside its conversion group", () => InputManager.Key(Key.Space));
+            AddAssert("the whole of 天使 was skipped", () => engine.CaretIndex == 4
+                && engine.Lines[0].Cells.Skip(2).All(c => c.State == CellState.Abandoned) && engine.Mistypes == 0);
+            AddAssert("the recorder stores the word skip era", () => frames.Single(f => f.IsConfigExtended).JapaneseInputEra3);
+            AddAssert("word skips replay exactly", reDerivedMatchesLive);
+        }
+
+        /// <summary>A replay recorded before extended bit 8 skips one character at a time.</summary>
+        [Test]
+        public void TestLegacySpaceSkipsOnlyAnIncompleteJapaneseCharacter()
         {
             AddStep("word skipping on", () => config.SetValue(TypeBeatRulesetSetting.SpaceSkipsWord, true));
             load();
+            AddStep("play under the legacy Japanese input era", () => engine.JapaneseInputEra3 = false);
             press("t");
             AddStep("skip the unfinished moon", () => InputManager.Key(Key.Space));
             AddAssert("only 月 was skipped", () => engine.CaretIndex == 1 && engine.JapanesePending.Length == 0
@@ -200,7 +230,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
             AddAssert("使 remains available", () => engine.CaretIndex == 3 && engine.Lines[0].Cells[3].State == CellState.Untyped);
             press("shi");
             AddAssert("the remaining character accepts its own reading", () => engine.Lines[0].Cells[3].State == CellState.Correct && engine.Mistypes == 0);
-            AddAssert("the recorder stores the new input rules", () => frames.Single(f => f.IsConfigExtended).JapaneseInputEra2);
+            AddAssert("the recorder stores the legacy era", () => frames.Single(f => f.IsConfigExtended) is { JapaneseInputEra2: true, JapaneseInputEra3: false });
             AddAssert("skips and remaining readings replay exactly", reDerivedMatchesLive);
         }
 

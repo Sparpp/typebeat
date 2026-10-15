@@ -208,16 +208,23 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
     /// <para>Only EFFECTIVE inputs are recorded (calls where the engine mutated state), which is what
     /// makes playback deterministic: replaying performs, per frame, <c>Update(Time)</c> then the
     /// keystroke, the same call sequence live play makes.</para>
-    /// <para><b>Second word, bit 6 (value 64): <see cref="JapaneseInputEra2"/>.</b> Japanese
+    /// <para><b>Second word, bit 8 (value 256): <see cref="JapaneseInputEra3"/>.</b> Japanese
+    /// Polyglot Space to Skip abandons the rest of the authored word rather than one character,
+    /// and the romaji input plan reads a single-word line original per timed unit and records the
+    /// word windows that skip uses. Older replays retain the single-character skip and the plan
+    /// they were played on. (The cell list itself is not covered: see
+    /// <c>PolyglotLine.joinJapaneseWords</c>.)</para>
+    ///
+    /// <para><b>Second word, bit 7 (value 128): <see cref="JapaneseInputEra2"/>.</b> Japanese
     /// Space to Skip advances by one unfinished character; completed readings remain protected.
     /// WPM counts accepted input keys instead of the characters produced by conversion. Older
     /// replays retain their denied-space behavior and character-based WPM.</para>
     ///
-    /// <para><b>Second word, bit 5 (value 32): <see cref="JapaneseWordTiming"/>.</b> Japanese
+    /// <para><b>Second word, bit 6 (value 64): <see cref="JapaneseWordTiming"/>.</b> Japanese
     /// Polyglot ignores subdivisions inside each mapper-authored word and converts dictionary
     /// compounds within those word windows. Older replays retain their subdivision timing.</para>
     ///
-    /// <para><b>Second word, bit 4 (value 16): <see cref="JapaneseRomajiInput"/>.</b>
+    /// <para><b>Second word, bit 5 (value 32): <see cref="JapaneseRomajiInput"/>.</b>
     /// Japanese Polyglot presses contain raw romaji, including accepted partial prefixes and
     /// backspaces. The engine converts completed readings to the unchanged original-script cells.
     /// With this bit absent, frames are committed characters as before this input processor.</para>
@@ -560,6 +567,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <summary>Bit 7: Japanese Space skips one unfinished character and WPM counts actual inputs.</summary>
         public bool JapaneseInputEra2;
 
+        /// <summary>Bit 8: Japanese Space skips the remainder of the authored word, on the word-aware input plan.</summary>
+        public bool JapaneseInputEra3;
+
         /// <summary>
         /// The final line sealed as soon as it was fully typed correctly (see
         /// <see cref="Gameplay.TypingEngine.EarlyFinish"/>). Bit 4 (value 16) of the extended flags
@@ -649,7 +659,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// Parameters are append-only and named, as <see cref="CreateConfigFrame"/>'s are; each one
         /// defaults to clear, which is what a replay with no extended frame decodes to.
         /// </summary>
-        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false, bool inputEra2 = false, bool authoredSyllablesOnly = false, bool alignSubdivisionTargets = false, bool earlyFinish = false, bool japaneseRomajiInput = false, bool japaneseWordTiming = false, bool japaneseInputEra2 = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
+        public static TypeBeatReplayFrame CreateExtendedConfigFrame(double time, bool rushCapCostsAccuracy = false, bool inputEra2 = false, bool authoredSyllablesOnly = false, bool alignSubdivisionTargets = false, bool earlyFinish = false, bool japaneseRomajiInput = false, bool japaneseWordTiming = false, bool japaneseInputEra2 = false, bool japaneseInputEra3 = false) => new TypeBeatReplayFrame(time, CONFIG_EXTENDED)
         {
             EarlyFinish = earlyFinish,
             RushCapCostsAccuracy = rushCapCostsAccuracy,
@@ -659,6 +669,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             JapaneseRomajiInput = japaneseRomajiInput,
             JapaneseWordTiming = japaneseWordTiming,
             JapaneseInputEra2 = japaneseInputEra2,
+            JapaneseInputEra3 = japaneseInputEra3,
         };
 
         /// <summary>Bit 0 of the EXTENDED CONFIG frame's (second) flags word: an over-cap press was
@@ -682,6 +693,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         private const int ext_flag_japanese_romaji_input = 32;
         private const int ext_flag_japanese_word_timing = 64;
         private const int ext_flag_japanese_input_era_2 = 128;
+        private const int ext_flag_japanese_input_era_3 = 256;
 
         /// <summary>Bit 0 of the CONFIG frame's flags word: wrong input allowed (fixed by every replay on disk).</summary>
         private const int flag_allow_wrong_input = 1;
@@ -774,6 +786,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 JapaneseRomajiInput = (flags & ext_flag_japanese_romaji_input) != 0;
                 JapaneseWordTiming = (flags & ext_flag_japanese_word_timing) != 0;
                 JapaneseInputEra2 = (flags & ext_flag_japanese_input_era_2) != 0;
+                JapaneseInputEra3 = (flags & ext_flag_japanese_input_era_3) != 0;
                 return;
             }
 
@@ -807,6 +820,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             | (JapaneseRomajiInput ? ext_flag_japanese_romaji_input : 0)
             | (JapaneseWordTiming ? ext_flag_japanese_word_timing : 0)
             | (JapaneseInputEra2 ? ext_flag_japanese_input_era_2 : 0)
+            | (JapaneseInputEra3 ? ext_flag_japanese_input_era_3 : 0)
             | (EarlyFinish ? ext_flag_early_finish : 0);
 
         private int configFlags() =>

@@ -282,16 +282,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [TestCase("月　と", "月", "と")]
         [TestCase(null, "月 ", "と")]
         [TestCase(null, "月", " と")]
-        public void ExplicitJapaneseOriginalSpacesStayTypeable(string? original, string first, string second)
+        public void ExplicitJapaneseOriginalSpacesAreRemoved(string? original, string first, string second)
         {
             var units = new[] { unit("tsuki", 1000, 2000, first), unit("to", 2500, 3000, second) };
             var l = new LyricLine { RawText = "tsuki to", Original = original, StartTime = 0, EndTime = 6000, SingEndTime = 3000, Units = units };
             var cells = polyglot(l, language: "japanese");
             Assert.Multiple(() =>
             {
-                Assert.That(display(cells), Is.EqualTo("月 と"));
-                Assert.That(cells.Words.Count, Is.EqualTo(2));
-                Assert.That(cells.Cells.Select(c => c.TargetTime), Is.EqualTo(new[] { 1000.0, 2000.0, 2500.0 }));
+                Assert.That(display(cells), Is.EqualTo("月と"));
+                Assert.That(cells.Syllables.Select(s => (s.StartCell, s.EndCellExclusive)), Is.EqualTo(new[] { (0, 1), (1, 2) }));
+                Assert.That(cells.Cells.Select(c => c.TargetTime), Is.EqualTo(new[] { 1000.0, 2500.0 }));
             });
         }
 
@@ -312,14 +312,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             double seam = 1800;
             Assert.Multiple(() =>
             {
-                Assert.That(display(cells), Is.EqualTo("つき テンシ"));
-                Assert.That(cells.Words.Select(w => (w.StartTime, w.EndTime)), Is.EqualTo(new[] { (1000.0, seam), (seam, 3000.0) }));
-                Assert.That(cells.Cells.Select(c => c.TargetTime), Is.EqualTo(new[] { 1000.0, (1000 + seam) / 2, seam, seam, seam + (3000 - seam) / 3, seam + 2 * (3000 - seam) / 3 }).Within(1e-9));
+                Assert.That(display(cells), Is.EqualTo("つきテンシ"));
+                Assert.That(cells.Syllables.Select(w => (w.StartTime, w.EndTime)), Is.EqualTo(new[] { (1000.0, seam), (seam, 3000.0) }));
+                Assert.That(cells.Cells.Select(c => c.TargetTime), Is.EqualTo(new[] { 1000.0, (1000 + seam) / 2, seam, seam + (3000 - seam) / 3, seam + 2 * (3000 - seam) / 3 }).Within(1e-9));
             });
         }
 
         [Test]
-        public void LegacyJapaneseReplaySpacesInsideAUnitPreserveSubdivisionsOnBothSides()
+        public void RemovingJapaneseSpacesPreservesLegacySubdivisionsOnBothSides()
         {
             var l = new LyricLine
             {
@@ -329,12 +329,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var cells = polyglot(l, language: "japanese", japaneseWordTiming: false);
             Assert.Multiple(() =>
             {
-                Assert.That(display(cells), Is.EqualTo("つき テンシ"));
-                Assert.That(cells.Source.Units[0].SyllableBoundaries, Is.EqualTo(new[] { 1400.0 }));
-                Assert.That(cells.Source.Units[0].SyllableSplits, Is.EqualTo(new[] { 1 }));
-                Assert.That(cells.Source.Units[1].SyllableBoundaries, Is.EqualTo(new[] { 2600.0 }));
-                Assert.That(cells.Source.Units[1].SyllableSplits, Is.EqualTo(new[] { 2 }));
-                Assert.That(cells.Cells.Select(c => c.TargetTime), Is.EqualTo(new[] { 1000.0, 1400.0, 2000.0, 2000.0, 2300.0, 2600.0 }));
+                Assert.That(display(cells), Is.EqualTo("つきテンシ"));
+                Assert.That(cells.Source.Units.Single().SyllableBoundaries, Is.EqualTo(new[] { 1400.0, 2000.0, 2600.0 }));
+                Assert.That(cells.Source.Units.Single().SyllableSplits, Is.EqualTo(new[] { 1, 2, 4 }));
+                Assert.That(cells.Cells.Select(c => c.TargetTime), Is.EqualTo(new[] { 1000.0, 1400.0, 2000.0, 2300.0, 2600.0 }));
             });
         }
 

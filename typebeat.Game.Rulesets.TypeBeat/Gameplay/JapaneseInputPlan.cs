@@ -17,12 +17,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     {
         internal sealed record Group(int StartCell, int EndCellExclusive, string Reading, bool Furigana);
         internal IReadOnlyList<Group> Groups { get; }
+        internal readonly record struct Word(int StartCell, int EndCellExclusive);
+        private readonly IReadOnlyList<Word> authoredWords;
+        private readonly IReadOnlyList<Word> dictionaryWords;
         private readonly Group?[] cells;
         private readonly string text;
 
-        private JapaneseInputPlan(string text, List<Group> groups)
+        private JapaneseInputPlan(string text, List<Group> groups, List<Word> authoredWords, List<Word> dictionaryWords)
         {
             this.text = text;
+            this.authoredWords = authoredWords;
+            this.dictionaryWords = dictionaryWords;
             Groups = groups;
             cells = new Group?[text.Length];
             for (int at = 0; at < groups.Count; at++)
@@ -43,6 +48,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         }
 
         internal Group? At(int cell) => cell >= 0 && cell < cells.Length ? cells[cell] : null;
+
+        /// <summary>The mapper's word window, with dictionary words as the line-only fallback.</summary>
+        internal Word? WordAt(int cell)
+        {
+            foreach (var word in authoredWords.Concat(dictionaryWords))
+            {
+                if (cell >= word.StartCell && cell < word.EndCellExclusive)
+                    return word;
+            }
+            return null;
+        }
 
         private readonly Dictionary<int, Group?> remainingGroups = new Dictionary<int, Group?>();
 
@@ -94,46 +110,92 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             return next < cells.Length ? cells[next]?.Reading ?? text[next].ToString() : string.Empty;
         }
 
-        internal static JapaneseInputPlan Create(string text, LyricLine? authored = null, bool respectWordBoundaries = true)
+        /// <param name="text">The line's display text.</param>
+        /// <param name="authored">The authored line the cells were derived from.</param>
+        /// <param name="respectWordBoundaries">Japanese word timing (extended replay bit 6).</param>
+        /// <param name="era3">The third Japanese input era (extended replay bit 8, see
+        /// <see cref="TypingEngine.JapaneseInputEra3"/>): a single-word line original is segmented
+        /// per timed unit, a surface that does not match is retried without punctuation, and the
+        /// authored word windows are recorded for the word skip. Clear, this is exactly the plan
+        /// every replay recorded before that era was played on.</param>
+        internal static JapaneseInputPlan Create(string text, LyricLine? authored = null, bool respectWordBoundaries = true, bool era3 = true)
         {
             var groups = new List<Group>();
             var parts = JapaneseReading.Read(text).ToList();
+            var dictionaryWords = parts.Select(p => new Word(p.Start, p.Start + p.Length)).ToList();
+            var authoredWords = new List<Word>();
+            var units = authored?.Units ?? Array.Empty<TimedUnit>();
+            string[] originalWords = era3 ? LyricOriginals.CollapseWhitespace(authored?.Original).Split(' ', StringSplitOptions.RemoveEmptyEntries) : Array.Empty<string>();
+            if (originalWords.Length == 1 && units.Count > 1
+                && JapaneseReading.Segment(originalWords[0], "japanese") is { } segments && segments.Count == units.Count)
+                originalWords = segments.ToArray();
             int nextOriginal = 0;
-            foreach (var unit in authored?.Units ?? Array.Empty<TimedUnit>())
+            for (int index = 0; index < units.Count; index++)
             {
+                var unit = units[index];
                 string original = PolyglotText.ToNfc(unit.Original);
-                if (original.Length == 0 && authored?.Units.Count == 1)
-                    original = PolyglotText.ToNfc(authored.Original);
+                if (original.Length == 0 && originalWords.Length == units.Count)
+                    original = PolyglotText.ToNfc(originalWords[index]);
+                if (original.Length == 0 && units.Count == 1)
+                    original = PolyglotText.ToNfc(authored?.Original);
                 if (original.Length == 0)
                     continue;
-                // Punctuation may have been removed by the non-Literate cell stream.
-                string surface = new string(original.Where(c => Typeability.IsPolyglotTypeCell(c) || c == ' ').ToArray());
-                int start = text.IndexOf(surface, nextOriginal, StringComparison.Ordinal);
+                string surface;
+                int start;
+                if (era3)
+                {
+                    // Punctuation may have been removed by the non-Literate cell stream.
+                    surface = PolyglotText.CellText(original);
+                    start = text.IndexOf(surface, nextOriginal, StringComparison.Ordinal);
+                    if (start < 0)
+                    {
+                        surface = new string(surface.Where(Typeability.IsPolyglotTypeCell).ToArray());
+                        start = text.IndexOf(surface, nextOriginal, StringComparison.Ordinal);
+                    }
+                }
+                else
+                {
+                    surface = new string(original.Where(c => Typeability.IsPolyglotTypeCell(c) || c == ' ').ToArray());
+                    start = text.IndexOf(surface, nextOriginal, StringComparison.Ordinal);
+                }
                 if (start < 0 || surface.Length == 0)
                     continue;
                 nextOriginal = start + surface.Length;
+                int readingEnd = nextOriginal;
+                if (era3)
+                    authoredWords.Add(new Word(start, nextOriginal));
                 if (!surface.Any(Utilities.IsKanji))
                     continue;
 
+                if (era3)
+                {
+                    // Word skips include punctuation; romaji conversion covers Japanese letters only.
+                    surface = new string(surface.Where(Typeability.IsPolyglotTypeCell).ToArray());
+                    start = text.IndexOf(surface, start, nextOriginal - start, StringComparison.Ordinal);
+                    if (start < 0)
+                        continue;
+                    readingEnd = start + surface.Length;
+                }
+
                 // A dictionary compound may straddle two mapper-authored timing windows.
                 // Read those pieces separately so committing one cannot judge the next word.
-                if (respectWordBoundaries && parts.Any(p => p.Start < nextOriginal && p.Start + p.Length > start
-                                                          && (p.Start < start || p.Start + p.Length > nextOriginal)))
-                    replaceParts(start, nextOriginal, JapaneseReading.Read(surface)
+                if (respectWordBoundaries && parts.Any(p => p.Start < readingEnd && p.Start + p.Length > start
+                                                          && (p.Start < start || p.Start + p.Length > readingEnd)))
+                    replaceParts(start, readingEnd, JapaneseReading.Read(surface)
                         .Select(p => new JapaneseReading.Reading(start + p.Start, p.Length, p.Kana)));
 
                 string spelling = unit.Text.ToLowerInvariant();
                 var dictionary = JapaneseReading.Romanise(original, "japanese");
                 if (dictionary?.Text == spelling)
                     continue;
-                var inside = parts.Where(p => p.Start >= start && p.Start + p.Length <= nextOriginal).ToArray();
+                var inside = parts.Where(p => p.Start >= start && p.Start + p.Length <= readingEnd).ToArray();
                 string existing = string.Concat(inside.Select(p => JapaneseRomaji.Hiragana(p.Kana)));
                 if (existing.Length > 0 && (JapaneseRomaji.Matches(existing, spelling) & JapaneseRomaji.Match.Complete) != 0)
                     continue;
                 string? reading = JapaneseRomaji.ReadAuthored(spelling);
                 if (reading == null)
                     continue;
-                replaceParts(start, nextOriginal, new[] { new JapaneseReading.Reading(start, surface.Length, reading) });
+                replaceParts(start, readingEnd, new[] { new JapaneseReading.Reading(start, surface.Length, reading) });
             }
 
             void replaceParts(int start, int end, IEnumerable<JapaneseReading.Reading> replacements)
@@ -191,7 +253,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             }
             addKana(freeStart, text[freeStart..]);
             groups.Sort((a, b) => a.StartCell.CompareTo(b.StartCell));
-            return new JapaneseInputPlan(text, groups);
+            return new JapaneseInputPlan(text, groups, authoredWords, dictionaryWords);
 
             void addKana(int start, string source)
             {

@@ -46,7 +46,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool IsTypeable { get; }
 
         /// <summary>
-        /// FREESTYLE cell: any pressed character, including space, satisfies it and is preserved
+        /// FREESTYLE cell: any pressed character except space satisfies it and is preserved
         /// in <see cref="TypedChar"/>. It uses twice the ordinary judgement windows and the same
         /// points, combo and completion rules as other typeable cells.
         /// </summary>
@@ -228,7 +228,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private bool japanese;
         private LyricLine? japaneseAuthoredLine;
         private JapaneseInputPlan? japaneseInput;
-        internal JapaneseInputPlan? JapaneseInput => japanese ? japaneseInput ??= JapaneseInputPlan.Create(DisplayText, japaneseAuthoredLine, japaneseWordTiming) : null;
+        private bool japaneseInputEra3 = true;
+        internal JapaneseInputPlan? JapaneseInput => japanese ? japaneseInput ??= JapaneseInputPlan.Create(DisplayText, japaneseAuthoredLine, japaneseWordTiming, japaneseInputEra3) : null;
+
+        /// <summary>Select the romaji input plan's era (see <see cref="TypingEngine.JapaneseInputEra3"/>) on the same cells.</summary>
+        internal void SetJapaneseInputEra3(bool enabled)
+        {
+            if (japaneseInputEra3 == enabled)
+                return;
+
+            japaneseInputEra3 = enabled;
+            japaneseInput = null;
+        }
 
         public IReadOnlyList<TypingCell> Cells { get; }
 
@@ -653,7 +664,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// Off, this is exactly <see cref="FromLyricLine"/>. On, every word that
         /// records an original is played in it instead of its romanised text (see
         /// <see cref="PolyglotLine"/>, which derives the line the cells are cut from and joins
-        /// Japanese words where the original lyric has no space), under the Polyglot character
+        /// Japanese words regardless of authored original-script spaces), under the Polyglot character
         /// rules: any script's letters, marks and digits
         /// are cells (<see cref="Typeability.IsPolyglotCell"/>), any script's punctuation is a
         /// Literate cell, and the default stream drops every other character. On a line with no
