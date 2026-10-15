@@ -11,6 +11,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using osu.Framework.Logging;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
@@ -102,8 +103,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 lines = BuildLines(raw, songEndMs);
                 return true;
             }
-            catch
+            catch (JsonException)
             {
+                // Malformed JSON is an ordinary "not a timing.json" answer and stays silent.
+                lines = Array.Empty<LyricLine>();
+                return false;
+            }
+            catch (Exception e)
+            {
+                // Anything else can be a defect in line building rather than bad input, so it is
+                // logged instead of passing for "no lyrics". The answer is still false, as before.
+                Logger.Error(e, "Failed to build lyric lines from timing.json");
                 lines = Array.Empty<LyricLine>();
                 return false;
             }
