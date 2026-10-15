@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
@@ -83,6 +84,76 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             EndTime = endTime;
         }
 
+        // Flat word ramps deliberately ignore authored syllables, as the published curve always
+        // has. Keep each letter's slot, interpolate punctuation, then project the whole line: a
+        // surviving hyphen becomes a space at that slot, and collapsed/edge breaks add no cells.
+        internal static IReadOnlyList<double> DefaultTargets(LyricLine line)
+        {
+            string raw = line.RawText;
+            var rawTargets = new double?[raw.Length];
+            string[] tokens = raw.Split(' ');
+            int position = 0;
+
+            for (int m = 0; m < tokens.Length; m++)
+            {
+                string token = tokens[m];
+                TimedUnit? unit = line.Units.Count > 0 ? line.Units[Math.Min(m, line.Units.Count - 1)] : null;
+                double start = unit?.StartTime ?? line.StartTime;
+                double end = unit?.EndTime ?? line.SingEndTime;
+                int count = token.Count(Typeability.IsCell);
+                int cell = 0;
+
+                foreach (char ch in token)
+                {
+                    if (Typeability.IsCell(ch))
+                        rawTargets[position] = start + (double)cell++ * (end - start) / count;
+
+                    position++;
+                }
+
+                if (m < tokens.Length - 1)
+                    rawTargets[position++] = end;
+            }
+
+            for (int i = 0; i < rawTargets.Length; i++)
+            {
+                if (rawTargets[i].HasValue)
+                    continue;
+
+                int end = i;
+
+                while (end + 1 < rawTargets.Length && !rawTargets[end + 1].HasValue)
+                    end++;
+
+                double? before = i > 0 ? rawTargets[i - 1] : null;
+                double? after = end + 1 < rawTargets.Length ? rawTargets[end + 1] : null;
+                int count = end - i + 1;
+
+                for (int offset = 0; offset < count; offset++)
+                    rawTargets[i + offset] = before is double p
+                        ? (after is double q ? p + (offset + 1) * (q - p) / (count + 1) : p)
+                        : after ?? line.StartTime;
+
+                i = end;
+            }
+
+            for (int i = 1; i < rawTargets.Length; i++)
+                rawTargets[i] = Math.Max(rawTargets[i]!.Value, rawTargets[i - 1]!.Value);
+
+            var text = new StringBuilder(raw.Length);
+            var sources = new List<int>(raw.Length);
+            Typeability.ProjectDefault(raw, text, sources);
+            var targets = new List<double>(sources.Count);
+
+            for (int i = 0; i < sources.Count; i++)
+            {
+                if (Typeability.IsCell(text[i]))
+                    targets.Add(rawTargets[sources[i]]!.Value);
+            }
+
+            return targets;
+        }
+
         /// <summary>
         /// Sweeps the shortest eligible SR-sized window over <paramref name="lines"/> and returns
         /// the peaks plus a <paramref name="points"/>-point WPM curve at <paramref name="rate"/>.
@@ -105,67 +176,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             for (int li = 0; li < lineList.Count; li++)
             {
                 var line = lineList[li];
-                int lineFirstCell = targets.Count;
-
-                // The FLAT form of TypingLine.FromLyricLine (Gameplay/TypingLine.cs:259-321): tokens
-                // are whitespace-delimited, token m reads Units[min(m, Units.Count - 1)] (the line's
-                // own boundaries when it has no units at all), typeable char j of the k in a token
-                // targets unitStart + j*(unitEnd - unitStart)/k so the first char sits AT the unit
-                // start, and every token but the last is followed by an inter-word SPACE cell at the
-                // unit's end.
-                //
-                // SYLLABLE BOUNDARIES ARE DELIBERATELY IGNORED here even though TypingLine honours
-                // them (syllableCharTarget): the server's TimedUnit carries Text/StartTime/EndTime
-                // only, so reading them would make this file impossible to mirror. The effect is
-                // confined to where chars sit WITHIN a single word.
-                string[] tokens = line.RawText.Split(' ');
-
-                for (int m = 0; m < tokens.Length; m++)
-                {
-                    string token = tokens[m];
-
-                    TimedUnit? unit = line.Units.Count > 0 ? line.Units[Math.Min(m, line.Units.Count - 1)] : null;
-
-                    double unitStart = unit?.StartTime ?? line.StartTime;
-                    double unitEnd = unit?.EndTime ?? line.SingEndTime;
-
-                    // k = typeable cells in this token (freestyle slots included: they cost a keypress).
-                    int k = 0;
-
-                    foreach (char ch in token)
-                    {
-                        if (Typeability.IsCell(ch))
-                            k++;
-                    }
-
-                    int j = 0;
-
-                    foreach (char ch in token)
-                    {
-                        if (!Typeability.IsCell(ch))
-                            continue;
-
-                        targets.Add(unitStart + (double)j * (unitEnd - unitStart) / k);
-                        j++;
-                    }
-
-                    if (m < tokens.Length - 1)
-                    {
-                        // Inter-word space cell: a keypress, so it bounds a gap and counts towards
-                        // both rates. It used to count towards CPM only, being no part of any word;
-                        // under the typing-test convention it is a fifth of a word like every other
-                        // keystroke, which is exactly why AverageCharsPerWord counts spaces too.
-                        targets.Add(unitEnd);
-                    }
-                }
-
-                // TypingLine's non-decreasing guard (TypingLine.cs:359-364), applied per line just as
-                // it is there, so inverted source data cannot hand us a negative window span.
-                for (int i = lineFirstCell + 1; i < targets.Count; i++)
-                {
-                    if (targets[i] < targets[i - 1])
-                        targets[i] = targets[i - 1];
-                }
+                targets.AddRange(DefaultTargets(line));
             }
 
             int cellCount = targets.Count;

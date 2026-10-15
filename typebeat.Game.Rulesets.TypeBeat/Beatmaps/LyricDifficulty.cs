@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
@@ -1038,6 +1039,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             {
                 LyricLine line = lines[li];
                 string[] tokens = line.RawText.Split(' ');
+                var wordIndices = new int[tokens.Length];
+                Array.Fill(wordIndices, -1);
 
                 for (int j = 0; j < tokens.Length; j++)
                 {
@@ -1118,6 +1121,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     string typedText = (literate ? line.RawText : Typeability.ToDefaultStream(line.RawText)).Replace("&", string.Empty);
                     bool scored = scores(typedText, out double z);
 
+                    wordIndices[j] = words.Count;
                     words.Add(new Word(
                         unitStart / rate,
                         Math.Max(unitEnd - unitStart, spanFloorMs) / rate,
@@ -1129,14 +1133,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         scored,
                         groupEnds));
                 }
+
+                if (!literate)
+                    addDefaultSpaces(line.RawText, wordIndices, words);
             }
 
+            // Default spaces (including hyphens) were counted through the whole-line projection.
+            // Literate keeps authored punctuation, so its gaps still follow the authored words.
             // THE TRAILING SPACE, decided before the timeline sort because "the next word" means the
             // next word of the lyric, not the next word in time. A word ending its line is followed
             // by a line break rather than a spacebar press, so it gets none.
             for (int i = 0; i < words.Count; i++)
             {
-                if (i + 1 < words.Count && words[i + 1].LineIndex == words[i].LineIndex)
+                if (literate && i + 1 < words.Count && words[i + 1].LineIndex == words[i].LineIndex)
                 {
                     Word w = words[i];
                     words[i] = new Word(w.Start, w.Span, w.Cells + 1, w.LineIndex, w.Token, w.Groups, w.Z, w.Scored, w.GroupEnds);
@@ -1144,6 +1153,46 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             }
 
             return words;
+        }
+
+        // Charge each surviving space to its authored unit without splitting or retiming it.
+        // Project the entire line so adjacent hyphens/spaces collapse exactly as they do in play.
+        private static void addDefaultSpaces(string raw, int[] wordIndices, List<Word> words)
+        {
+            int firstWord = Array.FindIndex(wordIndices, w => w >= 0);
+
+            if (firstWord < 0)
+                return;
+
+            var text = new StringBuilder(raw.Length);
+            var sources = new List<int>(raw.Length);
+            Typeability.ProjectDefault(raw, text, sources);
+            int rawPosition = 0, tokenIndex = 0;
+
+            for (int i = 0; i < sources.Count; i++)
+            {
+                while (rawPosition < sources[i])
+                {
+                    if (raw[rawPosition++] == ' ')
+                        tokenIndex++;
+                }
+
+                if (text[i] != ' ')
+                    continue;
+
+                // A punctuation-only token has no demand block. Its surviving gap belongs to the
+                // previous played word, or the first played word for a leading authored space.
+                int owner = tokenIndex;
+
+                while (owner >= 0 && wordIndices[owner] < 0)
+                    owner--;
+
+                int index = wordIndices[owner >= 0 ? owner : firstWord];
+
+                Word word = words[index];
+                words[index] = new Word(word.Start, word.Span, word.Cells + 1, word.LineIndex,
+                    word.Token, word.Groups, word.Z, word.Scored, word.GroupEnds);
+            }
         }
 
         /// <summary>
