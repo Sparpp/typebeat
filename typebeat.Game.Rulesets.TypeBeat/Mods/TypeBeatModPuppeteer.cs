@@ -408,7 +408,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// is total in practice while staying an ordinary double.</para>
         ///
         /// <para>Why a window scale and not a "judge everything Great" flag: the scale is the
-        /// existing, general, composable knob (Easy, Hard Rock and the rate mods all multiply their
+        /// existing, general, composable knob (Easy and the rate mods all multiply their
         /// own factor into it), it needs no engine edit at all, and it keeps the sync readouts
         /// coherent with the grades instead of reporting a quality nobody was graded on.</para>
         /// </summary>
@@ -620,7 +620,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
         /// <summary>
         /// Three jobs. FORGIVE THE TIMING by multiplying the window scale (see
         /// <see cref="WINDOW_SCALE"/>), which is done here because this is where the engine exists
-        /// and before the first keypress, exactly as Easy, Hard Rock and the rate mods do it. EXEMPT
+        /// and before the first keypress, exactly as Easy and the rate mods do it. EXEMPT
         /// THE RUSH CAP (<see cref="Gameplay.TypingEngine.RushCapExempt"/>, backlog 261), set at the
         /// same seam for the same reason: it is read at every press rather than at construction, and
         /// no replay recorder stamps it. And capture the drawable ruleset so the live rate can be
