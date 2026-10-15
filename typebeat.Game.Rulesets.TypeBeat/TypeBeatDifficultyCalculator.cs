@@ -106,7 +106,8 @@ namespace typebeat.Game.Rulesets.TypeBeat
 
             // The rating AND the map's difficult characters. The second half is why this returns a
             // TypeBeat subclass again: the pp formula's miss penalty is measured against the
-            // envelope model's own N, and the performance calculator is handed a score and these
+            // chunked axis's LengthCharacters (the shipped LyricDifficulty.Live axis's
+            // DifficultCharacters), and the performance calculator is handed a score and these
             // attributes rather than the lyric lines, so the count has to travel with the rating it
             // was computed under.
             var model = LyricDifficulty.ComputeDetail(lines, rate, PerformancePoints.IsLiterate(mods), LyricDifficulty.Live, PerformancePoints.JudgementArmFor(mods));
