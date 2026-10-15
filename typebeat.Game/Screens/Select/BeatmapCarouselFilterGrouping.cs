@@ -161,7 +161,8 @@ namespace typebeat.Game.Screens.Select
             if (criteria.Sort == SortMode.Difficulty || criteria.Group == GroupMode.Difficulty)
                 return false;
 
-            return true;
+            // In the majority case we group sets together based on the user's preference.
+            return !criteria.SeparateAllDifficulties;
         }
 
         private List<GroupMapping> getGroups(List<CarouselItem> items, FilterCriteria criteria)
