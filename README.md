@@ -31,6 +31,25 @@ NuGet package. You don't need to download it yourself: the first build (or
 at the version in
 [`typebeat.Game/typebeat.Game.csproj`](typebeat.Game/typebeat.Game.csproj).
 
+## Environment variables
+
+Runtime (the game):
+
+| Variable | Effect |
+|---|---|
+| `TYPEBEAT_API_URL` | Base URL of the type!beat server, for example `http://localhost:5089` while developing against a local server. Redirects every online call (API, website links, downloads); a trailing `/` is ignored. Unset, every build uses the production server. |
+| `OSU_EXTERNAL_UPDATE_PROVIDER` | Any non-empty value says a package manager owns the install: the Velopack updater and the per-launch file association registration are skipped. Inherited from osu!lazer. |
+| `OSU_WEBSOCKET_SERVER` | `1` starts the local websocket server on the desktop client. Off otherwise. Inherited from osu!lazer. |
+| `OSU_DISABLE_ERROR_REPORTING` | `1` skips setting up the error reporter. Inherited from osu!lazer. |
+
+Tests (`typebeat.Game.Rulesets.TypeBeat.Tests`), for the real-map pins whose map files are not in this repo:
+
+| Variable | Effect |
+|---|---|
+| `TYPEBEAT_MAPS_DIR` | Directory holding the real-map fixtures. Tests that need it skip when it is unset or the file is absent. |
+| `TYPEBEAT_GAP_OSU_DIR` | Directory of `.osu` fixtures for the instrumental-gap, syllable and autoplay pins. Those skip when it is unset. |
+| `TYPEBEAT_REQUIRE_FIXTURES` | `1` makes a missing fixture fail the test instead of skipping it. Leave it unset where the fixtures are not present. |
+
 ## Layout
 
 | Path | What |
