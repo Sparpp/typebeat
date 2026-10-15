@@ -262,8 +262,8 @@ except ImportError:  # pragma: no cover - plain Python running a self-test
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"fallback: stdout encoding: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
 
 # Bumped when the output of the same inputs changes. The game compares the shipped copy's
 # version with the installed one and offers a reinstall; `--version` prints it.
@@ -335,6 +335,12 @@ HIGHPASS_HZ = 150.0          # hp: two biquad high-passes at this cutoff (4th or
 
 def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
+def fallback(where: str, exc: BaseException) -> None:
+    """One stderr line from a broad handler that carries on without what it tried, so a run that
+    degraded says where and why in the output the game keeps. Changes nothing else."""
+    print(f"fallback: {where}: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
 
 
 # --------------------------------------------------------------------------
@@ -901,7 +907,8 @@ def int8_engine(torch):
             try:
                 torch.backends.quantized.engine = cand
                 return cand
-            except Exception:
+            except Exception as exc:
+                fallback(f"quantized engine {cand}", exc)
                 continue
     return None
 
@@ -1028,7 +1035,8 @@ def evidence_emissions(quality, wav, audio_key, work: Path, device: str, window_
                 lp, th = (obj.get("lp"), obj.get("threads")) if isinstance(obj, dict) else (obj, None)
                 ok = (torch.is_tensor(lp) and lp.dim() == 2 and lp.size(1) == EMISSION_LABELS
                       and bool(torch.isfinite(lp).all()))
-            except Exception:
+            except Exception as exc:
+                fallback(f"cached view {p.name}", exc)
                 ok = False
             if not ok:
                 lines.append(f"emissions: cache unreadable ({p.name}), recomputing")
@@ -2515,6 +2523,7 @@ def align_auto(lines, log_probs, dictionary, star_id, voiced, info=None):
         except Exception as exc:                 # no path (lyrics longer than the audio holds),
             per_word = {}                        # memory, anything: the even layout below
             info["fallback"] = f"{type(exc).__name__}: {exc}"
+            fallback("unstamped decode, even layout", exc)
         decoded = set(per_word)
         fill_missing(lines, per_word, T, vv)       # every alignable word placed, inside the audio
         # version 5's "estimated" semantics (timing.json "estimated": true, the editor's badge): a line
@@ -2645,7 +2654,8 @@ def pacing_pyphen(pyphen_dic):
         try:
             import pyphen
             _PYPHEN[pyphen_dic] = pyphen.Pyphen(lang=pyphen_dic)
-        except Exception:
+        except Exception as exc:
+            fallback(f"hyphenation dictionary {pyphen_dic}", exc)
             _PYPHEN[pyphen_dic] = None
     return _PYPHEN[pyphen_dic]
 
@@ -4629,8 +4639,8 @@ def espeak_data_tag(src: str) -> str:
         tag = re.sub(r"[^A-Za-z0-9._-]", "_", version("espeakng-loader"))
         if tag:
             return tag
-    except Exception:
-        pass
+    except Exception as exc:
+        fallback("espeak data tag, hashing phontab", exc)
     import hashlib
     with open(os.path.join(src, "phontab"), "rb") as f:
         return "h" + hashlib.sha256(f.read()).hexdigest()[:16]
@@ -4904,7 +4914,9 @@ def fused_ep_hook(pcols: dict, qx, star_id: int, errors: list):
                     E[:, sel] += qx[t0:t1][:, sub[sel]]
                 return E
             p.emit = emit
-        except Exception:
+        except Exception as exc:
+            if not errors:
+                fallback("ep section product", exc)
             errors.append(1)
         return p
     return hook
@@ -5139,8 +5151,8 @@ def qmul_evidence(wav, audio_key: str, work: Path, device: str):
             if lp.ndim == 2 and lp.shape[1] == len(QMUL_VOCAB) and np.isfinite(lp).all():
                 log(f"fused evidence: QMUL evidence cached ({cache.name})")
                 return lp
-        except Exception:
-            pass
+        except Exception as exc:
+            fallback(f"QMUL cache {cache.name}", exc)
         log(f"fused evidence: QMUL cache unreadable ({cache.name}), recomputing")
     weights = qmul_weights_path()
     t0 = time.time()
@@ -5441,7 +5453,8 @@ def main():
     try:
         import pyphen
         pyphen_dic = pyphen.Pyphen(lang=args.language)
-    except Exception:
+    except Exception as exc:
+        fallback(f"hyphenation dictionary {args.language}", exc)
         pyphen_dic = None
 
     torch.set_num_threads(args.threads)
