@@ -1921,6 +1921,50 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(timing, Is.Not.Null);
         }
 
+        /// <summary>
+        /// A matching aligner that runs and fails (the do-nothing fake writes no timing.json) still
+        /// falls back to the line stamps, but the result says the word timing failed. A caller that
+        /// allows no fallback (the editor's re-align) gets the failure instead.
+        /// </summary>
+        [Test]
+        public async Task AFailedAlignerRunFallsBackToTheLineStampsWithANotice()
+        {
+            string lab = makeInstalledLab("9");
+            string audioPath = writeFakeAudio();
+
+            var (result, timing) = await LyricMapImporter.ProduceTimingJsonAsync(
+                audioPath, fully_stamped_lyrics, "A", "B", lab, Array.Empty<string>(), _ => { }, CancellationToken.None,
+                useAutomaticAlignment: true, requiredAlignerVersion: "9").ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.True, result.Error);
+            Assert.That(timing, Is.Not.Null);
+            Assert.That(result.Notice, Does.StartWith("word timing failed: the aligner produced no timing.json"));
+            Assert.That(result.Notice, Does.EndWith("; this map is line-timed"));
+
+            var (refused, refusedTiming) = await LyricMapImporter.ProduceTimingJsonAsync(
+                audioPath, fully_stamped_lyrics, "A", "B", lab, Array.Empty<string>(), _ => { }, CancellationToken.None,
+                useAutomaticAlignment: true, requiredAlignerVersion: "9", allowLineFallback: false).ConfigureAwait(false);
+
+            Assert.That(refused.Success, Is.False, "no line-timed fallback after a failed run");
+            Assert.That(refusedTiming, Is.Null);
+            Assert.That(refused.Error, Does.StartWith("the local auto-aligner is installed but its run failed (the aligner produced no timing.json"));
+        }
+
+        /// <summary>Automatic alignment off never runs the aligner, so its line-timed result carries no such notice.</summary>
+        [Test]
+        public async Task LineStampsWithAlignmentOffCarryNoFallbackNotice()
+        {
+            string lab = makeInstalledLab("9");
+
+            var (result, timing) = await LyricMapImporter.ProduceTimingJsonAsync(
+                writeFakeAudio(), fully_stamped_lyrics, "A", "B", lab, Array.Empty<string>(), _ => { }, CancellationToken.None,
+                useAutomaticAlignment: false, requiredAlignerVersion: "9", allowLineFallback: false).ConfigureAwait(false);
+
+            Assert.That(result.Success, Is.True, result.Error);
+            Assert.That(timing, Is.Not.Null);
+            Assert.That(result.Notice, Is.Null);
+        }
+
         [Test]
         public void MatchingOrUnrequiredVersionIsNotRefused()
         {

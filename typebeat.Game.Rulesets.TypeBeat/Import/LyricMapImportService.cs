@@ -69,9 +69,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         public Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true, string? language = null,
-            AlignerVocalMode vocalMode = AlignerVocalMode.Aligned)
+            AlignerVocalMode vocalMode = AlignerVocalMode.Aligned, bool allowLineFallback = true)
             => LyricMapImporter.ProduceTimingJsonAsync(audioPath, lyricsContent, artist, title, effectiveConfiguredPath(), startDirectories(), progress, token, useAutomaticAlignment,
-                language, HighQualityAlignment(config()), vocalMode, requiredAlignerVersion: ShippedVersion);
+                language, HighQualityAlignment(config()), vocalMode, requiredAlignerVersion: ShippedVersion, allowLineFallback: allowLineFallback);
 
         public Bindable<bool>? ServerAlignerPreference => config()?.GetBindable<bool>(TypeBeatRulesetSetting.UseServerAligner);
 

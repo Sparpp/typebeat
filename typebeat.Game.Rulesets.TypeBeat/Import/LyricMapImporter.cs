@@ -1020,18 +1020,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// <paramref name="vocalMode"/> is the map set's stored aligner vocal mode, which likewise
         /// reaches only the aligner's command line. <paramref name="requiredAlignerVersion"/> is the
         /// <c>ALIGNER_VERSION</c> this build ships: an installed aligner of any OTHER version is refused
-        /// rather than run (backlog 410, see <see cref="AlignerVersionRefusal"/>); null checks nothing.</remarks>
+        /// rather than run (backlog 410, see <see cref="AlignerVersionRefusal"/>); null checks nothing.
+        /// <paramref name="allowLineFallback"/> false makes an aligner that ran and failed a failure
+        /// (<see cref="AlignerRunFailedMessage"/>) instead of a line-timed result, for a caller that
+        /// would otherwise overwrite word timing with it.</remarks>
         public static async Task<(LyricImportResult Result, string? TimingJson)> ProduceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
             string? configuredLyricLabPath, IEnumerable<string> startDirectories,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true,
             string? language = null, bool highQualityAlignment = false, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned,
-            string? requiredAlignerVersion = null)
+            string? requiredAlignerVersion = null, bool allowLineFallback = true)
         {
             // The editor's in-place re-align uses the stem-less view: it edits the lines of a map
             // already on disk and never re-packages, so a stem this run produces is dropped.
             (LyricImportResult result, string? timing, _) = await produceTimingJsonAsync(audioPath, lyricsContent, artist, title, configuredLyricLabPath,
-                startDirectories, progress, token, useAutomaticAlignment, language, highQualityAlignment, vocalMode, requiredAlignerVersion).ConfigureAwait(false);
+                startDirectories, progress, token, useAutomaticAlignment, language, highQualityAlignment, vocalMode, requiredAlignerVersion,
+                allowLineFallback: allowLineFallback).ConfigureAwait(false);
 
             return (result, timing);
         }
@@ -1051,13 +1055,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
         /// ships; else the line stamps. A failed server job fails the import with the server's own
         /// reason rather than dropping silently to the local aligner or to the line stamps: the player
         /// asked for word timing from the server.</para>
+        ///
+        /// <para>A local aligner that ran and failed drops to the line stamps with a notice saying so
+        /// (<see cref="LineTimedFallbackNotice"/>), or, with <paramref name="allowLineFallback"/> false,
+        /// fails with <see cref="AlignerRunFailedMessage"/>.</para>
         /// </summary>
         private static async Task<(LyricImportResult Result, string? TimingJson, string? VocalsStemPath)> produceTimingJsonAsync(
             string audioPath, string lyricsContent, string artist, string title,
             string? configuredLyricLabPath, IEnumerable<string> startDirectories,
             Action<string> progress, CancellationToken token, bool useAutomaticAlignment = true,
             string? language = null, bool highQualityAlignment = false, AlignerVocalMode vocalMode = AlignerVocalMode.Aligned,
-            string? requiredAlignerVersion = null, RemoteAligner? remoteAlign = null)
+            string? requiredAlignerVersion = null, RemoteAligner? remoteAlign = null, bool allowLineFallback = true)
         {
             language ??= LyricOriginals.DetectLanguage(new[] { lyricsContent });
 
@@ -1201,6 +1209,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                         : $"local aligner environment not set up (run lyriclab/{SetupScriptName} for word timing)");
             }
 
+            // The aligner ran and failed: a caller that would write the result over word timing
+            // gets the failure rather than line timing reported as a success.
+            if (alignerFailure != null && !allowLineFallback)
+                return (LyricImportResult.Fail(AlignerRunFailedMessage(alignerFailure)), null, null);
+
             bool needsRepair = lyricLabDir != null && EnvironmentNeedsRepair(lyricLabDir);
 
             // LRC-only fallback: line-granularity timing straight from the line stamps, the last rung.
@@ -1211,7 +1224,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
                 return (LyricImportResult.Fail(NoFallbackFailureMessage(HasAnyLineStamp(lyricsContent), needsRepair, alignerFailure)), null, null);
             }
 
-            return synthesizeFromLrc(lyricsContent, progress, language);
+            var lineTimed = synthesizeFromLrc(lyricsContent, progress, language);
+
+            // The same fallback after a failed run is not what the player asked for, so the result
+            // says so rather than reading as an ordinary success.
+            if (alignerFailure != null && lineTimed.Result.Success)
+                return (lineTimed.Result with { Notice = LineTimedFallbackNotice(alignerFailure) }, lineTimed.TimingJson, lineTimed.VocalsStemPath);
+
+            return lineTimed;
         }
 
         /// <summary>
@@ -1307,6 +1327,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
             string last = error.Split(" | ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault() ?? error.Trim();
             return last.Length <= 160 ? last : last[..157] + "...";
         }
+
+        /// <summary>
+        /// The import notice for a map that fell back to its line stamps because the local aligner
+        /// ran and failed: the import succeeded, but without the word timing that was asked for.
+        /// </summary>
+        public static string LineTimedFallbackNotice(string alignerFailure)
+            => $"word timing failed: {ShortAlignerFailure(alignerFailure)}; this map is line-timed";
+
+        /// <summary>
+        /// The failure when the local aligner ran and failed and the caller allowed no line-timed
+        /// fallback (the editor's re-align, which would otherwise replace word timing with it).
+        /// </summary>
+        public static string AlignerRunFailedMessage(string alignerFailure)
+            => $"the local auto-aligner is installed but its run failed ({ShortAlignerFailure(alignerFailure)}). "
+               + "Try again; if it keeps failing, repair the aligner (Settings > Experimental > "
+               + "Repair local auto-aligner) and share the import log.";
 
         /// <summary>Line-granularity timing straight from [mm:ss.xx] line stamps (no word timing).</summary>
         private static (LyricImportResult Result, string? TimingJson, string? VocalsStemPath) synthesizeFromLrc(string lyricsContent, Action<string> progress, string? language)
