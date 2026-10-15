@@ -9,7 +9,7 @@
     <PackageId>ppy.typebeat.Game</PackageId>
     <Version>0.0.0</Version>
     <PackageIcon>icon.png</PackageIcon>
-    <IsPackable>true</IsPackable>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup Label="Icon">
     <!-- The type!beat icon, downscaled from assets/typebeat.png. It replaced assets/lazer-nuget.png,
