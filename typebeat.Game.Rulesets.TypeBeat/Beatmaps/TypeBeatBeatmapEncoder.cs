@@ -199,6 +199,47 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                                 json.WriteEndArray();
                             }
 
+                            // Word objects, written as authored and only when set, so existing maps keep their bytes.
+                            if (unit.Objects.AutoFill)
+                                json.WriteBoolean("autofill", true);
+
+                            if (unit.Objects.TypedLetters.Count > 0)
+                            {
+                                json.WriteStartArray("autofill_letters");
+
+                                foreach (int pick in unit.Objects.TypedLetters)
+                                    json.WriteNumberValue(pick);
+
+                                json.WriteEndArray();
+                            }
+
+                            if (unit.Objects.Holds.Count > 0)
+                            {
+                                json.WriteStartArray("holds");
+
+                                foreach (var hold in unit.Objects.Holds)
+                                {
+                                    json.WriteStartObject();
+                                    json.WriteNumber("char", hold.Char);
+                                    json.WriteNumber("start_ms", hold.StartTime);
+                                    json.WriteNumber("end_ms", hold.EndTime);
+
+                                    if (hold.Ticks.Count > 0)
+                                    {
+                                        json.WriteStartArray("ticks");
+
+                                        foreach (double tick in hold.Ticks)
+                                            json.WriteNumberValue(tick);
+
+                                        json.WriteEndArray();
+                                    }
+
+                                    json.WriteEndObject();
+                                }
+
+                                json.WriteEndArray();
+                            }
+
                             json.WriteEndObject();
                         }
 

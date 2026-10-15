@@ -100,6 +100,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             return new TimedUnit
             {
+                Objects = unit.Objects,
                 Text = unit.Text,
                 StartTime = unit.StartTime,
                 EndTime = unit.EndTime,

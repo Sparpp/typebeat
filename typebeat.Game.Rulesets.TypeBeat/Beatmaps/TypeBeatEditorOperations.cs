@@ -62,6 +62,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             UnromanisedWords = line.UnromanisedWords.Select(w => w with { StartTime = w.StartTime + deltaMs, EndTime = w.EndTime + deltaMs }).ToArray(),
             Units = line.Units.Select(u => new TimedUnit
             {
+                Objects = u.Objects.Retimed(u.StartTime, u.EndTime, u.StartTime + deltaMs, u.EndTime + deltaMs),
                 Text = u.Text,
                 Original = u.Original,
                 StartTime = u.StartTime + deltaMs,
@@ -110,8 +111,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// The finest granularity the unit data requires: Syllable when any word carries subdivision
         /// boundaries, else Word when some unit timing is Explicit (authored words[]) OR some word
-        /// carries an authored pause, else Line. Line-granularity maps also carry one unit per token,
-        /// but those are Interpolated, synthesized by the loader, not real word timing.
+        /// carries an authored pause or is auto-fill, else Line. Line-granularity maps also carry one unit per
+        /// token, but those are Interpolated, synthesized by the loader, not real word timing.
         ///
         /// <para>The pause counts as its own Word trigger rather than riding on the Explicit stamp its
         /// every setter gives it, because the two are separate facts: a REST is written inside
@@ -123,7 +124,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             if (lines.Any(l => l.Units.Any(u => u.SyllableBoundaries.Count > 0)))
                 return TimingGranularity.Syllable;
             // An unromanised word (backlog 330) is written only inside words[], for the pause's reason.
-            if (lines.Any(l => l.UnromanisedWords.Count > 0 || l.Units.Any(u => u.Source == TimingSource.Explicit || u.Pauses.Count > 0)))
+            if (lines.Any(l => l.UnromanisedWords.Count > 0
+                               || l.Units.Any(u => u.Source == TimingSource.Explicit || u.Pauses.Count > 0 || !u.Objects.IsEmpty)))
                 return TimingGranularity.Word;
             return TimingGranularity.Line;
         }
@@ -243,6 +245,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 return new TimedUnit
                 {
+                    Objects = unit.Objects.Retimed(unit.StartTime, unit.EndTime, start, end),
                     Text = unit.Text,
                     Original = unit.Original,
                     StartTime = start,
@@ -265,6 +268,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             return new TimedUnit
             {
+                Objects = unit.Objects.Retimed(unit.StartTime, unit.EndTime, start, end),
                 Text = unit.Text,
                 Original = unit.Original,
                 StartTime = start,
@@ -838,6 +842,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// re-cut it.</item>
         /// <item>a result equal to the DERIVED split is stored as derived (empty), so committing a
         /// line the mapper did not actually re-split writes no <c>split_chars</c> at all.</item>
+        /// <item>'*' straight after a held letter is that hold's tick count (see <see cref="HoldTickMarkers"/>).</item>
         /// </list>
         ///
         /// <para>A word count change is LOCAL (backlog 340): a word that came back spelled exactly
@@ -847,14 +852,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// always did. Only a rewrite with nothing left in common, or a change with no room for its
         /// words, redistributes the whole line (<see cref="alignSubdivisions"/>).</para>
         /// </summary>
-        public static bool SetLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText)
+        /// <param name="editorBeatmap">The beatmap being edited.</param>
+        /// <param name="hitObject">The line whose text is committed.</param>
+        /// <param name="rawUserText">The text as the mapper typed it.</param>
+        /// <param name="autoFillNewWords">Mark every word this commit adds or retypes auto-fill.</param>
+        /// <param name="ticksTrimmed">Called when a hold was asked for more ticks than fit.</param>
+        public static bool SetLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText, bool autoFillNewWords = false, Action? ticksTrimmed = null)
         {
             // THE ORIGINAL TEXT (backlog 330): text in any other script (or with any letter the typed
             // text must respell) is romanised first and kept as the line's original.
             if (LyricOriginals.CarriesOriginal(rawUserText) || Romaniser.NeedsRomanising(rawUserText))
-                return setOriginalLineText(editorBeatmap, hitObject, rawUserText);
+                return setOriginalLineText(editorBeatmap, hitObject, rawUserText, autoFillNewWords, ticksTrimmed);
 
-            return setLineText(editorBeatmap, hitObject, rawUserText, null);
+            return setLineText(editorBeatmap, hitObject, rawUserText, autoFillNewWords, null, ticksTrimmed);
         }
 
         /// <summary>
@@ -869,11 +879,45 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// only a PROPOSAL: the mapper overwrites any word of it by typing Latin over it in this same
         /// box, which keeps the originals (a same-count commit keeps every word's original by place),
         /// or per word in the word editor.
+        ///
+        /// <para>Tick stars are read and stripped from the source before romanising, and their counts
+        /// ride each word's placement token into <see cref="setLineText"/>.</para>
         /// </summary>
-        private static bool setOriginalLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText)
+        private static bool setOriginalLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText, bool autoFillNewWords, Action? ticksTrimmed)
         {
-            string? language = LyricOriginals.RomanisationLanguage(editorBeatmap.BeatmapInfo.Metadata.Language, new[] { rawUserText });
-            var romanised = LyricOriginals.RomaniseLine(rawUserText, language, keepMarkers: true);
+            string source = rawUserText;
+            IReadOnlyList<IReadOnlyDictionary<int, int>?>? sourceCounts = null;
+
+            // Collapsed first, so the tokens Read pairs its counts with are exactly the words RomaniseLine splits.
+            if (source.IndexOf(HoldTickMarkers.TICK_MARKER) >= 0 || hitObject.Line.Units.Any(HoldTickMarkers.HasTicks))
+                (source, sourceCounts) = HoldTickMarkers.Read(LyricOriginals.CollapseWhitespace(source), hitObject.Line.Units);
+
+            string? language = LyricOriginals.RomanisationLanguage(editorBeatmap.BeatmapInfo.Metadata.Language, new[] { source });
+            var romanised = LyricOriginals.RomaniseLine(source, language, keepMarkers: true);
+
+            // Each romanised word's counts. A source word that romanises to several words carries none.
+            IReadOnlyDictionary<int, int>?[]? wordCounts = null;
+
+            if (sourceCounts != null)
+            {
+                var perWord = new List<IReadOnlyDictionary<int, int>?>(romanised.Words.Count);
+                int kept = 0;
+
+                foreach (string sourceWord in source.Split(' '))
+                {
+                    int n = LyricOriginals.RomaniseLine(sourceWord, language, keepMarkers: true).Words.Count;
+                    bool isKept = sourceWord.Any(ch => ch != Typeability.SPLIT_MARKER);
+                    var counts = isKept && n == 1 && kept < sourceCounts.Count ? sourceCounts[kept] : null;
+
+                    perWord.AddRange(Enumerable.Repeat(counts, n));
+
+                    if (isKept)
+                        kept++;
+                }
+
+                if (perWord.Count == romanised.Words.Count)
+                    wordCounts = perWord.ToArray();
+            }
 
             // The words the placement sees: each romanised word as it will be typed, and each word the
             // romaniser could not spell as a PLACEHOLDER token no real word can match, so it is placed
@@ -881,27 +925,32 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             var sources = new List<LyricOriginals.RomanisedWord>();
             var placeholders = new Dictionary<string, LyricOriginals.RomanisedWord>();
             var tokens = new List<string>();
+            var tokenCounts = new List<IReadOnlyDictionary<int, int>?>();
 
-            foreach (var word in romanised.Words)
+            for (int w = 0; w < romanised.Words.Count; w++)
             {
+                var word = romanised.Words[w];
+
                 if (word.Flagged)
                 {
                     string placeholder = $"unromanised{placeholders.Count}x{hitObject.LineIndex}q";
                     placeholders[placeholder] = word;
                     tokens.Add(placeholder);
                     sources.Add(word);
+                    tokenCounts.Add(null);
                 }
                 else if (word.Text.Length > 0)
                 {
                     tokens.Add(word.Text);
                     sources.Add(word);
+                    tokenCounts.Add(wordCounts?[w]);
                 }
             }
 
             if (tokens.Count == 0)
                 return false;
 
-            return setLineText(editorBeatmap, hitObject, string.Join(' ', tokens), units =>
+            return setLineText(editorBeatmap, hitObject, string.Join(' ', tokens), autoFillNewWords, units =>
             {
                 var kept = new List<TimedUnit>();
                 var pending = new List<UnromanisedWord>();
@@ -918,23 +967,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 }
 
                 return (string.Join(' ', kept.Select(u => u.Text)), kept, (romanised.Original, pending));
-            });
+            }, ticksTrimmed, wordCounts == null ? null : tokenCounts);
         }
 
         /// <summary>
         /// The body of <see cref="SetLineText"/>. For a commit that romanised its input
         /// (<see cref="setOriginalLineText"/>), the finishing step turns the placed units into the
         /// line's final text, units and originals; it is null for plain text, which keeps the line's
-        /// originals as they are.
+        /// originals as they are. Such a commit passes its tick counts as <paramref name="readTickCounts"/>.
         /// </summary>
-        private static bool setLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText,
-                                        Func<IReadOnlyList<TimedUnit>, (string Text, IReadOnlyList<TimedUnit> Units, (string? Original, IReadOnlyList<UnromanisedWord> Pending) Originals)>? finish)
+        private static bool setLineText(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, string rawUserText, bool autoFillNewWords,
+                                        Func<IReadOnlyList<TimedUnit>, (string Text, IReadOnlyList<TimedUnit> Units, (string? Original, IReadOnlyList<UnromanisedWord> Pending) Originals)>? finish,
+                                        Action? ticksTrimmed = null, IReadOnlyList<IReadOnlyDictionary<int, int>?>? readTickCounts = null)
         {
             // Both authoring seams survive Normalize here; every other untypeable char is stripped.
             // No backing-vocal strip (backlog 255): what the mapper typed is what the line stores,
             // so "hello (oh) now" commits verbatim and the brackets are ordinary lyric marks.
             string withMarkers = Typeability.Normalize(rawUserText,
                 keepFreestyleMarkers: true, keepSplitMarkers: true);
+
+            // Hold tick stars are read and stripped before the pipes (a romanising commit already did).
+            var tickCounts = readTickCounts;
+
+            if (finish == null && (withMarkers.IndexOf(HoldTickMarkers.TICK_MARKER) >= 0 || hitObject.Line.Units.Any(HoldTickMarkers.HasTicks)))
+                (withMarkers, tickCounts) = HoldTickMarkers.Read(withMarkers, hitObject.Line.Units);
 
             var (normalized, pipes) = SplitMarkers.Strip(withMarkers);
 
@@ -984,11 +1040,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // subdivision from where its pipes now sit (or remove it, where they no longer do).
                 units = applyPipes(line.Units, tokens, pipes, out authoredSubdivision);
 
+                bool ticksChanged = !ReferenceEquals(HoldTickMarkers.Apply(units, tickCounts, out _), units);
+
                 // A commit that moved neither the text nor a single pipe is a no-op, so a map with
                 // no authored splits does not start carrying them just because a box lost focus.
                 // A pipe that moved a word's REST is a change like any other, so the comparison is
                 // over every cut the box can author, not only the syllable splits.
-                if (textUnchanged && !authoredSubdivision && !anyRemoval && finish == null
+                if (textUnchanged && !authoredSubdivision && !anyRemoval && !ticksChanged && finish == null
                     && !units.Where((u, i) => !sameSplits(u.SyllableSplits, line.Units[i].SyllableSplits)
                                               || !u.Pauses.SequenceEqual(line.Units[i].Pauses)).Any())
                 {
@@ -1007,6 +1065,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         ?? alignSubdivisions(line.Units, LrcParser.InterpolateUnits(normalized, line.StartTime, line.SingEndTime));
                 units = applyPipes(units, tokens, pipes, out authoredSubdivision, line.Units);
             }
+
+            // Word objects follow their words on the paths that rebuild units (the same-count path kept them by place).
+            if (autoFillNewWords || tokens.Length != line.Units.Count || hitObject.Granularity == TimingGranularity.Line)
+                units = carryWordObjects(line.Units, units, autoFillNewWords);
+
+            units = HoldTickMarkers.Apply(units, tickCounts, out bool ticksWereTrimmed);
 
             if (hitObject.Granularity != TimingGranularity.Line && !textUnchanged
                 && units.Any(u => u.EndTime - u.StartTime < MIN_WORD_SPAN_MS))
@@ -1049,11 +1113,128 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // count change can also take a boundary AWAY (a subdivided word typed out, or halved
             // to make room), exactly as AddWord and RemoveWord can, so it re-syncs the same way.
             // An ordinary same-count commit never moves a map's granularity in either direction.
-            if (authoredSubdivision || wordCountChanged)
+            if (authoredSubdivision || wordCountChanged || units.Any(u => !u.Objects.IsEmpty))
                 syncGranularity(editorBeatmap, keepAuthoredWords: true);
 
             editorBeatmap.EndChange();
+
+            if (ticksWereTrimmed)
+                ticksTrimmed?.Invoke();
+
             return true;
+        }
+
+        /// <summary>Marks or clears auto-fill on the given words of one line, as one undo. Returns whether any word changed.</summary>
+        public static bool SetAutoFill(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, IReadOnlyList<int> unitIndices, bool autoFill)
+        {
+            var line = hitObject.Line;
+            var units = line.Units.ToArray();
+            bool changed = false;
+
+            foreach (int i in unitIndices.Distinct())
+            {
+                if (i < 0 || i >= units.Length)
+                    continue;
+
+                var objects = units[i].Objects;
+
+                // Picks exist only on an auto-fill word, so toggling the flag drops any.
+                if (objects.AutoFill == autoFill && (autoFill || objects.TypedLetters.Count == 0))
+                    continue;
+
+                units[i] = units[i].WithObjects(objects with { AutoFill = autoFill, TypedLetters = Array.Empty<int>() });
+                changed = true;
+            }
+
+            if (changed)
+                commitUnits(editorBeatmap, hitObject, units);
+
+            return changed;
+        }
+
+        /// <summary>
+        /// Replaces a word's typed letters with the pickable, distinct, ascending <paramref name="picks"/>, as
+        /// one undo. Any pick marks the word auto-fill. Returns whether anything changed.
+        /// </summary>
+        public static bool SetTypedLetters(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, IReadOnlyList<int> picks)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < 0 || unitIndex >= line.Units.Count)
+                return false;
+
+            var units = line.Units.ToArray();
+            var unit = units[unitIndex];
+            string text = unit.Text;
+            int[] normalised = picks.Where(i => i >= 0 && i < text.Length && TypedLetters.IsPickable(text[i])).Distinct().OrderBy(i => i).ToArray();
+            bool autoFill = unit.Objects.AutoFill || normalised.Length > 0;
+
+            if (autoFill == unit.Objects.AutoFill && normalised.SequenceEqual(unit.Objects.TypedLetters))
+                return false;
+
+            units[unitIndex] = unit.WithObjects(unit.Objects with { AutoFill = autoFill, TypedLetters = normalised });
+            commitUnits(editorBeatmap, hitObject, units);
+            return true;
+        }
+
+        /// <summary>
+        /// Writes one line's units back as one undo, lifting the map to at least Word granularity
+        /// so the word objects are saved.
+        /// </summary>
+        private static void commitUnits(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, IReadOnlyList<TimedUnit> units)
+        {
+            editorBeatmap.BeginChange();
+            hitObject.Line = rebuild(hitObject.Line, units: units);
+            editorBeatmap.Update(hitObject);
+            syncGranularity(editorBeatmap, keepAuthoredWords: true);
+            editorBeatmap.EndChange();
+        }
+
+        /// <summary>
+        /// Carries word objects across a text commit that rebuilt the units: words are matched by the
+        /// longest common subsequence of their spellings, and a matched word's holds follow its new span.
+        /// Unmatched words are marked auto-fill when <paramref name="markNew"/> is set.
+        /// </summary>
+        private static IReadOnlyList<TimedUnit> carryWordObjects(IReadOnlyList<TimedUnit> before, IReadOnlyList<TimedUnit> after, bool markNew)
+        {
+            int n = before.Count, m = after.Count;
+            int[,] lcs = new int[n + 1, m + 1];
+
+            for (int i = n - 1; i >= 0; i--)
+            {
+                for (int j = m - 1; j >= 0; j--)
+                {
+                    lcs[i, j] = before[i].Text == after[j].Text
+                        ? lcs[i + 1, j + 1] + 1
+                        : Math.Max(lcs[i + 1, j], lcs[i, j + 1]);
+                }
+            }
+
+            var matched = new WordObjects?[m];
+
+            for (int i = 0, j = 0; i < n && j < m;)
+            {
+                if (before[i].Text == after[j].Text)
+                {
+                    matched[j] = before[i].Objects.Retimed(before[i].StartTime, before[i].EndTime, after[j].StartTime, after[j].EndTime);
+                    i++;
+                    j++;
+                }
+                else if (lcs[i + 1, j] >= lcs[i, j + 1])
+                    i++;
+                else
+                    j++;
+            }
+
+            var result = new TimedUnit[m];
+
+            for (int j = 0; j < m; j++)
+            {
+                var objects = matched[j] ?? (markNew ? after[j].Objects with { AutoFill = true } : after[j].Objects);
+                result[j] = ReferenceEquals(objects, after[j].Objects) ? after[j] : after[j].WithObjects(objects);
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -1080,6 +1261,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 {
                     return new TimedUnit
                     {
+                        Objects = u.Objects.ForText(u.Text, tokens[i]),
                         Text = tokens[i],
                         Original = u.Original,
                         StartTime = u.StartTime,
@@ -1125,6 +1307,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                     return new TimedUnit
                     {
+                        Objects = u.Objects.ForText(u.Text, tokens[i]),
                         Text = tokens[i],
                         Original = u.Original,
                         StartTime = u.StartTime,
@@ -1141,6 +1324,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 return new TimedUnit
                 {
+                    Objects = u.Objects.ForText(u.Text, tokens[i]),
                     Text = tokens[i],
                     Original = u.Original,
                     StartTime = u.StartTime,
@@ -1211,6 +1395,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             return new TimedUnit
             {
+                Objects = unit.Objects,
                 Text = unit.Text,
                 Original = unit.Original,
                 StartTime = unit.StartTime,
@@ -1431,6 +1616,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 units[i] = new TimedUnit
                 {
+                    Objects = old.Objects.Retimed(old.StartTime, old.EndTime, units[i].StartTime, units[i].EndTime),
                     Text = units[i].Text,
                     Original = old.Original,
                     // Only the SUBDIVISION travels: the span is the redistribution's, and so is the
@@ -1485,12 +1671,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// move a syllable split, and can see all of them at once on a word that has both. Identical to
         /// the stored text for a line with no subdivisions and no rests at all, and for a line whose
         /// tokens and units have drifted apart (nothing there can be paired safely).</para>
+        ///
+        /// <para>With <paramref name="withTicks"/>, a held letter is followed by a '*' per tick.</para>
         /// </summary>
-        public static string PipeDisplayText(LyricLine line)
+        public static string PipeDisplayText(LyricLine line, bool withTicks = true)
         {
             string[] tokens = line.RawText.Split(' ');
+            bool pipesShown = line.Units.Any(u => u.SyllableBoundaries.Count > 0 || u.Pauses.Count > 0);
+            bool ticksShown = withTicks && line.Units.Any(HoldTickMarkers.HasTicks);
 
-            if (tokens.Length != line.Units.Count || !line.Units.Any(u => u.SyllableBoundaries.Count > 0 || u.Pauses.Count > 0))
+            if (tokens.Length != line.Units.Count || (!pipesShown && !ticksShown))
                 return line.RawText;
 
             var pieces = new string[tokens.Length];
@@ -1498,11 +1688,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             for (int i = 0; i < tokens.Length; i++)
             {
                 var unit = line.Units[i];
-                var cuts = Gameplay.PausedWord.Cuts(unit, unit.StartTime, unit.EndTime);
+                var cuts = pipesShown ? Gameplay.PausedWord.Cuts(unit, unit.StartTime, unit.EndTime) : Array.Empty<int>();
 
-                pieces[i] = cuts.Count == 0
+                string piece = cuts.Count == 0
                     ? tokens[i]
                     : string.Join(Typeability.SPLIT_MARKER, SyllableSegments.SegmentTexts(tokens[i], cuts));
+
+                pieces[i] = ticksShown ? HoldTickMarkers.WithTicks(piece, unit) : piece;
             }
 
             return string.Join(' ', pieces);
@@ -1596,6 +1788,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             return new TimedUnit
             {
+                Objects = unit.Objects,
                 Text = unit.Text,
                 Original = unit.Original,
                 StartTime = unit.StartTime,
@@ -2011,10 +2204,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 }
             }
 
+            // Holds and picks follow the half their character lands in; a hold straddling the boundary is dropped.
+            var firstHolds = unit.Objects.Holds.Where(h => h.Char < cut && h.EndTime <= boundary).ToArray();
+            var secondHolds = unit.Objects.Holds.Where(h => h.Char >= cut && h.StartTime >= boundary).Select(h => h with { Char = h.Char - cut }).ToArray();
+            var firstPicks = unit.Objects.TypedLetters.Where(i => i < cut).ToArray();
+            var secondPicks = unit.Objects.TypedLetters.Where(i => i >= cut).Select(i => i - cut).ToArray();
+
             var units = line.Units.ToList();
 
             units[unitIndex] = new TimedUnit
             {
+                Objects = unit.Objects with { Holds = firstHolds, TypedLetters = firstPicks },
                 Text = firstText,
                 StartTime = unit.StartTime,
                 EndTime = boundary,
@@ -2028,6 +2228,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             units.Insert(unitIndex + 1, new TimedUnit
             {
+                Objects = unit.Objects with { Holds = secondHolds, TypedLetters = secondPicks },
                 Text = secondText,
                 StartTime = boundary,
                 EndTime = unit.EndTime,
@@ -2428,6 +2629,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         /// <summary>
+        /// Subdivide on one word: inside a hold's tick window it drops a hold tick (<see cref="AddHoldTickAt"/>),
+        /// anywhere else a syllable boundary. False only when the tick was refused.
+        /// </summary>
+        public static bool SubdivideWord(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, double? caretTime)
+        {
+            if (caretTime is double caret)
+            {
+                switch (AddHoldTickAt(editorBeatmap, hitObject, unitIndex, caret))
+                {
+                    case HoldTickPlacement.Added:
+                        return true;
+
+                    case HoldTickPlacement.Refused:
+                        return false;
+                }
+            }
+
+            AddSyllableBoundary(editorBeatmap, hitObject, unitIndex, caretTime);
+            return true;
+        }
+
+        /// <summary>
         /// The SUNG spans of a word's segments, as (lo, hi, segment index) triples: the segments
         /// <paramref name="edges"/> divides the word into, with the word's authored rest taken out of
         /// whichever one holds it - because a rest is not sung, and belongs to no syllable, so no divider
@@ -2667,6 +2890,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             units[unitIndex] = new TimedUnit
             {
+                Objects = unit.Objects,
                 Text = unit.Text,
                 Original = unit.Original,
                 StartTime = unit.StartTime,
@@ -2796,6 +3020,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             units[unitIndex] = new TimedUnit
             {
+                Objects = unit.Objects,
                 Text = unit.Text,
                 Original = unit.Original,
                 StartTime = unit.StartTime,
@@ -2863,7 +3088,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// exact trap <see cref="AddSyllableBoundary"/> documents for a subdivision.</para>
         ///
         /// <para>No-op (null) on a word with fewer than two typeable characters - nothing to breathe
-        /// between - or one too short to hold a rest with a character of room either side.
+        /// between - a word with holds, or one too short to hold a rest with a character of room either side.
         /// Single undo step. Inserting over a rest the word already had replaces it.</para>
         /// </summary>
         /// <param name="editorBeatmap">The map being edited.</param>
@@ -2882,7 +3107,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             var unit = line.Units[unitIndex];
             int typeable = Typeability.TypeableCount(unit.Text);
 
-            if (typeable < 2)
+            // A word carries pauses or holds, never both.
+            if (typeable < 2 || unit.Objects.Holds.Count > 0)
                 return null;
 
             // The word must hold room before the rest, the rest itself, and a character after it.
@@ -2963,6 +3189,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 return false;
 
             var unit = line.Units[unitIndex];
+
+            // A word carries pauses or holds, never both.
+            if (unit.Objects.Holds.Count > 0)
+                return false;
 
             if (boundaryIndex < 0 || boundaryIndex >= unit.SyllableBoundaries.Count)
                 return false;
@@ -3124,6 +3354,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             units[unitIndex] = new TimedUnit
             {
+                Objects = unit.Objects,
                 Text = unit.Text,
                 Original = unit.Original,
                 StartTime = unit.StartTime,
@@ -3141,6 +3372,343 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             promoteToWordGranularity(editorBeatmap);
             editorBeatmap.EndChange();
         }
+
+        #region Holds
+
+        /// <summary>How far past its letter's target a dragged hold end is kept, so rounding never puts it on the target.</summary>
+        private const double hold_end_past_due_ms = 1;
+
+        /// <summary>
+        /// Adds a hold on <paramref name="charIndex"/>, or when null on the first character due at or after
+        /// <paramref name="playheadTime"/>. It starts at the letter's target and ends at its syllable's end
+        /// (halfway there when more letters follow in the syllable). Null when the hold would be unusable,
+        /// or the word has pauses. One undo step.
+        /// </summary>
+        public static WordHold? AddHold(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int? charIndex, double playheadTime)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < 0 || unitIndex >= line.Units.Count)
+                return null;
+
+            var unit = line.Units[unitIndex];
+
+            if (unit.Pauses.Count > 0)
+                return null;
+
+            var flat = flattenedWithoutHolds(unit);
+            var cellChars = new List<int>();
+
+            for (int i = 0; i < unit.Text.Length; i++)
+            {
+                if (Typeability.IsCell(unit.Text[i]))
+                    cellChars.Add(i);
+            }
+
+            // The literate flattening has one cell per character, so a char index is its cell index.
+            if (cellChars.Count == 0 || flat.Cells.Count < unit.Text.Length)
+                return null;
+
+            int c;
+
+            if (charIndex is int given)
+            {
+                if (!cellChars.Contains(given))
+                    return null;
+
+                c = given;
+            }
+            else
+            {
+                c = cellChars[^1];
+
+                foreach (int k in cellChars)
+                {
+                    if (flat.Cells[k].TargetTime >= playheadTime)
+                    {
+                        c = k;
+                        break;
+                    }
+                }
+            }
+
+            if (unit.Objects.Holds.Any(h => h.Char == c))
+                return null;
+
+            int gi = flat.SyllableIndexOf(c);
+
+            if (gi < 0)
+                return null;
+
+            var g = flat.Syllables[gi];
+            double start = c == 0 ? unit.StartTime : flat.Cells[c].TargetTime;
+            double end = c == g.EndCellExclusive - 1 ? g.EndTime : start + (g.EndTime - start) / 2;
+
+            double cap = c + 1 < unit.Text.Length ? unit.EndTime - MIN_SYLLABLE_MS : unit.EndTime;
+            end = Math.Min(end, cap);
+
+            double due = HeldWord.LetterDueAt(unit, c);
+
+            // A hold must end after its letter is due: extend a default span that does not.
+            if (!HeldWord.EndsAfterItsLetter(end, due))
+            {
+                end = due + HeldWord.MIN_HOLD_MS;
+
+                if (end > cap)
+                    return null;
+            }
+
+            var hold = new WordHold(c, start, end);
+            var holds = unit.Objects.Holds.Append(hold).OrderBy(h => h.Char).ToArray();
+
+            if (!allUsable(unit, holds))
+                return null;
+
+            replaceUnitHolds(editorBeatmap, hitObject, unitIndex, holds);
+            return hold;
+        }
+
+        /// <summary>Removes hold <paramref name="holdIndex"/> from a word. One undo step.</summary>
+        public static bool RemoveHold(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int holdIndex)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < 0 || unitIndex >= line.Units.Count)
+                return false;
+
+            var unit = line.Units[unitIndex];
+
+            if (holdIndex < 0 || holdIndex >= unit.Objects.Holds.Count)
+                return false;
+
+            replaceUnitHolds(editorBeatmap, hitObject, unitIndex, unit.Objects.Holds.Where((_, i) => i != holdIndex).ToArray());
+            return true;
+        }
+
+        /// <summary>
+        /// Removes the hold on <paramref name="charIndex"/> (or, when null, under the playhead) if there is one,
+        /// otherwise adds one (<see cref="AddHold"/>). Returns whether the word changed.
+        /// </summary>
+        public static bool ToggleHold(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int? charIndex, double playheadTime)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < 0 || unitIndex >= line.Units.Count)
+                return false;
+
+            var holds = line.Units[unitIndex].Objects.Holds;
+
+            for (int i = 0; i < holds.Count; i++)
+            {
+                bool meant = charIndex is int c ? holds[i].Char == c : playheadTime >= holds[i].StartTime && playheadTime <= holds[i].EndTime;
+
+                if (meant)
+                    return RemoveHold(editorBeatmap, hitObject, unitIndex, i);
+            }
+
+            return AddHold(editorBeatmap, hitObject, unitIndex, charIndex, playheadTime) != null;
+        }
+
+        /// <summary>Drags a hold's start edge, clamped inside the word and clear of its neighbours. One undo step.</summary>
+        public static void SetHoldStart(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int holdIndex, double newStart)
+            => moveHoldEdge(editorBeatmap, hitObject, unitIndex, holdIndex, newStart, moveStart: true);
+
+        /// <summary>Drags a hold's end edge, clamped like <see cref="SetHoldStart"/> and to end after its letter is due.</summary>
+        public static void SetHoldEnd(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int holdIndex, double newEnd)
+            => moveHoldEdge(editorBeatmap, hitObject, unitIndex, holdIndex, newEnd, moveStart: false);
+
+        /// <summary>
+        /// Drops a tick at <paramref name="time"/> (whole ms) on the usable hold whose tick window holds it.
+        /// Refused when another tick is closer than <see cref="HoldTicks.MIN_GAP_MS"/>. One undo step.
+        /// </summary>
+        public static HoldTickPlacement AddHoldTickAt(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, double time)
+        {
+            var units = hitObject.Line.Units;
+
+            if (!double.IsFinite(time) || unitIndex < 0 || unitIndex >= units.Count)
+                return HoldTickPlacement.NotOnHold;
+
+            var unit = units[unitIndex];
+
+            foreach (var hold in HeldWord.UsableHolds(unit))
+            {
+                if (time < HoldTicks.WindowStart(hold.StartTime) || time >= HoldTicks.WindowEnd(hold.StartTime, hold.EndTime))
+                    continue;
+
+                double minAt = Math.Ceiling(HoldTicks.WindowStart(hold.StartTime));
+                double maxAt = Math.Ceiling(HoldTicks.WindowEnd(hold.StartTime, hold.EndTime)) - 1;
+
+                // A window with no whole ms in it can hold no tick.
+                if (minAt > maxAt)
+                    continue;
+
+                double at = Math.Clamp(Math.Round(time), minAt, maxAt);
+                double[] ticks = HoldTicks.UsableTicks(hold);
+
+                if (ticks.Any(t => Math.Abs(t - at) < HoldTicks.MIN_GAP_MS))
+                    return HoldTickPlacement.Refused;
+
+                var holds = unit.Objects.Holds.ToArray();
+                holds[Array.IndexOf(holds, hold)] = hold with { Ticks = ticks.Append(at).OrderBy(t => t).ToArray() };
+                replaceUnitHolds(editorBeatmap, hitObject, unitIndex, holds);
+                return HoldTickPlacement.Added;
+            }
+
+            return HoldTickPlacement.NotOnHold;
+        }
+
+        /// <summary>Removes tick <paramref name="tickIndex"/> of a hold's usable ticks. One undo step.</summary>
+        public static bool RemoveHoldTick(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int holdIndex, int tickIndex)
+        {
+            if (!tryUsableHold(hitObject, unitIndex, holdIndex, out var holds))
+                return false;
+
+            double[] ticks = HoldTicks.UsableTicks(holds[holdIndex]);
+
+            if (tickIndex < 0 || tickIndex >= ticks.Length)
+                return false;
+
+            holds[holdIndex] = holds[holdIndex] with { Ticks = ticks.Where((_, i) => i != tickIndex).ToArray() };
+            replaceUnitHolds(editorBeatmap, hitObject, unitIndex, holds);
+            return true;
+        }
+
+        /// <summary>Drags a tick to <paramref name="time"/> (whole ms), clamped inside the tick window and clear of its neighbours.</summary>
+        public static void SetHoldTickTime(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int holdIndex, int tickIndex, double time)
+        {
+            if (!tryUsableHold(hitObject, unitIndex, holdIndex, out var holds) || !double.IsFinite(time))
+                return;
+
+            var hold = holds[holdIndex];
+            double[] ticks = HoldTicks.UsableTicks(hold);
+
+            if (tickIndex < 0 || tickIndex >= ticks.Length)
+                return;
+
+            double lower = Math.Ceiling(HoldTicks.WindowStart(hold.StartTime));
+            double upper = Math.Ceiling(HoldTicks.WindowEnd(hold.StartTime, hold.EndTime)) - 1;
+
+            if (tickIndex > 0)
+                lower = Math.Max(lower, ticks[tickIndex - 1] + HoldTicks.MIN_GAP_MS);
+
+            if (tickIndex < ticks.Length - 1)
+                upper = Math.Min(upper, ticks[tickIndex + 1] - HoldTicks.MIN_GAP_MS);
+
+            if (upper < lower)
+                return;
+
+            ticks[tickIndex] = Math.Clamp(Math.Round(time), lower, upper);
+            holds[holdIndex] = hold with { Ticks = ticks };
+            replaceUnitHolds(editorBeatmap, hitObject, unitIndex, holds);
+        }
+
+        /// <summary>A writable copy of the word's holds, when <paramref name="holdIndex"/> names a usable one.</summary>
+        private static bool tryUsableHold(TypeBeatHitObject hitObject, int unitIndex, int holdIndex, out WordHold[] holds)
+        {
+            holds = Array.Empty<WordHold>();
+            var units = hitObject.Line.Units;
+
+            if (unitIndex < 0 || unitIndex >= units.Count)
+                return false;
+
+            var unit = units[unitIndex];
+
+            if (holdIndex < 0 || holdIndex >= unit.Objects.Holds.Count || !HeldWord.UsableHolds(unit).Contains(unit.Objects.Holds[holdIndex]))
+                return false;
+
+            holds = unit.Objects.Holds.ToArray();
+            return true;
+        }
+
+        private static void moveHoldEdge(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, int holdIndex, double newTime, bool moveStart)
+        {
+            var line = hitObject.Line;
+
+            if (unitIndex < 0 || unitIndex >= line.Units.Count)
+                return;
+
+            var unit = line.Units[unitIndex];
+            var holds = unit.Objects.Holds.ToArray();
+
+            if (holdIndex < 0 || holdIndex >= holds.Length)
+                return;
+
+            var hold = holds[holdIndex];
+
+            if (moveStart && hold.Char == 0)
+                return;
+
+            bool hasNext = hold.Char + 1 < unit.Text.Length;
+
+            // Slack so float error cannot leave a hold just under the minimum.
+            const double eps = 0.001;
+            double lower = moveStart ? unit.StartTime + MIN_SYLLABLE_MS : hold.StartTime + HeldWord.MIN_HOLD_MS + eps;
+            double upper = moveStart ? hold.EndTime - HeldWord.MIN_HOLD_MS - eps : hasNext ? unit.EndTime - MIN_SYLLABLE_MS : unit.EndTime;
+
+            if (moveStart && holdIndex > 0)
+                lower = Math.Max(lower, holds[holdIndex - 1].EndTime);
+
+            if (!moveStart && holdIndex < holds.Length - 1)
+                upper = Math.Min(upper, holds[holdIndex + 1].StartTime);
+
+            if (!moveStart)
+                lower = Math.Max(lower, HeldWord.LetterDueAt(unit, hold.Char) + hold_end_past_due_ms);
+
+            if (upper < lower)
+                return;
+
+            newTime = Math.Clamp(newTime, lower, upper);
+            holds[holdIndex] = moveStart ? HoldTicks.Stretched(hold, newTime, hold.EndTime) : HoldTicks.Stretched(hold, hold.StartTime, newTime);
+
+            if (!allUsable(unit, holds))
+                return;
+
+            replaceUnitHolds(editorBeatmap, hitObject, unitIndex, holds);
+        }
+
+        /// <summary>The word alone as a one-word literate line with no holds, so cell index is char index.</summary>
+        private static TypingLine flattenedWithoutHolds(TimedUnit unit)
+            => TypingLine.FromLyricLine(new LyricLine
+            {
+                RawText = unit.Text,
+                StartTime = unit.StartTime,
+                EndTime = unit.EndTime,
+                SingEndTime = unit.EndTime,
+                Units = new[] { unit.WithObjects(unit.Objects with { Holds = Array.Empty<WordHold>() }) },
+            }, literate: true);
+
+        private static bool allUsable(TimedUnit unit, IReadOnlyList<WordHold> holds)
+            => HeldWord.UsableHolds(unit.WithObjects(unit.Objects with { Holds = holds })).Count == holds.Count;
+
+        /// <summary>Writes one word's holds back, stamping it Explicit as <see cref="replaceUnitPauses"/> does. One undo step.</summary>
+        private static void replaceUnitHolds(EditorBeatmap editorBeatmap, TypeBeatHitObject hitObject, int unitIndex, IReadOnlyList<WordHold> holds)
+        {
+            var line = hitObject.Line;
+            var unit = line.Units[unitIndex];
+
+            if (unit.Objects.Holds.SequenceEqual(holds))
+                return;
+
+            var units = line.Units.ToArray();
+
+            units[unitIndex] = new TimedUnit
+            {
+                Objects = unit.Objects with { Holds = holds.ToArray() },
+                Text = unit.Text,
+                Original = unit.Original,
+                StartTime = unit.StartTime,
+                EndTime = unit.EndTime,
+                Source = TimingSource.Explicit,
+                Confidence = 1,
+                SyllableBoundaries = unit.SyllableBoundaries,
+                SyllableSplits = unit.SyllableSplits,
+                Pauses = unit.Pauses,
+            };
+
+            commitUnits(editorBeatmap, hitObject, units);
+        }
+
+        #endregion
 
         /// <summary>
         /// The INDEX IN THE TOKEN of its <paramref name="cellIndex"/>-th typeable cell: "the third
@@ -3206,6 +3774,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                 foreach (var unit in line.Units)
                 {
+                    var objects = LyricTimingClipboard.SpanObjects(unit, line.StartTime);
+
                     entry.Units.Add(new LyricTimingClipboard.UnitSpan
                     {
                         Start = unit.StartTime - line.StartTime,
@@ -3213,6 +3783,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                         Chars = unit.Text.Length,
                         Text = unit.Text,
                         Original = unit.Original,
+                        AutoFill = objects.AutoFill,
+                        Holds = objects.Holds,
+                        TypedLetters = LyricTimingClipboard.SpanLetters(unit),
                         Boundaries = unit.SyllableBoundaries.Count == 0
                             ? null
                             : unit.SyllableBoundaries.Select(b => b - line.StartTime).ToList(),
@@ -3397,13 +3970,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // A rest has no derived form, so a mismatch drops it outright. UsableRests is the same
             // total validator every other rest writer goes through: it drops one the pasted span or
             // the target word's own spelling cannot hold, and keeps the survivors in order.
-            var rests = sameShape && span.Rests != null
+            // A held target keeps its holds and drops the pasted rests.
+            var rests = sameShape && span.Rests != null && target.Objects.Holds.Count == 0
                 ? (IReadOnlyList<WordPause>)PausedWord.UsableRests(target.Text, start, end,
                     span.Rests.Select(r => new WordPause(lineStart + r.Start, lineStart + r.End, r.SplitChar)))
                 : Array.Empty<WordPause>();
 
             return new TimedUnit
             {
+                Objects = target.Objects.Retimed(target.StartTime, target.EndTime, start, end),
                 Text = target.Text,
                 Original = target.Original,
                 StartTime = start,
@@ -3520,7 +4095,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             bool handTimed = source.Granularity != TimingGranularity.Line;
 
-            var units = clampUnits(source.Units.Select(span => pasteUnit(new TimedUnit { Text = span.Text!, Original = span.Original, StartTime = start, EndTime = start }, span, start,
+            var units = clampUnits(source.Units.Select(span => pasteUnit(new TimedUnit { Text = span.Text!, Original = span.Original, StartTime = start + span.Start, EndTime = start + span.End, Objects = LyricTimingClipboard.ObjectsOf(span, start) }, span, start,
                 handTimed ? TimingSource.Explicit : TimingSource.Interpolated, handTimed ? 1 : 0.5, spellingTravels: true)).ToArray(), start, wall);
 
             double singEnd, end;
@@ -3580,6 +4155,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             {
                 var unit = line.Units[i];
+                var objects = LyricTimingClipboard.SpanObjects(unit, anchor);
 
                 payload.Units.Add(new LyricTimingClipboard.UnitSpan
                 {
@@ -3588,6 +4164,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                     Chars = unit.Text.Length,
                     Text = unit.Text,
                     Original = unit.Original,
+                    AutoFill = objects.AutoFill,
+                    Holds = objects.Holds,
+                    TypedLetters = LyricTimingClipboard.SpanLetters(unit),
                     Boundaries = unit.SyllableBoundaries.Count == 0 ? null : unit.SyllableBoundaries.Select(b => b - anchor).ToList(),
                     Splits = unit.SyllableSplits.Count == 0 ? null : unit.SyllableSplits.ToList(),
                     Rests = unit.Pauses.Count == 0
@@ -3730,7 +4309,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             {
                 var span = payload.Units[k];
 
-                units.Insert(insertAt + k, pasteUnit(new TimedUnit { Text = span.Text!, Original = span.Original == span.Text ? null : span.Original, StartTime = from, EndTime = from },
+                units.Insert(insertAt + k, pasteUnit(new TimedUnit { Text = span.Text!, Original = span.Original == span.Text ? null : span.Original, StartTime = from + span.Start, EndTime = from + span.End, Objects = LyricTimingClipboard.ObjectsOf(span, from) },
                     new LyricTimingClipboard.UnitSpan
                     {
                         Start = fit(span.Start),
@@ -4209,6 +4788,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         }
 
         #endregion
+    }
+
+    /// <summary>The outcome of <see cref="TypeBeatEditorOperations.AddHoldTickAt"/>.</summary>
+    public enum HoldTickPlacement
+    {
+        /// <summary>No hold of the word has the time inside its tick window; nothing changed.</summary>
+        NotOnHold,
+
+        /// <summary>The tick was added.</summary>
+        Added,
+
+        /// <summary>The time is on a hold but within <see cref="HoldTicks.MIN_GAP_MS"/> of another tick; nothing changed.</summary>
+        Refused,
     }
 
     /// <summary>What a word paste did (<see cref="TypeBeatEditorOperations.PasteWords"/>).</summary>

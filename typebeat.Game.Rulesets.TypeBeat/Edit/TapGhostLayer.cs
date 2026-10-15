@@ -23,11 +23,38 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     public partial class TapGhostLayer : CompositeDrawable
     {
         private readonly Container marks;
+        private readonly Box holdBar;
 
         public TapGhostLayer()
         {
             RelativeSizeAxes = Axes.Both;
-            InternalChild = marks = new Container { RelativeSizeAxes = Axes.Both };
+            InternalChildren = new Drawable[]
+            {
+                marks = new Container { RelativeSizeAxes = Axes.Both },
+                holdBar = new Box
+                {
+                    Anchor = Anchor.TopLeft,
+                    Origin = Anchor.TopLeft,
+                    RelativeSizeAxes = Axes.Y,
+                    Colour = TypeBeatStyle.HoldChar,
+                    Alpha = 0,
+                },
+            };
+        }
+
+        /// <summary>Stretches the hold ghost from <paramref name="holdStart"/> to <paramref name="now"/>; null hides it.</summary>
+        public void UpdateHold(double? holdStart, double now, Func<double, float> positionOf)
+        {
+            if (holdStart is not double start)
+            {
+                holdBar.Alpha = 0;
+                return;
+            }
+
+            float from = positionOf(start);
+            holdBar.X = from;
+            holdBar.Width = Math.Max(2, positionOf(now) - from);
+            holdBar.Alpha = 0.45f;
         }
 
         /// <summary>Re-lays the ghosts for <paramref name="taps"/>; null or empty hides them all.</summary>

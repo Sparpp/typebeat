@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using System.Threading;
+using typebeat.Game.Beatmaps;
 using typebeat.Game.Rulesets.Objects;
 using typebeat.Game.Rulesets.Objects.Types;
 using typebeat.Game.Rulesets.Scoring;
@@ -53,6 +54,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
         /// </summary>
         public string? PolyglotLanguage { get; set; }
 
+        /// <summary>Shorthand mod, stamped like <see cref="Literate"/>. Play-time only.</summary>
+        public bool Shorthand { get; set; }
+
 
         /// <summary>The line remains typeable until EndTime + SealGraceMs; osu sees that as the object's end.</summary>
         public double EndTime => Line.EndTime + Line.SealGraceMs;
@@ -74,7 +78,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
             // The engine's flattening (TypingLine.FromLyricLine) is the single source of truth for
             // per-cell target times; the nested objects mirror its typeable cells.
 
-            var typingLine = TypingLine.ForMods(Line, Literate, Polyglot, PolyglotLanguage);
+            var typingLine = TypingLine.ForMods(Line, Literate, Polyglot, PolyglotLanguage, shorthand: Shorthand);
 
 
             for (int i = 0; i < typingLine.Cells.Count; i++)
@@ -93,6 +97,30 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects
                     CellIndex = i,
                     Expected = cell.Expected,
                 });
+
+                if (cell.HoldTickTimes is { } ticks)
+                {
+                    for (int k = 0; k < ticks.Count; k++)
+                    {
+                        AddNested(new TypeBeatHoldTickObject
+                        {
+                            StartTime = ticks[k],
+                            LineIndex = LineIndex,
+                            CellIndex = i,
+                            TickIndex = k,
+                        });
+                    }
+                }
+
+                if (cell.HoldEnd is double holdEnd)
+                {
+                    AddNested(new TypeBeatHoldTailObject
+                    {
+                        StartTime = holdEnd,
+                        LineIndex = LineIndex,
+                        CellIndex = i,
+                    });
+                }
             }
         }
     }

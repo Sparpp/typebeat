@@ -17,6 +17,7 @@ using typebeat.Game.Rulesets.TypeBeat.Objects;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Screens.Edit;
 using osuTK;
+using osuTK.Graphics;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Edit
 {
@@ -63,6 +64,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private RoundedButton subdivideButton = null!;
         private RoundedButton unsubdivideButton = null!;
         private RoundedButton insertPauseButton = null!;
+        private RoundedButton autoFillButton = null!;
+        private RoundedButton holdButton = null!;
+
+        // Assigned only on a change: an assignment would cancel the hover highlight each frame.
+        private Color4 autoFillDefaultColour;
+        private bool autoFillLit;
         private Box background = null!;
         private readonly EditorLyricFontResolutionCache lyricFontResolution = new EditorLyricFontResolutionCache();
         private string? resolvedLyricFont;
@@ -76,6 +83,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         {
             base.LoadComplete();
             state.ActionRefused += flashRefusal;
+            autoFillDefaultColour = autoFillButton.BackgroundColour;
 
             // The preview follows the map's freestyle colour (backlog 384) as the setup screen edits it.
             freestyleColour = editorBeatmap.FreestyleColour.GetBoundCopy();
@@ -196,6 +204,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                                 // edit, so it lives beside the subdivision buttons that it is clamped
                                 // and dragged like. Also gated on a word being selected (backlog 390).
                                 insertPauseButton = actionButton("insert pause", insertPauseOnSelectedWords, inertWhenDisabled: true),
+                                autoFillButton = actionButton("auto-fill", toggleAutoFill, tooltip: "Only the first letter of each word and syllable is typed; the rest fills itself"),
+                                holdButton = actionButton("hold", toggleHold, tooltip: "The letter must be held down for its duration"),
                             }),
                         },
                     },
@@ -238,13 +248,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
         /// <summary>
         /// One categorised action row: a small caption ("line" / "word") then its buttons, flowing
-        /// from the left. Editing modes live in the shared timing toolbar.
+        /// from the left, scaled down to fit the panel. Editing modes live in the shared timing toolbar.
         /// </summary>
         private static Drawable actionRow(string category, Drawable[] buttons)
         {
             var row = new FillFlowContainer
             {
-                RelativeSizeAxes = Axes.Both,
+                AutoSizeAxes = Axes.Both,
+                Anchor = Anchor.CentreLeft,
+                Origin = Anchor.CentreLeft,
                 Direction = FillDirection.Horizontal,
                 Spacing = new Vector2(6, 0),
             };
@@ -252,7 +264,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             row.Add(new Container
             {
                 Width = 36,
-                RelativeSizeAxes = Axes.Y,
+                Height = 30,
                 Child = new OsuSpriteText
                 {
                     Anchor = Anchor.CentreLeft,
@@ -265,7 +277,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             row.AddRange(buttons);
 
-            return row;
+            return new FitToWidthContainer(row);
         }
 
         protected override void Update()
@@ -300,6 +312,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             subdivideButton.Enabled.Value = wordSelected;
             unsubdivideButton.Enabled.Value = wordSelected;
             insertPauseButton.Enabled.Value = wordSelected;
+            // These also act on a highlight or caret left in another line's box.
+            bool noPass = state.TapSession == null;
+            autoFillButton.Enabled.Value = editable || (noPass && AutoFillToggle.UsableHighlight(editorBeatmap, state) != null);
+            holdButton.Enabled.Value = editable || (noPass && HoldToggle.UsableCaret(editorBeatmap, state) != null);
+
+            if (autoFillLit != state.AutoFillTyping.Value)
+            {
+                autoFillLit = state.AutoFillTyping.Value;
+                autoFillButton.BackgroundColour = autoFillLit ? TypeBeatStyle.AutoFillWord : autoFillDefaultColour;
+            }
 
             if (line == null || !live)
             {
@@ -432,12 +454,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (targets.Length == 0)
                 return;
 
+            // On a hold this drops a tick instead; a refused tick flashes the panel.
+            bool refused = false;
+
             editorBeatmap.BeginChange();
 
             foreach (int i in targets)
-                TypeBeatEditorOperations.AddSyllableBoundary(editorBeatmap, line, i, gridTime);
+            {
+                if (!TypeBeatEditorOperations.SubdivideWord(editorBeatmap, line, i, gridTime))
+                    refused = true;
+            }
 
             editorBeatmap.EndChange();
+
+            if (refused)
+                state.Refuse();
         }
 
         private void unsubdivideSelectedWords()
@@ -460,6 +491,25 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             editorBeatmap.EndChange();
         }
+
+        /// <summary>The "hold" button: see <see cref="HoldToggle"/>.</summary>
+        private void toggleHold()
+        {
+            // Never mid tap-pass: a pass is record-then-commit.
+            if (state.TapSession == null)
+                HoldToggle.Apply(editorBeatmap, state, liveActiveLine(), gridTime);
+        }
+
+        /// <summary>The "auto-fill" button: see <see cref="AutoFillToggle"/>.</summary>
+        private void toggleAutoFill()
+        {
+            if (state.TapSession == null)
+                AutoFillToggle.Apply(editorBeatmap, state, liveActiveLine());
+        }
+
+        /// <summary>The active line when it is still in the map, else null.</summary>
+        private TypeBeatHitObject? liveActiveLine()
+            => state.ActiveLine.Value is TypeBeatHitObject line && editorBeatmap.HitObjects.Contains(line) ? line : null;
 
         /// <summary>
         /// Inserts an authored rest into every selected word of the ACTIVE line (the primary word

@@ -38,6 +38,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // Daycore is the pitch-PRESERVING Half Time, so it pays off the same curve at the same
             // rate: the pitch is not a difficulty lever, exactly as it is not between DT and NC.
             Single<TypeBeatModDaycore>(hasMultiplier: daycore => TypeBeatRateMultiplier.For(daycore.SpeedChange.Value));
+            // Shorthand asks for a fraction of the keypresses, each still judged on the same windows.
+            Single<TypeBeatModShorthand>(hasMultiplier: 0.6);
 
             // Difficulty increase.
             // Hard Rock at 1.10x, and the value is NOT read off osu: this fork keeps no copy of

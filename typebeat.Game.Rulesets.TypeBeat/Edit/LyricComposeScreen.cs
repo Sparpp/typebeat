@@ -914,7 +914,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         /// Adds one syllable subdivision to every selected word of <paramref name="line"/> (the
         /// primary word alone when there is no multi-selection), as a single undo. A word the caret
         /// is currently inside is cut AT the caret; every other word bisects its widest remaining
-        /// segment, so pressing D repeatedly keeps splitting.
+        /// segment, so pressing D repeatedly keeps splitting. On a hold it drops a tick instead.
         /// </summary>
         private void subdivideSelectedWords(TypeBeatHitObject line)
         {
@@ -927,12 +927,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             if (targets.Length == 0)
                 return;
 
+            bool refused = false;
+
             EditorBeatmap.BeginChange();
 
             foreach (int i in targets)
-                TypeBeatEditorOperations.AddSyllableBoundary(EditorBeatmap, line, i, gridTime);
+            {
+                if (!TypeBeatEditorOperations.SubdivideWord(EditorBeatmap, line, i, gridTime))
+                    refused = true;
+            }
 
             EditorBeatmap.EndChange();
+
+            if (refused)
+                state.Refuse();
         }
 
         protected override void Dispose(bool isDisposing)

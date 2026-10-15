@@ -63,6 +63,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Mods
 
         public override bool Ranked => false;
 
+        /// <summary>See <see cref="TypeBeatModShorthand.IncompatibleMods"/>.</summary>
+        public override Type[] IncompatibleMods => new[] { typeof(TypeBeatModShorthand) };
+
         public override bool LocalOnly => true;
 
         public override bool ValidForMultiplayer => false;

@@ -115,8 +115,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         // re-polled, but a HANDLE appearing or vanishing needs a rebuild). The LyricLine the
         // signature was last checked against rides along: a line is immutable, so while the
         // reference is unchanged the counts cannot have moved and the frame skips recounting them.
-        private readonly List<(TypeBeatHitObject hitObject, LyricLine line, string rawText, int unitCount, int[] syllableCount, int[] pauseCount)> displayed
-            = new List<(TypeBeatHitObject, LyricLine, string, int, int[], int[])>();
+        private readonly List<(TypeBeatHitObject hitObject, LyricLine line, string rawText, int unitCount, int[] syllableCount, int[] pauseCount, int[][] heldChars)> displayed
+            = new List<(TypeBeatHitObject, LyricLine, string, int, int[], int[], int[][])>();
 
         // The idle editor re-polls every child each frame, so nothing on that path may allocate: the
         // sort is cached, and each layer's children are held in typed lists filled by rebuild()
@@ -127,6 +127,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
         private readonly List<BoundaryHandle> boundaryHandles = new List<BoundaryHandle>();
         private readonly List<SyllableHandle> syllableHandles = new List<SyllableHandle>();
         private readonly List<PauseRegion> pauseRegions = new List<PauseRegion>();
+        private readonly List<HoldRegion> holdRegions = new List<HoldRegion>();
         private readonly Func<double, float> positionOf;
 
         private bool edgeHovered;
@@ -286,8 +287,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             for (int i = 0; i < pauseRegions.Count; i++)
                 pauseRegions[i].UpdateLayout(this);
 
+            for (int i = 0; i < holdRegions.Count; i++)
+                holdRegions[i].UpdateLayout(this);
+
             // A live tap-timing pass has committed nothing yet; its taps show as ghosts on top.
             ghostLayer.UpdateGhosts(state.TapSession?.Taps, positionOf);
+            ghostLayer.UpdateHold(state.TapHoldStart, editorClock.CurrentTime, positionOf);
 
             double now = editorClock.CurrentTime;
             bool playheadVisible = now >= windowStart && now <= windowStart + windowLength;
@@ -303,7 +308,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
 
             for (int i = 0; i < ordered.Count; i++)
             {
-                var (hitObject, line, rawText, unitCount, syllableCount, pauseCount) = displayed[i];
+                var (hitObject, line, rawText, unitCount, syllableCount, pauseCount, heldChars) = displayed[i];
 
                 if (ordered[i] != hitObject)
                     return true;
@@ -319,14 +324,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 for (int unit = 0; unit < unitCount; unit++)
                 {
                     if (ordered[i].Line.Units[unit].SyllableBoundaries.Count != syllableCount[unit]
-                        || ordered[i].Line.Units[unit].Pauses.Count != pauseCount[unit])
+                        || ordered[i].Line.Units[unit].Pauses.Count != pauseCount[unit]
+                        || !SameHeldChars(ordered[i].Line.Units[unit], heldChars[unit]))
                     {
                         return true;
                     }
                 }
 
                 // Retimed in place (a drag): the same handles, so no rebuild; remember the new line.
-                displayed[i] = (hitObject, current, rawText, unitCount, syllableCount, pauseCount);
+                displayed[i] = (hitObject, current, rawText, unitCount, syllableCount, pauseCount, heldChars);
             }
 
             return false;
@@ -344,13 +350,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             boundaryHandles.Clear();
             syllableHandles.Clear();
             pauseRegions.Clear();
+            holdRegions.Clear();
 
             for (int i = 0; i < ordered.Count; i++)
             {
                 var hitObject = ordered[i];
                 displayed.Add((hitObject, hitObject.Line, hitObject.Line.RawText, hitObject.Line.Units.Count,
                     hitObject.Line.Units.Select(unit => unit.SyllableBoundaries.Count).ToArray(),
-                    hitObject.Line.Units.Select(unit => unit.Pauses.Count).ToArray()));
+                    hitObject.Line.Units.Select(unit => unit.Pauses.Count).ToArray(),
+                    hitObject.Line.Units.Select(HeldCharsOf).ToArray()));
 
                 bandLayer.Add(add(bands, new LineBand(this, hitObject, i)));
 
@@ -370,6 +378,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                     // reason: a rest is adjusted in place, not as a word move.
                     for (int p = 0; p < hitObject.Line.Units[j].Pauses.Count; p++)
                         handleLayer.Add(add(pauseRegions, new PauseRegion(this, hitObject, j, p)));
+
+                    foreach (var hold in HeldWord.UsableHolds(hitObject.Line.Units[j]))
+                        handleLayer.Add(add(holdRegions, new HoldRegion(this, hitObject, j, hold.Char, HoldTicks.UsableTicks(hold).Length)));
                 }
 
                 // ONE boundary per line start: dragging it moves this line's start and the
@@ -659,6 +670,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
             private readonly Box body;
             private readonly Box progress;
 
+            // A selected auto-fill block is outlined rather than filled yellow.
+            private const float selection_outline_px = 2;
+            private bool selectionOutlined;
+
             // One label per SYLLABLE SEGMENT, positioned between the word's dotted lines: an
             // undivided word has exactly one (the whole word, centred, as it always was).
             private readonly Container labels;
@@ -793,9 +808,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
                 bool selected = activeLine && state.SelectedUnitIndices.Contains(index);
                 bool explicitTiming = unit.Source == TimingSource.Explicit;
 
-                body.Colour = selected
-                    ? TypeBeatStyle.Caret
+                // An auto-fill word keeps its blue fill while selected and shows the selection as an outline.
+                bool autoFill = unit.Objects.AutoFill;
+
+                body.Colour = autoFill
+                    ? TypeBeatStyle.AutoFillWord
+                    : selected ? TypeBeatStyle.Caret
                     : explicitTiming ? TypeBeatStyle.SungAccent.Darken(0.4f) : TypeBeatStyle.UntypedChar.Darken(0.2f);
+
+                bool outlined = selected && autoFill;
+
+                if (outlined != selectionOutlined)
+                {
+                    selectionOutlined = outlined;
+                    BorderColour = TypeBeatStyle.Caret;
+                    BorderThickness = outlined ? selection_outline_px : 0;
+                }
 
                 // Other lines' blocks stay visible but recede so the active line reads at a glance.
                 Alpha = activeLine ? 1f : 0.55f;

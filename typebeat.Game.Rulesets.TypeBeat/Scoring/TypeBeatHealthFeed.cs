@@ -39,6 +39,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
     ///
     /// <para>It is a SEAM, not a rule: every hook forwards to the processor method the playfield's
     /// handler used to call, with the same argument, so no value the bar takes moves.</para>
+    ///
+    /// <para><see cref="OnHoldTailJudged"/> and <see cref="OnHoldTickJudged"/> are not subscribed: their mark
+    /// must land before the result is applied, so the playfield calls them first.</para>
     /// </summary>
     public static class TypeBeatHealthFeed
     {
@@ -80,6 +83,20 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// </summary>
         public static void OnWrongKeyRejected(TypeBeatHealthProcessor? health, int consecutiveWrongKeys)
             => health?.ApplyWrongKeyStreak(consecutiveWrongKeys);
+
+        /// <summary>A seal tail Miss is HP-neutral: its head's Miss already drained for the letter.</summary>
+        public static void OnHoldTailJudged(TypeBeatHealthProcessor? health, HoldTailJudgement judgement)
+        {
+            if (judgement.AtSeal)
+                health?.MarkTailHealthNeutral(judgement.LineIndex, judgement.CellIndex);
+        }
+
+        /// <summary>A never-opened hold's tick miss is HP-neutral.</summary>
+        public static void OnHoldTickJudged(TypeBeatHealthProcessor? health, HoldTickJudgement judgement)
+        {
+            if (judgement.Neutral)
+                health?.MarkTickHealthNeutral(judgement.LineIndex, judgement.CellIndex, judgement.TickIndex);
+        }
 
         /// <summary>
         /// Subscribe the six hooks above to <paramref name="engine"/>, each resolving its processor

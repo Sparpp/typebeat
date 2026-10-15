@@ -6,6 +6,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Extensions.Color4Extensions;
 using osu.Framework.Extensions.ObjectExtensions;
@@ -13,6 +14,8 @@ using osu.Framework.Graphics;
 using osu.Framework.Graphics.Colour;
 using osu.Framework.Graphics.Containers;
 using osu.Framework.Graphics.Shapes;
+using osu.Framework.Graphics.Sprites;
+using osu.Framework.IO.Stores;
 using osu.Framework.Utils;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
@@ -211,6 +214,142 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// <summary>Content-local left edge of each cell; length = Cells.Count + 1 (last entry = end of line).</summary>
         private float[] cellX = { 0f };
 
+        // --- Hold tracks ---
+        // Per cell, the hold's duration (0 for an unheld cell). A line without holds builds nothing.
+        private readonly double[] holdDurations;
+
+        /// <summary>The track gap after each cell (content-local); 0 except after a held cell.</summary>
+        private float[] holdGaps = Array.Empty<float>();
+
+        /// <summary>One track per held cell, keyed by cell index; null on a line without holds.</summary>
+        private Dictionary<int, HoldBar>? holdBars;
+
+        /// <summary>Track length per second of hold, in letter widths, when there is no pace to follow.</summary>
+        public const float HOLD_TRACK_LETTERS_PER_SECOND = 4f;
+
+        public const float HOLD_TRACK_MIN_LETTERS = 2f, HOLD_TRACK_MAX_LETTERS = 12f;
+
+        /// <summary>A track's thickness at the default font size: a pixel over the sweep rail's.</summary>
+        public const float HOLD_TRACK_HEIGHT = SWEEP_RAIL_HEIGHT + 1;
+
+        /// <summary>A tick's size at the default font size: a thin bar crossing the track.</summary>
+        public const float HOLD_TICK_WIDTH = HOLD_TRACK_HEIGHT / 2, HOLD_TICK_HEIGHT = HOLD_TRACK_HEIGHT * 3;
+
+        /// <summary>A hold's track length from its duration alone, in the font's letter widths, clamped. Pure.</summary>
+        public static float HoldTrackWidth(double durationMs, float refAdvance)
+            => refAdvance * Math.Clamp((float)(durationMs / 1000 * HOLD_TRACK_LETTERS_PER_SECOND), HOLD_TRACK_MIN_LETTERS, HOLD_TRACK_MAX_LETTERS);
+
+        public const float HOLD_TRACK_PACED_MIN_LETTERS = 1f;
+
+        public const float HOLD_PACE_MIN_LETTERS_PER_SECOND = 1f, HOLD_PACE_MAX_LETTERS_PER_SECOND = 8f;
+
+        /// <summary>
+        /// The playhead's pace into the hold in letter widths per second: <paramref name="leadInPx"/> covered from
+        /// the previous letter's time to the hold's start, clamped. Null without a previous letter. Pure.
+        /// </summary>
+        public static double? HoldPaceLettersPerSecond(double holdStart, double? previousTime, float leadInPx, float refAdvance)
+            => previousTime is double previous && holdStart > previous && refAdvance > 0
+                ? Math.Clamp(leadInPx / refAdvance * 1000 / (holdStart - previous), HOLD_PACE_MIN_LETTERS_PER_SECOND, HOLD_PACE_MAX_LETTERS_PER_SECOND)
+                : null;
+
+        /// <summary>
+        /// A hold's track length sized so the playhead keeps the word's pace across the held letter and its
+        /// track; the duration-only rule without a pace. Pure.
+        /// </summary>
+        public static float HoldTrackWidth(double durationMs, float refAdvance, double? lettersPerSecond, float heldAdvance)
+            => lettersPerSecond is double pace
+                ? refAdvance * Math.Clamp((float)(durationMs / 1000 * pace - heldAdvance / refAdvance), HOLD_TRACK_PACED_MIN_LETTERS, HOLD_TRACK_MAX_LETTERS)
+                : HoldTrackWidth(durationMs, refAdvance);
+
+        /// <summary>The pace into held cell <paramref name="i"/> from the nearest earlier typed or completed cell.</summary>
+        private double? holdPaceAt(int i, float refAdvance)
+        {
+            var cell = Line.Cells[i];
+
+            for (int j = i - 1; j >= 0; j--)
+            {
+                var previous = Line.Cells[j];
+
+                if (!previous.IsTypeable && !previous.IsAutoCompleted)
+                    continue;
+
+                float leadInPx = 0;
+
+                for (int k = j; k < i; k++)
+                    leadInPx += advances[k] + holdGaps[k];
+
+                return HoldPaceLettersPerSecond(cell.HoldStart ?? cell.TargetTime, previous.HoldEnd ?? previous.TargetTime, leadInPx, refAdvance);
+            }
+
+            return null;
+        }
+
+        /// <summary>The track length after cell <paramref name="cellIndex"/>, or 0.</summary>
+        internal float HoldTrackWidthAt(int cellIndex) => cellIndex >= 0 && cellIndex < holdGaps.Length ? holdGaps[cellIndex] : 0f;
+
+        // --- The travelling letter ---
+        // While held, a copy of the glyph lifts and glides along the track (the real sprite's transforms are
+        // owned by other effects); the real cell fades to a ghost through holdGhost.
+
+        /// <summary>Per-cell ghost factor (1, <see cref="HOLD_GHOST_ALPHA"/> while picked up, 0 once set down); null without holds.</summary>
+        private float[]? holdGhost;
+
+        /// <summary>The picked-up letters by cell index; null until the first pick-up.</summary>
+        private Dictionary<int, HoldTraveller>? holdTravellers;
+
+        public const float HOLD_LIFT_FRACTION = 0.12f;
+
+        public const float HOLD_LIFT_SCALE = 1.1f;
+
+        public const float HOLD_GHOST_ALPHA = 0.18f;
+
+        public const double HOLD_PICK_UP_MS = 80, HOLD_SET_DOWN_MS = 100;
+
+        /// <summary>How much a lifted letter's (hard, unblurred) shadow offset grows; paired with a lighter shadow.</summary>
+        internal const float HOLD_LIFT_SHADOW_OFFSET_FACTOR = 1.75f;
+
+        private static readonly Color4 hold_lift_shadow = new Color4(0, 0, 0, 0.4f);
+
+        /// <summary>How far along its track a letter is at hold fill <paramref name="fill"/>. Pure.</summary>
+        public static float HoldTravelOffset(float fill, float trackWidth) => Math.Clamp(fill, 0, 1) * trackWidth;
+
+        /// <summary>
+        /// The playhead's offset from the held cell's left edge at <paramref name="fraction"/> of the hold: it
+        /// sweeps evenly across the letter and its track, staying on the travelling letter. Pure.
+        /// </summary>
+        public static float HeldSungOffset(double fraction, float advance, float trackWidth)
+            => (float)((advance + trackWidth) * Math.Clamp(fraction, 0, 1));
+
+        /// <summary>Test accessor.</summary>
+        internal OsuSpriteText? HoldTravellerAt(int cellIndex)
+            => holdTravellers != null && holdTravellers.TryGetValue(cellIndex, out var t) ? t.Sprite : null;
+
+        /// <summary>Where cell <paramref name="cellIndex"/>'s letter sits at rest (content-local centre).</summary>
+        internal Vector2 HoldTravellerBaseAt(int cellIndex) => new Vector2(cellX[cellIndex] + advances[cellIndex] * 0.5f, glyphHeight * 0.5f);
+
+        /// <summary>Test accessor.</summary>
+        internal float HoldGhostAt(int cellIndex) => holdGhost?[cellIndex] ?? 1f;
+
+        /// <summary>Cell <paramref name="i"/>'s displayed alpha ignoring the hold ghost (a traveller carries it).</summary>
+        private float cellVisibleAlpha(int i)
+            => holdTravellers != null && holdTravellers.TryGetValue(i, out var t) ? t.Sprite.Alpha : cells[i].Alpha;
+
+        private sealed class HoldTraveller
+        {
+            public readonly OsuSpriteText Sprite;
+
+            /// <summary>The last fill, so a re-layout keeps the letter's spot.</summary>
+            public float Fill;
+
+            /// <summary>Set down: no later fill moves it.</summary>
+            public bool Down;
+
+            public HoldTraveller(OsuSpriteText sprite)
+            {
+                Sprite = sprite;
+            }
+        }
+
         private float contentScale = 1f;
         private float glyphHeight;
 
@@ -226,6 +365,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
         /// <summary>Effective on-screen height of a glyph row (after auto-shrink scaling).</summary>
         public float LineHeight => glyphHeight * contentScale;
+
+        /// <summary>Test accessor: the glyph row's height in content-local units.</summary>
+        internal float GlyphRowHeight => glyphHeight;
 
         /// <summary>
         /// Limit this line to the available playfield width. Each display keeps its own scale, so
@@ -361,6 +503,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             this.paceBands = paceBands;
             selectedPaceBands = paceBands;
             grouping = line.AuthoredGrouping;
+            holdDurations = line.Cells.Select(c => c is { HoldStart: double hs, HoldEnd: double he } ? he - hs : 0).ToArray();
             AutoSizeAxes = Axes.Both;
         }
 
@@ -440,6 +583,21 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             measureAndLayout();
         }
 
+        [Resolved(CanBeNull = true)]
+        private FontStore? fontStore { get; set; }
+
+        /// <summary>The x-height centre within a cell's box, measured from the glyph of 'x'; null when unavailable.</summary>
+        internal static float? XHeightCentre(FontStore? store, FontUsage font, float fontSize)
+        {
+            // SpriteText's lookup order: the font's own glyph, then the default font.
+            var glyph = store?.Get(font.FontName, 'x') ?? store?.Get(null, 'x');
+
+            if (glyph == null || glyph.Height <= 0f)
+                return null;
+
+            return (glyph.YOffset + glyph.Height / 2f) * fontSize;
+        }
+
         [BackgroundDependencyLoader]
         private void load()
         {
@@ -505,6 +663,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             addSpaceErrorDots(n);
             addSyllableMarkers(n);
+            addHoldBars(n);
 
             var freestyle = new List<int>();
 
@@ -774,6 +933,211 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
         }
 
+        /// <summary>One <see cref="HoldBar"/> per held cell, in the gap after it; placed by <see cref="measureAndLayout"/>.</summary>
+        private void addHoldBars(int n)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                if (holdDurations[i] <= 0)
+                    continue;
+
+                var bar = new HoldBar
+                {
+                    Anchor = Anchor.TopLeft,
+                    Origin = Anchor.TopLeft,
+                    BypassAutoSizeAxes = Axes.Both,
+                    BlurSigma = HoldBar.HOLD_BLUR_SIGMA * SizeRatio,
+                };
+
+                (holdBars ??= new Dictionary<int, HoldBar>())[i] = bar;
+
+                if (Line.Cells[i] is { HoldStart: double start, HoldEnd: double end, HoldTickTimes: { Count: > 0 } tickTimes })
+                    bar.SetTicks(tickTimes.Select(t => (float)((t - start) / Math.Max(1, end - start))).ToArray());
+
+                content.Add(bar);
+
+                if (holdGhost == null)
+                {
+                    holdGhost = new float[n];
+                    Array.Fill(holdGhost, 1f);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The held fraction of a hold, fed every frame it is down. The first fill above 0 picks the letter up
+        /// (a 0 fill, as for a never-opened hold, must not); then the letter moves with the fill until set down.
+        /// </summary>
+        public void SetHoldFill(int cellIndex, float fill)
+        {
+            if (holdBars == null || !holdBars.TryGetValue(cellIndex, out var bar))
+                return;
+
+            bar.Fill = fill;
+
+            if (holdTravellers != null && holdTravellers.TryGetValue(cellIndex, out var traveller))
+            {
+                if (traveller.Down)
+                    return;
+            }
+            else if (fill > 0)
+                traveller = pickUpHeldLetter(cellIndex);
+            else
+                return;
+
+            traveller.Fill = fill;
+            traveller.Sprite.X = HoldTravellerBaseAt(cellIndex).X + HoldTravelOffset(fill, HoldTrackWidthAt(cellIndex));
+        }
+
+        /// <summary>A copy of the glyph lifts, grows and deepens its shadow; the real cell fades to a ghost.</summary>
+        private HoldTraveller pickUpHeldLetter(int cellIndex)
+        {
+            var cell = cells[cellIndex];
+            var home = HoldTravellerBaseAt(cellIndex);
+
+            var sprite = new OsuSpriteText
+            {
+                Font = cell.Font,
+                Text = cell.Text,
+                Colour = Line.Cells[cellIndex].IsFreestyle ? cell.Colour : settledCellColour(cellIndex, Line.Cells[cellIndex]),
+                Anchor = Anchor.TopLeft,
+                Origin = Anchor.Centre,
+                Position = home,
+                ShadowColour = TypeBeatStyle.TextShadow,
+                ShadowOffset = TypeBeatStyle.TEXT_SHADOW_OFFSET,
+                BypassAutoSizeAxes = Axes.Both,
+                Alpha = cellStateAlpha[cellIndex] * cellHidingFactor(cellIndex),
+                // In front of the glyphs and the track.
+                Depth = -2,
+            };
+
+            content.Add(sprite);
+
+            sprite.MoveToY(home.Y - glyphHeight * HOLD_LIFT_FRACTION, HOLD_PICK_UP_MS, Easing.OutQuad)
+                  .ScaleTo(HOLD_LIFT_SCALE, HOLD_PICK_UP_MS, Easing.OutQuad);
+            sprite.TransformTo(nameof(sprite.ShadowColour), hold_lift_shadow, HOLD_PICK_UP_MS, Easing.OutQuad);
+            sprite.TransformTo(nameof(sprite.ShadowOffset), TypeBeatStyle.TEXT_SHADOW_OFFSET * HOLD_LIFT_SHADOW_OFFSET_FACTOR, HOLD_PICK_UP_MS, Easing.OutQuad);
+
+            var traveller = new HoldTraveller(sprite);
+            (holdTravellers ??= new Dictionary<int, HoldTraveller>())[cellIndex] = traveller;
+
+            setHoldGhost(cellIndex, HOLD_GHOST_ALPHA);
+            return traveller;
+        }
+
+        /// <summary>The letter settles back down where it stopped, and the ghost behind vanishes.</summary>
+        private void setDownHeldLetter(int cellIndex, HoldTraveller traveller)
+        {
+            var sprite = traveller.Sprite;
+            traveller.Down = true;
+
+            sprite.MoveToY(HoldTravellerBaseAt(cellIndex).Y, HOLD_SET_DOWN_MS, Easing.InOutQuad)
+                  .ScaleTo(1, HOLD_SET_DOWN_MS, Easing.InOutQuad);
+            sprite.TransformTo(nameof(sprite.ShadowColour), TypeBeatStyle.TextShadow, HOLD_SET_DOWN_MS, Easing.InOutQuad);
+            sprite.TransformTo(nameof(sprite.ShadowOffset), TypeBeatStyle.TEXT_SHADOW_OFFSET, HOLD_SET_DOWN_MS, Easing.InOutQuad);
+
+            setHoldGhost(cellIndex, 0);
+        }
+
+        private void setHoldGhost(int cellIndex, float factor)
+        {
+            if (holdGhost == null)
+                return;
+
+            holdGhost[cellIndex] = factor;
+            applyCellAlpha(cellIndex, animate: true);
+        }
+
+        /// <summary>Removes a travelling letter and un-ghosts its cell.</summary>
+        private void removeTraveller(int cellIndex, HoldTraveller traveller)
+        {
+            content.Remove(traveller.Sprite, true);
+            setHoldGhost(cellIndex, 1);
+        }
+
+        /// <summary>A hold's tail was judged: its bar and travelling letter flash the result, and the letter is set down.</summary>
+        public void ShowHoldResult(int cellIndex, JudgementType type)
+        {
+            if (holdBars == null || !holdBars.TryGetValue(cellIndex, out var bar))
+                return;
+
+            var colour = HoldResultColour(type);
+            bar.ShowResult(colour);
+
+            if (holdTravellers == null || !holdTravellers.TryGetValue(cellIndex, out var traveller))
+                return;
+
+            if (!traveller.Down)
+                setDownHeldLetter(cellIndex, traveller);
+
+            traveller.Sprite.FlashColour(Color4.White, 300, Easing.OutQuint);
+            traveller.Sprite.FadeColour(colour, 300, Easing.OutQuint);
+        }
+
+        /// <summary>A hold never opened: its bar ends empty on a dimmed miss track, and the letter stays home.</summary>
+        public void ShowHoldMissed(int cellIndex)
+        {
+            if (holdBars == null || !holdBars.TryGetValue(cellIndex, out var bar))
+                return;
+
+            bar.ShowMissed();
+
+            if (holdTravellers != null && holdTravellers.Remove(cellIndex, out var traveller))
+                removeTraveller(cellIndex, traveller);
+        }
+
+        public void ShowHoldTickHit(int cellIndex, int tickIndex) => HoldBarAt(cellIndex)?.LightTick(tickIndex);
+
+        public void ShowHoldTickMissed(int cellIndex, int tickIndex) => HoldBarAt(cellIndex)?.MissTick(tickIndex);
+
+        /// <summary>Every bar back to unjudged and every travelling letter gone, after a rewind.</summary>
+        public void ResetHoldBars()
+        {
+            if (holdBars == null)
+                return;
+
+            foreach (var bar in holdBars.Values)
+                bar.Reset();
+
+            if (holdTravellers == null)
+                return;
+
+            foreach (var (i, traveller) in holdTravellers)
+                removeTraveller(i, traveller);
+
+            holdTravellers.Clear();
+        }
+
+        /// <summary>The bar beside cell <paramref name="cellIndex"/>, or null.</summary>
+        internal HoldBar? HoldBarAt(int cellIndex) => holdBars != null && holdBars.TryGetValue(cellIndex, out var bar) ? bar : null;
+
+        /// <summary>A hold tail's result colour: Great and Ok typed white, Meh yellow, Miss red. Pure.</summary>
+        public static Color4 HoldResultColour(JudgementType type) => type switch
+        {
+            JudgementType.Great or JudgementType.Ok => TypeBeatStyle.TypedChar,
+            JudgementType.Meh => TypeBeatStyle.Caret,
+            _ => TypeBeatStyle.ErrorChar,
+        };
+
+        /// <summary>Each cell's left edge (and, last, the line's width): the running sum of advances plus each gap. Pure.</summary>
+        internal static float[] CellLefts(IReadOnlyList<float> advances, IReadOnlyList<float> gapAfter)
+        {
+            var left = new float[advances.Count + 1];
+            float x = 0;
+
+            for (int i = 0; i < advances.Count; i++)
+            {
+                left[i] = x;
+                x += advances[i];
+
+                if (i < gapAfter.Count)
+                    x += gapAfter[i];
+            }
+
+            left[advances.Count] = x;
+            return left;
+        }
+
         /// <summary>
         /// Hidden one-glyph sprites, one per shimmer candidate, added purely so their advance can be
         /// measured in this display's real font at its real size. Alpha 0 without AlwaysPresent, so
@@ -922,14 +1286,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 glyphHeight = requestedFontSize;
 
             CharWidth = refAdvance;
-            cellX = new float[n + 1];
             advances = new float[Math.Max(n, 1)];
 
             // Natural proportional layout: every cell advances by its own measured glyph width.
             // A glyph that yielded no measurement (unloaded, or a space on fonts whose lone-space
             // SpriteText measures empty) falls back to a sensible estimate.
-            float x = 0f;
-
             for (int i = 0; i < n; i++)
             {
                 int block = Line.JamoBlockHead(i);
@@ -941,14 +1302,22 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     : cells[i].DrawWidth > 0.1f
                         ? cells[i].DrawWidth
                         : Line.Cells[i].Expected == ' ' ? refAdvance * 0.55f : refAdvance;
-                cellX[i] = x;
                 advances[i] = a;
-                x += a;
             }
 
-            cellX[n] = x;
+            if (holdBars != null)
+            {
+                if (holdGaps.Length != n)
+                    holdGaps = new float[n];
+
+                for (int i = 0; i < n; i++)
+                    holdGaps[i] = holdDurations[i] > 0 ? HoldTrackWidth(holdDurations[i], refAdvance, holdPaceAt(i, refAdvance), advances[i]) : 0f;
+            }
+
+            // Running sum of advances plus each hold's track gap (advances is padded to one entry for an empty line).
+            cellX = CellLefts(n == advances.Length ? advances : Array.Empty<float>(), holdGaps);
             // The clipped pace rail bypasses auto-size, so reserve its full fixed height here.
-            layoutBounds.Size = new Vector2(x, glyphHeight + (SWEEP_RAIL_OFFSET + SWEEP_RAIL_HEIGHT) * SizeRatio);
+            layoutBounds.Size = new Vector2(cellX[n], glyphHeight + (SWEEP_RAIL_OFFSET + SWEEP_RAIL_HEIGHT) * SizeRatio);
 
 
             applyFit();
@@ -956,6 +1325,34 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
             for (int i = 0; i < n; i++)
                 cells[i].Position = new Vector2(cellX[i] + advances[i] * 0.5f, glyphHeight * 0.5f);
+
+            // Each hold track spans its gap through the x-height centre (falling back to the box middle).
+            if (holdBars != null)
+            {
+                float thickness = HOLD_TRACK_HEIGHT * SizeRatio;
+                float trackCentre = XHeightCentre(fontStore, TypeBeatStyle.Lyric(requestedFontSize, fontFamily), requestedFontSize) ?? glyphHeight / 2;
+
+                foreach (var (i, bar) in holdBars)
+                {
+                    bar.Position = new Vector2(cellX[i] + advances[i], trackCentre - thickness / 2);
+                    bar.Size = new Vector2(holdGaps[i], thickness);
+                    bar.BlurSigma = HoldBar.HOLD_BLUR_SIGMA * SizeRatio;
+                    bar.TickSize = new Vector2(HOLD_TICK_WIDTH, HOLD_TICK_HEIGHT) * SizeRatio;
+                }
+
+                // A travelling letter keeps its spot along the resized track.
+                if (holdTravellers != null)
+                {
+                    foreach (var (i, traveller) in holdTravellers)
+                    {
+                        var home = HoldTravellerBaseAt(i);
+                        var sprite = traveller.Sprite;
+                        sprite.ClearTransforms(false, nameof(sprite.Y));
+                        sprite.X = home.X + HoldTravelOffset(traveller.Fill, holdGaps[i]);
+                        sprite.Y = traveller.Down ? home.Y : home.Y - glyphHeight * HOLD_LIFT_FRACTION;
+                    }
+                }
+            }
 
             foreach (var (group, ruby) in furigana)
             {
@@ -1137,6 +1534,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             int lo = (int)Math.Floor(f);
             int hi = Math.Min(lo + 1, cellX.Length - 1);
             float frac = (float)(f - lo);
+
+            // A held cell's span covers its letter and its track (see HeldSungOffset).
+            if (hi == lo + 1 && lo < holdGaps.Length && holdGaps[lo] > 0 && lo < advances.Length)
+                return cellX[lo] + HeldSungOffset(f - lo, advances[lo], holdGaps[lo]);
+
             return cellX[lo] + (cellX[hi] - cellX[lo]) * frac;
         }
 
@@ -1587,6 +1989,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             }
         }
 
+        /// <summary>
+        /// The colour <see cref="RefreshCell"/> paints a non-freestyle cell in its current state (also a travelling letter's).
+        /// </summary>
+        private Color4 settledCellColour(int cellIndex, TypingCell source)
+        {
+            // A completed cell stays dark in every state; an onset to type starts a step brighter.
+            if (source.IsAutoCompleted)
+                return TypeBeatStyle.AutoCompletedChar;
+
+            double? syncQuality = syncTintEnabled && source.JudgedDelta is double delta
+                ? (source.JudgedPastRushCap ? 0 : SyncWindows.Default.SyncQuality(delta))
+                : null;
+
+            bool inSungSyllable = litCells[cellIndex];
+            float brightnessAmount = textHighlightAmount(cellIndex);
+
+            if (source.IsOnset && source.State == CellState.Untyped)
+                return TypeBeatStyle.ShorthandOnsetCharForBrightness(inSungSyllable ? sungBrightness * brightnessAmount : 0);
+
+            return CellFillColour(source.State, isFreestyle: false, inSungSyllable, syncQuality, sungBrightness * brightnessAmount);
+        }
+
         public void RefreshCell(int cellIndex)
         {
             applyTextPopIn(cellIndex);
@@ -1644,14 +2068,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // awarded Meh for where the caret was rather than for when the key went down, so its
             // delta can be dead on and still describe a cell graded at the bottom of the ladder.
             // The delta itself stays untouched on the cell and in every readout.
-            double? syncQuality = syncTintEnabled && source.JudgedDelta is double delta
-                ? (source.JudgedPastRushCap ? 0 : SyncWindows.Default.SyncQuality(delta))
-                : null;
+            cell.Colour = settledCellColour(cellIndex, source);
 
-            bool inSungSyllable = litCells[cellIndex];
-
-            float brightnessAmount = textHighlightAmount(cellIndex);
-            cell.Colour = CellFillColour(source.State, isFreestyle: false, inSungSyllable, syncQuality, sungBrightness * brightnessAmount);
             // A WORD GAP is the one cell whose glyph is not fixed at construction: a typo landing on
             // it shows the typed char, and every other state shows the space back (see CellGlyph).
             // Scoped to the gap rather than asserted for every cell so a lyric character's Text is
@@ -1687,6 +2105,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 default: // Untyped, Correct, Wrong on a lyric cell, AutoSkipped
                     cellStateAlpha[cellIndex] = 1f;
                     break;
+            }
+
+            // A set-down letter that was backspaced is no longer held: drop its copy and un-ghost the cell.
+            if (holdTravellers != null && source.State != CellState.Correct
+                && holdTravellers.TryGetValue(cellIndex, out var setDown) && setDown.Down)
+            {
+                holdTravellers.Remove(cellIndex);
+                content.Remove(setDown.Sprite, true);
+
+                if (holdGhost != null)
+                    holdGhost[cellIndex] = 1f;
             }
 
             // Compose the state alpha with the flashlight window and the Recite factor (each a
@@ -1898,10 +2327,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             litCells[index] = lit;
             litAmounts[index] = amount;
             // Only the untyped fill changes during the approach; judgement feedback keeps its colour.
-            if (index < cells.Length && Line.Cells[index].State == CellState.Untyped && !Line.Cells[index].IsFreestyle)
+            if (index < cells.Length && Line.Cells[index].State == CellState.Untyped && !Line.Cells[index].IsFreestyle && !Line.Cells[index].IsAutoCompleted)
             {
                 float brightnessAmount = textHighlightAmount(index);
-                cells[index].Colour = TypeBeatStyle.SungCharForBrightness(sungBrightness * brightnessAmount);
+                cells[index].Colour = Line.Cells[index].IsOnset
+                    ? TypeBeatStyle.ShorthandOnsetCharForBrightness(sungBrightness * brightnessAmount)
+                    : TypeBeatStyle.SungCharForBrightness(sungBrightness * brightnessAmount);
             }
         }
 
@@ -2090,6 +2521,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 float amount = owner.indicatorProgress[index];
                 bool visible = owner.glyphFillMode && owner.litCells[index] && owner.indicatorRelease[index] > 0
                                && owner.Line.Cells[index].State == CellState.Untyped && !owner.Line.Cells[index].IsFreestyle
+                               && !owner.Line.Cells[index].IsAutoCompleted
                                && amount > 0 && amount < 1;
                 Alpha = visible ? source.Alpha : 0;
                 if (!visible)
@@ -2120,57 +2552,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 JudgementIndicatorMode.BottomToTopFill => (new Vector2(0, glyphSize.Y * (1 - amount)), new Vector2(glyphSize.X, glyphSize.Y * amount)),
                 _ => (Vector2.Zero, Vector2.Zero),
             };
-        }
-
-        private sealed partial class FloatingIndicatorBar : Box
-        {
-            private readonly LyricLineDisplay owner;
-            private readonly int index;
-
-            public FloatingIndicatorBar(LyricLineDisplay owner, int index)
-            {
-                this.owner = owner;
-                this.index = index;
-                AlwaysPresent = true;
-                BypassAutoSizeAxes = Axes.Both;
-                Depth = -0.5f;
-                Alpha = 0;
-            }
-
-            protected override void Update()
-            {
-                base.Update();
-                Alpha = 0;
-                if (!owner.approachBarsEnabled || index >= owner.cells.Length || !owner.Line.Cells[index].IsCountable)
-                    return;
-                var span = owner.sungSpan(index);
-                // Bars always land on the sung target, independently of text indicator alignment.
-                double time = owner.sungTime;
-                float release = IndicatorRelease(time, span.end + owner.sungGreatLate * owner.windowMultiplier(index));
-                if (double.IsNaN(time) || time < span.start - owner.syllableFadeInDuration || release <= 0)
-                    return;
-                float progress = SyllableFadeInProgress(time, span.start, owner.syllableFadeInDuration);
-                float fadeIn = SyllableFadeInProgress(time, span.start - owner.syllableFadeInDuration + approach_bar_fade_in_duration_ms,
-                    approach_bar_fade_in_duration_ms);
-                bool charTimed = owner.characterTiming || owner.grouping.IndexOf(index) < 0
-                                 || owner.charTimedStretch && owner.grouping.IsCharTimedStretch(index);
-                if (!charTimed && index > 0 && owner.Line.Cells[index - 1].IsCountable
-                    && owner.sungSpan(index - 1) == span && owner.windowMultiplier(index - 1) == owner.windowMultiplier(index))
-                    return;
-                int end = index + 1;
-                if (!charTimed)
-                    while (end < owner.cells.Length && owner.Line.Cells[end].IsCountable && owner.sungSpan(end) == span
-                           && owner.windowMultiplier(end) == owner.windowMultiplier(index))
-                        end++;
-                float visible = 1;
-                for (int i = index; i < end; i++)
-                    visible = Math.Min(visible, owner.cells[i].Alpha);
-                Alpha = fadeIn * release * visible;
-                Position = new Vector2(owner.cellX[index], owner.glyphHeight + SWEEP_RAIL_OFFSET * owner.SizeRatio
-                    + 24 * owner.SizeRatio * (1 - progress));
-                Size = new Vector2(owner.cellX[end] - owner.cellX[index], SWEEP_RAIL_HEIGHT * owner.SizeRatio);
-                Colour = owner.paceColourFor(index);
-            }
         }
 
         private sealed partial class JudgementColourBar : Box
@@ -2238,7 +2619,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         }
 
         public JudgementIndicatorMode JudgementIndicator => judgementIndicator;
-        public float FloatingBarAlpha(int index) => index >= 0 && index < floatingBars.Length ? floatingBars[index].Alpha : 0;
+        public float FloatingBarAlpha(int index) => index >= 0 && index < floatingBars.Length ? floatingBars[index].BarAlpha : 0;
         public ColourInfo FloatingBarColour(int index) => floatingBars[index].Colour;
         public osu.Framework.Graphics.Primitives.Quad FloatingBarScreenQuad(int index) => floatingBars[index].ScreenSpaceDrawQuad;
         public float PaceBlendWidth(int index) => sweepBlends[index].Width;
@@ -2420,7 +2801,28 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // judgement state and the hiding mods each contribute an independent multiplier (1 when
             // they have nothing to say), so no two of them can clobber each other and no order of
             // application exists to get wrong.
-            float target = cellStateAlpha[i] * cellHidingFactor(i);
+            // A travelling letter shows the cell's alpha without the hold ghost.
+            float shown = cellStateAlpha[i] * cellHidingFactor(i);
+            float target = shown * (holdGhost?[i] ?? 1f);
+
+            if (holdTravellers != null && holdTravellers.TryGetValue(i, out var traveller))
+            {
+                if (animate)
+                    traveller.Sprite.FadeTo(shown, flashlight_fade_ms, Easing.OutQuint);
+                else
+                    traveller.Sprite.Alpha = shown;
+            }
+
+            // A hold track hides with its letter under the hiding mods only, so a miss track stays readable.
+            if (holdBars != null && holdBars.TryGetValue(i, out var holdBar))
+            {
+                float hiding = cellHidingFactor(i);
+
+                if (animate)
+                    holdBar.FadeTo(hiding, flashlight_fade_ms, Easing.OutQuint);
+                else
+                    holdBar.Alpha = hiding;
+            }
 
             // Ruby must never reveal a word hidden by Flashlight or Recite. A dictionary compound
             // can span several kanji, so all of its cells must be visible before its reading is.
@@ -2430,7 +2832,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     continue;
                 float alpha = 0.85f;
                 for (int at = group.StartCell; at < group.EndCellExclusive; at++)
-                    alpha = Math.Min(alpha, cellStateAlpha[at] * cellHidingFactor(at));
+                    alpha = Math.Min(alpha, cellStateAlpha[at] * cellHidingFactor(at) * (holdGhost?[at] ?? 1f));
                 if (animate)
                     ruby.FadeTo(alpha, flashlight_fade_ms, Easing.OutQuint);
                 else
