@@ -181,7 +181,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // backlog 363) selects which of the line's two syllable groupings a press is judged
                 // against, so it too lands before the first keystroke. Bits 3 to 8
                 // (AlignSubdivisionTargets, EarlyFinish and the four Japanese eras) land here on the
-                // same terms.
+                // same terms. Bit 9 (KeyTimeJudgement) is set too, although no rule here reads it:
+                // like WallClockFrames it says when the frames were stamped, and the engine carries
+                // it only so the live key handler (and a watch path handing a play back) can.
                 engine.RushCapCostsAccuracy = frame.RushCapCostsAccuracy;
                 engine.InputEra2 = frame.InputEra2;
                 engine.AuthoredSyllablesOnly = frame.AuthoredSyllablesOnly;
@@ -191,6 +193,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 engine.JapaneseWordTiming = frame.JapaneseWordTiming;
                 engine.JapaneseInputEra2 = frame.JapaneseInputEra2;
                 engine.JapaneseInputEra3 = frame.JapaneseInputEra3;
+                engine.KeyTimeJudgement = frame.KeyTimeJudgement;
                 return;
             }
 
@@ -235,6 +238,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
             engine.JapaneseWordTiming = false;
             engine.JapaneseInputEra2 = false;
             engine.JapaneseInputEra3 = false;
+            engine.KeyTimeJudgement = false;
         }
 
         /// <summary>

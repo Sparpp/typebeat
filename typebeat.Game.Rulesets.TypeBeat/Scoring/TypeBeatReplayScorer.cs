@@ -512,10 +512,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             // backlog 363) is the third, on the same terms: the lines carry both groupings and the
             // replay's own header picks one.
             //
-            // This list stops there. The bits since (AlignSubdivisionTargets, EarlyFinish and the
-            // four Japanese eras on the second word, and ManualNewlines and NewlineOnTypedLetter on
-            // the first) are on the same terms, and the complete set is the flag table in
-            // TypeBeatReplayFrame and the assignments in ReplayEngineFeed.Apply.
+            // This list stops there. The bits since (AlignSubdivisionTargets, EarlyFinish, the four
+            // Japanese eras and KeyTimeJudgement on the second word, and ManualNewlines and
+            // NewlineOnTypedLetter on the first) are on the same terms, and the complete set is the
+            // flag table in TypeBeatReplayFrame and the assignments in ReplayEngineFeed.Apply.
+            // KeyTimeJudgement selects nothing at all here: it says which instant the frames were
+            // stamped at, and a frame is fed at its own time on either arm.
 
             // Every window-scaling mod MULTIPLIES its factor in, never assigns it (see
             // TypingEngine.WindowScale), so the arms below compose in any order. A replay carries

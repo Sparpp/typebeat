@@ -165,10 +165,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         /// Recording seam for the playfield's key handler: forwards one EFFECTIVE typing input
         /// (accepted char, rejected-wrong char, or erasing backspace) to the active recorder, if
         /// any. No-op while not recording (e.g. watching a replay, where the feeder drives the
-        /// engine directly and must not be re-recorded).
+        /// engine directly and must not be re-recorded). <paramref name="wallStamp"/> is the Puppeteer
+        /// wall stamp of the instant the input was judged at, when that is not now (see
+        /// <see cref="TypeBeatReplayRecorder.RecordInput"/>).
         /// </summary>
-        internal void RecordTypingInput(char character, double time) =>
-            ((KeyBindingInputManager as IHasRecordingHandler)?.Recorder as TypeBeatReplayRecorder)?.RecordInput(character, time);
+        internal void RecordTypingInput(char character, double time, double? wallStamp = null) =>
+            ((KeyBindingInputManager as IHasRecordingHandler)?.Recorder as TypeBeatReplayRecorder)?.RecordInput(character, time, wallStamp);
 
         private TypingEngine createEngine()
         {
@@ -466,6 +468,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 JapaneseWordTiming = true,
                 JapaneseInputEra2 = true,
                 JapaneseInputEra3 = true,
+
+                // KEY-TIME JUDGEMENT (bit 9 of the second CONFIG word): a Latin or Japanese-romaji
+                // press is judged at its key's time even when the OS commits its text frames later,
+                // or commits no space for the spacebar at all (an IME commit has no key, and is
+                // judged when it arrives). Set UNCONDITIONALLY like every era flag here; the
+                // key handler is its only reader, and every replay recorded before it carries the
+                // pairing-time stamps it was judged at.
+                KeyTimeJudgement = true,
 
                 FlexibleCaretFromMod = legacyFletcher,
 

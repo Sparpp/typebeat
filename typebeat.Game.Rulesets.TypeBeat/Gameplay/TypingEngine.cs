@@ -1600,6 +1600,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         public bool EarlyFinish { get; set; }
 
         /// <summary>
+        /// A Latin or Japanese-romaji press is judged at the instant its KEY went down, not at the
+        /// instant the OS's text commit for it was paired with the key (see
+        /// <c>TypeBeatPlayfield.PAIRING_GRACE_MS</c>): a commit that arrives frames after its key, and
+        /// the spacebar's fallback on a platform that commits no space at all, are both stamped with
+        /// the key's own time. The IME path of the other Polyglot languages is untouched: a composed
+        /// commit has no key behind it, and is judged when it arrives.
+        ///
+        /// <para>An ERA, bit 9 of the SECOND CONFIG flags word
+        /// (<see cref="Replays.TypeBeatReplayFrame.CONFIG_EXTENDED"/>), and like the first word's
+        /// <c>WallClockFrames</c> it describes the FRAMES rather than a rule this class judges under:
+        /// nothing here reads it. Its one consumer is the live key handler, which holds the engine at
+        /// a waiting press's key time so the press is judged on exactly the call sequence a replay
+        /// feeds (<c>Update(t)</c>, then the key at <c>t</c>), and the recorder writes it so a stored
+        /// run says which instant its frames were stamped at. FALSE by default, which is what every
+        /// replay stored before it was recorded under (pairing-time stamps, re-derived as stamped).
+        /// Set for every live stack (<c>DrawableTypeBeatRuleset.createEngine</c>).</para>
+        /// </summary>
+        public bool KeyTimeJudgement { get; set; }
+
+        /// <summary>
         /// The rush cap in force for this run: <see cref="FLETCHER_MAX_CHARS_AHEAD"/> under
         /// <see cref="RushCapCostsAccuracy"/>, <see cref="LEGACY_FLETCHER_MAX_CHARS_AHEAD"/> in the
         /// era before it.

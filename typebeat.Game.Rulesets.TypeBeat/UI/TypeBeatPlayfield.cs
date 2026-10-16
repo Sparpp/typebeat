@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Bindables;
 using osu.Framework.Extensions;
@@ -26,6 +27,7 @@ using typebeat.Game.Rulesets.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.Configuration;
 using typebeat.Game.Rulesets.TypeBeat.Beatmaps;
 using typebeat.Game.Rulesets.TypeBeat.Gameplay;
+using typebeat.Game.Rulesets.TypeBeat.Mods;
 using typebeat.Game.Rulesets.TypeBeat.Objects.Drawables;
 using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
@@ -70,6 +72,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
         private FramedOffsetClock lyricClock = null!;
 
         private LyricStage stage = null!;
+
+        private TypeBeatKeyHandler keyHandler = null!;
+
+        /// <summary>
+        /// Test seam: stops (or restarts) the key handler's real-time clock for the text pairing's
+        /// grace (see <see cref="PAIRING_GRACE_MS"/>), so a test handing over a commit frames after
+        /// its key cannot lose the press to a slow machine. Gameplay time is unaffected.
+        /// </summary>
+        internal void FreezePairingClock(bool frozen) => keyHandler.FreezePairingClock(frozen);
 
         /// <summary>Urgency of the actual forced-line cutoff, on the same offset clock as typing.</summary>
         internal float LinePushWarningProgress
@@ -254,6 +265,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             // the current Clock every frame, before any child of the lyric subtree ticks.
             lyricClock = new FramedOffsetClock(Clock, processSource: false) { Offset = -lyricOffset.Value };
 
+            keyHandler = new TypeBeatKeyHandler(Engine, drawableRuleset, this);
+
             AddRangeInternal(new Drawable[]
             {
                 backdrop,
@@ -268,10 +281,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         // Ticks the engine FIRST in this subtree so the stage and HUD read
                         // fresh engine state for the same lyric-clock frame. Doubles as the
                         // replay feeder when a replay score is attached.
-                        new EngineTicker(Engine, drawableRuleset),
+                        new EngineTicker(Engine, drawableRuleset, () => keyHandler.HeldPressTime),
                         stage = new LyricStage(Engine),
                         new TypeBeatHudOverlay(drawableRuleset?.Ruleset.RulesetInfo),
-                        new TypeBeatKeyHandler(Engine, drawableRuleset, this),
+                        keyHandler,
                     },
                 },
             });
@@ -702,7 +715,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             /// replay's headers selected (backlog 363: above all the grouping, which the lyric stack
             /// re-lays when it flips back).
             /// </summary>
-            private (bool RushCapCostsAccuracy, bool InputEra2, bool AuthoredSyllablesOnly, bool AlignSubdivisionTargets, bool EarlyFinish, bool JapaneseRomajiInput, bool JapaneseWordTiming, bool JapaneseInputEra2, bool JapaneseInputEra3)? liveExtendedEras;
+            private (bool RushCapCostsAccuracy, bool InputEra2, bool AuthoredSyllablesOnly, bool AlignSubdivisionTargets, bool EarlyFinish, bool JapaneseRomajiInput, bool JapaneseWordTiming, bool JapaneseInputEra2, bool JapaneseInputEra3, bool KeyTimeJudgement)? liveExtendedEras;
             private int nextFrameIndex;
 
             /// <summary>
@@ -721,10 +734,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             [Resolved]
             private EditorTestPlayback? editorPlayback { get; set; }
 
-            public EngineTicker(TypingEngine engine, DrawableTypeBeatRuleset? drawableRuleset)
+            /// <summary>
+            /// The key time of the oldest live press still waiting for its text commit, if any (see
+            /// <see cref="TypeBeatKeyHandler.HeldPressTime"/>): the engine is not ticked past it.
+            /// </summary>
+            private readonly Func<double?> heldPressTime;
+
+            public EngineTicker(TypingEngine engine, DrawableTypeBeatRuleset? drawableRuleset, Func<double?> heldPressTime)
             {
                 this.engine = engine;
                 this.drawableRuleset = drawableRuleset;
+                this.heldPressTime = heldPressTime;
             }
 
             protected override void Update()
@@ -741,7 +761,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     // The replay can be swapped mid-play (editor autoplay toggle); restart feeding.
                     if (!ReferenceEquals(replay, activeReplay))
                     {
-                        liveExtendedEras ??= (engine.RushCapCostsAccuracy, engine.InputEra2, engine.AuthoredSyllablesOnly, engine.AlignSubdivisionTargets, engine.EarlyFinish, engine.JapaneseRomajiInput, engine.JapaneseWordTiming, engine.JapaneseInputEra2, engine.JapaneseInputEra3);
+                        liveExtendedEras ??= (engine.RushCapCostsAccuracy, engine.InputEra2, engine.AuthoredSyllablesOnly, engine.AlignSubdivisionTargets, engine.EarlyFinish, engine.JapaneseRomajiInput, engine.JapaneseWordTiming, engine.JapaneseInputEra2, engine.JapaneseInputEra3, engine.KeyTimeJudgement);
                         activeReplay = replay;
                         nextFrameIndex = 0;
                         lastFedTime = double.NegativeInfinity;
@@ -825,6 +845,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         engine.JapaneseWordTiming = live.JapaneseWordTiming;
                         engine.JapaneseInputEra2 = live.JapaneseInputEra2;
                         engine.JapaneseInputEra3 = live.JapaneseInputEra3;
+                        engine.KeyTimeJudgement = live.KeyTimeJudgement;
                     }
 
                     liveExtendedEras = null;
@@ -853,7 +874,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (engine.PlayStartTime is null && replay == null && gameplayClock != null && drawableRuleset?.IsEditorGameplayTest == true)
                     engine.SetPlayStart(gameplayClock.StartTime);
 
-                engine.Update(Time.Current, clockRate);
+                // A live press still waiting for its text commit HOLDS the engine at its key time
+                // (KeyTimeJudgement): the press is then judged on Update(keyTime) followed by the key
+                // at keyTime, the call sequence a replay feeds for its frame, rather than on an engine
+                // that has already sealed or activated whatever the song reached in between. The hold
+                // lasts until the commit arrives or the pairing gives up on it (PAIRING_GRACE_MS of
+                // real time), and the next tick catches up in one segment.
+                double tickTime = Time.Current;
+
+                if (heldPressTime() is double held && held < tickTime)
+                    tickTime = held;
+
+                engine.Update(tickTime, clockRate);
             }
         }
 
@@ -986,6 +1018,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             {
                 base.LoadComplete();
                 rulesetInput = this.FindClosestParent<TypeBeatInputManager>();
+                puppeteer = drawableRuleset?.Mods.OfType<TypeBeatModPuppeteer>().FirstOrDefault();
 
                 // Text input is live exactly while key handling is (backlog 383): the ruleset input
                 // manager stops forwarding keys while the pause or fail overlay is up, and the text
@@ -1160,7 +1193,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     collapseSelection(time);
 
                     if (engine.ProcessKey(c, time))
-                        drawableRuleset?.RecordTypingInput(c, time);
+                        record(c, time);
                 }
             }
 
@@ -1200,6 +1233,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                 /// <summary>When the press was made, on <see cref="pairingClock"/>.</summary>
                 public double Since;
+
+                /// <summary>The gameplay time the key went down at, the instant it is judged at under <see cref="TypingEngine.KeyTimeJudgement"/>.</summary>
+                public double KeyTime;
+
+                /// <summary>The Puppeteer wall stamp when the key went down (see <see cref="TypeBeatModPuppeteer.WallStampMs"/>), null without a tape.</summary>
+                public double? WallStamp;
             }
 
             private sealed class CommittedText
@@ -1257,6 +1296,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
             private readonly Stopwatch pairingClock = Stopwatch.StartNew();
 
             private double pairingNow => pairingClock.Elapsed.TotalMilliseconds;
+
+            /// <summary>See <see cref="TypeBeatPlayfield.FreezePairingClock"/>.</summary>
+            internal void FreezePairingClock(bool frozen)
+            {
+                if (frozen)
+                    pairingClock.Stop();
+                else
+                    pairingClock.Start();
+            }
 
             /// <summary>Commits from the text source, in arrival order. Filled on the window thread (live) or the update thread (tests), so locked.</summary>
             private readonly List<CommittedText> committed = new List<CommittedText>();
@@ -1321,13 +1369,108 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 return resolved;
             }
 
-            private void resolveAll(List<(PendingPress press, string? text)>? resolved, double time)
+            private void resolveAll(List<(PendingPress press, string? text)>? resolved)
             {
                 if (resolved == null)
                     return;
 
                 foreach (var (press, text) in resolved)
-                    resolvePress(press.Plan, text, time);
+                {
+                    if (!engine.KeyTimeJudgement)
+                    {
+                        resolvePress(press.Plan, text, Math.Round(Time.Current));
+                        continue;
+                    }
+
+                    // A Puppeteer run is recorded on the wall axis, so the frames this press makes
+                    // carry the stamp of the instant it is judged at too, not the one the pairing
+                    // resolved in, or the transform would re-derive it at a later track time.
+                    resolvingWallStamp = judgedWallStampOf(press);
+
+                    try
+                    {
+                        resolvePress(press.Plan, text, judgedTimeOf(press));
+                    }
+                    finally
+                    {
+                        resolvingWallStamp = null;
+                    }
+                }
+            }
+
+            /// <summary>The Puppeteer mod in this play's stack, whose wall axis a run under it is recorded on; null without one.</summary>
+            private TypeBeatModPuppeteer? puppeteer;
+
+            /// <summary>The Puppeteer wall stamp a frame recorded now would carry, null without an anchored tape.</summary>
+            private double? wallStampNow => puppeteer?.WallStampMs;
+
+            /// <summary>The wall stamp of <see cref="lastKeyTime"/>'s instant, for <see cref="judgedWallStampOf"/>.</summary>
+            private double lastKeyWallStamp = double.NegativeInfinity;
+
+            /// <summary>
+            /// The wall stamp every frame recorded while a waiting press is resolved carries (the
+            /// press itself and any erase a retype selection makes ahead of it); null otherwise,
+            /// when the recorder reads the mod's current stamp.
+            /// </summary>
+            private double? resolvingWallStamp;
+
+            /// <summary>The wall stamp of <see cref="judgedTimeOf"/>'s instant, clamped the same way so stamps stay in order.</summary>
+            private double? judgedWallStampOf(PendingPress press) => press.WallStamp is double stamp ? Math.Max(stamp, lastKeyWallStamp) : null;
+
+            /// <summary>Records one effective input at <paramref name="time"/> (see <see cref="resolvingWallStamp"/> for its wall stamp).</summary>
+            private void record(char character, double time) => drawableRuleset?.RecordTypingInput(character, time, resolvingWallStamp);
+
+            /// <summary>
+            /// The highest time this handler has advanced the engine to on a key's behalf (see
+            /// <see cref="advanceEngineTo"/>). Negative infinity before the first.
+            /// </summary>
+            private double lastKeyTime = double.NegativeInfinity;
+
+            /// <summary>
+            /// The time a waiting press is judged and recorded at under
+            /// <see cref="TypingEngine.KeyTimeJudgement"/>: its key time, unless a LATER key has
+            /// advanced the engine past it in the meantime (Backspace, a gesture, or another press
+            /// whose commit came first), in which case that key's time. The engine never moves
+            /// backwards for a press: <see cref="TypingEngine.Update"/> is monotone, a sealed line
+            /// cannot unseal, and a press judged at a time the engine has already left would be fed
+            /// on a call sequence no replay can repeat. Clamped this way the recorded frames stay in
+            /// time order and in the order they were processed, and each one re-derives exactly.
+            /// </summary>
+            private double judgedTimeOf(PendingPress press) => Math.Max(press.KeyTime, lastKeyTime);
+
+            /// <summary>
+            /// The time the engine is held at for the oldest press still waiting for its commit, or
+            /// null when none is (or the run predates <see cref="TypingEngine.KeyTimeJudgement"/>).
+            /// Read by the engine ticker, which does not tick past it, so the press is judged on the
+            /// engine as it stood at its key time; at most <see cref="pairing_grace_ms"/> of real time,
+            /// after which the pairing resolves or gives up on the press. A press that will only
+            /// discard its commit (<see cref="PressPlan.Drop"/>) judges nothing and holds nothing.
+            /// </summary>
+            public double? HeldPressTime
+            {
+                get
+                {
+                    if (!engine.KeyTimeJudgement)
+                        return null;
+
+                    foreach (var press in waitingPresses)
+                    {
+                        if (press.Plan != PressPlan.Drop)
+                            return judgedTimeOf(press);
+                    }
+
+                    return null;
+                }
+            }
+
+            /// <summary>Advances the engine to a key's <paramref name="time"/> and notes it for <see cref="judgedTimeOf"/>.</summary>
+            private void advanceEngineTo(double time)
+            {
+                engine.Update(time, wpmClockRate(gameplayClock, editorPlayback));
+                lastKeyTime = Math.Max(lastKeyTime, time);
+
+                if ((resolvingWallStamp ?? wallStampNow) is double stamp)
+                    lastKeyWallStamp = Math.Max(lastKeyWallStamp, stamp);
             }
 
             /// <summary>
@@ -1371,7 +1514,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         (resolved ??= new List<(PendingPress, string?)>()).Add((press, null));
                 }
 
-                resolveAll(resolved, Math.Round(Time.Current));
+                resolveAll(resolved);
             }
 
             /// <summary>
@@ -1412,7 +1555,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (text != null)
                     return resolvePress(plan, text, time);
 
-                waitingPresses.Add(new PendingPress { Plan = plan, Since = pairingNow });
+                waitingPresses.Add(new PendingPress { Plan = plan, Since = pairingNow, KeyTime = time, WallStamp = wallStampNow });
                 return false;
             }
 
@@ -1434,7 +1577,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 if (usesIme || drawableRuleset?.ReplayScore != null || drawableRuleset?.IsPaused.Value == true || !HasFocus)
                     return false;
 
-                engine.Update(time, wpmClockRate(gameplayClock, editorPlayback));
+                advanceEngineTo(time);
 
                 if (!engine.LineIsActive && !engine.FirstLineTypingOpensAt(time))
                     return false;
@@ -1450,7 +1593,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     {
                         if (c != ' ' && engine.NewlineOnTypedLetter && engine.ProcessKey(c, time))
                         {
-                            drawableRuleset?.RecordTypingInput(c, time);
+                            record(c, time);
                             typed = true;
                         }
 
@@ -1463,7 +1606,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                     if (engine.ProcessKey(c, time))
                     {
-                        drawableRuleset?.RecordTypingInput(c, time);
+                        record(c, time);
                         typed = true;
                     }
                 }
@@ -1545,7 +1688,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                 // Advance the engine to the keystroke's timestamp BEFORE gating/judging, so the
                 // outcome depends only on (char, time), not on where the last engine tick happened
                 // to fall. This is what lets replay playback reproduce the run exactly.
-                engine.Update(time, wpmClockRate(gameplayClock, editorPlayback));
+                advanceEngineTo(time);
 
                 // While the engine has no active line (pre-roll, a dead zone, or after the final
                 // line) typing is inert, so DON'T swallow the key; let it fall through to global
@@ -1599,7 +1742,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                         if (gesture == TypeBeatAction.EraseWord)
                             eraseBackTo(engine.WordBackspaceTarget, time);
                         else if (engine.ProcessBackspace())
-                            drawableRuleset?.RecordTypingInput(TypeBeatReplayFrame.BACKSPACE, time);
+                            record(TypeBeatReplayFrame.BACKSPACE, time);
                     }
 
                     return dropPress(freshTextPress, time, true);
@@ -1645,7 +1788,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     if (!engine.ProcessEnter(time))
                         return dropPress(freshTextPress, time);
 
-                    drawableRuleset?.RecordTypingInput(TypeBeatReplayFrame.ENTER, time);
+                    record(TypeBeatReplayFrame.ENTER, time);
                     return dropPress(freshTextPress, time, true);
                 }
 
@@ -1691,7 +1834,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
 
                         if ((space || enter) && (space ? engine.ProcessKey(' ', time) : engine.ProcessEnter(time)))
                         {
-                            drawableRuleset?.RecordTypingInput(space ? ' ' : TypeBeatReplayFrame.ENTER, time);
+                            record(space ? ' ' : TypeBeatReplayFrame.ENTER, time);
                             return dropPress(freshTextPress, time, true);
                         }
                     }
@@ -1729,7 +1872,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                             collapseSelection(time);
 
                             if (engine.ProcessKey(' ', time))
-                                drawableRuleset?.RecordTypingInput(' ', time);
+                                record(' ', time);
                         }
 
                         return true;
@@ -1853,7 +1996,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.UI
                     if (!engine.ProcessBackspace())
                         break;
 
-                    drawableRuleset?.RecordTypingInput(TypeBeatReplayFrame.BACKSPACE, time);
+                    record(TypeBeatReplayFrame.BACKSPACE, time);
 
                     // Defensive termination only. Every erase that reports a mutation moves the
                     // caret back, but one that reclaimed abandoned cells at the head of a line can

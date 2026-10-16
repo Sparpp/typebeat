@@ -73,9 +73,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
         /// <summary>
         /// Record one typing event. <paramref name="character"/> is the exact char fed to the engine
         /// (or <see cref="TypeBeatReplayFrame.BACKSPACE"/>); <paramref name="time"/> is the exact
-        /// (already integral) engine time it was fed at.
+        /// (already integral) engine time it was fed at. <paramref name="wallStamp"/> is the Puppeteer
+        /// wall stamp of that same instant when the input is recorded later than it (a press judged
+        /// at its key time once its text commit arrived, see <see cref="Gameplay.TypingEngine.KeyTimeJudgement"/>);
+        /// null for the mod's current stamp.
         /// </summary>
-        public void RecordInput(char character, double time)
+        public void RecordInput(char character, double time, double? wallStamp = null)
         {
             if (!configEmitted)
             {
@@ -94,10 +97,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Replays
                 // The SECOND flags word (backlog 347), straight after the first and at the same time,
                 // which is the order ReplayEngineFeed.Apply relies on (the CONFIG frame clears these
                 // flags, this one sets them).
-                emit(TypeBeatReplayFrame.CreateExtendedConfigFrame(configTime, rushCapCostsAccuracy: engine.RushCapCostsAccuracy, inputEra2: engine.InputEra2, authoredSyllablesOnly: engine.AuthoredSyllablesOnly, alignSubdivisionTargets: engine.AlignSubdivisionTargets, earlyFinish: engine.EarlyFinish, japaneseRomajiInput: engine.JapaneseRomajiInput, japaneseWordTiming: engine.JapaneseWordTiming, japaneseInputEra2: engine.JapaneseInputEra2, japaneseInputEra3: engine.JapaneseInputEra3));
+                emit(TypeBeatReplayFrame.CreateExtendedConfigFrame(configTime, rushCapCostsAccuracy: engine.RushCapCostsAccuracy, inputEra2: engine.InputEra2, authoredSyllablesOnly: engine.AuthoredSyllablesOnly, alignSubdivisionTargets: engine.AlignSubdivisionTargets, earlyFinish: engine.EarlyFinish, japaneseRomajiInput: engine.JapaneseRomajiInput, japaneseWordTiming: engine.JapaneseWordTiming, japaneseInputEra2: engine.JapaneseInputEra2, japaneseInputEra3: engine.JapaneseInputEra3, keyTimeJudgement: engine.KeyTimeJudgement));
             }
 
-            emit(new TypeBeatReplayFrame(StampFor(puppeteer, wallStamped, time), character));
+            emit(new TypeBeatReplayFrame(wallStamped && wallStamp is double stamp ? stamp : StampFor(puppeteer, wallStamped, time), character));
         }
 
         /// <summary>
