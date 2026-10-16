@@ -87,7 +87,9 @@ namespace typebeat.Game.Rulesets.TypeBeat
         // v6 removes the overlapping model's minimum character cutoff and carries played lyric
         // duration for the short-map pp factor; invalidate previously cached difficulty attributes.
         // v7 counts spaces produced by punctuation; refresh stored star ratings and target pace.
-        public override int Version => 7;
+        // v8 reads the stored target pace off the chunked axis (the envelope model is gone); no star
+        // rating moves, but the background pass has to re-derive every row's TargetWpm.
+        public override int Version => 8;
 
         protected override DifficultyAttributes CreateDifficultyAttributes(IBeatmap beatmap, Mod[] mods, Skill[] skills)
         {

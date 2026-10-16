@@ -5,12 +5,12 @@
 # typebeat-web/tests), then regenerate this list from the repo root with
 #   python3 -c "import hashlib,sys;[print(hashlib.sha256(open(p,'rb').read().removeprefix(b'\xef\xbb\xbf').replace(b'\r\n',b'\n')).hexdigest()+'  '+p) for p in sys.argv[1:]]" <the paths below>
 # or paste the replacement lines the failing test prints.
-6c11b34415b842d19eba304618eabb6153eb82931c2e8ad7e6b1beeb95dafa69  typebeat.Game.Rulesets.TypeBeat/Beatmaps/ChunkedEndurance.cs
+6bd3ad4b8862c44c3b1ac9b50ca8a9d3a2c28313abbe8a3342fbb5f73a6467f5  typebeat.Game.Rulesets.TypeBeat/Beatmaps/ChunkedEndurance.cs
 30051cb0249230fd4e96ddbe2d3565e9d67887c4c0ffeead1d7301e3ae718686  typebeat.Game.Rulesets.TypeBeat/Beatmaps/FreestyleColourKey.cs
 a9cfd52abdb942f73f1b5ad4c2f7a866a8efd64be0d405af8f4c4e6de5831bd6  typebeat.Game.Rulesets.TypeBeat/Beatmaps/LyricBeatmap.cs
 1d54696d94944b9a2fd727d34cd7cf009580686643c79d49aa47fdb6739eeb90  typebeat.Game.Rulesets.TypeBeat/Beatmaps/LyricBeatmapDecoder.cs
-b6f3f5789e8c3cda8ab2a920a1132e6f8d45e8725bb61499e6d9752cc62be8cc  typebeat.Game.Rulesets.TypeBeat/Beatmaps/LyricDifficulty.cs
-e1042c8db135a1edda2dd0372d58065c37956d57c7f7f1c77c4dfcb6c5e075fc  typebeat.Game.Rulesets.TypeBeat/Beatmaps/LyricPaceStatistics.cs
+e2738975db7f6efc74ac6d9e1aba2ee812edb2967bc5d2ccd7fc03f2a6bfd50d  typebeat.Game.Rulesets.TypeBeat/Beatmaps/LyricDifficulty.cs
+78ed422b09dd3abdb329c405d4ce0ad5ec825d39fdc8157afb1ddc532cc8c23b  typebeat.Game.Rulesets.TypeBeat/Beatmaps/LyricPaceStatistics.cs
 acc25de820d1128dab084e4361f256c5cff376cf47d3655816584516bb8985a9  typebeat.Game.Rulesets.TypeBeat/Beatmaps/LyricWpmCurve.cs
 163d9096a4836e960a9a42e71a3af2c2647edf5c0d50e3ea211ed0affec5531a  typebeat.Game.Rulesets.TypeBeat/Beatmaps/Romaniser.cs
 4dc875471989114d62c70d9d2199998c5a53197940466159c1bb467581b50cc1  typebeat.Game.Rulesets.TypeBeat/Beatmaps/TimingJsonLoader.cs

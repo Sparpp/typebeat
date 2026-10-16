@@ -8,17 +8,14 @@ using System.Linq;
 namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 {
     /// <summary>
-    /// THE CHUNKED ENDURANCE AXIS: a second reading of the same map, and the port of the Star
+    /// THE CHUNKED ENDURANCE AXIS: the reading every star rating is taken from, and the port of the Star
     /// Rating Sandbox's chunked block (<c>tools/star-rating-sandbox/model.mjs</c>, the
     /// "chunked axis" section).
     ///
-    /// <para>WHAT IT ASKS. The envelope model reads a map as one number built from its hardest
-    /// window and how much of the range the rest of the material fills. This axis asks a different
-    /// question: score the map's own windows directly, then take the decay-weighted mean of those
-    /// scores with the hardest weighted most. The result is a star figure on its own scale: on this
-    /// axis <c>starScale</c> is the anchor rather than <c>anchor / (1 + range)</c>, and
-    /// <c>difficult</c>/<c>demanding</c> are both the weighted length count the pp figure prices a
-    /// miss against.</para>
+    /// <para>WHAT IT ASKS. Score the map's own windows directly, then take the decay-weighted mean
+    /// of those scores with the hardest weighted most. The result is a star figure on its own
+    /// scale (<c>starScale</c> is the anchor), and <c>difficult</c>/<c>demanding</c> are both the
+    /// weighted length count the pp figure prices a miss against.</para>
     ///
     /// <para>TWO LAYOUTS, ONE AXIS. <see cref="Settings.chunk_profile"/> picks which window family
     /// the map is read through, and the sandbox's saved configuration - which
@@ -40,9 +37,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// <c>anchor x score x (1 + length bonus)</c> and nothing else; porting the rest "for
     /// completeness" is what made the sandbox slow.</para>
     ///
-    /// <para>ONE INPUT THE ENVELOPE MODEL DOES NOT HAVE. A chunk's strain is multiplied by the
-    /// rhythm boost INSIDE that window, read off a load prefix over the map's own keypress stream
-    /// (see <see cref="BuildLoadPrefix"/>), not off the map-level rhythmic-complexity multiplier.
+    /// <para>THE RHYTHM IS READ PER WINDOW. A chunk's strain is multiplied by the rhythm boost
+    /// INSIDE that window, read off a load prefix over the map's own keypress stream (see
+    /// <see cref="BuildLoadPrefix"/>), not off one map-level multiplier.
     /// That prefix is the only reason this file needs the press stream at all.</para>
     ///
     /// <para>THE DIALS ARE THE SANDBOX'S LIVE ONES. Every value in <see cref="Settings"/> mirrors
@@ -80,8 +77,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         internal sealed record Settings
         {
             // The capability curve S(t) this axis reads the material against: the sandbox's
-            // PARAMETERS panel, which is a different calibration from the envelope model's own
-            // constants (see LyricDifficulty).
+            // PARAMETERS panel.
             public double capability_base_wpm { get; init; } = 220;
             public double capability_burst_wpm { get; init; } = 200;
             public double capability_ref_seconds { get; init; } = 1.5;
@@ -182,8 +178,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             public double overlap_samples { get; init; } = 4;
 
             /// <summary>
-            /// The envelope-characters dial. On this axis only the <c>Fill</c> readout reads it;
-            /// nothing in the chunk score does.
+            /// The difficult-characters dial the <c>Fill</c> readout is read against; nothing in the
+            /// chunk score reads it.
             /// </summary>
             public double chars { get; init; } = 10;
         }
@@ -617,6 +613,96 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             return prefix;
         }
 
+        /// <summary>Where each window length is tried against a sample: starting at its centre, centred on it, and ending at it.</summary>
+        private static readonly double[] overlap_positions = { 0d, .5, 1d };
+
+        /// <summary>
+        /// THE OVERLAPPING LAYOUT'S WINDOW FAMILY, clamped exactly as the sandbox clamps its dials:
+        /// the base window (<c>chunk_seconds</c>), the sample step (the base cut into
+        /// <c>overlap_samples</c>), and every length tried at a sample, the base doubled up to the
+        /// horizon plus the exact cap when it is not on a doubling. Read by the rating's sample loop
+        /// and by <see cref="TargetWpm"/>, so the two measure the same windows.
+        /// </summary>
+        private static (double BaseMs, double StepMs, List<double> Durations) OverlapFamily(Settings settings)
+        {
+            double baseMs = Math.Min(10, Math.Max(.2, settings.chunk_seconds)) * 1000;
+            double maxMs = Math.Max(baseMs, Math.Min(120, Math.Max(1, settings.overlap_max_seconds)) * 1000);
+            int subdivisions = Math.Max(1, Math.Min(8, (int)Math.Round(settings.overlap_samples)));
+            double stepMs = baseMs / subdivisions;
+
+            var durations = new List<double> { baseMs };
+
+            while (durations[^1] * 2 < maxMs - 1e-6)
+                durations.Add(durations[^1] * 2);
+
+            if (maxMs > baseMs + 1e-6)
+                durations.Add(maxMs);
+
+            return (baseMs, stepMs, durations);
+        }
+
+        /// <summary>
+        /// THE TARGET WPM on this axis: the map's fastest window BY RAW SPEED, re-expressed as the
+        /// WPM an equally demanding <paramref name="targetSeconds"/> window would need.
+        ///
+        /// <para>The windows are the overlapping layout's own (<see cref="OverlapFamily"/>, every
+        /// length at every sample's start, centre and end), whichever layout the rating reads, and a
+        /// window's raw speed is its WPM over <see cref="Capability"/> at its own length. That is the
+        /// chunk strain with the typability multiplier, the judgement-window premium, the rhythm boost
+        /// and the Shift surcharge all left out, so the figure is a speed that no difficulty dial
+        /// moves. Converting it to <paramref name="targetSeconds"/> is one multiplication by the
+        /// capability curve. A window holding fewer than <paramref name="minimumCells"/> weighted
+        /// cells never qualifies, and a map with no qualifying window reports 0.</para>
+        /// </summary>
+        internal static double TargetWpm(Timeline timeline, Settings settings, double targetSeconds, double minimumCells)
+        {
+            IReadOnlyList<LyricDifficulty.Word> words = timeline.Words;
+
+            if (words.Count == 0)
+                return 0;
+
+            double t0 = timeline.T0, mapEnd = t0;
+
+            foreach (LyricDifficulty.Word word in words)
+                mapEnd = Math.Max(mapEnd, word.End);
+
+            (_, double stepMs, List<double> durations) = OverlapFamily(settings);
+            double bestRatio = 0, bestCells = 0, bestSeconds = 0;
+
+            for (int index = 0; t0 + index * stepMs < mapEnd - 1e-6; index++)
+            {
+                double a = t0 + index * stepMs;
+                double b = Math.Min(mapEnd, a + stepMs);
+                double centre = (a + b) / 2;
+
+                foreach (double duration in durations)
+                {
+                    foreach (double position in overlap_positions)
+                    {
+                        double from = centre - duration * position;
+                        double cells = timeline.MassBetween(from, from + duration);
+
+                        if (!(cells + 1e-9 >= minimumCells))
+                            continue;
+
+                        double seconds = duration / 1000;
+                        double ratio = cells / 5 / (seconds / 60) / Capability(seconds, settings);
+
+                        if (ratio > bestRatio)
+                        {
+                            bestRatio = ratio;
+                            bestCells = cells;
+                            bestSeconds = seconds;
+                        }
+                    }
+                }
+            }
+
+            return bestRatio > 0
+                ? bestCells / 5 / (bestSeconds / 60) * Capability(targetSeconds, settings) / Capability(bestSeconds, settings)
+                : 0;
+        }
+
         /// <summary>
         /// The map's chunk layout, per-word judgement windows and chunk strains.
         /// <paramref name="typability"/> is the map's own score snapshot, read through
@@ -790,18 +876,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 foreach (LyricDifficulty.Word word in words)
                     mapEnd = Math.Max(mapEnd, word.End);
 
-                double baseMs = span;
-                double maxMs = Math.Max(baseMs, Math.Min(120, Math.Max(1, settings.overlap_max_seconds)) * 1000);
-                int subdivisions = Math.Max(1, Math.Min(8, (int)Math.Round(settings.overlap_samples)));
-                double stepMs = baseMs / subdivisions;
-
-                var durations = new List<double> { baseMs };
-
-                while (durations[^1] * 2 < maxMs - 1e-6)
-                    durations.Add(durations[^1] * 2);
-
-                if (maxMs > baseMs + 1e-6)
-                    durations.Add(maxMs);
+                (double baseMs, double stepMs, List<double> durations) = OverlapFamily(settings);
 
                 overlappingRows = new List<Row>();
 
@@ -815,7 +890,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
                     foreach (double duration in durations)
                     {
-                        foreach (double position in new[] { 0d, .5, 1d })
+                        foreach (double position in overlap_positions)
                         {
                             double from = centre - duration * position, to = from + duration;
                             double value = ChunkStrain(from, to, true);

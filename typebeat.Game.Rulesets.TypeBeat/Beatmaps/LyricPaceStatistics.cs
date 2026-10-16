@@ -42,9 +42,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
     /// re-expressed at <see cref="LyricDifficulty.TargetWindowSeconds"/> (see the property). So it
     /// answers "what pace does this map ask to be typed at", against the whole-map rate's "what
     /// pace does the song ask per minute" and the line mean's "what pace does the average line
-    /// ask". It is deliberately NOT the rating's peak: the peak is chosen against the typability
-    /// multiplier and can be moved by the rhythm bonus, and neither belongs in a speed figure, so
-    /// this reads its own window with both left out of the window choice and the conversion.</para>
+    /// ask". It is deliberately NOT the rating's hardest window: the rating prices typability, the
+    /// judgement windows and the rhythm, and none of them belongs in a speed figure, so this reads
+    /// its own window with all of them left out of the window choice and the conversion.</para>
     ///
     /// <para>THE WORD CONVENTION IS THE TYPING-TEST ONE: a word is <see cref="CHARS_PER_WORD"/>
     /// typeable cells, so WPM is exactly CPM/5. This file used to do the opposite, count real
@@ -105,18 +105,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <summary>
         /// The pace to SUSTAIN: the map's hardest window by RAW SPEED, re-expressed as the WPM an
         /// equally demanding <see cref="LyricDifficulty.TargetWindowSeconds"/> stretch would ask
-        /// for. This is <see cref="LyricDifficulty.ModelResult.TargetWpm"/>, the same figure the
-        /// Star Rating Sandbox prints beside every map, and the reason this statistic reads the
+        /// for. This is <see cref="LyricDifficulty.TargetWpm"/>, read off the chunked endurance
+        /// axis's own timeline and window family, and the reason this statistic reads the
         /// difficulty model at all.
         ///
-        /// <para>A window's raw speed is <c>wpm / capability(its own seconds)</c> - its pace against
-        /// what the fastest humans sustain for that long - so translating it to one shared duration
-        /// is a single multiplication by the capability curve and makes every map comparable. The
-        /// window is chosen on the AUTHORED density with the typability multiplier and the rhythm
-        /// bonus left out of BOTH the choice and the conversion, which is what stops this figure
-        /// moving when either experiment does; it can therefore name a different window from the
-        /// rating's peak. Bodies of fewer than <c>MinimumWindowChars</c> characters never qualify,
-        /// so a map whose whole timeline is one short burst reports 0 here, exactly as it rates 0.</para>
+        /// <para>A window's raw speed is <c>wpm / capability(its own seconds)</c> on the axis's
+        /// capability curve (its pace against what the fastest humans sustain for that long), so
+        /// translating it to one shared duration is a single multiplication by the curve and makes
+        /// every map comparable. The window is chosen on the AUTHORED density with typability, the
+        /// judgement-window premium and the rhythm boost left out of BOTH the choice and the
+        /// conversion, which is what stops this figure moving when any of them does; it can therefore
+        /// name a different window from the one the rating weighs most. Windows of fewer than
+        /// <see cref="LyricDifficulty.MinimumWindowChars"/> characters never qualify, so a map whose
+        /// whole timeline is one short burst gets no target from the model.</para>
         ///
         /// <para>DISPLAY ONLY: nothing here feeds a rating. The figure is FLOORED at
         /// <see cref="AverageWpm"/> (see <see cref="pace_floor_target"/>), so a map whose hardest
@@ -236,7 +237,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// so the whole-map average is recomputed rather than simply scaled. The TARGET is also
         /// recomputed because the fixed reading duration it is
         /// re-expressed at is a duration the faster clock also shortens - so it is recomputed through
-        /// the difficulty model at this rate rather than multiplied (see <see cref="TargetWpm"/>).
+        /// the difficulty model's timeline at this rate rather than multiplied (see <see cref="TargetWpm"/>).
         /// </param>
         public static LyricPaceStatistics Compute(IEnumerable<LyricLine> lines, bool literate = false, double rate = 1)
         {
@@ -320,13 +321,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
 
             double averageCpm = chargedMs > 0 ? totalCells * 60000.0 * rate / chargedMs : 0;
 
-            // THE TARGET. Read from the difficulty model, which is where the window schedule, the
+            // THE TARGET. Read from the difficulty model, which is where the window family, the
             // density prefix and the capability curve live: this statistic has no second copy of
-            // the scan, so the figure song select prints and the figure the sandbox prints are the
-            // same computation rather than two that have to be kept in step by hand. The envelope
-            // axis is asked for by name because that is the arm that owns the scan on every
-            // configuration - the chunked axis rates none of it - and typability and rhythm are
-            // left out of the figure there by construction (see TargetWpm).
+            // the scan, so the figure song select prints and the figure the rating's own timeline
+            // holds are the same computation rather than two that have to be kept in step by hand.
+            // Typability, the judgement windows and the rhythm are left out of it by construction
+            // (see TargetWpm).
             //
             // Guarded rather than thrown: a map too long for the model (30 minutes at the read
             // rate) still has a perfectly good average, and dropping the target is a better answer
@@ -339,9 +339,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
                 // means: a faster clock does not merely scale the figures it finds, it moves the reading
                 // durations (the timeline is binned in REAL milliseconds) and can therefore name a
                 // different window. Scaling the rate-1 target would answer a different question.
-                targetWpm = LyricDifficulty
-                    .ComputeDetail(lineList, rate, literate, LyricDifficulty.EnduranceAxis.Envelope)
-                    .TargetWpm;
+                targetWpm = LyricDifficulty.TargetWpm(lineList, rate, literate);
             }
             catch (InvalidOperationException)
             {
