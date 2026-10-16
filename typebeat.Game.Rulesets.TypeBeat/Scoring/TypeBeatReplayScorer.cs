@@ -262,7 +262,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
             engine.OffTime = offTimeRule;
 
             // Same shape a fifth time (backlog 210), and the tidiest of them: the correction cap is
-            // implemented in the engine's judging arms alone (TypeBeatResultMapping.AwardedTier),
+            // implemented in the engine's judging arms alone (EraRules.AwardedTier),
             // so selecting it here is the WHOLE of that era gate. Unlike the off-time axis it needs
             // no companion at applyCellResult, because the cap moves the TIER the engine announces and
             // CellResult is the identity on the three quality tiers: a capped cell arrives here as

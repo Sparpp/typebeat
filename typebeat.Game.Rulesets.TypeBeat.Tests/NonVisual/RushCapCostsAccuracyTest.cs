@@ -358,11 +358,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void TheRushTierNeverLiftsAPress()
         {
-            Assert.AreEqual(JudgementType.Meh, TypeBeatResultMapping.RushCapTier(JudgementType.Great));
-            Assert.AreEqual(JudgementType.Meh, TypeBeatResultMapping.RushCapTier(JudgementType.Ok));
-            Assert.AreEqual(JudgementType.Meh, TypeBeatResultMapping.RushCapTier(JudgementType.Meh));
-            Assert.AreEqual(JudgementType.Premature, TypeBeatResultMapping.RushCapTier(JudgementType.Premature));
-            Assert.AreEqual(JudgementType.Lagging, TypeBeatResultMapping.RushCapTier(JudgementType.Lagging));
+            Assert.AreEqual(JudgementType.Meh, EraRules.RushCapTier(JudgementType.Great));
+            Assert.AreEqual(JudgementType.Meh, EraRules.RushCapTier(JudgementType.Ok));
+            Assert.AreEqual(JudgementType.Meh, EraRules.RushCapTier(JudgementType.Meh));
+            Assert.AreEqual(JudgementType.Premature, EraRules.RushCapTier(JudgementType.Premature));
+            Assert.AreEqual(JudgementType.Lagging, EraRules.RushCapTier(JudgementType.Lagging));
         }
 
         /// <summary>The penalty belongs to the unpinned caret and, like the break before it, is lifted by <see cref="TypingEngine.RushCapExempt"/>.</summary>

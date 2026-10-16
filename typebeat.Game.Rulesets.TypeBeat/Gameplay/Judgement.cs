@@ -80,6 +80,26 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
     {
         public const double FREESTYLE_WINDOW_SCALE = 2;
 
+        /// <summary>
+        /// What Hard Rock multiplied every judgement window by from backlog 150 until backlog 264
+        /// retired the halving. NOT a live constant any more: no mod, and no engine factory, applies
+        /// it. It is the ERA constant, read only by
+        /// <see cref="TypingEngine"/>'s window-scale seam and only for a run whose CONFIG
+        /// frame says it was played before 264 (bit 13 clear) with HR on its score, so those stored
+        /// rows re-derive at the halving the era means.
+        ///
+        /// <para>What the halving multiplies is the ladder as it ships NOW, which is a tuning point
+        /// the game has retuned since: the three-tier Line/Word/Syllable ladder this era was written
+        /// against is gone, replaced by one symmetric ladder (Great 150 / Ok 300 / Meh 600). An era
+        /// pins a RULE, so it survives a retune of the constants under it, and every stored row is
+        /// re-derived on today's numbers.</para>
+        ///
+        /// <para>Its numeric relationship to <see cref="Mods.TypeBeatModEasy.WINDOW_SCALE"/> is now a
+        /// coincidence of history rather than a design: Easy's 2.0 is independent and was not
+        /// touched by 264.</para>
+        /// </summary>
+        public const double HARD_ROCK_WINDOW_SCALE = 0.5;
+
         // ONE LADDER FOR EVERY CELL: the one tuning point. MILLISECONDS between the keypress and the
         // cell's TargetTime, SYMMETRIC around the target.
         //

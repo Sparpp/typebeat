@@ -65,7 +65,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Objects.Drawables
         /// shared <see cref="TypeBeatResultMapping.CellResult"/> (which is also what
         /// <see cref="Scoring.TypeBeatReplayScorer"/> re-derives a stored score with, so live play
         /// and recalculation cannot drift). Live play is always <see cref="TypoRule.Deferred"/> and
-        /// always the mapping's default <see cref="Scoring.OffTimeRule.MehHit"/>; nothing in gameplay
+        /// always the mapping's default <see cref="Gameplay.OffTimeRule.MehHit"/>; nothing in gameplay
         /// may select either of the other rules.
         ///
         /// <para>An OFF-TIME press (the right character outside the outermost Meh window) resolves
