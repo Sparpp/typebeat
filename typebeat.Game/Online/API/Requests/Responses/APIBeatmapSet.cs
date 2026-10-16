@@ -13,6 +13,12 @@ namespace typebeat.Game.Online.API.Requests.Responses
 {
     public class APIBeatmapSet : IBeatmapSetOnlineInfo, IBeatmapSetInfo
     {
+        [JsonProperty("metadata_revision")]
+        public long? MetadataRevision { get; set; }
+
+        [JsonProperty("package_revision")]
+        public int? PackageRevision { get; set; }
+
         [JsonProperty(@"covers")]
         public BeatmapSetOnlineCovers Covers { get; set; }
 

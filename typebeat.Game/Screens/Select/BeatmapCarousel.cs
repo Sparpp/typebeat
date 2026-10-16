@@ -441,14 +441,23 @@ namespace typebeat.Game.Screens.Select
                         bool equalForDisplayPurposes =
                             // covers import-as-update flows, such as updating the beatmap with the latest online versions, or external editing inside editor
                             oldBeatmap.ID == newBeatmap.ID &&
-                            // covers metadata changes
+                            // covers changes to the installed file
                             oldBeatmap.Hash == newBeatmap.Hash &&
+                            // Website corrections preserve file hashes.
+                            oldBeatmap.Metadata.Title == newBeatmap.Metadata.Title &&
+                            oldBeatmap.Metadata.TitleUnicode == newBeatmap.Metadata.TitleUnicode &&
+                            oldBeatmap.Metadata.Artist == newBeatmap.Metadata.Artist &&
+                            oldBeatmap.Metadata.ArtistUnicode == newBeatmap.Metadata.ArtistUnicode &&
+                            oldBeatmap.Metadata.Source == newBeatmap.Metadata.Source &&
+                            oldBeatmap.Metadata.Tags == newBeatmap.Metadata.Tags &&
                             // sanity check
                             oldBeatmap.OnlineID == newBeatmap.OnlineID &&
                             // displayed on panel
                             oldBeatmap.Status == newBeatmap.Status &&
                             // displayed on panel
                             oldBeatmap.DifficultyName == newBeatmap.DifficultyName &&
+                            // The update button can change without changing the installed map's hash or status.
+                            oldBeatmap.BeatmapSet?.AllBeatmapsUpToDate == newBeatmap.BeatmapSet?.AllBeatmapsUpToDate &&
                             // hidden changed, needs re-filter
                             oldBeatmap.Hidden == newBeatmap.Hidden &&
                             // might be used for grouping, returning from gameplay
