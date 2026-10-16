@@ -347,7 +347,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                 ReplayEngineFeed.Apply(replayed, decoded);
             }
             return engine.Lines.SelectMany(l => l.Cells).Zip(replayed.Lines.SelectMany(l => l.Cells)).All(p => p.First.State == p.Second.State && p.First.TypedChar == p.Second.TypedChar && p.First.JudgedDelta == p.Second.JudgedDelta)
-                   && engine.Score == replayed.Score && engine.Mistypes == replayed.Mistypes && engine.Combo == replayed.Combo;
+                   && engine.Mistypes == replayed.Mistypes && engine.Combo == replayed.Combo;
         }
     }
 }

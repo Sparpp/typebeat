@@ -33,6 +33,7 @@ using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Utils;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using CollectionAssert = NUnit.Framework.Legacy.CollectionAssert;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
@@ -299,7 +300,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var a = without.BuildResults();
             var b = with.BuildResults();
 
-            Assert.AreEqual(a.Score, b.Score);
+            CollectionAssert.AreEquivalent(a.Counts, b.Counts);
             Assert.AreEqual(a.MaxCombo, b.MaxCombo);
             Assert.AreEqual(a.Accuracy, b.Accuracy, 1e-12);
             Assert.AreEqual(a.SyncPercent, b.SyncPercent, 1e-12);
@@ -524,7 +525,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual(mashing.CaretIndex, both.CaretIndex);
             Assert.AreEqual(mashing.Combo, both.Combo);
-            Assert.AreEqual(mashing.Score, both.Score);
+            CollectionAssert.AreEquivalent(mashing.BuildResults().Counts, both.BuildResults().Counts);
             Assert.AreEqual(mashing.Mistypes, both.Mistypes);
 
             for (int i = 0; i < cells(mashing).Count; i++)

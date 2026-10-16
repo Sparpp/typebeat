@@ -90,8 +90,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         public void ASpaceIsJudgedTheSameHoweverLateItIsPressed()
         {
             var late = started(abCd());
-            Assert.IsTrue(late.ProcessKey('a', 1000));  // Great, 300 * (1 + 0/50) = 300
-            Assert.IsTrue(late.ProcessKey('b', 1500));  // Great, 300 * (1 + 1/50) = 306
+            Assert.IsTrue(late.ProcessKey('a', 1000));  // Great
+            Assert.IsTrue(late.ProcessKey('b', 1500));  // Great
             Assert.IsTrue(late.ProcessKey(' ', 7000));  // delta 5000: Lagging before backlog 148
             var lateResults = late.BuildResults();
 
@@ -101,8 +101,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(onTime.ProcessKey(' ', 2000)); // delta 0
             var onTimeResults = onTime.BuildResults();
 
-            Assert.AreEqual(918, onTimeResults.Score); // 300 + 306 + 312
-            Assert.AreEqual(onTimeResults.Score, lateResults.Score);
             Assert.AreEqual(onTimeResults.Counts[JudgementType.Great], lateResults.Counts[JudgementType.Great]);
             Assert.AreEqual(onTimeResults.SyncPercent, lateResults.SyncPercent, 1e-9);
             Assert.AreEqual(onTimeResults.MaxCombo, lateResults.MaxCombo);
@@ -144,7 +142,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual(1, results.Counts[JudgementType.Lagging]);
             Assert.AreEqual(4, engine.Combo, "an off-time press earns nothing but no longer breaks the run");
-            Assert.AreEqual(918, results.Score, "Lagging scores nothing, so the total is unmoved");
         }
 
         /// <summary>
@@ -244,14 +241,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(engine.ProcessKey('f', 1000)); // lead 5: still inside the cap
             Assert.AreEqual(7, engine.Combo);
 
-            long scoreBeforeTheRush = engine.Score;
-
             Assert.IsTrue(engine.ProcessKey('g', 1000)); // lead 6: over it
             Assert.AreEqual(0, engine.Combo, "the cap itself is untouched and still bites");
 
-            // The rushed char still LANDS and still scores, which is what makes the cap a combo
-            // penalty rather than a block.
-            Assert.Greater(engine.Score, scoreBeforeTheRush);
+            // The rushed char still LANDS, which is what makes the cap a combo penalty rather than
+            // a block.
             Assert.AreEqual(CellState.Correct, engine.Lines[0].Cells[7].State);
             Assert.AreEqual(0, engine.BuildResults().Counts[JudgementType.Miss]);
         }
@@ -386,9 +380,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(engine.ProcessKey('b', 1500));
             Assert.IsTrue(engine.ProcessKey(' ', 7000));
 
-            long scoreAfterFirst = engine.Score;
-            Assert.AreEqual(918, scoreAfterFirst);
-
             Assert.IsTrue(engine.ProcessBackspace());
             Assert.AreEqual(2, engine.CaretIndex);
             Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[2].State);
@@ -397,7 +388,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var results = engine.BuildResults();
 
-            Assert.AreEqual(scoreAfterFirst, engine.Score, "a retype earns nothing");
             Assert.AreEqual(3, results.Counts[JudgementType.Great], "and is not counted twice");
             Assert.AreEqual(CellState.Correct, engine.Lines[0].Cells[2].State);
             Assert.AreEqual(0, engine.Lines[0].Cells[2].JudgedDelta!.Value, 1e-9);

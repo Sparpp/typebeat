@@ -704,7 +704,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.Visual
                                       && pair.First.TypedChar == pair.Second.TypedChar
                                       && Nullable.Equals(pair.First.JudgedDelta, pair.Second.JudgedDelta))
                    && replayed.CaretIndex == engine.CaretIndex
-                   && replayed.Score == engine.Score
                    && replayed.Combo == engine.Combo
                    && replayed.Mistypes == engine.Mistypes;
         }

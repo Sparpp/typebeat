@@ -35,6 +35,7 @@ using typebeat.Game.Rulesets.TypeBeat.Scoring;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Utils;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using CollectionAssert = NUnit.Framework.Legacy.CollectionAssert;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
@@ -253,9 +254,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var hardLate = judgeFirstCell(TypeBeatModHardRock.WINDOW_SCALE, 1500);
 
             Assert.AreEqual(JudgementType.Meh, plainLate.Type);
-            Assert.AreEqual(50, plainLate.PointsAwarded); // Meh base 50, combo 0 before the press
             Assert.AreEqual(JudgementType.Lagging, hardLate.Type);
-            Assert.AreEqual(0, hardLate.PointsAwarded);
         }
 
         /// <summary>
@@ -592,7 +591,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 ReplayEngineFeed.Apply(wrongJudgementEra, frame);
 
             Assert.AreEqual(new double?[] { 0, 0, 0, 0 }, wrongJudgementEra.Lines[0].Cells.Select(c => c.JudgedDelta).ToArray());
-            Assert.AreNotEqual(live.Score, wrongJudgementEra.Score, "the two judgement eras must not score the same run alike");
+            CollectionAssert.AreNotEquivalent(live.BuildResults().Counts, wrongJudgementEra.BuildResults().Counts, "the two judgement eras must not tally the same run alike");
 
             // Then bit 13: the same point deltas, re-derived on the halved ladder a stored HR row was
             // played against, are a strictly worse account of the same fingers.
@@ -605,7 +604,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.IsFalse(storedWindowEra.UnhalvedHardRockWindows);
             Assert.AreEqual(new double?[] { 300, 600, 900, 450 }, storedWindowEra.Lines[0].Cells.Select(c => c.JudgedDelta).ToArray());
-            Assert.Less(storedWindowEra.Score, live.Score, "the halved ladder prices the same deltas lower");
+            Assert.Less(tiered(storedWindowEra), tiered(live), "the halved ladder grades the same deltas lower");
 
             // Re-feeding the header (which is what every backwards seek does) must not compound the
             // halving: the ladder is assigned, never multiplied in.
@@ -617,9 +616,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(halved, storedWindowEra.Windows.GreatLate, 1e-9, "a re-fed CONFIG frame must be idempotent on the ladder");
         }
 
+        /// <summary>How many cells took a tier (Great, Ok or Meh) rather than falling off the ladder.</summary>
+        private static int tiered(TypingEngine engine)
+        {
+            var counts = engine.BuildResults().Counts;
+            return counts[JudgementType.Great] + counts[JudgementType.Ok] + counts[JudgementType.Meh];
+        }
+
         private static void assertSameJudgements(TypingEngine expected, TypingEngine actual)
         {
-            Assert.AreEqual(expected.Score, actual.Score, "score");
+            CollectionAssert.AreEquivalent(expected.BuildResults().Counts, actual.BuildResults().Counts, "judgement tally");
             Assert.AreEqual(expected.MaxCombo, actual.MaxCombo, "max combo");
             Assert.AreEqual(expected.CaretIndex, actual.CaretIndex, "caret");
             Assert.AreEqual(expected.LiveAccuracy, actual.LiveAccuracy, 1e-12, "accuracy");

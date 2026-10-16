@@ -297,20 +297,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             engine.Update(1000); // line activates at its StartTime
             Assert.AreEqual(0, engine.ActiveLineIndex);
 
-            // Every key exactly on target => delta 0 => Great (300 base).
-            // points = round(300 * (1 + min(comboBefore, 50)/50)):
-            //   'a': combo 0 before -> 300 * 1.00 = 300
+            // Every key exactly on target => delta 0 => Great.
             Assert.IsTrue(engine.ProcessKey('a', 1000));
             engine.Update(1500);
-            //   'b': combo 1 before -> 300 * 1.02 = 306
             Assert.IsTrue(engine.ProcessKey('b', 1500));
             engine.Update(2000);
-            //   ' ': combo 2 before -> 300 * 1.04 = 312
             Assert.IsTrue(engine.ProcessKey(' ', 2000));
-            //   'c': combo 3 before -> 300 * 1.06 = 318
             Assert.IsTrue(engine.ProcessKey('c', 2000));
             engine.Update(2500);
-            //   'd': combo 4 before -> 300 * 1.08 = 324
             Assert.IsTrue(engine.ProcessKey('d', 2500));
 
             Assert.IsTrue(engine.IsLineComplete);
@@ -323,8 +317,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             var results = engine.BuildResults();
 
-            // Score = 300 + 306 + 312 + 318 + 324 = 1560.
-            Assert.AreEqual(1560, results.Score);
             Assert.AreEqual(5, results.MaxCombo);
             Assert.AreEqual(1.0, results.Accuracy);      // 5 correct / 5 keypresses
             Assert.AreEqual(100.0, results.SyncPercent); // all deltas 0 => q = 1 each
@@ -398,7 +390,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         /// stored row, and is pinned in <see cref="JudgementEraTest"/>.</para>
         /// </summary>
         [Test]
-        public void MashAheadYieldsPrematureAndNoPoints()
+        public void MashAheadYieldsPrematureAndNoTier()
         {
             // "abcd", one unit [1000, 9000], k=4 => targets a=1000, b=3000, c=5000, d=7000.
             var engine = new TypingEngine(map(TimingGranularity.Line,
@@ -410,16 +402,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             engine.Update(1000);
 
             // Mash the whole line instantly at t=1000:
-            //   'a' delta 0     => Great, 300 * (1 + 0/50) = 300, combo 1
-            //   'b' delta -2000 => Premature (< -MehEarly 1200), 0 pts, combo 2
-            //   'c' delta -4000 => Premature, 0 pts, combo 3
-            //   'd' delta -6000 => Premature, 0 pts, combo 4
+            //   'a' delta 0     => Great, combo 1
+            //   'b' delta -2000 => Premature (< -MehEarly 1200), combo 2
+            //   'c' delta -4000 => Premature, combo 3
+            //   'd' delta -6000 => Premature, combo 4
             Assert.IsTrue(engine.ProcessKey('a', 1000));
             Assert.IsTrue(engine.ProcessKey('b', 1000));
             Assert.IsTrue(engine.ProcessKey('c', 1000));
             Assert.IsTrue(engine.ProcessKey('d', 1000));
 
-            Assert.AreEqual(300, engine.Score); // no POINTS beyond the single legitimate Great
+            var mashed = engine.BuildResults();
+            Assert.AreEqual(1, mashed.Counts[JudgementType.Great]); // no tier beyond the single legitimate Great
+            Assert.AreEqual(3, mashed.Counts[JudgementType.Premature]);
             Assert.AreEqual(4, engine.Combo, "an off-time press is a hit, so the run carries on");
             Assert.AreEqual(4, engine.MaxCombo);
             Assert.AreEqual(0, comboBreaks); // no Premature breaks combo any more
@@ -579,7 +573,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(satBreaks, pressedBreaks);
 
             // And the whole account agrees, cell states included.
-            Assert.AreEqual(sat.Score, pressed.Score);
             Assert.AreEqual(sat.MaxCombo, pressed.MaxCombo);
             Assert.AreEqual(sat.Combo, pressed.Combo);
             Assert.AreEqual(sat.LiveAccuracy, pressed.LiveAccuracy);
@@ -633,14 +626,13 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // 'a' correct at t=1100 (delta +100, inside the ladder's 150 Great edge): judged at
             // the REAL time; wrong presses never consumed the cell. Streak resets.
             Assert.IsTrue(engine.ProcessKey('a', 1100));
-            Assert.AreEqual(new CharJudgement(0, 0, JudgementType.Great, 100, 300, 1), judgements[0]);
+            Assert.AreEqual(new CharJudgement(0, 0, JudgementType.Great, 100, 1), judgements[0]);
             Assert.AreEqual(0, engine.ConsecutiveWrongKeys);
             Assert.AreEqual(1, engine.CaretIndex);
 
-            // 'b' Great at target: combo continues, points 300 * (1 + 1/50) = 306.
+            // 'b' Great at target: combo continues.
             Assert.IsTrue(engine.ProcessKey('b', 1500));
-            Assert.AreEqual(new CharJudgement(0, 1, JudgementType.Great, 0, 306, 2), judgements[1]);
-            Assert.AreEqual(606, engine.Score);
+            Assert.AreEqual(new CharJudgement(0, 1, JudgementType.Great, 0, 2), judgements[1]);
 
             // Accuracy = 2 correct / 4 char keypresses (rejected keys stay in the denominator).
             Assert.AreEqual(0.5, engine.LiveAccuracy);
@@ -678,15 +670,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsNull(engine.Lines[0].Cells[0].JudgedDelta);
 
             // 'a' at t=1450: judged at the real time. delta = 1450 - 1000 = +450
-            // => Meh (300 < 450 <= 600). Points = round(50 * (1 + 0/50)) = 50.
+            // => Meh (300 < 450 <= 600).
             Assert.IsTrue(engine.ProcessKey('a', 1450));
             Assert.AreEqual(CellState.Correct, engine.Lines[0].Cells[0].State);
             Assert.AreEqual(450, engine.Lines[0].Cells[0].JudgedDelta);
 
-            // 'b' at t=2000: delta = 2000 - 1500 = +500 => Meh. Points = round(50 * 1.02) = 51.
+            // 'b' at t=2000: delta = 2000 - 1500 = +500 => Meh.
             Assert.IsTrue(engine.ProcessKey('b', 2000));
-
-            Assert.AreEqual(101, engine.Score); // 50 + 51
+            Assert.AreEqual(2, engine.BuildResults().Counts[JudgementType.Meh]);
 
             // Accuracy: keypresses x, a, b => 2 correct / 3 total (the rejected key stays in
             // the denominator forever; backspace is not a keypress).
@@ -1141,15 +1132,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         }
 
         [Test]
-        public void ComboMultiplierUsesPreIncrementValueAndCapsAt50()
+        public void ALongInTimeRunKeepsAnUnbrokenComboAndEveryCellGreat()
         {
             // 60 x 'a', one unit [1000, 61000], k=60 => step 1000: target_j = 1000 + j*1000.
             string text = new string('a', 60);
             var engine = new TypingEngine(map(TimingGranularity.Line,
                 line(text, 1000, 70000, 61000, unit(text, 1000, 61000))));
-
-            var points = new List<int>();
-            engine.CharJudged += j => points.Add(j.PointsAwarded);
 
             engine.Update(1000);
 
@@ -1160,17 +1148,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 Assert.IsTrue(engine.ProcessKey('a', t)); // delta 0 => Great every time
             }
 
-            // points_j = round(300 * (1 + min(comboBefore, 50)/50)) with comboBefore = j
-            //          = 300 + 6*min(j, 50)  (exactly integral, no rounding ambiguity).
-            Assert.AreEqual(300, points[0]);  // combo 0 before  => 1.00x
-            Assert.AreEqual(306, points[1]);  // combo 1 before  => 1.02x (pre-increment value!)
-            Assert.AreEqual(594, points[49]); // combo 49 before => 1.98x
-            Assert.AreEqual(600, points[50]); // combo 50 before => capped 2.00x
-            Assert.AreEqual(600, points[59]); // stays capped
-
-            // Total = sum_{j=0}^{49} (300 + 6j) + 10*600 = 15000 + 6*1225 + 6000 = 28350.
-            Assert.AreEqual(28350, engine.Score);
             Assert.AreEqual(60, engine.MaxCombo);
+            Assert.AreEqual(60, engine.Combo);
+            Assert.AreEqual(60, engine.BuildResults().Counts[JudgementType.Great]);
         }
 
         [Test]
@@ -1218,19 +1198,18 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             engine.Update(1000);   // activate L0 (accrual before activation => +0)
             engine.Update(1100);   // +100 active time
-            engine.ProcessKey('a', 1100); // delta +100 => Great. 300 * (1 + 0/50) = 300. combo 1.
+            engine.ProcessKey('a', 1100); // delta +100 => Great. combo 1.
             engine.Update(1800);   // +700
-            engine.ProcessKey('b', 1800); // delta +300 => Ok at its inclusive edge. round(150 * 1.02) = 153. combo 2.
+            engine.ProcessKey('b', 1800); // delta +300 => Ok at its inclusive edge. combo 2.
             engine.Update(3000);   // line complete => +0; seal L0 (0 missed); activate L1
             engine.Update(3550);   // +550
-            engine.ProcessKey('c', 3550); // delta +550 => Meh. round(50 * 1.04) = 52. combo 3.
+            engine.ProcessKey('c', 3550); // delta +550 => Meh. combo 3.
             engine.Update(5200);   // L1 active & incomplete ('d' pending) => +1650; seal L1: 'd' Missed, combo break
 
             Assert.IsTrue(engine.IsFinished);
 
             var results = engine.BuildResults();
 
-            Assert.AreEqual(505, results.Score);            // 300 + 153 + 52
             Assert.AreEqual(1.0, results.Accuracy);         // 3 correct / 3 keypresses
             Assert.AreEqual(3, results.MaxCombo);
 
@@ -1273,8 +1252,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var engine = new TypingEngine(map(TimingGranularity.Line, abcdLine()));
 
             engine.Update(1000);
-            Assert.IsTrue(engine.ProcessKey('a', 1000)); // Great at target: 300 * (1 + 0/50) = 300.
-            Assert.AreEqual(300, engine.Score);
+            Assert.IsTrue(engine.ProcessKey('a', 1000)); // Great at target.
             Assert.AreEqual(1, engine.Combo);
 
             // Backspace-retype the same correct cell repeatedly (score/combo/accuracy farming attempt).
@@ -1285,7 +1263,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             }
 
             // Fully inert: nothing accrued beyond the original judgement.
-            Assert.AreEqual(300, engine.Score);
             Assert.AreEqual(1, engine.Combo);
             Assert.AreEqual(1, engine.MaxCombo);
             Assert.AreEqual(1.0, engine.LiveAccuracy);                    // retypes don't enter the denominator
@@ -1380,10 +1357,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             }
 
             Assert.AreEqual(JudgementType.Ok, judge(est, 1200).Type);
-            Assert.AreEqual(150, judge(est, 1200).PointsAwarded);
 
             Assert.AreEqual(JudgementType.Lagging, judge(est, 1601).Type);
-            Assert.AreEqual(0, judge(est, 1601).PointsAwarded, "an off-ladder press earns nothing");
         }
 
         [Test]
@@ -1422,7 +1397,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 var low = judge(lineAt(0.01), 1000 + offset);
                 var trusted = judge(lineAt(1), 1000 + offset);
                 Assert.AreEqual(low.Type, trusted.Type, $"offset {offset}");
-                Assert.AreEqual(low.PointsAwarded, trusted.PointsAwarded, $"offset {offset}");
             }
         }
 
@@ -1989,7 +1963,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(engine.ProcessKey('b', 2000)); // stamp @ 1000
             Assert.AreEqual(12.0, engine.LiveRollingWpm, 1e-9);
 
-            long scoreBeforeRetype = engine.Score;
+            int combosBeforeRetype = engine.Combo;
 
             // Backspace does NOT pop: the window is a log of keystrokes, not of cell states.
             Assert.IsTrue(engine.ProcessBackspace());
@@ -1999,7 +1973,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.IsTrue(engine.ProcessKey('b', 2500)); // scoring-inert retype, but a real keystroke
 
             // The retype is still inert everywhere it was before, only the keystroke log grew.
-            Assert.AreEqual(scoreBeforeRetype, engine.Score);
+            Assert.AreEqual(combosBeforeRetype, engine.Combo);
 
             // Stamps 0 / 1000 / 1500 => ((3-1)/5)/(1500/60000) = 16.
             Assert.AreEqual(16.0, engine.LiveRollingWpm, 1e-9);

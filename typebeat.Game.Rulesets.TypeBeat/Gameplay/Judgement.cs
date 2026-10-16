@@ -184,27 +184,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public double SyncQuality(double delta)
             => Math.Clamp(1 - (delta < 0 ? -delta / MehEarly : delta / MehLate), 0, 1);
-
-        public static int BasePoints(JudgementType type)
-        {
-            switch (type)
-            {
-                case JudgementType.Great:
-                    return 300;
-
-                case JudgementType.Ok:
-                    return 150;
-
-                case JudgementType.Meh:
-                    return 50;
-
-                default:
-                    return 0;
-            }
-        }
     }
 
-    public readonly record struct CharJudgement(int LineIndex, int CellIndex, JudgementType Type, double Delta, int PointsAwarded, int ComboAfter);
+    public readonly record struct CharJudgement(int LineIndex, int CellIndex, JudgementType Type, double Delta, int ComboAfter);
 
     /// <summary>
     /// One sealed line. <paramref name="ComboBroken"/> says the line ran out of time on at least one
@@ -222,8 +204,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
     public sealed class ResultsSummary
     {
-        public required long Score { get; init; }
-
         /// <summary>0..1.</summary>
         public required double Accuracy { get; init; }
 

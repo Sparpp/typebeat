@@ -80,8 +80,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         /// </summary>
         public const double FLETCHER_DRAG_GRACE_MS = 1500;
 
-        private const int combo_cap = 50;
-
         /// <summary>How many of the most recent correct keypresses <see cref="LiveRollingWpm"/> averages over.</summary>
         private const int rolling_wpm_window = 30;
 
@@ -745,8 +743,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             PlayStartTime = time;
             playStartPending = true;
         }
-
-        public long Score => score;
 
         public int Combo => combo;
 
@@ -2048,7 +2044,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
         private int caretIndex;
         private bool isFinished;
 
-        private long score;
         private int combo;
         private int maxCombo;
 
@@ -2339,7 +2334,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             caretIndex = 0;
             isFinished = false;
 
-            score = 0;
             combo = 0;
             maxCombo = 0;
             runPositions.Clear();
@@ -3525,7 +3519,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     // correctly and it earns its real Great/Ok/Meh, plus the streak this press
                     // just broke (backlog 140, see ComboRestored); leave it and the seal
                     // resolves it as an unfixed typo, which is a hit and not a miss (backlog 124).
-                    raise(CharJudged, new CharJudgement(activeLineIndex, wrongCellIndex, JudgementType.WrongChar, delta, 0, combo));
+                    raise(CharJudged, new CharJudgement(activeLineIndex, wrongCellIndex, JudgementType.WrongChar, delta, combo));
                     rollForwardIfFinishedEarly(time);
                     return true;
                 }
@@ -3608,7 +3602,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             bool inertRetype = cell.FirstCorrectDelta is not null;
 
             JudgementType type;
-            int points = 0;
 
             if (inertRetype)
             {
@@ -3644,9 +3637,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // at min(that tier, Ok), so a corrected cell can never be worth what a clean one is
                 // (see TypeBeatResultMapping.AwardedTier for why the cap sits on the TIER rather
                 // than on the osu result). Applied here, above everything the tier decides, so the
-                // engine's point ladder, the tier counts, the announced CharJudged and the cell's
-                // osu result all follow the one decision and cannot say different things. The delta
-                // itself is untouched, so the sync timeline and the sync readouts see the press the
+                // tier counts, the announced CharJudged and the cell's osu result all follow the
+                // one decision and cannot say different things. The delta itself is untouched, so the sync timeline and the sync readouts see the press the
                 // player actually made.
                 type = TypeBeatResultMapping.AwardedTier(WindowsFor(cell).Classify(delta), cell.HeldWrongBeforeJudged, CorrectionCredit);
 
@@ -3670,8 +3662,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 // live rule it costs the JUDGEMENT and nothing else: the press is awarded the lowest
                 // hit tier (RushCapTier, a min over the ladder, so an off-time press is never lifted
                 // by it) and then flows through every arm below exactly as a Meh struck by the clock
-                // would, combo credit included. Applied here, above the point ladder, for the reason
-                // backlog 210's cap is: the points, the tier counts, the announced CharJudged and the
+                // would, combo credit included. Applied here, above everything the tier decides, for the
+                // reason backlog 210's cap is: the tier counts, the announced CharJudged and the
                 // cell's osu result all follow one decision. The delta is untouched. Under the
                 // pre-347 rule the tier stands and the combo arm below takes the break instead.
                 bool rushCostsTheJudgement = rushedPastCap && RushCapCostsAccuracy;
@@ -3682,18 +3674,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                     cell.JudgedPastRushCap = true;
                 }
 
-                int basePoints = SyncWindows.BasePoints(type);
-
-                if (basePoints > 0)
-                {
-                    // Multiplier reads combo BEFORE the increment; capped at combo_cap => up to 2.0x.
-                    points = (int)Math.Round(basePoints * (1 + Math.Min(combo, combo_cap) / (double)combo_cap));
-                    score += points;
-                }
-
                 // Premature / Lagging (an OFF-TIME press: the right character, outside the outermost
-                // Meh window) earns nothing above, and since backlog 199 that is the whole of what it
-                // costs the score ladder. Whether it also costs the RUN is the OffTime era axis:
+                // Meh window) earns no tier, and since backlog 199 that is the whole of what it
+                // costs the tier ladder. Whether it also costs the RUN is the OffTime era axis:
                 //
                 //   MehHit (live)      the press is a hit. It extends the combo like any other
                 //                      accepted character, raises no ComboBroken, and leaves an
@@ -3708,7 +3691,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
                 //
                 // A space can never reach either arm under the live space rule: an untimed space is
                 // judged on a zeroed delta and always takes the top tier (see SpaceTiming).
-                bool offTimeBreak = basePoints <= 0 && !TypeBeatResultMapping.OffTimePressIsAHit(OffTime);
+                bool offTimeBreak = (type is JudgementType.Premature or JudgementType.Lagging) && !TypeBeatResultMapping.OffTimePressIsAHit(OffTime);
 
                 if (offTimeBreak)
                 {
@@ -3806,7 +3789,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             advanceCaretToFrontier();
 
-            raise(CharJudged, new CharJudgement(activeLineIndex, judgedCellIndex, type, delta, points, combo));
+            raise(CharJudged, new CharJudgement(activeLineIndex, judgedCellIndex, type, delta, combo));
             rollForwardIfFinishedEarly(time);
             if (completedJapanese)
                 protectJapaneseCompletion();
@@ -3967,7 +3950,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
             foreach (int i in abandoned)
             {
                 var type = reclaimable ? JudgementType.Abandoned : JudgementType.Miss;
-                raise(CharJudged, new CharJudgement(activeLineIndex, i, type, time - cells[i].TargetTime, 0, combo));
+                raise(CharJudged, new CharJudgement(activeLineIndex, i, type, time - cells[i].TargetTime, combo));
             }
 
             return restorable is not null;
@@ -5253,7 +5236,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Gameplay
 
             return new ResultsSummary
             {
-                Score = score,
                 Accuracy = LiveAccuracy,
                 Wpm = wpm,
                 SyncPercent = syncPercent,

@@ -11,10 +11,9 @@
 // to the classic point-target rule; backlog 179 made flag ON the live rule in every build, carried
 // per replay by the CONFIG frame's flags bit 2.
 //
-// The hand-computed deltas, points and sync figures in this fixture are CROSS-CHECKS, worked out
+// The hand-computed deltas, tiers and sync figures in this fixture are CROSS-CHECKS, worked out
 // independently from the window constants (Line tier: Great [-250, 400], Ok [-600, 1000],
-// Meh [-1200, 2000]) and the scoring rules (base 300/150/50, multiplier 1 + min(combo, 50) / 50
-// read before the increment).
+// Meh [-1200, 2000]).
 
 using System;
 using System.Collections.Generic;
@@ -308,18 +307,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var engine = started(openDoor(), syllableTiming: false);
             var judged = record(engine);
 
-            Assert.IsTrue(engine.ProcessKey('o', 1000)); // delta 0     -> Great, 300 * 1.00 = 300
-            Assert.IsTrue(engine.ProcessKey('p', 1500)); // delta 250   -> Ok,    150 * 1.02 = 153
-            Assert.IsTrue(engine.ProcessKey('e', 1500)); // delta 0     -> Great, 300 * 1.04 = 312
-            Assert.IsTrue(engine.ProcessKey('n', 2050)); // delta 300   -> Ok,    150 * 1.06 = 159
-            Assert.IsTrue(engine.ProcessKey(' ', 2050)); // untimed     -> Great, 300 * 1.08 = 324
-            Assert.IsTrue(engine.ProcessKey('d', 1550)); // delta -450  -> Meh,    50 * 1.10 = 55
+            Assert.IsTrue(engine.ProcessKey('o', 1000)); // delta 0     -> Great
+            Assert.IsTrue(engine.ProcessKey('p', 1500)); // delta 250   -> Ok
+            Assert.IsTrue(engine.ProcessKey('e', 1500)); // delta 0     -> Great
+            Assert.IsTrue(engine.ProcessKey('n', 2050)); // delta 300   -> Ok
+            Assert.IsTrue(engine.ProcessKey(' ', 2050)); // untimed     -> Great
+            Assert.IsTrue(engine.ProcessKey('d', 1550)); // delta -450  -> Meh
 
             Assert.AreEqual(new[] { JudgementType.Great, JudgementType.Ok, JudgementType.Great, JudgementType.Ok, JudgementType.Great, JudgementType.Meh },
                 judged.Select(j => j.Type).ToArray());
             Assert.AreEqual(new double[] { 0, 250, 0, 300, 0, -450 }, judged.Select(j => j.Delta).ToArray());
 
-            Assert.AreEqual(1303, engine.Score);
             Assert.AreEqual(6, engine.MaxCombo);
             Assert.AreEqual(6, engine.Combo);
 
@@ -345,20 +343,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var engine = started(probably(), syllableTiming: false);
             var judged = record(engine);
 
-            Assert.IsTrue(engine.ProcessKey('p', 1000));    // delta 0      -> Great, 300
-            Assert.IsTrue(engine.ProcessKey('r', 1350));    // delta 256.25 -> Ok,    153
-            Assert.IsTrue(engine.ProcessKey('o', 1187.5));  // Great, 312
-            Assert.IsTrue(engine.ProcessKey('b', 1281.25)); // Great, 318
-            Assert.IsTrue(engine.ProcessKey('a', 1375));    // Great, 324
-            Assert.IsTrue(engine.ProcessKey('b', 1468.75)); // Great, 330
-            Assert.IsTrue(engine.ProcessKey('l', 1575));    // Great, 336
-            Assert.IsTrue(engine.ProcessKey('y', 1687.5));  // Great, 342
+            Assert.IsTrue(engine.ProcessKey('p', 1000));    // delta 0      -> Great
+            Assert.IsTrue(engine.ProcessKey('r', 1350));    // delta 256.25 -> Ok
+            Assert.IsTrue(engine.ProcessKey('o', 1187.5));  // Great
+            Assert.IsTrue(engine.ProcessKey('b', 1281.25)); // Great
+            Assert.IsTrue(engine.ProcessKey('a', 1375));    // Great
+            Assert.IsTrue(engine.ProcessKey('b', 1468.75)); // Great
+            Assert.IsTrue(engine.ProcessKey('l', 1575));    // Great
+            Assert.IsTrue(engine.ProcessKey('y', 1687.5));  // Great
 
             Assert.AreEqual(256.25, judged[1].Delta, 1e-9);
             Assert.AreEqual(JudgementType.Ok, judged[1].Type);
             Assert.AreEqual(7, judged.Count(j => j.Type == JudgementType.Great));
 
-            Assert.AreEqual(2415, engine.Score);
             Assert.AreEqual(8, engine.MaxCombo);
         }
 
@@ -380,17 +377,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var engine = started(openDoor(), syllableTiming: true, firstCharTiming: true);
             var judged = record(engine);
 
-            Assert.IsTrue(engine.ProcessKey('o', 1000)); // first char of [1000, 1250], ON the start: delta 0, Great, 300
+            Assert.IsTrue(engine.ProcessKey('o', 1000)); // first char of [1000, 1250], ON the start: delta 0, Great
             // TWO DIFFERENT CHARS of the "pen" syllable pressed at the same in-span time: 'p' OPENS
             // the syllable, so it grades 650 from the start (Ok), while 'e' keeps span delta 0.
-            Assert.IsTrue(engine.ProcessKey('p', 1500)); // first char of [1250, 2000]: delta 250 -> Ok, 153
-            Assert.IsTrue(engine.ProcessKey('e', 1500)); // non-first, in [1250, 2000]: delta 0, Great, 312
+            Assert.IsTrue(engine.ProcessKey('p', 1500)); // first char of [1250, 2000]: delta 250 -> Ok
+            Assert.IsTrue(engine.ProcessKey('e', 1500)); // non-first, in [1250, 2000]: delta 0, Great
             // Outside the span a non-first char still grades DISTANCE FROM THE EDGE:
-            // n at 2250 is 250 past the syllable's end 2000 -> Ok (150 < 250 <= 300), 159.
+            // n at 2250 is 250 past the syllable's end 2000 -> Ok (150 < 250 <= 300).
             Assert.IsTrue(engine.ProcessKey('n', 2250));
-            Assert.IsTrue(engine.ProcessKey(' ', 2250)); // no group; untimed space, delta 0, Great, 324
-            // d at 1550 is 450 before the "door" syllable's start 2000 -> Meh (300 < 450 <= 600),
-            // 55. BYTE-IDENTICAL to the pure span rule: the early side of a first char always
+            Assert.IsTrue(engine.ProcessKey(' ', 2250)); // no group; untimed space, delta 0, Great
+            // d at 1550 is 450 before the "door" syllable's start 2000 -> Meh (300 < 450 <= 600).
+            // BYTE-IDENTICAL to the pure span rule: the early side of a first char always
             // measured distance from the start, so only the late side tightened.
             Assert.IsTrue(engine.ProcessKey('d', 1550));
 
@@ -405,7 +402,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(250, engine.Lines[0].Cells[3].JudgedDelta!.Value, 1e-9);
             Assert.AreEqual(-450, engine.Lines[0].Cells[5].JudgedDelta!.Value, 1e-9);
 
-            Assert.AreEqual(300 + 153 + 312 + 159 + 324 + 55, engine.Score);
             Assert.AreEqual(6, engine.MaxCombo);
         }
 
@@ -421,16 +417,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var engine = started(openDoor(), syllableTiming: true);
             var judged = record(engine);
 
-            Assert.IsTrue(engine.ProcessKey('o', 1000)); // in [1000, 1250]: delta 0, Great, 300
+            Assert.IsTrue(engine.ProcessKey('o', 1000)); // in [1000, 1250]: delta 0, Great
             // TWO DIFFERENT CHARS of the "pen" syllable pressed at the same in-span time: both
             // delta 0, both Great, where the point rule would have graded p 650 late and e 400 late.
-            Assert.IsTrue(engine.ProcessKey('p', 1500)); // in [1250, 2000]: delta 0, Great, 306
-            Assert.IsTrue(engine.ProcessKey('e', 1500)); // in [1250, 2000]: delta 0, Great, 312
+            Assert.IsTrue(engine.ProcessKey('p', 1500)); // in [1250, 2000]: delta 0, Great
+            Assert.IsTrue(engine.ProcessKey('e', 1500)); // in [1250, 2000]: delta 0, Great
             // Outside the span the ladder grades DISTANCE FROM THE EDGE. Cross-checks:
-            // n at 2250 is 250 past the syllable's end 2000 -> Ok (150 < 250 <= 300), 159.
+            // n at 2250 is 250 past the syllable's end 2000 -> Ok (150 < 250 <= 300).
             Assert.IsTrue(engine.ProcessKey('n', 2250));
-            Assert.IsTrue(engine.ProcessKey(' ', 2250)); // no group; untimed space, delta 0, Great, 324
-            // d at 1550 is 450 before the "door" syllable's start 2000 -> Meh (300 < 450 <= 600), 55.
+            Assert.IsTrue(engine.ProcessKey(' ', 2250)); // no group; untimed space, delta 0, Great
+            // d at 1550 is 450 before the "door" syllable's start 2000 -> Meh (300 < 450 <= 600).
             Assert.IsTrue(engine.ProcessKey('d', 1550));
 
             Assert.AreEqual(new[] { JudgementType.Great, JudgementType.Great, JudgementType.Great, JudgementType.Ok, JudgementType.Great, JudgementType.Meh },
@@ -444,7 +440,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(250, engine.Lines[0].Cells[3].JudgedDelta!.Value, 1e-9);
             Assert.AreEqual(-450, engine.Lines[0].Cells[5].JudgedDelta!.Value, 1e-9);
 
-            Assert.AreEqual(300 + 306 + 312 + 159 + 324 + 55, engine.Score);
             Assert.AreEqual(6, engine.MaxCombo);
         }
 

@@ -17,6 +17,7 @@ using typebeat.Game.Rulesets.TypeBeat.Replays;
 using typebeat.Game.Rulesets.TypeBeat.UI;
 using typebeat.Game.Screens.Edit;
 using Assert = NUnit.Framework.Legacy.ClassicAssert;
+using CollectionAssert = NUnit.Framework.Legacy.CollectionAssert;
 
 namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
@@ -281,7 +282,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var expected = plain.BuildResults();
             var actual = free.BuildResults();
 
-            Assert.AreEqual(expected.Score, actual.Score);
             Assert.AreEqual(expected.MaxCombo, actual.MaxCombo);
             Assert.AreEqual(expected.Accuracy, actual.Accuracy);
             Assert.AreEqual(expected.SyncPercent, actual.SyncPercent);
@@ -354,7 +354,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             engine.Update(2000);
             engine.ProcessKey('q', 2000);
 
-            long scoreAfterFirst = engine.Score;
+            var tallyAfterFirst = engine.BuildResults().Counts;
 
             Assert.IsTrue(engine.ProcessBackspace());
             Assert.AreEqual(CellState.Untyped, engine.Lines[0].Cells[1].State);
@@ -367,7 +367,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual('7', engine.Lines[0].Cells[1].TypedChar);
             // Retyping a once-correct cell is scoring-inert (the first judgement stands), exactly as
             // for a normal cell; the only visible change is the displayed char.
-            Assert.AreEqual(scoreAfterFirst, engine.Score);
+            CollectionAssert.AreEquivalent(tallyAfterFirst, engine.BuildResults().Counts);
             Assert.AreEqual(0, engine.Lines[0].Cells[1].JudgedDelta!.Value);
         }
 
@@ -418,7 +418,6 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.AreEqual(3, recorded.Count);
             Assert.AreEqual('Q', recorded[1].Character); // the ACTUAL char, not the marker
-            Assert.AreEqual(live.Score, playback.Score);
             Assert.AreEqual(live.MaxCombo, playback.MaxCombo);
             Assert.AreEqual(live.LiveAccuracy, playback.LiveAccuracy);
 

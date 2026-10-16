@@ -694,8 +694,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Scoring
         /// <para><b>Why the tier and not the osu result.</b> The cap could equally have been applied
         /// in <see cref="CellResult"/>, and is not, for two reasons. It keeps live play, the replay
         /// scorer and the JS mirror on ONE decision: the engine judges, and everything downstream
-        /// (the result the drawable applies, the tier counts, the engine's own point ladder, the HP
-        /// the result carries) follows from the single tier it announces, rather than the result
+        /// (the result the drawable applies, the tier counts, the HP the result carries) follows from the single tier it announces, rather than the result
         /// being capped in one place while the announcement said something else. And it keeps the
         /// ANNOUNCED judgement honest: a capped cell raises <see cref="TypingEngine.CharJudged"/>
         /// as an Ok, so the player SEES the Ok their stored score is graded on. Capping the result

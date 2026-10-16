@@ -240,16 +240,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.AreEqual(JudgementType.Ok, judgeFirstCell(1, 1151).Type);
             Assert.AreEqual(JudgementType.Great, judgeFirstCell(TypeBeatModEasy.WINDOW_SCALE, 1151).Type);
 
-            // delta +601: right off the end of the unscaled ladder (MehLate 600), so it scores
-            // nothing at all; the doubled ladder still pays it as a Meh, because its Ok edge is
+            // delta +601: right off the end of the unscaled ladder (MehLate 600), so it earns no
+            // tier at all; the doubled ladder still pays it as a Meh, because its Ok edge is
             // 600 and its Meh edge is 1200.
             var plainLate = judgeFirstCell(1, 1601);
             var easyLate = judgeFirstCell(TypeBeatModEasy.WINDOW_SCALE, 1601);
 
             Assert.AreEqual(JudgementType.Lagging, plainLate.Type);
-            Assert.AreEqual(0, plainLate.PointsAwarded);
             Assert.AreEqual(JudgementType.Meh, easyLate.Type);
-            Assert.AreEqual(50, easyLate.PointsAwarded); // Meh base 50, combo 0 before the press
         }
 
         /// <summary>Judge one press of 'a' (target 1000) at <paramref name="pressTime"/>.</summary>
