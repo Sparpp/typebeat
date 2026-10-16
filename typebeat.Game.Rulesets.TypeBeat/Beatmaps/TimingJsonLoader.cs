@@ -131,7 +131,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         ///
         /// <para>Public because the import boundary has to apply the SAME rule when it strips
         /// backing vocals out of a timing.json on the way into an .osu
-        /// (<c>LyricMapImporter.StripBackingVocalLines</c>): if the two rules could drift, an
+        /// (<c>TimingJsonPostProcess.StripBackingVocalLines</c>): if the two rules could drift, an
         /// import would store a line the decode then drops, or drop one the decode would have
         /// kept.</para>
         /// </summary>
@@ -158,7 +158,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// dropped, and a partial strip still changes the token count so the words[] pairing in
         /// <see cref="BuildLines"/> falls back to interpolation for that line, exactly as before.
         /// The .osu writer strips on the same side of the seam
-        /// (<c>LyricMapImporter.StripBackingVocalLines</c>), so an imported map is bracket-free
+        /// (<c>TimingJsonPostProcess.StripBackingVocalLines</c>), so an imported map is bracket-free
         /// before it is ever stored and the two readings agree line for line.</para>
         /// </summary>
         public static bool TryParseRawLine(JsonElement lineElement, out RawLine rawLine, bool stripBackingVocals = false)

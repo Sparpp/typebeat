@@ -56,7 +56,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
         /// <item><b>v2</b>: brackets are LITERAL lyric marks, ordinary punctuation like a comma.
         /// The strip now happens only where a foreign lyrics file is INGESTED
         /// (<see cref="LrcParser"/>, <see cref="TimingJsonLoader.TryParse"/> and the .osu writer's
-        /// own sweep in <c>LyricMapImporter.StripBackingVocalLines</c>), so a v2 file is already
+        /// own sweep in <c>TimingJsonPostProcess.StripBackingVocalLines</c>), so a v2 file is already
         /// bracket-free unless a mapper typed the brackets in on purpose.</item>
         /// </list>
         ///

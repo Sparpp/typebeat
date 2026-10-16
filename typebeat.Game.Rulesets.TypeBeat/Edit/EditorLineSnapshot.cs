@@ -16,8 +16,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Edit
     /// for a fresh view of any in-progress transaction.
     ///
     /// <para>The order is sorted again only after the beatmap reports a change. A line is immutable,
-    /// so replacing it is the only way an edit moves the sort key, and every editor edit does that
-    /// through <see cref="TypeBeatEditorOperations"/>, which queues the hit object's update. The
+    /// so replacing it (or renumbering its LineIndex, the other half of the key) is the only way an
+    /// edit moves the sort key, and every editor edit does both through
+    /// <see cref="TypeBeatEditorOperations"/>, which queues the hit object's update. The
     /// beatmap raises the update when the edit commits, or on its next frame inside a longer
     /// transaction such as a drag, and the beatmap updates before the editor's surfaces do.</para>
     /// </summary>
