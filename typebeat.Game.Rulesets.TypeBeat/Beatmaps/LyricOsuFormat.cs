@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using osu.Framework.Graphics;
 using typebeat.Game.Beatmaps.ControlPoints;
+using typebeat.Game.Beatmaps.Formats;
 using System.Text;
 using System.Text.Json;
 
@@ -199,11 +200,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // The mapper-chosen typing font (backlog 291). Both lines are conditional on the same
             // terms as the [Metadata] Language/AudioGain lines: a map with no font chosen encodes
             // byte for byte as it always did, so adding this key cannot demote a ranked map. The
-            // legacy .osu encoder behind the .osz export writes the same two keys.
-            if (!string.IsNullOrEmpty(lyricFont))
-                sb.AppendLine($"LyricFont: {lyricFont}");
-            if (!string.IsNullOrEmpty(lyricFontFile))
-                sb.AppendLine($"LyricFontFile: {lyricFontFile}");
+            // legacy .osu encoder behind the .osz export writes the same two lines (TypeBeatOsuKeys).
+            if (TypeBeatOsuKeys.LyricFontLine(lyricFont) is string fontLine)
+                sb.AppendLine(fontLine);
+            if (TypeBeatOsuKeys.LyricFontFileLine(lyricFontFile) is string fontFileLine)
+                sb.AppendLine(fontFileLine);
             if (FreestyleColourKey.LineFor(freestyleColour) is string freestyleLine)
                 sb.AppendLine(freestyleLine);
 
@@ -229,18 +230,19 @@ namespace typebeat.Game.Rulesets.TypeBeat.Beatmaps
             // Song language (task 58). Emitted ONLY when the mapper has chosen one, so a map that
             // has not been through the new setup field encodes exactly as it did before this key
             // existed (TypeBeatRuleset.NativeEncodingsEquivalentForStatus compares encodings, and
-            // an unconditional line would re-hash every map in every install).
-            if (!string.IsNullOrWhiteSpace(language))
-                sb.AppendLine($"Language:{language.Trim()}");
+            // an unconditional line would re-hash every map in every install). The line is shared
+            // with the legacy .osu encoder (TypeBeatOsuKeys), so the two write the same bytes.
+            if (TypeBeatOsuKeys.LanguageLine(language) is string languageLine)
+                sb.AppendLine(languageLine);
 
             // The map's own track gain, as a linear multiplier (see BeatmapMetadata.AudioGain).
             // Emitted ONLY when a mapper has moved it off 1, on the same terms as the language line
             // above: an untouched map has to encode byte for byte as it did, or every installed map
             // would re-hash on its next save. The VALUE goes through BeatmapMetadata.EncodeAudioGain,
-            // which the legacy .osu encoder behind the .osz export shares, so a map that leaves through
-            // one and returns through the other returns at the gain it left with.
-            if (audioGain != typebeat.Game.Beatmaps.BeatmapMetadata.DEFAULT_AUDIO_GAIN)
-                sb.AppendLine($"AudioGain:{typebeat.Game.Beatmaps.BeatmapMetadata.EncodeAudioGain(audioGain)}");
+            // inside TypeBeatOsuKeys, which the legacy .osu encoder behind the .osz export shares, so a
+            // map that leaves through one and returns through the other returns at the gain it left with.
+            if (TypeBeatOsuKeys.AudioGainLine(audioGain) is string audioGainLine)
+                sb.AppendLine(audioGainLine);
 
             // Unsubmitted maps still declare both fields. Submission replaces these placeholders
             // with the server-allocated IDs; imports and editor saves share this writer.

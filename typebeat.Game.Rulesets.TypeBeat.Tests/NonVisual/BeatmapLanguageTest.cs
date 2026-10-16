@@ -174,8 +174,9 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void LegacyEncoderMatchesTheNativeSpelling()
         {
-            // Both encoders exist; only the native one runs today, but a divergence in the value
-            // spelling would silently produce packages the server folds to "unset". No hit objects:
+            // Both encoders exist; only the native one writes stored maps, but a divergence in the value
+            // spelling would silently produce packages the server folds to "unset". Since the two share
+            // TypeBeatOsuKeys the whole line is the native one, colon and no space. No hit objects:
             // the legacy encoder cannot serialise TypeBeatHitObjects (they carry no position), and
             // this is a [Metadata] assertion.
             var beatmap = new Beatmap();
@@ -186,7 +187,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             using (var sw = new StringWriter(sb))
                 new typebeat.Game.Beatmaps.Formats.LegacyBeatmapEncoder(beatmap, null, null).Encode(sw);
 
-            Assert.That(sb.ToString(), Does.Contain("Language: russian"));
+            Assert.That(sb.ToString(), Does.Contain("Language:russian"));
         }
 
         // ---- helpers ----

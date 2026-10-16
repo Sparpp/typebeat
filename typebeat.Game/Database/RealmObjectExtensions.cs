@@ -58,6 +58,10 @@ namespace typebeat.Game.Database
              // The same for the aligner vocal mode, both its typed face and its stored column.
              .ForMember(s => s.AlignerVocalMode, cc => cc.Ignore())
              .ForMember(s => s.AlignerVocalModeInt, cc => cc.Ignore())
+             // And for the two file manifests: lookups and imports write them on the managed set, never the
+             // editor, so a copy detached before a lookup must not write a stale value back on save.
+             .ForMember(s => s.OnlineFileManifest, cc => cc.Ignore())
+             .ForMember(s => s.LocalFileManifest, cc => cc.Ignore())
              .AfterMap((s, d) =>
              {
                  foreach (var beatmap in s.Beatmaps)

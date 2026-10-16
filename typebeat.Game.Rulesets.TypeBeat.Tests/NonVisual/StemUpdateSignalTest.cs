@@ -14,10 +14,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 {
     /// <summary>
     /// Backlog 396: the UPDATE offer must fire for a stem-only version cut, which changes no <c>.osu</c>
-    /// bytes. The signal is stem PRESENCE (<see cref="BeatmapSetInfo.OnlineStemIsMissingLocally"/>): the
+    /// bytes. The signal is stem PRESENCE (<see cref="BeatmapSetInfo.OnlineFilesMissingLocally"/>): the
     /// online version carries a vocals stem and the local copy has none. Time comparison (394) alone cannot
     /// see this against a client that already had the map, whose version baseline may have adopted the
-    /// already-bumped version on its first lookup.
+    /// already-bumped version on its first lookup. Since realm schema 65 the presence travels as one
+    /// tracked-file manifest per side (<see cref="SetFileManifest"/>) rather than a pair of stem flags.
     /// </summary>
     [TestFixture]
     public class StemUpdateSignalTest
@@ -37,11 +38,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // version that only added vocals.ogg. Presence is the only signal left.
             var beatmap = upToDate();
             var set = beatmap.BeatmapSet!;
-            set.RecordOnlineVocalsStem(true);
+            set.RecordOnlineFileManifest(SetFileManifest.VOCALS_STEM);
 
             Assert.Multiple(() =>
             {
-                Assert.That(set.OnlineStemIsMissingLocally, Is.True);
+                Assert.That(set.OnlineFilesMissingLocally, Is.True);
                 Assert.That(set.AllBeatmapsUpToDate, Is.False, "the UPDATE button keys off this");
             });
         }
@@ -51,12 +52,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         {
             var beatmap = upToDate();
             var set = beatmap.BeatmapSet!;
-            set.RecordLocalVocalsStem(true);
-            set.RecordOnlineVocalsStem(true);
+            set.RecordLocalFileManifest(SetFileManifest.VOCALS_STEM);
+            set.RecordOnlineFileManifest(SetFileManifest.VOCALS_STEM);
 
             Assert.Multiple(() =>
             {
-                Assert.That(set.OnlineStemIsMissingLocally, Is.False);
+                Assert.That(set.OnlineFilesMissingLocally, Is.False);
                 Assert.That(set.AllBeatmapsUpToDate, Is.True);
             });
         }
@@ -64,15 +65,15 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void TheStemPresenceIsReadOffTheManagedFileList()
         {
-            // RecordLocalVocalsStem() (the parameterless overload) is what import calls while the MANAGED
+            // RecordLocalFileManifest() (the parameterless overload) is what import calls while the MANAGED
             // set is in hand: its Files are populated there, so it can read the stem off them.
             var beatmap = upToDate();
             var set = beatmap.BeatmapSet!;
             set.Files.Add(new RealmNamedFileUsage(new RealmFile { Hash = "stem" }, VocalsStem.WAV_FILENAME));
 
-            set.RecordLocalVocalsStem();
+            set.RecordLocalFileManifest();
 
-            Assert.That(set.HasLocalVocalsStem, Is.True, "a vocals.wav counts as a local stem");
+            Assert.That(set.LocalFileManifest, Is.EqualTo(SetFileManifest.VOCALS_STEM), "a vocals.wav counts as a local stem");
         }
 
         [Test]
@@ -84,17 +85,17 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var beatmap = upToDate();
             var set = beatmap.BeatmapSet!;
             set.Files.Add(new RealmNamedFileUsage(new RealmFile { Hash = "stem" }, VocalsStem.OGG_FILENAME));
-            set.RecordLocalVocalsStem();
-            set.RecordOnlineVocalsStem(true);
+            set.RecordLocalFileManifest();
+            set.RecordOnlineFileManifest(SetFileManifest.VOCALS_STEM);
 
             // Emulate the detach: the copy carries the scalar but no file list.
-            var detached = new BeatmapSetInfo { OnlineVersionLastUpdated = set.OnlineVersionLastUpdated, OnlineVersionHasVocalsStem = true, HasLocalVocalsStem = set.HasLocalVocalsStem };
+            var detached = new BeatmapSetInfo { OnlineVersionLastUpdated = set.OnlineVersionLastUpdated, OnlineFileManifest = SetFileManifest.VOCALS_STEM, LocalFileManifest = set.LocalFileManifest };
             detached.Beatmaps.Add(new BeatmapInfo { MD5Hash = md5, OnlineMD5Hash = md5, OnlineID = 11, BeatmapSet = detached });
 
             Assert.Multiple(() =>
             {
                 Assert.That(VocalsStem.FilenameIn(detached), Is.Null, "the file list really is stripped");
-                Assert.That(detached.OnlineStemIsMissingLocally, Is.False, "but the scalar says the stem is present");
+                Assert.That(detached.OnlineFilesMissingLocally, Is.False, "but the scalar says the stem is present");
                 Assert.That(detached.AllBeatmapsUpToDate, Is.True, "so the detached set does not offer an update");
             });
         }
@@ -106,8 +107,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // name test over both, so the local side must accept both too.
             var beatmap = upToDate();
             var set = beatmap.BeatmapSet!;
-            set.RecordLocalVocalsStem(true);
-            set.RecordOnlineVocalsStem(true);
+            set.RecordLocalFileManifest(SetFileManifest.VOCALS_STEM);
+            set.RecordOnlineFileManifest(SetFileManifest.VOCALS_STEM);
 
             Assert.That(set.AllBeatmapsUpToDate, Is.True);
         }
@@ -118,12 +119,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // A stem the mapper's own aligner produced: the online version has none, so nothing to offer.
             var beatmap = upToDate();
             var set = beatmap.BeatmapSet!;
-            set.RecordLocalVocalsStem(true);
-            set.RecordOnlineVocalsStem(false);
+            set.RecordLocalFileManifest(SetFileManifest.VOCALS_STEM);
+            set.RecordOnlineFileManifest(SetFileManifest.EMPTY);
 
             Assert.Multiple(() =>
             {
-                Assert.That(set.OnlineStemIsMissingLocally, Is.False);
+                Assert.That(set.OnlineFilesMissingLocally, Is.False);
                 Assert.That(set.AllBeatmapsUpToDate, Is.True);
             });
         }
@@ -131,14 +132,14 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
         [Test]
         public void WithNoStemReportedTheDefaultIsNoOffer()
         {
-            // The realm column's default (false) is "no stem known": a set never looked up, or one whose
-            // server sends no key, must not be offered an update for a stem it may not have.
+            // The realm column's default (null) is "nothing reported yet": a set never looked up must not be
+            // offered an update for a stem it may not have.
             var beatmap = upToDate();
             var set = beatmap.BeatmapSet!;
 
             Assert.Multiple(() =>
             {
-                Assert.That(set.OnlineVersionHasVocalsStem, Is.False);
+                Assert.That(set.OnlineFileManifest, Is.Null);
                 Assert.That(set.AllBeatmapsUpToDate, Is.True);
             });
         }
@@ -152,7 +153,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var set = beatmap.BeatmapSet!;
             beatmap.Status = BeatmapOnlineStatus.LocallyModified;
             beatmap.LastOnlineUpdate = v2;
-            set.RecordOnlineVocalsStem(true);
+            set.RecordOnlineFileManifest(SetFileManifest.VOCALS_STEM);
 
             Assert.Multiple(() =>
             {
@@ -173,8 +174,8 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
             Assert.Multiple(() =>
             {
-                Assert.That(set.OnlineVersionHasVocalsStem, Is.True);
-                Assert.That(set.OnlineStemIsMissingLocally, Is.True, "no local stem");
+                Assert.That(set.OnlineFileManifest, Is.EqualTo(SetFileManifest.VOCALS_STEM));
+                Assert.That(set.OnlineFilesMissingLocally, Is.True, "no local stem");
                 Assert.That(set.AllBeatmapsUpToDate, Is.False, "so the UPDATE offer stands");
             });
         }
@@ -186,12 +187,12 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             // lookup raised.
             var beatmap = upToDate();
             var set = beatmap.BeatmapSet!;
-            set.RecordOnlineVocalsStem(true);
+            set.RecordOnlineFileManifest(SetFileManifest.VOCALS_STEM);
 
             using (var lookup = new BeatmapUpdaterMetadataLookup(new FixedSource(null), new FixedSource(null)))
                 lookup.Update(set, preferOnlineFetch: true);
 
-            Assert.That(set.OnlineVersionHasVocalsStem, Is.True, "no answer must leave the flag where it was");
+            Assert.That(set.OnlineFileManifest, Is.EqualTo(SetFileManifest.VOCALS_STEM), "no answer must leave the manifest where it was");
         }
 
         [Test]
@@ -202,11 +203,11 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             var beatmap = upToDate();
             var set = beatmap.BeatmapSet!;
 
-            set.RecordOnlineVocalsStem(true);
+            set.RecordOnlineFileManifest(SetFileManifest.VOCALS_STEM);
 
             Assert.Multiple(() =>
             {
-                Assert.That(set.OnlineVersionHasVocalsStem, Is.True);
+                Assert.That(set.OnlineFileManifest, Is.EqualTo(SetFileManifest.VOCALS_STEM));
                 Assert.That(set.AllBeatmapsUpToDate, Is.False);
             });
         }
@@ -235,6 +236,90 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
             Assert.That(set.AllBeatmapsUpToDate, Is.False);
         }
 
+        // ---- the manifest itself ----
+
+        [Test]
+        public void ALookupWithoutAManifestDoesNotBlankIt()
+        {
+            // The local metadata cache answers a lookup but carries no manifest; that is no answer about the
+            // files, so an offer a previous online lookup raised must stand.
+            var beatmap = upToDate();
+            var set = beatmap.BeatmapSet!;
+            set.RecordOnlineFileManifest(SetFileManifest.VOCALS_STEM);
+
+            lookUp(set, v1, manifest: null);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(set.OnlineFileManifest, Is.EqualTo(SetFileManifest.VOCALS_STEM));
+                Assert.That(set.AllBeatmapsUpToDate, Is.False);
+            });
+        }
+
+        [Test]
+        public void AServerWithoutTheManifestIsReadThroughItsStemFlag()
+        {
+            // A server that predates file_manifest still sends has_vocals_stem, which describes the same thing.
+            Assert.Multiple(() =>
+            {
+                Assert.That(SetFileManifest.Online(null, hasVocalsStem: true), Is.EqualTo(SetFileManifest.VOCALS_STEM));
+                Assert.That(SetFileManifest.Online(null, hasVocalsStem: false), Is.EqualTo(SetFileManifest.EMPTY));
+                Assert.That(SetFileManifest.Online(SetFileManifest.EMPTY, hasVocalsStem: true), Is.EqualTo(SetFileManifest.EMPTY), "a published manifest wins");
+                Assert.That(SetFileManifest.Online(" Vocals ", hasVocalsStem: false), Is.EqualTo(SetFileManifest.VOCALS_STEM), "and is read canonically");
+            });
+        }
+
+        [Test]
+        public void TheManifestNamesKindsNotFiles()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(SetFileManifest.Of(new[] { "audio.mp3", "bg.jpg", "map.osu" }), Is.EqualTo(SetFileManifest.EMPTY));
+                Assert.That(SetFileManifest.Of(new[] { "audio.mp3", "VOCALS.OGG" }), Is.EqualTo(SetFileManifest.VOCALS_STEM), "names compare case-insensitively");
+                Assert.That(SetFileManifest.Of(new[] { "vocals.ogg", "vocals.wav" }), Is.EqualTo(SetFileManifest.VOCALS_STEM), "two names of one kind are one kind");
+                Assert.That(SetFileManifest.Of(new[] { "stems/vocals.ogg" }), Is.EqualTo(SetFileManifest.EMPTY), "a stem lives beside the audio, not in a folder");
+            });
+        }
+
+        [Test]
+        public void AKindThisClientDoesNotKnowOffersNothing()
+        {
+            // A newer server may publish a kind this build has no row for. This client can never record it in
+            // its local manifest, so comparing it would offer an update no download could clear: it is kept in
+            // the stored value but ignored, while the kinds this client knows still compare as before.
+            var beatmap = upToDate();
+            var set = beatmap.BeatmapSet!;
+            set.RecordLocalFileManifest(SetFileManifest.VOCALS_STEM);
+            set.RecordOnlineFileManifest("lyricvideo,vocals");
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(set.OnlineFileManifest, Is.EqualTo("lyricvideo,vocals"), "the reported value is stored as published");
+                Assert.That(set.AllBeatmapsUpToDate, Is.True, "an unknown online kind offers nothing");
+            });
+
+            set.RecordLocalFileManifest(SetFileManifest.EMPTY);
+
+            Assert.That(set.AllBeatmapsUpToDate, Is.False, "a known kind the local copy lacks still offers");
+
+            set.RecordLocalFileManifest("lyricvideo,vocals");
+            set.RecordOnlineFileManifest(SetFileManifest.VOCALS_STEM);
+
+            Assert.That(set.AllBeatmapsUpToDate, Is.True, "a local kind the online version lacks offers nothing");
+        }
+
+        [Test]
+        public void TheUnionOfSeveralReportsKeepsEveryKind()
+        {
+            Assert.Multiple(() =>
+            {
+                Assert.That(SetFileManifest.Union(new string?[] { null, null }), Is.Null, "no report is no answer");
+                Assert.That(SetFileManifest.Union(new string?[] { null, SetFileManifest.EMPTY }), Is.EqualTo(SetFileManifest.EMPTY));
+                Assert.That(SetFileManifest.Union(new string?[] { SetFileManifest.EMPTY, SetFileManifest.VOCALS_STEM }), Is.EqualTo(SetFileManifest.VOCALS_STEM));
+                Assert.That(SetFileManifest.Union(new string?[] { "vocals", "lyricvideo" }), Is.EqualTo("lyricvideo,vocals"));
+            });
+        }
+
         // ---- helpers ----
 
         private static BeatmapInfo upToDate(string onlineMd5 = md5)
@@ -255,6 +340,10 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
 
         /// <summary>Runs the real metadata lookup against a fixed server version and stem flag.</summary>
         private static void lookUp(BeatmapSetInfo set, DateTimeOffset onlineVersion, bool hasVocalsStem)
+            => lookUp(set, onlineVersion, hasVocalsStem ? SetFileManifest.VOCALS_STEM : SetFileManifest.EMPTY);
+
+        /// <summary>Runs the real metadata lookup against a fixed server version and file manifest (null: none reported).</summary>
+        private static void lookUp(BeatmapSetInfo set, DateTimeOffset onlineVersion, string? manifest)
         {
             var source = new FixedSource(new OnlineBeatmapMetadata
             {
@@ -263,7 +352,7 @@ namespace typebeat.Game.Rulesets.TypeBeat.Tests.NonVisual
                 MD5Hash = md5,
                 LastUpdated = onlineVersion,
                 BeatmapStatus = BeatmapOnlineStatus.Ranked,
-                HasVocalsStem = hasVocalsStem,
+                FileManifest = manifest,
             });
 
             using var lookup = new BeatmapUpdaterMetadataLookup(source, new FixedSource(null));
