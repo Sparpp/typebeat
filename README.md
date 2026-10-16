@@ -37,7 +37,7 @@ Runtime (the game):
 
 | Variable | Effect |
 |---|---|
-| `TYPEBEAT_API_URL` | Base URL of the type!beat server, for example `http://localhost:5089` while developing against a local server. Redirects every online call (API, website links, downloads); a trailing `/` is ignored. Unset, every build uses the production server. |
+| `TYPEBEAT_API_URL` | Base URL of the type!beat server, for example `http://localhost:5089` while developing against a local server. Redirects every online call (API, website links, downloads); a trailing `/` is ignored. Unset, every build uses the production server. Debug builds never submit scores to a production host (the play is still saved locally, and a notification says so); pointing this at any other server re-enables submission there. |
 | `OSU_EXTERNAL_UPDATE_PROVIDER` | Any non-empty value says a package manager owns the install: the Velopack updater and the per-launch file association registration are skipped. Inherited from osu!lazer. |
 | `OSU_WEBSOCKET_SERVER` | `1` starts the local websocket server on the desktop client. Off otherwise. Inherited from osu!lazer. |
 | `OSU_WEBSOCKET_SERVER_PORT` | Port the websocket server listens on when `OSU_WEBSOCKET_SERVER=1`. Default `49727`; a value that is not a number is ignored. Inherited from osu!lazer. |
