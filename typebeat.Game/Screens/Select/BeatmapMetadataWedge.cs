@@ -304,9 +304,10 @@ namespace typebeat.Game.Screens.Select
 
             bool wedgeVisible = State.Value == Visibility.Visible;
 
-            // The ratings wedge is online data; the typing pace wedge is computed from the local
-            // beatmap, so the two are gated separately and a map with no lyric lines simply drops
-            // its pace section rather than drawing an empty graph.
+            // The ratings wedge is online data; the typing pace wedge shows the server's figures when
+            // it has them and the local beatmap's otherwise (see TypingPaceSource), so it does not
+            // wait on the lookup and is gated separately. A map with no lyric lines simply drops its
+            // pace section rather than drawing an empty graph.
             bool showRatings = wedgeVisible && currentOnlineBeatmap != null;
             bool showTypingPace = wedgeVisible && typingPaceAvailable;
 
@@ -403,6 +404,14 @@ namespace typebeat.Game.Screens.Select
         private bool typingPaceAvailable;
 
         /// <summary>
+        /// The figures computed from the local beatmap for the current selection and mods, and whether
+        /// that computation is still running (the profile is then from an earlier selection).
+        /// </summary>
+        private TypingPaceProfile? typingPaceLocal;
+
+        private bool typingPaceLocalPending;
+
+        /// <summary>
         /// Identifies the in-flight pace request. Selection changes far faster than a playable
         /// beatmap loads, so results are matched against this rather than cancelled: a
         /// <see cref="CancellationToken"/> would still let an already-scheduled continuation from an
@@ -456,9 +465,13 @@ namespace typebeat.Game.Screens.Select
             double rate = typingPaceClockRate();
 
             // updateDisplay also fires on online-lookup and api-state changes, neither of which can
-            // move a local pace figure; re-reading the map for those would be pure waste.
+            // move a local pace figure; re-reading the map for those would be pure waste. The lookup
+            // can bring the server's figures, though, so the choice between the two is made again.
             if (ReferenceEquals(typingPaceBeatmap, working) && typingPaceLiterate == literate && typingPaceRate == rate)
+            {
+                applyTypingPace();
                 return;
+            }
 
             // The map has to be converted again only when the CELLS can have moved. A rate change is a
             // re-reading of the map already held, so it takes the conversion it was handed.
@@ -475,9 +488,16 @@ namespace typebeat.Game.Screens.Select
             {
                 typingPaceAvailable = false;
                 typingPacePlayable = null;
+                typingPaceLocal = null;
+                typingPaceLocalPending = false;
                 updateSubWedgeVisibility();
                 return;
             }
+
+            typingPaceLocalPending = true;
+
+            // The server's figures need no conversion, so they show at once when they apply.
+            applyTypingPace();
 
             Task.Run(() =>
             {
@@ -510,11 +530,40 @@ namespace typebeat.Game.Screens.Select
                     if (requestId != typingPaceRequestId)
                         return;
 
-                    typingPaceAvailable = profile != null;
-                    typingPaceDisplay.Data = profile;
-                    updateSubWedgeVisibility();
+                    typingPaceLocal = profile;
+                    typingPaceLocalPending = false;
+                    applyTypingPace();
                 });
             });
+        }
+
+        /// <summary>
+        /// Shows the server's pace figures when they apply to the selection, otherwise the local ones
+        /// (see <see cref="TypingPaceSource"/>). While the local ones are still being computed and the
+        /// server's do not apply, the display is left as it is, as it always was between selections.
+        /// </summary>
+        private void applyTypingPace()
+        {
+            if (beatmap.IsDefault)
+                return;
+
+            var beatmapInfo = beatmap.Value.BeatmapInfo;
+            var lookup = onlineLookupResult.Value;
+            var onlineBeatmap = lookup?.Status == SongSelect.BeatmapSetLookupStatus.Completed
+                ? lookup.Result?.Beatmaps.FirstOrDefault(b => b.OnlineID == beatmapInfo.OnlineID)
+                : null;
+
+            bool modsChangePace = typingPaceLiterate || typingPaceRate != 1;
+            var server = TypingPaceSource.ServerFigures(onlineBeatmap, beatmapInfo, modsChangePace);
+
+            if (server == null && typingPaceLocalPending)
+                return;
+
+            var profile = server ?? typingPaceLocal;
+
+            typingPaceAvailable = profile != null;
+            typingPaceDisplay.Data = profile;
+            updateSubWedgeVisibility();
         }
 
         private void updateOnlineDisplay()

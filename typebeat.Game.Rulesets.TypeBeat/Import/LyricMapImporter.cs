@@ -381,16 +381,16 @@ namespace typebeat.Game.Rulesets.TypeBeat.Import
 
             if (!AlignerEnvironment.AlignerSeparatesOnly(lyricLabDir))
                 return $"the local auto-aligner is v{AlignerEnvironment.ReadAlignerVersion(lyricLabDir) ?? "1"}, which cannot isolate the vocals on its own "
-                       + $"(v{AlignerEnvironment.SEPARATE_ONLY_ALIGNER_VERSION} or newer needed). Update it in Settings > Experimental > Lyric timing.";
+                       + $"(v{AlignerEnvironment.SEPARATE_ONLY_ALIGNER_VERSION} or newer needed). Update it in {LocalAlignerVersion.SETTINGS_PATH}.";
 
             return null;
         }
 
         /// <summary>The isolation note's reason when no local auto-aligner is installed.</summary>
-        public const string VOCALS_NEED_THE_ALIGNER = "the local auto-aligner is not installed. Install it in Settings > Experimental > Lyric timing.";
+        public const string VOCALS_NEED_THE_ALIGNER = "the local auto-aligner is not installed. Install it in " + LocalAlignerVersion.SETTINGS_PATH + ".";
 
         /// <summary>The isolation note's reason when the local auto-aligner's install never finished.</summary>
-        public const string VOCALS_NEED_A_REPAIR = "the local auto-aligner's install is incomplete. Repair it in Settings > Experimental > Lyric timing.";
+        public const string VOCALS_NEED_A_REPAIR = "the local auto-aligner's install is incomplete. Repair it in " + LocalAlignerVersion.SETTINGS_PATH + ".";
 
         /// <summary>
         /// The progress line said as the separation starts. Worded to claim the separating vocals

@@ -20,7 +20,10 @@ namespace typebeat.Game.Overlays.Settings.Sections
     /// </summary>
     public partial class ExperimentalSection : SettingsSection
     {
-        public override LocalisableString Header => @"Experimental";
+        /// <summary>The section's title, as the overlay shows it; <see cref="Screens.ImportLyrics.LocalAlignerVersion.SETTINGS_PATH"/> is built from it.</summary>
+        public const string HEADER = @"Experimental";
+
+        public override LocalisableString Header => HEADER;
 
         public override Drawable CreateIcon() => new SpriteIcon
         {

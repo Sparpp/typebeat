@@ -1,6 +1,7 @@
 // Copyright (c) ppy Pty Ltd <contact@ppy.sh>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using System;
 using System.Linq;
 using osu.Framework.Allocation;
 using osu.Framework.Graphics;
@@ -11,6 +12,7 @@ using typebeat.Game.Beatmaps.Drawables;
 using typebeat.Game.Graphics;
 using typebeat.Game.Graphics.Sprites;
 using typebeat.Game.Overlays;
+using typebeat.Game.Overlays.BeatmapSet;
 using osuTK;
 
 namespace typebeat.Game.Screens.Select
@@ -19,8 +21,9 @@ namespace typebeat.Game.Screens.Select
     {
         /// <summary>
         /// The map's typing pace: a WPM curve over its length, with the peak, target and average
-        /// WPM spelled out beside it. Unlike the rest of this wedge the data is LOCAL, computed from
-        /// the selected beatmap's own lyric lines, so it needs no online lookup.
+        /// WPM spelled out beside it. The figures are the server's when it has them for this exact
+        /// version of the map, and otherwise computed from the selected beatmap's own lyric lines,
+        /// so they show offline too (see <see cref="TypingPaceSource"/>).
         /// </summary>
         public partial class TypingPaceDisplay : CompositeDrawable
         {
@@ -43,12 +46,9 @@ namespace typebeat.Game.Screens.Select
                     if (value == null)
                         return;
 
-                    // The curve is raw WPM; normalising it for display is this end's job. Scaling by
-                    // the peak (which is by construction the curve's own maximum) keeps the tallest
-                    // bar full height whatever the map's absolute speed.
-                    double peak = value.PeakWpm;
-
-                    wpmGraph.Data = value.WpmCurve.Select(v => peak <= 0 ? 0 : (float)(v / peak)).ToArray();
+                    // The curve is raw WPM; normalising it for display is this end's job, done by the
+                    // same rule as the set overlay's graph so the two draw one shape.
+                    wpmGraph.Data = TypingStatsFormat.NormalisedCurve(value.WpmCurve.Select(v => (float)v).ToArray()) ?? Array.Empty<float>();
 
                     // Peak, target, average: one unit, three readings, hardest first.
                     peakRow.SetValue(value.PeakWpm);

@@ -56,10 +56,10 @@ namespace typebeat.Game.Screens.ImportLyrics
         /// installed (backlog 409). The path is the one the settings overlay shows: the "Experimental"
         /// section, its "Lyric timing" heading, where the install button sits.
         /// </summary>
-        public const string ALIGNER_NOT_INSTALLED_TOOLTIP = "Install the local auto-aligner in Settings > Experimental > Lyric timing to use automatic alignment.";
+        public const string ALIGNER_NOT_INSTALLED_TOOLTIP = "Install the local auto-aligner in " + LocalAlignerVersion.SETTINGS_PATH + " to use automatic alignment.";
 
         /// <summary>As <see cref="ALIGNER_NOT_INSTALLED_TOOLTIP"/>, for an install that never finished (the button there reads "Repair").</summary>
-        public const string ALIGNER_NEEDS_REPAIR_TOOLTIP = "The local auto-aligner's install is incomplete. Repair it in Settings > Experimental > Lyric timing to use automatic alignment.";
+        public const string ALIGNER_NEEDS_REPAIR_TOOLTIP = "The local auto-aligner's install is incomplete. Repair it in " + LocalAlignerVersion.SETTINGS_PATH + " to use automatic alignment.";
 
         /// <summary>As <see cref="ALIGNER_NOT_INSTALLED_TOOLTIP"/>, for a build with no aligner installer at all (headless, tests).</summary>
         public const string ALIGNER_UNAVAILABLE_TOOLTIP = "The local auto-aligner is not available in this build.";

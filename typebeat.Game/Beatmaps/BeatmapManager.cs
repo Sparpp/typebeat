@@ -612,14 +612,14 @@ namespace typebeat.Game.Beatmaps
                     throw new InvalidOperationException($"{setInfo.GetDisplayString()} already has a difficulty with the name of '{beatmapInfo.DifficultyName}'.");
 
                 if (existingFileInfo != null)
-                    DeleteFile(setInfo, existingFileInfo);
+                    inSaveTransaction(r, setInfo, managed => DeleteFile(managed, managed.Files.First(f => f.Filename == existingFileInfo.Filename), r));
 
                 string oldMd5Hash = beatmapInfo.MD5Hash;
 
                 beatmapInfo.MD5Hash = stream.ComputeMD5Hash();
                 beatmapInfo.Hash = stream.ComputeSHA2Hash();
 
-                AddFile(setInfo, stream, createBeatmapFilenameFromMetadata(beatmapInfo));
+                inSaveTransaction(r, setInfo, managed => AddFile(managed, stream, createBeatmapFilenameFromMetadata(beatmapInfo), r));
 
                 // Recompute the set hash; demote the set to LocallyModified only for substantive changes
                 // (a beatdrop-only edit keeps the set's prior online status, e.g. Ranked).
@@ -648,6 +648,32 @@ namespace typebeat.Game.Beatmaps
                 var metadata = beatmapInfo.Metadata;
                 return $"{metadata.Artist} - {metadata.Title} ({metadata.Author.Username}) [{beatmapInfo.DifficultyName}].osu".GetValidFilename();
             }
+        }
+
+        /// <summary>
+        /// A file operation on the set being saved, inside the save's own write transaction. The base
+        /// <see cref="ModelManager{TModel}.AddFile(TModel, Stream, string)"/> and
+        /// <see cref="ModelManager{TModel}.DeleteFile(TModel, RealmNamedFileUsage)"/> reach a detached set
+        /// through the update thread's realm, which confined every save to the update thread; going through
+        /// <paramref name="realm"/> does the same work (re-fetch, operate, refresh the detached file list)
+        /// on whichever thread the save runs on, which is what lets the editor save sibling difficulties in
+        /// the background.
+        /// </summary>
+        private static void inSaveTransaction(Realm realm, BeatmapSetInfo setInfo, Action<BeatmapSetInfo> operation)
+        {
+            if (setInfo.IsManaged)
+            {
+                operation(setInfo);
+                return;
+            }
+
+            var managed = realm.FindWithRefresh<BeatmapSetInfo>(setInfo.ID);
+            Debug.Assert(managed != null);
+
+            operation(managed);
+
+            setInfo.Files.Clear();
+            setInfo.Files.AddRange(managed.Files.Detach());
         }
 
         public void MarkPlayed(BeatmapInfo beatmapSetInfo) => Realm.Run(r =>

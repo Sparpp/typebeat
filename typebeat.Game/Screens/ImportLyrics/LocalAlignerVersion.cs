@@ -5,6 +5,7 @@
 
 using System;
 using System.Globalization;
+using typebeat.Game.Overlays.Settings.Sections;
 
 namespace typebeat.Game.Screens.ImportLyrics
 {
@@ -35,8 +36,15 @@ namespace typebeat.Game.Screens.ImportLyrics
     /// </summary>
     public static class LocalAlignerVersion
     {
+        /// <summary>
+        /// The heading the install button sits under, inside the ruleset's half of the Experimental
+        /// section. Kept here, where the game project can read it, rather than in the ruleset, which
+        /// the game project cannot reference; the ruleset's subsection builds its heading from it.
+        /// </summary>
+        public const string SETTINGS_HEADING = "Lyric timing";
+
         /// <summary>Where the install button sits, as the settings overlay shows it.</summary>
-        public const string SETTINGS_PATH = "Settings > Experimental > Lyric timing";
+        public const string SETTINGS_PATH = "Settings > " + ExperimentalSection.HEADER + " > " + SETTINGS_HEADING;
 
         /// <summary>A version as shown to the player: a script with no constant is version 1.</summary>
         public static string Display(string? version) => version ?? "1";
